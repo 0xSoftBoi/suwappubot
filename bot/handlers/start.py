@@ -1,5 +1,6 @@
 """Start and help command handlers."""
 
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler
 from datetime import datetime
@@ -7,11 +8,20 @@ from datetime import datetime
 from bot.models.user import User
 from database.db import get_session
 
+logger = logging.getLogger(__name__)
+
+BRANDING_BANNER_PATH = "assets/branding/suwappu-logo.svg"
+
 
 WELCOME_MESSAGE = """
-🔄 *Welcome to Suwappu Bot\!*
+🌸 *suwappu* — fast cross-chain swaps with a native C\+\+ core\!
 
-Cross\-chain swaps made simple\.
+🔄 *Welcome to Suwappu Bot*
+
+Cross-chain swaps made simple.
+
+🎁 *Referral Blitz*: earn 50% of fees from friends + instant bonuses.
+Use /referral to grab your link.
 
 *Choose Your Mode:*
 
@@ -33,6 +43,8 @@ Powered by Li\.Fi, Jupiter & LayerZero
 """
 
 HELP_MESSAGE = """
+🌸 *suwappu help*
+
 📖 *Help Guide*
 
 ━━ 🔐 *SELF\-CUSTODY MODE* ━━
@@ -92,7 +104,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     
     # Create inline keyboard with clear custodial vs non-custodial
     keyboard = [
-        [InlineKeyboardButton("━━ 🔐 SELF-CUSTODY ━━", callback_data="noop")],
+        [InlineKeyboardButton("━━ 🌸 SUWAPPU • SELF-CUSTODY ━━", callback_data="noop")],
         [
             InlineKeyboardButton("👛 My Wallets", callback_data="wallet_menu"),
             InlineKeyboardButton("💰 Balance", callback_data="balance"),
@@ -106,12 +118,29 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         ],
         [InlineKeyboardButton("━━━━━━━━━━━━", callback_data="noop")],
         [
+            InlineKeyboardButton("🎁 Referral Blitz", callback_data="ref_menu"),
+        ],
+        [
             InlineKeyboardButton("📊 Portfolio", callback_data="portfolio"),
             InlineKeyboardButton("📖 Help", callback_data="help"),
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    # Send branding banner (document to ensure delivery even with SVG)
+    try:
+        with open(BRANDING_BANNER_PATH, "rb") as banner:
+            await context.bot.send_document(
+                chat_id=update.effective_chat.id,
+                document=banner,
+                filename="suwappu-banner.svg",
+                caption="🌸 suwappu — cross-chain swaps with a native C++ core",
+            )
+    except FileNotFoundError:
+        logger.warning("Branding banner not found at %s", BRANDING_BANNER_PATH)
+    except Exception as exc:
+        logger.warning("Failed to send branding banner: %s", exc)
+
     await update.message.reply_text(
         WELCOME_MESSAGE,
         parse_mode="Markdown",
@@ -163,7 +192,7 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     
     keyboard = [
-        [InlineKeyboardButton("━━ 🔐 SELF-CUSTODY ━━", callback_data="noop")],
+        [InlineKeyboardButton("━━ 🌸 SUWAPPU • SELF-CUSTODY ━━", callback_data="noop")],
         [
             InlineKeyboardButton("👛 My Wallets", callback_data="wallet_menu"),
             InlineKeyboardButton("💰 Balance", callback_data="balance"),
@@ -176,6 +205,9 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             InlineKeyboardButton("🏦 Custodial Account", callback_data="custodial_menu"),
         ],
         [InlineKeyboardButton("━━━━━━━━━━━━", callback_data="noop")],
+        [
+            InlineKeyboardButton("🎁 Referral Blitz", callback_data="ref_menu"),
+        ],
         [
             InlineKeyboardButton("📊 Portfolio", callback_data="portfolio"),
             InlineKeyboardButton("📖 Help", callback_data="help"),

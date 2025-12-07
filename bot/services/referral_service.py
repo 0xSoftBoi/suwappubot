@@ -16,7 +16,10 @@ logger = logging.getLogger(__name__)
 class ReferralService:
     """Service for managing referrals and rewards."""
     
-    DEFAULT_REWARD_PERCENTAGE = 10.0  # 10% of fees
+    # Aggressive, "very rewarding" defaults
+    DEFAULT_REWARD_PERCENTAGE = 50.0  # 50% of fees shared with referrer
+    SIGNUP_BONUS_REFERRER_USD = 5.0   # Instant bonus for referrer
+    SIGNUP_BONUS_REFERRED_USD = 2.0   # Instant bonus for referred user
     
     def _generate_code(self, length: int = 8) -> str:
         """Generate a unique referral code."""
@@ -24,6 +27,25 @@ class ReferralService:
         return ''.join(secrets.choice(chars) for _ in range(length))
     
     # === Code Management ===
+    
+    def _create_code_for_user(self, session, user_id: int) -> ReferralCode:
+        """Internal helper to create a referral code within an open session."""
+        for _ in range(10):  # Try up to 10 times for uniqueness
+            new_code = self._generate_code()
+            exists = session.query(ReferralCode).filter(
+                ReferralCode.code == new_code
+            ).first()
+            if not exists:
+                break
+        
+        code = ReferralCode(
+            user_id=user_id,
+            code=new_code,
+            reward_percentage=self.DEFAULT_REWARD_PERCENTAGE,
+        )
+        session.add(code)
+        session.flush()
+        return code
     
     def get_or_create_code(self, user_id: int) -> ReferralCode:
         """Get or create a referral code for a user."""
@@ -33,24 +55,12 @@ class ReferralService:
             ).first()
             
             if code:
+                # If existing code has a lower reward, bump it to the generous default
+                if code.reward_percentage < self.DEFAULT_REWARD_PERCENTAGE:
+                    code.reward_percentage = self.DEFAULT_REWARD_PERCENTAGE
                 return code
             
-            # Generate unique code
-            for _ in range(10):  # Try up to 10 times
-                new_code = self._generate_code()
-                exists = session.query(ReferralCode).filter(
-                    ReferralCode.code == new_code
-                ).first()
-                if not exists:
-                    break
-            
-            code = ReferralCode(
-                user_id=user_id,
-                code=new_code,
-                reward_percentage=self.DEFAULT_REWARD_PERCENTAGE,
-            )
-            session.add(code)
-            session.flush()
+            code = self._create_code_for_user(session, user_id)
             code_id = code.id
         
         with get_session() as session:
@@ -100,8 +110,27 @@ class ReferralService:
             
             # Update code stats
             code.total_referrals += 1
+            
+            # Instant signup bonuses: reward referrer + give the referred user a starting balance
+            code.pending_rewards_usd += self.SIGNUP_BONUS_REFERRER_USD
+            code.total_rewards_usd += self.SIGNUP_BONUS_REFERRER_USD
+            
+            referred_code = session.query(ReferralCode).filter(
+                ReferralCode.user_id == referred_user_id
+            ).first()
+            if not referred_code:
+                referred_code = self._create_code_for_user(session, referred_user_id)
+            # Ensure boosted reward for the referred user too
+            if referred_code.reward_percentage < self.DEFAULT_REWARD_PERCENTAGE:
+                referred_code.reward_percentage = self.DEFAULT_REWARD_PERCENTAGE
+            referred_code.pending_rewards_usd += self.SIGNUP_BONUS_REFERRED_USD
+            referred_code.total_rewards_usd += self.SIGNUP_BONUS_REFERRED_USD
         
-        return True, "Referral applied! You'll both earn rewards on swaps"
+        return True, (
+            f"Referral applied! 50% fee share on every swap + "
+            f"${self.SIGNUP_BONUS_REFERRER_USD:.0f} bonus for your referrer and "
+            f"${self.SIGNUP_BONUS_REFERRED_USD:.0f} for you."
+        )
     
     def get_referrer(self, user_id: int) -> Optional[int]:
         """Get the referrer's user_id for a user."""

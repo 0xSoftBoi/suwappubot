@@ -28,8 +28,9 @@ async def referral_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     ref_link = f"https://t.me/{bot_username}?start=ref_{code.code}"
     
     text = (
-        f"🎁 *Referral Program*\n\n"
-        f"Share your link and earn *{stats['reward_percentage']:.0f}%* of fees from referred users\\!\n\n"
+        f"🎁 *Referral Blitz*\n\n"
+        f"Earn *{stats['reward_percentage']:.0f}%* of fees from referred users\n"
+        f"＋ Instant bonuses for both of you (we know times are tough)\n\n"
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
         f"🔗 *Your Referral Link:*\n"
         f"`{ref_link}`\n\n"
@@ -77,7 +78,7 @@ async def ref_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     ref_link = f"https://t.me/{bot_username}?start=ref_{code.code}"
     
     text = (
-        f"🎁 *Referral Program*\n\n"
+        f"🎁 *Referral Blitz*\n\n"
         f"📊 *Your Code:* `{code.code}`\n"
         f"🔗 Link: `{ref_link}`\n\n"
         f"👥 Referrals: *{stats['total_referrals']}*\n"
