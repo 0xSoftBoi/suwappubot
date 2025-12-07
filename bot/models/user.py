@@ -31,6 +31,7 @@ class User(Base):
     # Relationships
     wallets = relationship("Wallet", back_populates="user", cascade="all, delete-orphan")
     swaps = relationship("SwapTransaction", back_populates="user", cascade="all, delete-orphan")
+    subscription = relationship("Subscription", back_populates="user", uselist=False)
     
     def __repr__(self) -> str:
         return f"<User(telegram_id={self.telegram_id}, username={self.username})>"

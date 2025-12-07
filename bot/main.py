@@ -46,6 +46,10 @@ from bot.handlers.admin_metrics import (
 from bot.handlers.admin_performance import (
     perf_handler, perf_refresh_handler, perf_reset_handler, perf_slow_queries_handler
 )
+from bot.handlers.subscription import (
+    subscription_handler, subscription_conversation,
+    sub_compare_callback, sub_tokengate_callback, sub_back_callback
+)
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
 from bot.services.orders import order_service
@@ -114,6 +118,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(orders_handler)      # /orders (limit orders)
     application.add_handler(dca_handler)         # /dca
     application.add_handler(tax_handler)         # /tax
+    application.add_handler(subscription_handler)  # /subscription (x402)
     
     # Admin commands
     application.add_handler(status_handler)      # /status
@@ -132,6 +137,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(withdrawal_conversation)
     application.add_handler(alert_conversation)
     application.add_handler(limit_order_conversation)
+    application.add_handler(subscription_conversation)  # x402 subscription flow
     
     # ============ CALLBACK QUERY HANDLERS ============
     
@@ -208,6 +214,11 @@ def add_handlers(application: Application) -> None:
     application.add_handler(perf_refresh_handler)
     application.add_handler(perf_reset_handler)
     application.add_handler(perf_slow_queries_handler)
+    
+    # x402 Subscription
+    application.add_handler(sub_compare_callback)
+    application.add_handler(sub_tokengate_callback)
+    application.add_handler(sub_back_callback)
     
     # Error handler
     application.add_error_handler(error_handler)
@@ -292,7 +303,7 @@ def main() -> None:
     
     # Log available commands
     logger.info("User commands: /start, /help, /wallet, /balance, /swap, /history, /portfolio, /gas, /favorites, /settings, /custodial")
-    logger.info("Trading commands: /alerts, /orders, /dca, /referral, /tax")
+    logger.info("Trading commands: /alerts, /orders, /dca, /referral, /tax, /subscription")
     logger.info("Admin commands: /status, /hotwallets, /fees, /metrics")
     logger.info("Background services: Fee sweeper, Price alerts, Limit orders/DCA, Tx poller, Health monitor")
     

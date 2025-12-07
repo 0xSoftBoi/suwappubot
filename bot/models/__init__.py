@@ -28,6 +28,14 @@ from .advanced import (
     OrderStatus,
     DCAStatus,
 )
+from .subscription import (
+    Subscription,
+    SubscriptionTier,
+    X402Payment,
+    PaymentStatus,
+    TokenGate,
+    APICredit,
+)
 
 __all__ = [
     "User",
@@ -67,5 +75,12 @@ __all__ = [
     "OrderType",
     "OrderStatus",
     "DCAStatus",
+    # Subscription (x402)
+    "Subscription",
+    "SubscriptionTier",
+    "X402Payment",
+    "PaymentStatus",
+    "TokenGate",
+    "APICredit",
 ]
 
