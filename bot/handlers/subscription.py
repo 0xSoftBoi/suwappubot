@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 # Conversation states
-SELECTING_TIER, SELECTING_CHAIN, CONFIRMING_PAYMENT = range(3)
+SELECTING_TIER, SELECTING_CHAIN, CONFIRMING_PAYMENT, ENTERING_BETA_CODE = range(4)
 
 
 async def subscription_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -63,7 +63,7 @@ async def subscription_command(update: Update, context: ContextTypes.DEFAULT_TYP
     keyboard = [
         [InlineKeyboardButton("⬆️ Upgrade Plan", callback_data="sub_upgrade")],
         [InlineKeyboardButton("🔐 Token Gate Access", callback_data="sub_tokengate")],
-        [InlineKeyboardButton("💳 Buy API Credits", callback_data="sub_credits")],
+        [InlineKeyboardButton("🎟️ Enter Beta Code", callback_data="sub_beta")],
         [InlineKeyboardButton("📊 Compare Plans", callback_data="sub_compare")],
     ]
     
@@ -371,6 +371,62 @@ async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     return ConversationHandler.END
 
 
+async def beta_code_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle beta code button - prompt for code entry."""
+    query = update.callback_query
+    await query.answer()
+    
+    message = """
+🎟️ **Enter Beta Code**
+
+If you have a beta access code, enter it below to unlock premium features for free!
+
+Type your code now:
+"""
+    
+    keyboard = [
+        [InlineKeyboardButton("🔙 Cancel", callback_data="sub_back")],
+    ]
+    
+    await query.edit_message_text(
+        message,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return ENTERING_BETA_CODE
+
+
+async def verify_beta_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Verify the entered beta code."""
+    user = update.effective_user
+    code = update.message.text.strip()
+    
+    # Get user ID
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await update.message.reply_text("❌ Please use /start first to register.")
+            return ConversationHandler.END
+        user_id = db_user.id
+    
+    # Try to activate beta
+    success, message, tier = await x402_service.activate_beta(user_id, code)
+    
+    if success:
+        await update.message.reply_text(
+            f"✨ {message}\n\n"
+            f"Use /subscription to view your new features!",
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(
+            f"❌ {message}\n\n"
+            f"Use /subscription to try again or explore other options."
+        )
+    
+    return ConversationHandler.END
+
+
 def _format_features(features: list) -> str:
     """Format feature list for display."""
     if "all" in features:
@@ -398,6 +454,7 @@ subscription_handler = CommandHandler("subscription", subscription_command)
 subscription_conversation = ConversationHandler(
     entry_points=[
         CallbackQueryHandler(upgrade_callback, pattern="^sub_upgrade$"),
+        CallbackQueryHandler(beta_code_callback, pattern="^sub_beta$"),
     ],
     states={
         SELECTING_TIER: [
@@ -408,6 +465,9 @@ subscription_conversation = ConversationHandler(
         ],
         CONFIRMING_PAYMENT: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_payment),
+        ],
+        ENTERING_BETA_CODE: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, verify_beta_code),
         ],
     },
     fallbacks=[

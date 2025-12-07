@@ -19,6 +19,13 @@ from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
+# Beta access passwords (case-insensitive)
+BETA_PASSWORDS = {
+    "waifu": SubscriptionTier.PREMIUM,      # Full premium access
+    "suwappu": SubscriptionTier.PRO,        # Pro access
+    "earlybird": SubscriptionTier.PRO,      # Pro access
+}
+
 
 # Subscription tier limits
 TIER_LIMITS = {
@@ -169,6 +176,34 @@ class X402Service:
             
             logger.info(f"User {user_id} upgraded to {tier.value} for {duration_days} days")
             return sub
+    
+    async def activate_beta(self, user_id: int, password: str) -> tuple[bool, str, Optional[SubscriptionTier]]:
+        """
+        Activate beta access with a password.
+        
+        Returns:
+            (success, message, tier_granted)
+        """
+        password_lower = password.strip().lower()
+        
+        if password_lower not in BETA_PASSWORDS:
+            return False, "Invalid beta code. Try again!", None
+        
+        tier = BETA_PASSWORDS[password_lower]
+        
+        # Check if already has this tier or higher
+        current_tier = await self.get_tier(user_id)
+        tier_order = [SubscriptionTier.FREE, SubscriptionTier.PRO, 
+                     SubscriptionTier.PREMIUM, SubscriptionTier.ENTERPRISE]
+        
+        if tier_order.index(current_tier) >= tier_order.index(tier):
+            return False, f"You already have {current_tier.value.upper()} access!", None
+        
+        # Grant beta access (lifetime = 365 days)
+        await self.upgrade_subscription(user_id, tier, duration_days=365)
+        
+        logger.info(f"User {user_id} activated beta code '{password_lower}' -> {tier.value}")
+        return True, f"🎉 Beta access activated! You now have **{tier.value.upper()}** for 1 year!", tier
     
     async def set_token_gate(
         self,

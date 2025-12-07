@@ -1,0 +1,50 @@
+# Render Blueprint - Infrastructure as Code
+# Deploy with: render.com/deploy
+
+services:
+  # Main Bot Service
+  - type: worker
+    name: suwappubot
+    runtime: python
+    plan: starter  # $7/month
+    region: oregon
+    buildCommand: |
+      pip install -r requirements.txt
+      pip install psycopg2-binary
+    startCommand: python -m bot.main
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: suwappubot-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: suwappubot-redis
+          type: redis
+          property: connectionString
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false  # Must be set manually
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: LOG_LEVEL
+        value: INFO
+
+# PostgreSQL Database
+databases:
+  - name: suwappubot-db
+    plan: free  # Free tier: 1GB, 90-day retention
+    region: oregon
+    postgresMajorVersion: "15"
+
+# Redis Cache (Optional)
+# Uncomment if you need Redis caching
+# services:
+#   - type: redis
+#     name: suwappubot-redis
+#     plan: free
+#     region: oregon
+#     maxmemoryPolicy: allkeys-lru
+
