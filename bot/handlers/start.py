@@ -1,16 +1,11 @@
 """Start and help command handlers."""
 
-import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler
 from datetime import datetime
 
 from bot.models.user import User
 from database.db import get_session
-
-logger = logging.getLogger(__name__)
-
-BRANDING_BANNER_PATH = "assets/branding/suwappu-logo.svg"
 
 
 WELCOME_MESSAGE = """
@@ -127,20 +122,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Send branding banner (document to ensure delivery even with SVG)
-    try:
-        with open(BRANDING_BANNER_PATH, "rb") as banner:
-            await context.bot.send_document(
-                chat_id=update.effective_chat.id,
-                document=banner,
-                filename="suwappu-banner.svg",
-                caption="🌸 suwappu — cross-chain swaps with a native C++ core",
-            )
-    except FileNotFoundError:
-        logger.warning("Branding banner not found at %s", BRANDING_BANNER_PATH)
-    except Exception as exc:
-        logger.warning("Failed to send branding banner: %s", exc)
-
     await update.message.reply_text(
         WELCOME_MESSAGE,
         parse_mode="Markdown",
