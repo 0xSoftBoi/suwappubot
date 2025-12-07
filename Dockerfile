@@ -40,5 +40,9 @@ USER botuser
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import suwappu_core; print('healthy')" || exit 1
 
-# Run the bot
-CMD ["python", "-m", "bot.main"]
+# Expose a lightweight HTTP port for Render port scan while the bot runs
+ENV PORT=10000
+EXPOSE 10000
+
+# Run the bot and a tiny HTTP server to satisfy Render's port scan
+CMD ["bash", "-lc", "python -m bot.main & python -m http.server ${PORT}"]
