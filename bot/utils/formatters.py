@@ -3,6 +3,14 @@
 from typing import Optional
 from bot.config.chains import CHAINS, get_chain_by_name
 
+# Try to import C++ core
+try:
+    import suwappu_core
+    CPP_CORE_AVAILABLE = True
+except ImportError:
+    suwappu_core = None
+    CPP_CORE_AVAILABLE = False
+
 
 def format_amount(amount: float, decimals: int = 2, symbol: str = "") -> str:
     """

@@ -4,6 +4,17 @@ import re
 from typing import Optional
 from eth_utils import is_address as is_evm_address
 import base58
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Try to import C++ core
+try:
+    import suwappu_core
+    CPP_CORE_AVAILABLE = True
+except ImportError:
+    suwappu_core = None
+    CPP_CORE_AVAILABLE = False
 
 
 def validate_evm_address(address: str) -> bool:
@@ -113,18 +124,20 @@ def validate_amount(amount_str: str) -> Optional[float]:
 
 
 def validate_slippage(slippage_str: str) -> Optional[int]:
-    """
-    Validate and parse slippage as basis points.
-    
-    Args:
-        slippage_str: Slippage as percentage string (e.g., "0.5", "1")
-        
-    Returns:
-        Slippage in basis points (e.g., 50 for 0.5%) or None if invalid
-    """
+    """Validate and parse slippage as basis points."""
     try:
         slippage = float(slippage_str)
         
+        # Native C++ validation
+        if CPP_CORE_AVAILABLE:
+            try:
+                # Convert to bps for C++ method
+                bps = int(slippage * 100)
+                if suwappu_core.NativeQuoteValidator.validate_slippage(bps, 1000):
+                    return bps
+            except Exception:
+                pass
+
         # Must be between 0.01% and 50%
         if slippage < 0.01 or slippage > 50:
             return None
