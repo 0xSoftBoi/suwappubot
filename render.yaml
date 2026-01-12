@@ -12,11 +12,6 @@ services:
         fromDatabase:
           name: suwappu-db
           property: connectionString
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: suwappu-redis
-          property: connectionString
       - key: SECRET_KEY
         generateValue: true
       - key: WEB_CONCURRENCY
@@ -33,19 +28,8 @@ services:
         fromDatabase:
           name: suwappu-db
           property: connectionString
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: suwappu-redis
-          property: connectionString
 
 databases:
   - name: suwappu-db
     databaseName: suwappubot
     user: suwappu
-
-# Redis (Requires paid plan, optional)
-# Uncomment if you have a paid plan, otherwise use in-memory check
-# services:
-#   - type: redis
-#     name: suwappu-redis
