@@ -185,6 +185,7 @@ async def get_wallets_default(db: Session = Depends(get_db)):
 from fastapi import Request
 from fastapi.responses import PlainTextResponse
 from bot.services.whatsapp_service import whatsapp_service
+from bot.services.unified_bot_service import unified_bot_service
 
 @app.get("/webhook")
 async def verify_whatsapp_webhook(
@@ -214,54 +215,29 @@ async def receive_whatsapp_message(request: Request):
     # Mark as read
     await whatsapp_service.mark_as_read(message.message_id)
     
-    # Simple command router
-    text = (message.text or "").lower().strip()
-    from_number = message.from_number
+    # Process command via Unified Service
+    text = message.text or ""
+    if message.button_payload:
+        text = message.button_payload
+        
+    response = await unified_bot_service.handle_command(
+        platform="whatsapp",
+        user_id=message.from_number,
+        text=text
+    )
     
-    if text in ["/start", "start", "hi", "hello"]:
-        await whatsapp_service.send_text_message(
-            from_number,
-            "🐸 *Welcome to Suwappu!*\n\n"
-            "I'm your cross-chain swap assistant.\n\n"
-            "Commands:\n"
-            "• *balance* - Check your wallet\n"
-            "• *swap* - Start a swap\n"
-            "• *help* - Get help"
-        )
-    elif text in ["balance", "/balance"]:
-        await whatsapp_service.send_text_message(
-            from_number,
-            "💰 *Your Balances*\n\n"
-            "_Connect your wallet via the web dashboard to see balances._\n\n"
-            "Dashboard: https://your-domain.com"
-        )
-    elif text in ["swap", "/swap"]:
+    # Send response
+    if response.buttons:
         await whatsapp_service.send_interactive_buttons(
-            from_number,
-            "Select the chain you want to swap FROM:",
-            [
-                {"id": "chain_eth", "title": "Ethereum"},
-                {"id": "chain_arb", "title": "Arbitrum"},
-                {"id": "chain_base", "title": "Base"}
-            ],
-            header="🔄 New Swap"
+            message.from_number,
+            response.text,
+            response.buttons,
+            header=response.header
         )
-    elif message.button_payload:
-        # Handle button responses
-        if message.button_payload.startswith("chain_"):
-            chain = message.button_payload.replace("chain_", "").upper()
-            await whatsapp_service.send_text_message(
-                from_number,
-                f"You selected *{chain}*.\n\n"
-                "Please enter the amount you want to swap (e.g., `100 USDC`):"
-            )
     else:
         await whatsapp_service.send_text_message(
-            from_number,
-            "I didn't understand that. Try:\n"
-            "• *balance* - Check wallet\n"
-            "• *swap* - Start a swap\n"
-            "• *help* - Get help"
+            message.from_number,
+            response.text
         )
     
     return {"status": "ok"}

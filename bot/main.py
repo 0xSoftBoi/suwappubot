@@ -266,6 +266,33 @@ async def post_shutdown(application) -> None:
     await close_http_session()
 
 
+async def run_headless() -> None:
+    """Run background services without Telegram polling."""
+    logger.warning("⚠️ Starting in HEADLESS MODE (Telegram token invalid/missing)")
+    
+    # Initialize background services manually
+    admin_ids = getattr(settings, 'admin_ids', [])
+    
+    await fee_sweeper.start()
+    logger.info("✓ Fee sweeper started")
+    
+    # These services usually need a bot to send messages
+    # We pass None and they should handle it gracefully
+    await alert_service.start(bot=None)
+    await order_service.start(bot=None)
+    await tx_poller.start(bot=None)
+    await health_monitor.start(bot=None, admin_ids=admin_ids)
+    
+    logger.info("✅ Headless services are running. Press Ctrl+C to stop.")
+    
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        logger.info("Stopping headless services...")
+        await post_shutdown(None)
+
+
 def main() -> None:
     """Run the bot."""
     # Check C++ core availability
@@ -309,7 +336,14 @@ def main() -> None:
     
     # Start the bot
     logger.info("Starting bot...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    try:
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+    except Exception as e:
+        if "Unauthorized" in str(e) or "InvalidToken" in str(e) or "rejected" in str(e):
+            logger.error(f"❌ Telegram authentication failed: {e}")
+            asyncio.run(run_headless())
+        else:
+            raise e
 
 
 if __name__ == "__main__":

@@ -8,72 +8,7 @@ from bot.models.user import User
 from database.db import get_session
 
 
-WELCOME_MESSAGE = """
-🌸 *suwappu* — fast cross-chain swaps with a native C\+\+ core\!
-
-🔄 *Welcome to Suwappu Bot*
-
-Cross-chain swaps made simple.
-
-🎁 *Referral Blitz*: earn 50% of fees from friends + instant bonuses.
-Use /referral to grab your link.
-
-*Choose Your Mode:*
-
-🔐 *Self\-Custody* \(Your Keys\)
-You control your private keys
-Pay your own gas fees
-
-🏦 *Custodial* \(We Manage\)
-No gas fees \- we pay for you
-Instant deposits & withdrawals
-
-━━━━━━━━━━━━━━━━━━━━
-
-*Supported Chains:*
-🔷 ETH • 🟣 Polygon • 🟡 BSC
-🔵 Arbitrum • 🔴 Optimism • 🔵 Base • 🟢 Solana
-
-Powered by Li\.Fi, Jupiter & LayerZero
-"""
-
-HELP_MESSAGE = """
-🌸 *suwappu help*
-
-📖 *Help Guide*
-
-━━ 🔐 *SELF\-CUSTODY MODE* ━━
-_You hold your private keys_
-
-• /wallet \- Create/import your wallet
-• /balance \- Check your balances
-• /swap \- Swap with your wallet
-• /history \- View transactions
-
-⚠️ You pay gas fees from your wallet
-
-━━ 🏦 *CUSTODIAL MODE* ━━
-_We manage funds for you_
-
-• /custodial \- View custodial account
-  ↳ Deposit \- Send tokens to us
-  ↳ Withdraw \- Get tokens back
-  ↳ Swap \- Trade with zero gas
-
-✅ We pay all gas fees for you\!
-
-━━━━━━━━━━━━━━━━━━━━
-
-*Other Commands:*
-• /portfolio \- All holdings \+ USD value
-• /gas \- Live gas prices
-• /favorites \- Saved swap pairs
-• /settings \- Preferences
-
-*Fees:*
-• 1% swap fee on all trades
-• Gas sponsored in custodial mode
-"""
+from bot.utils.templates import WELCOME_MESSAGE, HELP_MESSAGE
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
