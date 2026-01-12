@@ -1,34 +1,51 @@
-# Render Blueprint - Infrastructure as Code
-# Deploy with: render.com/deploy
-
 services:
-  # Main Bot Service (Background Worker)
-  - type: worker
-    name: suwappubot
-    runtime: python
-    plan: starter
-    region: oregon
-    buildCommand: pip install -r requirements.txt && pip install psycopg2-binary
-    startCommand: python -m bot.main
+  # 1. API & Dashboard (Web Service)
+  - type: web
+    name: suwappu-web
+    env: python
+    buildCommand: |
+      pip install -r requirements.txt
+      cd dashboard && npm install && npm run build
+    startCommand: ./start_web.sh
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.11"
       - key: DATABASE_URL
         fromDatabase:
-          name: suwappubot-db
+          name: suwappu-db
           property: connectionString
-      - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      - key: ENCRYPTION_KEY
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: suwappu-redis
+          property: connectionString
+      - key: SECRET_KEY
         generateValue: true
-      - key: LOG_LEVEL
-        value: INFO
-      - key: ADMIN_IDS
-        sync: false
+      - key: WEB_CONCURRENCY
+        value: 2
 
-# PostgreSQL Database
+  # 2. Telegram/WhatsApp Bot (Background Worker)
+  - type: worker
+    name: suwappu-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m bot.main
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: suwappu-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: suwappu-redis
+          property: connectionString
+
 databases:
-  - name: suwappubot-db
-    plan: free
-    region: oregon
-    postgresMajorVersion: "15"
+  - name: suwappu-db
+    databaseName: suwappubot
+    user: suwappu
+
+# Redis (Requires paid plan, optional)
+# Uncomment if you have a paid plan, otherwise use in-memory check
+# services:
+#   - type: redis
+#     name: suwappu-redis

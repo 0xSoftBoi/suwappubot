@@ -83,3 +83,4 @@ ios/SuwappuApp/SuwappuApp.xcodeproj/project.xcworkspace/xcuserdata/
 # Cursor
 .cursor/
 
+node_modules/

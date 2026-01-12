@@ -3,7 +3,9 @@
 import pytest
 import asyncio
 import os
+import time
 from unittest.mock import MagicMock, AsyncMock
+from tests.utils.fork_manager import ForkManager
 
 # Set test environment variables before importing app code
 os.environ["TELEGRAM_BOT_TOKEN"] = "test_token"
@@ -86,3 +88,38 @@ def sample_quote_data():
         "expires_in": 30,
     }
 
+
+@pytest.fixture(scope="session")
+def local_fork():
+    """
+    Start a local fork of Ethereum Mainnet.
+    Returns the RPC URL of the fork.
+    """
+    # Use a public RPC for forking (in CI this would be an Alchemy key)
+    # Default to LlamaRPC, but allow override
+    FORK_RPC = os.getenv("ETH_RPC_URL", "https://1rpc.io/eth")
+    PORT = 8545
+    
+    manager = ForkManager(rpc_url=FORK_RPC, port=PORT)
+    try:
+        manager.start()
+        yield manager
+    finally:
+        manager.stop()
+
+
+@pytest.fixture
+def whale_account(local_fork):
+    """
+    Impersonate a USDC whale on the local fork.
+    Returns the whale address and ensures it has ETH for gas.
+    """
+    # Binance 14
+    WHALE_ADDRESS = "0x28C6c06298d514Db089934071355E5743bf21d60" 
+    
+    local_fork.impersonate_account(WHALE_ADDRESS)
+    
+    # Give the whale some ETH for gas (10 ETH)
+    local_fork.set_balance(WHALE_ADDRESS, 10 * 10**18)
+    
+    return WHALE_ADDRESS

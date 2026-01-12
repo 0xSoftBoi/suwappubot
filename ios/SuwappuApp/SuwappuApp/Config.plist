@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>API_BASE_URL</key>
-	<string>https://api.suwappu.com/api/v1</string>
+	<string>http://localhost:8000</string>
 </dict>
 </plist>
 

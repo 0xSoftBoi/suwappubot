@@ -513,19 +513,22 @@ class SwapEngine:
                 return swap_tx
                 
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 # Mark as failed
                 with get_session() as session:
                     swap_tx = session.query(SwapTransaction).filter(
                         SwapTransaction.id == swap_id
                     ).first()
-                    swap_tx.status = SwapStatus.FAILED.value
-                    swap_tx.error_message = str(e)
+                    if swap_tx:
+                        swap_tx.status = SwapStatus.FAILED.value
+                        swap_tx.error_message = str(e)
                 
                 # Clear private key from memory
                 wallet_data["encrypted_private_key"] = None
                 del wallet_data
                 
-                raise SwapError(f"Swap execution failed: {str(e)}")
+                raise SwapError(f"Swap execution failed: {repr(e)}")
     
     async def _execute_lifi_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via Li.Fi."""

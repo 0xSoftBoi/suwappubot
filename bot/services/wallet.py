@@ -481,7 +481,7 @@ class WalletService:
             private_key = "0x" + private_key
         
         signed = Account.sign_transaction(transaction, private_key)
-        return signed.rawTransaction.hex()
+        return signed.raw_transaction.hex()
     
     def sign_solana_transaction(self, wallet: Wallet, transaction_bytes: bytes) -> bytes:
         """
@@ -527,7 +527,7 @@ class WalletService:
             private_key = "0x" + private_key
         
         signed = Account.sign_transaction(transaction, private_key)
-        return signed.rawTransaction.hex()
+        return signed.raw_transaction.hex()
     
     def sign_solana_transaction_raw(self, encrypted_private_key: str, transaction_bytes: bytes) -> bytes:
         """
