@@ -3,10 +3,9 @@ services:
   - type: web
     name: suwappu-web
     env: python
-    buildCommand: |
-      pip install -r requirements.txt
-      cd dashboard && npm install && npm run build
+    buildCommand: pip install -r requirements.txt
     startCommand: ./start_web.sh
+    healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -17,17 +16,6 @@ services:
       - key: WEB_CONCURRENCY
         value: 2
 
-  # 2. Telegram/WhatsApp Bot (Background Worker)
-  - type: worker
-    name: suwappu-bot
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python -m bot.main
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: suwappu-db
-          property: connectionString
 
 databases:
   - name: suwappu-db

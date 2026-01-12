@@ -9,6 +9,7 @@ from bot.models.swap import SwapTransaction, SwapStatus
 from bot.config.chains import get_chain_by_name, ChainType
 from bot.utils.http_client import get_session
 from database.db import get_session as get_db_session
+from bot.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +108,8 @@ class TransactionPoller:
             return None
         
         if chain.chain_type == ChainType.EVM:
-            return await self._check_evm_tx(tx.tx_hash, chain.rpc_url)
+            rpc_url = settings.get_rpc_url(chain.name)
+            return await self._check_evm_tx(tx.tx_hash, rpc_url)
         elif chain.chain_type == ChainType.SOLANA:
             return await self._check_solana_tx(tx.tx_hash)
         
@@ -150,7 +152,6 @@ class TransactionPoller:
     async def _check_solana_tx(self, tx_hash: str) -> Optional[str]:
         """Check Solana transaction status."""
         try:
-            from bot.config.settings import settings
             
             http_session = await get_session()
             

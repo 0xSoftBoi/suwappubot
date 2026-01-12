@@ -1,5 +1,6 @@
 import sys
 import os
+import asyncio
 from pathlib import Path
 from typing import List, Optional, Dict
 from datetime import datetime
@@ -14,13 +15,87 @@ project_root = str(Path(__file__).parent.parent)
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-from database.db import get_session
+from bot.services.wallet import WalletService
+from bot.config.settings import settings
+from bot.services.fee_sweeper import fee_sweeper
+from bot.services.alerts import alert_service
+from bot.services.orders import order_service
+from bot.services.tx_poller import tx_poller
+from bot.services.health_monitor import health_monitor
+from bot.utils.preload import preload_config
+from database.db import init_db, engine, get_session
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction
 from bot.models.advanced import LimitOrder, DCAOrder
-from bot.services.wallet import WalletService
+from bot.utils.db_monitor import setup_db_monitoring
+from bot.main import add_handlers
+from telegram.ext import Application
+from contextlib import asynccontextmanager
 
-app = FastAPI(title="Suwappu Premium API")
+import logging
+
+logger = logging.getLogger(__name__)
+
+# --- Lifespan Manager ---
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifecycle manager for the consolidated API + Bot service."""
+    logger.info("🚀 Starting consolidated Suwappu Monolith...")
+    
+    # 1. Initialize DB & Config
+    preload_config()
+    init_db(settings.database_url)
+    if engine:
+        setup_db_monitoring(engine)
+    
+    # 2. Build Bot Application
+    bot_app = (
+        Application.builder()
+        .token(settings.telegram_bot_token)
+        .build()
+    )
+    add_handlers(bot_app)
+    
+    # 3. Start Bot Hooks (manually since we aren't using run_polling)
+    await bot_app.initialize()
+    await bot_app.start()
+    
+    # Handle optional polling (if token is valid)
+    polling_task = None
+    if settings.telegram_bot_token and "123456" not in settings.telegram_bot_token:
+        logger.info("✓ Starting Telegram polling background task")
+        polling_task = asyncio.create_task(bot_app.updater.start_polling())
+    else:
+        logger.warning("⚠️ Skipping Telegram polling (invalid token). Running in Headless Mode.")
+
+    # 4. Start Background Services
+    admin_ids = getattr(settings, 'admin_ids', [])
+    await fee_sweeper.start()
+    await alert_service.start(bot=bot_app.bot)
+    await order_service.start(bot=bot_app.bot)
+    await tx_poller.start(bot=bot_app.bot)
+    await health_monitor.start(bot=bot_app.bot, admin_ids=admin_ids)
+    logger.info("✓ All background services running")
+
+    yield
+    
+    # --- Shutdown ---
+    logger.info("🛑 Shutting down Suwappu Monolith...")
+    if polling_task:
+        await bot_app.updater.stop()
+    
+    await bot_app.stop()
+    await bot_app.shutdown()
+    
+    await fee_sweeper.stop()
+    await alert_service.stop()
+    await order_service.stop()
+    await tx_poller.stop()
+    await health_monitor.stop()
+    logger.info("✓ Cleanup complete")
+
+app = FastAPI(title="Suwappu Monolith API", lifespan=lifespan)
 
 # Setup CORS
 app.add_middleware(

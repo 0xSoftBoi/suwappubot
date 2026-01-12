@@ -52,7 +52,7 @@ class WalletService:
             if not chain or chain.chain_type != ChainType.EVM:
                 raise ValueError(f"Invalid EVM chain: {chain_name}")
             
-            rpc_url = getattr(settings, chain.rpc_url_env.lower(), None)
+            rpc_url = settings.get_rpc_url(chain_name)
             if not rpc_url:
                 raise ValueError(f"RPC URL not configured for {chain_name}")
             
@@ -63,7 +63,8 @@ class WalletService:
     async def _get_solana_client(self) -> SolanaClient:
         """Get or create a Solana RPC client."""
         if self._solana_client is None:
-            self._solana_client = SolanaClient(settings.solana_rpc_url)
+            rpc_url = settings.get_rpc_url("solana")
+            self._solana_client = SolanaClient(rpc_url)
         return self._solana_client
     
     # === Wallet Creation ===
