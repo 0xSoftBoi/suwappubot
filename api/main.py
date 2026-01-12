@@ -57,17 +57,20 @@ async def lifespan(app: FastAPI):
     )
     add_handlers(bot_app)
     
-    # 3. Start Bot Hooks (manually since we aren't using run_polling)
-    await bot_app.initialize()
-    await bot_app.start()
-    
-    # Handle optional polling (if token is valid)
+    # 3. Start Bot Hooks
     polling_task = None
-    if settings.telegram_bot_token and "123456" not in settings.telegram_bot_token:
-        logger.info("✓ Starting Telegram polling background task")
-        polling_task = asyncio.create_task(bot_app.updater.start_polling())
-    else:
-        logger.warning("⚠️ Skipping Telegram polling (invalid token). Running in Headless Mode.")
+    try:
+        await bot_app.initialize()
+        await bot_app.start()
+        
+        if settings.telegram_bot_token and "123456" not in settings.telegram_bot_token:
+            logger.info("✓ Starting Telegram polling background task")
+            polling_task = asyncio.create_task(bot_app.updater.start_polling())
+        else:
+            logger.warning("⚠️ No valid Telegram token provided. Skipping polling.")
+    except Exception as e:
+        logger.error(f"❌ Telegram bot failed to initialize: {e}")
+        logger.warning("⚠️ Continuing in HEADLESS MODE (Background services + API only)")
 
     # 4. Start Background Services
     admin_ids = getattr(settings, 'admin_ids', [])
@@ -85,8 +88,13 @@ async def lifespan(app: FastAPI):
     if polling_task:
         await bot_app.updater.stop()
     
-    await bot_app.stop()
-    await bot_app.shutdown()
+    # Only stop/shutdown if it wasn't a total failure
+    # We check if initialize was at least attempted and didn't crash before start
+    try:
+        await bot_app.stop()
+        await bot_app.shutdown()
+    except Exception:
+        pass
     
     await fee_sweeper.stop()
     await alert_service.stop()
