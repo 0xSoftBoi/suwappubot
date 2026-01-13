@@ -9,15 +9,10 @@ pkill -f "bot.main" || true
 # Environment (Ensure we use SQLite if Postgres isn't available)
 export DATABASE_URL="sqlite:///./suwappubot.db"
 
-# Start API
-echo ">> Starting API..."
-./venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000 > api.log 2>&1 &
-echo "API PID: $!"
-
-# Start Bot
-echo ">> Starting Bot..."
-./venv/bin/python3 -m bot.main > bot.log 2>&1 &
-echo "Bot PID: $!"
+# Start Monolith (API + Bot)
+echo ">> Starting Suwappu Monolith (API + Bot)..."
+./venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000 > monolith.log 2>&1 &
+echo "Monolith PID: $!"
 
 # Start Dashboard
 echo ">> Starting Dashboard..."

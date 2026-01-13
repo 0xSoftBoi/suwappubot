@@ -5,10 +5,13 @@ from pathlib import Path
 from typing import List, Optional, Dict
 from datetime import datetime
 
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, Request, Security
+from fastapi.security.api_key import APIKeyHeader, APIKey
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse, JSONResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict
+import secrets
 
 # Add project root to path to import bot modules
 project_root = str(Path(__file__).parent.parent)
@@ -30,6 +33,7 @@ from bot.models.advanced import LimitOrder, DCAOrder
 from bot.utils.db_monitor import setup_db_monitoring
 from bot.main import add_handlers
 from telegram.ext import Application
+from telegram import Update
 from contextlib import asynccontextmanager
 
 import logging
@@ -63,11 +67,13 @@ async def lifespan(app: FastAPI):
         await bot_app.initialize()
         await bot_app.start()
         
-        if settings.telegram_bot_token and "123456" not in settings.telegram_bot_token:
+        if settings.telegram_bot_token and settings.telegram_bot_token != "123456789:ABCDEF":
             logger.info("✓ Starting Telegram polling background task")
-            polling_task = asyncio.create_task(bot_app.updater.start_polling())
+            polling_task = asyncio.create_task(bot_app.updater.start_polling(
+                allowed_updates=Update.ALL_TYPES
+            ))
         else:
-            logger.warning("⚠️ No valid Telegram token provided. Skipping polling.")
+            logger.warning("⚠️ Placeholder or missing Telegram token. Skipping polling.")
     except Exception as e:
         logger.error(f"❌ Telegram bot failed to initialize: {e}")
         logger.warning("⚠️ Continuing in HEADLESS MODE (Background services + API only)")
@@ -103,7 +109,41 @@ async def lifespan(app: FastAPI):
     await health_monitor.stop()
     logger.info("✓ Cleanup complete")
 
-app = FastAPI(title="Suwappu Monolith API", lifespan=lifespan)
+app = FastAPI(
+    title="Suwappu Agent Infrastructure",
+    description="""
+    A high-performance liquidity API for AI agents. 
+    This API allows agents to manage multi-chain wallets, fetch portfolio balances, and execute cross-chain swaps.
+    
+    **Agent Instructions**:
+    - Use the `/wallets` endpoint to discover available addresses.
+    - Use `/portfolio` to check balances before trading.
+    - For swaps, use the Unified Bot logic via the WhatsApp/Telegram integration modules for best results.
+    """,
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# --- Agent Authentication ---
+API_KEY_NAME = "X-Agent-Key"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
+
+async def get_agent_key(
+    api_key: str = Security(api_key_header),
+):
+    """Verify the agent's API key. Fallback to settings.agent_api_key."""
+    valid_key = getattr(settings, "agent_api_key", None)
+    if not valid_key:
+        # In development, allow if no key is set
+        return "dev-key"
+    
+    if api_key == valid_key:
+        return api_key
+    
+    raise HTTPException(
+        status_code=403,
+        detail="Invalid or missing Agent API Key. Discovery requires authentication."
+    )
 
 # Setup CORS
 app.add_middleware(
@@ -168,14 +208,61 @@ def get_db():
     with get_session() as session:
         yield session
 
-# --- Endpoints ---
+@app.get("/tools", tags=["Agents"])
+async def get_tools(agent_key: str = Depends(get_agent_key)):
+    """
+    Returns a semantic directory of tools available to AI agents.
+    Agents can use this metadata to register Suwappu as a toolset in their local context.
+    """
+    return {
+        "provider": "Suwappu Liquidity Bot",
+        "description": "High-performance multi-chain trading and wallet management infrastructure.",
+        "tools": [
+            {
+                "name": "get_portfolio",
+                "endpoint": "/users/{user_id}/portfolio",
+                "method": "GET",
+                "description": "Check multi-chain balances for a user to ensure sufficient liquidity.",
+                "parameters": {
+                    "user_id": "The database ID of the user."
+                }
+            },
+            {
+                "name": "get_wallets",
+                "endpoint": "/users/{user_id}/wallets",
+                "method": "GET",
+                "description": "Retrieve wallet addresses for deposit or swap targets.",
+                "parameters": {
+                    "user_id": "The database ID of the user."
+                }
+            },
+            {
+                "name": "execute_swap",
+                "endpoint": "/webhook",
+                "method": "POST",
+                "description": "Submit a trading command (e.g., '/swap eth to usdt 0.1') via the unified bot handler.",
+                "parameters": {
+                    "text": "The natural language trading command."
+                }
+            }
+        ]
+    }
 
-@app.get("/health")
+# --- Dependencies ---
 async def health():
+    """Returns the operational status of the Suwappu Monolith. Agents should check this before trade batches."""
     return {"status": "ok", "timestamp": datetime.utcnow()}
 
-@app.get("/users/{user_id}/wallets", response_model=List[WalletResponse])
-async def get_wallets(user_id: int, db: Session = Depends(get_db)):
+@app.get("/users/{user_id}/wallets", response_model=List[WalletResponse], tags=["Wallets"])
+async def get_wallets(
+    user_id: int, 
+    db: Session = Depends(get_db),
+    agent_key: str = Depends(get_agent_key)
+):
+    """
+    Retrieve all active wallets for a specific user.
+    Agents use this to identify target addresses for deposit/swap operations.
+    """
     wallets = db.query(Wallet).filter(Wallet.user_id == user_id, Wallet.is_active == True).all()
     # Map camelCase for iOS compatibility
     res = []
@@ -192,8 +279,16 @@ async def get_wallets(user_id: int, db: Session = Depends(get_db)):
         ))
     return res
 
-@app.get("/users/{user_id}/portfolio", response_model=PortfolioResponse)
-async def get_portfolio(user_id: int, db: Session = Depends(get_db)):
+@app.get("/users/{user_id}/portfolio", response_model=PortfolioResponse, tags=["Portfolio"])
+async def get_portfolio(
+    user_id: int, 
+    db: Session = Depends(get_db),
+    agent_key: str = Depends(get_agent_key)
+):
+    """
+    Fetches a real-time consolidated balance sheet for a user across all supported chains.
+    Agents must call this to verify sufficient liquidity before initiating swap orders.
+    """
     wallets = db.query(Wallet).filter(Wallet.user_id == user_id, Wallet.is_active == True).all()
     
     total_usd = 0.0
