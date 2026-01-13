@@ -12,6 +12,7 @@ from fastapi.responses import PlainTextResponse, JSONResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict
 import secrets
+import json
 
 # Add project root to path to import bot modules
 project_root = str(Path(__file__).parent.parent)
@@ -207,6 +208,18 @@ class SwapResponse(BaseModel):
 def get_db():
     with get_session() as session:
         yield session
+
+@app.get("/.well-known/ai-plugin.json", tags=["Discovery"], include_in_schema=False)
+async def get_plugin_manifest():
+    """Standard OpenAI plugin discovery path."""
+    with open("api/ai-plugin.json", "r") as f:
+        return json.load(f)
+
+@app.get("/agent-card.json", tags=["Discovery"])
+async def get_agent_card():
+    """Returns the A2A Agent Card for decentralized discovery."""
+    with open("api/agent-card.json", "r") as f:
+        return json.load(f)
 
 @app.get("/tools", tags=["Agents"])
 async def get_tools(agent_key: str = Depends(get_agent_key)):
