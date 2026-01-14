@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     whatsapp_access_token: Optional[str] = Field(default=None, description="WhatsApp Cloud API Access Token")
     whatsapp_verify_token: str = Field(default="suwappu_verify", description="Webhook verification token")
     
+    # Agent Interoperability
+    agent_api_key: Optional[str] = Field(default=None, description="Secret key for other AI agents to access the API")
+    
     # Application Settings
     log_level: str = Field(default="INFO", description="Logging level")
     max_swap_amount: float = Field(default=100000, description="Maximum swap amount in USD")

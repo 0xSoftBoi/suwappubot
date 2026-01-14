@@ -25,13 +25,28 @@ Check user balances before trading.
 Find deposit or swap target addresses.
 - **Endpoint**: `GET /users/{user_id}/wallets`
 
-### `execute_swap` (WhatsApp Path)
-Submit a natural language trading command.
-- **Endpoint**: `POST /webhook`
-- **Body**: WhatsApp formatted message payload.
+### `execute_command` (Easy Mode ⚡)
+The most direct way to use Suwappu. Send a raw trading string and get a result.
+- **Endpoint**: `POST /v1/agent/execute`
+- **Body**:
+```json
+{
+  "text": "swap 0.5 eth to usdc on base",
+  "user_id": 1
+}
+```
 
-### `execute_swap` (Direct Path - TBD)
-Coming soon: Direct JSON-structured swap execution.
+### `provision_wallet`
+Create a new wallet for a user programmatically.
+- **Endpoint**: `POST /v1/agent/wallets`
+- **Body**:
+```json
+{
+  "user_id": 1,
+  "chain_type": "evm",
+  "name": "Trading Agent Wallet"
+}
+```
 
-## 4. MCP Server Note 🔌
+## 4. MCP Server & SDK 🔌
 While we provide a REST-first interface for maximum stability, you can bridge Suwappu into **Claude Desktop** or **Cursor** by pointing your MCP client to our `/tools` metadata.

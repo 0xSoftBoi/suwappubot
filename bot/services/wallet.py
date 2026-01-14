@@ -90,6 +90,33 @@ class WalletService:
         address = str(keypair.pubkey())
         private_key = base58.b58encode(bytes(keypair)).decode()
         return address, private_key
+
+    async def create_wallet(self, user_id: int, name: str, chain_type: str = "evm"):
+        """
+        Convenience method to create and save a wallet in one call.
+        
+        Args:
+            user_id: Target user
+            name: Label for the wallet
+            chain_type: "evm" or "solana"
+            
+        Returns:
+            Wallet object
+        """
+        if chain_type == "evm":
+            address, pk = self.create_evm_wallet()
+        elif chain_type == "solana":
+            address, pk = self.create_solana_wallet()
+        else:
+            raise ValueError(f"Unsupported chain type: {chain_type}")
+            
+        return self.save_wallet(
+            user_id=user_id,
+            address=address,
+            private_key=pk,
+            chain_type=chain_type,
+            name=name
+        )
     
     # === Wallet Import ===
     

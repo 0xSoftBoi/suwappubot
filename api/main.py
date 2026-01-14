@@ -191,6 +191,16 @@ class PortfolioResponse(BaseModel):
     tokens: List[TokenBalance]
     chains: Dict[str, float]
 
+class AgentExecuteRequest(BaseModel):
+    text: str
+    user_id: int
+    context: Optional[Dict] = None
+
+class AgentWalletCreate(BaseModel):
+    user_id: int
+    name: Optional[str] = "Agent Managed Wallet"
+    chain_type: str = "evm"
+
 class SwapResponse(BaseModel):
     id: int
     fromChain: str
@@ -250,16 +260,87 @@ async def get_tools(agent_key: str = Depends(get_agent_key)):
                 }
             },
             {
-                "name": "execute_swap",
-                "endpoint": "/webhook",
+                "name": "provision_wallet",
+                "endpoint": "/v1/agent/wallets",
                 "method": "POST",
-                "description": "Submit a trading command (e.g., '/swap eth to usdt 0.1') via the unified bot handler.",
+                "description": "Programmatically create a new managed wallet for a user.",
                 "parameters": {
-                    "text": "The natural language trading command."
+                    "user_id": "The target user ID.",
+                    "chain_type": "evm or solana"
+                }
+            },
+            {
+                "name": "execute_command",
+                "endpoint": "/v1/agent/execute",
+                "method": "POST",
+                "description": "Submit a natural language trading command (e.g., 'buy 0.1 eth on base'). Returns machine-readable results.",
+                "parameters": {
+                    "text": "The trading command string.",
+                    "user_id": "The target database user ID."
                 }
             }
         ]
     }
+
+@app.post("/v1/agent/execute", tags=["Agents"])
+async def agent_execute(
+    request: AgentExecuteRequest,
+    agent_key: str = Depends(get_agent_key),
+    db: Session = Depends(get_db)
+):
+    """
+    Direct bridge to Suwappu's Natural Language Trading Engine.
+    Agents can send raw strings and receive structured execution results.
+    """
+    from bot.services.unified_bot_service import unified_bot_service
+    
+    # 1. Resolve user
+    user = db.query(User).filter(User.id == request.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    # 2. Execute via unified service
+    response = await unified_bot_service.handle_command(
+        platform="agent",
+        user_id=f"agent_{request.user_id}",
+        text=request.text
+    )
+    
+    return {
+        "status": "success",
+        "input": request.text,
+        "response": response.text,
+        "buttons": response.buttons,
+        "timestamp": datetime.utcnow()
+    }
+
+@app.post("/v1/agent/wallets", response_model=WalletResponse, tags=["Agents"])
+async def provision_agent_wallet(
+    request: AgentWalletCreate,
+    agent_key: str = Depends(get_agent_key),
+    db: Session = Depends(get_db)
+):
+    """Programmatically provision a new wallet for an agent-managed user."""
+    user = db.query(User).filter(User.id == request.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    wallet = await wallet_service.create_wallet(
+        user_id=user.id,
+        name=request.name,
+        chain_type=request.chain_type
+    )
+    
+    return WalletResponse(
+        id=wallet.id,
+        userId=wallet.user_id,
+        name=wallet.name,
+        address=wallet.address,
+        chainType=wallet.chain_type,
+        isActive=wallet.is_active,
+        isDefault=wallet.is_default,
+        createdAt=wallet.created_at
+    )
 
 # --- Dependencies ---
 async def health():

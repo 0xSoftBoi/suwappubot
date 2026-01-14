@@ -31,8 +31,8 @@ def init_db(database_url: str) -> None:
         connect_args=connect_args,
         echo=False,
         pool_pre_ping=True,  # Check connections before use
-        pool_size=20 if not is_sqlite else 1,  # Connection pool
-        max_overflow=30 if not is_sqlite else 0,  # Extra connections
+        pool_size=20 if not is_sqlite else 5,  # Connection pool
+        max_overflow=30 if not is_sqlite else 5,  # Extra connections
         pool_recycle=3600,  # Recycle connections hourly
     )
     
