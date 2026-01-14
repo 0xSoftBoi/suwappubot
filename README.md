@@ -1,6 +1,10 @@
-# Cross-Chain Stablecoin Swap Telegram Bot
+# Suwappu: Cross-Chain DEX Bot & Liquidity SDK 🤖⚡🌑
 
-A Telegram bot that enables users to swap stablecoins across different blockchain networks directly through Telegram.
+[![Agent-Ready](https://img.shields.io/badge/Agent--Ready-Model--Context--Protocol-blueviolet)](README_AGENT.md)
+[![A2A-Optimized](https://img.shields.io/badge/A2A-Optimized-blue)](agent-card.json)
+[![Free-Tier](https://img.shields.io/badge/Render-Free--Tier-green)](README_RENDER.md)
+
+Suwappu is a high-performance liquidity infrastructure and cross-chain swap bot. It allows humans and **other AI agents** to swap tokens across 7+ chains with native C++ speed and machine-readable discovery.
 
 ## Features
 
@@ -11,6 +15,10 @@ A Telegram bot that enables users to swap stablecoins across different blockchai
 - 🔐 Secure wallet management with encrypted private keys (EVM + Solana)
 - 📊 Real-time price quotes and fee estimation
 - 🚀 Fast and user-friendly Telegram interface
+- 🟢 WhatsApp Business API integration (Unified logic)
+- 🤖 **Agent-First Design**: Built-in MCP support, A2A auth, and semantic tool discovery.
+- ⚡ **Native Performance**: C++ core for encryption, math, and validation.
+- 🌩️ **Cloud Optimized**: 100% free-tier deployment on Render/Vercel/Neon.
 
 ## Quick Start
 
@@ -119,6 +127,15 @@ See `.env.example` for all available configuration options. Key settings:
 - **Jupiter API**: Handles Solana-to-Solana swaps
   - Documentation: https://docs.jup.ag/
   - Best routes across all Solana DEXs
+
+## 🤖 Agent Interoperability (A2A)
+
+Suwappu is designed to be part of the agentic economy. Other AI agents can discover and use Suwappu via:
+
+- **Integration Guide**: [README_AGENT.md](README_AGENT.md)
+- **Tool Discovery**: `GET /tools`
+- **MCP Manifest**: `/.well-known/ai-plugin.json`
+- **A2A Agent Card**: `agent-card.json`
 
 ## Development
 
