@@ -1,55 +1,67 @@
-# 📡 Suwappu Registry Broadcast Kit
+# 📡 Suwappu Global Broadcast Kit (2025 Edition)
 
-Use the following snippets to list Suwappu in the top AI agent registries for 2025. This ensures Suwappu is discoverable by other bots, traders, and AI ecosystems.
-
----
-
-## 1. GitHub: "Awesome MCP Servers" (Top Discovery)
-**Target**: [punctuations/awesome-mcp-servers](https://github.com/punctuations/awesome-mcp-servers)
-**Submission**: Open a Pull Request adding Suwappu under the **"Finance"** or **"Tools"** category.
-
-**Markdown Snippet:**
-```markdown
-- [Suwappu](https://your-suwappu-url.onrender.com) - High-performance multi-chain liquidity infrastructure and DEX bot with C++ performance core and A2A discovery.
-```
+Use these snippets to list Suwappu across the most influential AI agent registries. This kit is categorized by ecosystem to help you target the right "Agent-to-Agent" loops.
 
 ---
 
-## 2. OpenAI: GPT Actions (Direct LLM Usage)
-**Target**: [OpenAI GPT Builder](https://chat.openai.com/gpts/editor)
-**Steps**:
-1. Click **"Configure"** -> **"Create new action"**.
-2. **Import from URL**: `https://your-suwappu-url.onrender.com/openapi.json`
-3. **Authentication**: Set to `API Key`, Header `X-Agent-Key`, and paste your key.
+## 🛠️ 1. MCP & Protocol Registries (High Value)
+These are the "App Stores" for the Model Context Protocol. Listing here makes Suwappu a selectable tool in **Cursor**, **Claude**, and **Windsurf**.
+
+- **[Smithery.ai](https://smithery.ai)**: Submit your `/tools` endpoint. 5,000+ capabilities listed.
+- **[MCP.so](https://mcp.so)**: The primary directory for verified servers.
+- **[PulseMCP.com](https://pulsemcp.com)**: For real-time trading/data agents.
+- **[Cursor Directory](https://cursor.directory)**: Vital for developer discovery. Use tags: `#crypto`, `#trading`, `#web3`.
+- **[Awesome MCP Servers (GitHub)](https://github.com/punctuations/awesome-mcp-servers)**:
+    - **Markdown**: `- [Suwappu](https://render-url.com) - High-performance multi-chain liquidity infrastructure with C++ core.`
 
 ---
 
-## 3. Smithery.ai & MCP.so (MCP Registries)
-**Target**: [Smithery.ai](https://smithery.ai) / [MCP.so](https://mcp.so)
-**Description**: These are the "App Stores" for Model Context Protocol.
-**Submission Info**:
-- **Name**: Suwappu Liquidity Bot
-- **URL**: `https://your-suwappu-url.onrender.com`
-- **MCP Tool Endpoint**: `/tools`
-- **Description**: Trade 100+ tokens across 7+ chains (EVM & Solana). Native C++ core for encryption and math.
+## 💎 2. Web3 & DeFAI Ecosystems (Native)
+Suwappu is a "DeFAI" (Decentralized AI Finance) agent. List here to find other trading bots.
+
+- **[Virtuals Protocol](https://virtuals.io)**: Submit as a revenue-generating liquidity agent.
+- **[vvaifu.fun (Solana)](https://vvaifu.fun)**: Best for your Solana integration visibility.
+- **[Eliza Ecosystem](https://elizaos.com)**: If you use the Eliza framework or wrappers, list here.
+- **[DappRadar (AI Section)](https://dappradar.com/rankings/category/ai)**: General Web3-AI discovery.
+- **[Solana Ecosystem](https://solana.com/ecosystem)**: Search for "AI" category and submit.
+- **[Jupiter Station](https://station.jup.ag)**: For your Jupiter/Solana LFG visibility.
 
 ---
 
-## 4. A2A Registry (AGNTCY / OASF)
-**Target**: [AGNTCY Directory](https://agntcy.dev)
-**Submission**: Upload or point to your `agent-card.json`.
-**Link**: `https://your-suwappu-url.onrender.com/agent-card.json`
+## 🌍 3. AI Agent Marketplaces (User Discovery)
+Where regular users and companies find bits to help them.
+
+- **[MuleRun](https://mulerun.com)**: The "Amazon" of AI Agents. Great for Investment Research category.
+- **[AI Agent Store](https://aiagentstore.ai)**: Highly indexed general directory.
+- **[Metaschool Marketplace](https://metaschool.so)**: Developer-centric agent listings.
+- **[Mojo AI Marketplace](https://mojo.ai)**: For production-ready business agents.
 
 ---
 
-## 5. Hugging Face Hub (Agentic Model Space)
-**Target**: [Hugging Face Spaces](https://huggingface.co/spaces)
-**Submission**: Create a new space and point it to your Suwappu API for AI-to-AI benchmarking.
+## 🏢 4. Enterprise & Developer Registries
+For B2B usage and architecture discovery.
+
+- **[AWS / Google Cloud Marketplace](https://console.cloud.google.com/marketplace)**: Long-term play for enterprise liquidity API usage.
+- **[Agentverse (Fetch.ai)](https://agentverse.ai)**: Ideal for decentralized multi-agent interaction.
+- **[Hugging Face Spaces](https://huggingface.co/spaces)**: Host a demo of the API here for "Benchmarking" visibility.
 
 ---
 
-## 💡 Pro-Tip: ENS Discovery
-Add a **Text Record** to your ENS domain (e.g., `suwappu.eth`):
-- **Key**: `agent-manifest`
-- **Value**: `https://your-suwappu-url.onrender.com/ai-plugin.json`
-*This allows web3-native agents to resolve your API via the blockchain.*
+## 📈 5. Trading Bot Hubs
+For people looking for the next "StockHero" or "3Commas".
+
+- **[Cryptohopper Marketplace](https://cryptohopper.com/marketplace)**: Submit Suwappu signals or toolset.
+- **[TradersPost](https://traderspost.io)**: List as an automated DeFi execution alternative.
+
+---
+
+## 🚀 6. Launch & Social (Hype Strategy)
+1. **[Product Hunt](https://producthunt.com)**: Launch as "Suwappu: The Liquidity SDK for Agents".
+2. **[Launching.ai](https://launching.ai)**: Specialized AI product directory.
+3. **[Futurepedia](https://futurepedia.io)**: Largest general AI tool repository.
+
+---
+
+## 💡 Pro-Tip: Meta-Discovery
+- **ENS Discovery**: Set a text record `agent-manifest` on your domain with `https://your-url.com/ai-plugin.json`.
+- **Agent SEO**: Suwappu already has `<meta name="agent-manifest" ...>` tags in the dashboard. Ensure your Render URL stays consistent!
