@@ -14,6 +14,13 @@ from bot.config.settings import settings
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
 from bot.config.tokens import get_token_address, get_token_decimals, NATIVE_TOKEN_ADDRESS
 from bot.utils.encryption import encrypt_private_key, decrypt_private_key
+from bot.utils.envelope_crypto import (
+    encrypt_private_key_v2,
+    encode_for_db,
+    get_private_key_with_auto_migrate,
+    SCHEME_LEGACY_FERNET_V1,
+    SCHEME_KMS_AESGCM_V2,
+)
 from bot.models.custodial import HotWallet, CustodialBalance, CustodialTransaction, TransactionType, TransactionStatus
 from database.db import get_session
 
@@ -43,14 +50,37 @@ class HotWalletService:
     
     # === Hot Wallet Management ===
     
-    def create_hot_wallet(
+    async def create_hot_wallet(
         self,
         name: str,
         chain_type: str,
         is_deposit_wallet: bool = True,
         is_gas_payer: bool = False,
     ) -> HotWallet:
-        """Create a new hot wallet."""
+        """
+        Create a new hot wallet.
+        
+        Routes to Turnkey if configured, otherwise creates local wallet.
+        """
+        # Check if Turnkey is configured
+        if settings.wallet_provider == "turnkey":
+            return await self._create_turnkey_hot_wallet(
+                name, chain_type, is_deposit_wallet, is_gas_payer
+            )
+        
+        # Local hot wallet creation
+        return self._create_local_hot_wallet(
+            name, chain_type, is_deposit_wallet, is_gas_payer
+        )
+    
+    def _create_local_hot_wallet(
+        self,
+        name: str,
+        chain_type: str,
+        is_deposit_wallet: bool,
+        is_gas_payer: bool,
+    ) -> HotWallet:
+        """Create a local hot wallet with encrypted private key."""
         if chain_type == "evm":
             account = Account.create()
             address = account.address
@@ -63,14 +93,34 @@ class HotWalletService:
         else:
             raise ValueError(f"Unsupported chain type: {chain_type}")
         
-        encrypted_key = encrypt_private_key(private_key, settings.encryption_key)
+        # Use envelope encryption (v2) or legacy based on settings
+        use_v2 = settings.wallet_encryption_scheme == SCHEME_KMS_AESGCM_V2
+        
+        if use_v2:
+            encrypted = encrypt_private_key_v2(private_key)
+            db_fields = encode_for_db(encrypted)
+        else:
+            db_fields = {
+                "encrypted_private_key": encrypt_private_key(private_key, settings.encryption_key),
+                "encryption_scheme": SCHEME_LEGACY_FERNET_V1,
+                "kms_wrapped_dek": None,
+                "aesgcm_nonce": None,
+                "kms_key_id": None,
+                "key_version": 1,
+            }
         
         with get_session() as session:
             wallet = HotWallet(
                 name=name,
                 chain_type=chain_type,
                 address=address,
-                encrypted_private_key=encrypted_key,
+                encrypted_private_key=db_fields["encrypted_private_key"],
+                encryption_scheme=db_fields["encryption_scheme"],
+                kms_wrapped_dek=db_fields.get("kms_wrapped_dek"),
+                aesgcm_nonce=db_fields.get("aesgcm_nonce"),
+                kms_key_id=db_fields.get("kms_key_id"),
+                key_version=db_fields.get("key_version", 1),
+                wallet_provider="local",
                 is_deposit_wallet=is_deposit_wallet,
                 is_gas_payer=is_gas_payer,
             )
@@ -78,6 +128,48 @@ class HotWalletService:
             session.flush()
             wallet_id = wallet.id
         
+        return self.get_hot_wallet_by_id(wallet_id)
+    
+    async def _create_turnkey_hot_wallet(
+        self,
+        name: str,
+        chain_type: str,
+        is_deposit_wallet: bool,
+        is_gas_payer: bool,
+    ) -> HotWallet:
+        """Create a hot wallet via Turnkey (in main organization)."""
+        from bot.services.turnkey_client import get_turnkey_client
+        
+        client = get_turnkey_client()
+        
+        # Create wallet in main organization (for hot wallets)
+        turnkey_wallet = await client.create_wallet(
+            wallet_name=f"hot_{name}_{chain_type}",
+            chain_type=chain_type,
+            organization_id=None,  # Use parent org
+        )
+        
+        if not turnkey_wallet.address:
+            raise RuntimeError("Turnkey hot wallet creation failed: no address returned")
+        
+        with get_session() as session:
+            wallet = HotWallet(
+                name=name,
+                chain_type=chain_type,
+                address=turnkey_wallet.address,
+                encrypted_private_key=None,
+                encryption_scheme=None,
+                wallet_provider="turnkey",
+                turnkey_wallet_id=turnkey_wallet.wallet_id,
+                turnkey_account_id=turnkey_wallet.account_id,
+                is_deposit_wallet=is_deposit_wallet,
+                is_gas_payer=is_gas_payer,
+            )
+            session.add(wallet)
+            session.flush()
+            wallet_id = wallet.id
+        
+        logger.info(f"Created Turnkey hot wallet: {turnkey_wallet.address}")
         return self.get_hot_wallet_by_id(wallet_id)
     
     def import_hot_wallet(
@@ -88,7 +180,7 @@ class HotWalletService:
         is_deposit_wallet: bool = True,
         is_gas_payer: bool = False,
     ) -> HotWallet:
-        """Import an existing wallet as hot wallet."""
+        """Import an existing wallet as hot wallet with KMS envelope encryption (v2)."""
         if chain_type == "evm":
             if not private_key.startswith("0x"):
                 private_key = "0x" + private_key
@@ -102,14 +194,33 @@ class HotWalletService:
         else:
             raise ValueError(f"Unsupported chain type: {chain_type}")
         
-        encrypted_key = encrypt_private_key(private_key, settings.encryption_key)
+        # Use envelope encryption (v2) or legacy based on settings
+        use_v2 = settings.wallet_encryption_scheme == SCHEME_KMS_AESGCM_V2
+        
+        if use_v2:
+            encrypted = encrypt_private_key_v2(private_key)
+            db_fields = encode_for_db(encrypted)
+        else:
+            db_fields = {
+                "encrypted_private_key": encrypt_private_key(private_key, settings.encryption_key),
+                "encryption_scheme": SCHEME_LEGACY_FERNET_V1,
+                "kms_wrapped_dek": None,
+                "aesgcm_nonce": None,
+                "kms_key_id": None,
+                "key_version": 1,
+            }
         
         with get_session() as session:
             wallet = HotWallet(
                 name=name,
                 chain_type=chain_type,
                 address=address,
-                encrypted_private_key=encrypted_key,
+                encrypted_private_key=db_fields["encrypted_private_key"],
+                encryption_scheme=db_fields["encryption_scheme"],
+                kms_wrapped_dek=db_fields.get("kms_wrapped_dek"),
+                aesgcm_nonce=db_fields.get("aesgcm_nonce"),
+                kms_key_id=db_fields.get("kms_key_id"),
+                key_version=db_fields.get("key_version", 1),
                 is_deposit_wallet=is_deposit_wallet,
                 is_gas_payer=is_gas_payer,
             )
@@ -142,9 +253,40 @@ class HotWalletService:
                 HotWallet.is_active == True,
             ).first()
     
-    def get_private_key(self, wallet: HotWallet) -> str:
-        """Decrypt and return private key."""
-        return decrypt_private_key(wallet.encrypted_private_key, settings.encryption_key)
+    def get_private_key(self, wallet: HotWallet, auto_migrate: bool = True) -> str:
+        """
+        Decrypt and return private key.
+        
+        Handles both legacy (Fernet) and v2 (KMS + AES-GCM) encryption schemes.
+        Optionally auto-migrates legacy wallets to v2 on first access.
+        
+        Note: Turnkey wallets do not have accessible private keys.
+        
+        Args:
+            wallet: HotWallet object
+            auto_migrate: Whether to migrate legacy wallets to v2
+            
+        Returns:
+            Decrypted private key string
+            
+        Raises:
+            ValueError: If wallet is a Turnkey wallet
+        """
+        # Turnkey wallets don't have local private keys
+        if wallet.is_turnkey_wallet:
+            raise ValueError(
+                "Cannot access private key for Turnkey hot wallet. "
+                "Use send_native_token or send_token instead."
+            )
+        
+        with get_session() as session:
+            # Re-attach wallet to session for potential migration update
+            wallet = session.merge(wallet)
+            return get_private_key_with_auto_migrate(
+                wallet_row=wallet,
+                session=session,
+                auto_migrate=auto_migrate,
+            )
     
     # === Balance Management ===
     
@@ -398,10 +540,6 @@ class HotWalletService:
         web3 = self._get_web3(chain_name)
         chain = get_chain_by_name(chain_name)
         
-        private_key = self.get_private_key(wallet)
-        if not private_key.startswith("0x"):
-            private_key = "0x" + private_key
-        
         amount_wei = int(amount * Decimal(10 ** 18))
         
         # Build transaction
@@ -417,9 +555,16 @@ class HotWalletService:
             'chainId': chain.chain_id,
         }
         
-        # Sign and send
-        signed = Account.sign_transaction(tx, private_key)
-        tx_hash = web3.eth.send_raw_transaction(signed.rawTransaction)
+        # Sign based on wallet provider
+        if wallet.is_turnkey_wallet:
+            signed_tx_hex = await self._sign_via_turnkey(wallet, tx)
+            tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        else:
+            private_key = self.get_private_key(wallet)
+            if not private_key.startswith("0x"):
+                private_key = "0x" + private_key
+            signed = Account.sign_transaction(tx, private_key)
+            tx_hash = web3.eth.send_raw_transaction(signed.rawTransaction)
         
         return tx_hash.hex()
     
@@ -438,10 +583,6 @@ class HotWalletService:
         
         web3 = self._get_web3(chain_name)
         chain = get_chain_by_name(chain_name)
-        
-        private_key = self.get_private_key(wallet)
-        if not private_key.startswith("0x"):
-            private_key = "0x" + private_key
         
         amount_raw = int(amount * Decimal(10 ** decimals))
         
@@ -471,11 +612,49 @@ class HotWalletService:
         # Estimate gas
         tx['gas'] = web3.eth.estimate_gas(tx)
         
-        # Sign and send
-        signed = Account.sign_transaction(tx, private_key)
-        tx_hash = web3.eth.send_raw_transaction(signed.rawTransaction)
+        # Sign based on wallet provider
+        if wallet.is_turnkey_wallet:
+            signed_tx_hex = await self._sign_via_turnkey(wallet, tx)
+            tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        else:
+            private_key = self.get_private_key(wallet)
+            if not private_key.startswith("0x"):
+                private_key = "0x" + private_key
+            signed = Account.sign_transaction(tx, private_key)
+            tx_hash = web3.eth.send_raw_transaction(signed.rawTransaction)
         
         return tx_hash.hex()
+    
+    async def _sign_via_turnkey(self, wallet: HotWallet, transaction: dict) -> str:
+        """Sign a transaction via Turnkey API."""
+        from bot.services.turnkey_client import get_turnkey_client
+        import rlp
+        
+        client = get_turnkey_client()
+        
+        # Serialize transaction for Turnkey
+        tx_data = [
+            transaction.get("nonce", 0),
+            transaction.get("gasPrice", 0),
+            transaction.get("gas", 21000),
+            bytes.fromhex(transaction["to"][2:]) if transaction.get("to") else b"",
+            transaction.get("value", 0),
+            bytes.fromhex(transaction.get("data", "0x")[2:]) if transaction.get("data") else b"",
+            transaction.get("chainId", 1),
+            0,
+            0,
+        ]
+        encoded = rlp.encode(tx_data)
+        unsigned_tx_hex = "0x" + encoded.hex()
+        
+        signed_tx = await client.sign_transaction(
+            unsigned_transaction=unsigned_tx_hex,
+            sign_with=wallet.address,
+            transaction_type="TRANSACTION_TYPE_ETHEREUM",
+            organization_id=None,  # Main org for hot wallets
+        )
+        
+        return signed_tx
 
 
 # Global instance

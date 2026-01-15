@@ -109,7 +109,19 @@ class HotWallet(Base):
     name = Column(String(100), nullable=False)
     chain_type = Column(String(20), nullable=False)  # "evm" or "solana"
     address = Column(String(100), nullable=False, unique=True)
-    encrypted_private_key = Column(Text, nullable=False)
+    encrypted_private_key = Column(Text, nullable=True)  # Ciphertext (NULL for Turnkey wallets)
+    
+    # Envelope encryption metadata (KMS + AES-GCM)
+    encryption_scheme = Column(String(50), default="legacy_fernet_v1")  # "legacy_fernet_v1" or "kms_aesgcm_v2"
+    kms_wrapped_dek = Column(Text, nullable=True)  # Base64 KMS-encrypted DEK
+    aesgcm_nonce = Column(String(32), nullable=True)  # Base64 nonce/IV for AES-GCM
+    kms_key_id = Column(String(255), nullable=True)  # Which KMS key was used
+    key_version = Column(Integer, default=1)  # For rotation tracking
+    
+    # Turnkey wallet infrastructure
+    wallet_provider = Column(String(20), default="local")  # "local" or "turnkey"
+    turnkey_wallet_id = Column(String(100), nullable=True)  # Turnkey wallet ID
+    turnkey_account_id = Column(String(100), nullable=True)  # Turnkey account ID (for signing)
     
     # Wallet purpose
     is_deposit_wallet = Column(Boolean, default=True)
@@ -130,7 +142,22 @@ class HotWallet(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     def __repr__(self) -> str:
-        return f"<HotWallet({self.name}: {self.address[:10]}...)>"
+        return f"<HotWallet({self.name}: {self.address[:10]}..., provider={self.wallet_provider})>"
+    
+    @property
+    def is_legacy_encryption(self) -> bool:
+        """Check if wallet uses legacy encryption scheme."""
+        return self.encryption_scheme != "kms_aesgcm_v2"
+    
+    @property
+    def is_turnkey_wallet(self) -> bool:
+        """Check if wallet is backed by Turnkey."""
+        return self.wallet_provider == "turnkey"
+    
+    @property
+    def is_local_wallet(self) -> bool:
+        """Check if wallet is stored locally."""
+        return self.wallet_provider == "local"
 
 
 class GasSponsorshipConfig(Base):

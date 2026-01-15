@@ -29,3 +29,5 @@ solders==0.21.0
 sqlalchemy==2.0.29
 uvicorn[standard]
 web3==6.15.1
+ecdsa>=0.18.0
+rlp>=3.0.0

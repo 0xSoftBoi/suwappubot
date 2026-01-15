@@ -15,7 +15,71 @@ class Settings(BaseSettings):
     database_url: str = Field(default="sqlite:///bot.db", description="Database connection URL")
     
     # Encryption
-    encryption_key: str = Field(..., description="32-byte key for encrypting private keys")
+    encryption_key: str = Field(..., description="32-byte key for encrypting private keys (legacy/fallback)")
+    
+    # KMS Wallet Encryption (envelope encryption)
+    kms_provider: str = Field(
+        default="dev",
+        description="KMS provider: 'dev' (local mock), 'aws', or 'gcp'"
+    )
+    kms_key_id: Optional[str] = Field(
+        default=None,
+        description="KMS key ID/ARN (required for aws/gcp providers)"
+    )
+    kms_region: Optional[str] = Field(
+        default=None,
+        description="AWS region for KMS (e.g., 'us-east-1')"
+    )
+    gcp_project_id: Optional[str] = Field(
+        default=None,
+        description="GCP project ID for KMS"
+    )
+    gcp_kms_location: str = Field(
+        default="global",
+        description="GCP KMS location (e.g., 'global', 'us-east1')"
+    )
+    gcp_kms_keyring: Optional[str] = Field(
+        default=None,
+        description="GCP KMS keyring name"
+    )
+    wallet_encryption_scheme: str = Field(
+        default="kms_aesgcm_v2",
+        description="Default encryption scheme for new wallets: 'legacy_fernet_v1' or 'kms_aesgcm_v2'"
+    )
+    auto_migrate_legacy_wallets: bool = Field(
+        default=True,
+        description="Auto-migrate legacy wallets to v2 on first use"
+    )
+    
+    # Turnkey Wallet Infrastructure
+    wallet_provider: str = Field(
+        default="local",
+        description="Wallet provider: 'local' (encrypted in DB) or 'turnkey' (TEE-backed)"
+    )
+    turnkey_organization_id: Optional[str] = Field(
+        default=None,
+        description="Turnkey parent organization ID"
+    )
+    turnkey_api_public_key: Optional[str] = Field(
+        default=None,
+        description="Turnkey API keypair public key (hex-encoded)"
+    )
+    turnkey_api_private_key: Optional[str] = Field(
+        default=None,
+        description="Turnkey API keypair private key (hex-encoded)"
+    )
+    turnkey_base_url: str = Field(
+        default="https://api.turnkey.com",
+        description="Turnkey API base URL"
+    )
+    turnkey_default_evm_curve: str = Field(
+        default="CURVE_SECP256K1",
+        description="Default curve for EVM wallets"
+    )
+    turnkey_default_solana_curve: str = Field(
+        default="CURVE_ED25519",
+        description="Default curve for Solana wallets"
+    )
     
     # EVM RPC Endpoints (Can be comma-separated lists)
     ethereum_rpc_url: str = Field(

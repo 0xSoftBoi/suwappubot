@@ -1,6 +1,7 @@
 """Wallet management service for EVM and Solana chains."""
 
 import json
+import logging
 from typing import Optional
 from web3 import Web3
 from eth_account import Account
@@ -14,9 +15,18 @@ from bot.config.settings import settings
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
 from bot.config.tokens import get_token_address, get_token_decimals
 from bot.utils.encryption import encrypt_private_key, decrypt_private_key
+from bot.utils.envelope_crypto import (
+    encrypt_private_key_v2,
+    encode_for_db,
+    get_private_key_with_auto_migrate,
+    SCHEME_LEGACY_FERNET_V1,
+    SCHEME_KMS_AESGCM_V2,
+)
 from bot.utils.validators import validate_private_key, validate_address
 from bot.models.user import User, Wallet
 from database.db import get_session
+
+logger = logging.getLogger(__name__)
 
 
 # ERC20 ABI for balance checking
@@ -95,6 +105,8 @@ class WalletService:
         """
         Convenience method to create and save a wallet in one call.
         
+        Routes to Turnkey if configured, otherwise creates local wallet.
+        
         Args:
             user_id: Target user
             name: Label for the wallet
@@ -103,6 +115,11 @@ class WalletService:
         Returns:
             Wallet object
         """
+        # Check if Turnkey is configured
+        if settings.wallet_provider == "turnkey":
+            return await self._create_turnkey_wallet(user_id, name, chain_type)
+        
+        # Local wallet creation
         if chain_type == "evm":
             address, pk = self.create_evm_wallet()
         elif chain_type == "solana":
@@ -117,6 +134,87 @@ class WalletService:
             chain_type=chain_type,
             name=name
         )
+    
+    async def _create_turnkey_wallet(self, user_id: int, name: str, chain_type: str) -> Wallet:
+        """
+        Create a wallet via Turnkey infrastructure.
+        
+        Args:
+            user_id: Target user
+            name: Label for the wallet
+            chain_type: "evm" or "solana"
+            
+        Returns:
+            Wallet object
+        """
+        from bot.services.turnkey_client import get_turnkey_client
+        
+        client = get_turnkey_client()
+        
+        # Ensure user has a sub-organization
+        sub_org_id = await self._ensure_user_sub_org(user_id)
+        
+        # Create wallet in user's sub-org
+        turnkey_wallet = await client.create_wallet(
+            wallet_name=f"{name}_{user_id}_{chain_type}",
+            chain_type=chain_type,
+            organization_id=sub_org_id,
+        )
+        
+        if not turnkey_wallet.address:
+            raise RuntimeError("Turnkey wallet creation failed: no address returned")
+        
+        # Save wallet reference to database
+        with get_session() as session:
+            wallet = Wallet(
+                user_id=user_id,
+                address=turnkey_wallet.address,
+                encrypted_private_key=None,  # No local key storage for Turnkey
+                encryption_scheme=None,
+                wallet_provider="turnkey",
+                turnkey_sub_org_id=sub_org_id,
+                turnkey_wallet_id=turnkey_wallet.wallet_id,
+                turnkey_account_id=turnkey_wallet.account_id,
+                chain_type=chain_type,
+                name=name,
+                is_default=False,
+            )
+            session.add(wallet)
+            session.flush()
+            wallet_id = wallet.id
+        
+        logger.info(f"Created Turnkey wallet for user {user_id}: {turnkey_wallet.address}")
+        return self.get_wallet_by_id(wallet_id)
+    
+    async def _ensure_user_sub_org(self, user_id: int) -> str:
+        """
+        Ensure user has a Turnkey sub-organization, creating one if needed.
+        
+        Args:
+            user_id: Database user ID
+            
+        Returns:
+            Sub-organization ID
+        """
+        from bot.services.turnkey_client import get_turnkey_client
+        
+        # Check if user already has a sub-org
+        with get_session() as session:
+            existing = session.query(Wallet).filter(
+                Wallet.user_id == user_id,
+                Wallet.wallet_provider == "turnkey",
+                Wallet.turnkey_sub_org_id.isnot(None),
+            ).first()
+            
+            if existing and existing.turnkey_sub_org_id:
+                return existing.turnkey_sub_org_id
+        
+        # Create new sub-organization
+        client = get_turnkey_client()
+        sub_org = await client.create_sub_organization(f"user_{user_id}")
+        
+        logger.info(f"Created Turnkey sub-org for user {user_id}: {sub_org.sub_org_id}")
+        return sub_org.sub_org_id
     
     # === Wallet Import ===
     
@@ -182,6 +280,8 @@ class WalletService:
         """
         Save a wallet to the database with encrypted private key.
         
+        Uses KMS envelope encryption (v2) if configured, otherwise falls back to legacy.
+        
         Args:
             user_id: Database user ID
             address: Wallet address
@@ -193,7 +293,23 @@ class WalletService:
         Returns:
             Created Wallet object
         """
-        encrypted_key = encrypt_private_key(private_key, settings.encryption_key)
+        # Determine encryption scheme based on settings
+        use_v2 = settings.wallet_encryption_scheme == SCHEME_KMS_AESGCM_V2
+        
+        if use_v2:
+            # Use envelope encryption with KMS
+            encrypted = encrypt_private_key_v2(private_key)
+            db_fields = encode_for_db(encrypted)
+        else:
+            # Legacy Fernet encryption
+            db_fields = {
+                "encrypted_private_key": encrypt_private_key(private_key, settings.encryption_key),
+                "encryption_scheme": SCHEME_LEGACY_FERNET_V1,
+                "kms_wrapped_dek": None,
+                "aesgcm_nonce": None,
+                "kms_key_id": None,
+                "key_version": 1,
+            }
         
         with get_session() as session:
             # If setting as default, unset other defaults of same type
@@ -207,7 +323,12 @@ class WalletService:
             wallet = Wallet(
                 user_id=user_id,
                 address=address,
-                encrypted_private_key=encrypted_key,
+                encrypted_private_key=db_fields["encrypted_private_key"],
+                encryption_scheme=db_fields["encryption_scheme"],
+                kms_wrapped_dek=db_fields.get("kms_wrapped_dek"),
+                aesgcm_nonce=db_fields.get("aesgcm_nonce"),
+                kms_key_id=db_fields.get("kms_key_id"),
+                key_version=db_fields.get("key_version", 1),
                 chain_type=chain_type,
                 name=name,
                 is_default=is_default,
@@ -251,9 +372,40 @@ class WalletService:
             
             return wallet
     
-    def get_private_key(self, wallet: Wallet) -> str:
-        """Decrypt and return the private key for a wallet."""
-        return decrypt_private_key(wallet.encrypted_private_key, settings.encryption_key)
+    def get_private_key(self, wallet: Wallet, auto_migrate: bool = True) -> str:
+        """
+        Decrypt and return the private key for a wallet.
+        
+        Handles both legacy (Fernet) and v2 (KMS + AES-GCM) encryption schemes.
+        Optionally auto-migrates legacy wallets to v2 on first access.
+        
+        Note: Turnkey wallets do not have accessible private keys - they stay in TEEs.
+        
+        Args:
+            wallet: Wallet object
+            auto_migrate: Whether to migrate legacy wallets to v2
+            
+        Returns:
+            Decrypted private key string
+            
+        Raises:
+            ValueError: If wallet is a Turnkey wallet (keys don't leave Turnkey)
+        """
+        # Turnkey wallets don't have local private keys
+        if wallet.is_turnkey_wallet:
+            raise ValueError(
+                "Cannot access private key for Turnkey wallet. "
+                "Use sign_evm_transaction or sign_solana_transaction instead."
+            )
+        
+        with get_session() as session:
+            # Re-attach wallet to session for potential migration update
+            wallet = session.merge(wallet)
+            return get_private_key_with_auto_migrate(
+                wallet_row=wallet,
+                session=session,
+                auto_migrate=auto_migrate,
+            )
     
     # === Balance Checking ===
     
@@ -493,9 +645,11 @@ class WalletService:
     
     # === Transaction Signing ===
     
-    def sign_evm_transaction(self, wallet: Wallet, transaction: dict) -> str:
+    async def sign_evm_transaction(self, wallet: Wallet, transaction: dict) -> str:
         """
         Sign an EVM transaction.
+        
+        Routes to Turnkey for Turnkey wallets, local signing for local wallets.
         
         Args:
             wallet: Wallet to sign with
@@ -504,6 +658,10 @@ class WalletService:
         Returns:
             Signed transaction hex string
         """
+        if wallet.is_turnkey_wallet:
+            return await self._sign_evm_via_turnkey(wallet, transaction)
+        
+        # Local signing
         private_key = self.get_private_key(wallet)
         if not private_key.startswith("0x"):
             private_key = "0x" + private_key
@@ -511,9 +669,65 @@ class WalletService:
         signed = Account.sign_transaction(transaction, private_key)
         return signed.raw_transaction.hex()
     
-    def sign_solana_transaction(self, wallet: Wallet, transaction_bytes: bytes) -> bytes:
+    async def _sign_evm_via_turnkey(self, wallet: Wallet, transaction: dict) -> str:
+        """Sign EVM transaction via Turnkey API."""
+        from bot.services.turnkey_client import get_turnkey_client
+        from rlp import encode as rlp_encode
+        
+        client = get_turnkey_client()
+        
+        # Serialize transaction to hex for Turnkey
+        # Turnkey expects the unsigned transaction as hex
+        unsigned_tx_hex = self._serialize_evm_transaction(transaction)
+        
+        signed_tx = await client.sign_transaction(
+            unsigned_transaction=unsigned_tx_hex,
+            sign_with=wallet.address,  # Sign with the wallet address
+            transaction_type="TRANSACTION_TYPE_ETHEREUM",
+            organization_id=wallet.turnkey_sub_org_id,
+        )
+        
+        return signed_tx
+    
+    def _serialize_evm_transaction(self, transaction: dict) -> str:
+        """Serialize an EVM transaction to hex for Turnkey signing."""
+        # Create unsigned transaction bytes
+        # For EIP-1559 transactions
+        if "maxFeePerGas" in transaction:
+            from eth_account._utils.typed_transactions import TypedTransaction
+            typed_tx = TypedTransaction.from_dict(transaction)
+            return "0x" + typed_tx.hash().hex()
+        
+        # For legacy transactions, build the serialized form
+        tx_data = {
+            "nonce": transaction.get("nonce", 0),
+            "gasPrice": transaction.get("gasPrice", 0),
+            "gas": transaction.get("gas", 21000),
+            "to": bytes.fromhex(transaction["to"][2:]) if transaction.get("to") else b"",
+            "value": transaction.get("value", 0),
+            "data": bytes.fromhex(transaction.get("data", "0x")[2:]) if transaction.get("data") else b"",
+        }
+        
+        # Return as hex string
+        import rlp
+        encoded = rlp.encode([
+            tx_data["nonce"],
+            tx_data["gasPrice"],
+            tx_data["gas"],
+            tx_data["to"],
+            tx_data["value"],
+            tx_data["data"],
+            transaction.get("chainId", 1),
+            0,
+            0,
+        ])
+        return "0x" + encoded.hex()
+    
+    async def sign_solana_transaction(self, wallet: Wallet, transaction_bytes: bytes) -> bytes:
         """
         Sign a Solana transaction.
+        
+        Routes to Turnkey for Turnkey wallets, local signing for local wallets.
         
         Args:
             wallet: Wallet to sign with
@@ -522,6 +736,10 @@ class WalletService:
         Returns:
             Signed transaction bytes
         """
+        if wallet.is_turnkey_wallet:
+            return await self._sign_solana_via_turnkey(wallet, transaction_bytes)
+        
+        # Local signing
         from solders.transaction import VersionedTransaction
         
         private_key = self.get_private_key(wallet)
@@ -539,38 +757,107 @@ class WalletService:
         
         return bytes(tx)
     
-    def sign_evm_transaction_raw(self, encrypted_private_key: str, transaction: dict) -> str:
+    async def _sign_solana_via_turnkey(self, wallet: Wallet, transaction_bytes: bytes) -> bytes:
+        """Sign Solana transaction via Turnkey API."""
+        from bot.services.turnkey_client import get_turnkey_client
+        
+        client = get_turnkey_client()
+        
+        # Convert transaction bytes to hex
+        unsigned_tx_hex = "0x" + transaction_bytes.hex()
+        
+        signed_tx_hex = await client.sign_transaction(
+            unsigned_transaction=unsigned_tx_hex,
+            sign_with=wallet.address,
+            transaction_type="TRANSACTION_TYPE_SOLANA",
+            organization_id=wallet.turnkey_sub_org_id,
+        )
+        
+        # Convert back to bytes
+        return bytes.fromhex(signed_tx_hex.replace("0x", ""))
+    
+    def sign_evm_transaction_raw(
+        self,
+        encrypted_private_key: str,
+        transaction: dict,
+        encryption_scheme: str = None,
+        kms_wrapped_dek: str = None,
+        aesgcm_nonce: str = None,
+        kms_key_id: str = None,
+        key_version: int = None,
+    ) -> str:
         """
         Sign an EVM transaction using encrypted private key directly.
+        
+        Supports both legacy and v2 encryption schemes.
         
         Args:
             encrypted_private_key: Encrypted private key string
             transaction: Transaction dict
+            encryption_scheme: Encryption scheme (None = legacy)
+            kms_wrapped_dek: Base64 KMS-wrapped DEK (v2 only)
+            aesgcm_nonce: Base64 AES-GCM nonce (v2 only)
+            kms_key_id: KMS key identifier (v2 only)
+            key_version: Key version (v2 only)
             
         Returns:
             Signed transaction hex string
         """
-        private_key = decrypt_private_key(encrypted_private_key, settings.encryption_key)
+        from bot.utils.envelope_crypto import decrypt_wallet_key
+        
+        private_key = decrypt_wallet_key(
+            encrypted_private_key=encrypted_private_key,
+            encryption_scheme=encryption_scheme,
+            kms_wrapped_dek=kms_wrapped_dek,
+            aesgcm_nonce=aesgcm_nonce,
+            kms_key_id=kms_key_id,
+            key_version=key_version,
+        )
+        
         if not private_key.startswith("0x"):
             private_key = "0x" + private_key
         
         signed = Account.sign_transaction(transaction, private_key)
         return signed.raw_transaction.hex()
     
-    def sign_solana_transaction_raw(self, encrypted_private_key: str, transaction_bytes: bytes) -> bytes:
+    def sign_solana_transaction_raw(
+        self,
+        encrypted_private_key: str,
+        transaction_bytes: bytes,
+        encryption_scheme: str = None,
+        kms_wrapped_dek: str = None,
+        aesgcm_nonce: str = None,
+        kms_key_id: str = None,
+        key_version: int = None,
+    ) -> bytes:
         """
         Sign a Solana transaction using encrypted private key directly.
+        
+        Supports both legacy and v2 encryption schemes.
         
         Args:
             encrypted_private_key: Encrypted private key string
             transaction_bytes: Serialized transaction
+            encryption_scheme: Encryption scheme (None = legacy)
+            kms_wrapped_dek: Base64 KMS-wrapped DEK (v2 only)
+            aesgcm_nonce: Base64 AES-GCM nonce (v2 only)
+            kms_key_id: KMS key identifier (v2 only)
+            key_version: Key version (v2 only)
             
         Returns:
             Signed transaction bytes
         """
         from solders.transaction import VersionedTransaction
+        from bot.utils.envelope_crypto import decrypt_wallet_key
         
-        private_key = decrypt_private_key(encrypted_private_key, settings.encryption_key)
+        private_key = decrypt_wallet_key(
+            encrypted_private_key=encrypted_private_key,
+            encryption_scheme=encryption_scheme,
+            kms_wrapped_dek=kms_wrapped_dek,
+            aesgcm_nonce=aesgcm_nonce,
+            kms_key_id=kms_key_id,
+            key_version=key_version,
+        )
         
         try:
             key_bytes = base58.b58decode(private_key)

@@ -83,12 +83,15 @@ def _ensure_schema(db_engine) -> None:
     except Exception:
         return
 
+    is_sqlite = db_engine.dialect.name == "sqlite"
+
+    # --- swap_transactions idempotency ---
     if "swap_transactions" in tables:
         cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
 
         if "idempotency_key" not in cols:
             # Add column
-            if db_engine.dialect.name == "sqlite":
+            if is_sqlite:
                 ddl = "ALTER TABLE swap_transactions ADD COLUMN idempotency_key VARCHAR(128)"
             else:
                 ddl = "ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128)"
@@ -97,16 +100,68 @@ def _ensure_schema(db_engine) -> None:
 
         # Unique index to enforce idempotency (NULLs allowed)
         with db_engine.begin() as conn:
-            if db_engine.dialect.name == "sqlite":
-                conn.execute(text(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_swap_transactions_idempotency_key "
-                    "ON swap_transactions(idempotency_key)"
-                ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_swap_transactions_idempotency_key "
+                "ON swap_transactions(idempotency_key)"
+            ))
+
+    # --- wallets: envelope encryption columns ---
+    if "wallets" in tables:
+        _add_encryption_columns(db_engine, inspector, "wallets", is_sqlite)
+        _add_turnkey_columns(db_engine, inspector, "wallets", is_sqlite, include_sub_org=True)
+
+    # --- hot_wallets: envelope encryption columns ---
+    if "hot_wallets" in tables:
+        _add_encryption_columns(db_engine, inspector, "hot_wallets", is_sqlite)
+        _add_turnkey_columns(db_engine, inspector, "hot_wallets", is_sqlite, include_sub_org=False)
+
+
+def _add_encryption_columns(db_engine, inspector, table_name: str, is_sqlite: bool) -> None:
+    """Add envelope encryption columns to a wallet table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns(table_name)}
+
+    # Columns to add for KMS envelope encryption
+    new_columns = [
+        ("encryption_scheme", "VARCHAR(50)", "'legacy_fernet_v1'"),
+        ("kms_wrapped_dek", "TEXT", "NULL"),
+        ("aesgcm_nonce", "VARCHAR(32)", "NULL"),
+        ("kms_key_id", "VARCHAR(255)", "NULL"),
+        ("key_version", "INTEGER", "1"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type} DEFAULT {default}"
             else:
-                conn.execute(text(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_swap_transactions_idempotency_key "
-                    "ON swap_transactions(idempotency_key)"
-                ))
+                ddl = f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+
+def _add_turnkey_columns(db_engine, inspector, table_name: str, is_sqlite: bool, include_sub_org: bool = False) -> None:
+    """Add Turnkey wallet infrastructure columns to a wallet table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns(table_name)}
+
+    # Columns for Turnkey integration
+    new_columns = [
+        ("wallet_provider", "VARCHAR(20)", "'local'"),
+        ("turnkey_wallet_id", "VARCHAR(100)", "NULL"),
+        ("turnkey_account_id", "VARCHAR(100)", "NULL"),
+    ]
+    
+    # User wallets also need sub-organization tracking
+    if include_sub_org:
+        new_columns.append(("turnkey_sub_org_id", "VARCHAR(100)", "NULL"))
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
 
 
 @contextmanager
