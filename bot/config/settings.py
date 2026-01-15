@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     
     # Agent Interoperability
     agent_api_key: Optional[str] = Field(default=None, description="Secret key for other AI agents to access the API")
+
+    # Admin API (for dashboard / ops tooling)
+    admin_api_key: Optional[str] = Field(default=None, description="Secret key for admin dashboard access")
     
     # Application Settings
     log_level: str = Field(default="INFO", description="Logging level")

@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text, inspect
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session
 from sqlalchemy.pool import QueuePool
 from contextlib import contextmanager
@@ -58,9 +58,55 @@ def init_db(database_url: str) -> None:
     # Import models to ensure they're registered with Base
     from bot.models.user import User, Wallet
     from bot.models.swap import SwapTransaction
+    # Common operational tables used by services/background tasks
+    from bot.models.fees import FeeConfig, FeeTransaction, FeeSummary
+    from bot.models.advanced import LimitOrder, DCAOrder, DCAExecution, SwapTemplate
     
     # Create all tables
     Base.metadata.create_all(bind=engine)
+
+    # Lightweight schema migrations (no Alembic)
+    _ensure_schema(engine)
+
+
+def _ensure_schema(db_engine) -> None:
+    """
+    Ensure newer columns/indexes exist for existing deployments.
+    This project intentionally avoids Alembic; keep migrations additive + idempotent.
+    """
+    if not db_engine:
+        return
+
+    inspector = inspect(db_engine)
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    if "swap_transactions" in tables:
+        cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
+
+        if "idempotency_key" not in cols:
+            # Add column
+            if db_engine.dialect.name == "sqlite":
+                ddl = "ALTER TABLE swap_transactions ADD COLUMN idempotency_key VARCHAR(128)"
+            else:
+                ddl = "ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128)"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+        # Unique index to enforce idempotency (NULLs allowed)
+        with db_engine.begin() as conn:
+            if db_engine.dialect.name == "sqlite":
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_swap_transactions_idempotency_key "
+                    "ON swap_transactions(idempotency_key)"
+                ))
+            else:
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_swap_transactions_idempotency_key "
+                    "ON swap_transactions(idempotency_key)"
+                ))
 
 
 @contextmanager

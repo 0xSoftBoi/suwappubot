@@ -45,8 +45,8 @@ export default function Dashboard() {
         async function fetchData() {
             try {
                 const [pRes, sRes] = await Promise.all([
-                    fetch("http://localhost:8000/users/1/portfolio"),
-                    fetch("http://localhost:8000/users/1/swaps?limit=5")
+                    fetch("/api/portfolio"),
+                    fetch("/api/swaps?limit=5")
                 ]);
                 setPortfolio(await pRes.json());
                 setSwaps(await sRes.json());

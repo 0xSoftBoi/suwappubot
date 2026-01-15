@@ -1,6 +1,7 @@
 """Quick swap command for power users."""
 
 import re
+import secrets
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler
 
@@ -11,6 +12,7 @@ from bot.config.tokens import get_token_by_symbol
 from bot.config.chains import get_chain_by_name
 from bot.utils.validators import validate_amount
 from bot.utils.formatters import format_amount, format_usd
+from bot.utils.rate_limiter import swap_limiter, enforce_rate_limit_for_update
 from database.db import get_session
 
 
@@ -27,6 +29,10 @@ async def quickswap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """
     user = update.effective_user
     args = context.args
+
+    allowed = await enforce_rate_limit_for_update(update, swap_limiter)
+    if not allowed:
+        return
     
     if not args or len(args) < 3:
         await update.message.reply_text(
@@ -89,6 +95,7 @@ async def quickswap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             "id": wallet.id,
             "address": wallet.address,
             "chain_type": wallet.chain_type,
+            "user_id": db_user.id,
         }
     
     # Validate tokens
@@ -125,6 +132,8 @@ async def quickswap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         "to_token": to_token,
         "amount": amount,
         "wallet_id": wallet_info["id"],
+        "user_id": wallet_info["user_id"],
+        "attempt_id": secrets.token_urlsafe(16),
     }
     
     loading_msg = await update.message.reply_text("🔄 Getting quote...")
@@ -188,6 +197,10 @@ async def quickswap_confirm_callback(update: Update, context: ContextTypes.DEFAU
     """Confirm and execute quick swap."""
     query = update.callback_query
     await query.answer()
+
+    allowed = await enforce_rate_limit_for_update(update, swap_limiter)
+    if not allowed:
+        return
     
     swap_data = context.user_data.get("quickswap")
     if not swap_data:
@@ -197,16 +210,18 @@ async def quickswap_confirm_callback(update: Update, context: ContextTypes.DEFAU
     await query.edit_message_text("⏳ Executing swap...")
     
     try:
-        result = await swap_engine.execute_swap(
+        # Note: SwapEngine returns a SwapTransaction (not a dict)
+        swap_tx = await swap_engine.execute_swap(
             quote=swap_data["quote"],
             wallet_id=swap_data["wallet_id"],
+            user_id=swap_data["user_id"],
+            idempotency_key=f"tg_quick:{swap_data['user_id']}:{swap_data['wallet_id']}:{swap_data.get('attempt_id','no_attempt')}",
         )
-        
-        if result.get("success"):
-            tx_hash = result.get("tx_hash", "")
+
+        if swap_tx and swap_tx.tx_hash:
             await query.edit_message_text(
                 f"✅ *Swap Submitted!*\n\n"
-                f"Transaction: `{tx_hash[:20]}...`\n\n"
+                f"Transaction: `{swap_tx.tx_hash[:20]}...`\n\n"
                 f"Check status with /history",
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup([
@@ -215,11 +230,11 @@ async def quickswap_confirm_callback(update: Update, context: ContextTypes.DEFAU
                 ])
             )
         else:
-            error = result.get("error", "Unknown error")
             await query.edit_message_text(
-                f"❌ Swap failed: {error}",
+                "❌ Swap submitted but missing transaction hash. Please check /history in a moment.",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 Try Again", callback_data="swap_start")]
+                    [InlineKeyboardButton("📜 History", callback_data="history")],
+                    [InlineKeyboardButton("🔄 New Swap", callback_data="swap_start")],
                 ])
             )
     except Exception as e:

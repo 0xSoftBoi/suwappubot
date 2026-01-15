@@ -43,6 +43,10 @@ class SwapTransaction(Base):
     tx_hash = Column(String(255), nullable=True)  # Source chain tx hash
     bridge_tx_hash = Column(String(255), nullable=True)  # Bridge tx hash if cross-chain
     destination_tx_hash = Column(String(255), nullable=True)  # Destination chain tx hash
+
+    # Idempotency (prevents duplicate submits on double-click/retry)
+    # Enforced via a unique index created in `database/db.py` migrations helper.
+    idempotency_key = Column(String(128), nullable=True, index=True)
     
     # Route info
     route_provider = Column(String(50), nullable=True)  # "lifi" or "jupiter"

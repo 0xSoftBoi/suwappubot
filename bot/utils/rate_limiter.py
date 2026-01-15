@@ -3,7 +3,7 @@
 import asyncio
 import time
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, Hashable
 from functools import wraps
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -129,10 +129,11 @@ class UserRateLimiter:
         """
         self.max_requests = max_requests
         self.window_seconds = window_seconds
-        self._user_requests: Dict[int, list] = defaultdict(list)
+        # Key can be Telegram ID (int), WhatsApp number (str), etc.
+        self._user_requests: Dict[Hashable, list] = defaultdict(list)
         self._lock = asyncio.Lock()
     
-    async def check(self, user_id: int) -> bool:
+    async def check(self, user_id: Hashable) -> bool:
         """
         Check if user is within rate limit.
         
@@ -163,7 +164,7 @@ class UserRateLimiter:
             self._user_requests[user_id].append(now)
             return True
     
-    def get_remaining(self, user_id: int) -> int:
+    def get_remaining(self, user_id: Hashable) -> int:
         """Get remaining requests for user."""
         now = datetime.utcnow()
         cutoff = now - timedelta(seconds=self.window_seconds)
@@ -219,4 +220,29 @@ def rate_limit_user(max_requests: int = 30, window_seconds: int = 60):
 swap_limiter = UserRateLimiter(max_requests=10, window_seconds=60)  # 10 swaps/min
 wallet_limiter = UserRateLimiter(max_requests=20, window_seconds=60)  # 20 wallet ops/min
 alert_limiter = UserRateLimiter(max_requests=30, window_seconds=60)  # 30 alert ops/min
+
+
+async def enforce_rate_limit_for_update(
+    update,
+    limiter: UserRateLimiter,
+    key: Optional[Hashable] = None,
+) -> bool:
+    """
+    Enforce rate limiting for a Telegram `Update`.
+    Returns True if allowed, False if blocked (and user was notified).
+    """
+    user = getattr(update, "effective_user", None)
+    if key is None:
+        key = user.id if user else None
+    if key is None:
+        return True
+
+    try:
+        await limiter.check(key)
+        return True
+    except RateLimitExceeded as e:
+        msg = getattr(update, "message", None) or getattr(getattr(update, "callback_query", None), "message", None)
+        if msg:
+            await msg.reply_text(f"⏳ {e}")
+        return False
 

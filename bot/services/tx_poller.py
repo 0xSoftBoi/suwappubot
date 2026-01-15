@@ -10,6 +10,7 @@ from bot.config.chains import get_chain_by_name, ChainType
 from bot.utils.http_client import get_session
 from database.db import get_session as get_db_session
 from bot.config.settings import settings
+from bot.services.lifi_api import LiFiAPI
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class TransactionPoller:
         self._poll_interval = poll_interval  # seconds
         self._max_age_hours = max_age_hours
         self._bot = None
+        self._lifi = LiFiAPI()
         logger.info(f"Transaction poller initialized (interval: {poll_interval}s)")
     
     async def start(self, bot=None):
@@ -107,6 +109,10 @@ class TransactionPoller:
         if not chain:
             return None
         
+        # Cross-chain via Li.Fi should use Li.Fi status (source receipt != end-to-end completion)
+        if tx.route_provider == "lifi" and tx.from_chain != tx.to_chain:
+            return await self._check_lifi_status(tx)
+
         if chain.chain_type == ChainType.EVM:
             rpc_url = settings.get_rpc_url(chain.name)
             return await self._check_evm_tx(tx.tx_hash, rpc_url)
@@ -114,6 +120,32 @@ class TransactionPoller:
             return await self._check_solana_tx(tx.tx_hash)
         
         return None
+
+    async def _check_lifi_status(self, tx: SwapTransaction) -> Optional[str]:
+        """Check cross-chain swap status via Li.Fi API and persist destination tx hash if present."""
+        try:
+            status = await self._lifi.get_status(
+                tx_hash=tx.tx_hash,
+                from_chain=tx.from_chain,
+                to_chain=tx.to_chain,
+            )
+
+            if status.status == "DONE":
+                if status.receiving_tx_hash:
+                    with get_db_session() as session:
+                        db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == tx.id).first()
+                        if db_tx:
+                            db_tx.destination_tx_hash = status.receiving_tx_hash
+                return SwapStatus.COMPLETED.value
+
+            if status.status == "FAILED":
+                return SwapStatus.FAILED.value
+
+            return SwapStatus.CONFIRMING.value
+
+        except Exception as e:
+            logger.error(f"Li.Fi status check error: {e}")
+            return None
     
     async def _check_evm_tx(self, tx_hash: str, rpc_url: str) -> Optional[str]:
         """Check EVM transaction status."""

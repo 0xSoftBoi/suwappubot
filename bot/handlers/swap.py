@@ -1,5 +1,6 @@
 """Swap flow handlers."""
 
+import secrets
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
@@ -20,6 +21,7 @@ from bot.config.chains import CHAINS, ChainType, get_chain_by_name
 from bot.config.tokens import get_tokens_for_chain, get_token_address
 from bot.utils.formatters import format_amount, format_usd, format_time_estimate, format_tx_link
 from bot.utils.validators import validate_amount
+from bot.utils.rate_limiter import swap_limiter, enforce_rate_limit_for_update
 from database.db import get_session
 
 
@@ -45,6 +47,11 @@ async def swap_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def start_swap(update: Update, context: ContextTypes.DEFAULT_TYPE, is_callback: bool = False) -> int:
     """Start the swap flow."""
     user = update.effective_user
+
+    # Rate limit swap flow entry
+    allowed = await enforce_rate_limit_for_update(update, swap_limiter)
+    if not allowed:
+        return ConversationHandler.END
     
     # Clear previous swap data
     context.user_data.pop("swap", None)
@@ -284,6 +291,10 @@ async def select_to_token(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle amount input."""
+    allowed = await enforce_rate_limit_for_update(update, swap_limiter)
+    if not allowed:
+        return ConversationHandler.END
+
     amount = validate_amount(update.message.text)
     
     if amount is None:
@@ -337,6 +348,8 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         
         context.user_data["swap"]["quote"] = quote
+        # New attempt id each time we present a confirm button (prevents double-submit)
+        context.user_data["swap"]["attempt_id"] = secrets.token_urlsafe(16)
         
         from_chain_config = get_chain_by_name(swap_data["from_chain"])
         to_chain_config = get_chain_by_name(swap_data["to_chain"])
@@ -412,6 +425,10 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     query = update.callback_query
     await query.answer()
     
+    allowed = await enforce_rate_limit_for_update(update, swap_limiter)
+    if not allowed:
+        return ConversationHandler.END
+
     swap_data = context.user_data.get("swap")
     quote: SwapQuote = swap_data.get("quote")
     user_id = context.user_data.get("user_id")
@@ -438,10 +455,13 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     await query.edit_message_text("⏳ Executing swap...")
     
     try:
+        attempt_id = swap_data.get("attempt_id") or "no_attempt"
+        idempotency_key = f"tg:{user_id}:{wallet_id}:{attempt_id}"
         swap_tx = await swap_engine.execute_swap(
             quote=quote,
             wallet_id=wallet_id,
             user_id=user_id,
+            idempotency_key=idempotency_key,
         )
         
         # Record the fee ONLY if swap was successfully submitted
@@ -452,16 +472,23 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             fee_usd = swap_data.get("fee_usd", 0)
             
             if fee_amount > 0:
-                fee_service.record_fee(
-                    user_id=user_id,
-                    chain=swap_data["from_chain"],
-                    token_symbol=swap_data["from_token"],
-                    swap_amount=quote.from_amount_human,
-                    fee_amount=fee_amount,
-                    fee_percentage=fee_percentage,
-                    fee_amount_usd=fee_usd,
-                    swap_id=swap_tx.id,
-                )
+                # Prevent duplicate fee records on double-tap (idempotent)
+                from bot.models.fees import FeeTransaction
+                with get_session() as session:
+                    existing_fee = session.query(FeeTransaction).filter(
+                        FeeTransaction.swap_id == swap_tx.id
+                    ).first()
+                if not existing_fee:
+                    fee_service.record_fee(
+                        user_id=user_id,
+                        chain=swap_data["from_chain"],
+                        token_symbol=swap_data["from_token"],
+                        swap_amount=quote.from_amount_human,
+                        fee_amount=fee_amount,
+                        fee_percentage=fee_percentage,
+                        fee_amount_usd=fee_usd,
+                        swap_id=swap_tx.id,
+                    )
         
         from_chain_config = get_chain_by_name(swap_data["from_chain"])
         
@@ -526,6 +553,10 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     """Get a new quote for the same swap."""
     query = update.callback_query
     await query.answer()
+
+    allowed = await enforce_rate_limit_for_update(update, swap_limiter)
+    if not allowed:
+        return ConversationHandler.END
     
     swap_data = context.user_data.get("swap")
     if not swap_data or "amount" not in swap_data:
@@ -560,6 +591,7 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         
         context.user_data["swap"]["quote"] = quote
+        context.user_data["swap"]["attempt_id"] = secrets.token_urlsafe(16)
         
         from_chain_config = get_chain_by_name(swap_data["from_chain"])
         to_chain_config = get_chain_by_name(swap_data["to_chain"])
@@ -608,6 +640,10 @@ async def check_swap_status(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """Check status of a swap."""
     query = update.callback_query
     await query.answer()
+
+    allowed = await enforce_rate_limit_for_update(update, swap_limiter)
+    if not allowed:
+        return
     
     swap_id = int(query.data.replace("swap_status_", ""))
     

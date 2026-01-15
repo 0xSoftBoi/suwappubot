@@ -129,6 +129,10 @@ app = FastAPI(
 API_KEY_NAME = "X-Agent-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
+# --- Admin Authentication ---
+ADMIN_KEY_NAME = "X-Admin-Key"
+admin_key_header = APIKeyHeader(name=ADMIN_KEY_NAME, auto_error=False)
+
 async def get_agent_key(
     api_key: str = Security(api_key_header),
 ):
@@ -145,6 +149,31 @@ async def get_agent_key(
         status_code=403,
         detail="Invalid or missing Agent API Key. Discovery requires authentication."
     )
+
+
+async def get_admin_key(
+    api_key: str = Security(admin_key_header),
+):
+    """Verify the admin API key (for dashboard/ops)."""
+    valid_key = getattr(settings, "admin_api_key", None)
+    if not valid_key:
+        # In development, allow if no key is set
+        return "dev-admin-key"
+
+    if api_key == valid_key:
+        return api_key
+
+    raise HTTPException(status_code=403, detail="Invalid or missing Admin API Key")
+
+
+async def get_agent_or_admin_key(
+    agent_key: str = Security(api_key_header),
+    admin_key: str = Security(admin_key_header),
+):
+    """Allow either an agent key or an admin key."""
+    if admin_key:
+        return await get_admin_key(admin_key)
+    return await get_agent_key(agent_key)
 
 # Setup CORS
 app.add_middleware(
@@ -421,8 +450,13 @@ async def get_portfolio(
         chains=chains_value
     )
 
-@app.get("/users/{user_id}/swaps", response_model=List[SwapResponse])
-async def get_swaps(user_id: int, limit: int = 50, db: Session = Depends(get_db)):
+@app.get("/users/{user_id}/swaps", response_model=List[SwapResponse], tags=["Swaps"])
+async def get_swaps(
+    user_id: int,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _key: str = Depends(get_agent_or_admin_key),
+):
     swaps = db.query(SwapTransaction).filter(
         SwapTransaction.user_id == user_id
     ).order_by(SwapTransaction.created_at.desc()).limit(limit).all()
@@ -440,6 +474,50 @@ async def get_swaps(user_id: int, limit: int = 50, db: Session = Depends(get_db)
             timestamp=s.created_at,
             txHash=s.tx_hash
         ) for s in swaps
+    ]
+
+
+class AdminSwapResponse(BaseModel):
+    id: int
+    userId: int
+    fromChain: str
+    toChain: str
+    fromToken: str
+    toToken: str
+    fromAmount: str
+    toAmount: Optional[str]
+    status: str
+    timestamp: datetime
+    txHash: Optional[str]
+
+
+@app.get("/admin/swaps", response_model=List[AdminSwapResponse], tags=["Admin"])
+async def admin_get_swaps(
+    limit: int = 50,
+    user_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    _admin_key: str = Depends(get_admin_key),
+):
+    query = db.query(SwapTransaction)
+    if user_id is not None:
+        query = query.filter(SwapTransaction.user_id == user_id)
+    swaps = query.order_by(SwapTransaction.created_at.desc()).limit(limit).all()
+
+    return [
+        AdminSwapResponse(
+            id=s.id,
+            userId=s.user_id,
+            fromChain=s.from_chain,
+            toChain=s.to_chain,
+            fromToken=s.from_token,
+            toToken=s.to_token,
+            fromAmount=s.from_amount,
+            toAmount=s.to_amount,
+            status=s.status,
+            timestamp=s.created_at,
+            txHash=s.tx_hash,
+        )
+        for s in swaps
     ]
 
 @app.get("/portfolio", response_model=PortfolioResponse)
@@ -483,6 +561,19 @@ async def receive_whatsapp_message(request: Request):
     message = whatsapp_service.parse_webhook_message(payload)
     if not message:
         return {"status": "no_message"}
+
+    # Rate limit WhatsApp ingress (per sender)
+    from bot.utils.rate_limiter import UserRateLimiter, RateLimitExceeded
+    if not hasattr(receive_whatsapp_message, "_limiter"):
+        receive_whatsapp_message._limiter = UserRateLimiter(max_requests=30, window_seconds=60)
+    try:
+        await receive_whatsapp_message._limiter.check(message.from_number)
+    except RateLimitExceeded as e:
+        await whatsapp_service.send_text_message(
+            message.from_number,
+            f"⏳ {e}"
+        )
+        return {"status": "rate_limited"}
     
     # Mark as read
     await whatsapp_service.mark_as_read(message.message_id)

@@ -412,6 +412,7 @@ class SwapEngine:
         quote: SwapQuote,
         wallet_id: int,
         user_id: int,
+        idempotency_key: Optional[str] = None,
     ) -> SwapTransaction:
         """
         Execute a swap based on a quote.
@@ -432,6 +433,18 @@ class SwapEngine:
             self._wallet_locks[wallet_id] = asyncio.Lock()
         
         async with self._wallet_locks[wallet_id]:
+            # Idempotency: if we already created/submitted this attempt, return it
+            if idempotency_key:
+                with get_session() as session:
+                    existing = session.query(SwapTransaction).filter(
+                        SwapTransaction.idempotency_key == idempotency_key
+                    ).first()
+                    if existing and existing.status not in [
+                        SwapStatus.FAILED.value,
+                        SwapStatus.CANCELLED.value,
+                    ]:
+                        return existing
+
             # Get wallet data within session
             with get_session() as session:
                 wallet = session.query(Wallet).filter(Wallet.id == wallet_id).first()
@@ -476,6 +489,7 @@ class SwapEngine:
                     route_provider=quote.provider,
                     gas_fee=quote.gas_cost_usd,
                     bridge_fee=quote.fee_cost_usd,
+                    idempotency_key=idempotency_key,
                 )
                 session.add(swap_tx)
                 session.flush()
