@@ -3,9 +3,9 @@ import os
 import asyncio
 from pathlib import Path
 from typing import List, Optional, Dict
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from fastapi import FastAPI, Depends, HTTPException, Query, Request, Security
+from fastapi import FastAPI, Depends, HTTPException, Query, Request, Security, Response, Cookie
 from fastapi.security.api_key import APIKeyHeader, APIKey
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, JSONResponse
@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict
 import secrets
 import json
+import jwt
+import hashlib
 
 # Add project root to path to import bot modules
 project_root = str(Path(__file__).parent.parent)
@@ -27,7 +29,7 @@ from bot.services.orders import order_service
 from bot.services.tx_poller import tx_poller
 from bot.services.health_monitor import health_monitor
 from bot.utils.preload import preload_config
-from database.db import init_db, engine, get_session
+from database.db import init_db, engine, get_session, DATABASE_AVAILABLE
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction
 from bot.models.advanced import LimitOrder, DCAOrder
@@ -50,9 +52,23 @@ async def lifespan(app: FastAPI):
     
     # 1. Initialize DB & Config
     preload_config()
-    init_db(settings.database_url)
-    if engine:
+    
+    # Initialize database with error handling
+    db_success = False
+    try:
+        db_success = init_db(settings.database_url)
+        if not db_success:
+            logger.warning("⚠️ Database initialization failed - API running in degraded mode")
+    except Exception as e:
+        logger.error(f"Database initialization error: {e}")
+        logger.warning("⚠️ API will run in degraded mode without database")
+    
+    # Set up database monitoring if database is available
+    if engine and db_success:
         setup_db_monitoring(engine)
+        logger.info("✓ Database monitoring enabled")
+    else:
+        logger.warning("⚠️ Database monitoring disabled (no connection)")
     
     # 2. Build Bot Application
     bot_app = (
@@ -242,6 +258,78 @@ class SwapResponse(BaseModel):
     timestamp: datetime
     txHash: Optional[str]
 
+# --- Turnkey Auth Models ---
+
+class AuthChallengeRequest(BaseModel):
+    address: str
+
+class AuthChallengeResponse(BaseModel):
+    challenge: str
+    nonce: str
+    expiresAt: datetime
+
+class AuthVerifyRequest(BaseModel):
+    address: str
+    signature: str
+    nonce: str
+
+class AuthVerifyResponse(BaseModel):
+    success: bool
+    token: str
+    user: Optional[Dict] = None
+    expiresAt: datetime
+
+class AuthMeResponse(BaseModel):
+    authenticated: bool
+    address: Optional[str] = None
+    userId: Optional[int] = None
+    createdAt: Optional[datetime] = None
+
+# --- JWT Configuration ---
+
+JWT_SECRET = getattr(settings, "secret_key", None) or os.environ.get("SECRET_KEY") or secrets.token_hex(32)
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRY_HOURS = 24 * 7  # 7 days
+
+def create_jwt_token(address: str, user_id: int) -> str:
+    """Create a JWT token for authenticated user."""
+    payload = {
+        "address": address.lower(),
+        "user_id": user_id,
+        "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS),
+        "iat": datetime.utcnow(),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def decode_jwt_token(token: str) -> Optional[Dict]:
+    """Decode and validate a JWT token."""
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
+async def get_current_user_from_token(
+    request: Request,
+    auth_token: Optional[str] = Cookie(default=None, alias="suwappu_auth"),
+) -> Optional[Dict]:
+    """Extract current user from JWT token in cookie or header."""
+    # Try cookie first
+    token = auth_token
+    
+    # Fallback to Authorization header
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    
+    if not token:
+        return None
+    
+    return decode_jwt_token(token)
+
 # --- Dependencies ---
 
 def get_db():
@@ -253,7 +341,158 @@ def get_db():
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Health check endpoint for Render and monitoring."""
-    return {"status": "healthy", "service": "suwappu-api"}
+    from database.db import DATABASE_AVAILABLE
+    return {
+        "status": "healthy",
+        "service": "suwappu-api",
+        "database": "connected" if DATABASE_AVAILABLE else "degraded"
+    }
+
+
+# ============ Turnkey Web Authentication ============
+
+@app.post("/auth/turnkey/challenge", response_model=AuthChallengeResponse, tags=["Auth"])
+async def auth_challenge(request: AuthChallengeRequest):
+    """
+    Generate a challenge message for wallet-based authentication.
+    The user signs this message with their wallet to prove ownership.
+    """
+    from bot.services.turnkey_client import generate_auth_challenge
+    
+    address = request.address.strip()
+    if not address.startswith("0x") or len(address) != 42:
+        raise HTTPException(status_code=400, detail="Invalid Ethereum address format")
+    
+    challenge, nonce = generate_auth_challenge(address)
+    
+    return AuthChallengeResponse(
+        challenge=challenge,
+        nonce=nonce,
+        expiresAt=datetime.utcnow() + timedelta(minutes=5)
+    )
+
+
+@app.post("/auth/turnkey/verify", response_model=AuthVerifyResponse, tags=["Auth"])
+async def auth_verify(
+    request: AuthVerifyRequest,
+    response: Response,
+    db: Session = Depends(get_db)
+):
+    """
+    Verify the signed challenge and create a session.
+    Returns a JWT token for subsequent authenticated requests.
+    """
+    from bot.services.turnkey_client import verify_auth_signature
+    
+    address = request.address.strip().lower()
+    
+    # Verify the signature
+    is_valid = verify_auth_signature(
+        address=address,
+        signature=request.signature,
+        nonce=request.nonce
+    )
+    
+    if not is_valid:
+        raise HTTPException(status_code=401, detail="Invalid signature or expired challenge")
+    
+    # Find or create user by wallet address
+    wallet = db.query(Wallet).filter(
+        Wallet.address.ilike(address)
+    ).first()
+    
+    if wallet:
+        user = db.query(User).filter(User.id == wallet.user_id).first()
+    else:
+        # Create new user and wallet for first-time login
+        user = User(
+            telegram_id=None,
+            username=f"web_{address[:8]}",
+            created_at=datetime.utcnow()
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        
+        # Create wallet linked to user
+        wallet = Wallet(
+            user_id=user.id,
+            address=address,
+            chain_type="evm",
+            is_active=True,
+            is_default=True,
+            name="Web Wallet",
+            created_at=datetime.utcnow()
+        )
+        db.add(wallet)
+        db.commit()
+    
+    # Create JWT token
+    token = create_jwt_token(address, user.id)
+    expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
+    
+    # Set secure HTTP-only cookie
+    response.set_cookie(
+        key="suwappu_auth",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=JWT_EXPIRY_HOURS * 3600,
+        path="/"
+    )
+    
+    return AuthVerifyResponse(
+        success=True,
+        token=token,
+        user={
+            "id": user.id,
+            "address": address,
+            "username": user.username
+        },
+        expiresAt=expires_at
+    )
+
+
+@app.get("/auth/me", response_model=AuthMeResponse, tags=["Auth"])
+async def auth_me(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: Optional[Dict] = Depends(get_current_user_from_token)
+):
+    """
+    Get the currently authenticated user's information.
+    """
+    if not current_user:
+        return AuthMeResponse(authenticated=False)
+    
+    user = db.query(User).filter(User.id == current_user.get("user_id")).first()
+    
+    if not user:
+        return AuthMeResponse(authenticated=False)
+    
+    return AuthMeResponse(
+        authenticated=True,
+        address=current_user.get("address"),
+        userId=user.id,
+        createdAt=user.created_at
+    )
+
+
+@app.post("/auth/logout", tags=["Auth"])
+async def auth_logout(response: Response):
+    """
+    Log out the current user by clearing the session cookie.
+    """
+    response.delete_cookie(
+        key="suwappu_auth",
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="lax"
+    )
+    return {"success": True, "message": "Logged out successfully"}
+
 
 @app.get("/.well-known/ai-plugin.json", tags=["Discovery"], include_in_schema=False)
 async def get_plugin_manifest():

@@ -2,6 +2,10 @@ from sqlalchemy import create_engine, event, text, inspect
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session
 from contextlib import contextmanager
 from typing import Generator
+import logging
+import time
+
+logger = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):
@@ -12,43 +16,29 @@ class Base(DeclarativeBase):
 # These will be initialized when init_db is called
 engine = None
 SessionLocal = None
+DATABASE_AVAILABLE = False  # Flag for degraded mode
 
 
-def init_db(database_url: str) -> None:
-    """Initialize database connection and create tables."""
-    global engine, SessionLocal
+def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -> bool:
+    """
+    Initialize database connection and create tables.
     
-    # Handle Render database URLs
-    # Render provides both internal and external connection strings
-    # Internal URLs use .internal suffix and only work within Render network
-    # External URLs work from anywhere but may have different hostnames
-    original_url = database_url
-    if database_url and "dpg-" in database_url:
-        import re
-        import logging
-        logger = logging.getLogger(__name__)
-        
-        # Check if already using internal URL
-        if ".internal" in database_url:
-            logger.info("Using Render internal database URL (already configured)")
-        else:
-            # Try to convert to internal URL
-            # Render external hostnames: dpg-xxxxx-a or dpg-xxxxx-a.somehost.com
-            match = re.search(r'@(dpg-[a-z0-9]+(?:-[a-z])?)', database_url)
-            if match:
-                host_base = match.group(1)
-                # Try internal first (preferred for same-region services)
-                internal_url = re.sub(
-                    r'@' + re.escape(host_base) + r'(?=[.:/])',
-                    f"@{host_base}.internal",
-                    database_url
-                )
-                if internal_url == database_url:
-                    # No substitution happened, try simple replace
-                    internal_url = database_url.replace(f"@{host_base}", f"@{host_base}.internal")
-                
-                logger.info(f"Attempting Render internal database URL: {host_base} -> {host_base}.internal")
-                database_url = internal_url
+    Returns True if successful, False if database is unavailable.
+    Does not raise exceptions - allows app to run in degraded mode.
+    """
+    global engine, SessionLocal, DATABASE_AVAILABLE
+    
+    if not database_url:
+        logger.error("No DATABASE_URL provided")
+        return False
+    
+    # Log the database type (mask credentials)
+    if "postgresql" in database_url or "postgres" in database_url:
+        logger.info("Connecting to PostgreSQL database...")
+    elif "sqlite" in database_url:
+        logger.info("Connecting to SQLite database...")
+    else:
+        logger.info("Connecting to database...")
     
     connect_args = {}
     is_sqlite = database_url.startswith("sqlite")
@@ -58,23 +48,47 @@ def init_db(database_url: str) -> None:
     else:
         # PostgreSQL/Render specific settings
         # Render requires SSL for database connections
-        if "dpg-" in database_url or "render.com" in database_url:
+        if "dpg-" in database_url or "render.com" in database_url or "postgresql" in database_url:
             connect_args["sslmode"] = "require"
             connect_args["connect_timeout"] = 10
     
-    # Optimized engine settings
-    engine = create_engine(
-        database_url,
-        connect_args=connect_args,
-        echo=False,
-        pool_pre_ping=True,  # Check connections before use
-        pool_size=20 if not is_sqlite else 5,  # Connection pool
-        max_overflow=30 if not is_sqlite else 5,  # Extra connections
-        pool_recycle=3600,  # Recycle connections hourly
-    )
+    # Retry logic for transient connection failures
+    last_error = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            # Create engine
+            engine = create_engine(
+                database_url,
+                connect_args=connect_args,
+                echo=False,
+                pool_pre_ping=True,  # Check connections before use
+                pool_size=20 if not is_sqlite else 5,  # Connection pool
+                max_overflow=30 if not is_sqlite else 5,  # Extra connections
+                pool_recycle=3600,  # Recycle connections hourly
+            )
+            
+            # Test the connection
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            
+            logger.info(f"✓ Database connection established (attempt {attempt}/{max_retries})")
+            break
+            
+        except Exception as e:
+            last_error = e
+            logger.warning(f"Database connection attempt {attempt}/{max_retries} failed: {e}")
+            
+            if attempt < max_retries:
+                logger.info(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+            else:
+                logger.error(f"Failed to connect to database after {max_retries} attempts: {last_error}")
+                engine = None
+                return False
     
     # SQLite optimizations
-    if is_sqlite:
+    if is_sqlite and engine:
         @event.listens_for(engine, "connect")
         def set_sqlite_pragma(dbapi_connection, connection_record):
             cursor = dbapi_connection.cursor()
@@ -93,24 +107,34 @@ def init_db(database_url: str) -> None:
     )
     
     # Import models to ensure they're registered with Base
-    from bot.models.user import User, Wallet
-    from bot.models.swap import SwapTransaction
-    # Common operational tables used by services/background tasks
-    from bot.models.fees import FeeConfig, FeeTransaction, FeeSummary
-    from bot.models.advanced import LimitOrder, DCAOrder, DCAExecution, SwapTemplate
-    # Referral system models
-    from bot.models.referral import Referral, ReferralCode, ReferralReward, ReferralPayout
-    # Points/XP and Copy Trading models
-    from bot.models.points import UserPoints, PointTransaction, PointRedemption, Milestone, UserMilestone, Reward
-    from bot.models.copy_trading import TraderProfile, CopyFollow, CopyTrade, CopyNotification, TraderTrade
-    # Token Sniping models
-    from bot.models.snipe import SnipeOrder, SnipeConfig, SnipeHistory, WatchedToken, AutoSnipeRule
+    try:
+        from bot.models.user import User, Wallet
+        from bot.models.swap import SwapTransaction
+        # Common operational tables used by services/background tasks
+        from bot.models.fees import FeeConfig, FeeTransaction, FeeSummary
+        from bot.models.advanced import LimitOrder, DCAOrder, DCAExecution, SwapTemplate
+        # Referral system models
+        from bot.models.referral import Referral, ReferralCode, ReferralReward, ReferralPayout
+        # Points/XP and Copy Trading models
+        from bot.models.points import UserPoints, PointTransaction, PointRedemption, Milestone, UserMilestone, Reward
+        from bot.models.copy_trading import TraderProfile, CopyFollow, CopyTrade, CopyNotification, TraderTrade
+        # Token Sniping models
+        from bot.models.snipe import SnipeOrder, SnipeConfig, SnipeHistory, WatchedToken, AutoSnipeRule
 
-    # Create all tables
-    Base.metadata.create_all(bind=engine)
+        # Create all tables
+        Base.metadata.create_all(bind=engine)
+        logger.info("✓ Database tables created/verified")
 
-    # Lightweight schema migrations (no Alembic)
-    _ensure_schema(engine)
+        # Lightweight schema migrations (no Alembic)
+        _ensure_schema(engine)
+        logger.info("✓ Database schema migrations complete")
+        
+    except Exception as e:
+        logger.error(f"Failed to create database tables: {e}")
+        return False
+    
+    DATABASE_AVAILABLE = True
+    return True
 
 
 def _ensure_schema(db_engine) -> None:

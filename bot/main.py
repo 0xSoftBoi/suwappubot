@@ -82,7 +82,7 @@ from bot.utils.errors import handle_swap_error
 from bot.utils.http_client import close_session as close_http_session
 from bot.utils.preload import preload_config
 from bot.utils.db_monitor import setup_db_monitoring
-from database.db import init_db
+from database.db import init_db, DATABASE_AVAILABLE
 
 # Try to import C++ core for high-performance operations
 try:
@@ -381,15 +381,24 @@ def main() -> None:
     logger.info("Preloading configurations...")
     preload_config()
     
-    # Initialize database
+    # Initialize database with error handling
     logger.info("Initializing database...")
-    init_db(settings.database_url)
+    db_success = False
+    try:
+        db_success = init_db(settings.database_url)
+        if not db_success:
+            logger.warning("⚠️ Database initialization failed - running in degraded mode")
+    except Exception as e:
+        logger.error(f"Database initialization error: {e}")
+        logger.warning("⚠️ Bot will run in degraded mode without database")
     
-    # Set up database monitoring
+    # Set up database monitoring if database is available
     from database.db import engine
-    if engine:
+    if engine and db_success:
         setup_db_monitoring(engine)
         logger.info("✓ Database monitoring enabled")
+    else:
+        logger.warning("⚠️ Database monitoring disabled (no connection)")
     
     # Create application with lifecycle hooks
     logger.info("Creating bot application...")
