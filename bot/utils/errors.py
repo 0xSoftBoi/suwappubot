@@ -112,7 +112,7 @@ ERROR_MESSAGES = {
         code="WALLET_NOT_FOUND",
         user_message="❌ Wallet not found.",
         technical_message="No wallet in database",
-        suggestion="Add a wallet first with /wallet."
+        suggestion="Add a wallet first with /w."
     ),
     
     # Quote errors

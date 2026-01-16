@@ -119,7 +119,7 @@ async def create_evm_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def create_sol_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Create a new Solana hot wallet."""
+    """Create a new SOL hot wallet."""
     query = update.callback_query
     await query.answer()
     
@@ -130,14 +130,14 @@ async def create_sol_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     try:
         wallet = hot_wallet_service.create_hot_wallet(
-            name="Solana Hot Wallet",
+            name="SOL Hot Wallet",
             chain_type="solana",
             is_deposit_wallet=True,
             is_gas_payer=True,
         )
         
         await query.edit_message_text(
-            f"✅ *Solana Hot Wallet Created\\!*\n\n"
+            f"✅ *SOL Hot Wallet Created\\!*\n\n"
             f"Address:\n`{wallet.address}`\n\n"
             f"⚠️ *Important:* Fund this wallet with SOL for transaction fees\\!",
             parse_mode="MarkdownV2",
@@ -282,5 +282,5 @@ async def admin_wallets_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 
 # Create handlers
-admin_hot_wallets_handler = CommandHandler("hotwallets", admin_hot_wallets)
+admin_hot_wallets_handler = CommandHandler("hw", admin_hot_wallets)
 

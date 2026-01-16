@@ -8,8 +8,10 @@ from bot.models.user import User
 from bot.models.swap import SwapTransaction, SwapStatus
 from bot.utils.formatters import format_amount, format_usd, format_tx_link, format_chain_name
 from database.db import get_session
+from bot.utils.tos_utils import enforce_tos
 
 
+@enforce_tos
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /history command - show recent swap history."""
     user = update.effective_user
@@ -31,7 +33,7 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not swaps:
             await update.message.reply_text(
                 "📜 *Transaction History*\n\n"
-                "No swaps yet. Use /swap to make your first swap!",
+                "No swaps yet. Use /s to make your first swap!",
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🔄 Start Swap", callback_data="swap_start")]
@@ -182,5 +184,5 @@ def _get_status_emoji(status: str) -> str:
 
 
 # Create handlers
-history_handler = CommandHandler("history", history_command)
+history_handler = CommandHandler("hx", history_command)
 

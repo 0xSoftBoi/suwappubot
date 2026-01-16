@@ -256,5 +256,5 @@ async def save_favorite(
 
 
 # Create handlers
-favorites_handler = CommandHandler("favorites", favorites_command)
+favorites_handler = CommandHandler("f", favorites_command)
 

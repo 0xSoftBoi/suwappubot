@@ -59,7 +59,7 @@ async def gas_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         sol_fee_usd = sol_fee * sol_price if sol_fee else 0
         
         lines.append(
-            f"🟢 *Solana*\n"
+            f"🟢 *SOL*\n"
             f"   Fee: ~{sol_fee:.6f} SOL (~{format_usd(sol_fee_usd)})\n"
         )
         
@@ -133,7 +133,7 @@ async def gas_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         sol_fee_usd = sol_fee * sol_price if sol_fee else 0
         
         lines.append(
-            f"🟢 *Solana*\n"
+            f"🟢 *SOL*\n"
             f"   Fee: ~{sol_fee:.6f} SOL (~{format_usd(sol_fee_usd)})\n"
         )
         
@@ -163,5 +163,5 @@ async def gas_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 # Create handlers
-gas_handler = CommandHandler("gas", gas_command)
+gas_handler = CommandHandler("g", gas_command)
 

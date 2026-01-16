@@ -10,7 +10,11 @@ from telegram.ext import (
 )
 
 from bot.config.settings import settings
-from bot.handlers.start import start_handler, help_handler, help_callback, main_menu_callback, noop_callback
+from bot.handlers.start import (
+    start_handler, help_handler, help_callback, 
+    main_menu_callback, noop_callback,
+    tos_accept_callback, tos_decline_callback
+)
 from bot.handlers.balance import balance_handler, balance_callback
 from bot.handlers.wallet import wallet_handler, wallet_menu_callback, wallet_create_callback, wallet_qr_callback, wallet_import_handler
 from bot.handlers.swap import swap_conversation_handler, check_swap_status
@@ -102,23 +106,23 @@ def add_handlers(application: Application) -> None:
     application.add_handler(help_handler)
     application.add_handler(balance_handler)
     application.add_handler(wallet_handler)
-    application.add_handler(quickswap_handler)  # /swap shortcut
-    application.add_handler(history_handler)     # /history
-    application.add_handler(portfolio_handler)   # /portfolio
-    application.add_handler(gas_handler)         # /gas
-    application.add_handler(favorites_handler)   # /favorites
-    application.add_handler(settings_handler)    # /settings
+    application.add_handler(quickswap_handler)  # /s shortcut
+    application.add_handler(history_handler)     # /hx
+    application.add_handler(portfolio_handler)   # /p
+    application.add_handler(gas_handler)         # /g
+    application.add_handler(favorites_handler)   # /f
+    application.add_handler(settings_handler)    # /set
     
     # Custodial
-    application.add_handler(custodial_handler)   # /custodial
+    application.add_handler(custodial_handler)   # /c
     
     # New feature commands
-    application.add_handler(alerts_handler)      # /alerts
-    application.add_handler(referral_handler)    # /referral
-    application.add_handler(orders_handler)      # /orders (limit orders)
+    application.add_handler(alerts_handler)      # /a
+    application.add_handler(referral_handler)    # /ref
+    application.add_handler(orders_handler)      # /o (limit orders)
     application.add_handler(dca_handler)         # /dca
     application.add_handler(tax_handler)         # /tax
-    application.add_handler(subscription_handler)  # /subscription (x402)
+    application.add_handler(subscription_handler)  # /sub (x402)
     
     # Admin commands
     application.add_handler(status_handler)      # /status
@@ -145,6 +149,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(help_callback, pattern="^help$"))
     application.add_handler(CallbackQueryHandler(main_menu_callback, pattern="^main_menu$"))
     application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
+    application.add_handler(CallbackQueryHandler(tos_accept_callback, pattern="^tos_accept$"))
+    application.add_handler(CallbackQueryHandler(tos_decline_callback, pattern="^tos_decline$"))
     
     # Balance & Portfolio
     application.add_handler(CallbackQueryHandler(balance_callback, pattern="^balance$"))
@@ -329,9 +335,9 @@ def main() -> None:
     add_handlers(application)
     
     # Log available commands
-    logger.info("User commands: /start, /help, /wallet, /balance, /swap, /history, /portfolio, /gas, /favorites, /settings, /custodial")
-    logger.info("Trading commands: /alerts, /orders, /dca, /referral, /tax, /subscription")
-    logger.info("Admin commands: /status, /hotwallets, /fees, /metrics")
+    logger.info("User commands: /start, /h, /w, /b, /s, /hx, /p, /g, /f, /set, /c")
+    logger.info("Trading commands: /a, /o, /dca, /ref, /tax, /sub")
+    logger.info("Admin commands: /st, /hw, /fee, /m")
     logger.info("Background services: Fee sweeper, Price alerts, Limit orders/DCA, Tx poller, Health monitor")
     
     # Start the bot

@@ -239,5 +239,5 @@ async def sweep_fees_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 # Create handlers
-fees_handler = CommandHandler("fees", fees_command)
+fees_handler = CommandHandler("fee", fees_command)
 

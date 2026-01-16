@@ -203,7 +203,7 @@ async def handle_referral_start(user_id: int, ref_code: str) -> str:
 
 
 # Create handlers
-referral_handler = CommandHandler("referral", referral_command)
+referral_handler = CommandHandler("ref", referral_command)
 ref_menu_callback_handler = CallbackQueryHandler(ref_callback, pattern="^ref_menu$")
 ref_list_callback_handler = CallbackQueryHandler(ref_list_callback, pattern="^ref_list$")
 ref_claim_callback_handler = CallbackQueryHandler(ref_claim_callback, pattern="^ref_claim$")

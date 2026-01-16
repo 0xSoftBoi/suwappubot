@@ -97,19 +97,55 @@ class X402Service:
         # Payment recipient (your fee collector)
         self.payment_recipient = getattr(settings, 'fee_collector_address', None)
         
-        # Supported payment tokens
+        # Supported payment tokens (USDC + native token per chain)
         self.payment_tokens = {
-            "base": {
-                "USDC": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-                "ETH": "0x0000000000000000000000000000000000000000",
-            },
             "ethereum": {
                 "USDC": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
                 "ETH": "0x0000000000000000000000000000000000000000",
             },
+            "base": {
+                "USDC": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "ETH": "0x0000000000000000000000000000000000000000",
+            },
+            "arbitrum": {
+                "USDC": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+                "ETH": "0x0000000000000000000000000000000000000000",
+            },
+            "optimism": {
+                "USDC": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+                "ETH": "0x0000000000000000000000000000000000000000",
+            },
             "polygon": {
-                "USDC": "0x2791Bca1f2de4661ED88A53F4661ED88A03E27EECF6fEfD3",
+                "USDC": "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
                 "MATIC": "0x0000000000000000000000000000000000000000",
+            },
+            "bsc": {
+                "USDC": "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+                "BNB": "0x0000000000000000000000000000000000000000",
+            },
+            "avalanche": {
+                "USDC": "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
+                "AVAX": "0x0000000000000000000000000000000000000000",
+            },
+            "fantom": {
+                "USDC": "0x04068DA6C83AFCFA0e13ba15A6696662335D5B75",
+                "FTM": "0x0000000000000000000000000000000000000000",
+            },
+            "linea": {
+                "USDC": "0x176211869cA2b568f2A7D4EE941E073a821EE1ff",
+                "ETH": "0x0000000000000000000000000000000000000000",
+            },
+            "mantle": {
+                "USDC": "0x09Bc4E0D10E52cdF6EaF3cdfE71aDd9e94d7f99c",
+                "MNT": "0x0000000000000000000000000000000000000000",
+            },
+            "gnosis": {
+                "USDC": "0xDDAfbb505ad214D7b80b1f830fcCc89B60fb7A83",
+                "xDAI": "0x0000000000000000000000000000000000000000",
+            },
+            "scroll": {
+                "USDC": "0x06eFdBFf2a14a7c8E15944D1F4A48F9F95F663A4",
+                "ETH": "0x0000000000000000000000000000000000000000",
             },
         }
     

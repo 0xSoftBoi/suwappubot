@@ -232,7 +232,7 @@ async def wallet_create_callback(update: Update, context: ContextTypes.DEFAULT_T
     else:
         address, private_key = wallet_service.create_solana_wallet()
         chain_emoji = "🟢"
-        chain_name = "Solana"
+        chain_name = "SOL"
     
     # Save wallet
     wallet = wallet_service.save_wallet(
@@ -346,7 +346,7 @@ async def wallet_import_start(update: Update, context: ContextTypes.DEFAULT_TYPE
     chain_type = "evm" if "evm" in query.data else "solana"
     context.user_data["import_chain_type"] = chain_type
     
-    chain_name = "EVM" if chain_type == "evm" else "Solana"
+    chain_name = "EVM" if chain_type == "evm" else "SOL"
     
     text = f"""
 📥 *Import {chain_name} Wallet*
@@ -416,7 +416,7 @@ async def wallet_import_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
     private_key = context.user_data.get("import_private_key")
     
     if not address or not private_key:
-        await update.message.reply_text("❌ Session expired. Please try again with /wallet")
+        await update.message.reply_text("❌ Session expired. Please try again with /w")
         return ConversationHandler.END
     
     with get_session() as session:
@@ -522,5 +522,5 @@ wallet_import_handler = ConversationHandler(
 )
 
 # Create handlers
-wallet_handler = CommandHandler("wallet", wallet_command)
+wallet_handler = CommandHandler("w", wallet_command)
 

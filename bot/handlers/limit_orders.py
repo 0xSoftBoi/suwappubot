@@ -209,6 +209,6 @@ limit_order_conversation = ConversationHandler(
     fallbacks=[CallbackQueryHandler(lo_cancel, pattern="^lo_cancel$")],
 )
 
-orders_handler = CommandHandler("orders", orders_command)
+orders_handler = CommandHandler("o", orders_command)
 dca_handler = CommandHandler("dca", dca_command)
 

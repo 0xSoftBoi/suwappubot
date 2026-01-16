@@ -10,12 +10,14 @@ from bot.services.price_service import PriceService
 from bot.utils.formatters import format_amount, format_usd, format_chain_name
 from bot.config.chains import CHAINS, ChainType
 from database.db import get_session
+from bot.utils.tos_utils import enforce_tos
 
 
 wallet_service = WalletService()
 price_service = PriceService()
 
 
+@enforce_tos
 async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /portfolio command - show full portfolio with USD values."""
     user = update.effective_user
@@ -82,14 +84,12 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             chain_display = format_chain_name(chain_name)
             lines.append(f"\n*{chain_display}*")
             
-            chain_total = 0.0
             for token, amount in sorted(tokens.items()):
                 if amount <= 0:
                     continue
                 
                 price = prices.get(token, 0) or 0
                 usd_value = amount * price
-                chain_total += usd_value
                 total_usd += usd_value
                 
                 if usd_value > 0.01:
@@ -126,6 +126,7 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
 
 
+@enforce_tos
 async def portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle portfolio button callback."""
     query = update.callback_query
@@ -232,5 +233,5 @@ async def portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 # Create handlers
-portfolio_handler = CommandHandler("portfolio", portfolio_command)
+portfolio_handler = CommandHandler("p", portfolio_command)
 

@@ -169,8 +169,9 @@ class WalletService:
             wallet = Wallet(
                 user_id=user_id,
                 address=turnkey_wallet.address,
-                encrypted_private_key=None,  # No local key storage for Turnkey
-                encryption_scheme=None,
+                # For Turnkey wallets, use a placeholder to satisfy NOT NULL constraints if they exist
+                encrypted_private_key="turnkey_managed",
+                encryption_scheme="turnkey",
                 wallet_provider="turnkey",
                 turnkey_sub_org_id=sub_org_id,
                 turnkey_wallet_id=turnkey_wallet.wallet_id,

@@ -56,7 +56,7 @@ def require_subscription(
                     f"🔒 **Premium Feature**\n\n"
                     f"This feature requires **{min_tier.value.upper()}** subscription.\n"
                     f"Your current tier: **{current_tier.value.upper()}**\n\n"
-                    f"Use /subscription to upgrade!",
+                    f"Use /sub to upgrade!",
                     parse_mode="Markdown"
                 )
                 return
@@ -69,7 +69,7 @@ def require_subscription(
                     await message.reply_text(
                         f"🔒 **Feature Locked**\n\n"
                         f"This feature is not available on your current plan.\n\n"
-                        f"Use /subscription to upgrade!",
+                        f"Use /sub to upgrade!",
                         parse_mode="Markdown"
                     )
                     return
@@ -114,7 +114,7 @@ def check_swap_limit(amount_usd: float):
                 msg = update.message or update.callback_query.message
                 await msg.reply_text(
                     f"⚠️ **Limit Reached**\n\n{message}\n\n"
-                    f"Use /subscription to increase your limits!",
+                    f"Use /sub to increase your limits!",
                     parse_mode="Markdown"
                 )
                 return

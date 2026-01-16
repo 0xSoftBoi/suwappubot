@@ -157,8 +157,9 @@ class HotWalletService:
                 name=name,
                 chain_type=chain_type,
                 address=turnkey_wallet.address,
-                encrypted_private_key=None,
-                encryption_scheme=None,
+                # For Turnkey wallets, use a placeholder to satisfy NOT NULL constraints if they exist
+                encrypted_private_key="turnkey_managed",
+                encryption_scheme="turnkey",
                 wallet_provider="turnkey",
                 turnkey_wallet_id=turnkey_wallet.wallet_id,
                 turnkey_account_id=turnkey_wallet.account_id,

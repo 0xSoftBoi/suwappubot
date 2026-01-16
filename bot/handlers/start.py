@@ -6,9 +6,8 @@ from datetime import datetime
 
 from bot.models.user import User
 from database.db import get_session
-
-
-from bot.utils.templates import WELCOME_MESSAGE, HELP_MESSAGE
+from bot.services.tos_service import tos_service, TOS_TEXT
+from bot.utils.templates import WELCOME_MESSAGE, HELP_MESSAGE, TOS_KEYBOARD
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -27,11 +26,24 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 last_name=user.last_name,
             )
             session.add(db_user)
+            session.commit() # Commit to get db_user.id
         else:
             db_user.last_active_at = datetime.utcnow()
             if user.username:
                 db_user.username = user.username
-    
+        
+        user_id = db_user.id
+        tos_accepted = db_user.tos_accepted
+
+    # Check TOS
+    if not tos_accepted:
+        await update.message.reply_text(
+            TOS_TEXT,
+            parse_mode="Markdown",
+            reply_markup=TOS_KEYBOARD
+        )
+        return
+
     # Create inline keyboard with clear custodial vs non-custodial
     keyboard = [
         [InlineKeyboardButton("━━ 🌸 SUWAPPU • SELF-CUSTODY ━━", callback_data="noop")],
@@ -61,6 +73,34 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         WELCOME_MESSAGE,
         parse_mode="Markdown",
         reply_markup=reply_markup,
+    )
+
+
+async def tos_accept_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle TOS acceptance callback."""
+    query = update.callback_query
+    await query.answer("Terms accepted! 🌸")
+    
+    user = update.effective_user
+    
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if db_user:
+            db_user.tos_accepted = True
+            db_user.tos_accepted_at = datetime.utcnow()
+    
+    # Redirect to main menu (reuse existing function)
+    await main_menu_callback(update, context)
+
+
+async def tos_decline_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle TOS decline callback."""
+    query = update.callback_query
+    await query.answer()
+    
+    await query.edit_message_text(
+        "❌ *Terms Declined*\n\nYou must accept the Terms of Service to use Suwappu Bot\. If you change your mind, use /start to try again\.",
+        parse_mode="MarkdownV2"
     )
 
 
@@ -107,6 +147,15 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
     
+    user = update.effective_user
+    if not tos_service.is_accepted_telegram(user.id):
+        await query.edit_message_text(
+            TOS_TEXT,
+            parse_mode="Markdown",
+            reply_markup=TOS_KEYBOARD
+        )
+        return
+
     keyboard = [
         [InlineKeyboardButton("━━ 🌸 SUWAPPU • SELF-CUSTODY ━━", callback_data="noop")],
         [
@@ -156,7 +205,7 @@ async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 # Create handlers
 start_handler = CommandHandler("start", start_command)
-help_handler = CommandHandler("help", help_command)
+help_handler = CommandHandler("h", help_command)
 
 
 

@@ -246,7 +246,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 # Create handlers
-status_handler = CommandHandler("status", status_command)
-clear_cache_handler = CommandHandler("clearcache", clear_cache_command)
-broadcast_handler = CommandHandler("broadcast", broadcast_command)
+status_handler = CommandHandler("st", status_command)
+clear_cache_handler = CommandHandler("cc", clear_cache_command)
+broadcast_handler = CommandHandler("bc", broadcast_command)
 

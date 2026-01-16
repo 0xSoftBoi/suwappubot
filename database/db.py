@@ -1,6 +1,5 @@
 from sqlalchemy import create_engine, event, text, inspect
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session
-from sqlalchemy.pool import QueuePool
 from contextlib import contextmanager
 from typing import Generator
 
@@ -114,6 +113,47 @@ def _ensure_schema(db_engine) -> None:
     if "hot_wallets" in tables:
         _add_encryption_columns(db_engine, inspector, "hot_wallets", is_sqlite)
         _add_turnkey_columns(db_engine, inspector, "hot_wallets", is_sqlite, include_sub_org=False)
+
+    # --- users: TOS columns and telegram_id nullability ---
+    if "users" in tables:
+        _add_tos_columns(db_engine, inspector, is_sqlite)
+        _fix_user_nullability(db_engine, inspector, is_sqlite)
+
+
+def _fix_user_nullability(db_engine, inspector, is_sqlite: bool) -> None:
+    """
+    Ensure telegram_id is nullable for WhatsApp-only users.
+    
+    For Postgres: Uses ALTER COLUMN to drop NOT NULL constraint.
+    For SQLite: Column nullability cannot be altered without table recreation.
+                New databases are created correctly; existing ones may need manual migration.
+    """
+    if not is_sqlite:
+        try:
+            with db_engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ALTER COLUMN telegram_id DROP NOT NULL"))
+        except Exception:
+            # Column may already be nullable
+            pass
+
+
+def _add_tos_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add Terms of Service columns to users table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("users")}
+    
+    new_columns = [
+        ("tos_accepted", "BOOLEAN", "0"),
+        ("tos_accepted_at", "DATETIME", "NULL"),
+    ]
+    
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE users ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
 
 
 def _add_encryption_columns(db_engine, inspector, table_name: str, is_sqlite: bool) -> None:

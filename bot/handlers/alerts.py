@@ -294,5 +294,5 @@ alert_conversation = ConversationHandler(
 )
 
 # Create handlers
-alerts_handler = CommandHandler("alerts", alerts_command)
+alerts_handler = CommandHandler("a", alerts_command)
 

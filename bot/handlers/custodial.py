@@ -20,12 +20,14 @@ from bot.utils.formatters import format_amount, format_usd
 from bot.utils.validators import validate_amount
 from bot.utils.qr_code import generate_wallet_qr
 from database.db import get_session
+from bot.utils.tos_utils import enforce_tos
 
 
 # Conversation states
 SELECT_CHAIN, SELECT_TOKEN, ENTER_AMOUNT, CONFIRM_WITHDRAWAL = range(4)
 
 
+@enforce_tos
 async def custodial_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /custodial command - show custodial wallet overview."""
     user = update.effective_user
@@ -70,7 +72,7 @@ async def custodial_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         lines.append(f"\n*EVM Chains* (ETH, BSC, etc.):")
         lines.append(f"`{evm_wallet.address}`")
     if sol_wallet:
-        lines.append(f"\n*Solana*:")
+        lines.append(f"\n*SOL*:")
         lines.append(f"`{sol_wallet.address}`")
     
     if not evm_wallet and not sol_wallet:
@@ -100,6 +102,7 @@ async def custodial_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
 
 
+@enforce_tos
 async def custodial_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle custodial menu callback."""
     query = update.callback_query
@@ -145,7 +148,7 @@ async def custodial_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         lines.append(f"\n*EVM Chains*:")
         lines.append(f"`{evm_wallet.address}`")
     if sol_wallet:
-        lines.append(f"\n*Solana*:")
+        lines.append(f"\n*SOL*:")
         lines.append(f"`{sol_wallet.address}`")
     
     keyboard = [
@@ -243,13 +246,13 @@ async def deposit_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # Chain display names and emojis
     chain_info = {
-        "ethereum": ("🔷", "Ethereum"),
-        "polygon": ("🟣", "Polygon"),
-        "bsc": ("🟡", "BNB Smart Chain"),
-        "arbitrum": ("🔵", "Arbitrum"),
-        "optimism": ("🔴", "Optimism"),
+        "ethereum": ("🔷", "ETH"),
+        "polygon": ("🟣", "POL"),
+        "bsc": ("🟡", "BSC"),
+        "arbitrum": ("🔵", "ARB"),
+        "optimism": ("🔴", "OP"),
         "base": ("🔵", "Base"),
-        "solana": ("🟢", "Solana"),
+        "solana": ("🟢", "SOL"),
     }
     
     emoji, display_name = chain_info.get(chain, ("💎", chain.title()))
@@ -614,7 +617,7 @@ withdrawal_conversation = ConversationHandler(
 
 
 # Create handlers
-custodial_handler = CommandHandler("custodial", custodial_command)
+custodial_handler = CommandHandler("c", custodial_command)
 
 
 # Export the new callback

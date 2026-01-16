@@ -47,6 +47,14 @@ BALANCE_KEYBOARD = InlineKeyboardMarkup([
 ])
 
 
+TOS_KEYBOARD = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("✅ I Accept", callback_data="tos_accept"),
+        InlineKeyboardButton("❌ Decline", callback_data="tos_decline"),
+    ]
+])
+
+
 WELCOME_MESSAGE = """
 🌸 *suwappu* — fast cross-chain swaps with a native C\+\+ core\!
 
@@ -55,7 +63,7 @@ WELCOME_MESSAGE = """
 Cross-chain swaps made simple.
 
 🎁 *Referral Blitz*: earn 50% of fees from friends + instant bonuses.
-Use /referral to grab your link.
+Use /ref to grab your link.
 
 *Choose Your Mode:*
 
@@ -70,8 +78,8 @@ Instant deposits & withdrawals
 ━━━━━━━━━━━━━━━━━━━━
 
 *Supported Chains:*
-🔷 ETH • 🟣 Polygon • 🟡 BSC
-🔵 Arbitrum • 🔴 Optimism • 🔵 Base • 🟢 Solana
+🔷 ETH • 🟣 POL • 🟡 BSC
+🔵 ARB • 🔴 OP • 🔵 Base • 🟢 SOL
 
 Powered by Li\.Fi, Jupiter & LayerZero
 """
@@ -84,17 +92,17 @@ HELP_MESSAGE = """
 ━━ 🔐 *SELF\-CUSTODY MODE* ━━
 _You hold your private keys_
 
-• /wallet \- Create/import your wallet
-• /balance \- Check your balances
-• /swap \- Swap with your wallet
-• /history \- View transactions
+• /w \- Create/import your wallet
+• /b \- Check your balances
+• /s \- Swap with your wallet
+• /hx \- View transactions
 
 ⚠️ You pay gas fees from your wallet
 
 ━━ 🏦 *CUSTODIAL MODE* ━━
 _We manage funds for you_
 
-• /custodial \- View custodial account
+• /c \- View custodial account
   ↳ Deposit \- Send tokens to us
   ↳ Withdraw \- Get tokens back
   ↳ Swap \- Trade with zero gas
@@ -104,10 +112,10 @@ _We manage funds for you_
 ━━━━━━━━━━━━━━━━━━━━
 
 *Other Commands:*
-• /portfolio \- All holdings \+ USD value
-• /gas \- Live gas prices
-• /favorites \- Saved swap pairs
-• /settings \- Preferences
+• /p \- All holdings \+ USD value
+• /g \- Live gas prices
+• /f \- Saved swap pairs
+• /set \- Preferences
 
 *Fees:*
 • 1% swap fee on all trades

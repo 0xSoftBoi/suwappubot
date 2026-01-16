@@ -183,8 +183,8 @@ Select payment chain:
     
     keyboard = [
         [InlineKeyboardButton("🔵 Base (USDC)", callback_data="chain_base")],
-        [InlineKeyboardButton("🟣 Ethereum (USDC)", callback_data="chain_ethereum")],
-        [InlineKeyboardButton("🟢 Polygon (USDC)", callback_data="chain_polygon")],
+        [InlineKeyboardButton("🟣 ETH (USDC)", callback_data="chain_ethereum")],
+        [InlineKeyboardButton("🟢 POL (USDC)", callback_data="chain_polygon")],
         [InlineKeyboardButton("🔙 Cancel", callback_data="sub_back")],
     ]
     
@@ -280,7 +280,7 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     payment_id = context.user_data.get("payment_id")
     if not payment_id:
-        await update.message.reply_text("❌ Session expired. Please start again with /subscription")
+        await update.message.reply_text("❌ Session expired. Please start again with /sub")
         return ConversationHandler.END
     
     await update.message.reply_text("🔄 Verifying payment...")
@@ -292,7 +292,7 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text(
             f"✅ **Payment Verified!**\n\n"
             f"Your subscription has been upgraded to **{tier.value.upper()}**!\n\n"
-            f"Use /subscription to view your new features.",
+            f"Use /sub to view your new features.",
             parse_mode="Markdown"
         )
     else:
@@ -366,7 +366,7 @@ async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     context.user_data.clear()
     
     await query.edit_message_text(
-        "Use /subscription to view your subscription status.",
+        "Use /sub to view your subscription status.",
     )
     return ConversationHandler.END
 
@@ -415,13 +415,13 @@ async def verify_beta_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if success:
         await update.message.reply_text(
             f"✨ {message}\n\n"
-            f"Use /subscription to view your new features!",
+            f"Use /sub to view your new features!",
             parse_mode="Markdown"
         )
     else:
         await update.message.reply_text(
             f"❌ {message}\n\n"
-            f"Use /subscription to try again or explore other options."
+            f"Use /sub to try again or explore other options."
         )
     
     return ConversationHandler.END
@@ -449,7 +449,7 @@ def _format_features(features: list) -> str:
 
 
 # Handlers
-subscription_handler = CommandHandler("subscription", subscription_command)
+subscription_handler = CommandHandler("sub", subscription_command)
 
 subscription_conversation = ConversationHandler(
     entry_points=[

@@ -14,18 +14,20 @@ from bot.utils.validators import validate_amount
 from bot.utils.formatters import format_amount, format_usd
 from bot.utils.rate_limiter import swap_limiter, enforce_rate_limit_for_update
 from database.db import get_session
+from bot.utils.tos_utils import enforce_tos
 
 
 wallet_service = WalletService()
 swap_engine = SwapEngine()
 
 
+@enforce_tos
 async def quickswap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Handle /swap shortcut command.
+    Handle /s shortcut command.
     
-    Usage: /swap 100 USDC ETH
-           /swap 50 USDC polygon ETH ethereum
+    Usage: /s 100 USDC ETH
+           /s 50 USDC polygon ETH ethereum
     """
     user = update.effective_user
     args = context.args
@@ -37,10 +39,10 @@ async def quickswap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not args or len(args) < 3:
         await update.message.reply_text(
             "🔄 *Quick Swap*\n\n"
-            "Usage: `/swap <amount> <from_token> <to_token>`\n\n"
+            "Usage: `/s <amount> <from_token> <to_token>`\n\n"
             "Examples:\n"
-            "• `/swap 100 USDC ETH` - Swap 100 USDC to ETH\n"
-            "• `/swap 50 ETH USDC` - Swap 50 ETH to USDC\n\n"
+            "• `/s 100 USDC ETH` - Swap 100 USDC to ETH\n"
+            "• `/s 50 ETH USDC` - Swap 50 ETH to USDC\n\n"
             "For full swap wizard, tap the button below.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([
@@ -59,7 +61,7 @@ async def quickswap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         from_chain = args[3].lower() if len(args) > 3 else None
         to_chain = args[4].lower() if len(args) > 4 else None
     except Exception:
-        await update.message.reply_text("❌ Invalid command format. Use `/swap 100 USDC ETH`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Invalid command format. Use `/s 100 USDC ETH`", parse_mode="Markdown")
         return
     
     # Validate amount
@@ -193,11 +195,12 @@ async def quickswap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await loading_msg.edit_text(f"❌ Error getting quote: {str(e)}")
 
 
+@enforce_tos
 async def quickswap_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Confirm and execute quick swap."""
     query = update.callback_query
     await query.answer()
-
+    
     allowed = await enforce_rate_limit_for_update(update, swap_limiter)
     if not allowed:
         return
@@ -222,7 +225,7 @@ async def quickswap_confirm_callback(update: Update, context: ContextTypes.DEFAU
             await query.edit_message_text(
                 f"✅ *Swap Submitted!*\n\n"
                 f"Transaction: `{swap_tx.tx_hash[:20]}...`\n\n"
-                f"Check status with /history",
+                f"Check status with /hx",
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📜 History", callback_data="history")],
@@ -231,7 +234,7 @@ async def quickswap_confirm_callback(update: Update, context: ContextTypes.DEFAU
             )
         else:
             await query.edit_message_text(
-                "❌ Swap submitted but missing transaction hash. Please check /history in a moment.",
+                "❌ Swap submitted but missing transaction hash. Please check /hx in a moment.",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📜 History", callback_data="history")],
                     [InlineKeyboardButton("🔄 New Swap", callback_data="swap_start")],
@@ -244,5 +247,5 @@ async def quickswap_confirm_callback(update: Update, context: ContextTypes.DEFAU
 
 
 # Create handlers
-quickswap_handler = CommandHandler("swap", quickswap_command)
+quickswap_handler = CommandHandler("s", quickswap_command)
 

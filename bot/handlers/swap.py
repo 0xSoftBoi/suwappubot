@@ -23,6 +23,7 @@ from bot.utils.formatters import format_amount, format_usd, format_time_estimate
 from bot.utils.validators import validate_amount
 from bot.utils.rate_limiter import swap_limiter, enforce_rate_limit_for_update
 from database.db import get_session
+from bot.utils.tos_utils import enforce_tos
 
 
 # Conversation states
@@ -32,11 +33,13 @@ swap_engine = SwapEngine()
 wallet_service = WalletService()
 
 
+@enforce_tos
 async def swap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle /swap command."""
     return await start_swap(update, context, is_callback=False)
 
 
+@enforce_tos
 async def swap_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle swap_start callback."""
     query = update.callback_query
@@ -699,7 +702,7 @@ async def check_swap_status(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 # Create conversation handler
 swap_conversation_handler = ConversationHandler(
     entry_points=[
-        CommandHandler("swap", swap_command),
+        CommandHandler("s", swap_command),
         CallbackQueryHandler(swap_start_callback, pattern="^swap_start$"),
     ],
     states={

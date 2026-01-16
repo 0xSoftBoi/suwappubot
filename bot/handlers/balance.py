@@ -12,11 +12,13 @@ from bot.utils.templates import (
     BALANCE_KEYBOARD, WALLET_ADD_KEYBOARD
 )
 from database.db import get_session
+from bot.utils.tos_utils import enforce_tos
 
 
 wallet_service = WalletService()
 
 
+@enforce_tos
 async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /balance command."""
     user = update.effective_user
@@ -98,6 +100,7 @@ async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
 
 
+@enforce_tos
 async def balance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle balance button callback."""
     query = update.callback_query
@@ -182,5 +185,5 @@ async def balance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 # Create handlers
-balance_handler = CommandHandler("balance", balance_command)
+balance_handler = CommandHandler("b", balance_command)
 

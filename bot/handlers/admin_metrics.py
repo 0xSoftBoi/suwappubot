@@ -328,7 +328,7 @@ async def metrics_refresh_callback(update: Update, context: ContextTypes.DEFAULT
 
 
 # Create handlers
-metrics_handler = CommandHandler("metrics", metrics_command)
+metrics_handler = CommandHandler("m", metrics_command)
 metrics_volume_handler = CallbackQueryHandler(metrics_volume_callback, pattern="^metrics_volume$")
 metrics_fees_handler = CallbackQueryHandler(metrics_fees_callback, pattern="^metrics_fees$")
 metrics_users_handler = CallbackQueryHandler(metrics_users_callback, pattern="^metrics_users$")

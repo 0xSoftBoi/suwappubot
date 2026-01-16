@@ -19,6 +19,10 @@ class User(Base):
     default_slippage = Column(Integer, default=50)  # In basis points (50 = 0.5%)
     notifications_enabled = Column(Boolean, default=True)
     
+    # Terms of Service
+    tos_accepted = Column(Boolean, default=False)
+    tos_accepted_at = Column(DateTime, nullable=True)
+    
     # 2FA
     two_fa_enabled = Column(Boolean, default=False)
     totp_secret = Column(String(64), nullable=True)  # TOTP secret for 2FA

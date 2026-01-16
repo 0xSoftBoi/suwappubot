@@ -248,5 +248,5 @@ slippage_conversation = ConversationHandler(
 
 
 # Create handlers
-settings_handler = CommandHandler("settings", settings_command)
+settings_handler = CommandHandler("set", settings_command)
 

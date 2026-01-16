@@ -7,6 +7,7 @@ from datetime import datetime
 
 from bot.models.user import User, Wallet
 from bot.services.wallet import WalletService
+from bot.services.tos_service import tos_service, TOS_TEXT
 from bot.utils.templates import WELCOME_MESSAGE, HELP_MESSAGE, NO_WALLETS, START_FIRST
 from bot.utils.formatters import format_balance_list
 from database.db import get_session
@@ -50,43 +51,57 @@ class UnifiedBotService:
             if not user:
                 return UnifiedResponse(START_FIRST)
 
-            # 2. Route Commands
+            # 2. Check TOS (for non-interactive platforms like WhatsApp/Agent)
+            if not user.tos_accepted:
+                if text in ["accept", "i accept", "agree"]:
+                    user.tos_accepted = True
+                    user.tos_accepted_at = datetime.utcnow()
+                    session.commit()
+                    return UnifiedResponse("✅ *Terms Accepted!*\n\nYou can now use Suwappu Bot. Type *help* to see available commands.")
+                
+                # Show TOS
+                return UnifiedResponse(
+                    TOS_TEXT + "\n\nReply with *Accept* to continue.",
+                    [{"id": "accept", "title": "✅ Accept"}]
+                )
+
+            # 3. Route Commands
             if text in ["/start", "start", "hi", "hello"]:
                 return UnifiedResponse(WELCOME_MESSAGE)
                 
             elif text in ["/help", "help"]:
                 return UnifiedResponse(HELP_MESSAGE)
                 
-            elif text in ["/balance", "balance"]:
+            elif text in ["/b", "b", "balance"]:
                 return await self._handle_balance(user)
                 
-            elif text in ["/portfolio", "portfolio"]:
+            elif text in ["/p", "p", "portfolio"]:
                 # Fetch detailed portfolio via balance logic but formatted as portfolio
                 return await self._handle_portfolio(user)
                 
-            elif text in ["/history", "history"]:
+            elif text in ["/hx", "hx", "history"]:
                 return await self._handle_history(user)
                 
-            elif text in ["/wallet", "wallet", "wallets"]:
+            elif text in ["/w", "w", "wallet", "wallets"]:
                 return await self._handle_wallets(user)
                 
-            elif text in ["/gas", "gas"]:
+            elif text in ["/g", "g", "gas"]:
                 # Simple mocked gas response for now (to match Telegram's quick response)
                 return UnifiedResponse(
                     "⛽ *Live Gas Prices*\n\n"
-                    "• *Ethereum*: 15 Gwei\n"
-                    "• *Arbitrum*: 0.1 Gwei\n"
+                    "• *ETH*: 15 Gwei\n"
+                    "• *ARB*: 0.1 Gwei\n"
                     "• *Base*: 0.01 Gwei\n"
-                    "• *Polygon*: 35 Gwei\n\n"
+                    "• *POL*: 35 Gwei\n\n"
                     "_Refreshed just now_"
                 )
                 
-            elif text in ["/swap", "swap"]:
+            elif text in ["/s", "s", "swap"]:
                 return UnifiedResponse(
                     "Select the chain you want to swap FROM:",
                     [
-                        {"id": "chain_eth", "title": "Ethereum"},
-                        {"id": "chain_arb", "title": "Arbitrum"},
+                        {"id": "chain_eth", "title": "ETH"},
+                        {"id": "chain_arb", "title": "ARB"},
                         {"id": "chain_base", "title": "Base"}
                     ],
                     header="🔄 New Swap"
