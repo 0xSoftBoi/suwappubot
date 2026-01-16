@@ -78,52 +78,68 @@ async def lifespan(app: FastAPI):
     )
     add_handlers(bot_app)
     
-    # 3. Start Bot Hooks
+    # 3. Start Bot Hooks (only if database is available)
     polling_task = None
-    try:
-        await bot_app.initialize()
-        await bot_app.start()
-        
-        if settings.telegram_bot_token and settings.telegram_bot_token != "123456789:ABCDEF":
-            logger.info("✓ Starting Telegram polling background task")
-            polling_task = asyncio.create_task(bot_app.updater.start_polling(
-                allowed_updates=Update.ALL_TYPES
-            ))
-        else:
-            logger.warning("⚠️ Placeholder or missing Telegram token. Skipping polling.")
-    except Exception as e:
-        logger.error(f"❌ Telegram bot failed to initialize: {e}")
-        logger.warning("⚠️ Continuing in HEADLESS MODE (Background services + API only)")
+    bot_initialized = False
+    
+    if not db_success:
+        logger.warning("⚠️ Skipping bot initialization - database not available")
+    else:
+        try:
+            await bot_app.initialize()
+            await bot_app.start()
+            bot_initialized = True
+            
+            if settings.telegram_bot_token and settings.telegram_bot_token != "123456789:ABCDEF":
+                logger.info("✓ Starting Telegram polling background task")
+                # drop_pending_updates=True helps avoid conflicts during redeploys
+                polling_task = asyncio.create_task(bot_app.updater.start_polling(
+                    allowed_updates=Update.ALL_TYPES,
+                    drop_pending_updates=True
+                ))
+            else:
+                logger.warning("⚠️ Placeholder or missing Telegram token. Skipping polling.")
+        except Exception as e:
+            logger.error(f"❌ Telegram bot failed to initialize: {e}")
+            logger.warning("⚠️ Continuing in HEADLESS MODE (API only)")
 
-    # 4. Start Background Services
+    # 4. Start Background Services (only if database is available)
     admin_ids = getattr(settings, 'admin_ids', [])
-    await fee_sweeper.start()
-    await alert_service.start(bot=bot_app.bot)
-    await order_service.start(bot=bot_app.bot)
-    await tx_poller.start(bot=bot_app.bot)
-    await health_monitor.start(bot=bot_app.bot, admin_ids=admin_ids)
-    logger.info("✓ All background services running")
+    
+    if db_success:
+        await fee_sweeper.start()
+        await alert_service.start(bot=bot_app.bot if bot_initialized else None)
+        await order_service.start(bot=bot_app.bot if bot_initialized else None)
+        await tx_poller.start(bot=bot_app.bot if bot_initialized else None)
+        await health_monitor.start(bot=bot_app.bot if bot_initialized else None, admin_ids=admin_ids)
+        logger.info("✓ All background services running")
+    else:
+        logger.warning("⚠️ Background services NOT started - database unavailable")
 
     yield
     
     # --- Shutdown ---
     logger.info("🛑 Shutting down Suwappu Monolith...")
+    
+    # Stop bot polling if it was started
     if polling_task:
         await bot_app.updater.stop()
     
-    # Only stop/shutdown if it wasn't a total failure
-    # We check if initialize was at least attempted and didn't crash before start
-    try:
-        await bot_app.stop()
-        await bot_app.shutdown()
-    except Exception:
-        pass
+    # Only stop/shutdown bot if it was initialized
+    if bot_initialized:
+        try:
+            await bot_app.stop()
+            await bot_app.shutdown()
+        except Exception:
+            pass
     
-    await fee_sweeper.stop()
-    await alert_service.stop()
-    await order_service.stop()
-    await tx_poller.stop()
-    await health_monitor.stop()
+    # Only stop services if they were started
+    if db_success:
+        await fee_sweeper.stop()
+        await alert_service.stop()
+        await order_service.stop()
+        await tx_poller.stop()
+        await health_monitor.stop()
     logger.info("✓ Cleanup complete")
 
 app = FastAPI(
