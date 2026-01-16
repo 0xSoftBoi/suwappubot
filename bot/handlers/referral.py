@@ -1,210 +1,354 @@
-"""Referral system handlers."""
+"""Referral and fee command handlers.
 
+Commands:
+- /ref - Show referral code and stats
+- /fees - Show fee structure
+- /rewards - Show referral rewards
+"""
+
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
-from bot.models.user import User
 from bot.services.referral_service import referral_service
-from bot.utils.formatters import format_usd
+from bot.services.fee_service import fee_service
+from bot.models.user import User
+from bot.utils.tos_utils import enforce_tos
 from database.db import get_session
 
+logger = logging.getLogger(__name__)
 
-async def referral_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /referral command - show referral dashboard."""
+
+# ============================================
+# /ref - Referral Code & Stats
+# ============================================
+
+@enforce_tos
+async def ref_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show user's referral code and stats."""
     user = update.effective_user
     
+    # Get or create user in DB
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
         if not db_user:
-            await update.message.reply_text("❌ Please use /start first.")
+            await update.message.reply_text(
+                "❌ Please start the bot first with /start"
+            )
             return
+        
         user_id = db_user.id
+        username = db_user.username
     
     # Get or create referral code
-    code = referral_service.get_or_create_code(user_id)
-    stats = referral_service.get_referral_stats(user_id)
+    code = referral_service.get_or_create_code(user_id, username)
     
+    # Get bot username for link
     bot_username = (await context.bot.get_me()).username
-    ref_link = f"https://t.me/{bot_username}?start=ref_{code.code}"
     
-    text = (
-        f"🎁 *Referral Blitz*\n\n"
-        f"Earn *{stats['reward_percentage']:.0f}%* of fees from referred users\n"
-        f"＋ Instant bonuses for both of you (we know times are tough)\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"🔗 *Your Referral Link:*\n"
-        f"`{ref_link}`\n\n"
-        f"📊 *Your Code:* `{code.code}`\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📈 *Statistics*\n"
-        f"👥 Total Referrals: *{stats['total_referrals']}*\n"
-        f"💰 Volume Generated: *{format_usd(stats['total_volume_usd'])}*\n"
-        f"🎁 Total Rewards: *{format_usd(stats['total_rewards_usd'])}*\n"
-        f"⏳ Pending: *{format_usd(stats['pending_rewards_usd'])}*"
-    )
+    # Format and send message
+    message = referral_service.format_referral_message(user_id, bot_username)
     
-    keyboard = [
-        [InlineKeyboardButton("📋 Copy Link", callback_data="ref_copy_link")],
-        [InlineKeyboardButton("👥 My Referrals", callback_data="ref_list")],
-        [InlineKeyboardButton("💸 Claim Rewards", callback_data="ref_claim")],
-        [InlineKeyboardButton("« Back", callback_data="main_menu")],
-    ]
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📊 My Rewards", callback_data="ref_rewards"),
+            InlineKeyboardButton("👥 My Referrals", callback_data="ref_list"),
+        ],
+        [
+            InlineKeyboardButton("📋 Copy Code", callback_data=f"ref_copy_{code.code}"),
+        ],
+    ])
     
     await update.message.reply_text(
-        text,
-        parse_mode="MarkdownV2",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
-
-
-async def ref_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle referral menu callback."""
-    query = update.callback_query
-    await query.answer()
-    
-    user = update.effective_user
-    
-    with get_session() as session:
-        db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        if not db_user:
-            await query.edit_message_text("❌ Please use /start first.")
-            return
-        user_id = db_user.id
-    
-    code = referral_service.get_or_create_code(user_id)
-    stats = referral_service.get_referral_stats(user_id)
-    
-    bot_username = (await context.bot.get_me()).username
-    ref_link = f"https://t.me/{bot_username}?start=ref_{code.code}"
-    
-    text = (
-        f"🎁 *Referral Blitz*\n\n"
-        f"📊 *Your Code:* `{code.code}`\n"
-        f"🔗 Link: `{ref_link}`\n\n"
-        f"👥 Referrals: *{stats['total_referrals']}*\n"
-        f"💰 Volume: *{format_usd(stats['total_volume_usd'])}*\n"
-        f"🎁 Earned: *{format_usd(stats['total_rewards_usd'])}*\n"
-        f"⏳ Pending: *{format_usd(stats['pending_rewards_usd'])}*"
-    )
-    
-    keyboard = [
-        [InlineKeyboardButton("👥 My Referrals", callback_data="ref_list")],
-        [InlineKeyboardButton("💸 Claim Rewards", callback_data="ref_claim")],
-        [InlineKeyboardButton("« Back", callback_data="main_menu")],
-    ]
-    
-    await query.edit_message_text(
-        text,
+        message,
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=keyboard,
+        disable_web_page_preview=True,
     )
 
 
-async def ref_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show list of referred users."""
+@enforce_tos
+async def ref_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle referral-related callbacks."""
     query = update.callback_query
     await query.answer()
     
     user = update.effective_user
+    data = query.data
     
+    # Get user from DB
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
         if not db_user:
-            await query.edit_message_text("❌ Please use /start first.")
+            await query.edit_message_text("❌ User not found")
             return
         user_id = db_user.id
     
-    referrals = referral_service.get_referred_users(user_id)
-    
-    if not referrals:
-        text = (
-            "👥 *Your Referrals*\n\n"
-            "_No referrals yet._\n\n"
-            "Share your link to start earning!"
-        )
-    else:
-        lines = ["👥 *Your Referrals*\n"]
+    if data == "ref_rewards":
+        # Show rewards summary
+        message = referral_service.format_rewards_message(user_id)
         
-        for ref in referrals[:10]:  # Show top 10
-            username = ref["username"] or "Anonymous"
-            lines.append(
-                f"• @{username}\n"
-                f"  Volume: {format_usd(ref['volume_usd'])} | "
-                f"Earned: {format_usd(ref['rewards_earned_usd'])}"
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back", callback_data="ref_back")],
+        ])
+        
+        await query.edit_message_text(
+            message,
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+    
+    elif data == "ref_list":
+        # Show referrals list
+        referrals = referral_service.get_referrals_list(user_id, limit=10)
+        
+        if not referrals:
+            message = (
+                "👥 *Your Referrals*\n\n"
+                "You haven't referred anyone yet!\n\n"
+                "Share your referral link to start earning 30% of their fees."
             )
+        else:
+            message = "👥 *Your Referrals*\n\n"
+            for i, ref in enumerate(referrals, 1):
+                username = ref['username'][:15]
+                rewards = ref['total_rewards_usd']
+                date = ref['joined_at'].strftime("%m/%d")
+                message += f"{i}. {username} - ${rewards:.2f} (joined {date})\n"
+            
+            message += f"\n_Showing top {len(referrals)} referrals_"
         
-        if len(referrals) > 10:
-            lines.append(f"\n_...and {len(referrals) - 10} more_")
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back", callback_data="ref_back")],
+        ])
         
-        text = "\n".join(lines)
+        await query.edit_message_text(
+            message,
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
     
-    keyboard = [
-        [InlineKeyboardButton("« Back", callback_data="ref_menu")],
-    ]
+    elif data.startswith("ref_copy_"):
+        code = data.replace("ref_copy_", "")
+        await query.answer(f"Code: {code} - Share it with friends!", show_alert=True)
     
-    await query.edit_message_text(
-        text,
+    elif data == "ref_back":
+        # Go back to main referral view
+        code = referral_service.get_or_create_code(user_id)
+        bot_username = (await context.bot.get_me()).username
+        message = referral_service.format_referral_message(user_id, bot_username)
+        
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("📊 My Rewards", callback_data="ref_rewards"),
+                InlineKeyboardButton("👥 My Referrals", callback_data="ref_list"),
+            ],
+            [
+                InlineKeyboardButton("📋 Copy Code", callback_data=f"ref_copy_{code.code}"),
+            ],
+        ])
+        
+        await query.edit_message_text(
+            message,
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+            disable_web_page_preview=True,
+        )
+
+
+# ============================================
+# /fees - Fee Structure
+# ============================================
+
+@enforce_tos
+async def fees_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show the fee structure."""
+    message = fee_service.format_fee_info()
+    
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🎁 Referral Program", callback_data="fees_referral"),
+        ],
+    ])
+    
+    await update.message.reply_text(
+        message,
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=keyboard,
     )
 
 
-async def ref_claim_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle reward claim."""
+async def fees_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle fee-related callbacks."""
     query = update.callback_query
     await query.answer()
     
+    if query.data == "fees_referral":
+        user = update.effective_user
+        
+        with get_session() as session:
+            db_user = session.query(User).filter(User.telegram_id == user.id).first()
+            if not db_user:
+                await query.edit_message_text("❌ Please /start first")
+                return
+            user_id = db_user.id
+            username = db_user.username
+        
+        code = referral_service.get_or_create_code(user_id, username)
+        bot_username = (await context.bot.get_me()).username
+        
+        message = (
+            "🎁 *Referral Program*\n\n"
+            f"Your code: `{code.code}`\n"
+            f"Share link: t.me/{bot_username}?start={code.code}\n\n"
+            "*How it works:*\n"
+            "1. Share your code/link with friends\n"
+            "2. They sign up and make swaps\n"
+            "3. You earn *30%* of all their fees!\n\n"
+            "_This is one of the highest referral rates in the industry!_"
+        )
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back to Fees", callback_data="fees_back")],
+        ])
+        
+        await query.edit_message_text(
+            message,
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+    
+    elif query.data == "fees_back":
+        message = fee_service.format_fee_info()
+        
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🎁 Referral Program", callback_data="fees_referral"),
+            ],
+        ])
+        
+        await query.edit_message_text(
+            message,
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+
+
+# ============================================
+# /rewards - Referral Rewards
+# ============================================
+
+@enforce_tos
+async def rewards_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show referral rewards summary."""
     user = update.effective_user
     
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
         if not db_user:
-            await query.edit_message_text("❌ Please use /start first.")
+            await update.message.reply_text(
+                "❌ Please start the bot first with /start"
+            )
             return
         user_id = db_user.id
     
-    pending = referral_service.get_pending_rewards(user_id)
+    message = referral_service.format_rewards_message(user_id)
     
-    if pending < 1.0:  # Minimum $1 to claim
-        text = (
-            "💸 *Claim Rewards*\n\n"
-            f"Pending: {format_usd(pending)}\n\n"
-            "⚠️ Minimum $1.00 required to claim."
-        )
-    else:
-        text = (
-            "💸 *Claim Rewards*\n\n"
-            f"Pending: {format_usd(pending)}\n\n"
-            "Select how you'd like to receive your rewards:"
-        )
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🎁 My Referral Code", callback_data="rewards_ref"),
+        ],
+    ])
     
-    keyboard = []
-    if pending >= 1.0:
-        keyboard.append([
-            InlineKeyboardButton("💵 Claim as USDC", callback_data="ref_claim_usdc"),
-        ])
-        keyboard.append([
-            InlineKeyboardButton("🔄 Reinvest (Add to balance)", callback_data="ref_claim_reinvest"),
-        ])
-    
-    keyboard.append([InlineKeyboardButton("« Back", callback_data="ref_menu")])
-    
-    await query.edit_message_text(
-        text,
+    await update.message.reply_text(
+        message,
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=keyboard,
     )
 
 
-async def handle_referral_start(user_id: int, ref_code: str) -> str:
-    """Handle referral code from /start command."""
-    success, message = referral_service.apply_referral(user_id, ref_code)
-    return message
+async def rewards_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle rewards-related callbacks."""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "rewards_ref":
+        user = update.effective_user
+        
+        with get_session() as session:
+            db_user = session.query(User).filter(User.telegram_id == user.id).first()
+            if not db_user:
+                await query.edit_message_text("❌ User not found")
+                return
+            user_id = db_user.id
+            username = db_user.username
+        
+        code = referral_service.get_or_create_code(user_id, username)
+        bot_username = (await context.bot.get_me()).username
+        message = referral_service.format_referral_message(user_id, bot_username)
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back to Rewards", callback_data="rewards_back")],
+        ])
+        
+        await query.edit_message_text(
+            message,
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+            disable_web_page_preview=True,
+        )
+    
+    elif query.data == "rewards_back":
+        user = update.effective_user
+        
+        with get_session() as session:
+            db_user = session.query(User).filter(User.telegram_id == user.id).first()
+            user_id = db_user.id if db_user else 0
+        
+        message = referral_service.format_rewards_message(user_id)
+        
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🎁 My Referral Code", callback_data="rewards_ref"),
+            ],
+        ])
+        
+        await query.edit_message_text(
+            message,
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
 
 
-# Create handlers
-referral_handler = CommandHandler("ref", referral_command)
-ref_menu_callback_handler = CallbackQueryHandler(ref_callback, pattern="^ref_menu$")
-ref_list_callback_handler = CallbackQueryHandler(ref_list_callback, pattern="^ref_list$")
-ref_claim_callback_handler = CallbackQueryHandler(ref_claim_callback, pattern="^ref_claim$")
+# ============================================
+# Handler Registration
+# ============================================
 
+# Command handlers for main.py
+referral_handler = CommandHandler("ref", ref_command)
+fees_command_handler = CommandHandler("fees", fees_command)
+rewards_command_handler = CommandHandler("rewards", rewards_command)
+
+# Callback handlers for main.py
+ref_menu_callback_handler = CallbackQueryHandler(ref_callback, pattern="^ref_")
+ref_list_callback_handler = CallbackQueryHandler(ref_callback, pattern="^ref_list")
+ref_claim_callback_handler = CallbackQueryHandler(ref_callback, pattern="^ref_copy_")
+fees_callback_handler = CallbackQueryHandler(fees_callback, pattern="^fees_")
+rewards_callback_handler = CallbackQueryHandler(rewards_callback, pattern="^rewards_")
+
+
+def get_referral_handlers():
+    """Get all referral-related handlers."""
+    return [
+        # Commands (using short versions)
+        referral_handler,
+        fees_command_handler,
+        rewards_command_handler,
+        
+        # Callbacks
+        ref_menu_callback_handler,
+        ref_list_callback_handler,
+        ref_claim_callback_handler,
+        fees_callback_handler,
+        rewards_callback_handler,
+    ]

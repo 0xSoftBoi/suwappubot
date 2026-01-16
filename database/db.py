@@ -60,6 +60,8 @@ def init_db(database_url: str) -> None:
     # Common operational tables used by services/background tasks
     from bot.models.fees import FeeConfig, FeeTransaction, FeeSummary
     from bot.models.advanced import LimitOrder, DCAOrder, DCAExecution, SwapTemplate
+    # Referral system models
+    from bot.models.referral import Referral, ReferralCode, ReferralReward, ReferralPayout
     
     # Create all tables
     Base.metadata.create_all(bind=engine)
@@ -118,6 +120,7 @@ def _ensure_schema(db_engine) -> None:
     if "users" in tables:
         _add_tos_columns(db_engine, inspector, is_sqlite)
         _fix_user_nullability(db_engine, inspector, is_sqlite)
+        _add_referral_columns(db_engine, inspector, is_sqlite)
 
 
 def _fix_user_nullability(db_engine, inspector, is_sqlite: bool) -> None:
@@ -144,6 +147,27 @@ def _add_tos_columns(db_engine, inspector, is_sqlite: bool) -> None:
     new_columns = [
         ("tos_accepted", "BOOLEAN", "0"),
         ("tos_accepted_at", "DATETIME", "NULL"),
+    ]
+    
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE users ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+
+def _add_referral_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add referral tracking columns to users table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("users")}
+    
+    # Columns for quick referral stats access (denormalized for performance)
+    new_columns = [
+        ("referred_by_user_id", "INTEGER", "NULL"),
+        ("total_referral_rewards", "FLOAT", "0.0"),
+        ("referral_count", "INTEGER", "0"),
     ]
     
     for col_name, col_type, default in new_columns:

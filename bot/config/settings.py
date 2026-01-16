@@ -145,6 +145,12 @@ class Settings(BaseSettings):
     max_swap_amount: float = Field(default=100000, description="Maximum swap amount in USD")
     default_slippage: float = Field(default=0.5, description="Default slippage tolerance in %")
     
+    # Fee Configuration (competitive pricing)
+    swap_fee_percentage: float = Field(default=0.8, description="Swap fee percentage (0.8% = competitive rate)")
+    referral_reward_percentage: float = Field(default=30, description="Referral reward percentage (30% of fees)")
+    fee_collector_address: Optional[str] = Field(default=None, description="EVM address for fee collection")
+    fee_collector_solana: Optional[str] = Field(default=None, description="Solana address for fee collection")
+    
     model_config = ConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

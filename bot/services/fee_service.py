@@ -1,404 +1,290 @@
-"""Fee calculation and collection service."""
+"""Fee service for calculating and collecting swap fees.
+
+Suwappu Competitive Pricing:
+- 0.8% flat swap fee (undercuts 1% industry standard)
+- 30% referral rewards (aggressive growth)
+- User pays gas (separate from swap fee)
+"""
 
 import logging
-import asyncio
-from typing import Optional, Tuple, List
-from decimal import Decimal
-from datetime import datetime, date
+from typing import Optional, Tuple, TYPE_CHECKING
+from decimal import Decimal, ROUND_DOWN
+from dataclasses import dataclass
+from datetime import datetime
 
-from bot.models.fees import FeeConfig, FeeTransaction, FeeSummary
-from bot.services.price_service import price_service
+from bot.config.settings import settings
+from bot.models.swap import FeeTransaction
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
+# ============================================
+# FEE CONSTANTS - Competitive Pricing
+# ============================================
 
-# Fee collector address (can be overridden in config)
-DEFAULT_FEE_COLLECTOR = "0x6456f69215C470e1545Ed6eea4621C136B30D85d"
+# Swap fee: 0.8% (undercuts Maestro 1%, Trojan 0.9%)
+SWAP_FEE_PERCENTAGE = Decimal("0.8")  # 0.8%
+SWAP_FEE_DECIMAL = SWAP_FEE_PERCENTAGE / Decimal("100")  # 0.008
+
+# Referral rewards: 30% of fees (aggressive growth)
+REFERRAL_REWARD_PERCENTAGE = Decimal("30")  # 30%
+REFERRAL_REWARD_DECIMAL = REFERRAL_REWARD_PERCENTAGE / Decimal("100")  # 0.30
+
+# Swap limits
+MIN_SWAP_USD = Decimal("1")  # No barriers to entry
+MAX_SWAP_USD = Decimal("100000")  # Risk management
+
+# Fee collector address (from settings or default)
+FEE_COLLECTOR_EVM = getattr(settings, 'fee_collector_address', None)
+FEE_COLLECTOR_SOLANA = getattr(settings, 'fee_collector_solana', None)
 
 
-# Default fee configuration
-DEFAULT_FEE_PERCENTAGE = 1.0  # 1%
-DEFAULT_MIN_FEE_USD = 0.0
-DEFAULT_MAX_FEE_USD = 1000.0
+@dataclass
+class FeeCalculation:
+    """Result of fee calculation."""
+    swap_amount_usd: Decimal
+    fee_amount_usd: Decimal
+    fee_percentage: Decimal
+    referral_reward_usd: Decimal
+    net_fee_usd: Decimal  # Fee after referral payout
+    
+    # Token amounts (if provided)
+    fee_amount_token: Optional[Decimal] = None
+    token_symbol: Optional[str] = None
+    
+    # Referral info
+    referrer_id: Optional[int] = None
+    has_referrer: bool = False
 
 
 class FeeService:
-    """Service for calculating and tracking swap fees."""
+    """Service for calculating and collecting swap fees.
+    
+    Pricing strategy:
+    - 0.8% flat fee on all swaps (competitive rate)
+    - 30% of fees go to referrer (viral growth)
+    - Net revenue: 0.56% per swap (0.8% * 70%)
+    """
     
     def __init__(self):
-        self._config_cache: Optional[FeeConfig] = None
-        self._cache_time: Optional[datetime] = None
-        self._cache_ttl = 60  # Cache for 60 seconds
-    
-    def get_fee_config(self) -> FeeConfig:
-        """Get current fee configuration."""
-        # Check cache
-        if self._config_cache and self._cache_time:
-            if (datetime.utcnow() - self._cache_time).seconds < self._cache_ttl:
-                return self._config_cache
-        
-        with get_session() as session:
-            config = session.query(FeeConfig).filter(
-                FeeConfig.is_active == True
-            ).first()
-            
-            if not config:
-                # Create default config
-                config = FeeConfig(
-                    swap_fee_percentage=DEFAULT_FEE_PERCENTAGE,
-                    min_fee_usd=DEFAULT_MIN_FEE_USD,
-                    max_fee_usd=DEFAULT_MAX_FEE_USD,
-                )
-                session.add(config)
-                session.flush()
-            
-            # Cache it
-            self._config_cache = FeeConfig(
-                id=config.id,
-                swap_fee_percentage=config.swap_fee_percentage,
-                min_fee_usd=config.min_fee_usd,
-                max_fee_usd=config.max_fee_usd,
-                fee_collector_address=config.fee_collector_address,
-                fee_collector_chain=config.fee_collector_chain,
-                is_active=config.is_active,
-            )
-            self._cache_time = datetime.utcnow()
-            
-            return self._config_cache
-    
-    def set_fee_config(
-        self,
-        fee_percentage: Optional[float] = None,
-        min_fee_usd: Optional[float] = None,
-        max_fee_usd: Optional[float] = None,
-        fee_collector_address: Optional[str] = None,
-    ) -> FeeConfig:
-        """Update fee configuration."""
-        with get_session() as session:
-            config = session.query(FeeConfig).filter(
-                FeeConfig.is_active == True
-            ).first()
-            
-            if not config:
-                config = FeeConfig()
-                session.add(config)
-            
-            if fee_percentage is not None:
-                config.swap_fee_percentage = fee_percentage
-            if min_fee_usd is not None:
-                config.min_fee_usd = min_fee_usd
-            if max_fee_usd is not None:
-                config.max_fee_usd = max_fee_usd
-            if fee_collector_address is not None:
-                config.fee_collector_address = fee_collector_address
-            
-            session.flush()
-            config_id = config.id
-        
-        # Clear cache
-        self._config_cache = None
-        self._cache_time = None
-        
-        return self.get_fee_config()
+        self.fee_percentage = SWAP_FEE_DECIMAL
+        self.referral_percentage = REFERRAL_REWARD_DECIMAL
     
     def calculate_fee(
         self,
-        amount: float,
-        token_symbol: str,
-        token_price_usd: Optional[float] = None,
-    ) -> Tuple[float, float, float]:
+        swap_amount_usd: float,
+        referrer_id: Optional[int] = None,
+    ) -> FeeCalculation:
         """
         Calculate fee for a swap.
         
         Args:
-            amount: Amount being swapped
-            token_symbol: Token symbol
-            token_price_usd: Optional USD price of token
+            swap_amount_usd: Swap amount in USD
+            referrer_id: Optional referrer user ID for reward calculation
             
         Returns:
-            Tuple of (fee_amount, fee_percentage, fee_usd)
+            FeeCalculation with all fee details
         """
-        config = self.get_fee_config()
+        amount = Decimal(str(swap_amount_usd))
         
-        # Calculate percentage fee
-        fee_percentage = config.swap_fee_percentage
-        fee_amount = amount * (fee_percentage / 100)
+        # Calculate base fee (0.8%)
+        fee_amount = (amount * self.fee_percentage).quantize(
+            Decimal("0.01"), rounding=ROUND_DOWN
+        )
         
-        # Calculate USD value if price available
-        if token_price_usd:
-            fee_usd = fee_amount * token_price_usd
+        # Calculate referral reward if applicable
+        has_referrer = referrer_id is not None
+        referral_reward = Decimal("0")
+        
+        if has_referrer:
+            referral_reward = (fee_amount * self.referral_percentage).quantize(
+                Decimal("0.01"), rounding=ROUND_DOWN
+            )
+        
+        # Net fee (what we keep)
+        net_fee = fee_amount - referral_reward
+        
+        return FeeCalculation(
+            swap_amount_usd=amount,
+            fee_amount_usd=fee_amount,
+            fee_percentage=SWAP_FEE_PERCENTAGE,
+            referral_reward_usd=referral_reward,
+            net_fee_usd=net_fee,
+            referrer_id=referrer_id,
+            has_referrer=has_referrer,
+        )
+    
+    def calculate_fee_in_token(
+        self,
+        swap_amount: float,
+        token_price_usd: float,
+        token_symbol: str,
+        referrer_id: Optional[int] = None,
+    ) -> FeeCalculation:
+        """
+        Calculate fee in token terms.
+        
+        Args:
+            swap_amount: Amount of tokens being swapped
+            token_price_usd: Price of token in USD
+            token_symbol: Token symbol
+            referrer_id: Optional referrer user ID
             
-            # Apply min/max in USD terms
-            if fee_usd < config.min_fee_usd:
-                # Adjust fee amount to meet minimum
-                fee_usd = config.min_fee_usd
-                fee_amount = fee_usd / token_price_usd if token_price_usd > 0 else fee_amount
-            elif fee_usd > config.max_fee_usd:
-                # Cap fee at maximum
-                fee_usd = config.max_fee_usd
-                fee_amount = fee_usd / token_price_usd if token_price_usd > 0 else fee_amount
-        else:
-            fee_usd = 0.0
+        Returns:
+            FeeCalculation with token amounts
+        """
+        swap_amount_usd = float(swap_amount) * token_price_usd
+        calc = self.calculate_fee(swap_amount_usd, referrer_id)
         
-        return fee_amount, fee_percentage, fee_usd
+        # Calculate fee in token terms
+        if token_price_usd > 0:
+            fee_in_token = float(calc.fee_amount_usd) / token_price_usd
+            calc.fee_amount_token = Decimal(str(fee_in_token)).quantize(
+                Decimal("0.000001"), rounding=ROUND_DOWN
+            )
+        
+        calc.token_symbol = token_symbol
+        return calc
     
     async def calculate_fee_with_price(
         self,
         amount: float,
         token_symbol: str,
     ) -> Tuple[float, float, float]:
-        """Calculate fee with automatic price lookup."""
+        """
+        Calculate fee with automatic price lookup.
+        
+        Args:
+            amount: Amount of tokens being swapped
+            token_symbol: Token symbol
+            
+        Returns:
+            Tuple of (fee_amount_token, fee_percentage, fee_amount_usd)
+        """
+        from bot.services.price_service import price_service
+        
+        # Get token price
         prices = await price_service.get_prices([token_symbol])
-        price = prices.get(token_symbol, 0) or 0
-        return self.calculate_fee(amount, token_symbol, price)
+        token_price = prices.get(token_symbol.upper(), 1.0)
+        
+        # Calculate USD value
+        amount_usd = amount * token_price
+        
+        # Calculate fee
+        calc = self.calculate_fee(amount_usd)
+        
+        # Convert fee back to token amount
+        fee_amount_token = float(calc.fee_amount_usd) / token_price if token_price > 0 else 0
+        
+        return (
+            fee_amount_token,
+            float(SWAP_FEE_PERCENTAGE),
+            float(calc.fee_amount_usd)
+        )
+    
+    def validate_swap_amount(self, amount_usd: float) -> Tuple[bool, str]:
+        """
+        Validate swap amount against limits.
+        
+        Args:
+            amount_usd: Swap amount in USD
+            
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        amount = Decimal(str(amount_usd))
+        
+        if amount < MIN_SWAP_USD:
+            return False, f"Minimum swap amount is ${MIN_SWAP_USD}"
+        
+        if amount > MAX_SWAP_USD:
+            return False, f"Maximum swap amount is ${MAX_SWAP_USD:,}"
+        
+        return True, ""
     
     def record_fee(
         self,
+        swap_id: int,
         user_id: int,
+        fee_amount_usd: float,
+        fee_token: str,
+        fee_amount_token: float,
         chain: str,
-        token_symbol: str,
-        swap_amount: float,
-        fee_amount: float,
-        fee_percentage: float,
-        fee_amount_usd: Optional[float] = None,
-        swap_id: Optional[int] = None,
+        referrer_id: Optional[int] = None,
+        referral_reward_usd: float = 0,
     ) -> FeeTransaction:
-        """Record a fee transaction."""
+        """
+        Record a fee transaction in the database.
+        
+        Args:
+            swap_id: Associated swap transaction ID
+            user_id: User who paid the fee
+            fee_amount_usd: Fee in USD
+            fee_token: Token used for fee
+            fee_amount_token: Fee in token amount
+            chain: Blockchain chain
+            referrer_id: Optional referrer for reward
+            referral_reward_usd: Referral reward amount
+            
+        Returns:
+            Created FeeTransaction
+        """
         with get_session() as session:
             fee_tx = FeeTransaction(
-                user_id=user_id,
                 swap_id=swap_id,
+                user_id=user_id,
+                fee_amount=fee_amount_usd,
+                fee_token=fee_token,
+                fee_amount_token=str(fee_amount_token),
                 chain=chain,
-                token_symbol=token_symbol,
-                swap_amount=swap_amount,
-                fee_percentage=fee_percentage,
-                fee_amount=fee_amount,
-                fee_amount_usd=fee_amount_usd,
+                collected=False,
+                created_at=datetime.utcnow(),
             )
             session.add(fee_tx)
             session.flush()
             
-            # Update daily summary
-            self._update_summary(session, fee_amount_usd or 0, swap_amount)
-            
             fee_id = fee_tx.id
         
         logger.info(
-            f"Fee recorded: {fee_amount:.6f} {token_symbol} "
-            f"(${fee_amount_usd:.2f}) from user {user_id}"
+            f"Recorded fee: ${fee_amount_usd:.2f} ({fee_amount_token} {fee_token}) "
+            f"for swap {swap_id}, user {user_id}"
         )
         
-        with get_session() as session:
-            return session.query(FeeTransaction).filter(
-                FeeTransaction.id == fee_id
-            ).first()
+        return fee_tx
     
-    def _update_summary(
-        self,
-        session,
-        fee_usd: float,
-        volume_usd: float,
-    ) -> None:
-        """Update daily fee summary."""
-        today = date.today().isoformat()
-        
-        summary = session.query(FeeSummary).filter(
-            FeeSummary.period_type == "daily",
-            FeeSummary.period_date == today,
-        ).first()
-        
-        if not summary:
-            summary = FeeSummary(
-                period_type="daily",
-                period_date=today,
-            )
-            session.add(summary)
-        
-        summary.total_swaps += 1
-        summary.total_volume_usd += volume_usd
-        summary.total_fees_usd += fee_usd
-    
-    def get_total_fees_collected(self) -> Tuple[float, int]:
-        """Get total fees collected and swap count."""
+    def get_fee_summary(self, user_id: int) -> dict:
+        """Get fee summary for a user."""
         with get_session() as session:
             from sqlalchemy import func
-            result = session.query(
-                func.sum(FeeTransaction.fee_amount_usd),
-                func.count(FeeTransaction.id)
-            ).first()
             
-            total_usd = result[0] or 0.0
-            total_count = result[1] or 0
-            
-            return total_usd, total_count
-    
-    def get_user_fees_paid(self, user_id: int) -> Tuple[float, int]:
-        """Get total fees paid by a user."""
-        with get_session() as session:
-            from sqlalchemy import func
-            result = session.query(
-                func.sum(FeeTransaction.fee_amount_usd),
-                func.count(FeeTransaction.id)
+            fees = session.query(
+                func.sum(FeeTransaction.fee_amount).label('total_fees'),
+                func.count(FeeTransaction.id).label('total_swaps')
             ).filter(
                 FeeTransaction.user_id == user_id
             ).first()
             
-            total_usd = result[0] or 0.0
-            total_count = result[1] or 0
-            
-            return total_usd, total_count
+            return {
+                "total_fees_paid_usd": float(fees.total_fees or 0),
+                "total_swaps": fees.total_swaps or 0,
+            }
     
-    def get_daily_stats(self, days: int = 7) -> list[dict]:
-        """Get daily fee stats for the last N days."""
-        with get_session() as session:
-            summaries = session.query(FeeSummary).filter(
-                FeeSummary.period_type == "daily"
-            ).order_by(FeeSummary.period_date.desc()).limit(days).all()
-            
-            return [
-                {
-                    "date": s.period_date,
-                    "swaps": s.total_swaps,
-                    "volume_usd": s.total_volume_usd,
-                    "fees_usd": s.total_fees_usd,
-                }
-                for s in summaries
-            ]
-    
-    def get_uncollected_fees(self) -> List[dict]:
-        """Get fees that haven't been swept to collector yet."""
-        with get_session() as session:
-            uncollected = session.query(FeeTransaction).filter(
-                FeeTransaction.collected == False
-            ).all()
-            
-            # Group by chain and token
-            grouped = {}
-            for fee in uncollected:
-                key = f"{fee.chain}:{fee.token_symbol}"
-                if key not in grouped:
-                    grouped[key] = {
-                        "chain": fee.chain,
-                        "token": fee.token_symbol,
-                        "amount": 0.0,
-                        "amount_usd": 0.0,
-                        "count": 0,
-                        "fee_ids": [],
-                    }
-                grouped[key]["amount"] += fee.fee_amount
-                grouped[key]["amount_usd"] += fee.fee_amount_usd or 0
-                grouped[key]["count"] += 1
-                grouped[key]["fee_ids"].append(fee.id)
-            
-            return list(grouped.values())
-    
-    def mark_fees_collected(self, fee_ids: List[int], tx_hash: str = None) -> int:
-        """Mark fees as collected/swept."""
-        with get_session() as session:
-            updated = session.query(FeeTransaction).filter(
-                FeeTransaction.id.in_(fee_ids)
-            ).update({"collected": True}, synchronize_session=False)
-            
-            return updated
-    
-    async def sweep_fees_to_collector(
-        self,
-        chain: str,
-        token_symbol: str,
-    ) -> Tuple[bool, str, Optional[str]]:
-        """
-        Sweep accumulated fees to the collector address.
-        
-        Returns:
-            Tuple of (success, message, tx_hash)
-        """
-        from bot.services.hot_wallet import hot_wallet_service
-        from bot.config.tokens import get_token_address, TOKENS
-        
-        config = self.get_fee_config()
-        collector_address = config.fee_collector_address or DEFAULT_FEE_COLLECTOR
-        
-        if not collector_address:
-            return False, "No fee collector address configured", None
-        
-        # Get uncollected fees for this chain/token
-        uncollected = self.get_uncollected_fees()
-        matching = [f for f in uncollected if f["chain"] == chain and f["token"] == token_symbol]
-        
-        if not matching:
-            return False, f"No uncollected {token_symbol} fees on {chain}", None
-        
-        fee_data = matching[0]
-        amount = Decimal(str(fee_data["amount"]))
-        
-        if amount <= 0:
-            return False, "No fees to sweep", None
-        
-        # Get hot wallet
-        hot_wallet = hot_wallet_service.get_deposit_wallet("evm")
-        if not hot_wallet:
-            return False, "No hot wallet configured", None
-        
-        try:
-            # Check if it's native token or ERC20
-            token_address = get_token_address(token_symbol, chain)
-            
-            if token_address == "0x0000000000000000000000000000000000000000" or not token_address:
-                # Native token transfer
-                tx_hash = await hot_wallet_service.send_native_token(
-                    wallet=hot_wallet,
-                    chain_name=chain,
-                    to_address=collector_address,
-                    amount=amount,
-                )
-            else:
-                # ERC20 transfer
-                decimals = TOKENS.get(token_symbol, {}).decimals if token_symbol in TOKENS else 18
-                tx_hash = await hot_wallet_service.send_token(
-                    wallet=hot_wallet,
-                    chain_name=chain,
-                    token_address=token_address,
-                    to_address=collector_address,
-                    amount=amount,
-                    decimals=decimals,
-                )
-            
-            # Mark fees as collected
-            self.mark_fees_collected(fee_data["fee_ids"], tx_hash)
-            
-            logger.info(
-                f"Swept {amount} {token_symbol} fees on {chain} to {collector_address}: {tx_hash}"
-            )
-            
-            return True, f"Swept {float(amount):.6f} {token_symbol} to collector", tx_hash
-            
-        except Exception as e:
-            logger.error(f"Fee sweep failed: {e}")
-            return False, f"Sweep failed: {str(e)}", None
-    
-    async def sweep_all_fees(self) -> List[dict]:
-        """Sweep all uncollected fees to collector."""
-        results = []
-        uncollected = self.get_uncollected_fees()
-        
-        for fee_group in uncollected:
-            success, message, tx_hash = await self.sweep_fees_to_collector(
-                chain=fee_group["chain"],
-                token_symbol=fee_group["token"],
-            )
-            results.append({
-                "chain": fee_group["chain"],
-                "token": fee_group["token"],
-                "amount": fee_group["amount"],
-                "success": success,
-                "message": message,
-                "tx_hash": tx_hash,
-            })
-        
-        return results
+    def format_fee_info(self) -> str:
+        """Format fee information for display."""
+        return (
+            "💰 *Suwappu Fee Structure*\n\n"
+            f"• Swap Fee: *{SWAP_FEE_PERCENTAGE}%*\n"
+            f"• Referral Reward: *{REFERRAL_REWARD_PERCENTAGE}%* of fees\n"
+            f"• Min Swap: ${MIN_SWAP_USD}\n"
+            f"• Max Swap: ${MAX_SWAP_USD:,}\n\n"
+            "🏆 *Why We're Competitive:*\n"
+            "• Lower than Maestro (1%)\n"
+            "• Lower than Trojan (0.9%)\n"
+            "• MEV Protection included\n"
+            "• Cross-chain support\n\n"
+            "_Example: $1,000 swap = $8 fee_"
+        )
 
 
 # Global instance
 fee_service = FeeService()
-

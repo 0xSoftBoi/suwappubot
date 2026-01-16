@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database.db import Base
@@ -22,6 +22,11 @@ class User(Base):
     # Terms of Service
     tos_accepted = Column(Boolean, default=False)
     tos_accepted_at = Column(DateTime, nullable=True)
+    
+    # Referral tracking (denormalized for performance)
+    referred_by_user_id = Column(Integer, nullable=True, index=True)  # Who referred this user
+    total_referral_rewards = Column(Float, default=0.0)  # Total USD earned from referrals
+    referral_count = Column(Integer, default=0)  # Number of users referred
     
     # 2FA
     two_fa_enabled = Column(Boolean, default=False)

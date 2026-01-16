@@ -477,6 +477,8 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             if fee_amount > 0:
                 # Prevent duplicate fee records on double-tap (idempotent)
                 from bot.models.fees import FeeTransaction
+                from bot.services.referral_service import referral_service
+                
                 with get_session() as session:
                     existing_fee = session.query(FeeTransaction).filter(
                         FeeTransaction.swap_id == swap_tx.id
@@ -491,6 +493,14 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                         fee_percentage=fee_percentage,
                         fee_amount_usd=fee_usd,
                         swap_id=swap_tx.id,
+                    )
+                    
+                    # Record referral reward (30% of fee to referrer)
+                    # This automatically credits the referrer if one exists
+                    referral_service.record_reward(
+                        referee_id=user_id,
+                        swap_id=swap_tx.id,
+                        fee_amount_usd=fee_usd,
                     )
         
         from_chain_config = get_chain_by_name(swap_data["from_chain"])

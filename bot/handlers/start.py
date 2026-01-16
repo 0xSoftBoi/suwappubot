@@ -7,18 +7,29 @@ from datetime import datetime
 from bot.models.user import User
 from database.db import get_session
 from bot.services.tos_service import tos_service, TOS_TEXT
+from bot.services.referral_service import referral_service
 from bot.utils.templates import WELCOME_MESSAGE, HELP_MESSAGE, TOS_KEYBOARD
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /start command."""
+    """Handle /start command.
+    
+    Supports deeplinks for referrals: /start REFERRAL_CODE
+    """
     user = update.effective_user
     
+    # Check for referral code in deeplink arguments
+    referral_code = None
+    if context.args and len(context.args) > 0:
+        referral_code = context.args[0].upper()
+    
     # Create or update user in database
+    is_new_user = False
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
         
         if db_user is None:
+            is_new_user = True
             db_user = User(
                 telegram_id=user.id,
                 username=user.username,
@@ -26,7 +37,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 last_name=user.last_name,
             )
             session.add(db_user)
-            session.commit() # Commit to get db_user.id
+            session.commit()  # Commit to get db_user.id
         else:
             db_user.last_active_at = datetime.utcnow()
             if user.username:
@@ -34,6 +45,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         
         user_id = db_user.id
         tos_accepted = db_user.tos_accepted
+    
+    # Process referral code if present and user is new
+    referral_message = ""
+    if referral_code and is_new_user:
+        success, msg = referral_service.process_referral(user_id, referral_code)
+        if success:
+            referral_message = "\n\n🎁 _Referral code applied! Your referrer will earn rewards._"
 
     # Check TOS
     if not tos_accepted:
@@ -69,8 +87,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    welcome_text = WELCOME_MESSAGE + referral_message
     await update.message.reply_text(
-        WELCOME_MESSAGE,
+        welcome_text,
         parse_mode="Markdown",
         reply_markup=reply_markup,
     )
