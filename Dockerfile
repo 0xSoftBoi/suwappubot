@@ -15,7 +15,8 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     libssl-dev \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && which curl || (echo "curl not found!" && exit 1)
 
 # Copy requirements first for better caching
 COPY requirements.txt .
@@ -32,13 +33,14 @@ RUN chmod +x scripts/*.sh
 RUN useradd -m -u 1000 botuser && chown -R botuser:botuser /app
 USER botuser
 
-# Default port for Render
+# Default port for Render (Render will override with PORT env var)
 ENV PORT=10000
 EXPOSE 10000
 
-# Health check via API
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:${PORT}/health || exit 1
+# Health check via API (use explicit port for healthcheck)
+# Note: Render sets PORT dynamically, but healthcheck needs explicit port
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD /usr/bin/curl -f http://localhost:${PORT:-10000}/health || exit 1
 
 # Run both bot and API
 CMD ["bash", "scripts/start_all.sh"]
