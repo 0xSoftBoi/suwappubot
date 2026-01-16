@@ -18,6 +18,23 @@ def init_db(database_url: str) -> None:
     """Initialize database connection and create tables."""
     global engine, SessionLocal
     
+    # Fix Render database URL: convert external hostname to internal if needed
+    # Render external URLs use format: dpg-xxxxx-a (resolvable externally)
+    # Render internal URLs use format: dpg-xxxxx-a.internal (only resolvable within Render network)
+    if database_url and "dpg-" in database_url and ".internal" not in database_url:
+        # Check if this looks like an external Render database URL
+        import re
+        # Pattern: postgresql://user:pass@dpg-xxxxx-a.hostname:port/dbname
+        match = re.search(r'@(dpg-[^:/]+)', database_url)
+        if match:
+            external_host = match.group(1)
+            # Convert to internal hostname
+            internal_host = f"{external_host}.internal"
+            database_url = database_url.replace(f"@{external_host}", f"@{internal_host}")
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Converted external database hostname to internal: {external_host} -> {internal_host}")
+    
     connect_args = {}
     is_sqlite = database_url.startswith("sqlite")
     
