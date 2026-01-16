@@ -1,7 +1,8 @@
 from .user import User, Wallet
 from .swap import SwapTransaction, SwapStatus
 from .chain import Chain, Token
-from .favorites import FavoriteSwapPair, PriceAlert, UserSettings, Referral
+from .favorites import FavoriteSwapPair, PriceAlert, UserSettings
+from .referral import Referral, ReferralCode, ReferralReward
 from .custodial import (
     CustodialBalance,
     CustodialTransaction,
@@ -18,8 +19,6 @@ from .advanced import (
     LimitOrder,
     DCAOrder,
     DCAExecution,
-    ReferralCode,
-    ReferralReward,
     SwapTemplate,
     UserStats,
     PortfolioSnapshot,

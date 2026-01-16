@@ -163,28 +163,7 @@ class DCAExecution(Base):
 
 
 # ============ REFERRALS ============
-
-class ReferralCode(Base):
-    """User referral codes."""
-    __tablename__ = "referral_codes"
-    
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)
-    
-    code = Column(String(20), unique=True, nullable=False)  # ABC123
-    
-    # Stats
-    total_referrals = Column(Integer, default=0)
-    total_volume_usd = Column(Float, default=0)
-    total_rewards_usd = Column(Float, default=0)
-    pending_rewards_usd = Column(Float, default=0)
-    
-    # Settings
-    reward_percentage = Column(Float, default=10.0)  # 10% of fees
-    is_active = Column(Boolean, default=True)
-    
-    created_at = Column(DateTime, default=datetime.utcnow)
-
+# Note: ReferralCode is now in bot/models/referral.py
 
 class AdvancedReferral(Base):
     """Referral relationships with detailed tracking."""
@@ -201,25 +180,7 @@ class AdvancedReferral(Base):
     
     created_at = Column(DateTime, default=datetime.utcnow)
 
-
-class ReferralReward(Base):
-    """Individual referral rewards."""
-    __tablename__ = "referral_rewards"
-    
-    id = Column(Integer, primary_key=True)
-    referral_id = Column(Integer, ForeignKey("referrals.id"), nullable=False)
-    
-    swap_id = Column(Integer, ForeignKey("swap_transactions.id"), nullable=True)
-    
-    fee_amount_usd = Column(Float, nullable=False)
-    reward_amount_usd = Column(Float, nullable=False)
-    reward_percentage = Column(Float, nullable=False)
-    
-    is_paid = Column(Boolean, default=False)
-    paid_at = Column(DateTime, nullable=True)
-    
-    created_at = Column(DateTime, default=datetime.utcnow)
-
+# Note: ReferralReward is now in bot/models/referral.py
 
 # ============ SWAP TEMPLATES ============
 

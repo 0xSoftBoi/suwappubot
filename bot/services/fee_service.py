@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from bot.config.settings import settings
-from bot.models.swap import FeeTransaction
+from bot.models.fees import FeeTransaction
 from database.db import get_session
 
 logger = logging.getLogger(__name__)

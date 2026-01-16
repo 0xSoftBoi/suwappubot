@@ -24,9 +24,9 @@ from datetime import datetime
 from enum import Enum
 
 from bot.config.settings import settings
-from bot.services.security.honeypot_detector import honeypot_detector
-from bot.services.security.authority_checker import authority_checker
-from bot.services.security.blacklist_service import blacklist_service, BlacklistType
+from bot.services.token_security.honeypot_detector import honeypot_detector
+from bot.services.token_security.authority_checker import authority_checker
+from bot.services.token_security.blacklist_service import blacklist_service, BlacklistType
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
 

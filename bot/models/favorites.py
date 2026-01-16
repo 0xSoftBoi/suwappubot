@@ -91,21 +91,3 @@ class UserSettings(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-
-class Referral(Base):
-    """Referral tracking."""
-    __tablename__ = "referrals"
-    
-    id = Column(Integer, primary_key=True)
-    referrer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    referred_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    
-    # Referral code used
-    referral_code = Column(String(20), nullable=False)
-    
-    # Rewards
-    referrer_reward_usd = Column(Float, default=0.0)
-    referred_reward_usd = Column(Float, default=0.0)
-    
-    created_at = Column(DateTime, default=datetime.utcnow)
-

@@ -49,7 +49,7 @@ from bot.services.sniping import (
 )
 from bot.services.sniping.snipe_executor import SnipeConfig as ExecutorConfig
 from bot.services.sniping.launch_detector import TokenLaunch, LaunchPlatform
-from bot.utils.rate_limiter import RateLimiter
+from bot.utils.rate_limiter import UserRateLimiter
 from bot.utils.tos_utils import enforce_tos
 from database.db import get_session
 
@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 ) = range(6)
 
 # Rate limiter for snipe commands
-snipe_limiter = RateLimiter(requests_per_minute=10)
+snipe_limiter = UserRateLimiter(max_requests=10, window_seconds=60)
 
 # Solana address regex
 SOLANA_ADDRESS_REGEX = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")

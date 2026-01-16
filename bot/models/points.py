@@ -123,7 +123,7 @@ class PointTransaction(Base):
     referral_id = Column(Integer, nullable=True)
     
     # Additional data
-    metadata = Column(JSON, nullable=True)  # Extra info like swap amount, etc.
+    extra_data = Column(JSON, nullable=True)  # Extra info like swap amount, etc.
     
     # Timestamp
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
