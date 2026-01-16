@@ -127,6 +127,7 @@ class Settings(BaseSettings):
     # API Keys (optional for higher rate limits)
     lifi_api_key: Optional[str] = Field(default=None, description="Li.Fi API key")
     jupiter_api_key: Optional[str] = Field(default=None, description="Jupiter API key")
+    socket_api_key: Optional[str] = Field(default=None, description="Socket/Bungee API key for super-aggregation")
     
     # WhatsApp Business API (Optional)
     whatsapp_phone_number_id: Optional[str] = Field(default=None, description="WhatsApp Business Phone Number ID")
