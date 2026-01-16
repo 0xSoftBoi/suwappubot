@@ -248,6 +248,13 @@ def get_db():
     with get_session() as session:
         yield session
 
+# --- Health Check ---
+
+@app.get("/health", tags=["Health"])
+async def health_check():
+    """Health check endpoint for Render and monitoring."""
+    return {"status": "healthy", "service": "suwappu-api"}
+
 @app.get("/.well-known/ai-plugin.json", tags=["Discovery"], include_in_schema=False)
 async def get_plugin_manifest():
     """Standard OpenAI plugin discovery path."""

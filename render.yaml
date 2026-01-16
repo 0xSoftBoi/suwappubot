@@ -1,10 +1,10 @@
 services:
-  # 1. API & Dashboard (Web Service)
+  # 1. API (Web Service)
   - type: web
-    name: suwappu-web
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: ./start_web.sh
+    name: suwappu-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt && pip install gunicorn
+    startCommand: gunicorn api.main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
@@ -13,11 +13,67 @@ services:
           property: connectionString
       - key: SECRET_KEY
         generateValue: true
-      - key: WEB_CONCURRENCY
-        value: 2
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: TURNKEY_ORGANIZATION_ID
+        sync: false
+      - key: TURNKEY_API_PUBLIC_KEY
+        sync: false
+      - key: TURNKEY_API_PRIVATE_KEY
+        sync: false
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: LIFI_API_KEY
+        sync: false
 
+  # 2. Telegram Bot (Background Worker)
+  - type: worker
+    name: suwappu-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m bot.main
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: suwappu-db
+          property: connectionString
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: TURNKEY_ORGANIZATION_ID
+        sync: false
+      - key: TURNKEY_API_PUBLIC_KEY
+        sync: false
+      - key: TURNKEY_API_PRIVATE_KEY
+        sync: false
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: LIFI_API_KEY
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+
+  # 3. Dashboard (Static Site or separate service)
+  - type: web
+    name: suwappu-dashboard
+    runtime: node
+    buildCommand: cd dashboard && npm install && npm run build
+    startCommand: cd dashboard && npm start
+    envVars:
+      - key: SUWAPPU_API_BASE_URL
+        sync: false
+      - key: SUWAPPU_ADMIN_API_KEY
+        sync: false
 
 databases:
   - name: suwappu-db
     databaseName: suwappubot
     user: suwappu
+    plan: free
