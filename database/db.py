@@ -18,33 +18,37 @@ def init_db(database_url: str) -> None:
     """Initialize database connection and create tables."""
     global engine, SessionLocal
     
-    # Fix Render database URL: convert external hostname to internal if needed
-    # Render external URLs use format: dpg-xxxxx-a (resolvable externally)
-    # Render internal URLs use format: dpg-xxxxx-a.internal (only resolvable within Render network)
-    if database_url and "dpg-" in database_url and ".internal" not in database_url:
-        # Check if this looks like an external Render database URL
+    # Handle Render database URLs
+    # Render provides both internal and external connection strings
+    # Internal URLs use .internal suffix and only work within Render network
+    # External URLs work from anywhere but may have different hostnames
+    original_url = database_url
+    if database_url and "dpg-" in database_url:
         import re
-        # Pattern: postgresql://user:pass@dpg-xxxxx-a[:/] or @dpg-xxxxx-a.domain[:/]
-        # Match hostname part (dpg-xxxxx-a) which may or may not have a domain suffix
-        match = re.search(r'@(dpg-[a-z0-9]+(?:-[a-z])?)', database_url)
-        if match:
-            external_host_base = match.group(1)
-            # Check if hostname has a domain suffix (like .somehost.com)
-            # If it does, replace the whole hostname; if not, just add .internal
-            if f"@{external_host_base}." in database_url or f"@{external_host_base}:" in database_url or f"@{external_host_base}/" in database_url:
-                # Has domain or directly followed by :port or /path
-                # Replace just the base hostname part
-                database_url = re.sub(
-                    r'@' + re.escape(external_host_base) + r'(?=[.:/])',
-                    f"@{external_host_base}.internal",
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Check if already using internal URL
+        if ".internal" in database_url:
+            logger.info("Using Render internal database URL (already configured)")
+        else:
+            # Try to convert to internal URL
+            # Render external hostnames: dpg-xxxxx-a or dpg-xxxxx-a.somehost.com
+            match = re.search(r'@(dpg-[a-z0-9]+(?:-[a-z])?)', database_url)
+            if match:
+                host_base = match.group(1)
+                # Try internal first (preferred for same-region services)
+                internal_url = re.sub(
+                    r'@' + re.escape(host_base) + r'(?=[.:/])',
+                    f"@{host_base}.internal",
                     database_url
                 )
-            else:
-                # No domain, just hostname - add .internal
-                database_url = database_url.replace(f"@{external_host_base}", f"@{external_host_base}.internal")
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info(f"Converted external Render database hostname to internal: {external_host_base} -> {external_host_base}.internal")
+                if internal_url == database_url:
+                    # No substitution happened, try simple replace
+                    internal_url = database_url.replace(f"@{host_base}", f"@{host_base}.internal")
+                
+                logger.info(f"Attempting Render internal database URL: {host_base} -> {host_base}.internal")
+                database_url = internal_url
     
     connect_args = {}
     is_sqlite = database_url.startswith("sqlite")
