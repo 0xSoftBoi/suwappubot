@@ -28,6 +28,8 @@ solana==0.34.3
 solders==0.21.0
 sqlalchemy==2.0.29
 uvicorn[standard]
+fastapi>=0.104.0
+PyJWT>=2.8.0
 web3==6.15.1
 ecdsa>=0.18.0
 rlp>=3.0.0
