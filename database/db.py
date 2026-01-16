@@ -65,7 +65,9 @@ def init_db(database_url: str) -> None:
     # Points/XP and Copy Trading models
     from bot.models.points import UserPoints, PointTransaction, PointRedemption, Milestone, UserMilestone, Reward
     from bot.models.copy_trading import TraderProfile, CopyFollow, CopyTrade, CopyNotification, TraderTrade
-    
+    # Token Sniping models
+    from bot.models.snipe import SnipeOrder, SnipeConfig, SnipeHistory, WatchedToken, AutoSnipeRule
+
     # Create all tables
     Base.metadata.create_all(bind=engine)
 
