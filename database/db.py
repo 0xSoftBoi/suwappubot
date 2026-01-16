@@ -55,6 +55,12 @@ def init_db(database_url: str) -> None:
     
     if is_sqlite:
         connect_args["check_same_thread"] = False
+    else:
+        # PostgreSQL/Render specific settings
+        # Render requires SSL for database connections
+        if "dpg-" in database_url or "render.com" in database_url:
+            connect_args["sslmode"] = "require"
+            connect_args["connect_timeout"] = 10
     
     # Optimized engine settings
     engine = create_engine(
