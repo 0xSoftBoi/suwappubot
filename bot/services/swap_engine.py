@@ -1,4 +1,4 @@
-"""Swap engine that orchestrates Li.Fi, Jupiter, LayerZero, and Chainlink CCIP for cross-chain swaps."""
+"""Swap engine that orchestrates Li.Fi, Jupiter, LayerZero, Chainlink CCIP, Circle CCTP, Across, and Wormhole for cross-chain swaps."""
 
 import asyncio
 import logging
@@ -16,6 +16,9 @@ from bot.services.lifi_api import LiFiAPI, LiFiQuote, LiFiError
 from bot.services.jupiter_api import JupiterAPI, JupiterQuote, JupiterError
 from bot.services.layerzero_api import LayerZeroAPI, LayerZeroQuote, LayerZeroError
 from bot.services.ccip_api import ChainlinkCCIPAPI, CCIPQuote, CCIPError
+from bot.services.cctp_api import CircleCCTPAPI, CCTPQuote, CCTPError
+from bot.services.across_api import AcrossAPI, AcrossQuote, AcrossError
+from bot.services.wormhole_api import WormholeAPI, WormholeQuote, WormholeError
 from bot.services.wallet import WalletService
 from bot.models.user import Wallet
 from bot.models.swap import SwapTransaction, SwapStatus
@@ -77,13 +80,16 @@ def _parse_int(value, default: int = 0) -> int:
 
 
 class SwapEngine:
-    """Engine for executing swaps via Li.Fi, Jupiter, LayerZero, and Chainlink CCIP."""
+    """Engine for executing swaps via Li.Fi, Jupiter, LayerZero, Chainlink CCIP, Circle CCTP, Across, and Wormhole."""
     
     def __init__(self):
         self.lifi = LiFiAPI()
         self.jupiter = JupiterAPI()
         self.layerzero = LayerZeroAPI()
         self.ccip = ChainlinkCCIPAPI()
+        self.cctp = CircleCCTPAPI()
+        self.across = AcrossAPI()
+        self.wormhole = WormholeAPI()
         self.wallet_service = WalletService()
         self._wallet_locks: dict[int, asyncio.Lock] = {}  # Per-wallet locks
     
@@ -509,6 +515,12 @@ class SwapEngine:
                     tx_hash = await self._execute_ccip_swap(quote, wallet_data)
                 elif quote.provider == "layerzero":
                     tx_hash = await self._execute_layerzero_swap(quote, wallet_data)
+                elif quote.provider == "cctp":
+                    tx_hash = await self._execute_cctp_swap(quote, wallet_data)
+                elif quote.provider == "across":
+                    tx_hash = await self._execute_across_swap(quote, wallet_data)
+                elif quote.provider == "wormhole":
+                    tx_hash = await self._execute_wormhole_swap(quote, wallet_data)
                 else:
                     tx_hash = await self._execute_lifi_swap(quote, wallet_data)
                 
@@ -768,6 +780,254 @@ class SwapEngine:
             
         finally:
             # Clear private key from memory
+            private_key = None
+    
+    async def _execute_cctp_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a USDC transfer via Circle CCTP (cheapest for USDC)."""
+        from bot.utils.encryption import decrypt_private_key
+        
+        # Get CCTP quote data
+        raw_data = quote.raw_quote
+        
+        chain = get_chain_by_name(quote.from_chain)
+        web3 = Web3(Web3.HTTPProvider(chain.rpc_url))
+        
+        # Decrypt private key
+        private_key = decrypt_private_key(
+            wallet_data["encrypted_private_key"],
+            settings.encryption_key
+        )
+        
+        try:
+            # Step 1: Approve USDC for TokenMessenger
+            cctp_quote = await self.cctp.get_quote(
+                from_chain=quote.from_chain,
+                to_chain=quote.to_chain,
+                amount=quote.from_amount,
+            )
+            
+            approve_tx = self.cctp.build_approve_transaction(cctp_quote, wallet_data["address"])
+            
+            nonce = web3.eth.get_transaction_count(wallet_data["address"])
+            approve_tx["gas"] = 60000
+            approve_tx["gasPrice"] = web3.eth.gas_price
+            approve_tx["nonce"] = nonce
+            approve_tx["chainId"] = chain.chain_id
+            
+            signed_approve = web3.eth.account.sign_transaction(approve_tx, private_key)
+            approve_hash = web3.eth.send_raw_transaction(signed_approve.rawTransaction)
+            logger.info(f"CCTP approval tx: {approve_hash.hex()}")
+            
+            # Wait for approval confirmation
+            web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+            
+            # Step 2: Execute depositForBurn
+            burn_tx = self.cctp.build_burn_transaction(
+                cctp_quote, 
+                wallet_data["address"],
+                wallet_data["address"]  # Same recipient
+            )
+            
+            nonce = web3.eth.get_transaction_count(wallet_data["address"])
+            burn_tx["gas"] = 200000
+            burn_tx["gasPrice"] = web3.eth.gas_price
+            burn_tx["nonce"] = nonce
+            burn_tx["chainId"] = chain.chain_id
+            
+            signed_burn = web3.eth.account.sign_transaction(burn_tx, private_key)
+            burn_hash = web3.eth.send_raw_transaction(signed_burn.rawTransaction)
+            
+            logger.info(f"CCTP burn tx: {burn_hash.hex()}")
+            return burn_hash.hex()
+            
+        finally:
+            private_key = None
+    
+    async def _execute_across_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a bridge via Across Protocol (cheap EVM bridges)."""
+        from bot.utils.encryption import decrypt_private_key
+        
+        chain = get_chain_by_name(quote.from_chain)
+        web3 = Web3(Web3.HTTPProvider(chain.rpc_url))
+        
+        # Decrypt private key
+        private_key = decrypt_private_key(
+            wallet_data["encrypted_private_key"],
+            settings.encryption_key
+        )
+        
+        try:
+            # Get fresh quote with deposit data
+            across_quote = await self.across.get_quote(
+                from_chain=quote.from_chain,
+                to_chain=quote.to_chain,
+                token=quote.from_token,
+                amount=quote.from_amount,
+                from_address=wallet_data["address"],
+            )
+            
+            # Check if token needs approval (not ETH)
+            if quote.from_token.upper() not in ["ETH", "WETH"] or self.across.get_token_address(quote.from_token, quote.from_chain) != "0x0000000000000000000000000000000000000000":
+                # Approve token for SpokePool
+                token_address = self.across.get_token_address(quote.from_token, quote.from_chain)
+                
+                erc20_approve_abi = [{
+                    "inputs": [
+                        {"name": "spender", "type": "address"},
+                        {"name": "amount", "type": "uint256"}
+                    ],
+                    "name": "approve",
+                    "outputs": [{"name": "", "type": "bool"}],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }]
+                
+                token_contract = web3.eth.contract(
+                    address=Web3.to_checksum_address(token_address),
+                    abi=erc20_approve_abi
+                )
+                
+                approve_data = token_contract.encode_abi(
+                    fn_name="approve",
+                    args=[
+                        Web3.to_checksum_address(across_quote.spoke_pool),
+                        int(quote.from_amount)
+                    ]
+                )
+                
+                nonce = web3.eth.get_transaction_count(wallet_data["address"])
+                approve_tx = {
+                    "to": Web3.to_checksum_address(token_address),
+                    "data": approve_data,
+                    "value": 0,
+                    "gas": 60000,
+                    "gasPrice": web3.eth.gas_price,
+                    "nonce": nonce,
+                    "chainId": chain.chain_id,
+                }
+                
+                signed_approve = web3.eth.account.sign_transaction(approve_tx, private_key)
+                approve_hash = web3.eth.send_raw_transaction(signed_approve.rawTransaction)
+                logger.info(f"Across approval tx: {approve_hash.hex()}")
+                
+                # Wait for approval
+                web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+            
+            # Build deposit transaction
+            deposit_tx = self.across.build_deposit_calldata(
+                across_quote,
+                wallet_data["address"],
+            )
+            
+            nonce = web3.eth.get_transaction_count(wallet_data["address"])
+            deposit_tx["gas"] = 300000
+            deposit_tx["gasPrice"] = web3.eth.gas_price
+            deposit_tx["nonce"] = nonce
+            deposit_tx["chainId"] = chain.chain_id
+            
+            signed_deposit = web3.eth.account.sign_transaction(deposit_tx, private_key)
+            deposit_hash = web3.eth.send_raw_transaction(signed_deposit.rawTransaction)
+            
+            logger.info(f"Across deposit tx: {deposit_hash.hex()}")
+            return deposit_hash.hex()
+            
+        finally:
+            private_key = None
+    
+    async def _execute_wormhole_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a bridge via Wormhole (Solana <-> EVM)."""
+        from bot.utils.encryption import decrypt_private_key
+        
+        is_solana_source = quote.from_chain.lower() == "solana"
+        
+        if is_solana_source:
+            # Solana -> EVM: Not implemented yet (requires Solana signing)
+            raise SwapError("Solana to EVM via Wormhole not yet implemented")
+        
+        # EVM -> Solana or EVM -> EVM
+        chain = get_chain_by_name(quote.from_chain)
+        web3 = Web3(Web3.HTTPProvider(chain.rpc_url))
+        
+        # Decrypt private key
+        private_key = decrypt_private_key(
+            wallet_data["encrypted_private_key"],
+            settings.encryption_key
+        )
+        
+        try:
+            # Get Wormhole quote
+            wormhole_quote = await self.wormhole.get_quote(
+                from_chain=quote.from_chain,
+                to_chain=quote.to_chain,
+                token=quote.from_token,
+                amount=quote.from_amount,
+            )
+            
+            # Step 1: Approve token for Token Bridge
+            token_address = self.wormhole.get_token_address(quote.from_token, quote.from_chain)
+            token_bridge = self.wormhole.get_token_bridge(quote.from_chain)
+            
+            erc20_approve_abi = [{
+                "inputs": [
+                    {"name": "spender", "type": "address"},
+                    {"name": "amount", "type": "uint256"}
+                ],
+                "name": "approve",
+                "outputs": [{"name": "", "type": "bool"}],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            }]
+            
+            token_contract = web3.eth.contract(
+                address=Web3.to_checksum_address(token_address),
+                abi=erc20_approve_abi
+            )
+            
+            approve_data = token_contract.encode_abi(
+                fn_name="approve",
+                args=[
+                    Web3.to_checksum_address(token_bridge),
+                    int(quote.from_amount)
+                ]
+            )
+            
+            nonce = web3.eth.get_transaction_count(wallet_data["address"])
+            approve_tx = {
+                "to": Web3.to_checksum_address(token_address),
+                "data": approve_data,
+                "value": 0,
+                "gas": 60000,
+                "gasPrice": web3.eth.gas_price,
+                "nonce": nonce,
+                "chainId": chain.chain_id,
+            }
+            
+            signed_approve = web3.eth.account.sign_transaction(approve_tx, private_key)
+            approve_hash = web3.eth.send_raw_transaction(signed_approve.rawTransaction)
+            logger.info(f"Wormhole approval tx: {approve_hash.hex()}")
+            
+            # Wait for approval
+            web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+            
+            # Step 2: Transfer tokens via Token Bridge
+            transfer_tx = self.wormhole.build_transfer_calldata_evm(
+                wormhole_quote,
+                wallet_data["address"],
+            )
+            
+            nonce = web3.eth.get_transaction_count(wallet_data["address"])
+            transfer_tx["gas"] = 300000
+            transfer_tx["gasPrice"] = web3.eth.gas_price
+            transfer_tx["nonce"] = nonce
+            transfer_tx["chainId"] = chain.chain_id
+            
+            signed_transfer = web3.eth.account.sign_transaction(transfer_tx, private_key)
+            transfer_hash = web3.eth.send_raw_transaction(signed_transfer.rawTransaction)
+            
+            logger.info(f"Wormhole transfer tx: {transfer_hash.hex()}")
+            return transfer_hash.hex()
+            
+        finally:
             private_key = None
     
     async def check_status(self, swap_tx: SwapTransaction) -> SwapTransaction:
