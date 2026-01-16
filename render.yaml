@@ -31,7 +31,11 @@ services:
       - key: ENCRYPTION_KEY
         sync: false
       - key: WALLET_PROVIDER
-        value: turnkey
+        value: local
+      - key: LOG_LEVEL
+        value: INFO
+      - key: ADMIN_IDS
+        sync: false
 
 databases:
   - name: suwappu-db
