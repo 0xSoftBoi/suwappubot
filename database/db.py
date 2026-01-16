@@ -40,6 +40,19 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
     else:
         logger.info("Connecting to database...")
     
+    # Handle Render database URLs - add .internal suffix for internal DNS resolution
+    # Render's internalConnectionString provides hostname like "dpg-xxx-a" but we need "dpg-xxx-a.internal"
+    if "dpg-" in database_url and ".internal" not in database_url and "render.com" not in database_url:
+        import re
+        # Match Render database hostname pattern: dpg-xxxx-a (where -a is the region suffix)
+        # The hostname appears after @ and before : or /
+        match = re.search(r'@(dpg-[a-z0-9]+-[a-z])(?=[:\/])', database_url)
+        if match:
+            old_host = match.group(1)
+            new_host = f"{old_host}.internal"
+            database_url = database_url.replace(f"@{old_host}", f"@{new_host}")
+            logger.info(f"Added .internal suffix for Render internal DNS: {old_host} -> {new_host}")
+    
     connect_args = {}
     is_sqlite = database_url.startswith("sqlite")
     
