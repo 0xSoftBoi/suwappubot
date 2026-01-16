@@ -24,16 +24,27 @@ def init_db(database_url: str) -> None:
     if database_url and "dpg-" in database_url and ".internal" not in database_url:
         # Check if this looks like an external Render database URL
         import re
-        # Pattern: postgresql://user:pass@dpg-xxxxx-a.hostname:port/dbname
-        match = re.search(r'@(dpg-[^:/]+)', database_url)
+        # Pattern: postgresql://user:pass@dpg-xxxxx-a[:/] or @dpg-xxxxx-a.domain[:/]
+        # Match hostname part (dpg-xxxxx-a) which may or may not have a domain suffix
+        match = re.search(r'@(dpg-[a-z0-9]+(?:-[a-z])?)', database_url)
         if match:
-            external_host = match.group(1)
-            # Convert to internal hostname
-            internal_host = f"{external_host}.internal"
-            database_url = database_url.replace(f"@{external_host}", f"@{internal_host}")
+            external_host_base = match.group(1)
+            # Check if hostname has a domain suffix (like .somehost.com)
+            # If it does, replace the whole hostname; if not, just add .internal
+            if f"@{external_host_base}." in database_url or f"@{external_host_base}:" in database_url or f"@{external_host_base}/" in database_url:
+                # Has domain or directly followed by :port or /path
+                # Replace just the base hostname part
+                database_url = re.sub(
+                    r'@' + re.escape(external_host_base) + r'(?=[.:/])',
+                    f"@{external_host_base}.internal",
+                    database_url
+                )
+            else:
+                # No domain, just hostname - add .internal
+                database_url = database_url.replace(f"@{external_host_base}", f"@{external_host_base}.internal")
             import logging
             logger = logging.getLogger(__name__)
-            logger.info(f"Converted external database hostname to internal: {external_host} -> {internal_host}")
+            logger.info(f"Converted external Render database hostname to internal: {external_host_base} -> {external_host_base}.internal")
     
     connect_args = {}
     is_sqlite = database_url.startswith("sqlite")
