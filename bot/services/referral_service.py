@@ -148,8 +148,21 @@ class ReferralService:
             referrer = session.query(User).filter(User.id == code.user_id).first()
             if referrer:
                 referrer.referral_count = (referrer.referral_count or 0) + 1
+            
+            referrer_id = code.user_id
         
-        logger.info(f"Referral processed: User {referee_id} referred by User {code.user_id}")
+        # Award points to referrer for signup
+        try:
+            from bot.services.points_service import points_service
+            points_service.award_referral_points(
+                referrer_id=referrer_id,
+                referee_id=referee_id,
+                action="signup",
+            )
+        except Exception as e:
+            logger.warning(f"Failed to award referral points: {e}")
+        
+        logger.info(f"Referral processed: User {referee_id} referred by User {referrer_id}")
         return True, "Referral applied successfully! Your referrer will earn rewards from your swaps."
     
     def get_referrer_id(self, user_id: int) -> Optional[int]:
@@ -229,6 +242,24 @@ class ReferralService:
             f"Referral reward recorded: ${reward_amount:.2f} for referrer of user {referee_id} "
             f"from swap {swap_id}"
         )
+        
+        # Check if this is referee's first swap and award bonus points to referrer
+        with get_session() as session:
+            # Count rewards for this referral to see if first swap
+            reward_count = session.query(func.count(ReferralReward.id)).filter(
+                ReferralReward.referral_id == referral.id
+            ).scalar()
+            
+            if reward_count == 1:  # This is the first reward (first swap)
+                try:
+                    from bot.services.points_service import points_service
+                    points_service.award_referral_points(
+                        referrer_id=referral.referrer_id,
+                        referee_id=referee_id,
+                        action="first_swap",
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to award first swap referral points: {e}")
         
         with get_session() as session:
             return session.query(ReferralReward).filter(ReferralReward.id == reward_id).first()

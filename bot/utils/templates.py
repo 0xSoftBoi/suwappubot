@@ -117,7 +117,22 @@ _We manage funds for you_
 • /f \- Saved swap pairs
 • /set \- Preferences
 
+━━ 🎮 *GROWTH & SOCIAL* ━━
+
+• /xp \- Your points \+ level
+• /checkin \- Daily check\-in
+• /lb \- XP leaderboard
+• /rewards \- Redeem points
+
+• /traders \- Top traders to follow
+• /following \- Who you follow
+• /profile \- Your trader profile
+
+• /ref \- Your referral code
+• /rewards \- Referral earnings
+
 *Fees:*
-• 1% swap fee on all trades
+• 0\.8% swap fee on all trades
 • Gas sponsored in custodial mode
+• Earn 30% from referral fees
 """

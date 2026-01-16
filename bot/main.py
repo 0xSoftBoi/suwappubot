@@ -55,6 +55,21 @@ from bot.handlers.subscription import (
     subscription_handler, subscription_conversation,
     sub_compare_callback, sub_tokengate_callback, sub_back_callback
 )
+# Points/XP system handlers
+from bot.handlers.points import (
+    xp_handler, checkin_handler, leaderboard_handler, rewards_handler,
+    xp_callback_handler, checkin_callback_handler, leaderboard_callback_handler,
+    rewards_callback_handler, redeem_callback_handler, noop_callback_handler as xp_noop_handler
+)
+# Copy Trading handlers
+from bot.handlers.copy import (
+    traders_handler, following_handler, profile_handler, stats_handler,
+    traders_callback_handler, view_trader_callback_handler, follow_callback_handler,
+    unfollow_callback_handler, following_callback_handler, profile_callback_handler,
+    toggle_public_callback_handler, edit_emoji_callback_handler, set_emoji_callback_handler,
+    my_followers_callback_handler, mystats_callback_handler, copy_now_callback_handler,
+    skip_copy_callback_handler, profile_edit_conversation
+)
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
 from bot.services.orders import order_service
@@ -127,6 +142,18 @@ def add_handlers(application: Application) -> None:
     application.add_handler(tax_handler)         # /tax
     application.add_handler(subscription_handler)  # /sub (x402)
     
+    # Points/XP system
+    application.add_handler(xp_handler)          # /xp
+    application.add_handler(checkin_handler)     # /checkin
+    application.add_handler(leaderboard_handler) # /lb
+    application.add_handler(rewards_handler)     # /rewards (XP rewards)
+    
+    # Copy Trading
+    application.add_handler(traders_handler)     # /traders
+    application.add_handler(following_handler)   # /following
+    application.add_handler(profile_handler)     # /profile
+    application.add_handler(stats_handler)       # /tstats (trader stats)
+    
     # Admin commands
     application.add_handler(status_handler)      # /status
     application.add_handler(clear_cache_handler) # /clearcache
@@ -145,6 +172,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(alert_conversation)
     application.add_handler(limit_order_conversation)
     application.add_handler(subscription_conversation)  # x402 subscription flow
+    application.add_handler(profile_edit_conversation)  # Copy trading profile editing
     
     # ============ CALLBACK QUERY HANDLERS ============
     
@@ -231,6 +259,29 @@ def add_handlers(application: Application) -> None:
     application.add_handler(sub_tokengate_callback)
     application.add_handler(sub_back_callback)
     
+    # Points/XP callbacks
+    application.add_handler(xp_callback_handler)
+    application.add_handler(checkin_callback_handler)
+    application.add_handler(leaderboard_callback_handler)
+    application.add_handler(rewards_callback_handler)
+    application.add_handler(redeem_callback_handler)
+    application.add_handler(xp_noop_handler)
+    
+    # Copy Trading callbacks
+    application.add_handler(traders_callback_handler)
+    application.add_handler(view_trader_callback_handler)
+    application.add_handler(follow_callback_handler)
+    application.add_handler(unfollow_callback_handler)
+    application.add_handler(following_callback_handler)
+    application.add_handler(profile_callback_handler)
+    application.add_handler(toggle_public_callback_handler)
+    application.add_handler(edit_emoji_callback_handler)
+    application.add_handler(set_emoji_callback_handler)
+    application.add_handler(my_followers_callback_handler)
+    application.add_handler(mystats_callback_handler)
+    application.add_handler(copy_now_callback_handler)
+    application.add_handler(skip_copy_callback_handler)
+    
     # Error handler
     application.add_error_handler(error_handler)
 
@@ -238,6 +289,11 @@ def add_handlers(application: Application) -> None:
 async def post_init(application) -> None:
     """Called after the application is initialized."""
     logger.info("Starting background services...")
+    
+    # Seed default milestones and rewards for points system
+    from bot.services.points_service import points_service
+    points_service.seed_milestones_and_rewards()
+    logger.info("✓ Points milestones and rewards seeded")
     
     # Get admin IDs from settings
     admin_ids = getattr(settings, 'admin_ids', [])
@@ -342,6 +398,7 @@ def main() -> None:
     # Log available commands
     logger.info("User commands: /start, /h, /w, /b, /s, /hx, /p, /g, /f, /set, /c")
     logger.info("Trading commands: /a, /o, /dca, /ref, /tax, /sub")
+    logger.info("Growth commands: /xp, /checkin, /lb, /traders, /following, /profile")
     logger.info("Admin commands: /st, /hw, /fee, /m")
     logger.info("Background services: Fee sweeper, Price alerts, Limit orders/DCA, Tx poller, Health monitor")
     

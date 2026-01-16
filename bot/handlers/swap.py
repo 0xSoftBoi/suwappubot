@@ -502,14 +502,62 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                         swap_id=swap_tx.id,
                         fee_amount_usd=fee_usd,
                     )
+                    
+                    # Award points for swap
+                    from bot.services.points_service import points_service
+                    swap_amount_usd = fee_usd / (fee_percentage / 100) if fee_percentage > 0 else 0
+                    points_earned, is_first_today, new_level = points_service.award_swap_points(
+                        user_id=user_id,
+                        swap_amount_usd=swap_amount_usd,
+                        swap_id=swap_tx.id,
+                    )
+                    
+                    # Record trade for copy trading
+                    from bot.services.copy_service import copy_service
+                    followers_to_notify = await copy_service.record_trade(
+                        trader_id=user_id,
+                        swap=swap_tx,
+                        amount_usd=swap_amount_usd,
+                    )
+                    
+                    # Send notifications to followers
+                    if followers_to_notify:
+                        await _notify_followers(
+                            context.bot,
+                            followers_to_notify,
+                            swap_data,
+                            swap_tx,
+                        )
+                    
+                    # Store for message
+                    swap_data["points_earned"] = points_earned
+                    swap_data["new_level"] = new_level
+                    swap_data["followers_notified"] = len(followers_to_notify)
         
         from_chain_config = get_chain_by_name(swap_data["from_chain"])
+        
+        # Build success message with points info
+        points_earned = swap_data.get("points_earned", 0)
+        new_level = swap_data.get("new_level")
+        followers_notified = swap_data.get("followers_notified", 0)
+        
+        points_text = ""
+        if points_earned > 0:
+            points_text = f"\n💰 *+{points_earned} XP earned!*"
+            if new_level:
+                from bot.models.points import LEVELS
+                level_info = LEVELS.get(new_level, {})
+                points_text += f"\n🎉 Level up! You're now {level_info.get('emoji', '')} {level_info.get('name', new_level)}!"
+        
+        followers_text = ""
+        if followers_notified > 0:
+            followers_text = f"\n👥 {followers_notified} follower(s) notified"
         
         text = (
             f"✅ *Swap Submitted!*\n\n"
             f"*Transaction:*\n"
             f"{format_tx_link(swap_tx.tx_hash, swap_data['from_chain'])}\n\n"
-            f"*Fee:* {format_usd(fee_usd)} ({fee_percentage}%)\n"
+            f"*Fee:* {format_usd(fee_usd)} ({fee_percentage}%){points_text}{followers_text}\n"
             f"*Status:* {swap_tx.status}\n\n"
             f"The swap is being processed. This may take a few minutes for cross-chain swaps."
         )
@@ -707,6 +755,73 @@ async def check_swap_status(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await query.edit_message_text(
             text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
+
+async def _notify_followers(bot, followers_to_notify, swap_data, swap_tx):
+    """Send copy trade notifications to followers."""
+    from bot.models.user import User
+    from bot.services.copy_service import copy_service
+    
+    for follower_info in followers_to_notify:
+        try:
+            follower_id = follower_info["user_id"]
+            copy_trade_id = follower_info["copy_trade_id"]
+            copy_mode = follower_info["copy_mode"]
+            copy_amount = follower_info["copy_amount"]
+            
+            # Get follower's Telegram ID
+            with get_session() as session:
+                follower = session.query(User).filter(User.id == follower_id).first()
+                if not follower or not follower.telegram_id:
+                    continue
+                
+                # Get trader's profile
+                trader_profile = copy_service.get_or_create_profile(swap_data.get("user_id"))
+                trader_name = trader_profile.display_name if trader_profile else "Trader"
+            
+            from_chain_config = get_chain_by_name(swap_data["from_chain"])
+            to_chain_config = get_chain_by_name(swap_data["to_chain"])
+            
+            msg = (
+                f"🔔 *{trader_name} just traded!*\n\n"
+                f"{from_chain_config.logo_emoji} *{swap_data['from_token']}* → "
+                f"{to_chain_config.logo_emoji} *{swap_data['to_token']}*\n\n"
+                f"💰 Amount: ${swap_data.get('amount_usd', 0):.2f}\n"
+                f"📋 Your copy: ${copy_amount:.2f}\n"
+            )
+            
+            if copy_mode == "auto":
+                # Auto-copy is enabled, execute immediately
+                success, _, _ = await copy_service.execute_copy(follower_id, copy_trade_id)
+                if success:
+                    msg += "\n✅ *Auto-copied successfully!*"
+                else:
+                    msg += "\n❌ Auto-copy failed"
+                
+                await bot.send_message(
+                    chat_id=follower.telegram_id,
+                    text=msg,
+                    parse_mode="Markdown",
+                )
+            else:
+                # Notify mode - send with buttons
+                keyboard = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("📋 Copy Trade", callback_data=f"copy_execute_{copy_trade_id}"),
+                        InlineKeyboardButton("⏭️ Skip", callback_data=f"copy_skip_{copy_trade_id}"),
+                    ]
+                ])
+                
+                await bot.send_message(
+                    chat_id=follower.telegram_id,
+                    text=msg,
+                    parse_mode="Markdown",
+                    reply_markup=keyboard,
+                )
+        except Exception as e:
+            # Don't let notification failures affect the main swap
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to notify follower {follower_info.get('user_id')}: {e}")
 
 
 # Create conversation handler

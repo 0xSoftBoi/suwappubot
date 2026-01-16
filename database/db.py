@@ -62,6 +62,9 @@ def init_db(database_url: str) -> None:
     from bot.models.advanced import LimitOrder, DCAOrder, DCAExecution, SwapTemplate
     # Referral system models
     from bot.models.referral import Referral, ReferralCode, ReferralReward, ReferralPayout
+    # Points/XP and Copy Trading models
+    from bot.models.points import UserPoints, PointTransaction, PointRedemption, Milestone, UserMilestone, Reward
+    from bot.models.copy_trading import TraderProfile, CopyFollow, CopyTrade, CopyNotification, TraderTrade
     
     # Create all tables
     Base.metadata.create_all(bind=engine)
