@@ -11,7 +11,7 @@
 
 echo "🚀 Starting Suwappu Monolith..."
 
-# Render sets PORT dynamically, default to 10000 if not set
+# PORT is set by container orchestrator (ECS), default to 10000
 PORT=${PORT:-10000}
 echo "📡 Using PORT: $PORT"
 

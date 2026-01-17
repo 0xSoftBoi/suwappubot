@@ -1,540 +1,372 @@
-# 🚀 Deployment Guide
+# Deployment Guide
 
-This guide covers deploying the Suwappu Cross-Chain Swap Bot to production.
+This guide covers deploying the Suwappu Cross-Chain Swap Bot to AWS.
 
 ## Table of Contents
 1. [Prerequisites](#prerequisites)
-2. [Environment Setup](#environment-setup)
-3. [Deployment Options](#deployment-options)
-   - [Option A: VPS/Cloud Server](#option-a-vpscloud-server)
-   - [Option B: Docker](#option-b-docker)
-   - [Option C: Railway/Render](#option-c-railwayrender)
-4. [Database Setup](#database-setup)
-5. [Security Checklist](#security-checklist)
+2. [AWS Architecture](#aws-architecture)
+3. [Deployment Steps](#deployment-steps)
+4. [Environment Variables](#environment-variables)
+5. [Security](#security)
 6. [Monitoring](#monitoring)
 
 ---
 
 ## Prerequisites
 
-- Python 3.9+
+- AWS Account with appropriate permissions
+- AWS CLI configured (`aws configure`)
+- Node.js 18+ (for CDK)
+- Docker installed locally
 - Telegram Bot Token (from [@BotFather](https://t.me/BotFather))
-- RPC endpoints for each chain
-- Server with at least 1GB RAM, 1 vCPU
 
 ---
 
-## Environment Setup
+## AWS Architecture
 
-### 1. Create Production `.env` File
+```
+                    ┌─────────────────┐
+                    │   Route 53      │
+                    │   (DNS)         │
+                    └────────┬────────┘
+                             │
+                    ┌────────▼────────┐
+                    │   ALB           │
+                    │   (Load Balancer)│
+                    └────────┬────────┘
+                             │
+              ┌──────────────┼──────────────┐
+              │              │              │
+       ┌──────▼──────┐┌──────▼──────┐┌──────▼──────┐
+       │   ECS Task  ││   ECS Task  ││   ECS Task  │
+       │   (Fargate) ││   (Fargate) ││   (Fargate) │
+       └──────┬──────┘└──────┬──────┘└──────┬──────┘
+              │              │              │
+              └──────────────┼──────────────┘
+                             │
+                    ┌────────▼────────┐
+                    │   RDS PostgreSQL│
+                    │   (Database)    │
+                    └─────────────────┘
+```
+
+**Components:**
+- **VPC**: 2 AZs with public/private/isolated subnets
+- **ECS Fargate**: Auto-scaling 1-3 containers
+- **RDS PostgreSQL**: Managed database with backups
+- **ALB**: Internet-facing load balancer
+- **ECR**: Container registry
+- **Secrets Manager**: Secure credential storage
+- **CloudWatch**: Logs and metrics
+
+---
+
+## Deployment Steps
+
+### 1. Install CDK Dependencies
 
 ```bash
-# Telegram Bot
-TELEGRAM_BOT_TOKEN=your_actual_bot_token
-ENCRYPTION_KEY=your_32_byte_hex_key  # Generate: python -c "import secrets; print(secrets.token_hex(32))"
+cd infra
+npm install
+```
 
-# Admin IDs (comma-separated Telegram user IDs)
-ADMIN_IDS=123456789,987654321
+### 2. Configure AWS Secrets
 
-# Database
-DATABASE_URL=postgresql://user:password@localhost:5432/suwappubot
-# Or for SQLite: DATABASE_URL=sqlite:///./suwappubot.db
+Create secrets in AWS Secrets Manager:
 
-# RPC Endpoints (use your own or paid providers for production)
-ETHEREUM_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
-POLYGON_RPC_URL=https://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY
-ARBITRUM_RPC_URL=https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY
-OPTIMISM_RPC_URL=https://opt-mainnet.g.alchemy.com/v2/YOUR_KEY
-BASE_RPC_URL=https://base-mainnet.g.alchemy.com/v2/YOUR_KEY
-BSC_RPC_URL=https://bsc-dataseed1.binance.org
-SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+```bash
+# Create bot secrets
+aws secretsmanager create-secret \
+  --name suwappu/bot-token \
+  --secret-string "YOUR_TELEGRAM_BOT_TOKEN"
 
-# API Keys (optional but recommended)
-LIFI_API_KEY=your_lifi_api_key
+aws secretsmanager create-secret \
+  --name suwappu/encryption-key \
+  --secret-string "$(python -c 'import secrets; print(secrets.token_hex(32))')"
 
-# Fee Configuration
-FEE_COLLECTOR_ADDRESS=0xYourFeeCollectorAddress
+# Optional: API keys
+aws secretsmanager create-secret \
+  --name suwappu/alchemy-api-key \
+  --secret-string "YOUR_ALCHEMY_KEY"
+```
 
-# Logging
+### 3. Bootstrap CDK (First Time Only)
+
+```bash
+cd infra
+npx cdk bootstrap
+```
+
+### 4. Deploy Infrastructure
+
+```bash
+# Deploy all stacks
+npx cdk deploy --all
+
+# Or deploy specific stack
+npx cdk deploy SuwappuStack
+```
+
+### 5. Build and Push Docker Image
+
+```bash
+# Get ECR login
+aws ecr get-login-password --region us-east-1 | \
+  docker login --username AWS --password-stdin ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com
+
+# Build image
+docker build -t suwappu .
+
+# Tag for ECR
+docker tag suwappu:latest ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/suwappu:latest
+
+# Push to ECR
+docker push ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/suwappu:latest
+```
+
+### 6. Force New Deployment
+
+```bash
+aws ecs update-service \
+  --cluster suwappu-cluster \
+  --service suwappu-service \
+  --force-new-deployment
+```
+
+---
+
+## Environment Variables
+
+Set these in the ECS task definition or Secrets Manager:
+
+```bash
+# Required
+TELEGRAM_BOT_TOKEN=         # From @BotFather
+ENCRYPTION_KEY=             # 32-byte hex key
+DATABASE_URL=               # RDS connection string (auto-set by CDK)
+
+# Optional - API Keys
+ALCHEMY_API_KEY=            # For enhanced RPC
+LIFI_API_KEY=               # For bridge aggregation
+SOCKET_API_KEY=             # For Socket.tech
+
+# Optional - OAuth
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+TWITTER_CLIENT_ID=
+TWITTER_CLIENT_SECRET=
+OAUTH_REDIRECT_BASE=https://your-domain.com
+
+# Optional - Turnkey (for managed wallets)
+WALLET_PROVIDER=turnkey
+TURNKEY_ORGANIZATION_ID=
+TURNKEY_API_PUBLIC_KEY=
+TURNKEY_API_PRIVATE_KEY=
+
+# Configuration
 LOG_LEVEL=INFO
-
-# Redis (optional, for caching)
-REDIS_URL=redis://localhost:6379/0
-```
-
-### 2. Generate Encryption Key
-
-```bash
-python -c "import secrets; print(secrets.token_hex(32))"
-```
-
-**⚠️ IMPORTANT**: Store this key securely. Losing it means losing access to all encrypted wallet keys!
-
----
-
-## Deployment Options
-
-### Option A: VPS/Cloud Server
-
-Best for: Full control, production workloads
-
-**Recommended providers**: DigitalOcean, Linode, Vultr, AWS EC2, Google Cloud
-
-#### Step 1: Server Setup
-
-```bash
-# Update system
-sudo apt update && sudo apt upgrade -y
-
-# Install Python and dependencies
-sudo apt install python3.9 python3.9-venv python3-pip git -y
-
-# Install PostgreSQL (recommended for production)
-sudo apt install postgresql postgresql-contrib -y
-
-# Create database
-sudo -u postgres createuser suwappubot
-sudo -u postgres createdb suwappubot -O suwappubot
-sudo -u postgres psql -c "ALTER USER suwappubot WITH PASSWORD 'your_secure_password';"
-```
-
-#### Step 2: Clone and Setup
-
-```bash
-# Clone repository
-git clone https://github.com/yourusername/suwappubot.git
-cd suwappubot
-
-# Create virtual environment
-python3.9 -m venv venv
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Install production dependencies
-pip install psycopg2-binary gunicorn
-
-# Create .env file
-cp .env.example .env
-nano .env  # Edit with your values
-```
-
-#### Step 3: Create Systemd Service
-
-```bash
-sudo nano /etc/systemd/system/suwappubot.service
-```
-
-```ini
-[Unit]
-Description=Suwappu Telegram Bot
-After=network.target postgresql.service
-
-[Service]
-Type=simple
-User=ubuntu
-WorkingDirectory=/home/ubuntu/suwappubot
-Environment=PATH=/home/ubuntu/suwappubot/venv/bin
-ExecStart=/home/ubuntu/suwappubot/venv/bin/python -m bot.main
-Restart=always
-RestartSec=10
-
-# Security
-NoNewPrivileges=true
-PrivateTmp=true
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-# Enable and start
-sudo systemctl daemon-reload
-sudo systemctl enable suwappubot
-sudo systemctl start suwappubot
-
-# Check status
-sudo systemctl status suwappubot
-
-# View logs
-sudo journalctl -u suwappubot -f
+SWAP_FEE_PERCENTAGE=0.8
+REFERRAL_REWARD_PERCENTAGE=30
 ```
 
 ---
 
-### Option B: Docker
+## CI/CD with CodePipeline
 
-Best for: Easy deployment, containerization
-
-#### Dockerfile
-
-```dockerfile
-FROM python:3.9-slim
-
-WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements first for caching
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir psycopg2-binary
-
-# Copy application code
-COPY . .
-
-# Create non-root user
-RUN useradd -m botuser && chown -R botuser:botuser /app
-USER botuser
-
-CMD ["python", "-m", "bot.main"]
-```
-
-#### docker-compose.yml
+The `buildspec.yml` is configured for AWS CodeBuild:
 
 ```yaml
-version: '3.8'
-
-services:
-  bot:
-    build: .
-    restart: always
-    env_file:
-      - .env
-    depends_on:
-      - db
-      - redis
-    volumes:
-      - ./data:/app/data
-
-  db:
-    image: postgres:15-alpine
-    restart: always
-    environment:
-      POSTGRES_USER: suwappubot
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: suwappubot
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  redis:
-    image: redis:7-alpine
-    restart: always
-    volumes:
-      - redis_data:/data
-
-volumes:
-  postgres_data:
-  redis_data:
+version: 0.2
+phases:
+  pre_build:
+    commands:
+      - aws ecr get-login-password | docker login --username AWS --password-stdin $ECR_REGISTRY
+  build:
+    commands:
+      - docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG .
+      - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $ECR_REGISTRY/$IMAGE_REPO_NAME:$IMAGE_TAG
+  post_build:
+    commands:
+      - docker push $ECR_REGISTRY/$IMAGE_REPO_NAME:$IMAGE_TAG
 ```
 
-#### Deploy with Docker
+To set up automatic deployments:
 
-```bash
-# Build and run
-docker-compose up -d
-
-# View logs
-docker-compose logs -f bot
-
-# Restart
-docker-compose restart bot
-
-# Stop
-docker-compose down
-```
+1. Connect GitHub to CodePipeline
+2. Configure CodeBuild with `buildspec.yml`
+3. Add ECS deploy action after build
 
 ---
 
-### Option C: Railway/Render
+## Security
 
-Best for: Quick deployment, auto-scaling
-
-#### Railway
-
-1. Fork the repository to your GitHub
-2. Go to [railway.app](https://railway.app)
-3. Create new project → Deploy from GitHub repo
-4. Add PostgreSQL service
-5. Set environment variables in Railway dashboard
-6. Deploy!
-
-**railway.json** (create this file):
-```json
-{
-  "$schema": "https://railway.app/railway.schema.json",
-  "build": {
-    "builder": "NIXPACKS"
-  },
-  "deploy": {
-    "startCommand": "python -m bot.main",
-    "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 10
-  }
-}
-```
-
-#### Render
-
-1. Go to [render.com](https://render.com)
-2. Create new Web Service → Connect GitHub repo
-3. Settings:
-   - Runtime: Python 3
-   - Build Command: `pip install -r requirements.txt`
-   - Start Command: `python -m bot.main`
-4. Add PostgreSQL database
-5. Set environment variables
-6. Deploy!
-
-**render.yaml**:
-```yaml
-services:
-  - type: worker
-    name: suwappubot
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python -m bot.main
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: suwappubot-db
-          property: connectionString
-
-databases:
-  - name: suwappubot-db
-    plan: free
-```
-
----
-
-## Database Setup
-
-### PostgreSQL (Recommended for Production)
+### Secrets Management
 
 ```bash
-# Install
-sudo apt install postgresql postgresql-contrib
+# Rotate encryption key (careful - affects existing wallets!)
+aws secretsmanager rotate-secret --secret-id suwappu/encryption-key
 
-# Create database
-sudo -u postgres psql
-
-CREATE USER suwappubot WITH PASSWORD 'your_secure_password';
-CREATE DATABASE suwappubot OWNER suwappubot;
-GRANT ALL PRIVILEGES ON DATABASE suwappubot TO suwappubot;
-\q
-
-# Update .env
-DATABASE_URL=postgresql://suwappubot:your_secure_password@localhost:5432/suwappubot
+# View secret value
+aws secretsmanager get-secret-value --secret-id suwappu/bot-token
 ```
 
-### Database Migrations
+### Network Security
 
-The bot auto-creates tables on first run, but for manual migrations:
+- ALB accepts HTTP/HTTPS from internet (0.0.0.0/0)
+- ECS tasks in private subnets (NAT gateway for outbound)
+- RDS in isolated subnet (only accessible from ECS)
+- Security groups restrict traffic appropriately
 
-```bash
-# Initialize tables
-python -c "
-from database.db import init_db
-from bot.config.settings import settings
-init_db(settings.database_url)
-print('Database initialized!')
-"
-```
+### IAM Permissions
 
-### Backup Database
-
-```bash
-# PostgreSQL backup
-pg_dump -U suwappubot suwappubot > backup_$(date +%Y%m%d).sql
-
-# Restore
-psql -U suwappubot suwappubot < backup_20241201.sql
-```
-
----
-
-## Security Checklist
-
-### ✅ Before Going Live
-
-- [ ] **Encryption Key**: Generate new key, store securely (not in repo!)
-- [ ] **Bot Token**: Keep secret, regenerate if compromised
-- [ ] **RPC URLs**: Use paid providers (Alchemy, Infura, QuickNode)
-- [ ] **Database**: Strong password, not exposed to internet
-- [ ] **Admin IDs**: Only trusted users
-- [ ] **Fee Collector**: Your controlled address
-- [ ] **Hot Wallet Keys**: Generated fresh, backed up securely
-- [ ] **Firewall**: Only allow necessary ports (22, 443)
-- [ ] **SSL**: Use HTTPS for webhooks (if applicable)
-- [ ] **Updates**: Keep dependencies updated
-
-### 🔐 Key Management
-
-```bash
-# Generate encryption key
-python -c "import secrets; print(secrets.token_hex(32))"
-
-# Store in secure location:
-# - Password manager
-# - AWS Secrets Manager
-# - HashiCorp Vault
-# - Environment variable (not in code!)
-```
-
-### 🛡️ Server Hardening
-
-```bash
-# UFW Firewall
-sudo ufw allow ssh
-sudo ufw allow 443/tcp  # If using webhooks
-sudo ufw enable
-
-# Fail2ban
-sudo apt install fail2ban
-sudo systemctl enable fail2ban
-
-# Automatic security updates
-sudo apt install unattended-upgrades
-sudo dpkg-reconfigure -plow unattended-upgrades
-```
+The CDK creates minimal IAM roles:
+- ECS Task Role: Access to Secrets Manager, CloudWatch
+- ECS Execution Role: Pull from ECR, write logs
 
 ---
 
 ## Monitoring
 
-### Health Check Endpoint
-
-Add to your server (optional nginx setup):
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-
-    location /health {
-        return 200 'OK';
-        add_header Content-Type text/plain;
-    }
-}
-```
-
-### Log Monitoring
+### CloudWatch Logs
 
 ```bash
-# View bot logs
-sudo journalctl -u suwappubot -f
+# View recent logs
+aws logs tail /ecs/suwappu --follow
 
-# Or with Docker
-docker-compose logs -f bot
+# Search logs
+aws logs filter-log-events \
+  --log-group-name /ecs/suwappu \
+  --filter-pattern "ERROR"
 ```
 
-### Uptime Monitoring
-
-Use services like:
-- [UptimeRobot](https://uptimerobot.com) (free)
-- [Better Uptime](https://betteruptime.com)
-- [Pingdom](https://pingdom.com)
-
-### Alerts
-
-Configure admin alerts in the bot:
-1. Set `ADMIN_IDS` in `.env`
-2. Use `/status` command to check health
-3. Health monitor sends alerts for high error rates
-
----
-
-## Quick Start Commands
+### Health Check
 
 ```bash
-# Clone
-git clone https://github.com/yourusername/suwappubot.git
-cd suwappubot
+# Check ALB health
+curl https://your-alb-dns.amazonaws.com/health
 
-# Setup
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+# Expected response
+{"status": "healthy", "service": "suwappu-api", "database": "connected"}
+```
 
-# Configure
-cp .env.example .env
-nano .env  # Add your values
+### Alarms (Add in CDK)
 
-# Run
-python -m bot.main
-
-# Production (with systemd)
-sudo systemctl start suwappubot
-sudo systemctl status suwappubot
+```typescript
+// CPU alarm
+new cloudwatch.Alarm(this, 'CpuAlarm', {
+  metric: service.metricCpuUtilization(),
+  threshold: 80,
+  evaluationPeriods: 2,
+});
 ```
 
 ---
 
-## Troubleshooting
+## Scaling
 
-### Bot not responding
-```bash
-# Check if running
-sudo systemctl status suwappubot
+Auto-scaling is configured in CDK:
 
-# Check logs
-sudo journalctl -u suwappubot -n 100
+```typescript
+const scaling = service.autoScaleTaskCount({
+  minCapacity: 1,
+  maxCapacity: 3,
+});
 
-# Restart
-sudo systemctl restart suwappubot
+scaling.scaleOnCpuUtilization('CpuScaling', {
+  targetUtilizationPercent: 70,
+});
 ```
 
-### Database connection errors
+To manually scale:
+
 ```bash
-# Check PostgreSQL status
-sudo systemctl status postgresql
-
-# Test connection
-psql -U suwappubot -h localhost -d suwappubot
+aws ecs update-service \
+  --cluster suwappu-cluster \
+  --service suwappu-service \
+  --desired-count 2
 ```
-
-### High memory usage
-```bash
-# Check memory
-free -h
-
-# Restart bot (clears memory)
-sudo systemctl restart suwappubot
-```
-
-### RPC rate limits
-- Use paid RPC providers
-- Enable caching (Redis)
-- Adjust rate limits in `bot/utils/rate_limiter.py`
 
 ---
 
 ## Cost Estimates
 
-| Component | Free Tier | Production |
-|-----------|-----------|------------|
-| VPS (DigitalOcean) | - | $6-12/mo |
-| Railway | 500 hours/mo | $5-20/mo |
-| Render | 750 hours/mo | $7-25/mo |
-| PostgreSQL | Included | Included |
-| RPC (Alchemy) | 300M CU/mo | $49+/mo |
-| Domain | - | $10-15/yr |
+| Component | Monthly Cost |
+|-----------|-------------|
+| ECS Fargate (1 task, 0.25 vCPU, 0.5GB) | ~$10 |
+| RDS PostgreSQL (t3.micro) | ~$15 |
+| ALB | ~$20 |
+| NAT Gateway | ~$35 |
+| ECR Storage | ~$1 |
+| CloudWatch Logs | ~$5 |
+| **Total** | **~$85/month** |
 
-**Minimum Production Cost**: ~$15-30/month
+Cost optimization:
+- Use Fargate Spot for dev/staging
+- Schedule scaling down during off-hours
+- Use Reserved Capacity for production
+
+---
+
+## Troubleshooting
+
+### ECS Task Won't Start
+
+```bash
+# Check task status
+aws ecs describe-tasks \
+  --cluster suwappu-cluster \
+  --tasks TASK_ARN
+
+# Check stopped task reason
+aws ecs describe-tasks \
+  --cluster suwappu-cluster \
+  --tasks TASK_ARN \
+  --query 'tasks[0].stoppedReason'
+```
+
+### Database Connection Issues
+
+```bash
+# Test from local (requires VPN/bastion)
+psql $DATABASE_URL -c "SELECT 1"
+
+# Check security groups allow ECS -> RDS
+aws ec2 describe-security-groups --group-ids sg-xxx
+```
+
+### Image Pull Errors
+
+```bash
+# Verify image exists
+aws ecr describe-images --repository-name suwappu
+
+# Check execution role has ECR permissions
+aws iam get-role-policy --role-name ecsTaskExecutionRole --policy-name ecr-policy
+```
+
+---
+
+## Useful Commands
+
+```bash
+# Deploy
+cd infra && npx cdk deploy --all
+
+# Destroy (careful!)
+cd infra && npx cdk destroy --all
+
+# View stack outputs
+aws cloudformation describe-stacks --stack-name SuwappuStack --query 'Stacks[0].Outputs'
+
+# Force deployment
+aws ecs update-service --cluster suwappu-cluster --service suwappu-service --force-new-deployment
+
+# View running tasks
+aws ecs list-tasks --cluster suwappu-cluster --service-name suwappu-service
+```
 
 ---
 
 ## Support
 
-- Issues: [GitHub Issues](https://github.com/yourusername/suwappubot/issues)
-- Telegram: [@yoursupportbot](https://t.me/yoursupportbot)
-
----
-
-**Happy Deploying! 🚀**
-
+- Issues: [GitHub Issues](https://github.com/0xSoftBoi/suwappubot/issues)

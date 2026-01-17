@@ -33,12 +33,11 @@ RUN chmod +x scripts/*.sh
 RUN useradd -m -u 1000 botuser && chown -R botuser:botuser /app
 USER botuser
 
-# Default port for Render (Render will override with PORT env var)
+# Default port (ECS task definition can override via PORT env var)
 ENV PORT=10000
 EXPOSE 10000
 
-# Health check via API (use explicit port for healthcheck)
-# Note: Render sets PORT dynamically, but healthcheck needs explicit port
+# Health check for ALB target group
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD /usr/bin/curl -f http://localhost:${PORT:-10000}/health || exit 1
 
