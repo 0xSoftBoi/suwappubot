@@ -2,7 +2,7 @@
 
 import logging
 import asyncio
-from telegram import Update
+from telegram import Update, MenuButtonWebApp, WebAppInfo
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -72,6 +72,7 @@ from bot.handlers.copy import (
 )
 # Token Sniping handlers
 from bot.handlers.snipe import snipe_conversation_handler
+from bot.handlers.dashboard import dashboard_handler
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
@@ -144,7 +145,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(dca_handler)         # /dca
     application.add_handler(tax_handler)         # /tax
     application.add_handler(subscription_handler)  # /sub (x402)
-    
+    application.add_handler(dashboard_handler)    # /dashboard (Mini App)
+
     # Points/XP system
     application.add_handler(xp_handler)          # /xp
     application.add_handler(checkin_handler)     # /checkin
@@ -293,7 +295,19 @@ def add_handlers(application: Application) -> None:
 async def post_init(application) -> None:
     """Called after the application is initialized."""
     logger.info("Starting background services...")
-    
+
+    # Set up Telegram Mini App menu button
+    try:
+        await application.bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="📊 Dashboard",
+                web_app=WebAppInfo(url=settings.webapp_url)
+            )
+        )
+        logger.info(f"✓ Menu button set to Mini App: {settings.webapp_url}")
+    except Exception as e:
+        logger.warning(f"Could not set menu button: {e}")
+
     # Seed default milestones and rewards for points system
     from bot.services.points_service import points_service
     points_service.seed_milestones_and_rewards()
@@ -415,7 +429,7 @@ def main() -> None:
     
     # Log available commands
     logger.info("User commands: /start, /h, /w, /b, /s, /hx, /p, /g, /f, /set, /c")
-    logger.info("Trading commands: /a, /o, /dca, /ref, /tax, /sub, /snipe")
+    logger.info("Trading commands: /a, /o, /dca, /ref, /tax, /sub, /snipe, /dashboard")
     logger.info("Growth commands: /xp, /checkin, /lb, /traders, /following, /profile")
     logger.info("Admin commands: /st, /hw, /fee, /m")
     logger.info("Background services: Fee sweeper, Price alerts, Limit orders/DCA, Tx poller, Health monitor, Launch detector")

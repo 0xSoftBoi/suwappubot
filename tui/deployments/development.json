@@ -1,0 +1,29 @@
+{
+  "name": "suwappu-development",
+  "environment": "development",
+  "provider": "ecs-fargate",
+  "region": "us-east-1",
+  "awsProfile": "Swappu",
+  "fargate": {
+    "clusterName": "suwappu-cluster",
+    "serviceName": "suwappu-dev-service",
+    "taskDefinitionFamily": "suwappu-dev-task",
+    "logGroup": "/ecs/suwappu-dev",
+    "logStreamPrefix": "suwappu-dev",
+    "targetGroupArn": ""
+  },
+  "rds": {
+    "instanceId": "suwappustack-suwappudatabase7fc7bcd8-nlylumxmlxo6",
+    "engine": "postgres",
+    "endpoint": "suwappustack-suwappudatabase7fc7bcd8-nlylumxmlxo6.cgpw024wqms5.us-east-1.rds.amazonaws.com"
+  },
+  "endpoints": {
+    "api": "",
+    "health": ""
+  },
+  "github": {
+    "repo": "superposition/suwappubot",
+    "branch": "dev",
+    "workflowFile": "deploy-dev.yml"
+  }
+}
