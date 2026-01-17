@@ -40,29 +40,39 @@ export function useEcsStatus(
         rds = await getRdsStatus(deployment.rds.instanceId, region, profile);
       }
 
-      // Check health endpoint
+      // Check health endpoint (skip if no endpoint configured)
       let health: HealthCheckResult = {
         status: 'unknown',
         responseTime: null,
         lastCheck: null,
       };
 
-      try {
-        const start = performance.now();
-        const response = await fetch(deployment.endpoints.health, {
-          signal: AbortSignal.timeout(5000),
-        });
-        const responseTime = performance.now() - start;
+      if (deployment.endpoints.health) {
+        try {
+          const start = performance.now();
+          const response = await fetch(deployment.endpoints.health, {
+            signal: AbortSignal.timeout(5000),
+          });
+          const responseTime = performance.now() - start;
 
+          health = {
+            status: response.ok ? 'healthy' : 'unhealthy',
+            responseTime,
+            lastCheck: new Date(),
+            statusCode: response.status,
+          };
+        } catch {
+          health = {
+            status: 'unreachable',
+            responseTime: null,
+            lastCheck: new Date(),
+          };
+        }
+      } else {
+        // No endpoint configured - derive health from ECS task status
+        const hasHealthyTasks = tasks.some(t => t.lastStatus === 'RUNNING');
         health = {
-          status: response.ok ? 'healthy' : 'unhealthy',
-          responseTime,
-          lastCheck: new Date(),
-          statusCode: response.status,
-        };
-      } catch {
-        health = {
-          status: 'unreachable',
+          status: hasHealthyTasks ? 'healthy' : 'unknown',
           responseTime: null,
           lastCheck: new Date(),
         };

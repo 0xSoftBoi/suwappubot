@@ -57,18 +57,14 @@ export function ServicePanel({ deployment, status, isActive, isLoading }: Servic
       {status?.service && (
         <Box marginTop={1} flexDirection="column">
           <Text dimColor>ECS Service:</Text>
-          <Box marginLeft={1} flexDirection="column">
-            <Text>
-              Status: <Text color={status.service.status === 'ACTIVE' ? 'green' : 'yellow'}>
-                {status.service.status}
-              </Text>
+          <Text>
+            {' '}<Text color={status.service.status === 'ACTIVE' ? 'green' : 'yellow'}>
+              {status.service.status}
             </Text>
-            <Text>
-              Tasks: <Text color={status.service.runningCount === status.service.desiredCount ? 'green' : 'yellow'}>
-                {status.service.runningCount}/{status.service.desiredCount}
-              </Text>
+            {' '}<Text color={status.service.runningCount === status.service.desiredCount ? 'green' : 'yellow'}>
+              ({status.service.runningCount}/{status.service.desiredCount} tasks)
             </Text>
-          </Box>
+          </Text>
         </Box>
       )}
 
@@ -95,14 +91,12 @@ export function ServicePanel({ deployment, status, isActive, isLoading }: Servic
       {status?.rds && (
         <Box marginTop={1} flexDirection="column">
           <Text dimColor>RDS:</Text>
-          <Box marginLeft={1} flexDirection="column">
-            <Text>
-              Status: <Text color={status.rds.status === 'available' ? 'green' : 'yellow'}>
-                {status.rds.status}
-              </Text>
+          <Text>
+            {' '}<Text color={status.rds.status === 'available' ? 'green' : 'yellow'}>
+              {status.rds.status}
             </Text>
-            <Text dimColor>{status.rds.engine}</Text>
-          </Box>
+            {' '}<Text dimColor>({status.rds.engine})</Text>
+          </Text>
         </Box>
       )}
 
@@ -110,14 +104,14 @@ export function ServicePanel({ deployment, status, isActive, isLoading }: Servic
       {status?.health && (
         <Box marginTop={1} flexDirection="column">
           <Text dimColor>Health:</Text>
-          <Box marginLeft={1}>
-            <Text>
-              <Text color={getHealthColor()}>{status.health.status}</Text>
-              {status.health.responseTime !== null && (
-                <Text dimColor> ({Math.round(status.health.responseTime)}ms)</Text>
-              )}
-            </Text>
-          </Box>
+          <Text>
+            {' '}<Text color={getHealthColor()}>{status.health.status}</Text>
+            {status.health.responseTime !== null ? (
+              <Text dimColor> ({Math.round(status.health.responseTime)}ms)</Text>
+            ) : !deployment.endpoints.health ? (
+              <Text dimColor> (no ALB)</Text>
+            ) : null}
+          </Text>
         </Box>
       )}
 
