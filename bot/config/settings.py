@@ -134,6 +134,12 @@ class Settings(BaseSettings):
     whatsapp_access_token: Optional[str] = Field(default=None, description="WhatsApp Cloud API Access Token")
     whatsapp_verify_token: str = Field(default="suwappu_verify", description="Webhook verification token")
     
+    # Telegram Mini App
+    webapp_url: str = Field(
+        default="https://suwappu.vercel.app",
+        description="URL for the Telegram Mini App dashboard"
+    )
+
     # Agent Interoperability
     agent_api_key: Optional[str] = Field(default=None, description="Secret key for other AI agents to access the API")
 

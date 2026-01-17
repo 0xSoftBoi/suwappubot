@@ -9,6 +9,9 @@ from fastapi import FastAPI, Depends, HTTPException, Query, Request, Security, R
 from fastapi.security.api_key import APIKeyHeader, APIKey
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, JSONResponse
+
+# Import webapp router
+from api.webapp import router as webapp_router
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict
 import secrets
@@ -201,6 +204,9 @@ app.add_middleware(
 )
 
 wallet_service = WalletService()
+
+# Include webapp router for Telegram Mini App
+app.include_router(webapp_router)
 
 # --- Pydantic Models (Aligned with Mobile/Web) ---
 
