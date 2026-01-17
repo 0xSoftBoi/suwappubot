@@ -80,7 +80,53 @@ class Settings(BaseSettings):
         default="CURVE_ED25519",
         description="Default curve for Solana wallets"
     )
-    
+
+    # OAuth Configuration (Google + Twitter)
+    google_client_id: Optional[str] = Field(
+        default=None,
+        description="Google OAuth 2.0 client ID"
+    )
+    google_client_secret: Optional[str] = Field(
+        default=None,
+        description="Google OAuth 2.0 client secret"
+    )
+    twitter_client_id: Optional[str] = Field(
+        default=None,
+        description="Twitter/X OAuth 2.0 client ID"
+    )
+    twitter_client_secret: Optional[str] = Field(
+        default=None,
+        description="Twitter/X OAuth 2.0 client secret"
+    )
+    oauth_redirect_base: str = Field(
+        default="http://localhost:3000",
+        description="Base URL for OAuth redirect URIs (e.g., https://app.suwappu.com)"
+    )
+
+    # Alchemy Configuration (Full Suite)
+    alchemy_api_key: Optional[str] = Field(
+        default=None,
+        description="Alchemy API key for enhanced RPC, Token API, NFT API"
+    )
+    alchemy_webhook_auth_token: Optional[str] = Field(
+        default=None,
+        description="Alchemy webhook authentication token"
+    )
+    alchemy_network_overrides: Optional[str] = Field(
+        default=None,
+        description="JSON map of chain->network overrides for Alchemy"
+    )
+
+    # JWT Configuration
+    jwt_secret_key: Optional[str] = Field(
+        default=None,
+        description="Secret key for JWT signing (auto-generated if not set)"
+    )
+    jwt_expiry_hours: int = Field(
+        default=168,
+        description="JWT token expiry in hours (default: 7 days)"
+    )
+
     # EVM RPC Endpoints (Can be comma-separated lists)
     ethereum_rpc_url: str = Field(
         default="https://eth.llamarpc.com,https://rpc.ankr.com/eth,https://1rpc.io/eth",
@@ -120,9 +166,54 @@ class Settings(BaseSettings):
         if not urls_str:
             # Fallback for chains that might not have a direct setting
             return ""
-        
+
         urls = [u.strip() for u in urls_str.split(",") if u.strip()]
         return random.choice(urls) if urls else ""
+
+    def get_alchemy_network(self, chain_name: str) -> Optional[str]:
+        """
+        Get the Alchemy network identifier for a chain.
+
+        Returns None for chains not supported by Alchemy (BSC, Solana).
+        """
+        # Default Alchemy network mappings
+        alchemy_networks = {
+            "ethereum": "eth-mainnet",
+            "polygon": "polygon-mainnet",
+            "arbitrum": "arb-mainnet",
+            "optimism": "opt-mainnet",
+            "base": "base-mainnet",
+        }
+
+        # Apply custom overrides if configured
+        if self.alchemy_network_overrides:
+            try:
+                import json
+                overrides = json.loads(self.alchemy_network_overrides)
+                alchemy_networks.update(overrides)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        return alchemy_networks.get(chain_name.lower())
+
+    def get_alchemy_rpc_url(self, chain_name: str) -> Optional[str]:
+        """Get the Alchemy RPC URL for a chain."""
+        if not self.alchemy_api_key:
+            return None
+
+        network = self.get_alchemy_network(chain_name)
+        if not network:
+            return None
+
+        return f"https://{network}.g.alchemy.com/v2/{self.alchemy_api_key}"
+
+    def is_oauth_configured(self, provider: str) -> bool:
+        """Check if OAuth is configured for a provider."""
+        if provider == "google":
+            return bool(self.google_client_id and self.google_client_secret)
+        elif provider == "twitter":
+            return bool(self.twitter_client_id and self.twitter_client_secret)
+        return False
     
     # API Keys (optional for higher rate limits)
     lifi_api_key: Optional[str] = Field(default=None, description="Li.Fi API key")

@@ -39,16 +39,15 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         logger.info("Connecting to SQLite database...")
     else:
         logger.info("Connecting to database...")
-    
+
     connect_args = {}
     is_sqlite = database_url.startswith("sqlite")
     
     if is_sqlite:
         connect_args["check_same_thread"] = False
     else:
-        # PostgreSQL/Render specific settings
-        # Render requires SSL for database connections
-        if "dpg-" in database_url or "render.com" in database_url or "postgresql" in database_url:
+        # PostgreSQL settings (AWS RDS requires SSL)
+        if "postgresql" in database_url or "postgres" in database_url:
             connect_args["sslmode"] = "require"
             connect_args["connect_timeout"] = 10
     
@@ -120,6 +119,8 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         from bot.models.copy_trading import TraderProfile, CopyFollow, CopyTrade, CopyNotification, TraderTrade
         # Token Sniping models
         from bot.models.snipe import SnipeOrder, SnipeConfig, SnipeHistory, WatchedToken, AutoSnipeRule
+        # OAuth models
+        from bot.models.oauth import OAuthIdentity, OAuthToken, OAuthState
 
         # Create all tables
         Base.metadata.create_all(bind=engine)
