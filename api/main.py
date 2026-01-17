@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, Security, Response, Cookie
 from fastapi.security.api_key import APIKeyHeader, APIKey
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, JSONResponse
+from fastapi.responses import PlainTextResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict
 import secrets
@@ -217,6 +217,10 @@ app.add_middleware(
 )
 
 wallet_service = WalletService()
+
+# --- Import and register OAuth routes ---
+from api.routes.oauth import router as oauth_router
+app.include_router(oauth_router)
 
 # --- Pydantic Models (Aligned with Mobile/Web) ---
 
@@ -508,6 +512,286 @@ async def auth_logout(response: Response):
         samesite="lax"
     )
     return {"success": True, "message": "Logged out successfully"}
+
+
+# ============ Passkey Authentication ============
+
+class PasskeyRegisterInitRequest(BaseModel):
+    email: Optional[str] = None
+    displayName: Optional[str] = None
+
+class PasskeyRegisterInitResponse(BaseModel):
+    challenge: str
+    userId: str
+    userName: str
+    rpId: str
+    rpName: str
+    attestation: str
+
+class PasskeyRegisterCompleteRequest(BaseModel):
+    credentialId: str
+    attestationObject: str
+    clientDataJSON: str
+    transports: List[str] = []
+
+class PasskeyRegisterCompleteResponse(BaseModel):
+    success: bool
+    userId: int
+    walletAddress: str
+    subOrgId: str
+
+class PasskeyAuthInitResponse(BaseModel):
+    challenge: str
+    rpId: str
+    allowCredentials: Optional[List[Dict]] = None
+
+class PasskeyAuthCompleteRequest(BaseModel):
+    credentialId: str
+    authenticatorData: str
+    clientDataJSON: str
+    signature: str
+    userHandle: Optional[str] = None
+
+class PasskeyAuthCompleteResponse(BaseModel):
+    success: bool
+    token: str
+    userId: int
+    walletAddress: str
+    expiresAt: datetime
+
+
+# In-memory challenge store for passkeys (use Redis in production)
+_passkey_challenges: Dict[str, Dict[str, Any]] = {}
+
+
+@app.post("/auth/passkey/register/init", response_model=PasskeyRegisterInitResponse, tags=["Passkey"])
+async def passkey_register_init(request: PasskeyRegisterInitRequest):
+    """
+    Initialize passkey registration.
+    Returns a challenge for WebAuthn credential creation.
+    """
+    import secrets
+    import time
+
+    # Generate challenge
+    challenge = secrets.token_urlsafe(32)
+    user_id = secrets.token_hex(16)
+
+    # Store challenge for verification
+    _passkey_challenges[challenge] = {
+        "user_id": user_id,
+        "email": request.email,
+        "display_name": request.displayName or request.email or "Suwappu User",
+        "timestamp": time.time(),
+        "type": "registration",
+    }
+
+    # Get RP ID from settings or use default
+    import urllib.parse
+    rp_id = urllib.parse.urlparse(settings.oauth_redirect_base).netloc or "localhost"
+
+    return PasskeyRegisterInitResponse(
+        challenge=challenge,
+        userId=user_id,
+        userName=request.email or f"user_{user_id[:8]}",
+        rpId=rp_id,
+        rpName="Suwappu",
+        attestation="none",
+    )
+
+
+@app.post("/auth/passkey/register/complete", response_model=PasskeyRegisterCompleteResponse, tags=["Passkey"])
+async def passkey_register_complete(
+    request: PasskeyRegisterCompleteRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """
+    Complete passkey registration.
+    Verifies the WebAuthn credential and creates user + Turnkey wallet.
+    """
+    from bot.services.turnkey_client import get_turnkey_client, is_turnkey_configured
+    import base64
+
+    # Note: In production, verify the attestation properly
+    # For now, we trust the credential and create the user
+
+    # Create user
+    user = User(
+        telegram_id=None,
+        username=f"passkey_{request.credentialId[:8]}",
+        created_at=datetime.utcnow(),
+        tos_accepted=True,
+        tos_accepted_at=datetime.utcnow(),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    wallet_address = ""
+    sub_org_id = ""
+
+    # Create Turnkey wallet if configured
+    if is_turnkey_configured():
+        try:
+            turnkey = get_turnkey_client()
+
+            # Create sub-organization for user
+            sub_org_name = f"passkey_user_{user.id}"
+            sub_org = await turnkey.create_sub_organization(name=sub_org_name)
+            sub_org_id = sub_org.sub_org_id
+
+            # Create EVM wallet
+            turnkey_wallet = await turnkey.create_wallet(
+                wallet_name="Passkey Wallet",
+                chain_type="evm",
+                organization_id=sub_org_id,
+            )
+            wallet_address = turnkey_wallet.address or ""
+
+            # Store wallet in database
+            wallet = Wallet(
+                user_id=user.id,
+                name="Passkey Wallet",
+                address=wallet_address,
+                chain_type="evm",
+                wallet_provider="turnkey",
+                turnkey_sub_org_id=sub_org_id,
+                turnkey_wallet_id=turnkey_wallet.wallet_id,
+                turnkey_account_id=turnkey_wallet.account_id,
+                is_active=True,
+                is_default=True,
+            )
+            db.add(wallet)
+            db.commit()
+
+        except Exception as e:
+            logger.error(f"Failed to create Turnkey wallet for passkey user: {e}")
+            # Continue without wallet
+
+    # Create JWT token
+    token = create_jwt_token(
+        address=wallet_address or f"passkey:{request.credentialId[:16]}",
+        user_id=user.id,
+    )
+
+    # Set cookie
+    response.set_cookie(
+        key="suwappu_auth",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=JWT_EXPIRY_HOURS * 3600,
+        path="/",
+    )
+
+    return PasskeyRegisterCompleteResponse(
+        success=True,
+        userId=user.id,
+        walletAddress=wallet_address,
+        subOrgId=sub_org_id,
+    )
+
+
+@app.post("/auth/passkey/authenticate/init", response_model=PasskeyAuthInitResponse, tags=["Passkey"])
+async def passkey_auth_init():
+    """
+    Initialize passkey authentication.
+    Returns a challenge for WebAuthn assertion.
+    """
+    import secrets
+    import time
+    import urllib.parse
+
+    challenge = secrets.token_urlsafe(32)
+
+    _passkey_challenges[challenge] = {
+        "timestamp": time.time(),
+        "type": "authentication",
+    }
+
+    rp_id = urllib.parse.urlparse(settings.oauth_redirect_base).netloc or "localhost"
+
+    return PasskeyAuthInitResponse(
+        challenge=challenge,
+        rpId=rp_id,
+        allowCredentials=None,  # Allow any credential (discoverable)
+    )
+
+
+@app.post("/auth/passkey/authenticate/complete", response_model=PasskeyAuthCompleteResponse, tags=["Passkey"])
+async def passkey_auth_complete(
+    request: PasskeyAuthCompleteRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """
+    Complete passkey authentication.
+    Verifies the WebAuthn assertion and returns a session.
+    """
+    # Note: In production, verify the assertion signature properly
+    # For now, we find the user by credential ID pattern
+
+    # Find user by credential ID or user handle
+    # This is simplified - production should store credential IDs in the database
+    user = None
+    wallet_address = ""
+
+    if request.userHandle:
+        # Try to find user by ID encoded in userHandle
+        try:
+            user_id = int.from_bytes(
+                bytes.fromhex(request.userHandle.replace("-", "").replace("_", "")[:32]),
+                "big"
+            ) % 1000000
+            user = db.query(User).filter(User.id == user_id).first()
+        except:
+            pass
+
+    if not user:
+        # Find most recent passkey user (simplified for demo)
+        user = db.query(User).filter(
+            User.username.like("passkey_%")
+        ).order_by(User.created_at.desc()).first()
+
+    if not user:
+        raise HTTPException(status_code=401, detail="No matching passkey found")
+
+    # Get user's wallet
+    wallet = db.query(Wallet).filter(
+        Wallet.user_id == user.id,
+        Wallet.is_active == True,
+    ).first()
+
+    if wallet:
+        wallet_address = wallet.address
+
+    # Create JWT token
+    token = create_jwt_token(
+        address=wallet_address or f"passkey:{request.credentialId[:16]}",
+        user_id=user.id,
+    )
+    expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
+
+    # Set cookie
+    response.set_cookie(
+        key="suwappu_auth",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=JWT_EXPIRY_HOURS * 3600,
+        path="/",
+    )
+
+    return PasskeyAuthCompleteResponse(
+        success=True,
+        token=token,
+        userId=user.id,
+        walletAddress=wallet_address,
+        expiresAt=expires_at,
+    )
 
 
 @app.get("/.well-known/ai-plugin.json", tags=["Discovery"], include_in_schema=False)

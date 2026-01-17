@@ -133,6 +133,8 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         from bot.models.copy_trading import TraderProfile, CopyFollow, CopyTrade, CopyNotification, TraderTrade
         # Token Sniping models
         from bot.models.snipe import SnipeOrder, SnipeConfig, SnipeHistory, WatchedToken, AutoSnipeRule
+        # OAuth models
+        from bot.models.oauth import OAuthIdentity, OAuthToken, OAuthState
 
         # Create all tables
         Base.metadata.create_all(bind=engine)
