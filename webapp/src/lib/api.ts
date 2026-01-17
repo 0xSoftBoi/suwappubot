@@ -16,9 +16,9 @@ class ApiClient {
   private async fetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const initData = getInitData()
 
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...options.headers,
+      ...(options.headers as Record<string, string>),
     }
 
     // Add Telegram auth header if available
