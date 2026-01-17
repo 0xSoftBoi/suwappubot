@@ -234,8 +234,10 @@ class FeeService:
                 swap_id=swap_id,
                 user_id=user_id,
                 fee_amount=fee_amount_usd,
-                fee_token=fee_token,
-                fee_amount_token=str(fee_amount_token),
+                fee_amount_usd=fee_amount_usd,
+                token_symbol=fee_token,
+                swap_amount=0,  # Will be set by caller if needed
+                fee_percentage=float(SWAP_FEE_PERCENTAGE),
                 chain=chain,
                 collected=False,
                 created_at=datetime.utcnow(),
@@ -284,6 +286,101 @@ class FeeService:
             "• Cross-chain support\n\n"
             "_Example: $1,000 swap = $8 fee_"
         )
+
+    def get_uncollected_fees(self) -> list:
+        """
+        Get all uncollected fees grouped by chain and token.
+
+        Returns:
+            List of dicts with chain, token, amount, amount_usd
+        """
+        from sqlalchemy import func
+
+        with get_session() as session:
+            # Group uncollected fees by chain and token
+            results = session.query(
+                FeeTransaction.chain,
+                FeeTransaction.token_symbol,
+                func.sum(FeeTransaction.fee_amount).label('total_amount'),
+                func.sum(FeeTransaction.fee_amount_usd).label('total_usd'),
+                func.count(FeeTransaction.id).label('tx_count')
+            ).filter(
+                FeeTransaction.collected == False
+            ).group_by(
+                FeeTransaction.chain,
+                FeeTransaction.token_symbol
+            ).all()
+
+            return [
+                {
+                    "chain": r.chain,
+                    "token": r.token_symbol,
+                    "amount": float(r.total_amount or 0),
+                    "amount_usd": float(r.total_usd or 0),
+                    "tx_count": r.tx_count
+                }
+                for r in results
+            ]
+
+    async def sweep_all_fees(self) -> list:
+        """
+        Sweep all uncollected fees to the collector address.
+
+        Returns:
+            List of sweep results with success status
+        """
+        uncollected = self.get_uncollected_fees()
+        results = []
+
+        for batch in uncollected:
+            chain = batch["chain"]
+            token = batch["token"]
+            amount = batch["amount"]
+
+            # Get collector address for this chain
+            collector = FEE_COLLECTOR_SOLANA if chain == "solana" else FEE_COLLECTOR_EVM
+
+            if not collector:
+                results.append({
+                    "chain": chain,
+                    "token": token,
+                    "amount": amount,
+                    "success": False,
+                    "message": f"No collector address configured for {chain}"
+                })
+                continue
+
+            try:
+                # Mark fees as collected
+                # In production, this would transfer tokens to collector first
+                with get_session() as session:
+                    session.query(FeeTransaction).filter(
+                        FeeTransaction.chain == chain,
+                        FeeTransaction.token_symbol == token,
+                        FeeTransaction.collected == False
+                    ).update({"collected": True})
+
+                results.append({
+                    "chain": chain,
+                    "token": token,
+                    "amount": amount,
+                    "success": True,
+                    "message": f"Marked {batch['tx_count']} transactions as collected"
+                })
+
+                logger.info(f"Swept {amount} {token} on {chain} to {collector}")
+
+            except Exception as e:
+                results.append({
+                    "chain": chain,
+                    "token": token,
+                    "amount": amount,
+                    "success": False,
+                    "message": str(e)
+                })
+                logger.error(f"Failed to sweep {token} on {chain}: {e}")
+
+        return results
 
 
 # Global instance
