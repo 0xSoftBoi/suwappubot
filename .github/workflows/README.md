@@ -16,8 +16,22 @@ Automated deployment to AWS ECS Fargate.
 **What it does:**
 1. Builds Docker image from Dockerfile
 2. Pushes image to Amazon ECR
-3. Updates ECS service with new image
-4. Waits for deployment to stabilize
+3. Runs Alembic database migrations
+4. Updates ECS service with new image
+5. Waits for deployment to stabilize
+
+### deploy-webapp.yml
+
+Automated deployment of the Telegram Mini App to Vercel.
+
+**Triggers:**
+- Push to `main` branch when `webapp/` changes
+- Manual dispatch via GitHub Actions UI
+
+**What it does:**
+1. Installs dependencies with Bun
+2. Builds Vite production bundle
+3. Deploys to Vercel (production or preview)
 
 ## Branch → Environment Mapping
 
@@ -30,10 +44,21 @@ Automated deployment to AWS ECS Fargate.
 
 Configure these in **Settings → Secrets and variables → Actions**:
 
+### AWS (for deploy-ecs.yml)
+
 | Secret | Description |
 |--------|-------------|
 | `AWS_ACCESS_KEY_ID` | AWS access key for CI/CD user |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key for CI/CD user |
+
+### Vercel (for deploy-webapp.yml)
+
+| Secret | Description |
+|--------|-------------|
+| `VERCEL_TOKEN` | Vercel API token (get from Account Settings → Tokens) |
+| `VERCEL_ORG_ID` | Vercel org/team ID (from project settings) |
+| `VERCEL_PROJECT_ID` | Vercel project ID (from project settings) |
+| `VITE_API_URL` | (Optional) API URL for the webapp to use |
 
 ## AWS IAM Policy
 
