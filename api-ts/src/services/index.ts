@@ -2,3 +2,5 @@ export { TelegramAuthService, TelegramAuthServiceLive, type TelegramUser } from 
 export { WalletService, WalletServiceLive } from './WalletService'
 export { SwapService, SwapServiceLive } from './SwapService'
 export { UserService, UserServiceLive } from './UserService'
+export { PointsService, PointsServiceLive, type UserPointsStats, type LeaderboardEntry, type CheckinResult, type SwapPointsResult } from './PointsService'
+export { BalanceService, BalanceServiceLive, type TokenBalance } from './BalanceService'

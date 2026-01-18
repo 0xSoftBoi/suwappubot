@@ -78,6 +78,8 @@ export interface HealthCheckResult {
   responseTime: number | null;
   lastCheck: Date | null;
   statusCode?: number;
+  version?: string;
+  service?: string;
 }
 
 export interface CloudWatchLogEvent {

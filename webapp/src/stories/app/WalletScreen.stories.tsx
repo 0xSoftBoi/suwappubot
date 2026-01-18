@@ -1,6 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import '../../theme/suwappu.css'
+import { ApiProvider } from '../../contexts/ApiContext'
+import { usePortfolio } from '../../hooks/usePortfolio'
+import { mockPortfolio } from '../mockData'
+import type { Token } from '../../types/api'
 
 const meta: Meta = {
   title: 'Suwappu App/Wallet',
@@ -121,13 +126,22 @@ function AddressCard({ address, label }: { address: string; label?: string }) {
 }
 
 // Chain selector
-function ChainSelector({ selected, chains }: { selected: string; chains: { id: string; name: string; icon: string }[] }) {
+function ChainSelector({
+  selected,
+  chains,
+  onSelect,
+}: {
+  selected: string
+  chains: { id: string; name: string; icon: string }[]
+  onSelect?: (chainId: string) => void
+}) {
   return (
     <div className="w-full">
       <div className="flex gap-1.5 flex-wrap">
         {chains.map((chain) => (
           <button
             key={chain.id}
+            onClick={() => onSelect?.(chain.id)}
             className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-heading font-medium transition-colors ${
               selected === chain.id
                 ? 'bg-suwappu-gradient text-white'
@@ -360,4 +374,295 @@ export const ConnectWallet: Story = {
       <BottomNav active="wallet" />
     </div>
   ),
+}
+
+// === Connected Stories (using real data flow) ===
+
+// Available chains with their icons
+const CHAINS = [
+  { id: 'all', name: 'All', icon: '●' },
+  { id: 'ethereum', name: 'Ethereum', icon: 'Ξ' },
+  { id: 'bsc', name: 'BSC', icon: '🔶' },
+  { id: 'polygon', name: 'Polygon', icon: '⬡' },
+  { id: 'arbitrum', name: 'Arbitrum', icon: '🔷' },
+  { id: 'solana', name: 'Solana', icon: '◎' },
+]
+
+// Helper to get token icon
+function getTokenIcon(symbol: string): string {
+  const icons: Record<string, string> = {
+    ETH: 'Ξ',
+    USDC: '$',
+    USDT: '$',
+    SOL: '◎',
+    MATIC: '⬡',
+    BNB: '🔶',
+    ARB: '🔷',
+  }
+  return icons[symbol] || '●'
+}
+
+// Format balance number
+function formatBalance(balance: string): string {
+  const num = parseFloat(balance)
+  if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M'
+  if (num >= 1000) return (num / 1000).toFixed(2) + 'K'
+  if (num >= 1) return num.toFixed(4)
+  return num.toFixed(6)
+}
+
+// Format USD value
+function formatUsd(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)
+}
+
+// Loading skeleton for token list
+function BalanceListSkeleton() {
+  return (
+    <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 overflow-hidden">
+      <div className="px-3 py-2 border-b border-suwappu-sakura-mid/10">
+        <span className="font-heading font-semibold text-sm text-suwappu-purple-deep">Balances</span>
+      </div>
+      <div className="divide-y divide-suwappu-sakura-mid/10">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="flex items-center gap-3 p-2 animate-pulse">
+            <div className="w-9 h-9 rounded-full bg-suwappu-sakura-light" />
+            <div className="flex-1">
+              <div className="h-4 bg-suwappu-sakura-light rounded w-16 mb-1" />
+              <div className="h-3 bg-suwappu-sakura-light/50 rounded w-24" />
+            </div>
+            <div className="text-right">
+              <div className="h-4 bg-suwappu-sakura-light rounded w-20 mb-1" />
+              <div className="h-3 bg-suwappu-sakura-light/50 rounded w-12" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Dynamic balance list that accepts portfolio tokens
+function DynamicBalanceList({ tokens, selectedChain, isLoading }: { tokens: Token[]; selectedChain: string; isLoading?: boolean }) {
+  if (isLoading) {
+    return <BalanceListSkeleton />
+  }
+
+  const filteredTokens = selectedChain === 'all'
+    ? tokens
+    : tokens.filter(t => t.chain === selectedChain)
+
+  if (filteredTokens.length === 0) {
+    return (
+      <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-6 text-center">
+        <div className="w-12 h-12 mx-auto mb-2 bg-suwappu-sakura-light rounded-full flex items-center justify-center">
+          <span className="text-2xl">💰</span>
+        </div>
+        <p className="font-heading font-semibold text-suwappu-purple-deep mb-1">No tokens found</p>
+        <p className="text-xs text-suwappu-text-secondary">
+          {selectedChain === 'all' ? 'Your wallet is empty' : `No tokens on ${selectedChain}`}
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 overflow-hidden">
+      <div className="px-3 py-2 border-b border-suwappu-sakura-mid/10">
+        <span className="font-heading font-semibold text-sm text-suwappu-purple-deep">Balances</span>
+      </div>
+      <div className="divide-y divide-suwappu-sakura-mid/10">
+        {filteredTokens.map((token) => (
+          <TokenRow
+            key={`${token.chain}-${token.address}`}
+            symbol={token.symbol}
+            name={token.name}
+            balance={formatBalance(token.balance)}
+            value={formatUsd(token.usdValue)}
+            icon={getTokenIcon(token.symbol)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Error state display
+function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <div className="bg-suwappu-error/10 border border-suwappu-error/20 rounded-suwappu-xl p-4 text-center">
+      <div className="w-12 h-12 mx-auto mb-2 bg-suwappu-error/10 rounded-full flex items-center justify-center">
+        <svg className="w-6 h-6 text-suwappu-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+      </div>
+      <p className="text-sm font-heading font-semibold text-suwappu-error mb-1">Failed to load balances</p>
+      <p className="text-xs text-suwappu-text-secondary mb-3">{message}</p>
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          className="px-4 py-2 bg-suwappu-gradient text-white text-sm font-heading font-bold rounded-suwappu-pill"
+        >
+          Try Again
+        </button>
+      )}
+    </div>
+  )
+}
+
+// Connected Wallet Screen component that uses the usePortfolio hook
+function ConnectedWalletScreen() {
+  const [selectedChain, setSelectedChain] = useState('all')
+  const { data: portfolio, isLoading, error, refetch } = usePortfolio()
+
+  // Get unique chains from portfolio tokens
+  const availableChains = portfolio?.tokens
+    ? [...new Set(portfolio.tokens.map(t => t.chain))]
+    : []
+
+  const chains = CHAINS.filter(c => c.id === 'all' || availableChains.includes(c.id))
+
+  return (
+    <div className="min-h-screen bg-suwappu-bg overflow-x-hidden max-w-full">
+      <Header title="Wallet" />
+      <main className="p-3 pb-20 space-y-4 overflow-hidden">
+        <AddressCard address="0x1234567890abcdef1234567890abcdef12345678" label="Connected Wallet" />
+
+        <ChainSelector
+          selected={selectedChain}
+          chains={chains.map(c => ({ id: c.id, name: c.name, icon: c.icon }))}
+          onSelect={setSelectedChain}
+        />
+
+        {error ? (
+          <ErrorState message={(error as Error).message} onRetry={() => refetch()} />
+        ) : (
+          <DynamicBalanceList
+            tokens={portfolio?.tokens ?? []}
+            selectedChain={selectedChain}
+            isLoading={isLoading}
+          />
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <button className="flex items-center justify-center gap-2 px-4 py-3 bg-suwappu-gradient text-white font-heading font-bold text-sm rounded-suwappu-pill shadow-suwappu-button">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+            </svg>
+            Receive
+          </button>
+          <button className="flex items-center justify-center gap-2 px-4 py-3 bg-white text-suwappu-magenta-mid font-heading font-bold text-sm rounded-suwappu-pill border-2 border-suwappu-sakura-mid shadow-suwappu-1">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+            </svg>
+            Send
+          </button>
+        </div>
+      </main>
+      <BottomNav active="wallet" />
+    </div>
+  )
+}
+
+// Query client for stories
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  },
+})
+
+/**
+ * Connected Wallet Screen - Uses mock API to demonstrate real data flow
+ */
+export const Connected: Story = {
+  decorators: [
+    (Story) => (
+      <QueryClientProvider client={queryClient}>
+        <ApiProvider useMock>
+          <Story />
+        </ApiProvider>
+      </QueryClientProvider>
+    ),
+  ],
+  render: () => <ConnectedWalletScreen />,
+}
+
+/**
+ * Loading State - Shows skeleton UI while data is being fetched
+ */
+export const Loading: Story = {
+  render: () => (
+    <div className="min-h-screen bg-suwappu-bg overflow-x-hidden max-w-full">
+      <Header title="Wallet" />
+      <main className="p-3 pb-20 space-y-4 overflow-hidden">
+        <AddressCard address="0x1234567890abcdef1234567890abcdef12345678" label="Connected Wallet" />
+        <ChainSelector
+          selected="all"
+          chains={CHAINS.slice(0, 4).map(c => ({ id: c.id, name: c.name, icon: c.icon }))}
+        />
+        <BalanceListSkeleton />
+        <div className="grid grid-cols-2 gap-3">
+          <button className="flex items-center justify-center gap-2 px-4 py-3 bg-suwappu-gradient text-white font-heading font-bold text-sm rounded-suwappu-pill shadow-suwappu-button opacity-50">
+            Receive
+          </button>
+          <button className="flex items-center justify-center gap-2 px-4 py-3 bg-white text-suwappu-magenta-mid font-heading font-bold text-sm rounded-suwappu-pill border-2 border-suwappu-sakura-mid shadow-suwappu-1 opacity-50">
+            Send
+          </button>
+        </div>
+      </main>
+      <BottomNav active="wallet" />
+    </div>
+  ),
+}
+
+/**
+ * With Mock Portfolio Data - Uses imported mock data directly
+ */
+export const WithMockData: Story = {
+  render: () => {
+    const [selectedChain, setSelectedChain] = useState('all')
+    const availableChains = [...new Set(mockPortfolio.tokens.map(t => t.chain))]
+    const chains = CHAINS.filter(c => c.id === 'all' || availableChains.includes(c.id))
+
+    return (
+      <div className="min-h-screen bg-suwappu-bg overflow-x-hidden max-w-full">
+        <Header title="Wallet" />
+        <main className="p-3 pb-20 space-y-4 overflow-hidden">
+          <AddressCard address="0x1234567890abcdef1234567890abcdef12345678" label="Connected Wallet" />
+          <ChainSelector
+            selected={selectedChain}
+            chains={chains.map(c => ({ id: c.id, name: c.name, icon: c.icon }))}
+            onSelect={setSelectedChain}
+          />
+          <DynamicBalanceList
+            tokens={mockPortfolio.tokens}
+            selectedChain={selectedChain}
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <button className="flex items-center justify-center gap-2 px-4 py-3 bg-suwappu-gradient text-white font-heading font-bold text-sm rounded-suwappu-pill shadow-suwappu-button">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+              </svg>
+              Receive
+            </button>
+            <button className="flex items-center justify-center gap-2 px-4 py-3 bg-white text-suwappu-magenta-mid font-heading font-bold text-sm rounded-suwappu-pill border-2 border-suwappu-sakura-mid shadow-suwappu-1">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+              </svg>
+              Send
+            </button>
+          </div>
+        </main>
+        <BottomNav active="wallet" />
+      </div>
+    )
+  },
 }

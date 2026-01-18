@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { Effect, Either, Option } from 'effect'
 import { telegramAuth } from '../middleware'
-import { TelegramAuthService, UserService, WalletService, SwapService } from '../services'
+import { TelegramAuthService, UserService, WalletService, SwapService, BalanceService } from '../services'
 import { runEffect, runEffectEither } from '../runtime'
 import type { TelegramUser } from '../services/TelegramAuthService'
 import { mapErrorToResponse } from '../errors'
@@ -45,6 +45,7 @@ protectedWebapp.get('/users/me/portfolio', async (c) => {
 		Effect.gen(function* () {
 			const userService = yield* UserService
 			const walletService = yield* WalletService
+			const balanceService = yield* BalanceService
 
 			// Find user by telegram_id
 			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
@@ -62,18 +63,37 @@ protectedWebapp.get('/users/me/portfolio', async (c) => {
 			// Get active wallets
 			const wallets = yield* walletService.getActiveWallets(user.id)
 
-			// For now, return placeholder portfolio data
-			// In production, you'd fetch actual balances from each wallet
+			if (wallets.length === 0) {
+				return {
+					totalUsdValue: 0,
+					tokens: [],
+					lastUpdated: new Date().toISOString(),
+				}
+			}
+
+			// Fetch balances for all wallets
+			const allTokens: Array<{
+				symbol: string
+				name: string
+				address: string
+				chain: string
+				balance: string
+				usdValue: number
+			}> = []
+
+			for (const wallet of wallets) {
+				const balances = yield* Effect.either(balanceService.getWalletBalances(wallet))
+				if (Either.isRight(balances)) {
+					allTokens.push(...balances.right)
+				}
+			}
+
+			// Calculate total USD value
+			const totalUsdValue = allTokens.reduce((sum, token) => sum + token.usdValue, 0)
+
 			return {
-				totalUsdValue: 0,
-				tokens: wallets.map((wallet) => ({
-					symbol: wallet.chainType === 'solana' ? 'SOL' : 'ETH',
-					name: wallet.chainType === 'solana' ? 'Solana' : 'Ethereum',
-					address: wallet.address,
-					chain: wallet.chainType,
-					balance: '0',
-					usdValue: 0,
-				})),
+				totalUsdValue,
+				tokens: allTokens,
 				lastUpdated: new Date().toISOString(),
 			}
 		})

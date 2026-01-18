@@ -89,6 +89,9 @@ Or use the Telegram WebApp test mode in browser dev tools.
 
 ## Deployment
 
-The app is deployed to Vercel automatically via GitHub Actions when pushing to `main`.
+The app is deployed to AWS ECS via Docker containers with nginx serving the static build.
 
-Production URL: `https://suwappu.vercel.app`
+| Environment | URL | ECS Service |
+|-------------|-----|-------------|
+| **Production** | `https://app.suwappu.bot` | `suwappu-webapp-prod` |
+| **Development** | `https://devfront.suwappu.bot` | `suwappu-webapp-dev` |

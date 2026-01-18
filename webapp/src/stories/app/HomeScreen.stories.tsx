@@ -1,6 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import '../../theme/suwappu.css'
+import { ApiProvider } from '../../contexts/ApiContext'
+import { usePortfolio } from '../../hooks/usePortfolio'
+import { mockPortfolio } from '../mockData'
+import type { Token } from '../../types/api'
 
 const meta: Meta = {
   title: 'Suwappu App/Home',
@@ -257,4 +262,224 @@ export const WithNotification: Story = {
       </div>
     )
   },
+}
+
+// === Connected Stories (using real data flow) ===
+
+// Helper to get token icon
+function getTokenIcon(symbol: string): string {
+  const icons: Record<string, string> = {
+    ETH: 'Ξ',
+    USDC: '$',
+    USDT: '$',
+    SOL: '◎',
+    MATIC: '⬡',
+    BNB: '🔶',
+    ARB: '🔷',
+  }
+  return icons[symbol] || '●'
+}
+
+// Format USD value
+function formatUsd(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)
+}
+
+// Dynamic Balance Card that accepts portfolio data
+function DynamicBalanceCard({ totalValue, isLoading }: { totalValue: number; isLoading?: boolean }) {
+  if (isLoading) {
+    return (
+      <div className="bg-suwappu-gradient rounded-suwappu-xl p-4 text-white shadow-suwappu-button animate-pulse">
+        <p className="text-xs opacity-80 mb-1">Total Balance</p>
+        <div className="h-8 bg-white/20 rounded w-32" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-suwappu-gradient rounded-suwappu-xl p-4 text-white shadow-suwappu-button">
+      <p className="text-xs opacity-80 mb-1">Total Balance</p>
+      <p className="text-2xl font-heading font-bold">{formatUsd(totalValue)}</p>
+    </div>
+  )
+}
+
+// Loading skeleton for token list
+function TokenListSkeleton() {
+  return (
+    <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-suwappu-sakura-mid/10">
+        <span className="font-heading font-semibold text-sm text-suwappu-purple-deep">Assets</span>
+      </div>
+      <div className="divide-y divide-suwappu-sakura-mid/10">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="flex items-center gap-3 p-2 animate-pulse">
+            <div className="w-9 h-9 rounded-full bg-suwappu-sakura-light" />
+            <div className="flex-1">
+              <div className="h-4 bg-suwappu-sakura-light rounded w-16 mb-1" />
+              <div className="h-3 bg-suwappu-sakura-light/50 rounded w-24" />
+            </div>
+            <div className="text-right">
+              <div className="h-4 bg-suwappu-sakura-light rounded w-20 mb-1" />
+              <div className="h-3 bg-suwappu-sakura-light/50 rounded w-12" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Dynamic token list that accepts portfolio tokens
+function DynamicTokenList({ tokens, isLoading }: { tokens: Token[]; isLoading?: boolean }) {
+  if (isLoading) {
+    return <TokenListSkeleton />
+  }
+
+  return (
+    <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-suwappu-sakura-mid/10">
+        <span className="font-heading font-semibold text-sm text-suwappu-purple-deep">Assets</span>
+        <button className="text-xs text-suwappu-magenta-mid font-medium">See All</button>
+      </div>
+      <div className="divide-y divide-suwappu-sakura-mid/10">
+        {tokens.slice(0, 5).map((token) => (
+          <TokenItem
+            key={`${token.chain}-${token.address}`}
+            symbol={token.symbol}
+            name={token.name}
+            value={formatUsd(token.usdValue)}
+            change={0} // API doesn't provide 24h change yet
+            icon={getTokenIcon(token.symbol)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Error state display
+function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <div className="bg-suwappu-error/10 border border-suwappu-error/20 rounded-suwappu-xl p-4 text-center">
+      <div className="w-12 h-12 mx-auto mb-2 bg-suwappu-error/10 rounded-full flex items-center justify-center">
+        <svg className="w-6 h-6 text-suwappu-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+      </div>
+      <p className="text-sm font-heading font-semibold text-suwappu-error mb-1">Failed to load data</p>
+      <p className="text-xs text-suwappu-text-secondary mb-3">{message}</p>
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          className="px-4 py-2 bg-suwappu-gradient text-white text-sm font-heading font-bold rounded-suwappu-pill"
+        >
+          Try Again
+        </button>
+      )}
+    </div>
+  )
+}
+
+// Connected Home Screen component that uses the usePortfolio hook
+function ConnectedHomeScreen() {
+  const { data: portfolio, isLoading, error, refetch } = usePortfolio()
+
+  return (
+    <div className="min-h-screen bg-suwappu-bg overflow-x-hidden max-w-full">
+      <Header />
+      <main className="p-3 pb-20 space-y-4">
+        <DynamicBalanceCard totalValue={portfolio?.totalUsdValue ?? 0} isLoading={isLoading} />
+        <QuickActions />
+        {error ? (
+          <ErrorState message={(error as Error).message} onRetry={() => refetch()} />
+        ) : (
+          <DynamicTokenList tokens={portfolio?.tokens ?? []} isLoading={isLoading} />
+        )}
+      </main>
+      <BottomNav active="home" />
+    </div>
+  )
+}
+
+// Query client for stories
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  },
+})
+
+/**
+ * Connected Home Screen - Uses mock API to demonstrate real data flow
+ */
+export const Connected: Story = {
+  decorators: [
+    (Story) => (
+      <QueryClientProvider client={queryClient}>
+        <ApiProvider useMock>
+          <Story />
+        </ApiProvider>
+      </QueryClientProvider>
+    ),
+  ],
+  render: () => <ConnectedHomeScreen />,
+}
+
+/**
+ * Loading State - Shows skeleton UI while data is being fetched
+ */
+export const Loading: Story = {
+  render: () => (
+    <div className="min-h-screen bg-suwappu-bg overflow-x-hidden max-w-full">
+      <Header />
+      <main className="p-3 pb-20 space-y-4">
+        <DynamicBalanceCard totalValue={0} isLoading />
+        <QuickActions />
+        <TokenListSkeleton />
+      </main>
+      <BottomNav active="home" />
+    </div>
+  ),
+}
+
+/**
+ * Error State - Shows error UI with retry option
+ */
+export const Error: Story = {
+  render: () => (
+    <div className="min-h-screen bg-suwappu-bg overflow-x-hidden max-w-full">
+      <Header />
+      <main className="p-3 pb-20 space-y-4">
+        <DynamicBalanceCard totalValue={0} />
+        <QuickActions />
+        <ErrorState message="Unable to connect to server. Please check your connection." onRetry={() => alert('Retrying...')} />
+      </main>
+      <BottomNav active="home" />
+    </div>
+  ),
+}
+
+/**
+ * With Mock Portfolio Data - Uses imported mock data directly
+ */
+export const WithMockData: Story = {
+  render: () => (
+    <div className="min-h-screen bg-suwappu-bg overflow-x-hidden max-w-full">
+      <Header />
+      <main className="p-3 pb-20 space-y-4">
+        <DynamicBalanceCard totalValue={mockPortfolio.totalUsdValue} />
+        <QuickActions />
+        <DynamicTokenList tokens={mockPortfolio.tokens} />
+      </main>
+      <BottomNav active="home" />
+    </div>
+  ),
 }
