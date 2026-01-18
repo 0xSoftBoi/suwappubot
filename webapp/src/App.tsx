@@ -1,18 +1,69 @@
 import { useEffect } from 'react'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useTelegram } from './hooks/useTelegram'
-import { Portfolio } from './components/Portfolio'
-import { SwapHistory } from './components/SwapHistory'
-import { Navigation } from './components/Navigation'
-import { useState } from 'react'
+import { Welcome, Home, Swap, Wallet, Portfolio, Settings } from './pages'
+import './theme/suwappu.css'
 
-type Tab = 'portfolio' | 'history'
+// Create React Query client
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30 * 1000, // 30 seconds
+      retry: 2,
+    },
+  },
+})
 
-function App() {
-  const { webApp, user, isReady, colorScheme } = useTelegram()
-  const [activeTab, setActiveTab] = useState<Tab>('portfolio')
+// Protected route wrapper - redirects to welcome if not authenticated
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading } = useAuth()
+  const location = useLocation()
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-suwappu-bg">
+        <div className="animate-pulse text-suwappu-text-secondary">Loading...</div>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/" state={{ from: location }} replace />
+  }
+
+  return <>{children}</>
+}
+
+// Public route - redirects to home if already authenticated
+function PublicRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading } = useAuth()
+  const location = useLocation()
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-suwappu-bg">
+        <div className="animate-pulse text-suwappu-text-secondary">Loading...</div>
+      </div>
+    )
+  }
+
+  if (isAuthenticated) {
+    // Redirect to the page they were trying to visit, or home
+    const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/home'
+    return <Navigate to={from} replace />
+  }
+
+  return <>{children}</>
+}
+
+// App content with Telegram integration
+function AppContent() {
+  const { webApp, colorScheme } = useTelegram()
 
   useEffect(() => {
-    // Sync theme with Telegram
+    // Sync theme with Telegram or default to light
     if (colorScheme === 'dark') {
       document.documentElement.classList.add('dark')
     } else {
@@ -21,62 +72,82 @@ function App() {
   }, [colorScheme])
 
   useEffect(() => {
-    // Expand the webapp to full height
+    // Expand the webapp to full height if in Telegram
     if (webApp) {
       webApp.expand()
       webApp.ready()
     }
   }, [webApp])
 
-  if (!isReady) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-tg-bg">
-        <div className="animate-pulse text-tg-hint">Loading...</div>
-      </div>
-    )
-  }
-
-  if (!user) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-tg-bg p-4">
-        <div className="text-center">
-          <h1 className="text-xl font-bold text-tg-text mb-2">Suwappu</h1>
-          <p className="text-tg-hint">Please open this app from Telegram</p>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="min-h-screen bg-tg-bg flex flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-10 bg-tg-bg border-b border-tg-secondary px-4 py-3">
-        <div className="flex items-center gap-3">
-          {user.photo_url && (
-            <img
-              src={user.photo_url}
-              alt={user.first_name}
-              className="w-10 h-10 rounded-full"
-            />
-          )}
-          <div>
-            <h1 className="font-semibold text-tg-text">
-              {user.first_name} {user.last_name || ''}
-            </h1>
-            <p className="text-sm text-tg-hint">@{user.username || 'user'}</p>
-          </div>
-        </div>
-      </header>
+    <Routes>
+      {/* Public routes */}
+      <Route
+        path="/"
+        element={
+          <PublicRoute>
+            <Welcome />
+          </PublicRoute>
+        }
+      />
 
-      {/* Content */}
-      <main className="flex-1 overflow-auto pb-20">
-        {activeTab === 'portfolio' && <Portfolio />}
-        {activeTab === 'history' && <SwapHistory />}
-      </main>
+      {/* Protected routes */}
+      <Route
+        path="/home"
+        element={
+          <ProtectedRoute>
+            <Home />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/swap"
+        element={
+          <ProtectedRoute>
+            <Swap />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/wallet/*"
+        element={
+          <ProtectedRoute>
+            <Wallet />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/portfolio"
+        element={
+          <ProtectedRoute>
+            <Portfolio />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings/*"
+        element={
+          <ProtectedRoute>
+            <Settings />
+          </ProtectedRoute>
+        }
+      />
 
-      {/* Bottom Navigation */}
-      <Navigation activeTab={activeTab} onTabChange={setActiveTab} />
-    </div>
+      {/* Fallback redirect */}
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  )
+}
+
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <BrowserRouter>
+          <AppContent />
+        </BrowserRouter>
+      </AuthProvider>
+    </QueryClientProvider>
   )
 }
 
