@@ -18,3 +18,7 @@ dist/
 
 # Cache
 .cache/
+.vercel
+
+*storybook.log
+storybook-static

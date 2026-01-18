@@ -85,3 +85,4 @@ ios/SuwappuApp/SuwappuApp.xcodeproj/project.xcworkspace/xcuserdata/
 .cursor/
 
 node_modules/
+.vercel

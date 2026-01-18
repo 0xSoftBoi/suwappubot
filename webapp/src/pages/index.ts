@@ -1,0 +1,6 @@
+export { Welcome } from './Welcome'
+export { Home } from './Home'
+export { Swap } from './Swap'
+export { Wallet } from './Wallet'
+export { Portfolio } from './Portfolio'
+export { Settings } from './Settings'

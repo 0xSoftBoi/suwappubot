@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     
     # Telegram
     telegram_bot_token: str = Field(..., description="Telegram bot token from BotFather")
+    use_webhook: bool = Field(default=False, description="Use webhooks instead of polling (required for multiple replicas)")
+    webhook_url: Optional[str] = Field(default=None, description="Public URL for Telegram webhook (e.g., https://api.example.com/telegram/webhook)")
+    webhook_secret_token: Optional[str] = Field(default=None, description="Secret token for webhook verification")
     
     # Database
     database_url: str = Field(default="sqlite:///bot.db", description="Database connection URL")
@@ -214,6 +217,13 @@ class Settings(BaseSettings):
         elif provider == "twitter":
             return bool(self.twitter_client_id and self.twitter_client_secret)
         return False
+
+    def get_webhook_secret(self) -> str:
+        """Get or generate webhook secret token for Telegram verification."""
+        if self.webhook_secret_token:
+            return self.webhook_secret_token
+        import hashlib
+        return hashlib.sha256(self.telegram_bot_token.encode()).hexdigest()
     
     # API Keys (optional for higher rate limits)
     lifi_api_key: Optional[str] = Field(default=None, description="Li.Fi API key")

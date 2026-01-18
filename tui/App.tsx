@@ -1,8 +1,9 @@
 import React, { useState, useCallback } from 'react';
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import Spinner from 'ink-spinner';
-import { ServicePanel } from './components/ServicePanel';
-import { LogPanel } from './components/LogPanel';
+import { CompactPane } from './components/CompactPane';
+import { LogPanel, getNextFilter, getMaxScroll, type LogFilter } from './components/LogPanel';
+import { EnvironmentPane } from './components/EnvironmentPane';
 import { StatusBar } from './components/StatusBar';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { useDeployments } from './hooks/useDeployments';
@@ -10,7 +11,7 @@ import { useEcsStatus } from './hooks/useEcsStatus';
 import { useLogs } from './hooks/useLogs';
 import { forceNewDeployment } from './services/aws';
 
-type Mode = 'dashboard' | 'logs' | 'confirm';
+type Mode = 'dashboard' | 'detail' | 'confirm';
 
 interface PendingAction {
   type: 'deploy' | 'restart';
@@ -35,6 +36,8 @@ export function App() {
   const [actionInProgress, setActionInProgress] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [isPaused, setIsPaused] = useState(false);
+  const [logFilter, setLogFilter] = useState<LogFilter>('all');
+  const [logScrollOffset, setLogScrollOffset] = useState(0);
 
   // Active deployment
   const activeDeployment = deployments[activePane] ?? null;
@@ -50,7 +53,7 @@ export function App() {
   // Logs for active deployment
   const { logs, isLoading: logsLoading, error: logsError, clearLogs } = useLogs(
     activeDeployment,
-    { enabled: mode === 'logs' || mode === 'dashboard', streaming: !isPaused }
+    { enabled: true, streaming: !isPaused }
   );
 
   const showMessage = useCallback((msg: string, duration = 3000) => {
@@ -137,9 +140,9 @@ export function App() {
       return;
     }
 
-    // Toggle logs view
-    if (input === 'l' || input === 'L') {
-      setMode(m => m === 'logs' ? 'dashboard' : 'logs');
+    // Toggle detail view
+    if (input === 'i' || input === 'I') {
+      setMode(m => m === 'detail' ? 'dashboard' : 'detail');
       return;
     }
 
@@ -147,6 +150,40 @@ export function App() {
     if (input === 'p' || input === 'P') {
       setIsPaused(p => !p);
       showMessage(isPaused ? 'Resumed' : 'Paused');
+      return;
+    }
+
+    // Cycle log filter
+    if (input === 'f' || input === 'F') {
+      setLogFilter(f => getNextFilter(f));
+      setLogScrollOffset(0); // Reset scroll when filter changes
+      return;
+    }
+
+    // Scroll logs up (older)
+    if (input === 'k' || input === 'K' || key.upArrow) {
+      setLogScrollOffset(prev => {
+        const maxScroll = getMaxScroll(logs.length);
+        return Math.min(prev + 1, maxScroll);
+      });
+      return;
+    }
+
+    // Scroll logs down (newer)
+    if (input === 'j' || input === 'J' || key.downArrow) {
+      setLogScrollOffset(prev => Math.max(prev - 1, 0));
+      return;
+    }
+
+    // Jump to bottom (newest)
+    if (input === 'g' || input === 'G') {
+      setLogScrollOffset(0);
+      return;
+    }
+
+    // Jump to top (oldest)
+    if (input === 't' || input === 'T') {
+      setLogScrollOffset(getMaxScroll(logs.length));
       return;
     }
 
@@ -185,15 +222,17 @@ export function App() {
       return;
     }
 
-    // Arrow navigation
-    if (key.leftArrow) {
-      setActivePane(p => Math.max(0, p - 1));
-    }
-    if (key.rightArrow) {
-      setActivePane(p => Math.min(deployments.length - 1, p + 1));
-    }
+    // Tab navigation between panes
     if (key.tab) {
       setActivePane(p => (p + 1) % Math.max(1, deployments.length));
+    }
+
+    // Left/Right for pane switching (when not scrolling)
+    if (key.leftArrow && key.shift) {
+      setActivePane(p => Math.max(0, p - 1));
+    }
+    if (key.rightArrow && key.shift) {
+      setActivePane(p => Math.min(deployments.length - 1, p + 1));
     }
   });
 
@@ -245,7 +284,35 @@ export function App() {
     );
   }
 
-  // Main dashboard
+  // Detail view (expanded info for one environment)
+  if (mode === 'detail' && activeDeployment) {
+    return (
+      <Box flexDirection="column" height={terminalHeight}>
+        <Box borderStyle="single" borderColor="gray" paddingX={1} justifyContent="space-between">
+          <Text bold color="cyan">Detail View: {activeDeployment.environment.toUpperCase()}</Text>
+          <Box>
+            {actionInProgress && <Text color="yellow"><Spinner type="dots" /> </Text>}
+            <Text dimColor>[I] Back | {terminalWidth}x{terminalHeight}</Text>
+          </Box>
+        </Box>
+        <Box flexGrow={1}>
+          <EnvironmentPane
+            deployment={activeDeployment}
+            status={statuses[activePane]?.status ?? null}
+            isActive={true}
+            isLoading={statuses[activePane]?.isLoading ?? false}
+          />
+        </Box>
+        <StatusBar
+          activeEnvironment={activeDeployment.environment}
+          mode="detail"
+          message={message}
+        />
+      </Box>
+    );
+  }
+
+  // Main Dashboard view
   return (
     <Box flexDirection="column" height={terminalHeight}>
       {/* Header */}
@@ -257,32 +324,38 @@ export function App() {
         </Box>
       </Box>
 
-      {/* Service panels */}
-      <Box flexDirection="row" flexGrow={1}>
+      {/* Compact Panes Row */}
+      <Box flexDirection="row">
         {deployments.map((deployment, index) => (
-          <Box key={deployment.name} width={`${100 / deployments.length}%`}>
-            <ServicePanel
-              deployment={deployment}
-              status={statuses[index]?.status ?? null}
-              isActive={activePane === index}
-              isLoading={statuses[index]?.isLoading ?? false}
-            />
-          </Box>
+          <CompactPane
+            key={deployment.name}
+            deployment={deployment}
+            status={statuses[index]?.status ?? null}
+            isActive={activePane === index}
+            isLoading={statuses[index]?.isLoading ?? false}
+          />
         ))}
       </Box>
 
-      {/* Log panel (always visible, takes remaining space) */}
-      <LogPanel
-        logs={logs}
-        isLoading={logsLoading}
-        error={logsError}
-        isPaused={isPaused}
-        maxHeight={mode === 'logs' ? terminalHeight - 15 : 10}
-      />
+      {/* Flexible content area */}
+      <Box flexDirection="column" flexGrow={1} overflow="hidden">
+        {/* Logs Panel */}
+        <LogPanel
+          logs={logs}
+          isLoading={logsLoading}
+          error={logsError}
+          isPaused={isPaused}
+          filter={logFilter}
+          envName={activeDeployment?.environment?.toUpperCase() || 'NONE'}
+          scrollOffset={logScrollOffset}
+          flexGrow={1}
+        />
+      </Box>
 
-      {/* Status bar */}
+      {/* Status Bar */}
       <StatusBar
-        environment={activeDeployment?.environment || 'none'}
+        activeEnvironment={activeDeployment?.environment || 'none'}
+        mode="dashboard"
         message={message}
       />
     </Box>

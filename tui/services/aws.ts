@@ -277,7 +277,11 @@ export function streamCloudWatchLogs(
       stderr: 'pipe',
     });
 
-    const reader = proc.stdout.getReader();
+    if (!proc.stdout || typeof proc.stdout === 'number') {
+      throw new Error('Failed to open stdout pipe');
+    }
+
+    const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
     const decoder = new TextDecoder();
     let buffer = '';
 

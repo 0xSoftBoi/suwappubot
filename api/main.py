@@ -2,7 +2,7 @@ import sys
 import os
 import asyncio
 from pathlib import Path
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, Security, Response, Cookie
@@ -52,10 +52,10 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Lifecycle manager for the consolidated API + Bot service."""
     logger.info("🚀 Starting consolidated Suwappu Monolith...")
-    
+
     # 1. Initialize DB & Config
     preload_config()
-    
+
     # Initialize database with error handling
     db_success = False
     try:
@@ -65,14 +65,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Database initialization error: {e}")
         logger.warning("⚠️ API will run in degraded mode without database")
-    
+
     # Set up database monitoring if database is available
     if engine and db_success:
         setup_db_monitoring(engine)
         logger.info("✓ Database monitoring enabled")
     else:
         logger.warning("⚠️ Database monitoring disabled (no connection)")
-    
+
     # 2. Build Bot Application
     bot_app = (
         Application.builder()
@@ -80,11 +80,15 @@ async def lifespan(app: FastAPI):
         .build()
     )
     add_handlers(bot_app)
-    
+
+    # Store bot_app in app.state for webhook endpoint access
+    app.state.bot_app = bot_app
+
     # 3. Start Bot Hooks (only if database is available)
     polling_task = None
     bot_initialized = False
-    
+    using_webhook = False
+
     if not db_success:
         logger.warning("⚠️ Skipping bot initialization - database not available")
     else:
@@ -92,23 +96,37 @@ async def lifespan(app: FastAPI):
             await bot_app.initialize()
             await bot_app.start()
             bot_initialized = True
-            
+
             if settings.telegram_bot_token and settings.telegram_bot_token != "123456789:ABCDEF":
-                logger.info("✓ Starting Telegram polling background task")
-                # drop_pending_updates=True helps avoid conflicts during redeploys
-                polling_task = asyncio.create_task(bot_app.updater.start_polling(
-                    allowed_updates=Update.ALL_TYPES,
-                    drop_pending_updates=True
-                ))
+                # Check if webhook mode is enabled
+                if settings.use_webhook and settings.webhook_url:
+                    # Webhook mode for production (safe with multiple replicas)
+                    webhook_secret = settings.get_webhook_secret()
+                    await bot_app.bot.set_webhook(
+                        url=settings.webhook_url,
+                        secret_token=webhook_secret,
+                        allowed_updates=Update.ALL_TYPES,
+                        drop_pending_updates=True
+                    )
+                    using_webhook = True
+                    logger.info(f"✓ Telegram webhook set: {settings.webhook_url}")
+                else:
+                    # Polling mode for local development
+                    logger.info("✓ Starting Telegram polling background task")
+                    # drop_pending_updates=True helps avoid conflicts during redeploys
+                    polling_task = asyncio.create_task(bot_app.updater.start_polling(
+                        allowed_updates=Update.ALL_TYPES,
+                        drop_pending_updates=True
+                    ))
             else:
-                logger.warning("⚠️ Placeholder or missing Telegram token. Skipping polling.")
+                logger.warning("⚠️ Placeholder or missing Telegram token. Skipping polling/webhook.")
         except Exception as e:
             logger.error(f"❌ Telegram bot failed to initialize: {e}")
             logger.warning("⚠️ Continuing in HEADLESS MODE (API only)")
 
     # 4. Start Background Services (only if database is available)
     admin_ids = getattr(settings, 'admin_ids', [])
-    
+
     if db_success:
         await fee_sweeper.start()
         await alert_service.start(bot=bot_app.bot if bot_initialized else None)
@@ -120,14 +138,22 @@ async def lifespan(app: FastAPI):
         logger.warning("⚠️ Background services NOT started - database unavailable")
 
     yield
-    
+
     # --- Shutdown ---
     logger.info("🛑 Shutting down Suwappu Monolith...")
-    
+
     # Stop bot polling if it was started
     if polling_task:
         await bot_app.updater.stop()
-    
+
+    # Delete webhook if it was set
+    if using_webhook:
+        try:
+            await bot_app.bot.delete_webhook()
+            logger.info("✓ Telegram webhook deleted")
+        except Exception as e:
+            logger.warning(f"Failed to delete webhook: {e}")
+
     # Only stop/shutdown bot if it was initialized
     if bot_initialized:
         try:
@@ -135,7 +161,7 @@ async def lifespan(app: FastAPI):
             await bot_app.shutdown()
         except Exception:
             pass
-    
+
     # Only stop services if they were started
     if db_success:
         await fee_sweeper.stop()
@@ -1108,7 +1134,7 @@ async def verify_whatsapp_webhook(
 async def receive_whatsapp_message(request: Request):
     """Handle incoming WhatsApp messages."""
     payload = await request.json()
-    
+
     # Parse the incoming message
     message = whatsapp_service.parse_webhook_message(payload)
     if not message:
@@ -1126,21 +1152,21 @@ async def receive_whatsapp_message(request: Request):
             f"⏳ {e}"
         )
         return {"status": "rate_limited"}
-    
+
     # Mark as read
     await whatsapp_service.mark_as_read(message.message_id)
-    
+
     # Process command via Unified Service
     text = message.text or ""
     if message.button_payload:
         text = message.button_payload
-        
+
     response = await unified_bot_service.handle_command(
         platform="whatsapp",
         user_id=message.from_number,
         text=text
     )
-    
+
     # Send response
     if response.buttons:
         await whatsapp_service.send_interactive_buttons(
@@ -1154,8 +1180,47 @@ async def receive_whatsapp_message(request: Request):
             message.from_number,
             response.text
         )
-    
+
     return {"status": "ok"}
+
+
+# ============ Telegram Webhook ============
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(request: Request):
+    """
+    Handle incoming Telegram updates via webhook.
+    Used in production with multiple ECS replicas to avoid polling conflicts.
+    """
+    # Verify the secret token from Telegram
+    secret_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+    expected_secret = settings.get_webhook_secret()
+
+    if secret_token != expected_secret:
+        logger.warning("Telegram webhook request with invalid secret token")
+        raise HTTPException(status_code=403, detail="Invalid secret token")
+
+    # Get the bot application from app state
+    bot_app = getattr(request.app.state, "bot_app", None)
+    if not bot_app:
+        logger.error("Bot application not initialized")
+        raise HTTPException(status_code=500, detail="Bot not initialized")
+
+    # Parse the update
+    try:
+        payload = await request.json()
+        update = Update.de_json(payload, bot_app.bot)
+
+        # Process the update
+        await bot_app.process_update(update)
+
+    except Exception as e:
+        logger.error(f"Error processing Telegram webhook: {e}")
+        # Return 200 anyway to prevent Telegram from retrying
+        # Errors are logged but we don't want to block the webhook
+
+    return {"status": "ok"}
+
 
 if __name__ == "__main__":
     import uvicorn

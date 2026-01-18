@@ -2,11 +2,12 @@ import React from 'react';
 import { Box, Text } from 'ink';
 
 interface StatusBarProps {
-  environment: string;
+  activeEnvironment: string;
+  mode: 'dashboard' | 'detail' | 'confirm';
   message?: string;
 }
 
-export function StatusBar({ environment, message }: StatusBarProps) {
+export function StatusBar({ activeEnvironment, mode, message }: StatusBarProps) {
   return (
     <Box
       borderStyle="single"
@@ -15,17 +16,33 @@ export function StatusBar({ environment, message }: StatusBarProps) {
       justifyContent="space-between"
     >
       <Box>
-        <Text dimColor>[Q] Quit </Text>
-        <Text dimColor>[R] Restart </Text>
-        <Text dimColor>[D] Deploy </Text>
-        <Text dimColor>[L] Logs </Text>
-        <Text dimColor>[1-4] Switch</Text>
+        <Text>
+          <Text bold color="cyan">[1-4]</Text>
+          <Text dimColor>Env </Text>
+          <Text bold color="cyan">[I]</Text>
+          <Text dimColor>nfo </Text>
+          <Text bold color="yellow">[P]</Text>
+          <Text dimColor>ause </Text>
+          <Text bold color="cyan">[F]</Text>
+          <Text dimColor>ilter </Text>
+          <Text bold color="magenta">[J/K]</Text>
+          <Text dimColor>Scrl </Text>
+          <Text bold color="cyan">[D]</Text>
+          <Text dimColor>ep </Text>
+          <Text bold color="cyan">[R]</Text>
+          <Text dimColor>st </Text>
+          <Text bold color="red">[Q]</Text>
+          <Text dimColor>uit</Text>
+        </Text>
       </Box>
       <Box>
         {message ? (
           <Text color="yellow">{message}</Text>
         ) : (
-          <Text dimColor>Active: {environment}</Text>
+          <Text>
+            <Text dimColor>Active: </Text>
+            <Text bold>{activeEnvironment.toUpperCase()}</Text>
+          </Text>
         )}
       </Box>
     </Box>

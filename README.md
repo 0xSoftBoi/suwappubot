@@ -1,188 +1,386 @@
-# Suwappu: Cross-Chain DEX Bot & Liquidity SDK 🤖⚡🌑
+# Suwappu: Cross-Chain DEX Bot & Liquidity SDK
 
 [![Agent-Ready](https://img.shields.io/badge/Agent--Ready-Model--Context--Protocol-blueviolet)](README_AGENT.md)
 [![A2A-Optimized](https://img.shields.io/badge/A2A-Optimized-blue)](agent-card.json)
-[![Free-Tier](https://img.shields.io/badge/Render-Free--Tier-green)](README_RENDER.md)
 
-Suwappu is a high-performance liquidity infrastructure and cross-chain swap bot. It allows humans and **other AI agents** to swap tokens across 7+ chains with native C++ speed and machine-readable discovery.
+Suwappu is a high-performance liquidity infrastructure and cross-chain swap bot. It allows humans and **other AI agents** to swap tokens across 7+ chains with native performance and machine-readable discovery.
 
 ## Features
 
-- 🔄 Cross-chain stablecoin swaps (Ethereum, BSC, Polygon, Arbitrum, Optimism, Solana)
-- 💰 Support for major stablecoins (USDT, USDC, DAI, BUSD)
-- 🌉 Powered by Li.Fi API for cross-chain swaps
-- 🪐 Jupiter API integration for Solana swaps
-- 🔐 Secure wallet management with encrypted private keys (EVM + Solana)
-- 📊 Real-time price quotes and fee estimation
-- 🚀 Fast and user-friendly Telegram interface
-- 🟢 WhatsApp Business API integration (Unified logic)
-- 🤖 **Agent-First Design**: Built-in MCP support, A2A auth, and semantic tool discovery.
-- ⚡ **Native Performance**: C++ core for encryption, math, and validation.
-- 🌩️ **Cloud Optimized**: 100% free-tier deployment on Render/Vercel/Neon.
+- Cross-chain stablecoin swaps (Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, Solana)
+- Support for major stablecoins (USDT, USDC, DAI, BUSD)
+- Powered by Li.Fi API for cross-chain swaps
+- Jupiter API integration for Solana swaps
+- Secure wallet management with encrypted private keys (EVM + Solana)
+- Real-time price quotes and fee estimation
+- Telegram and WhatsApp Business API integration
+- Agent-First Design: Built-in MCP support, A2A auth, and semantic tool discovery
 
 ## Quick Start
 
 ### Prerequisites
 
-- Python 3.10 or higher
-- Telegram Bot Token (get it from [@BotFather](https://t.me/botfather))
+- Python 3.10+
+- Telegram Bot Token (from [@BotFather](https://t.me/botfather))
 - RPC endpoints for supported chains (Alchemy, Infura, or public RPCs)
-- Solana RPC endpoint (public or dedicated provider)
-- Optional: Li.Fi and Jupiter API keys for higher rate limits
+- PostgreSQL database (or SQLite for development)
 
 ### Installation
 
-1. Clone the repository:
 ```bash
+# Clone the repository
 git clone <repository-url>
 cd suwappubot
-```
 
-2. Create a virtual environment:
-```bash
+# Create virtual environment
 python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+source venv/bin/activate
 
-3. Install dependencies:
-```bash
+# Install dependencies
 pip install -r requirements.txt
-```
 
-4. Set up environment variables:
-```bash
-cp .env.example .env
+# Configure environment
+cp .env.template .env
 # Edit .env with your configuration
 ```
 
-5. Run the bot:
+### Running Locally
+
 ```bash
-python -m bot.main
+# Run the monolith (API + Bot)
+uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+The bot uses **polling mode** by default, which works for single-instance local development.
 
 ## Configuration
 
-See `.env.example` for all available configuration options. Key settings:
+### Required Settings
 
-- `TELEGRAM_BOT_TOKEN`: Your Telegram bot token
-- `DATABASE_URL`: Database connection string
-- `ENCRYPTION_KEY`: 32-byte key for encrypting private keys
-- RPC URLs for each supported EVM chain
-- `SOLANA_RPC_URL`: Solana RPC endpoint
-- `LIFI_API_KEY`: Optional Li.Fi API key
-- `JUPITER_API_KEY`: Optional Jupiter API key
+| Variable | Description |
+|----------|-------------|
+| `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather |
+| `ENCRYPTION_KEY` | 32-byte hex key for encrypting wallet private keys |
+| `DATABASE_URL` | Database connection string |
 
-## Usage
+### Optional Settings
 
-1. Start a chat with your bot on Telegram
-2. Send `/start` to begin
-3. Use `/swap` to initiate a cross-chain swap
-4. Follow the interactive prompts to select chains, tokens, and amounts
-5. Confirm the transaction details
-6. Wait for the swap to complete
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `USE_WEBHOOK` | Enable webhook mode for Telegram | `false` |
+| `WEBHOOK_URL` | Public URL for webhook endpoint | - |
+| `WEBHOOK_SECRET_TOKEN` | Custom secret for webhook verification | auto-generated |
+| `LIFI_API_KEY` | Li.Fi API key for higher rate limits | - |
+| `JUPITER_API_KEY` | Jupiter API key | - |
+| `LOG_LEVEL` | Logging level | `INFO` |
 
-## Commands
+See `.env.template` for all available options.
 
-- `/start` - Start the bot and show main menu
-- `/swap` - Initiate a cross-chain swap
-- `/balance` - Check your wallet balances across chains
-- `/help` - Show help information
+## Deployment
 
-## Security
+### Telegram Bot: Polling vs Webhook Mode
 
-⚠️ **Important Security Notes:**
+Suwappu supports two modes for receiving Telegram updates:
 
-- Private keys are encrypted at rest using AES-256
-- Never share your private key with anyone
-- Start with small amounts for testing
-- Use testnet for initial testing
-- The bot does not store your private key in plain text
+| Mode | Use Case | Replicas |
+|------|----------|----------|
+| **Polling** | Local development | Single instance only |
+| **Webhook** | Production | Multiple replicas supported |
 
-## Supported Chains & Tokens
+#### Polling Mode (Default)
 
-### Ethereum
-- USDT, USDC, DAI
+The bot polls Telegram's servers for updates. Simple but causes conflicts with multiple replicas:
 
-### Binance Smart Chain
-- USDT, BUSD
+```
+telegram.error.Conflict: terminated by other getUpdates request
+```
 
-### Polygon
-- USDT, USDC
+**Use for:** Local development, single-instance deployments.
 
-### Arbitrum
-- USDT, USDC
+#### Webhook Mode (Production)
 
-### Optimism
-- USDT, USDC
+Telegram pushes updates to your server. Safe with multiple replicas since Telegram sends each update exactly once.
 
-### Solana
-- USDT, USDC
+**Enable webhook mode:**
 
-## API Integrations
+```bash
+# In your production environment
+USE_WEBHOOK=true
+WEBHOOK_URL=https://api.your-domain.com/telegram/webhook
+# Optional: custom secret (auto-generated from bot token if not set)
+WEBHOOK_SECRET_TOKEN=your_custom_secret
+```
 
-- **Li.Fi API**: Handles all cross-chain swaps between EVM chains and Solana
-  - Documentation: https://docs.li.fi/
-  - Aggregates multiple bridges for best routes
-  
-- **Jupiter API**: Handles Solana-to-Solana swaps
-  - Documentation: https://docs.jup.ag/
-  - Best routes across all Solana DEXs
+**Requirements:**
+- HTTPS endpoint (TLS termination at load balancer is fine)
+- Publicly accessible URL
+- Port 443, 80, 88, or 8443
 
-## 🤖 Agent Interoperability (A2A)
+### Production Deployment (ECS/Kubernetes)
 
-Suwappu is designed to be part of the agentic economy. Other AI agents can discover and use Suwappu via:
+1. **Set environment variables:**
+   ```bash
+   USE_WEBHOOK=true
+   WEBHOOK_URL=https://api.your-domain.com/telegram/webhook
+   DATABASE_URL=postgresql://user:pass@host:5432/suwappu
+   ```
 
-- **Integration Guide**: [README_AGENT.md](README_AGENT.md)
-- **Tool Discovery**: `GET /tools`
-- **MCP Manifest**: `/.well-known/ai-plugin.json`
-- **A2A Agent Card**: `agent-card.json`
+2. **Deploy multiple replicas** - no polling conflicts with webhook mode
 
-## Development
+3. **Verify webhook is set:**
+   ```bash
+   curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo
+   ```
 
-See [PLAN.md](PLAN.md) for detailed implementation plan and architecture.
+4. **Check logs for:**
+   ```
+   ✓ Telegram webhook set: https://api.your-domain.com/telegram/webhook
+   ```
+
+### Docker
+
+```bash
+# Build
+docker build -t suwappu .
+
+# Run (polling mode for local)
+docker run -p 8000:8000 --env-file .env suwappu
+
+# Run (webhook mode for production)
+docker run -p 8000:8000 \
+  -e USE_WEBHOOK=true \
+  -e WEBHOOK_URL=https://api.your-domain.com/telegram/webhook \
+  --env-file .env suwappu
+```
+
+### Docker Compose
+
+```bash
+# Local development (polling)
+docker-compose -f docker-compose.local.yml up
+
+# Production (webhook)
+docker-compose up
+```
+
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph Users["Users"]
+        TG["Telegram Client"]
+        WA["WhatsApp Client"]
+        Agent["AI Agents"]
+    end
+
+    subgraph TelegramEco["Telegram Ecosystem"]
+        Bot["Bot Commands"]
+        MiniApp["Mini App Dashboard"]
+    end
+
+    subgraph Infrastructure["AWS Infrastructure"]
+        subgraph ECS["ECS Fargate"]
+            API["FastAPI Backend<br/>:10000"]
+        end
+        RDS[(PostgreSQL<br/>RDS)]
+        ECR["ECR Registry"]
+        SM["Secrets Manager"]
+        CW["CloudWatch Logs"]
+    end
+
+    subgraph External["External Services"]
+        LiFi["Li.Fi API"]
+        Jupiter["Jupiter API"]
+        RPCs["RPC Endpoints<br/>Alchemy/Public"]
+    end
+
+    subgraph Chains["Supported Chains"]
+        ETH["Ethereum"]
+        BSC["BSC"]
+        POLY["Polygon"]
+        ARB["Arbitrum"]
+        OPT["Optimism"]
+        BASE["Base"]
+        SOL["Solana"]
+    end
+
+    TG --> Bot
+    TG --> MiniApp
+    WA --> API
+    Agent --> API
+
+    Bot --> API
+    MiniApp --> API
+
+    API --> RDS
+    API --> LiFi
+    API --> Jupiter
+    API --> RPCs
+    SM --> ECS
+    ECR --> ECS
+    ECS --> CW
+
+    LiFi --> ETH & BSC & POLY & ARB & OPT & BASE
+    Jupiter --> SOL
+    RPCs --> Chains
+
+    style Infrastructure fill:#ff9900,color:#000
+    style TelegramEco fill:#0088cc,color:#fff
+    style External fill:#28a745,color:#fff
+    style Chains fill:#6f42c1,color:#fff
+```
 
 ### Project Structure
 
 ```
 suwappubot/
-├── bot/              # Main bot code
-├── database/         # Database models and setup
-├── tests/            # Test files
-├── .env.example      # Environment variables template
-├── requirements.txt  # Python dependencies
-└── README.md         # This file
+├── api/                  # FastAPI application
+│   ├── main.py           # Lifespan manager, webhook endpoint
+│   ├── webapp.py         # Telegram Mini App validation
+│   └── routes/           # API route modules
+├── bot/                  # Telegram bot logic
+│   ├── main.py           # Handler registration
+│   ├── config/           # Settings and configuration
+│   ├── handlers/         # Command and callback handlers
+│   ├── services/         # Business logic (swaps, wallets, fees)
+│   └── models/           # SQLAlchemy models
+├── database/             # Database setup and migrations
+├── webapp/               # Telegram Mini App (React/Vite)
+├── tui/                  # Terminal UI for monitoring (Bun/Ink)
+└── .github/workflows/    # CI/CD pipelines
 ```
+
+### Environment Setup
+
+```mermaid
+flowchart LR
+    subgraph Local["Local Development"]
+        DC["docker-compose.local.yml"]
+        ENV_L[".env.local"]
+        PG_L[(Postgres Container)]
+        REDIS_L[(Redis Container)]
+    end
+
+    subgraph Dev["AWS Development"]
+        ECS_D["ECS: suwappu-dev-service"]
+        SEC_D["Secrets: suwappu/dev-secrets"]
+        RDS_D[(RDS PostgreSQL)]
+        VERCEL["Vercel: suwappu.dev"]
+    end
+
+    subgraph Prod["AWS Production"]
+        ECS_P["ECS: SuwappuStack-SuwappuService"]
+        SEC_P["Secrets: suwappu/app-secrets"]
+        RDS_P[(RDS PostgreSQL)]
+    end
+
+    DC --> PG_L & REDIS_L
+    ENV_L --> DC
+    SEC_D --> ECS_D
+    ECS_D --> RDS_D
+    SEC_P --> ECS_P
+    ECS_P --> RDS_P
+
+    style Local fill:#28a745,color:#fff
+    style Dev fill:#ffc107,color:#000
+    style Prod fill:#dc3545,color:#fff
+```
+
+### Key Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /health` | Health check |
+| `POST /telegram/webhook` | Telegram webhook receiver |
+| `POST /webhook` | WhatsApp webhook receiver |
+| `GET /tools` | Agent tool discovery |
+| `GET /.well-known/ai-plugin.json` | MCP manifest |
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Start the bot and show main menu |
+| `/swap` | Initiate a cross-chain swap |
+| `/balance` | Check wallet balances across chains |
+| `/wallet` | Wallet management |
+| `/help` | Show help information |
+
+## Supported Chains & Tokens
+
+| Chain | Tokens |
+|-------|--------|
+| Ethereum | USDT, USDC, DAI, ETH |
+| BSC | USDT, BUSD, BNB |
+| Polygon | USDT, USDC, MATIC |
+| Arbitrum | USDT, USDC, ETH |
+| Optimism | USDT, USDC, ETH |
+| Base | USDT, USDC, ETH |
+| Solana | USDT, USDC, SOL |
+
+## Agent Interoperability (A2A)
+
+Suwappu is designed for the agentic economy. Other AI agents can discover and use Suwappu via:
+
+- **Integration Guide**: [README_AGENT.md](README_AGENT.md)
+- **Tool Discovery**: `GET /tools`
+- **MCP Manifest**: `GET /.well-known/ai-plugin.json`
+- **A2A Agent Card**: `GET /agent-card.json`
+
+## Security
+
+- Private keys are encrypted at rest using AES-256-GCM
+- Webhook requests verified via `X-Telegram-Bot-Api-Secret-Token` header
+- HTTPS required for production webhook endpoints
+- Never share private keys or bot tokens
 
 ## Testing
 
-Run tests with:
 ```bash
+# Run all tests
 pytest tests/
+
+# Run with coverage
+pytest tests/ --cov=bot --cov=api
 ```
 
-For testnet testing, update RPC URLs in `.env` to testnet endpoints.
+## Troubleshooting
 
-## Contributing
+### Polling Conflicts
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+**Error:** `telegram.error.Conflict: terminated by other getUpdates request`
+
+**Cause:** Multiple instances trying to poll simultaneously.
+
+**Solution:** Enable webhook mode for multi-replica deployments:
+```bash
+USE_WEBHOOK=true
+WEBHOOK_URL=https://your-domain.com/telegram/webhook
+```
+
+### Webhook Not Receiving Updates
+
+1. Verify webhook is set:
+   ```bash
+   curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo
+   ```
+
+2. Check the URL is publicly accessible
+
+3. Verify HTTPS is working (self-signed certs not allowed)
+
+4. Check logs for secret token verification failures
+
+### Database Connection Issues
+
+**Error:** `Database initialization failed - API running in degraded mode`
+
+**Solution:** Verify `DATABASE_URL` is correct and the database is accessible.
 
 ## License
 
-[Add your license here]
+MIT
 
 ## Disclaimer
 
-This bot interacts with blockchain networks and handles cryptocurrency. Use at your own risk. Always:
-- Test thoroughly on testnets first
-- Start with small amounts
-- Understand the risks of cross-chain swaps
-- Keep your private keys secure
-
-## Support
-
-For issues and questions, please open an issue on GitHub.
-
+This bot interacts with blockchain networks and handles cryptocurrency. Use at your own risk. Always test with small amounts first.
