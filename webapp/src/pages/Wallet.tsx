@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
 import { AppLayout, AppHeader } from '../components/layout'
 import { AddressCard, TokenItem } from '../components/cards'
 import { ChainSelector } from '../components/ui'
@@ -43,10 +44,21 @@ export function Wallet() {
   const [view, setView] = useState<WalletView>('overview')
   const [selectedChain, setSelectedChain] = useState('all')
   const [sendAmount, setSendAmount] = useState('')
+  const [copied, setCopied] = useState(false)
   const { data: portfolio, isLoading, error } = usePortfolio()
   const { walletInfo, connectedAddress } = useAuth()
 
   const address = walletInfo?.address || connectedAddress || '0x1234...5678'
+
+  const copyToClipboard = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(address)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.error('Failed to copy:', err)
+    }
+  }, [address])
 
   // Filter tokens by selected chain
   const filteredTokens = useMemo(() => {
@@ -63,25 +75,34 @@ export function Wallet() {
       >
         <div className="p-3 pb-20 space-y-4">
           <div className="bg-white rounded-suwappu-xl p-4 shadow-suwappu-1 text-center">
-            <div className="w-40 h-40 mx-auto mb-3 bg-suwappu-sakura-light rounded-suwappu-lg flex items-center justify-center">
-              {/* QR Code placeholder */}
-              <div className="w-32 h-32 bg-white rounded-lg grid grid-cols-5 gap-0.5 p-2">
-                {Array(25).fill(0).map((_, i) => (
-                  <div key={i} className={`${Math.random() > 0.5 ? 'bg-suwappu-purple-deep' : 'bg-transparent'}`} />
-                ))}
-              </div>
+            <div className="w-44 h-44 mx-auto mb-3 bg-white rounded-suwappu-lg p-3 border-2 border-suwappu-sakura-mid/30">
+              <QRCodeSVG
+                value={address}
+                size={160}
+                level="M"
+                bgColor="#ffffff"
+                fgColor="#4B1B5F"
+                includeMargin={false}
+              />
             </div>
-            <p className="font-mono text-xs text-suwappu-text break-all mb-3">
-              {address.slice(0, 20)}...{address.slice(-6)}
+            <p className="font-mono text-xs text-suwappu-text break-all mb-3 px-2">
+              {address}
             </p>
-            <button className="px-4 py-2 bg-suwappu-sakura-light text-suwappu-magenta-mid font-heading font-semibold text-sm rounded-suwappu-pill">
-              Copy Address
+            <button
+              onClick={copyToClipboard}
+              className={`px-4 py-2 font-heading font-semibold text-sm rounded-suwappu-pill transition-all ${
+                copied
+                  ? 'bg-suwappu-success/20 text-suwappu-success'
+                  : 'bg-suwappu-sakura-light text-suwappu-magenta-mid hover:bg-suwappu-sakura-mid/30'
+              }`}
+            >
+              {copied ? '✓ Copied!' : 'Copy Address'}
             </button>
           </div>
 
           <div className="bg-suwappu-info/10 border border-suwappu-info/20 rounded-suwappu-lg p-3">
             <p className="text-xs text-suwappu-info">
-              Only send Ethereum assets to this address. Sending other assets may result in permanent loss.
+              Only send compatible assets to this address. Sending unsupported tokens may result in permanent loss.
             </p>
           </div>
         </div>
