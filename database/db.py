@@ -46,9 +46,11 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
     if is_sqlite:
         connect_args["check_same_thread"] = False
     else:
-        # PostgreSQL settings (AWS RDS requires SSL)
+        # PostgreSQL settings
         if "postgresql" in database_url or "postgres" in database_url:
-            connect_args["sslmode"] = "require"
+            # Only set sslmode if not already specified in the URL
+            if "sslmode=" not in database_url:
+                connect_args["sslmode"] = "require"
             connect_args["connect_timeout"] = 10
     
     # Retry logic for transient connection failures

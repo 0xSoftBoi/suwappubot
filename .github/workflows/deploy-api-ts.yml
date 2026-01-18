@@ -1,0 +1,142 @@
+name: Deploy API-TS to AWS ECS
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - 'api-ts/**'
+      - '.github/workflows/deploy-api-ts.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - production
+          - development
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: suwappu-api-ts
+  ECS_CLUSTER: suwappu-cluster
+
+jobs:
+  deploy:
+    name: Build and Deploy API-TS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set environment variables
+        id: env
+        run: |
+          if [ "${{ github.ref }}" == "refs/heads/main" ] || [ "${{ inputs.environment }}" == "production" ]; then
+            echo "ENVIRONMENT=production" >> $GITHUB_OUTPUT
+            echo "ECS_SERVICE=suwappu-api-ts-prod" >> $GITHUB_OUTPUT
+            echo "API_URL=https://api.suwappu.dev" >> $GITHUB_OUTPUT
+          else
+            echo "ENVIRONMENT=development" >> $GITHUB_OUTPUT
+            echo "ECS_SERVICE=suwappu-api-ts-dev" >> $GITHUB_OUTPUT
+            echo "API_URL=https://devapi.suwappu.dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Create ECR repository if not exists
+        run: |
+          aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} || \
+          aws ecr create-repository --repository-name ${{ env.ECR_REPOSITORY }}
+
+      - name: Build, tag, and push Docker image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        working-directory: api-ts
+        run: |
+          # Build the Docker image
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+
+          # Tag with latest for the environment
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:${{ steps.env.outputs.ENVIRONMENT }}
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          # Push all tags
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:${{ steps.env.outputs.ENVIRONMENT }}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Check if ECS service exists
+        id: check-service
+        run: |
+          SERVICE_EXISTS=$(aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ steps.env.outputs.ECS_SERVICE }} \
+            --query 'services[0].status' \
+            --output text 2>/dev/null || echo "MISSING")
+
+          if [ "$SERVICE_EXISTS" == "ACTIVE" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "::warning::ECS service ${{ steps.env.outputs.ECS_SERVICE }} does not exist. Please create it first."
+          fi
+
+      - name: Deploy to ECS
+        if: steps.check-service.outputs.exists == 'true'
+        run: |
+          echo "Deploying to ${{ steps.env.outputs.ENVIRONMENT }} environment..."
+          echo "Service: ${{ steps.env.outputs.ECS_SERVICE }}"
+
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ steps.env.outputs.ECS_SERVICE }} \
+            --force-new-deployment
+
+          echo "Deployment initiated. Waiting for service to stabilize..."
+
+      - name: Wait for deployment
+        if: steps.check-service.outputs.exists == 'true'
+        run: |
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ steps.env.outputs.ECS_SERVICE }}
+
+          echo "Deployment complete!"
+
+      - name: Health check
+        if: steps.check-service.outputs.exists == 'true'
+        run: |
+          echo "Checking health endpoint..."
+          sleep 10
+          curl -sf "${{ steps.env.outputs.API_URL }}/health" || echo "Health check pending (service may still be starting)"
+
+      - name: Deployment summary
+        run: |
+          echo "## API-TS Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ steps.env.outputs.ENVIRONMENT }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ steps.build-image.outputs.image }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| ECS Service | ${{ steps.env.outputs.ECS_SERVICE }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| API URL | ${{ steps.env.outputs.API_URL }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Service Exists | ${{ steps.check-service.outputs.exists }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY

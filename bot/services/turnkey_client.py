@@ -538,9 +538,132 @@ class TurnkeyClient:
         return result.get("createPolicyResult", {}).get("policyId", "")
 
 
+# === Authentication Helpers ===
+
+import secrets
+from datetime import datetime, timedelta
+
+# Store for auth challenges (in production, use Redis/DB)
+_auth_challenges: Dict[str, Dict[str, Any]] = {}
+
+
+def generate_auth_challenge(address: str, domain: str = "app.suwappu.com") -> Dict[str, str]:
+    """
+    Generate an EIP-4361 style sign-in message for wallet authentication.
+
+    Args:
+        address: The wallet address requesting authentication
+        domain: The domain for the sign-in message
+
+    Returns:
+        Dict with 'challenge', 'nonce', and 'expiresAt' fields
+    """
+    nonce = secrets.token_urlsafe(32)
+    issued_at = datetime.utcnow()
+    expires_at = issued_at + timedelta(minutes=10)
+
+    # EIP-4361 SIWE-style message
+    challenge = f"""{domain} wants you to sign in with your Ethereum account:
+{address}
+
+Sign in to Suwappu
+
+URI: https://{domain}
+Version: 1
+Chain ID: 1
+Nonce: {nonce}
+Issued At: {issued_at.isoformat()}Z
+Expiration Time: {expires_at.isoformat()}Z"""
+
+    # Store challenge for verification
+    _auth_challenges[nonce] = {
+        "address": address.lower(),
+        "challenge": challenge,
+        "expires_at": expires_at,
+    }
+
+    return {
+        "challenge": challenge,
+        "nonce": nonce,
+        "expiresAt": expires_at.isoformat() + "Z",
+    }
+
+
+def verify_auth_signature(address: str, signature: str, nonce: str) -> bool:
+    """
+    Verify a wallet signature against a stored challenge.
+
+    Args:
+        address: The wallet address that signed
+        signature: The hex-encoded signature
+        nonce: The nonce from the original challenge
+
+    Returns:
+        True if signature is valid, False otherwise
+    """
+    # Get stored challenge
+    challenge_data = _auth_challenges.get(nonce)
+    if not challenge_data:
+        logger.warning(f"Auth verification failed: nonce not found")
+        return False
+
+    # Check expiration
+    if datetime.utcnow() > challenge_data["expires_at"]:
+        del _auth_challenges[nonce]
+        logger.warning(f"Auth verification failed: challenge expired")
+        return False
+
+    # Check address matches
+    if challenge_data["address"] != address.lower():
+        logger.warning(f"Auth verification failed: address mismatch")
+        return False
+
+    # Verify signature using eth_account
+    try:
+        from eth_account.messages import encode_defunct
+        from eth_account import Account
+
+        message = encode_defunct(text=challenge_data["challenge"])
+        recovered_address = Account.recover_message(message, signature=signature)
+
+        if recovered_address.lower() != address.lower():
+            logger.warning(f"Auth verification failed: signature recovery mismatch")
+            return False
+
+        # Clean up used challenge
+        del _auth_challenges[nonce]
+
+        logger.info(f"Auth verification successful for {address}")
+        return True
+
+    except ImportError:
+        logger.error("eth_account package required for signature verification")
+        return False
+    except Exception as e:
+        logger.error(f"Auth verification error: {e}")
+        return False
+
+
+def cleanup_expired_challenges() -> int:
+    """
+    Remove expired auth challenges from storage.
+
+    Returns:
+        Number of challenges removed
+    """
+    now = datetime.utcnow()
+    expired = [
+        nonce for nonce, data in _auth_challenges.items()
+        if now > data["expires_at"]
+    ]
+    for nonce in expired:
+        del _auth_challenges[nonce]
+    return len(expired)
+
+
 class TurnkeyAPIError(Exception):
     """Raised when Turnkey API returns an error."""
-    
+
     def __init__(self, status_code: int, message: str):
         self.status_code = status_code
         self.message = message

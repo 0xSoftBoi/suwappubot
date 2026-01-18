@@ -19,6 +19,10 @@ from bot.config.settings import settings
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction
 from database.db import get_session
+from bot.services.turnkey_client import (
+    generate_auth_challenge,
+    verify_auth_signature,
+)
 
 router = APIRouter(prefix="/webapp", tags=["WebApp"])
 
