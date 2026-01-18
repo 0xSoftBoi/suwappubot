@@ -7,7 +7,7 @@
  */
 import { getInitData } from './telegram'
 import { getAuthToken } from './auth'
-import type { Portfolio, Swap, ApiError } from '../types/api'
+import type { Portfolio, Swap, ApiError, HealthStatus } from '../types/api'
 import type { LinkedWallet, AuthChallenge, LinkWalletResponse } from '../types/auth'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
@@ -102,6 +102,15 @@ class ApiClient {
    */
   async validateAuth(): Promise<{ valid: boolean; user?: unknown }> {
     return this.fetch('/webapp/validate', { method: 'POST' })
+  }
+
+  // === Health ===
+
+  /**
+   * Check API health status
+   */
+  async getHealth(): Promise<HealthStatus> {
+    return this.fetch<HealthStatus>('/health')
   }
 
   // === Wallet Linking ===

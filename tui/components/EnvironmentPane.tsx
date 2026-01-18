@@ -97,7 +97,7 @@ export function EnvironmentPane({
       )}
 
       {/* Health Status */}
-      <Box marginTop={1}>
+      <Box marginTop={1} flexDirection="column">
         <Text>
           <Text dimColor>Health: </Text>
           {status?.health ? (
@@ -109,6 +109,13 @@ export function EnvironmentPane({
             <Text color="gray">checking...</Text>
           )}
         </Text>
+        {status?.health?.version && (
+          <Text>
+            <Text dimColor>Version: </Text>
+            <Text color="cyan">v{status.health.version}</Text>
+            {status.health.service && <Text dimColor> ({status.health.service})</Text>}
+          </Text>
+        )}
       </Box>
 
       {/* RDS Status */}

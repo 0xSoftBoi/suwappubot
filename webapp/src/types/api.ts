@@ -49,3 +49,9 @@ export interface ApiError {
   detail: string
   status: number
 }
+
+export interface HealthStatus {
+  status: 'ok' | 'degraded' | 'error'
+  service: string
+  timestamp?: string
+}

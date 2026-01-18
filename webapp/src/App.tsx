@@ -1,10 +1,50 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { AnimatePresence, motion, type Variants } from 'framer-motion'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useTelegram } from './hooks/useTelegram'
 import { Welcome, Home, Swap, Wallet, Portfolio, Settings } from './pages'
 import './theme/suwappu.css'
+
+// Page transition variants
+const pageVariants: Variants = {
+  initial: {
+    opacity: 0,
+    x: 20,
+  },
+  enter: {
+    opacity: 1,
+    x: 0,
+    transition: {
+      duration: 0.25,
+      ease: [0.25, 0.46, 0.45, 0.94], // easeOutQuad
+    },
+  },
+  exit: {
+    opacity: 0,
+    x: -20,
+    transition: {
+      duration: 0.2,
+      ease: [0.55, 0.06, 0.68, 0.19], // easeInQuad
+    },
+  },
+}
+
+// Page wrapper with animation
+function PageTransition({ children }: { children: React.ReactNode }) {
+  return (
+    <motion.div
+      variants={pageVariants}
+      initial="initial"
+      animate="enter"
+      exit="exit"
+      className="h-full"
+    >
+      {children}
+    </motion.div>
+  )
+}
 
 // Create React Query client
 const queryClient = new QueryClient({
@@ -79,63 +119,79 @@ function AppContent() {
     }
   }, [webApp])
 
+  const location = useLocation()
+
   return (
-    <Routes>
-      {/* Public routes */}
-      <Route
-        path="/"
-        element={
-          <PublicRoute>
-            <Welcome />
-          </PublicRoute>
-        }
-      />
+    <AnimatePresence mode="wait">
+      <Routes location={location} key={location.pathname}>
+        {/* Public routes */}
+        <Route
+          path="/"
+          element={
+            <PublicRoute>
+              <PageTransition>
+                <Welcome />
+              </PageTransition>
+            </PublicRoute>
+          }
+        />
 
-      {/* Protected routes */}
-      <Route
-        path="/home"
-        element={
-          <ProtectedRoute>
-            <Home />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/swap"
-        element={
-          <ProtectedRoute>
-            <Swap />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/wallet/*"
-        element={
-          <ProtectedRoute>
-            <Wallet />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/portfolio"
-        element={
-          <ProtectedRoute>
-            <Portfolio />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/settings/*"
-        element={
-          <ProtectedRoute>
-            <Settings />
-          </ProtectedRoute>
-        }
-      />
+        {/* Protected routes */}
+        <Route
+          path="/home"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Home />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/swap"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Swap />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/wallet/*"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Wallet />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/portfolio"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Portfolio />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings/*"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Settings />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
 
-      {/* Fallback redirect */}
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        {/* Fallback redirect */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </AnimatePresence>
   )
 }
 

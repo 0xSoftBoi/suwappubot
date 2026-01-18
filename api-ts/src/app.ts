@@ -3,7 +3,7 @@ import { logger } from 'hono/logger'
 import { HTTPException } from 'hono/http-exception'
 
 import { createCorsMiddleware, agentKeyAuth } from './middleware'
-import { healthRoutes, toolsRoutes, webappRoutes, usersRoutes, agentRoutes } from './routes'
+import { healthRoutes, toolsRoutes, webappRoutes, usersRoutes, agentRoutes, pointsRoutes } from './routes'
 
 export interface AppConfig {
 	allowedOrigins: string
@@ -45,6 +45,7 @@ export function createApp(config: AppConfig) {
 	agentProtected.use('*', agentKeyAuth(config.agentApiKey))
 	agentProtected.route('/', toolsRoutes)
 	agentProtected.route('/users', usersRoutes)
+	agentProtected.route('/users', pointsRoutes)
 	app.route('/', agentProtected)
 
 	return app

@@ -377,6 +377,176 @@ WEBHOOK_URL=https://your-domain.com/telegram/webhook
 
 **Solution:** Verify `DATABASE_URL` is correct and the database is accessible.
 
+## API-TS Infrastructure
+
+The TypeScript API (`api-ts/`) is deployed on AWS ECS Fargate with separate dev and production environments.
+
+### Architecture
+
+```mermaid
+flowchart TB
+    subgraph Internet["Internet"]
+        Users["Users / Agents"]
+    end
+
+    subgraph DNS["DNS (suwappu.bot)"]
+        DevDNS["devapi.suwappu.bot"]
+        ProdDNS["api.suwappu.bot"]
+    end
+
+    subgraph AWS["AWS us-east-1"]
+        subgraph ALB["Application Load Balancers"]
+            DevLB["suwapp-suwap-ppzluzyhsvuj<br/>DEV ALB"]
+            ProdLB["suwappu-api-prod<br/>PROD ALB"]
+        end
+
+        subgraph ECS["ECS Cluster: suwappu-cluster"]
+            DevService["suwappu-api-ts-dev<br/>Task: suwappu-api-ts-dev:4"]
+            ProdService["suwappu-api-ts-prod<br/>Task: suwappu-api-ts-prod:1"]
+        end
+
+        subgraph TG["Target Groups"]
+            DevTG["suwappu-api-ts-dev<br/>:8000"]
+            ProdTG["suwappu-api-ts-prod<br/>:8000"]
+        end
+
+        ECR["ECR: suwappu-api-ts"]
+        RDS[(RDS PostgreSQL)]
+        SM["Secrets Manager"]
+    end
+
+    Users --> DevDNS & ProdDNS
+    DevDNS --> DevLB
+    ProdDNS --> ProdLB
+    DevLB --> DevTG --> DevService
+    ProdLB --> ProdTG --> ProdService
+    DevService & ProdService --> RDS
+    SM --> ECS
+    ECR --> ECS
+
+    style DevLB fill:#ffc107,color:#000
+    style ProdLB fill:#28a745,color:#fff
+    style DevService fill:#ffc107,color:#000
+    style ProdService fill:#28a745,color:#fff
+```
+
+### Environments
+
+#### API (api-ts)
+| Environment | Domain | Load Balancer DNS | ECS Service | Image Tag |
+|-------------|--------|-------------------|-------------|-----------|
+| **Development** | `devapi.suwappu.bot` | `suwapp-suwap-ppzluzyhsvuj-1262209256.us-east-1.elb.amazonaws.com` | `suwappu-api-ts-dev` | `development` |
+| **Production** | `api.suwappu.bot` | `suwappu-api-prod-1251755078.us-east-1.elb.amazonaws.com` | `suwappu-api-ts-prod` | `latest` |
+
+#### Webapp (webapp)
+| Environment | Domain | Load Balancer DNS | ECS Service | Image Tag |
+|-------------|--------|-------------------|-------------|-----------|
+| **Development** | `devfront.suwappu.bot` | `suwappu-webapp-dev-1074869316.us-east-1.elb.amazonaws.com` | `suwappu-webapp-dev` | `development` |
+| **Production** | `app.suwappu.bot` | `suwappu-webapp-prod-494496315.us-east-1.elb.amazonaws.com` | `suwappu-webapp-prod` | `latest` |
+
+### DNS Records (suwappu.bot)
+
+Add these CNAME records to your DNS provider:
+
+#### API Endpoints
+| Type | Name | Value | Purpose |
+|------|------|-------|---------|
+| CNAME | `api` | `suwappu-api-prod-1251755078.us-east-1.elb.amazonaws.com` | Production API |
+| CNAME | `devapi` | `suwapp-suwap-ppzluzyhsvuj-1262209256.us-east-1.elb.amazonaws.com` | Development API |
+
+#### Webapp Endpoints
+| Type | Name | Value | Purpose |
+|------|------|-------|---------|
+| CNAME | `app` | `suwappu-webapp-prod-494496315.us-east-1.elb.amazonaws.com` | Production Webapp |
+| CNAME | `devfront` | `suwappu-webapp-dev-1074869316.us-east-1.elb.amazonaws.com` | Development Webapp |
+
+### SSL Certificate
+
+**Certificate ARN:** `arn:aws:acm:us-east-1:905418423235:certificate/74e95aae-e397-44cc-9005-d964c97ebc41`
+
+**Domains:** `api.suwappu.bot`, `*.suwappu.bot`
+
+**DNS Validation Records:**
+
+| Type | Name | Value |
+|------|------|-------|
+| CNAME | `_16ec242628bf5f4ce403c01e2d963f99.api` | `_3bb764a49e402d61b97e1a5e349f2c7e.jkddzztszm.acm-validations.aws.` |
+| CNAME | `_e3b65c239aa4569ad15ac3818d1e75ec` | `_b735bde063cb06a22005607fcb1cec81.jkddzztszm.acm-validations.aws.` |
+
+### AWS Resources
+
+```mermaid
+flowchart LR
+    subgraph ECS["ECS Resources"]
+        Cluster["Cluster:<br/>suwappu-cluster"]
+        DevSvc["Service:<br/>suwappu-api-ts-dev"]
+        ProdSvc["Service:<br/>suwappu-api-ts-prod"]
+        DevTask["Task Def:<br/>suwappu-api-ts-dev:4"]
+        ProdTask["Task Def:<br/>suwappu-api-ts-prod:1"]
+    end
+
+    subgraph ALB["Load Balancers"]
+        DevALB["ALB:<br/>Suwapp-Suwap-PpZLUzYhsvuj"]
+        ProdALB["ALB:<br/>suwappu-api-prod"]
+    end
+
+    subgraph TG["Target Groups"]
+        DevTG["TG:<br/>suwappu-api-ts-dev"]
+        ProdTG["TG:<br/>suwappu-api-ts-prod"]
+    end
+
+    Cluster --> DevSvc & ProdSvc
+    DevSvc --> DevTask
+    ProdSvc --> ProdTask
+    DevALB --> DevTG --> DevSvc
+    ProdALB --> ProdTG --> ProdSvc
+
+    style DevSvc fill:#ffc107,color:#000
+    style ProdSvc fill:#28a745,color:#fff
+    style DevALB fill:#ffc107,color:#000
+    style ProdALB fill:#28a745,color:#fff
+```
+
+### Health Check Script
+
+Monitor all API instances:
+
+```bash
+# Basic health check
+./scripts/health-check.sh
+
+# Include DNS resolution
+./scripts/health-check.sh --dns
+
+# Watch mode (every 10s)
+./scripts/health-check.sh --watch --dns
+```
+
+### Useful AWS CLI Commands
+
+```bash
+# Check service status
+aws --profile Swappu ecs describe-services \
+  --cluster suwappu-cluster \
+  --services suwappu-api-ts-prod suwappu-api-ts-dev \
+  --query 'services[*].[serviceName,runningCount,desiredCount]' \
+  --output table
+
+# View recent logs
+aws --profile Swappu logs tail /ecs/suwappu --follow
+
+# Check certificate status
+aws --profile Swappu acm describe-certificate \
+  --certificate-arn arn:aws:acm:us-east-1:905418423235:certificate/74e95aae-e397-44cc-9005-d964c97ebc41 \
+  --query 'Certificate.[Status,DomainValidationOptions[*].ValidationStatus]'
+
+# Force new deployment
+aws --profile Swappu ecs update-service \
+  --cluster suwappu-cluster \
+  --service suwappu-api-ts-prod \
+  --force-new-deployment
+```
+
 ## License
 
 MIT

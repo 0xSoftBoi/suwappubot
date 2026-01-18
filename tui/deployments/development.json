@@ -18,8 +18,8 @@
     "endpoint": "suwappustack-suwappudatabase7fc7bcd8-nlylumxmlxo6.cgpw024wqms5.us-east-1.rds.amazonaws.com"
   },
   "endpoints": {
-    "api": "",
-    "health": ""
+    "api": "https://devapi.suwappu.bot",
+    "health": "https://devapi.suwappu.bot/health"
   },
   "github": {
     "repo": "superposition/suwappubot",

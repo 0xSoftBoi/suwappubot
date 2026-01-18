@@ -55,11 +55,24 @@ export function useEcsStatus(
           });
           const responseTime = performance.now() - start;
 
+          // Try to extract version and service from JSON response
+          let version: string | undefined;
+          let service: string | undefined;
+          try {
+            const body = await response.json();
+            version = body.version;
+            service = body.service;
+          } catch {
+            // Response is not JSON, ignore
+          }
+
           health = {
             status: response.ok ? 'healthy' : 'unhealthy',
             responseTime,
             lastCheck: new Date(),
             statusCode: response.status,
+            version,
+            service,
           };
         } catch {
           health = {

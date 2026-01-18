@@ -39,6 +39,9 @@ export function CompactPane({
     ? `${Math.round(status.health.responseTime)}ms`
     : '--';
 
+  // Version
+  const version = status?.health?.version || '--';
+
   // Task count
   const taskCount = status?.service
     ? `${status.service.runningCount}/${status.service.desiredCount}`
@@ -55,12 +58,15 @@ export function CompactPane({
       flexGrow={1}
       paddingX={1}
     >
-      {/* Line 1: Env name + health + response time */}
+      {/* Line 1: Env name + health + version + response time */}
       <Box justifyContent="space-between">
         <Box>
           <Text bold color={envColor}>
             {deployment.environment.toUpperCase().slice(0, 4)}
           </Text>
+          {version !== '--' && (
+            <Text dimColor> v{version}</Text>
+          )}
           {isLoading && (
             <Text color="cyan"> <Spinner type="dots" /></Text>
           )}
@@ -82,7 +88,16 @@ export function CompactPane({
         </Box>
       </Box>
 
-      {/* Line 3: RDS status if available */}
+      {/* Line 3: Health endpoint */}
+      {deployment.endpoints.health && (
+        <Box>
+          <Text dimColor>
+            {deployment.endpoints.health.replace(/^https?:\/\//, '').slice(0, 35)}
+          </Text>
+        </Box>
+      )}
+
+      {/* Line 4: RDS status if available */}
       {status?.rds && (
         <Box justifyContent="space-between">
           <Text dimColor>RDS:</Text>

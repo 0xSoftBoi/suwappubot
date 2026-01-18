@@ -6,6 +6,7 @@
   "scripts": {
     "start": "bun run index.tsx",
     "dev": "bun --hot run index.tsx",
+    "setup": "bun run index.tsx --setup",
     "debug": "bun run index.tsx --debug",
     "debug:dev": "bun --hot run index.tsx --debug"
   },
