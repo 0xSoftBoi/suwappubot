@@ -1,29 +1,59 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { AppLayout, AppHeader } from '../components/layout'
 import { AddressCard, TokenItem } from '../components/cards'
 import { ChainSelector } from '../components/ui'
+import { usePortfolio } from '../hooks/usePortfolio'
+import { useAuth } from '../contexts/AuthContext'
+import type { Token } from '../types/api'
 
 const chains = [
-  { id: 'eth', name: 'Ethereum', icon: 'Ξ' },
+  { id: 'all', name: 'All Chains', icon: '🌐' },
+  { id: 'ethereum', name: 'Ethereum', icon: 'Ξ' },
   { id: 'bsc', name: 'BSC', icon: '🔶' },
   { id: 'polygon', name: 'Polygon', icon: '⬡' },
-  { id: 'sol', name: 'Solana', icon: '◎' },
+  { id: 'solana', name: 'Solana', icon: '◎' },
+  { id: 'arbitrum', name: 'Arbitrum', icon: '🔵' },
+  { id: 'optimism', name: 'Optimism', icon: '🔴' },
+  { id: 'base', name: 'Base', icon: '🔷' },
 ]
 
-const mockBalances = [
-  { symbol: 'ETH', name: 'Ethereum', balance: '0.5432', value: '$1,842.50', icon: 'Ξ' },
-  { symbol: 'USDC', name: 'USD Coin', balance: '500.00', value: '$500.00', icon: '$' },
-  { symbol: 'PEPE', name: 'Pepe', balance: '1,234,567', value: '$123.45', icon: '🐸' },
-]
+// Get icon for token based on symbol or chain
+function getTokenIcon(token: Token): string {
+  const symbolLower = token.symbol.toLowerCase()
+  if (symbolLower === 'eth') return 'Ξ'
+  if (symbolLower === 'sol') return '◎'
+  if (symbolLower === 'usdc' || symbolLower === 'usdt') return '$'
+  if (symbolLower === 'matic') return '⬡'
+  return token.symbol.charAt(0).toUpperCase()
+}
+
+// Format USD value
+function formatUsd(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)
+}
 
 type WalletView = 'overview' | 'receive' | 'send'
 
 export function Wallet() {
   const [view, setView] = useState<WalletView>('overview')
-  const [selectedChain, setSelectedChain] = useState('eth')
+  const [selectedChain, setSelectedChain] = useState('all')
   const [sendAmount, setSendAmount] = useState('')
+  const { data: portfolio, isLoading, error } = usePortfolio()
+  const { walletInfo, connectedAddress } = useAuth()
 
-  const address = '0x1234567890abcdef1234567890abcdef12345678'
+  const address = walletInfo?.address || connectedAddress || '0x1234...5678'
+
+  // Filter tokens by selected chain
+  const filteredTokens = useMemo(() => {
+    if (!portfolio?.tokens) return []
+    if (selectedChain === 'all') return portfolio.tokens
+    return portfolio.tokens.filter(t => t.chain.toLowerCase() === selectedChain)
+  }, [portfolio?.tokens, selectedChain])
 
   if (view === 'receive') {
     return (
@@ -130,11 +160,43 @@ export function Wallet() {
           <div className="px-3 py-2 border-b border-suwappu-sakura-mid/10">
             <span className="font-heading font-semibold text-sm text-suwappu-purple-deep">Balances</span>
           </div>
-          <div className="divide-y divide-suwappu-sakura-mid/10">
-            {mockBalances.map((token) => (
-              <TokenItem key={token.symbol} {...token} />
-            ))}
-          </div>
+          {isLoading ? (
+            <div className="p-6 text-center">
+              <div className="animate-pulse flex flex-col items-center">
+                <div className="w-10 h-10 bg-suwappu-sakura-light rounded-full mb-2" />
+                <div className="h-3 bg-suwappu-sakura-light rounded w-24 mb-1" />
+                <div className="h-2 bg-suwappu-sakura-light/50 rounded w-16" />
+              </div>
+            </div>
+          ) : error ? (
+            <div className="p-6 text-center">
+              <div className="w-12 h-12 mx-auto mb-2 bg-suwappu-error/10 rounded-full flex items-center justify-center">
+                <span className="text-xl">⚠️</span>
+              </div>
+              <p className="text-sm text-suwappu-error mb-1">Failed to load balances</p>
+              <p className="text-xs text-suwappu-text-secondary">Please try again later</p>
+            </div>
+          ) : filteredTokens.length > 0 ? (
+            <div className="divide-y divide-suwappu-sakura-mid/10">
+              {filteredTokens.map((token) => (
+                <TokenItem
+                  key={`${token.chain}-${token.symbol}-${token.address}`}
+                  symbol={token.symbol}
+                  name={token.name}
+                  balance={token.balance}
+                  value={formatUsd(token.usdValue)}
+                  icon={getTokenIcon(token)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="p-6 text-center">
+              <div className="w-12 h-12 mx-auto mb-2 bg-suwappu-sakura-light rounded-full flex items-center justify-center">
+                <span className="text-xl">💰</span>
+              </div>
+              <p className="text-sm text-suwappu-text-secondary">No tokens on this chain</p>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
