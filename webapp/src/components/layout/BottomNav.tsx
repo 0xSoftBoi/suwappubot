@@ -1,5 +1,5 @@
 import React from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation } from '@tanstack/react-router'
 
 export type NavItem = 'home' | 'wallet' | 'swap' | 'portfolio' | 'settings'
 
@@ -70,7 +70,7 @@ export function BottomNav({ active, onNavigate }: BottomNavProps) {
     if (onNavigate) {
       onNavigate(item.id)
     } else {
-      navigate(item.path)
+      navigate({ to: item.path })
     }
   }
 

@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from '@tanstack/react-router'
 
 export interface QuickAction {
   icon: string
@@ -29,7 +29,7 @@ export function QuickActions({ actions = defaultActions, onAction }: QuickAction
     } else if (action.onClick) {
       action.onClick()
     } else if (action.path) {
-      navigate(action.path)
+      navigate({ to: action.path })
     }
   }
 

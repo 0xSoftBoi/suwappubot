@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from '@tanstack/react-router'
 import { AppLayout, AppHeader } from '../components/layout'
 import { SettingsItem, ToggleItem } from '../components/ui'
 import { WalletCard } from '../components/cards'
@@ -18,7 +18,7 @@ export function Settings() {
 
   const handleLogout = () => {
     logout()
-    navigate('/')
+    navigate({ to: '/' })
   }
 
   if (view === 'slippage') {
