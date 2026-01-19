@@ -150,6 +150,88 @@ class ApiClient {
       method: 'DELETE',
     })
   }
+
+  // === Quotes & Swaps ===
+
+  /**
+   * Get a swap quote from Li.Fi
+   */
+  async getQuote(params: {
+    fromChain: string
+    toChain: string
+    fromToken: string
+    toToken: string
+    fromAmount: string
+    slippage?: number
+  }): Promise<QuoteResponse> {
+    const searchParams = new URLSearchParams({
+      fromChain: params.fromChain,
+      toChain: params.toChain,
+      fromToken: params.fromToken,
+      toToken: params.toToken,
+      fromAmount: params.fromAmount,
+    })
+    if (params.slippage) {
+      searchParams.set('slippage', params.slippage.toString())
+    }
+    return this.fetch<QuoteResponse>(`/webapp/quote?${searchParams}`)
+  }
+
+  /**
+   * Get supported tokens for a chain
+   */
+  async getTokens(chain?: string): Promise<TokenListResponse> {
+    const url = chain ? `/webapp/tokens?chain=${chain}` : '/webapp/tokens'
+    return this.fetch<TokenListResponse>(url)
+  }
+}
+
+// Quote response type
+export interface QuoteResponse {
+  id: string
+  fromChain: string
+  toChain: string
+  fromToken: {
+    symbol: string
+    address: string
+    decimals: number
+    priceUSD: string
+  }
+  toToken: {
+    symbol: string
+    address: string
+    decimals: number
+    priceUSD: string
+  }
+  fromAmount: string
+  toAmount: string
+  toAmountMin: string
+  fromAmountUSD: string
+  toAmountUSD: string
+  route: {
+    steps: number
+    protocol: string
+    bridgeUsed?: string
+  }
+  estimatedGas: string
+  estimatedGasUSD: string
+  executionDuration: number
+  priceImpact: string
+}
+
+// Token list response
+export interface TokenListResponse {
+  chain?: string
+  chains?: string[]
+  tokens: Array<{
+    symbol: string
+    name: string
+    decimals: number
+  }> | Record<string, Array<{
+    symbol: string
+    name: string
+    decimals: number
+  }>>
 }
 
 // Export singleton instance

@@ -1,12 +1,112 @@
 import { Hono } from 'hono'
 import { Effect, Either, Option } from 'effect'
 import { telegramAuth } from '../middleware'
-import { TelegramAuthService, UserService, WalletService, SwapService, BalanceService } from '../services'
+import { TelegramAuthService, UserService, WalletService, SwapService, BalanceService, QuoteService } from '../services'
 import { runEffect, runEffectEither } from '../runtime'
 import type { TelegramUser } from '../services/TelegramAuthService'
 import { mapErrorToResponse } from '../errors'
 
 const webappRoutes = new Hono()
+
+// GET /webapp/quote - Get swap quote (public, no auth required)
+webappRoutes.get('/quote', async (c) => {
+	const fromChain = c.req.query('fromChain')
+	const toChain = c.req.query('toChain')
+	const fromToken = c.req.query('fromToken')
+	const toToken = c.req.query('toToken')
+	const fromAmount = c.req.query('fromAmount')
+	const slippage = c.req.query('slippage')
+
+	// Validate required params
+	if (!fromChain || !toChain || !fromToken || !toToken || !fromAmount) {
+		return c.json({
+			error: 'Missing required parameters: fromChain, toChain, fromToken, toToken, fromAmount',
+		}, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const quoteService = yield* QuoteService
+
+			const quote = yield* quoteService.getQuote({
+				fromChain,
+				toChain,
+				fromToken,
+				toToken,
+				fromAmount,
+				slippage: slippage ? parseFloat(slippage) : 0.5,
+			})
+
+			return quote
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		const error = result.left
+		return c.json({
+			error: 'Quote Error',
+			message: error.message || 'Failed to get quote',
+		}, 500)
+	}
+
+	return c.json(result.right)
+})
+
+// GET /webapp/tokens - Get supported tokens for a chain
+webappRoutes.get('/tokens', async (c) => {
+	const chain = c.req.query('chain')
+
+	// Common tokens per chain
+	const tokens: Record<string, Array<{ symbol: string; name: string; decimals: number }>> = {
+		ethereum: [
+			{ symbol: 'ETH', name: 'Ethereum', decimals: 18 },
+			{ symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+			{ symbol: 'USDT', name: 'Tether USD', decimals: 6 },
+			{ symbol: 'DAI', name: 'Dai Stablecoin', decimals: 18 },
+			{ symbol: 'WETH', name: 'Wrapped Ether', decimals: 18 },
+		],
+		polygon: [
+			{ symbol: 'MATIC', name: 'Polygon', decimals: 18 },
+			{ symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+			{ symbol: 'USDT', name: 'Tether USD', decimals: 6 },
+			{ symbol: 'WETH', name: 'Wrapped Ether', decimals: 18 },
+		],
+		arbitrum: [
+			{ symbol: 'ETH', name: 'Ethereum', decimals: 18 },
+			{ symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+			{ symbol: 'USDT', name: 'Tether USD', decimals: 6 },
+			{ symbol: 'WETH', name: 'Wrapped Ether', decimals: 18 },
+		],
+		optimism: [
+			{ symbol: 'ETH', name: 'Ethereum', decimals: 18 },
+			{ symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+			{ symbol: 'USDT', name: 'Tether USD', decimals: 6 },
+			{ symbol: 'WETH', name: 'Wrapped Ether', decimals: 18 },
+		],
+		base: [
+			{ symbol: 'ETH', name: 'Ethereum', decimals: 18 },
+			{ symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+			{ symbol: 'WETH', name: 'Wrapped Ether', decimals: 18 },
+		],
+		bsc: [
+			{ symbol: 'BNB', name: 'BNB', decimals: 18 },
+			{ symbol: 'USDC', name: 'USD Coin', decimals: 18 },
+			{ symbol: 'USDT', name: 'Tether USD', decimals: 18 },
+			{ symbol: 'WETH', name: 'Wrapped Ether', decimals: 18 },
+		],
+	}
+
+	if (chain) {
+		const chainTokens = tokens[chain.toLowerCase()]
+		if (!chainTokens) {
+			return c.json({ error: `Unsupported chain: ${chain}` }, 400)
+		}
+		return c.json({ chain, tokens: chainTokens })
+	}
+
+	// Return all chains if no chain specified
+	return c.json({ chains: Object.keys(tokens), tokens })
+})
 
 // POST /webapp/validate - Validate Telegram auth (no middleware required)
 webappRoutes.post('/validate', async (c) => {

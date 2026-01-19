@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AppLayout, AppHeader } from '../components/layout'
 import { TokenInput, SwapArrow, SwapDetails } from '../components/swap'
 import { ChainSelector } from '../components/ui'
+import { useQuote, formatTokenAmount } from '../hooks'
 
 const chains = [
   { id: 'ethereum', name: 'Ethereum', icon: 'Ξ' },
@@ -18,7 +19,6 @@ const defaultToToken = { symbol: 'USDC', icon: '$', name: 'USD Coin' }
 
 export function Swap() {
   const [fromAmount, setFromAmount] = useState('0.5')
-  const [toAmount, setToAmount] = useState('920.50')
   const [fromToken, setFromToken] = useState(defaultFromToken)
   const [toToken, setToToken] = useState(defaultToToken)
   const [fromChain, setFromChain] = useState('ethereum')
@@ -29,13 +29,48 @@ export function Swap() {
 
   const isCrossChain = fromChain !== toChain
 
+  // Fetch quote from API
+  const { data: quote, isLoading: quoteLoading, error: quoteError } = useQuote({
+    fromChain,
+    toChain,
+    fromToken: fromToken.symbol,
+    toToken: toToken.symbol,
+    fromAmount,
+    slippage: 0.5,
+    enabled: parseFloat(fromAmount || '0') > 0,
+  })
+
+  // Computed values from quote
+  const toAmount = quote
+    ? formatTokenAmount(quote.toAmount, quote.toToken.decimals)
+    : ''
+  const toAmountMin = quote
+    ? formatTokenAmount(quote.toAmountMin, quote.toToken.decimals)
+    : ''
+  const rate = quote
+    ? `1 ${fromToken.symbol} = ${(parseFloat(quote.toAmountUSD) / parseFloat(quote.fromAmountUSD) * parseFloat(fromAmount) / parseFloat(toAmount || '1')).toFixed(2)} ${toToken.symbol}`
+    : `1 ${fromToken.symbol} = -- ${toToken.symbol}`
+  const networkFee = quote
+    ? `~$${parseFloat(quote.estimatedGasUSD).toFixed(2)}`
+    : isCrossChain ? '~$5.00' : '~$2.50'
+  const priceImpact = quote?.priceImpact
+    ? `${parseFloat(quote.priceImpact).toFixed(2)}%`
+    : '<0.01%'
+  const fromUsdValue = quote?.fromAmountUSD
+    ? `~$${parseFloat(quote.fromAmountUSD).toFixed(2)}`
+    : ''
+  const toUsdValue = quote?.toAmountUSD
+    ? `~$${parseFloat(quote.toAmountUSD).toFixed(2)}`
+    : ''
+
   const handleSwapTokens = () => {
     const tempToken = fromToken
     setFromToken(toToken)
     setToToken(tempToken)
-    const tempAmount = fromAmount
-    setFromAmount(toAmount)
-    setToAmount(tempAmount)
+    // When swapping, set fromAmount to the current toAmount if we have a quote
+    if (toAmount) {
+      setFromAmount(toAmount)
+    }
     const tempChain = fromChain
     setFromChain(toChain)
     setToChain(tempChain)
@@ -57,7 +92,6 @@ export function Swap() {
   const handleReset = () => {
     setIsSuccess(false)
     setFromAmount('')
-    setToAmount('')
   }
 
   const header = <AppHeader title="Swap" />
@@ -151,11 +185,11 @@ export function Swap() {
             <div className="space-y-2 text-xs">
               <div className="flex items-center justify-between">
                 <span className="text-suwappu-text-secondary">Rate</span>
-                <span className="text-suwappu-text">1 {fromToken.symbol} = 1,841.00 {toToken.symbol}</span>
+                <span className="text-suwappu-text">{rate}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-suwappu-text-secondary">Min. Received</span>
-                <span className="text-suwappu-text">915.38 {toToken.symbol}</span>
+                <span className="text-suwappu-text">{toAmountMin || toAmount} {toToken.symbol}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-suwappu-text-secondary">Slippage</span>
@@ -163,8 +197,14 @@ export function Swap() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-suwappu-text-secondary">Network Fee</span>
-                <span className="text-suwappu-text">~$2.50</span>
+                <span className="text-suwappu-text">{networkFee}</span>
               </div>
+              {quote?.executionDuration && (
+                <div className="flex items-center justify-between">
+                  <span className="text-suwappu-text-secondary">Est. Time</span>
+                  <span className="text-suwappu-text">~{Math.ceil(quote.executionDuration / 60)} min</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -217,7 +257,7 @@ export function Swap() {
             onAmountChange={setFromAmount}
             token={fromToken}
             balance="0.5432"
-            usdValue="~$1,841.00"
+            usdValue={fromUsdValue || '~$0.00'}
           />
         </div>
 
@@ -235,27 +275,35 @@ export function Swap() {
           />
           <TokenInput
             label="To"
-            amount={toAmount}
-            onAmountChange={setToAmount}
+            amount={quoteLoading ? '...' : toAmount}
+            onAmountChange={() => {}}
             token={toToken}
-            usdValue="~$920.50"
+            usdValue={toUsdValue || '~$0.00'}
             readOnly
           />
         </div>
 
+        {quoteError && (
+          <div className="bg-suwappu-error/10 border border-suwappu-error/20 rounded-suwappu-lg p-2">
+            <p className="text-xs text-suwappu-error font-medium">
+              Failed to get quote. Please try again.
+            </p>
+          </div>
+        )}
+
         <SwapDetails
-          rate={`1 ${fromToken.symbol} = 1,841.00 ${toToken.symbol}`}
-          priceImpact="<0.01%"
-          networkFee={isCrossChain ? "~$5.00" : "~$2.50"}
-          route={isCrossChain ? "Via Li.Fi Bridge" : "Via Li.Fi"}
+          rate={quoteLoading ? 'Loading...' : rate}
+          priceImpact={priceImpact}
+          networkFee={networkFee}
+          route={quote?.route?.bridgeUsed ? `Via ${quote.route.bridgeUsed}` : (isCrossChain ? 'Via Li.Fi Bridge' : 'Via Li.Fi')}
         />
 
         <button
           onClick={handleReview}
-          disabled={!fromAmount || fromAmount === '0'}
+          disabled={!fromAmount || fromAmount === '0' || quoteLoading || !quote || !!quoteError}
           className="w-full px-4 py-3 bg-suwappu-gradient text-white font-heading font-bold text-sm rounded-suwappu-pill shadow-suwappu-button disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {isCrossChain ? 'Review Cross-Chain Swap' : 'Review Swap'}
+          {quoteLoading ? 'Getting Quote...' : (isCrossChain ? 'Review Cross-Chain Swap' : 'Review Swap')}
         </button>
       </div>
     </AppLayout>

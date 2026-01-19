@@ -3,6 +3,8 @@ export { usePortfolio } from './usePortfolio'
 export { useSwapHistory, useSwap } from './useSwapHistory'
 export { useTokenPrices, useTokenPrice, type TokenPrice } from './useTokenPrices'
 export { useLinkedWallets, useLinkWallet, useUnlinkWallet, useWalletChallenge } from './useLinkedWallets'
+export { useQuote, useTokens, formatTokenAmount } from './useQuote'
+export type { QuoteResponse, TokenListResponse } from '../lib/api'
 
 // Auth hooks
 export { useAuth } from './useAuth'

@@ -7,6 +7,7 @@ import { SwapServiceLive } from './SwapService'
 import { UserServiceLive } from './UserService'
 import { PointsServiceLive } from './PointsService'
 import { BalanceServiceLive } from './BalanceService'
+import { QuoteServiceLive } from './QuoteService'
 
 // Base configuration layer
 export const ConfigLayer = EnvServiceLive
@@ -18,7 +19,7 @@ export const DatabaseLayer = DrizzleServiceLive.pipe(Layer.provide(ConfigLayer))
 export const TelegramAuthLayer = TelegramAuthServiceLive.pipe(Layer.provide(ConfigLayer))
 
 // Service layers (stateless, no dependencies on other services)
-export const ServicesLayer = Layer.mergeAll(WalletServiceLive, SwapServiceLive, UserServiceLive, PointsServiceLive, BalanceServiceLive)
+export const ServicesLayer = Layer.mergeAll(WalletServiceLive, SwapServiceLive, UserServiceLive, PointsServiceLive, BalanceServiceLive, QuoteServiceLive)
 
 // Full application layer with all services
 export const MainLayer = Layer.mergeAll(
