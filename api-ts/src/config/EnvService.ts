@@ -16,10 +16,34 @@ export const EnvSchema = Schema.Struct({
 	// API Keys
 	AGENT_API_KEY: Schema.optional(Schema.String),
 	ADMIN_API_KEY: Schema.optional(Schema.String),
+	LIFI_API_KEY: Schema.optional(Schema.String),
+
+	// RPC Endpoints (with public fallbacks for development)
+	ETH_RPC_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://eth.llamarpc.com',
+	}),
+	POLYGON_RPC_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://polygon.llamarpc.com',
+	}),
+	ARBITRUM_RPC_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://arbitrum.llamarpc.com',
+	}),
+	OPTIMISM_RPC_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://optimism.llamarpc.com',
+	}),
+	BASE_RPC_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://base.llamarpc.com',
+	}),
+	BSC_RPC_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://bsc.llamarpc.com',
+	}),
+	SOLANA_RPC_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://api.mainnet-beta.solana.com',
+	}),
 
 	// CORS
 	ALLOWED_ORIGINS: Schema.optionalWith(Schema.String, {
-		default: () => 'https://suwappu.dev,http://localhost:3000,http://localhost:5173',
+		default: () => 'https://app.suwappu.bot,https://devfront.suwappu.bot,http://localhost:3000,http://localhost:5173',
 	}),
 })
 

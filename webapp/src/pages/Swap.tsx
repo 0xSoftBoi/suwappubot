@@ -1,6 +1,17 @@
 import { useState } from 'react'
 import { AppLayout, AppHeader } from '../components/layout'
 import { TokenInput, SwapArrow, SwapDetails } from '../components/swap'
+import { ChainSelector } from '../components/ui'
+
+const chains = [
+  { id: 'ethereum', name: 'Ethereum', icon: 'Ξ' },
+  { id: 'bsc', name: 'BSC', icon: '🔶' },
+  { id: 'polygon', name: 'Polygon', icon: '⬡' },
+  { id: 'arbitrum', name: 'Arbitrum', icon: '🔵' },
+  { id: 'optimism', name: 'Optimism', icon: '🔴' },
+  { id: 'base', name: 'Base', icon: '🔷' },
+  { id: 'solana', name: 'Solana', icon: '◎' },
+]
 
 const defaultFromToken = { symbol: 'ETH', icon: 'Ξ', name: 'Ethereum' }
 const defaultToToken = { symbol: 'USDC', icon: '$', name: 'USD Coin' }
@@ -10,17 +21,24 @@ export function Swap() {
   const [toAmount, setToAmount] = useState('920.50')
   const [fromToken, setFromToken] = useState(defaultFromToken)
   const [toToken, setToToken] = useState(defaultToToken)
+  const [fromChain, setFromChain] = useState('ethereum')
+  const [toChain, setToChain] = useState('ethereum')
   const [isConfirming, setIsConfirming] = useState(false)
   const [isPending, setIsPending] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
 
+  const isCrossChain = fromChain !== toChain
+
   const handleSwapTokens = () => {
-    const temp = fromToken
+    const tempToken = fromToken
     setFromToken(toToken)
-    setToToken(temp)
+    setToToken(tempToken)
     const tempAmount = fromAmount
     setFromAmount(toAmount)
     setToAmount(tempAmount)
+    const tempChain = fromChain
+    setFromChain(toChain)
+    setToChain(tempChain)
   }
 
   const handleReview = () => {
@@ -172,42 +190,72 @@ export function Swap() {
   // Main swap form
   return (
     <AppLayout header={header} activeNav="swap">
-      <div className="p-3 pb-20 space-y-1">
-        <TokenInput
-          label="From"
-          amount={fromAmount}
-          onAmountChange={setFromAmount}
-          token={fromToken}
-          balance="0.5432"
-          usdValue="~$1,841.00"
-        />
+      <div className="p-3 pb-20 space-y-3">
+        {/* Cross-chain indicator */}
+        {isCrossChain && (
+          <div className="bg-suwappu-info/10 border border-suwappu-info/20 rounded-suwappu-lg p-2 flex items-center gap-2">
+            <span className="text-lg">🌉</span>
+            <p className="text-xs text-suwappu-info font-medium">
+              Cross-chain swap via Li.Fi
+            </p>
+          </div>
+        )}
+
+        {/* From section */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-suwappu-text-secondary font-medium">From Chain</span>
+          </div>
+          <ChainSelector
+            chains={chains}
+            selected={fromChain}
+            onSelect={setFromChain}
+          />
+          <TokenInput
+            label="From"
+            amount={fromAmount}
+            onAmountChange={setFromAmount}
+            token={fromToken}
+            balance="0.5432"
+            usdValue="~$1,841.00"
+          />
+        </div>
 
         <SwapArrow onClick={handleSwapTokens} />
 
-        <TokenInput
-          label="To"
-          amount={toAmount}
-          onAmountChange={setToAmount}
-          token={toToken}
-          usdValue="~$920.50"
-          readOnly
-        />
-
-        <div className="mt-4">
-          <SwapDetails
-            rate={`1 ${fromToken.symbol} = 1,841.00 ${toToken.symbol}`}
-            priceImpact="<0.01%"
-            networkFee="~$2.50"
-            route="Via Li.Fi"
+        {/* To section */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-suwappu-text-secondary font-medium">To Chain</span>
+          </div>
+          <ChainSelector
+            chains={chains}
+            selected={toChain}
+            onSelect={setToChain}
+          />
+          <TokenInput
+            label="To"
+            amount={toAmount}
+            onAmountChange={setToAmount}
+            token={toToken}
+            usdValue="~$920.50"
+            readOnly
           />
         </div>
+
+        <SwapDetails
+          rate={`1 ${fromToken.symbol} = 1,841.00 ${toToken.symbol}`}
+          priceImpact="<0.01%"
+          networkFee={isCrossChain ? "~$5.00" : "~$2.50"}
+          route={isCrossChain ? "Via Li.Fi Bridge" : "Via Li.Fi"}
+        />
 
         <button
           onClick={handleReview}
           disabled={!fromAmount || fromAmount === '0'}
-          className="w-full px-4 py-3 bg-suwappu-gradient text-white font-heading font-bold text-sm rounded-suwappu-pill shadow-suwappu-button mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full px-4 py-3 bg-suwappu-gradient text-white font-heading font-bold text-sm rounded-suwappu-pill shadow-suwappu-button disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Review Swap
+          {isCrossChain ? 'Review Cross-Chain Swap' : 'Review Swap'}
         </button>
       </div>
     </AppLayout>

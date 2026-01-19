@@ -237,7 +237,7 @@ class Settings(BaseSettings):
     
     # Telegram Mini App
     webapp_url: str = Field(
-        default="https://suwappu.vercel.app",
+        default="https://app.suwappu.bot",
         description="URL for the Telegram Mini App dashboard"
     )
 

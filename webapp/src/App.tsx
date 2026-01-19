@@ -1,9 +1,9 @@
-import { useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { useEffect, useMemo } from 'react'
+import { RouterProvider } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useTelegram } from './hooks/useTelegram'
-import { Welcome, Home, Swap, Wallet, Portfolio, Settings } from './pages'
+import { createAppRouter } from './router'
 import './theme/suwappu.css'
 
 // Create React Query client
@@ -16,51 +16,20 @@ const queryClient = new QueryClient({
   },
 })
 
-// Protected route wrapper - redirects to welcome if not authenticated
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+// Inner app with router - needs auth context
+function AppWithRouter() {
   const { isAuthenticated, isLoading } = useAuth()
-  const location = useLocation()
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-suwappu-bg">
-        <div className="animate-pulse text-suwappu-text-secondary">Loading...</div>
-      </div>
-    )
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/" state={{ from: location }} replace />
-  }
-
-  return <>{children}</>
-}
-
-// Public route - redirects to home if already authenticated
-function PublicRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth()
-  const location = useLocation()
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-suwappu-bg">
-        <div className="animate-pulse text-suwappu-text-secondary">Loading...</div>
-      </div>
-    )
-  }
-
-  if (isAuthenticated) {
-    // Redirect to the page they were trying to visit, or home
-    const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/home'
-    return <Navigate to={from} replace />
-  }
-
-  return <>{children}</>
-}
-
-// App content with Telegram integration
-function AppContent() {
   const { webApp, colorScheme } = useTelegram()
+
+  // Create router with context
+  const router = useMemo(
+    () =>
+      createAppRouter({
+        queryClient,
+        auth: { isAuthenticated, isLoading },
+      }),
+    [isAuthenticated, isLoading]
+  )
 
   useEffect(() => {
     // Sync theme with Telegram or default to light
@@ -79,73 +48,14 @@ function AppContent() {
     }
   }, [webApp])
 
-  return (
-    <Routes>
-      {/* Public routes */}
-      <Route
-        path="/"
-        element={
-          <PublicRoute>
-            <Welcome />
-          </PublicRoute>
-        }
-      />
-
-      {/* Protected routes */}
-      <Route
-        path="/home"
-        element={
-          <ProtectedRoute>
-            <Home />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/swap"
-        element={
-          <ProtectedRoute>
-            <Swap />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/wallet/*"
-        element={
-          <ProtectedRoute>
-            <Wallet />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/portfolio"
-        element={
-          <ProtectedRoute>
-            <Portfolio />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/settings/*"
-        element={
-          <ProtectedRoute>
-            <Settings />
-          </ProtectedRoute>
-        }
-      />
-
-      {/* Fallback redirect */}
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
-  )
+  return <RouterProvider router={router} />
 }
 
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <BrowserRouter>
-          <AppContent />
-        </BrowserRouter>
+        <AppWithRouter />
       </AuthProvider>
     </QueryClientProvider>
   )

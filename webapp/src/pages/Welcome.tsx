@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from '@tanstack/react-router'
 import { useAuth } from '../contexts/AuthContext'
 import { BiometricIcon, FaceIdIcon } from '../components/icons'
 
@@ -17,7 +17,7 @@ export function Welcome() {
     setStep('success')
     await new Promise(resolve => setTimeout(resolve, 1500))
     login({ address: '0x7a3b...9f2e', type: 'passkey' })
-    navigate('/home')
+    navigate({ to: '/home' })
   }
 
   const handleLogin = async () => {
@@ -27,7 +27,7 @@ export function Welcome() {
     setStep('success')
     await new Promise(resolve => setTimeout(resolve, 1500))
     login({ address: '0x7a3b...9f2e', type: 'passkey' })
-    navigate('/home')
+    navigate({ to: '/home' })
   }
 
   if (step === 'verifying') {

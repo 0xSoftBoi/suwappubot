@@ -1,9 +1,10 @@
-name: Deploy Webapp to Vercel
+name: Deploy Webapp to ECS
 
 on:
   push:
     branches:
       - main
+      - dev
     paths:
       - 'webapp/**'
       - '.github/workflows/deploy-webapp.yml'
@@ -16,7 +17,12 @@ on:
         type: choice
         options:
           - production
-          - preview
+          - development
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: suwappu-webapp
+  ECS_CLUSTER: suwappu-cluster
 
 jobs:
   deploy:
@@ -27,38 +33,61 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          bun-version: latest
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Install dependencies
-        working-directory: ./webapp
-        run: bun install --frozen-lockfile
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build webapp
-        working-directory: ./webapp
-        env:
-          VITE_API_URL: ${{ secrets.VITE_API_URL || 'https://api.suwappu.xyz' }}
-        run: bun run build
-
-      - name: Install Vercel CLI
-        run: npm install -g vercel@latest
-
-      - name: Deploy to Vercel
-        working-directory: ./webapp
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      - name: Determine environment
+        id: env
         run: |
-          if [ "${{ github.event.inputs.environment }}" == "preview" ]; then
-            # Preview deployment
-            vercel deploy --token=$VERCEL_TOKEN
+          if [ "${{ github.event.inputs.environment }}" == "development" ] || [ "${{ github.ref }}" == "refs/heads/dev" ]; then
+            echo "env=development" >> $GITHUB_OUTPUT
+            echo "service=suwappu-webapp-dev" >> $GITHUB_OUTPUT
+            echo "tag=development" >> $GITHUB_OUTPUT
+            echo "api_url=https://devapi.suwappu.bot" >> $GITHUB_OUTPUT
+            echo "url=https://devfront.suwappu.bot" >> $GITHUB_OUTPUT
           else
-            # Production deployment
-            vercel deploy --prod --token=$VERCEL_TOKEN
+            echo "env=production" >> $GITHUB_OUTPUT
+            echo "service=suwappu-webapp-prod" >> $GITHUB_OUTPUT
+            echo "tag=latest" >> $GITHUB_OUTPUT
+            echo "api_url=https://api.suwappu.bot" >> $GITHUB_OUTPUT
+            echo "url=https://app.suwappu.bot" >> $GITHUB_OUTPUT
           fi
+
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.env.outputs.tag }}
+          VITE_API_URL: ${{ steps.env.outputs.api_url }}
+        run: |
+          cd webapp
+          docker build \
+            --build-arg VITE_API_URL=$VITE_API_URL \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ steps.env.outputs.service }} \
+            --force-new-deployment
+
+      - name: Wait for deployment
+        run: |
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ steps.env.outputs.service }}
 
       - name: Deployment summary
         run: |
@@ -66,6 +95,8 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Environment | ${{ github.event.inputs.environment || 'production' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| URL | https://suwappu.vercel.app |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ steps.env.outputs.env }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| URL | ${{ steps.env.outputs.url }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ECS Service | ${{ steps.env.outputs.service }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | ${{ steps.build-image.outputs.image }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
