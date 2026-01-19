@@ -1,5 +1,6 @@
 import { Context, Effect, Layer } from 'effect'
 import type { Wallet } from '../db'
+import { EnvService } from '../config/EnvService'
 
 // Token balance with USD value
 export interface TokenBalance {
@@ -12,15 +13,17 @@ export interface TokenBalance {
 	decimals: number
 }
 
-// Chain RPC endpoints (use env vars in production)
-const RPC_ENDPOINTS: Record<string, string> = {
-	ethereum: process.env.ETH_RPC_URL || 'https://eth.llamarpc.com',
-	polygon: process.env.POLYGON_RPC_URL || 'https://polygon.llamarpc.com',
-	arbitrum: process.env.ARBITRUM_RPC_URL || 'https://arbitrum.llamarpc.com',
-	optimism: process.env.OPTIMISM_RPC_URL || 'https://optimism.llamarpc.com',
-	base: process.env.BASE_RPC_URL || 'https://base.llamarpc.com',
-	bsc: process.env.BSC_RPC_URL || 'https://bsc.llamarpc.com',
-	solana: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+// Get RPC endpoints from environment (via EnvService)
+function getRpcEndpoints(): Record<string, string> {
+	return {
+		ethereum: process.env.ETH_RPC_URL || 'https://eth.llamarpc.com',
+		polygon: process.env.POLYGON_RPC_URL || 'https://polygon.llamarpc.com',
+		arbitrum: process.env.ARBITRUM_RPC_URL || 'https://arbitrum.llamarpc.com',
+		optimism: process.env.OPTIMISM_RPC_URL || 'https://optimism.llamarpc.com',
+		base: process.env.BASE_RPC_URL || 'https://base.llamarpc.com',
+		bsc: process.env.BSC_RPC_URL || 'https://bsc.llamarpc.com',
+		solana: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+	}
 }
 
 // Native token info by chain
@@ -50,7 +53,7 @@ export class BalanceService extends Context.Tag('BalanceService')<
 
 // Fetch native balance for EVM chains
 async function fetchEvmNativeBalance(address: string, chain: string): Promise<string> {
-	const rpcUrl = RPC_ENDPOINTS[chain]
+	const rpcUrl = getRpcEndpoints()[chain]
 	if (!rpcUrl) return '0'
 
 	try {
@@ -81,7 +84,7 @@ async function fetchEvmNativeBalance(address: string, chain: string): Promise<st
 
 // Fetch SOL balance
 async function fetchSolanaBalance(address: string): Promise<string> {
-	const rpcUrl = RPC_ENDPOINTS.solana
+	const rpcUrl = getRpcEndpoints().solana
 	if (!rpcUrl) return '0'
 
 	try {
