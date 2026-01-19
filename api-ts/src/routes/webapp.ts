@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { Effect, Either, Option } from 'effect'
 import { telegramAuth } from '../middleware'
-import { TelegramAuthService, UserService, WalletService, SwapService, BalanceService, QuoteService } from '../services'
+import { TelegramAuthService, UserService, WalletService, SwapService, BalanceService, QuoteService, PasskeyService } from '../services'
 import { runEffect, runEffectEither } from '../runtime'
 import type { TelegramUser } from '../services/TelegramAuthService'
 import { mapErrorToResponse } from '../errors'
@@ -133,7 +133,231 @@ webappRoutes.post('/validate', async (c) => {
 	})
 })
 
+// =====================
+// Passkey Routes
+// =====================
+
+// POST /webapp/passkey/register/init - Initialize passkey registration
+webappRoutes.post('/passkey/register/init', async (c) => {
+	const initData = c.req.header('X-Telegram-Init-Data')
+
+	if (!initData) {
+		return c.json({ error: 'Telegram authentication required' }, 401)
+	}
+
+	// Validate Telegram auth
+	const userOption = await runEffect(
+		Effect.gen(function* () {
+			const authService = yield* TelegramAuthService
+			return yield* authService.validateInitData(initData)
+		})
+	)
+
+	if (Option.isNone(userOption)) {
+		return c.json({ error: 'Invalid Telegram authentication' }, 401)
+	}
+
+	const telegramUser = userOption.value
+
+	// Get request body
+	const body = await c.req.json().catch(() => ({}))
+	const displayName = body.displayName || telegramUser.first_name
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const passkeyService = yield* PasskeyService
+			return yield* passkeyService.initRegistration(telegramUser.id, displayName)
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message || 'Failed to initialize registration' }, 500)
+	}
+
+	return c.json(result.right)
+})
+
+// POST /webapp/passkey/register/complete - Complete passkey registration
+webappRoutes.post('/passkey/register/complete', async (c) => {
+	const initData = c.req.header('X-Telegram-Init-Data')
+
+	if (!initData) {
+		return c.json({ error: 'Telegram authentication required' }, 401)
+	}
+
+	// Validate Telegram auth
+	const userOption = await runEffect(
+		Effect.gen(function* () {
+			const authService = yield* TelegramAuthService
+			return yield* authService.validateInitData(initData)
+		})
+	)
+
+	if (Option.isNone(userOption)) {
+		return c.json({ error: 'Invalid Telegram authentication' }, 401)
+	}
+
+	const telegramUser = userOption.value
+	const body = await c.req.json()
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const passkeyService = yield* PasskeyService
+			return yield* passkeyService.completeRegistration(telegramUser.id, {
+				credentialId: body.credentialId,
+				attestationObject: body.attestationObject,
+				clientDataJSON: body.clientDataJSON,
+				transports: body.transports,
+			})
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message || 'Failed to complete registration' }, 500)
+	}
+
+	return c.json(result.right)
+})
+
+// POST /webapp/passkey/authenticate/init - Initialize passkey authentication
+webappRoutes.post('/passkey/authenticate/init', async (c) => {
+	const initData = c.req.header('X-Telegram-Init-Data')
+
+	// Telegram auth is optional for authentication (discoverable credentials)
+	let telegramId: number | undefined
+
+	if (initData) {
+		const userOption = await runEffect(
+			Effect.gen(function* () {
+				const authService = yield* TelegramAuthService
+				return yield* authService.validateInitData(initData)
+			})
+		)
+
+		if (Option.isSome(userOption)) {
+			telegramId = userOption.value.id
+		}
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const passkeyService = yield* PasskeyService
+			return yield* passkeyService.initAuthentication(telegramId)
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message || 'Failed to initialize authentication' }, 500)
+	}
+
+	return c.json(result.right)
+})
+
+// POST /webapp/passkey/authenticate/complete - Complete passkey authentication
+webappRoutes.post('/passkey/authenticate/complete', async (c) => {
+	const body = await c.req.json()
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const passkeyService = yield* PasskeyService
+			return yield* passkeyService.completeAuthentication({
+				credentialId: body.credentialId,
+				authenticatorData: body.authenticatorData,
+				clientDataJSON: body.clientDataJSON,
+				signature: body.signature,
+				userHandle: body.userHandle,
+			})
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message || 'Authentication failed' }, 401)
+	}
+
+	return c.json(result.right)
+})
+
+// GET /webapp/passkey/wallets - Get user's Turnkey wallets
+webappRoutes.get('/passkey/wallets', async (c) => {
+	const initData = c.req.header('X-Telegram-Init-Data')
+
+	if (!initData) {
+		return c.json({ error: 'Telegram authentication required' }, 401)
+	}
+
+	// Validate Telegram auth
+	const userOption = await runEffect(
+		Effect.gen(function* () {
+			const authService = yield* TelegramAuthService
+			return yield* authService.validateInitData(initData)
+		})
+	)
+
+	if (Option.isNone(userOption)) {
+		return c.json({ error: 'Invalid Telegram authentication' }, 401)
+	}
+
+	const telegramUser = userOption.value
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const passkeyService = yield* PasskeyService
+			return yield* passkeyService.getWallets(telegramUser.id)
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message || 'Failed to get wallets' }, 500)
+	}
+
+	return c.json(result.right)
+})
+
+// POST /webapp/passkey/wallets - Create a new Turnkey wallet
+webappRoutes.post('/passkey/wallets', async (c) => {
+	const initData = c.req.header('X-Telegram-Init-Data')
+
+	if (!initData) {
+		return c.json({ error: 'Telegram authentication required' }, 401)
+	}
+
+	// Validate Telegram auth
+	const userOption = await runEffect(
+		Effect.gen(function* () {
+			const authService = yield* TelegramAuthService
+			return yield* authService.validateInitData(initData)
+		})
+	)
+
+	if (Option.isNone(userOption)) {
+		return c.json({ error: 'Invalid Telegram authentication' }, 401)
+	}
+
+	const telegramUser = userOption.value
+	const body = await c.req.json()
+
+	const chainType = body.chainType || 'evm'
+	if (chainType !== 'evm' && chainType !== 'solana') {
+		return c.json({ error: 'Invalid chainType. Must be "evm" or "solana"' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const passkeyService = yield* PasskeyService
+			return yield* passkeyService.createWallet(telegramUser.id, chainType, body.name)
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message || 'Failed to create wallet' }, 500)
+	}
+
+	return c.json(result.right)
+})
+
+// =====================
 // Protected webapp routes
+// =====================
 const protectedWebapp = new Hono()
 protectedWebapp.use('*', telegramAuth())
 

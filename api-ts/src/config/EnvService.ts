@@ -45,6 +45,31 @@ export const EnvSchema = Schema.Struct({
 	ALLOWED_ORIGINS: Schema.optionalWith(Schema.String, {
 		default: () => 'https://app.suwappu.bot,https://devfront.suwappu.bot,http://localhost:3000,http://localhost:5173',
 	}),
+
+	// Turnkey Configuration
+	TURNKEY_ORGANIZATION_ID: Schema.optional(Schema.String),
+	TURNKEY_API_PUBLIC_KEY: Schema.optional(Schema.String),
+	TURNKEY_API_PRIVATE_KEY: Schema.optional(Schema.String),
+	TURNKEY_BASE_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://api.turnkey.com',
+	}),
+
+	// JWT Configuration
+	JWT_SECRET: Schema.optionalWith(Schema.String, {
+		default: () => 'development-secret-change-in-production',
+	}),
+	JWT_EXPIRY_HOURS: Schema.optionalWith(Schema.NumberFromString, { default: () => 24 }),
+
+	// WebAuthn Configuration
+	WEBAUTHN_RP_ID: Schema.optionalWith(Schema.String, {
+		default: () => 'suwappu.bot',
+	}),
+	WEBAUTHN_RP_NAME: Schema.optionalWith(Schema.String, {
+		default: () => 'Suwappu',
+	}),
+	WEBAUTHN_ORIGIN: Schema.optionalWith(Schema.String, {
+		default: () => 'https://app.suwappu.bot',
+	}),
 })
 
 export type Env = Schema.Schema.Type<typeof EnvSchema>

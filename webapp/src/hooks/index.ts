@@ -9,6 +9,19 @@ export type { QuoteResponse, TokenListResponse } from '../lib/api'
 // Auth hooks
 export { useAuth } from './useAuth'
 export { useTelegram } from './useTelegram'
+export {
+  useAuthSession,
+  useAuthState,
+  usePasskeySupport,
+  useAuthLinkedWallets,
+  useAuthTurnkeyWallets,
+  usePasskeyRegister,
+  usePasskeyAuthenticate,
+  useCreateTurnkeyWallet,
+  useLogout,
+  authKeys,
+  type AuthSession,
+} from './useAuthQuery'
 
 // Wallet hooks
 export { useWalletConnection } from './useWalletConnection'

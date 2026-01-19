@@ -1,7 +1,8 @@
 import { useEffect, useMemo } from 'react'
 import { RouterProvider } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { AuthProvider } from './contexts/AuthContext'
+import { useAuthSession } from './hooks'
 import { useTelegram } from './hooks/useTelegram'
 import { createAppRouter } from './router'
 import './theme/suwappu.css'
@@ -16,19 +17,23 @@ const queryClient = new QueryClient({
   },
 })
 
-// Inner app with router - needs auth context
+// Inner app with router - uses TanStack Query for auth state
 function AppWithRouter() {
-  const { isAuthenticated, isLoading } = useAuth()
+  // Use TanStack Query-based auth hook for router context
+  const { data: session, isLoading } = useAuthSession()
   const { webApp, colorScheme } = useTelegram()
 
-  // Create router with context
+  // Create router with context - updates when auth state changes
   const router = useMemo(
     () =>
       createAppRouter({
         queryClient,
-        auth: { isAuthenticated, isLoading },
+        auth: {
+          isAuthenticated: session?.isAuthenticated ?? false,
+          isLoading,
+        },
       }),
-    [isAuthenticated, isLoading]
+    [session?.isAuthenticated, isLoading]
   )
 
   useEffect(() => {
