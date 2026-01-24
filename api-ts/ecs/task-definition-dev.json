@@ -1,7 +1,9 @@
 {
   "family": "suwappu-api-ts-dev",
   "networkMode": "awsvpc",
-  "requiresCompatibilities": ["FARGATE"],
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
   "cpu": "256",
   "memory": "512",
   "executionRoleArn": "arn:aws:iam::905418423235:role/SuwappuStack-SuwappuTaskExecutionRole23EC76C6-U9AyrZNZlcfs",
@@ -18,9 +20,18 @@
         }
       ],
       "environment": [
-        {"name": "NODE_ENV", "value": "development"},
-        {"name": "PORT", "value": "8000"},
-        {"name": "ALLOWED_ORIGINS", "value": "https://devfront.suwappu.bot,https://app.suwappu.bot,http://localhost:3000,http://localhost:5173"}
+        {
+          "name": "NODE_ENV",
+          "value": "development"
+        },
+        {
+          "name": "PORT",
+          "value": "8000"
+        },
+        {
+          "name": "ALLOWED_ORIGINS",
+          "value": "https://devfront.suwappu.bot,https://app.suwappu.bot,http://localhost:3000,http://localhost:5173"
+        }
       ],
       "secrets": [
         {
@@ -61,7 +72,10 @@
         }
       },
       "healthCheck": {
-        "command": ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8000/health || exit 1"],
+        "command": [
+          "CMD-SHELL",
+          "bun -e \"fetch('http://localhost:8000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""
+        ],
         "interval": 30,
         "timeout": 5,
         "retries": 3,

@@ -24,6 +24,10 @@ env:
   ECR_REPOSITORY: suwappu-webapp
   ECS_CLUSTER: suwappu-cluster
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   deploy:
     name: Build and Deploy
@@ -36,8 +40,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -56,7 +59,7 @@ jobs:
           else
             echo "env=production" >> $GITHUB_OUTPUT
             echo "service=suwappu-webapp-prod" >> $GITHUB_OUTPUT
-            echo "tag=latest" >> $GITHUB_OUTPUT
+            echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
             echo "api_url=https://api.suwappu.bot" >> $GITHUB_OUTPUT
             echo "url=https://app.suwappu.bot" >> $GITHUB_OUTPUT
           fi
@@ -76,11 +79,21 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.env.outputs.tag }}'
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+
       - name: Deploy to ECS
         run: |
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER }} \
             --service ${{ steps.env.outputs.service }} \
+            --deployment-configuration "deploymentCircuitBreaker={enable=true,rollback=true}" \
             --force-new-deployment
 
       - name: Wait for deployment
