@@ -93,11 +93,16 @@ def read_requirements():
     
     return requirements
 
+# Version logic
+def get_version():
+    return "1.0.0"
+
 
 setup(
     name="suwappubot",
-    version="1.0.0",
+    version=get_version(),
     author="Suwappu Team",
+    author_email="team@suwappu.com",
     description="Cross-chain swap Telegram bot with C++ high-performance core",
     long_description=open("README.md").read() if os.path.exists("README.md") else "",
     long_description_content_type="text/markdown",

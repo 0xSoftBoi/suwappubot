@@ -6,12 +6,12 @@
   ],
   "cpu": "256",
   "memory": "512",
-  "executionRoleArn": "arn:aws:iam::905418423235:role/SuwappuStack-SuwappuTaskExecutionRole23EC76C6-U9AyrZNZlcfs",
-  "taskRoleArn": "arn:aws:iam::905418423235:role/SuwappuStack-SuwappuTaskTaskRoleB8E1A138-WPL93Pi0RLpk",
+  "executionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/SuwappuStack-SuwappuTaskExecutionRole23EC76C6-U9AyrZNZlcfs",
+  "taskRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/SuwappuStack-SuwappuTaskTaskRoleB8E1A138-WPL93Pi0RLpk",
   "containerDefinitions": [
     {
       "name": "api-ts",
-      "image": "905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu-api-ts:development",
+      "image": "${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/suwappu-api-ts:development",
       "essential": true,
       "portMappings": [
         {
@@ -36,31 +36,31 @@
       "secrets": [
         {
           "name": "DATABASE_URL",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:905418423235:secret:suwappu/app-secrets-DjSwC3:DATABASE_URL::"
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:${AWS_ACCOUNT_ID}:secret:suwappu/app-secrets-DjSwC3:DATABASE_URL::"
         },
         {
           "name": "TELEGRAM_BOT_TOKEN",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:905418423235:secret:suwappu/app-secrets-DjSwC3:TELEGRAM_BOT_TOKEN::"
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:${AWS_ACCOUNT_ID}:secret:suwappu/app-secrets-DjSwC3:TELEGRAM_BOT_TOKEN::"
         },
         {
           "name": "AGENT_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:905418423235:secret:suwappu/db-credentials-mAlclG:AGENT_API_KEY::"
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:${AWS_ACCOUNT_ID}:secret:suwappu/db-credentials-mAlclG:AGENT_API_KEY::"
         },
         {
           "name": "ALCHEMY_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:905418423235:secret:suwappu/app-secrets-DjSwC3:ALCHEMY_API_KEY::"
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:${AWS_ACCOUNT_ID}:secret:suwappu/app-secrets-DjSwC3:ALCHEMY_API_KEY::"
         },
         {
           "name": "LIFI_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:905418423235:secret:suwappu/app-secrets-DjSwC3:LIFI_API_KEY::"
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:${AWS_ACCOUNT_ID}:secret:suwappu/app-secrets-DjSwC3:LIFI_API_KEY::"
         },
         {
           "name": "WHATSAPP_ACCESS_TOKEN",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:905418423235:secret:suwappu/app-secrets-DjSwC3:WHATSAPP_ACCESS_TOKEN::"
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:${AWS_ACCOUNT_ID}:secret:suwappu/app-secrets-DjSwC3:WHATSAPP_ACCESS_TOKEN::"
         },
         {
           "name": "ADMIN_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:905418423235:secret:suwappu/app-secrets-DjSwC3:ADMIN_API_KEY::"
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:${AWS_ACCOUNT_ID}:secret:suwappu/app-secrets-DjSwC3:ADMIN_API_KEY::"
         }
       ],
       "logConfiguration": {
