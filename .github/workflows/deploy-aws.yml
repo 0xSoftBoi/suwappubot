@@ -15,7 +15,7 @@ env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: suwappu
   ECS_CLUSTER: suwappu-cluster
-  ECS_SERVICE: SuwappuStack-SuwappuService
+  ECS_SERVICE: SuwappuStack-SuwappuService # Update this to match your actual service name
   CONTAINER_NAME: suwappu
 
 permissions:
@@ -78,6 +78,11 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: List ECS services (Debug)
+        run: |
+          echo "Listing services in cluster ${{ env.ECS_CLUSTER }}:"
+          aws ecs list-services --cluster ${{ env.ECS_CLUSTER }} --region ${{ env.AWS_REGION }}
 
       - name: Download task definition
         run: |

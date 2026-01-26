@@ -18,13 +18,13 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/* \
     && which curl || (echo "curl not found!" && exit 1)
 
-# Copy requirements first for better caching
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir psycopg2-binary gunicorn
-
 # Copy application code
 COPY . .
+
+# Install dependencies and build C++ extension
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir psycopg2-binary gunicorn
+RUN pip install -e .
 
 # Make scripts executable
 RUN chmod +x scripts/*.sh

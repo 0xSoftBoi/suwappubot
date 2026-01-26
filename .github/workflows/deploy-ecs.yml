@@ -132,6 +132,12 @@ jobs:
           echo "Deploying to ${{ steps.env.outputs.ENVIRONMENT }} environment..."
           echo "Service: ${{ steps.env.outputs.ECS_SERVICE }}"
 
+          # Check if service exists
+          if ! aws ecs describe-services --cluster ${{ env.ECS_CLUSTER }} --services ${{ steps.env.outputs.ECS_SERVICE }} --region ${{ env.AWS_REGION }} --query 'services[0].status' --output text | grep -q "ACTIVE"; then
+            echo "Error: Service ${{ steps.env.outputs.ECS_SERVICE }} not found or not active in cluster ${{ env.ECS_CLUSTER }}"
+            exit 1
+          fi
+
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER }} \
             --service ${{ steps.env.outputs.ECS_SERVICE }} \
@@ -144,7 +150,8 @@ jobs:
         run: |
           aws ecs wait services-stable \
             --cluster ${{ env.ECS_CLUSTER }} \
-            --services ${{ steps.env.outputs.ECS_SERVICE }}
+            --services ${{ steps.env.outputs.ECS_SERVICE }} \
+            --region ${{ env.AWS_REGION }}
 
           echo "Deployment complete!"
 

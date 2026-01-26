@@ -33,3 +33,4 @@ PyJWT>=2.8.0
 web3==6.15.1
 ecdsa>=0.18.0
 rlp>=3.0.0
+werkzeug>=1.0.1
