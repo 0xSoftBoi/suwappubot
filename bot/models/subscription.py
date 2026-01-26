@@ -32,14 +32,7 @@ class Subscription(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)
     tier = Column(SQLEnum(SubscriptionTier), default=SubscriptionTier.FREE)
     
-    # Token-gated access
-    token_address = Column(String(64), nullable=True)  # Token contract address
-    token_chain = Column(String(32), nullable=True)  # Chain where token is held
-    min_token_balance = Column(Float, default=0)  # Minimum balance required
-    
-    # Time-based subscription
-    started_at = Column(DateTime, default=datetime.utcnow)
-    expires_at = Column(DateTime, nullable=True)  # None = lifetime/token-gated
+    expires_at = Column(DateTime, nullable=True)  # Duration-based expiry
     
     # Usage tracking
     api_calls_today = Column(Integer, default=0)
@@ -87,29 +80,6 @@ class X402Payment(Base):
     user = relationship("User", backref="x402_payments")
 
 
-class TokenGate(Base):
-    """Token gate configuration for features."""
-    __tablename__ = "token_gates"
-    
-    id = Column(Integer, primary_key=True)
-    
-    # Gate configuration
-    name = Column(String(64), nullable=False)
-    description = Column(Text, nullable=True)
-    
-    # Token requirements
-    token_address = Column(String(64), nullable=False)
-    token_symbol = Column(String(16), nullable=False)
-    chain = Column(String(32), default="ethereum")
-    min_balance = Column(Float, default=1.0)
-    
-    # What it unlocks
-    feature = Column(String(64), nullable=False)  # Feature key
-    tier_granted = Column(SQLEnum(SubscriptionTier), default=SubscriptionTier.PRO)
-    
-    # Status
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class APICredit(Base):

@@ -404,91 +404,192 @@ class OrderService:
             await asyncio.sleep(self._check_interval)
     
     async def _execute_limit_order(self, order: LimitOrder):
-        """Execute a triggered limit order."""
+        """Execute a triggered limit order using SwapEngine."""
         if not self._swap_engine:
-            logger.error("No swap engine configured for order execution")
+            logger.error("No swap engine configured for Limit Order execution")
             return
         
+        logger.info(f"Executing Limit Order {order.id} ({order.order_type}) for user {order.user_id}")
+        
         try:
-            # Execute swap
-            # This would call swap_engine.execute_swap()
-            # For now, just mark as executed
-            with get_session() as session:
-                db_order = session.query(LimitOrder).filter(LimitOrder.id == order.id).first()
-                if db_order:
-                    db_order.status = OrderStatus.EXECUTED.value
-                    db_order.executed_at = datetime.utcnow()
+            # 1. Get Wallet
+            from bot.services.wallet import WalletService
+            ws = WalletService()
+            wallet = ws.get_wallet_by_id(order.wallet_id)
             
-            # Notify user
-            if self._bot:
-                await self._notify_order_executed(order)
+            if not wallet:
+                logger.error(f"Wallet {order.wallet_id} not found for Limit Order {order.id}")
+                return
+
+            # 2. Get Quote
+            # Note: order.amount is stored as raw string
+            # We need to convert it to human-readable for SwapEngine.get_quote
+            from bot.config.tokens import get_token_decimals
+            decimals = get_token_decimals(order.from_token, order.from_chain)
+            amount_human = float(order.amount) / (10 ** decimals)
+            
+            quote = await self._swap_engine.get_quote(
+                from_chain=order.from_chain,
+                to_chain=order.to_chain,
+                from_token=order.from_token,
+                to_token=order.to_token,
+                amount=amount_human,
+                from_address=wallet.address,
+                slippage=order.slippage
+            )
+            
+            # 3. Execute Swap
+            idempotency_key = f"lo:{order.id}:{datetime.utcnow().strftime('%Y%m%d%H')}"
+            
+            swap_tx = await self._swap_engine.execute_swap(
+                quote=quote,
+                wallet_id=order.wallet_id,
+                user_id=order.user_id,
+                idempotency_key=idempotency_key,
+            )
+            
+            # 4. Update status on submission
+            if swap_tx and swap_tx.status in ["submitted", "completed"]:
+                with get_session() as session:
+                    db_order = session.query(LimitOrder).filter(LimitOrder.id == order.id).first()
+                    if db_order:
+                        db_order.status = OrderStatus.EXECUTED.value
+                        db_order.executed_at = datetime.utcnow()
+                        db_order.tx_hash = swap_tx.tx_hash
                 
+                # Notify user
+                if self._bot:
+                    await self._notify_order_executed(order, swap_tx)
+            
         except Exception as e:
-            logger.error(f"Limit order execution failed: {e}")
+            logger.error(f"Limit order execution failed for order {order.id}: {e}")
             with get_session() as session:
                 db_order = session.query(LimitOrder).filter(LimitOrder.id == order.id).first()
                 if db_order:
                     db_order.status = OrderStatus.FAILED.value
     
     async def _execute_dca_order(self, order: DCAOrder):
-        """Execute a DCA order."""
+        """Execute a due DCA order using SwapEngine."""
         if not self._swap_engine:
+            logger.error("No swap engine configured for DCA execution")
             return
         
+        logger.info(f"Executing DCA order {order.id} for user {order.user_id}")
+        
         try:
-            # Execute swap
-            # For now, just update stats
-            with get_session() as session:
-                db_order = session.query(DCAOrder).filter(DCAOrder.id == order.id).first()
-                if db_order:
-                    db_order.executions_completed += 1
-                    db_order.next_execution_at = datetime.utcnow() + timedelta(hours=db_order.interval_hours)
+            # 1. Get Quote
+            from bot.services.wallet import WalletService
+            ws = WalletService()
+            wallet = ws.get_wallet_by_id(order.wallet_id)
             
-            # Notify user
-            if self._bot:
-                await self._notify_dca_executed(order)
+            if not wallet:
+                logger.error(f"Wallet {order.wallet_id} not found for DCA {order.id}")
+                return
+
+            # Convert amount for quote
+            # Note: order.amount_per_execution is stored as string raw amount
+            amount_human = float(order.amount_per_execution) / (10**18) # Simplified, should use token decimals
+            
+            quote = await self._swap_engine.get_quote(
+                from_chain=order.from_chain,
+                to_chain=order.to_chain,
+                from_token=order.from_token,
+                to_token=order.to_token,
+                amount=amount_human,
+                from_address=wallet.address,
+            )
+            
+            # 2. Execute Swap
+            idempotency_key = f"dca:{order.id}:{order.executions_completed}:{datetime.utcnow().strftime('%Y%m%d%H')}"
+            
+            swap_tx = await self._swap_engine.execute_swap(
+                quote=quote,
+                wallet_id=order.wallet_id,
+                user_id=order.user_id,
+                idempotency_key=idempotency_key,
+            )
+            
+            # 3. Update DCA Stats on success
+            if swap_tx and swap_tx.status in ["submitted", "completed"]:
+                with get_session() as session:
+                    db_order = session.query(DCAOrder).filter(DCAOrder.id == order.id).first()
+                    if db_order:
+                        db_order.executions_completed += 1
+                        db_order.total_spent = str(int(db_order.total_spent) + int(order.amount_per_execution))
+                        # Update next execution time
+                        db_order.next_execution_at = datetime.utcnow() + timedelta(hours=db_order.interval_hours)
+                        
+                        # Record individual execution
+                        execution = DCAExecution(
+                            dca_order_id=order.id,
+                            amount_spent=order.amount_per_execution,
+                            amount_received=swap_tx.to_amount,
+                            price=quote.exchange_rate,
+                            tx_hash=swap_tx.tx_hash,
+                        )
+                        session.add(execution)
                 
+                # Notify user
+                if self._bot:
+                    await self._notify_dca_executed(order, swap_tx)
+            
         except Exception as e:
-            logger.error(f"DCA execution failed: {e}")
+            logger.error(f"DCA execution failed for order {order.id}: {e}")
+            # If it fails, we might want to retry later or pause it
+            # For now, just log and wait for next interval
     
-    async def _notify_order_executed(self, order: LimitOrder):
+    async def _notify_order_executed(self, order: LimitOrder, swap_tx=None):
         """Notify user of executed limit order."""
         try:
             from bot.models.user import User
             with get_session() as session:
                 user = session.query(User).filter(User.id == order.user_id).first()
                 if user:
+                    tx_info = ""
+                    if swap_tx and swap_tx.tx_hash:
+                        from bot.utils.formatters import format_tx_link
+                        tx_info = f"\n🔗 [View Transaction]({format_tx_link(swap_tx.tx_hash, order.from_chain)})"
+
                     text = (
                         f"✅ *Limit Order Executed!*\n\n"
-                        f"Type: {order.order_type}\n"
+                        f"Type: {order.order_type.upper()}\n"
                         f"Swap: {order.from_token} → {order.to_token}\n"
-                        f"Price: ${order.execution_price:.4f}"
+                        f"Trigger price: ${order.trigger_price:.4f}"
+                        f"{tx_info}"
                     )
                     await self._bot.send_message(
                         chat_id=user.telegram_id,
                         text=text,
                         parse_mode="Markdown",
+                        disable_web_page_preview=True
                     )
         except Exception as e:
             logger.error(f"Order notification failed: {e}")
     
-    async def _notify_dca_executed(self, order: DCAOrder):
+    async def _notify_dca_executed(self, order: DCAOrder, swap_tx=None):
         """Notify user of executed DCA."""
         try:
             from bot.models.user import User
             with get_session() as session:
                 user = session.query(User).filter(User.id == order.user_id).first()
                 if user:
+                    tx_info = ""
+                    if swap_tx and swap_tx.tx_hash:
+                        from bot.utils.formatters import format_tx_link
+                        tx_info = f"\n🔗 [View Transaction]({format_tx_link(swap_tx.tx_hash, order.from_chain)})"
+                        
                     text = (
-                        f"📊 *DCA Executed!*\n\n"
-                        f"Bought: {order.to_token}\n"
-                        f"Spent: {order.amount_per_execution} {order.from_token}\n"
-                        f"Progress: {order.executions_completed}/{order.max_executions or '∞'}"
+                        f"📊 *DCA Trade Executed!*\n\n"
+                        f"Order: {order.from_token} → {order.to_token}\n"
+                        f"Progress: {order.executions_completed}/{order.max_executions or '∞'}\n"
+                        f"Next execution: {order.next_execution_at.strftime('%Y-%m-%d %H:%M')}UTC"
+                        f"{tx_info}"
                     )
                     await self._bot.send_message(
                         chat_id=user.telegram_id,
                         text=text,
                         parse_mode="Markdown",
+                        disable_web_page_preview=True
                     )
         except Exception as e:
             logger.error(f"DCA notification failed: {e}")

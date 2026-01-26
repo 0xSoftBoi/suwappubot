@@ -9,6 +9,7 @@ from bot.models.swap import SwapTransaction, SwapStatus
 from bot.utils.formatters import format_amount, format_usd, format_tx_link, format_chain_name
 from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
+from bot.services.pnl import pnl_service
 
 
 @enforce_tos
@@ -69,19 +70,20 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             lines.append(line)
             lines.append("")
         
-        # Stats
-        total_swaps = len(swaps)
-        completed = sum(1 for s in swaps if s.status == SwapStatus.COMPLETED.value)
+        lines.append(f"_Showing last {total_swaps} swaps_")
         
-        lines.append(f"_Showing last {total_swaps} swaps ({completed} completed)_")
-        
-        keyboard = [
-            [
-                InlineKeyboardButton("🔄 New Swap", callback_data="swap_start"),
-                InlineKeyboardButton("📊 Stats", callback_data="history_stats"),
-            ],
-            [InlineKeyboardButton("« Back", callback_data="main_menu")],
-        ]
+        keyboard = []
+        # Add Share button for the most recent completed swap (as a demo)
+        recent_completed = [s for s in swaps if s.status == SwapStatus.COMPLETED.value]
+        if recent_completed:
+            s = recent_completed[0]
+            keyboard.append([InlineKeyboardButton(f"🖼️ Share PNL ({s.to_token})", callback_data=f"pnl_share_{s.id}")])
+            
+        keyboard.append([
+            InlineKeyboardButton("🔄 New Swap", callback_data="swap_start"),
+            InlineKeyboardButton("📊 Stats", callback_data="history_stats"),
+        ])
+        keyboard.append([InlineKeyboardButton("« Back", callback_data="main_menu")])
         
         await update.message.reply_text(
             "\n".join(lines),
@@ -182,6 +184,49 @@ def _get_status_emoji(status: str) -> str:
         SwapStatus.CANCELLED.value: "🚫",
     }.get(status, "❓")
 
+
+async def share_pnl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Generate and show PNL sharing card."""
+    query = update.callback_query
+    await query.answer()
+    
+    swap_id = int(query.data.replace("pnl_share_", ""))
+    data = await pnl_service.get_swap_pnl_data(swap_id)
+    
+    if not data:
+        await query.message.reply_text("❌ Could not calculate PNL. Token might be too new or price data unavailable.")
+        return
+        
+    roi = data["roi_percent"]
+    roi_emoji = "🚀" if roi > 10 else ("📈" if roi > 0 else "📉")
+    color_bar = "🟢" * 5 if roi > 0 else "🔴" * 5
+    
+    card_text = (
+        f"{roi_emoji} *SUWAPPU PNL CARD*\n"
+        f"{color_bar}\n\n"
+        f"Token: *{data['token']}*\n"
+        f"ROI: *{roi:+.2f}%*\n"
+        f"Profit: *{format_usd(data['profit_usd'])}*\n\n"
+        f"Entry: ${data['entry_price']:.6f}\n"
+        f"Current: ${data['current_price']:.6f}\n\n"
+        f"🤖 *Swapped via Suwappu Bot*"
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton("🐦 Share on X (Twitter)", url=f"https://twitter.com/intent/tweet?text=Just%20made%20{roi:.1f}%25%20profit%20using%20SuwappuBot!%20%23Suwappu%20%23Solana")],
+        [InlineKeyboardButton("« Back to History", callback_data="history")]
+    ]
+    
+    await query.edit_message_text(
+        card_text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+# Individual callbacks
+history_callback = CallbackQueryHandler(history_command, pattern="^history$")
+share_pnl_handler = CallbackQueryHandler(share_pnl_callback, pattern="^pnl_share_")
 
 # Create handlers
 history_handler = CommandHandler("hx", history_command)

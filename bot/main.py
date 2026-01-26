@@ -18,7 +18,7 @@ from bot.handlers.start import (
 from bot.handlers.balance import balance_handler, balance_callback
 from bot.handlers.wallet import wallet_handler, wallet_menu_callback, wallet_create_callback, wallet_qr_callback, wallet_import_handler
 from bot.handlers.swap import swap_conversation_handler, check_swap_status
-from bot.handlers.history import history_handler
+from bot.handlers.history import history_handler, history_callback, share_pnl_handler
 from bot.handlers.portfolio import portfolio_handler, portfolio_callback
 from bot.handlers.gas import gas_handler, gas_callback
 from bot.handlers.favorites import favorites_handler, favorites_callback, use_favorite_callback, delete_favorite_callback
@@ -40,7 +40,10 @@ from bot.handlers.referral import (
     referral_handler, ref_menu_callback_handler, ref_list_callback_handler, ref_claim_callback_handler,
     fees_command_handler, rewards_command_handler, fees_callback_handler, rewards_callback_handler
 )
-from bot.handlers.limit_orders import orders_handler, dca_handler, limit_order_conversation
+from bot.handlers.limit_orders import (
+    orders_handler, dca_handler, limit_order_conversation,
+    dca_view_handler, dca_actions_handler, dca_menu_callback
+)
 from bot.handlers.tax import (
     tax_handler, tax_year_callback_handler, tax_download_callback_handler, tax_menu_callback_handler
 )
@@ -53,7 +56,7 @@ from bot.handlers.admin_performance import (
 )
 from bot.handlers.subscription import (
     subscription_handler, subscription_conversation,
-    sub_compare_callback, sub_tokengate_callback, sub_back_callback
+    sub_compare_callback, sub_back_callback
 )
 # Points/XP system handlers
 from bot.handlers.points import (
@@ -231,6 +234,11 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(fees_refresh_callback, pattern="^fees_refresh$"))
     application.add_handler(CallbackQueryHandler(sweep_fees_callback, pattern="^sweep_all_fees$"))
     
+    # DCA management
+    application.add_handler(dca_view_handler)
+    application.add_handler(dca_actions_handler)
+    application.add_handler(dca_menu_callback)
+    
     # Alerts
     application.add_handler(CallbackQueryHandler(alerts_menu_callback, pattern="^alerts_menu$"))
     
@@ -262,7 +270,6 @@ def add_handlers(application: Application) -> None:
     
     # x402 Subscription
     application.add_handler(sub_compare_callback)
-    application.add_handler(sub_tokengate_callback)
     application.add_handler(sub_back_callback)
     
     # Points/XP callbacks

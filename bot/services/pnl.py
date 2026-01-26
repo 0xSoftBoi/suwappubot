@@ -301,6 +301,44 @@ class PnLService:
                 "tier": stats.tier,
             }
 
+    async def get_swap_pnl_data(self, swap_id: int) -> Optional[Dict]:
+        """Get P&L data for a specific swap (ROI since trade)."""
+        with get_session() as session:
+            swap = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
+            if not swap or swap.status != "completed":
+                return None
+            
+            # Get current price of the 'to' token
+            prices = await price_service.get_prices([swap.to_token])
+            current_price = prices.get(swap.to_token, 0)
+            
+            if current_price == 0:
+                return None
+                
+            # Initial price (at time of swap)
+            # Calculated from from_amount (USD) / to_amount
+            try:
+                to_amount = float(swap.to_amount) / (10**6) # Simplified decimals
+                from_usd = float(swap.from_amount_usd) if swap.from_amount_usd else 0
+                if to_amount == 0: return None
+                
+                entry_price = from_usd / to_amount
+                roi_percent = ((current_price - entry_price) / entry_price) * 100
+                total_profit_usd = (current_price - entry_price) * to_amount
+                
+                return {
+                    "token": swap.to_token,
+                    "entry_price": entry_price,
+                    "current_price": current_price,
+                    "roi_percent": roi_percent,
+                    "profit_usd": total_profit_usd,
+                    "is_profit": roi_percent > 0,
+                    "chain": swap.to_chain,
+                }
+            except Exception as e:
+                logger.error(f"Error calculating swap PNL card: {e}")
+                return None
+
 
 # Global instance
 pnl_service = PnLService()

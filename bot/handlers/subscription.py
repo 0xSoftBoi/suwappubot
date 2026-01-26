@@ -56,13 +56,10 @@ async def subscription_command(update: Update, context: ContextTypes.DEFAULT_TYP
     
     if sub.expires_at:
         message += f"\n⏰ **Expires:** {sub.expires_at.strftime('%Y-%m-%d')}"
-    elif sub.token_address:
-        message += f"\n🔐 **Token-Gated:** Hold {sub.min_token_balance} tokens"
     
     # Build keyboard
     keyboard = [
         [InlineKeyboardButton("⬆️ Upgrade Plan", callback_data="sub_upgrade")],
-        [InlineKeyboardButton("🔐 Token Gate Access", callback_data="sub_tokengate")],
         [InlineKeyboardButton("🎟️ Enter Beta Code", callback_data="sub_beta")],
         [InlineKeyboardButton("📊 Compare Plans", callback_data="sub_compare")],
     ]
@@ -108,9 +105,6 @@ async def compare_plans_callback(update: Update, context: ContextTypes.DEFAULT_T
 • All features
 • Priority support
 
-━━━━━━━━━━━━━━━
-💡 **Token Gate Access**
-Hold tokens to unlock tiers without paying!
 """
     
     keyboard = [
@@ -304,57 +298,6 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     return ConversationHandler.END
 
 
-async def token_gate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show token gate options."""
-    query = update.callback_query
-    await query.answer()
-    
-    user = update.effective_user
-    
-    with get_session() as session:
-        db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        if not db_user:
-            await query.edit_message_text("❌ Please use /start first.")
-            return
-        user_id = db_user.id
-    
-    # Check available token gates
-    qualified_gates = await x402_service.check_token_gates(user_id)
-    
-    message = """
-🔐 **Token Gate Access**
-
-Hold specific tokens to unlock subscription tiers without monthly payments!
-
-**Available Token Gates:**
-"""
-    
-    if qualified_gates:
-        message += "\n✅ **You qualify for:**\n"
-        for gate in qualified_gates:
-            message += f"• {gate.name} ({gate.tier_granted.value.upper()})\n"
-    else:
-        message += "\n❌ You don't currently qualify for any token gates.\n"
-    
-    message += """
-━━━━━━━━━━━━━━━
-
-**Popular Token Gates:**
-• Hold 1000+ SUWAPPU → PRO access
-• Hold 10000+ SUWAPPU → PREMIUM access
-• Hold 100+ UNI → PRO access
-"""
-    
-    keyboard = [
-        [InlineKeyboardButton("🔄 Check My Tokens", callback_data="sub_check_tokens")],
-        [InlineKeyboardButton("🔙 Back", callback_data="sub_back")],
-    ]
-    
-    await query.edit_message_text(
-        message,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
 
 
 async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -477,6 +420,5 @@ subscription_conversation = ConversationHandler(
 )
 
 sub_compare_callback = CallbackQueryHandler(compare_plans_callback, pattern="^sub_compare$")
-sub_tokengate_callback = CallbackQueryHandler(token_gate_callback, pattern="^sub_tokengate$")
 sub_back_callback = CallbackQueryHandler(back_callback, pattern="^sub_back$")
 

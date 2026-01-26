@@ -518,6 +518,43 @@ class TokenAnalyzer:
             self._cache.pop(token_mint, None)
         else:
             self._cache.clear()
+    def get_shield_emoji(self, score: int) -> str:
+        """Get safety shield emoji based on score."""
+        if score >= 80: return "🛡️"
+        if score >= 60: return "⚠️"
+        if score >= 40: return "🚨"
+        return "🚫"
+
+    def get_safety_summary(self, report: TokenSafetyReport) -> str:
+        """Generate a formatted safety summary string for Telegram."""
+        shield = self.get_shield_emoji(report.safety_score)
+        
+        summary = [
+            f"{shield} *Security Score: {report.safety_score}/100*",
+            f"Risk Level: {report.risk_level.value.upper()}",
+            ""
+        ]
+        
+        if report.is_honeypot:
+            summary.append("🚫 *HONEYPOT DETECTED*")
+        
+        # Add key metrics
+        summary.append(f"{'✅' if report.mint_authority_revoked else '❌'} Mint Authority Revoked")
+        summary.append(f"{'✅' if report.freeze_authority_revoked else '❌'} Freeze Authority Revoked")
+        
+        if report.sell_tax is not None:
+            summary.append(f"💰 Sell Tax: {report.sell_tax:.1f}%")
+            
+        if report.top_10_percentage > 0:
+            summary.append(f"👥 Top 10 Holders: {report.top_10_percentage:.1f}%")
+            
+        # Add high-level warnings
+        if report.warnings:
+            summary.append("\n*Warnings:*")
+            for warning in report.warnings[:3]:  # Top 3 warnings
+                summary.append(f"• {warning}")
+                
+        return "\n".join(summary)
 
 
 # Global instance

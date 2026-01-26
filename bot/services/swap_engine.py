@@ -1450,3 +1450,46 @@ class SwapEngine:
                 return SwapStatus.CONFIRMING.value
         except Exception:
             return SwapStatus.CONFIRMING.value
+    async def execute_multi_swap(
+        self,
+        quotes_with_wallets: List[tuple[SwapQuote, int]],
+        user_id: int,
+        attempt_id: str,
+    ) -> List[SwapTransaction]:
+        """
+        Execute multiple swaps concurrently across different wallets.
+        
+        Args:
+            quotes_with_wallets: List of (SwapQuote, wallet_id) tuples
+            user_id: Database user ID
+            attempt_id: Base attempt ID for idempotency
+            
+        Returns:
+            List of SwapTransaction records
+        """
+        tasks = []
+        for i, (quote, wallet_id) in enumerate(quotes_with_wallets):
+            # Create a unique idempotency key for each wallet in the set
+            idempotency_key = f"multi:{user_id}:{wallet_id}:{attempt_id}:{i}"
+            tasks.append(
+                self.execute_swap(
+                    quote=quote,
+                    wallet_id=wallet_id,
+                    user_id=user_id,
+                    idempotency_key=idempotency_key,
+                )
+            )
+        
+        # Execute all swaps in parallel
+        # Note: exceptions are captured so one failure doesn't stop others
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        swap_transactions = []
+        for res in results:
+            if isinstance(res, SwapTransaction):
+                swap_transactions.append(res)
+            else:
+                # Log the error but keep the successful ones
+                logger.error(f"Multi-swap sub-task failed: {res}")
+                
+        return swap_transactions

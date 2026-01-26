@@ -178,13 +178,6 @@ class X402Service:
         
         # Check if subscription expired
         if sub.expires_at and sub.expires_at < datetime.utcnow():
-            # Check token gate
-            if sub.token_address:
-                has_tokens = await self._check_token_balance(
-                    user_id, sub.token_address, sub.token_chain, sub.min_token_balance
-                )
-                if has_tokens:
-                    return sub.tier
             return SubscriptionTier.FREE
         
         return sub.tier
@@ -241,32 +234,6 @@ class X402Service:
         logger.info(f"User {user_id} activated beta code '{password_lower}' -> {tier.value}")
         return True, f"🎉 Beta access activated! You now have **{tier.value.upper()}** for 1 year!", tier
     
-    async def set_token_gate(
-        self,
-        user_id: int,
-        token_address: str,
-        chain: str,
-        min_balance: float,
-        tier: SubscriptionTier,
-    ) -> Subscription:
-        """Set token-gated subscription for user."""
-        with get_session() as session:
-            sub = session.query(Subscription).filter(
-                Subscription.user_id == user_id
-            ).first()
-            
-            if not sub:
-                sub = Subscription(user_id=user_id)
-                session.add(sub)
-            
-            sub.tier = tier
-            sub.token_address = token_address
-            sub.token_chain = chain
-            sub.min_token_balance = min_balance
-            sub.expires_at = None  # Token-gated = no expiry
-            
-            logger.info(f"User {user_id} set token gate: {min_balance} tokens on {chain}")
-            return sub
     
     # =========================================================================
     # Feature Access Control
@@ -416,85 +383,6 @@ class X402Service:
                 logger.error(f"Payment verification failed: {e}")
                 return False, str(e)
     
-    # =========================================================================
-    # Token Gate Management
-    # =========================================================================
-    
-    async def create_token_gate(
-        self,
-        name: str,
-        token_address: str,
-        token_symbol: str,
-        chain: str,
-        min_balance: float,
-        feature: str,
-        tier_granted: SubscriptionTier = SubscriptionTier.PRO,
-    ) -> TokenGate:
-        """Create a new token gate."""
-        with get_session() as session:
-            gate = TokenGate(
-                name=name,
-                token_address=token_address,
-                token_symbol=token_symbol,
-                chain=chain,
-                min_balance=min_balance,
-                feature=feature,
-                tier_granted=tier_granted,
-            )
-            session.add(gate)
-            session.flush()
-            return gate
-    
-    async def check_token_gates(self, user_id: int) -> List[TokenGate]:
-        """Check which token gates user qualifies for."""
-        with get_session() as session:
-            gates = session.query(TokenGate).filter(TokenGate.is_active == True).all()
-            
-            qualified = []
-            for gate in gates:
-                has_tokens = await self._check_token_balance(
-                    user_id, gate.token_address, gate.chain, gate.min_balance
-                )
-                if has_tokens:
-                    qualified.append(gate)
-            
-            return qualified
-    
-    async def _check_token_balance(
-        self,
-        user_id: int,
-        token_address: str,
-        chain: str,
-        min_balance: float,
-    ) -> bool:
-        """Check if user holds required tokens."""
-        from bot.models.user import Wallet
-        
-        with get_session() as session:
-            wallets = session.query(Wallet).filter(
-                Wallet.user_id == user_id,
-                Wallet.is_active == True,
-            ).all()
-            
-            for wallet in wallets:
-                try:
-                    if token_address == "0x0000000000000000000000000000000000000000":
-                        # Native token
-                        balance = await self.wallet_service.get_evm_native_balance(
-                            chain, wallet.address
-                        )
-                    else:
-                        balance = await self.wallet_service.get_evm_token_balance(
-                            chain, token_address, wallet.address
-                        )
-                    
-                    if balance >= min_balance:
-                        return True
-                except Exception as e:
-                    logger.debug(f"Error checking balance: {e}")
-                    continue
-            
-            return False
     
     # =========================================================================
     # API Credits
