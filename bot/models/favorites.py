@@ -83,6 +83,7 @@ class UserSettings(Base):
     per_swap_limit_usd = Column(Float, default=5000.0)
     daily_limit_usd = Column(Float, default=50000.0)
     require_2fa_above_usd = Column(Float, default=1000.0)
+    panic_sell_enabled = Column(Boolean, default=False)
     
     # Display preferences
     default_chain = Column(String(50), nullable=True)

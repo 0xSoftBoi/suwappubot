@@ -18,6 +18,7 @@ class User(Base):
     # Settings
     default_slippage = Column(Integer, default=50)  # In basis points (50 = 0.5%)
     notifications_enabled = Column(Boolean, default=True)
+    panic_sell_enabled = Column(Boolean, default=False)
     
     # Terms of Service
     tos_accepted = Column(Boolean, default=False)

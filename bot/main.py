@@ -22,7 +22,10 @@ from bot.handlers.history import history_handler, history_callback, share_pnl_ha
 from bot.handlers.portfolio import portfolio_handler, portfolio_callback
 from bot.handlers.gas import gas_handler, gas_callback
 from bot.handlers.favorites import favorites_handler, favorites_callback, use_favorite_callback, delete_favorite_callback
-from bot.handlers.settings import settings_handler, settings_callback, toggle_notify_callback, slippage_conversation
+from bot.handlers.settings import (
+    settings_handler, settings_callback, toggle_notify_callback, 
+    slippage_conversation, toggle_panic_handler, settings_menu_callback
+)
 from bot.handlers.admin import status_handler, clear_cache_handler, broadcast_handler
 from bot.handlers.quickswap import quickswap_handler, quickswap_confirm_callback
 from bot.handlers.custodial import (
@@ -82,6 +85,8 @@ from bot.services.alerts import alert_service
 from bot.services.orders import order_service
 from bot.services.tx_poller import tx_poller
 from bot.services.health_monitor import health_monitor
+from bot.services.token_security.rug_service import rug_service
+from bot.services.swap_engine import SwapEngine
 from bot.utils.errors import handle_swap_error
 from bot.utils.http_client import close_session as close_http_session
 from bot.utils.preload import preload_config
@@ -214,8 +219,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(delete_favorite_callback, pattern="^fav_delete_"))
     
     # Settings
-    application.add_handler(CallbackQueryHandler(settings_callback, pattern="^settings_menu$"))
-    application.add_handler(CallbackQueryHandler(toggle_notify_callback, pattern="^settings_toggle_notify$"))
+    application.add_handler(settings_menu_callback)
+    application.add_handler(toggle_notify_callback)
+    application.add_handler(toggle_panic_handler)
     
     # Custodial
     application.add_handler(CallbackQueryHandler(custodial_callback, pattern="^custodial_menu$"))
@@ -346,6 +352,10 @@ async def post_init(application) -> None:
     # Start token launch detector for sniping
     await launch_detector.start()
     logger.info("✓ Token launch detector started")
+    
+    # Start rug protection service
+    await rug_service.start(swap_engine=SwapEngine())
+    logger.info("✓ Rug protection service started")
 
 
 async def post_shutdown(application) -> None:
@@ -379,6 +389,7 @@ async def run_headless() -> None:
     await order_service.start(bot=None)
     await tx_poller.start(bot=None)
     await health_monitor.start(bot=None, admin_ids=admin_ids)
+    await rug_service.start(swap_engine=SwapEngine())
     
     logger.info("✅ Headless services are running. Press Ctrl+C to stop.")
     

@@ -179,6 +179,39 @@ class JupiterAPI:
             last_valid_block_height=data.get("lastValidBlockHeight", 0),
             raw_response=data,
         )
+
+    async def get_swap_instructions(
+        self,
+        quote_response: dict,
+        user_public_key: str,
+        wrap_and_unwrap_sol: bool = True,
+        use_shared_accounts: bool = True,
+        fee_account: Optional[str] = None,
+    ) -> dict:
+        """
+        Get raw swap instructions from Jupiter API.
+        
+        Args:
+            quote_response: Quote response from get_quote
+            user_public_key: User's Solana public key
+            wrap_and_unwrap_sol: Automatically wrap/unwrap SOL
+            use_shared_accounts: Use shared accounts
+            fee_account: Optional fee account
+            
+        Returns:
+            Dict containing instructions, address lookup tables, etc.
+        """
+        request_data = {
+            "quoteResponse": quote_response,
+            "userPublicKey": user_public_key,
+            "wrapAndUnwrapSol": wrap_and_unwrap_sol,
+            "useSharedAccounts": use_shared_accounts,
+        }
+        
+        if fee_account:
+            request_data["feeAccount"] = fee_account
+            
+        return await self._request("POST", "/swap-instructions", json_data=request_data)
     
     async def get_price(self, token_ids: list[str]) -> dict[str, dict]:
         """

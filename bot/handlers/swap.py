@@ -29,6 +29,7 @@ from bot.models.subscription import SubscriptionTier
 from bot.services.referral_service import referral_service
 from bot.services.points_service import points_service
 from bot.services.token_security.token_analyzer import token_analyzer
+from bot.services.x402_service import x402_service
 
 
 # Conversation states
@@ -547,7 +548,14 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             )
             return ConversationHandler.END
     
-    await query.edit_message_text("⏳ Executing multi-swap...")
+    # Show safety simulation message for Solana Pro users
+    status_text = "⏳ Executing multi-swap..."
+    if quote.from_chain == "solana" and quote.to_chain == "solana":
+        tier = await x402_service.get_tier(user_id)
+        if tier in [SubscriptionTier.PRO, SubscriptionTier.PREMIUM]:
+            status_text = "🛡️ *Running Deep State Simulation...*\n_Verifying tokens are tradeable and safe._"
+
+    await query.edit_message_text(status_text, parse_mode="Markdown")
     
     try:
         attempt_id = swap_data.get("attempt_id") or "no_attempt"

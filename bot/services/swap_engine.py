@@ -34,7 +34,11 @@ from bot.services.wormhole_api import WormholeAPI, WormholeQuote, WormholeError
 from bot.services.cow_api import CoWProtocolAPI, cow_api, CoWError
 from bot.services.socket_api import SocketAPI, socket_api, SocketError
 from bot.services.jito_api import JitoAPI, jito_api, JitoError, TipPriority
+from bot.services.tax_export import TaxExporter
+from bot.services.token_security.simulation import simulation_service
+from bot.services.x402_service import x402_service
 from bot.services.wallet import WalletService
+from bot.models.subscription import SubscriptionTier
 from bot.models.user import Wallet
 from bot.models.swap import SwapTransaction, SwapStatus
 from bot.utils.quote_validator import quote_validator
@@ -542,6 +546,36 @@ class SwapEngine:
                 "chain_type": wallet_chain_type,
             }
             
+            # Phase 2: Deep State Simulation (Solana Anti-Honeypot)
+            if quote.from_chain == "solana" and quote.to_chain == "solana":
+                tier = await x402_service.get_tier(user_id)
+                if tier in [SubscriptionTier.PRO, SubscriptionTier.PREMIUM, SubscriptionTier.ENTERPRISE]:
+                    logger.info(f"Running Deep Simulation for user {user_id} on {quote.to_token}")
+                    
+                    # We simulate with a small amount of SOL for the safety test
+                    # Usually 0.1 SOL is enough to trigger most tax/revert logic
+                    sim_amount = min(0.1, quote.from_amount_human) 
+                    
+                    sim_res = await simulation_service.simulate_swap_cycle(
+                        token_mint=get_token_address(quote.to_token, "solana"), # Address from quote
+                        amount_sol=sim_amount,
+                        user_pubkey=wallet_address
+                    )
+                    
+                    if not sim_res["is_safe"]:
+                        error_msg = f"Deep Simulation Blocked: {sim_res.get('reason')} - {sim_res.get('error')}"
+                        logger.warning(error_msg)
+                        
+                        with get_session() as session:
+                            db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
+                            db_tx.status = SwapStatus.FAILED.value
+                            db_tx.error_message = error_msg
+                            session.commit() # Commit the status update
+                        
+                        raise SwapError(f"⚠️ Safety simulation FAILED: {sim_res.get('reason')}. Trade blocked to protect your funds.")
+                    
+                    logger.info(f"Deep Simulation PASSED for {quote.to_token}. Proceeding with trade.")
+
             try:
                 # Route to appropriate execution method based on provider
                 if quote.provider == "cow":
