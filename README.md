@@ -377,6 +377,103 @@ WEBHOOK_URL=https://your-domain.com/telegram/webhook
 
 **Solution:** Verify `DATABASE_URL` is correct and the database is accessible.
 
+## AWS Infrastructure
+
+Suwappu runs on AWS ECS Fargate with three services deployed across dev and production environments.
+
+### Services Overview
+
+| Service | Description | ECR Repository |
+|---------|-------------|----------------|
+| **suwappu-bot** | Python Telegram bot + FastAPI backend (commands, keyboards, swaps) | `suwappu` |
+| **suwappu-api-ts** | TypeScript API for webapp & external integrations | `suwappu-api-ts` |
+| **suwappu-webapp** | React/Vite Telegram Mini App frontend | `suwappu-webapp` |
+
+### ECS Services
+
+| Service | Dev | Prod |
+|---------|-----|------|
+| Python Bot | `suwappu-bot-dev` | `suwappu-bot-prod` |
+| TypeScript API | `suwappu-api-ts-dev` | `suwappu-api-ts-prod` |
+| Webapp | `suwappu-webapp-dev` | `suwappu-webapp-prod` |
+
+### GitHub Actions CI/CD
+
+Deployments use **OIDC authentication** (no stored AWS credentials):
+
+| Workflow | Trigger | Deploys To |
+|----------|---------|------------|
+| `deploy-ecs.yml` | Push to `main`/`dev` | `suwappu-bot-*` |
+| `deploy-api-ts.yml` | Push to `main`/`dev` + `api-ts/**` changes | `suwappu-api-ts-*` |
+| `deploy-webapp.yml` | Push to `main`/`dev` + `webapp/**` changes | `suwappu-webapp-*` |
+
+**IAM Role:** `github-actions-suwappu` (OIDC trust for `0xSoftBoi/suwappubot`)
+
+### Secrets Management
+
+All secrets are stored in AWS Secrets Manager:
+
+| Secret | Contents |
+|--------|----------|
+| `suwappu/app-secrets` | `TELEGRAM_BOT_TOKEN`, `ENCRYPTION_KEY`, `DATABASE_URL`, `LIFI_API_KEY`, etc. |
+| `suwappu/db-credentials` | Database connection strings |
+| `suwappu/dev-secrets` | Development environment overrides |
+
+---
+
+## Python Bot Infrastructure
+
+The Python Telegram bot is deployed on AWS ECS Fargate. It handles all Telegram commands, keyboards, wallet operations, and swap execution.
+
+### Task Definition
+
+| Setting | Value |
+|---------|-------|
+| **CPU** | 256 (0.25 vCPU) |
+| **Memory** | 512 MB |
+| **Port** | 10000 |
+| **Image** | `905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu:production` |
+
+### Environment Variables
+
+Loaded from AWS Secrets Manager (`suwappu/app-secrets`):
+
+| Variable | Description |
+|----------|-------------|
+| `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather |
+| `ENCRYPTION_KEY` | 32-byte hex key for wallet encryption |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `SECRET_KEY` | Application secret key |
+| `LIFI_API_KEY` | Li.Fi API key for cross-chain swaps |
+| `ALCHEMY_API_KEY` | Alchemy RPC API key |
+| `ADMIN_IDS` | Telegram IDs for admin users |
+| `WEBAPP_URL` | URL for the Telegram Mini App |
+
+### Logs
+
+```bash
+# Tail production logs
+aws --profile Swappu logs tail /ecs/suwappu-bot --follow
+
+# Tail dev logs
+aws --profile Swappu logs tail /ecs/suwappu-bot-dev --follow
+```
+
+### Startup Output
+
+When healthy, the bot logs:
+```
+🚀 Starting Suwappu Monolith...
+📡 Using PORT: 10000
+✓ Database connection established
+✓ Preloaded 13 chains and 43 tokens
+✓ Telegram Application started
+✓ All background services running
+Uvicorn running on http://0.0.0.0:10000
+```
+
+---
+
 ## API-TS Infrastructure
 
 The TypeScript API (`api-ts/`) is deployed on AWS ECS Fargate with separate dev and production environments.
@@ -525,15 +622,30 @@ Monitor all API instances:
 ### Useful AWS CLI Commands
 
 ```bash
-# Check service status
+# Check ALL services status
 aws --profile Swappu ecs describe-services \
   --cluster suwappu-cluster \
-  --services suwappu-api-ts-prod suwappu-api-ts-dev \
+  --services suwappu-bot-prod suwappu-bot-dev suwappu-api-ts-prod suwappu-api-ts-dev suwappu-webapp-prod suwappu-webapp-dev \
   --query 'services[*].[serviceName,runningCount,desiredCount]' \
   --output table
 
-# View recent logs
-aws --profile Swappu logs tail /ecs/suwappu --follow
+# View Python bot logs
+aws --profile Swappu logs tail /ecs/suwappu-bot --follow
+
+# View API-TS logs
+aws --profile Swappu logs tail /ecs/suwappu-api-ts --follow
+
+# Force redeploy a service
+aws --profile Swappu ecs update-service \
+  --cluster suwappu-cluster \
+  --service suwappu-bot-prod \
+  --force-new-deployment
+
+# Check recent ECS events
+aws --profile Swappu ecs describe-services \
+  --cluster suwappu-cluster \
+  --services suwappu-bot-prod \
+  --query 'services[0].events[0:5]'
 
 # Check certificate status
 aws --profile Swappu acm describe-certificate \
