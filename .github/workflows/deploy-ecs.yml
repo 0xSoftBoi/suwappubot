@@ -88,44 +88,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install migration dependencies
-        run: |
-          pip install alembic sqlalchemy psycopg2-binary
-
-      - name: Get database credentials
-        id: db-creds
-        run: |
-          if [ "${{ steps.env.outputs.ENVIRONMENT }}" == "production" ]; then
-            SECRET_ID="suwappu/db-credentials-prod"
-          else
-            SECRET_ID="suwappu/db-credentials-dev"
-          fi
-
-          # Get DATABASE_URL from Secrets Manager
-          DB_URL=$(aws secretsmanager get-secret-value \
-            --secret-id "$SECRET_ID" \
-            --query 'SecretString' \
-            --output text | jq -r '.DATABASE_URL // empty')
-
-          if [ -z "$DB_URL" ]; then
-            echo "Warning: DATABASE_URL not found in secrets, skipping migrations"
-            echo "SKIP_MIGRATIONS=true" >> $GITHUB_OUTPUT
-          else
-            echo "DATABASE_URL=$DB_URL" >> $GITHUB_ENV
-            echo "SKIP_MIGRATIONS=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Run database migrations
-        if: steps.db-creds.outputs.SKIP_MIGRATIONS != 'true'
-        run: |
-          echo "Running Alembic migrations..."
-          alembic upgrade head
-          echo "Migrations complete!"
+      # Migrations skipped - RDS is in private VPC, run from ECS task if needed
 
       - name: Deploy to ECS
         run: |
