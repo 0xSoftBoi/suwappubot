@@ -155,6 +155,30 @@ class Settings(BaseSettings):
         default="https://mainnet.base.org,https://rpc.ankr.com/base,https://base.llamarpc.com",
         description="Base mainnet RPC URL(s)"
     )
+    avalanche_rpc_url: str = Field(
+        default="https://api.avax.network/ext/bc/C/rpc,https://rpc.ankr.com/avalanche,https://avalanche.llamarpc.com",
+        description="Avalanche C-Chain RPC URL(s)"
+    )
+    fantom_rpc_url: str = Field(
+        default="https://rpc.ftm.tools,https://rpc.ankr.com/fantom,https://fantom.llamarpc.com",
+        description="Fantom mainnet RPC URL(s)"
+    )
+    linea_rpc_url: str = Field(
+        default="https://rpc.linea.build,https://linea.drpc.org",
+        description="Linea mainnet RPC URL(s)"
+    )
+    mantle_rpc_url: str = Field(
+        default="https://rpc.mantle.xyz,https://mantle.drpc.org",
+        description="Mantle mainnet RPC URL(s)"
+    )
+    gnosis_rpc_url: str = Field(
+        default="https://rpc.gnosischain.com,https://rpc.ankr.com/gnosis,https://gnosis.drpc.org",
+        description="Gnosis Chain RPC URL(s)"
+    )
+    scroll_rpc_url: str = Field(
+        default="https://rpc.scroll.io,https://scroll.drpc.org",
+        description="Scroll mainnet RPC URL(s)"
+    )
     
     # Solana RPC
     solana_rpc_url: str = Field(
