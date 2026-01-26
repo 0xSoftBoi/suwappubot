@@ -39,10 +39,10 @@ jobs:
         run: |
           if [ "${{ github.ref }}" == "refs/heads/main" ] || [ "${{ inputs.environment }}" == "production" ]; then
             echo "ENVIRONMENT=production" >> $GITHUB_OUTPUT
-            echo "ECS_SERVICE=SuwappuStack-SuwappuService3F99BDF9-gqorD1QDcEXk" >> $GITHUB_OUTPUT
+            echo "ECS_SERVICE=suwappu-bot-prod" >> $GITHUB_OUTPUT
           else
             echo "ENVIRONMENT=development" >> $GITHUB_OUTPUT
-            echo "ECS_SERVICE=suwappu-dev-service" >> $GITHUB_OUTPUT
+            echo "ECS_SERVICE=suwappu-bot-dev" >> $GITHUB_OUTPUT
           fi
 
       - name: Configure AWS credentials
