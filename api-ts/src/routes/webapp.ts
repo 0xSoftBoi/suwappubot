@@ -40,6 +40,14 @@ webappRoutes.post('/telegram/auth', async (c) => {
 	const body = await c.req.json().catch(() => ({}))
 	const initData = body.initData || c.req.header('X-Telegram-Init-Data')
 
+	// Debug logging
+	console.log('Telegram auth request:', {
+		hasBody: !!body,
+		hasInitData: !!initData,
+		initDataLength: initData?.length,
+		initDataPreview: initData?.substring(0, 100),
+	})
+
 	if (!initData) {
 		return c.json({ success: false, error: 'Missing initData' }, 400)
 	}
