@@ -3,7 +3,7 @@
 # Testing
 aiocache==0.12.2
 aiohttp==3.10.11
-alembic==1.13.1
+alembic==1.16.5
 base58==2.1.1
 cmake>=3.14
 cryptography==44.0.0
