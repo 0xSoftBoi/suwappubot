@@ -1,10 +1,12 @@
 import { Hono } from 'hono'
 import { Effect, Either, Option } from 'effect'
+import jwt from 'jsonwebtoken'
 import { telegramAuth } from '../middleware'
-import { TelegramAuthService, UserService, WalletService, SwapService, BalanceService } from '../services'
+import { TelegramAuthService, UserService, WalletService, SwapService, BalanceService, TurnkeyService } from '../services'
 import { runEffect, runEffectEither } from '../runtime'
 import type { TelegramUser } from '../services/TelegramAuthService'
 import { mapErrorToResponse } from '../errors'
+import { EnvService } from '../config/EnvService'
 
 const webappRoutes = new Hono()
 
@@ -31,6 +33,106 @@ webappRoutes.post('/validate', async (c) => {
 		valid: true,
 		user: userOption.value,
 	})
+})
+
+// POST /webapp/telegram/auth - Authenticate Telegram user and create wallet if needed
+webappRoutes.post('/telegram/auth', async (c) => {
+	const body = await c.req.json().catch(() => ({}))
+	const initData = body.initData || c.req.header('X-Telegram-Init-Data')
+
+	if (!initData) {
+		return c.json({ success: false, error: 'Missing initData' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const authService = yield* TelegramAuthService
+			const userService = yield* UserService
+			const walletService = yield* WalletService
+			const turnkeyService = yield* TurnkeyService
+
+			// 1. Validate initData
+			const telegramUserOption = yield* authService.validateInitData(initData)
+
+			if (Option.isNone(telegramUserOption)) {
+				return yield* Effect.fail(new Error('Invalid Telegram initData'))
+			}
+
+			const telegramUser = telegramUserOption.value
+
+			// 2. Get or create user
+			const { user, isNew } = yield* userService.getOrCreateUser({
+				telegramId: telegramUser.id,
+				username: telegramUser.username,
+				firstName: telegramUser.first_name,
+				lastName: telegramUser.last_name,
+			})
+
+			// 3. Check if user has a wallet, create one if not
+			let walletAddress: string | null = null
+			const existingWallets = yield* walletService.getActiveWallets(user.id)
+
+			if (existingWallets.length === 0) {
+				// Create Turnkey wallet for new user
+				const turnkeyResult = yield* Effect.either(
+					turnkeyService.createSubOrgForTelegramUser(telegramUser.id, telegramUser.username)
+				)
+
+				if (Either.isRight(turnkeyResult)) {
+					const turnkeyWallet = turnkeyResult.right
+					// Save wallet to database
+					const wallet = yield* walletService.createTurnkeyWallet({
+						userId: user.id,
+						address: turnkeyWallet.address,
+						turnkeySubOrgId: turnkeyWallet.subOrgId,
+						turnkeyWalletId: turnkeyWallet.walletId,
+						turnkeyAccountId: turnkeyWallet.accountId,
+					})
+					walletAddress = wallet.address
+				} else {
+					// Log error but don't fail auth - wallet can be created later
+					console.error('Failed to create Turnkey wallet:', turnkeyResult.left)
+				}
+			} else {
+				walletAddress = existingWallets[0].address
+			}
+
+			// 4. Generate JWT
+			const jwtSecret = env.JWT_SECRET || 'development-secret-change-in-production'
+			const token = jwt.sign(
+				{
+					userId: user.id,
+					telegramId: telegramUser.id,
+					walletAddress,
+				},
+				jwtSecret,
+				{ expiresIn: '7d' }
+			)
+
+			return {
+				success: true,
+				jwt: token,
+				user: {
+					id: user.id,
+					telegramId: telegramUser.id,
+					username: telegramUser.username,
+					firstName: telegramUser.first_name,
+					lastName: telegramUser.last_name,
+				},
+				walletAddress,
+				isNewUser: isNew,
+			}
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		const error = result.left
+		console.error('Telegram auth error:', error)
+		return c.json({ success: false, error: error.message || 'Authentication failed' }, 401)
+	}
+
+	return c.json(result.right)
 })
 
 // Protected webapp routes

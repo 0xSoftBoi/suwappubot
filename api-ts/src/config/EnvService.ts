@@ -17,6 +17,17 @@ export const EnvSchema = Schema.Struct({
 	AGENT_API_KEY: Schema.optional(Schema.String),
 	ADMIN_API_KEY: Schema.optional(Schema.String),
 
+	// Turnkey
+	TURNKEY_API_PUBLIC_KEY: Schema.optional(Schema.String),
+	TURNKEY_API_PRIVATE_KEY: Schema.optional(Schema.String),
+	TURNKEY_ORGANIZATION_ID: Schema.optional(Schema.String),
+	TURNKEY_BASE_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://api.turnkey.com',
+	}),
+
+	// JWT
+	JWT_SECRET: Schema.optional(Schema.String),
+
 	// CORS
 	ALLOWED_ORIGINS: Schema.optionalWith(Schema.String, {
 		default: () => 'https://app.suwappu.bot,https://devfront.suwappu.bot,http://localhost:3000,http://localhost:5173',
