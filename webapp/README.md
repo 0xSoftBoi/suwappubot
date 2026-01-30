@@ -1,5 +1,7 @@
 # Suwappu Webapp 🌸
 
+> [← Back to main README](../README.md)
+
 Telegram Mini App for cross-chain swaps, portfolio tracking, and wallet management.
 
 **Live:** https://app.suwappu.bot
