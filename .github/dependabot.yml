@@ -1,0 +1,78 @@
+version: 2
+updates:
+  # Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "security"
+    reviewers:
+      - "0xSoftBoi"
+    groups:
+      security-updates:
+        patterns:
+          - "aiohttp"
+          - "cryptography"
+          - "ecdsa"
+          - "protobuf"
+          - "sqlalchemy"
+          - "web3"
+
+  # Dashboard (Next.js)
+  - package-ecosystem: "npm"
+    directory: "/dashboard"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "dashboard"
+    versioning-strategy: increase-if-necessary
+    groups:
+      nextjs:
+        patterns:
+          - "next"
+          - "react*"
+          - "eslint*"
+
+  # Webapp (Vite)
+  - package-ecosystem: "npm"
+    directory: "/webapp"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "webapp"
+
+  # API-TS (Bun)
+  - package-ecosystem: "npm"
+    directory: "/api-ts"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "api-ts"
+
+  # TUI (Bun)
+  - package-ecosystem: "npm"
+    directory: "/tui"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "tui"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "github-actions"
