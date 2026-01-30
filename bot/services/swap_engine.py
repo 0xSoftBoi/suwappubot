@@ -495,9 +495,8 @@ class SwapEngine:
                 if not wallet:
                     raise SwapError("Wallet not found")
                 
-                # Extract needed data while in session
+                # We'll use the wallet object directly for high-level signing
                 wallet_address = wallet.address
-                wallet_encrypted_key = wallet.encrypted_private_key
                 wallet_chain_type = wallet.chain_type
             
             # Validate quote freshness
@@ -579,37 +578,28 @@ class SwapEngine:
             try:
                 # Route to appropriate execution method based on provider
                 if quote.provider == "cow":
-                    tx_hash = await self._execute_cow_swap(quote, wallet_data)
+                    tx_hash = await self._execute_cow_swap(quote, wallet)
                 elif quote.provider == "socket":
-                    tx_hash = await self._execute_socket_swap(quote, wallet_data)
+                    tx_hash = await self._execute_socket_swap(quote, wallet)
                 elif quote.provider == "jito":
-                    tx_hash = await self._execute_jito_swap(quote, wallet_data)
+                    tx_hash = await self._execute_jito_swap(quote, wallet)
                 elif quote.provider == "jupiter":
-                    tx_hash = await self._execute_jupiter_swap(quote, wallet_data)
+                    tx_hash = await self._execute_jupiter_swap(quote, wallet)
                 elif quote.provider == "ccip":
-                    tx_hash = await self._execute_ccip_swap(quote, wallet_data)
+                    tx_hash = await self._execute_ccip_swap(quote, wallet)
                 elif quote.provider == "layerzero":
-                    tx_hash = await self._execute_layerzero_swap(quote, wallet_data)
+                    tx_hash = await self._execute_layerzero_swap(quote, wallet)
                 elif quote.provider == "cctp":
-                    tx_hash = await self._execute_cctp_swap(quote, wallet_data)
+                    tx_hash = await self._execute_cctp_swap(quote, wallet)
                 elif quote.provider == "across":
-                    tx_hash = await self._execute_across_swap(quote, wallet_data)
+                    tx_hash = await self._execute_across_swap(quote, wallet)
                 elif quote.provider == "wormhole":
-                    tx_hash = await self._execute_wormhole_swap(quote, wallet_data)
+                    tx_hash = await self._execute_wormhole_swap(quote, wallet)
                 else:
-                    tx_hash = await self._execute_lifi_swap(quote, wallet_data)
+                    tx_hash = await self._execute_lifi_swap(quote, wallet)
                 
-                # Update transaction record with hash
-                with get_session() as session:
-                    swap_tx = session.query(SwapTransaction).filter(
-                        SwapTransaction.id == swap_id
-                    ).first()
-                    swap_tx.tx_hash = tx_hash
-                    swap_tx.status = SwapStatus.SUBMITTED.value
-                
-                # Clear private key from memory
-                wallet_data["encrypted_private_key"] = None
-                del wallet_data
+                # Clean up local references
+                del wallet
                 
                 return swap_tx
                 
@@ -617,17 +607,8 @@ class SwapEngine:
                 import traceback
                 traceback.print_exc()
                 # Mark as failed
-                with get_session() as session:
-                    swap_tx = session.query(SwapTransaction).filter(
-                        SwapTransaction.id == swap_id
-                    ).first()
-                    if swap_tx:
-                        swap_tx.status = SwapStatus.FAILED.value
-                        swap_tx.error_message = str(e)
-                
-                # Clear private key from memory
-                wallet_data["encrypted_private_key"] = None
-                del wallet_data
+                # Clean up local references
+                del wallet
                 
                 raise SwapError(f"Swap execution failed: {repr(e)}")
     

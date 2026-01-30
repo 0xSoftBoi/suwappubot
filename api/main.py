@@ -1098,15 +1098,6 @@ async def admin_get_swaps(
         for s in swaps
     ]
 
-@app.get("/portfolio", response_model=PortfolioResponse)
-async def get_portfolio_default(db: Session = Depends(get_db)):
-    # Default to user 1 for now (mobile app poc)
-    return await get_portfolio(user_id=1, db=db)
-
-@app.get("/wallets", response_model=List[WalletResponse])
-async def get_wallets_default(db: Session = Depends(get_db)):
-    # Default to user 1 for now
-    return await get_wallets(user_id=1, db=db)
 
 # ============ WhatsApp Webhook ============
 
