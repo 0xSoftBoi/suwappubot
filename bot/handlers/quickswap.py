@@ -246,6 +246,33 @@ async def quickswap_confirm_callback(update: Update, context: ContextTypes.DEFAU
         context.user_data.pop("quickswap", None)
 
 
+async def quickswap_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle quickswap menu callback - show instructions."""
+    query = update.callback_query
+    await query.answer()
+
+    help_text = (
+        "⚡ *Quick Swap*\n\n"
+        "Use the /s command for instant swaps:\n\n"
+        "*Usage:*\n"
+        "`/s <amount> <from_token> [from_chain] <to_token> [to_chain]`\n\n"
+        "*Examples:*\n"
+        "• `/s 100 USDC ETH` - Swap 100 USDC to ETH\n"
+        "• `/s 50 USDC polygon ETH ethereum` - Cross-chain swap\n\n"
+        "The bot will auto-detect chains and find the best route!"
+    )
+
+    keyboard = [
+        [InlineKeyboardButton("« Back", callback_data="main_menu")],
+    ]
+
+    await query.edit_message_text(
+        help_text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
 # Create handlers
 quickswap_handler = CommandHandler("s", quickswap_command)
 

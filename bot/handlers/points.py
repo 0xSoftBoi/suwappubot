@@ -437,6 +437,35 @@ async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
 
+async def points_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle points menu callback - show main points menu."""
+    query = update.callback_query
+    await query.answer()
+
+    text = (
+        "✨ *Points & Rewards*\n\n"
+        "Earn XP points and unlock exclusive rewards!\n\n"
+        "• ✨ View your XP and level\n"
+        "• 📅 Daily check-in bonus\n"
+        "• 🏆 Climb the leaderboard\n"
+        "• 🎁 Redeem rewards with points"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✨ My XP", callback_data="xp_stats")],
+        [InlineKeyboardButton("📅 Daily Check-in", callback_data="xp_checkin")],
+        [InlineKeyboardButton("🏆 Leaderboard", callback_data="xp_leaderboard")],
+        [InlineKeyboardButton("🎁 Rewards", callback_data="xp_rewards")],
+        [InlineKeyboardButton("« Back", callback_data="main_menu")],
+    ])
+
+    await query.edit_message_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=keyboard,
+    )
+
+
 # ============== Register Handlers ==============
 
 xp_handler = CommandHandler("xp", xp_command)
@@ -444,6 +473,7 @@ checkin_handler = CommandHandler("checkin", checkin_command)
 leaderboard_handler = CommandHandler("lb", leaderboard_command)
 rewards_handler = CommandHandler("rewards", rewards_command)
 
+points_menu_callback_handler = CallbackQueryHandler(points_menu_callback, pattern="^points_menu$")
 xp_callback_handler = CallbackQueryHandler(xp_callback, pattern="^xp_stats$")
 checkin_callback_handler = CallbackQueryHandler(checkin_callback, pattern="^xp_checkin$")
 leaderboard_callback_handler = CallbackQueryHandler(leaderboard_callback, pattern="^xp_leaderboard$")

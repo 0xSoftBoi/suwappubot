@@ -329,7 +329,6 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     # Transition to Wallet Selection
     return await show_wallet_selection(update, context)
 
-@require_tier(SubscriptionTier.PRO)
 async def show_wallet_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show multi-wallet selection screen."""
     swap_data = context.user_data["swap"]

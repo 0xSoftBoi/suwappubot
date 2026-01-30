@@ -84,9 +84,8 @@ async def dca_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                                      reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-@require_tier(SubscriptionTier.PRO)
 async def dca_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start DCA creation (Pro feature)."""
+    """Start DCA creation."""
     query = update.callback_query
     await query.answer()
     
@@ -256,9 +255,8 @@ async def dca_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await dca_command(update, context)
 
 
-@require_tier(SubscriptionTier.PRO)
 async def lo_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start limit order creation (Pro feature)."""
+    """Start limit order creation."""
     query = update.callback_query
     await query.answer()
     
@@ -505,10 +503,47 @@ limit_order_conversation = ConversationHandler(
     ],
 )
 
+async def limit_orders_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle limit orders menu callback."""
+    query = update.callback_query
+    await query.answer()
+
+    user = update.effective_user
+
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.edit_message_text("❌ Please use /start first.")
+            return
+        user_id = db_user.id
+
+    orders = order_service.get_user_orders(user_id)
+
+    if not orders:
+        text = "📈 *Limit Orders*\n\n_No active orders._"
+    else:
+        lines = ["📈 *Your Orders*\n"]
+        for order in orders[:10]:
+            icon = {"pending": "⏳", "executed": "✅", "cancelled": "❌"}.get(order.status, "❓")
+            lines.append(f"{icon} {order.from_token}→{order.to_token} @${order.trigger_price:.2f}")
+        text = "\n".join(lines)
+
+    keyboard = [
+        [InlineKeyboardButton("🟢 Limit Buy", callback_data="lo_buy"),
+         InlineKeyboardButton("🔴 Limit Sell", callback_data="lo_sell")],
+        [InlineKeyboardButton("🛑 Stop Loss", callback_data="lo_stop")],
+        [InlineKeyboardButton("« Back", callback_data="main_menu")],
+    ]
+
+    await query.edit_message_text(text, parse_mode="Markdown",
+                                   reply_markup=InlineKeyboardMarkup(keyboard))
+
+
 # Individual callbacks for existing DCAs
 dca_view_handler = CallbackQueryHandler(dca_view_callback, pattern="^dca_view_")
 dca_actions_handler = CallbackQueryHandler(dca_action_callback, pattern="^dca_(pause|resume|cancel_plan)_")
 dca_menu_callback = CallbackQueryHandler(dca_command, pattern="^dca_menu$")
+limit_orders_menu_callback_handler = CallbackQueryHandler(limit_orders_menu_callback, pattern="^limit_orders_menu$")
 
 orders_handler = CommandHandler("o", orders_command)
 dca_handler = CommandHandler("dca", dca_command)

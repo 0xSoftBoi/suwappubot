@@ -535,8 +535,10 @@ class HotWalletService:
         amount: Decimal,
     ) -> str:
         """Send native token from hot wallet. Returns tx hash."""
-        if wallet.chain_type != "evm":
-            raise NotImplementedError("Only EVM supported currently")
+        if wallet.chain_type == "solana":
+            return await self._send_sol_native(wallet, to_address, amount)
+        elif wallet.chain_type != "evm":
+            raise NotImplementedError(f"Chain type {wallet.chain_type} not supported")
         
         web3 = self._get_web3(chain_name)
         chain = get_chain_by_name(chain_name)
@@ -568,7 +570,134 @@ class HotWalletService:
             tx_hash = web3.eth.send_raw_transaction(signed.rawTransaction)
         
         return tx_hash.hex()
-    
+
+    async def _send_sol_native(
+        self,
+        wallet: HotWallet,
+        to_address: str,
+        amount: Decimal,
+    ) -> str:
+        """Send native SOL from hot wallet. Returns transaction signature."""
+        from solana.rpc.async_api import AsyncClient
+        from solders.keypair import Keypair
+        from solders.pubkey import Pubkey
+        from solders.system_program import transfer, TransferParams
+        from solders.transaction import Transaction
+        from solders.message import Message
+
+        # Get Solana RPC URL
+        rpc_url = getattr(settings, 'solana_rpc_url', None)
+        if not rpc_url:
+            raise ValueError("Solana RPC URL not configured")
+
+        # Decrypt private key and restore keypair
+        private_key = self.get_private_key(wallet)
+        key_bytes = base58.b58decode(private_key)
+        keypair = Keypair.from_bytes(key_bytes)
+
+        # Convert amount to lamports (1 SOL = 10^9 lamports)
+        lamports = int(amount * Decimal(10**9))
+
+        # Create async client
+        async with AsyncClient(rpc_url) as client:
+            # Build transfer instruction
+            transfer_ix = transfer(TransferParams(
+                from_pubkey=keypair.pubkey(),
+                to_pubkey=Pubkey.from_string(to_address),
+                lamports=lamports,
+            ))
+
+            # Get recent blockhash
+            blockhash_resp = await client.get_latest_blockhash()
+            recent_blockhash = blockhash_resp.value.blockhash
+
+            # Create and sign transaction
+            message = Message.new_with_blockhash(
+                [transfer_ix],
+                keypair.pubkey(),
+                recent_blockhash,
+            )
+            tx = Transaction.new_unsigned(message)
+            tx.sign([keypair], recent_blockhash)
+
+            # Send transaction
+            result = await client.send_transaction(tx)
+            signature = str(result.value)
+
+            logger.info(f"Sent {amount} SOL to {to_address}, signature: {signature}")
+            return signature
+
+    async def _send_spl_token(
+        self,
+        wallet: HotWallet,
+        token_address: str,
+        to_address: str,
+        amount: Decimal,
+        decimals: int,
+    ) -> str:
+        """Send SPL token from hot wallet. Returns transaction signature."""
+        from solana.rpc.async_api import AsyncClient
+        from solders.keypair import Keypair
+        from solders.pubkey import Pubkey
+        from solders.transaction import Transaction
+        from solders.message import Message
+        from spl.token.instructions import transfer_checked, TransferCheckedParams, get_associated_token_address
+        from spl.token.async_client import AsyncToken
+
+        # Get Solana RPC URL
+        rpc_url = getattr(settings, 'solana_rpc_url', None)
+        if not rpc_url:
+            raise ValueError("Solana RPC URL not configured")
+
+        # Decrypt private key and restore keypair
+        private_key = self.get_private_key(wallet)
+        key_bytes = base58.b58decode(private_key)
+        keypair = Keypair.from_bytes(key_bytes)
+
+        # Convert token addresses to Pubkey
+        mint_pubkey = Pubkey.from_string(token_address)
+        dest_pubkey = Pubkey.from_string(to_address)
+
+        # Get associated token accounts
+        source_ata = get_associated_token_address(keypair.pubkey(), mint_pubkey)
+        dest_ata = get_associated_token_address(dest_pubkey, mint_pubkey)
+
+        # Convert amount to token units
+        amount_raw = int(amount * Decimal(10 ** decimals))
+
+        # Create async client
+        async with AsyncClient(rpc_url) as client:
+            # Build transfer_checked instruction (validates decimals for safety)
+            transfer_ix = transfer_checked(TransferCheckedParams(
+                program_id=Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),  # SPL Token program
+                source=source_ata,
+                mint=mint_pubkey,
+                dest=dest_ata,
+                owner=keypair.pubkey(),
+                amount=amount_raw,
+                decimals=decimals,
+            ))
+
+            # Get recent blockhash
+            blockhash_resp = await client.get_latest_blockhash()
+            recent_blockhash = blockhash_resp.value.blockhash
+
+            # Create and sign transaction
+            message = Message.new_with_blockhash(
+                [transfer_ix],
+                keypair.pubkey(),
+                recent_blockhash,
+            )
+            tx = Transaction.new_unsigned(message)
+            tx.sign([keypair], recent_blockhash)
+
+            # Send transaction
+            result = await client.send_transaction(tx)
+            signature = str(result.value)
+
+            logger.info(f"Sent {amount} of token {token_address} to {to_address}, signature: {signature}")
+            return signature
+
     async def send_token(
         self,
         wallet: HotWallet,
@@ -578,9 +707,11 @@ class HotWalletService:
         amount: Decimal,
         decimals: int,
     ) -> str:
-        """Send ERC20 token from hot wallet. Returns tx hash."""
-        if wallet.chain_type != "evm":
-            raise NotImplementedError("Only EVM supported currently")
+        """Send ERC20/SPL token from hot wallet. Returns tx hash/signature."""
+        if wallet.chain_type == "solana":
+            return await self._send_spl_token(wallet, token_address, to_address, amount, decimals)
+        elif wallet.chain_type != "evm":
+            raise NotImplementedError(f"Chain type {wallet.chain_type} not supported")
         
         web3 = self._get_web3(chain_name)
         chain = get_chain_by_name(chain_name)

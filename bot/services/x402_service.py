@@ -8,6 +8,9 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from enum import Enum
+from decimal import Decimal
+
+from web3 import Web3
 
 from bot.config.settings import settings
 from bot.models.subscription import (
@@ -336,6 +339,131 @@ class X402Service:
         
         return payment
     
+    def _verify_transaction_on_chain(
+        self,
+        tx_hash: str,
+        chain: str,
+        expected_recipient: str,
+        expected_amount: float,
+        token_address: Optional[str] = None,
+    ) -> tuple[bool, str]:
+        """
+        Verify a transaction on-chain.
+
+        Args:
+            tx_hash: Transaction hash to verify
+            chain: Chain name (e.g., "base", "ethereum")
+            expected_recipient: Expected recipient address
+            expected_amount: Expected amount (in token units, not wei)
+            token_address: Token contract address (None for native token)
+
+        Returns:
+            (success, message) tuple
+        """
+        try:
+            # Get RPC URL for chain
+            from bot.config.chains import get_chain_by_name
+
+            chain_config = get_chain_by_name(chain)
+            if not chain_config:
+                return False, f"Unsupported chain: {chain}"
+
+            rpc_url = chain_config.rpc_url
+            web3 = Web3(Web3.HTTPProvider(rpc_url))
+
+            # Fetch transaction receipt
+            try:
+                receipt = web3.eth.get_transaction_receipt(tx_hash)
+            except Exception as e:
+                logger.error(f"Failed to fetch transaction receipt: {e}")
+                return False, f"Transaction not found: {tx_hash}"
+
+            # Check transaction succeeded
+            if receipt.get('status') != 1:
+                return False, "Transaction failed on-chain"
+
+            # Normalize addresses
+            expected_recipient = Web3.to_checksum_address(expected_recipient)
+
+            # Verify native token transfer
+            if not token_address or token_address == "0x0000000000000000000000000000000000000000":
+                # Get the full transaction to check value
+                tx = web3.eth.get_transaction(tx_hash)
+
+                # Check recipient
+                if not tx.get('to'):
+                    return False, "Missing recipient address"
+
+                actual_recipient = Web3.to_checksum_address(tx['to'])
+                if actual_recipient != expected_recipient:
+                    return False, f"Recipient mismatch: expected {expected_recipient}, got {actual_recipient}"
+
+                # Check amount (with 1% tolerance for rounding)
+                actual_amount = Decimal(tx['value']) / Decimal(10**18)  # Convert wei to ETH
+                expected_decimal = Decimal(str(expected_amount))
+                min_amount = expected_decimal * Decimal("0.99")
+
+                if actual_amount < min_amount:
+                    return False, f"Amount too low: expected {expected_amount}, got {actual_amount}"
+
+                return True, "Native token transfer verified"
+
+            # Verify ERC20 token transfer
+            else:
+                # ERC20 Transfer event signature
+                transfer_topic = web3.keccak(text="Transfer(address,address,uint256)").hex()
+                token_address_checksum = Web3.to_checksum_address(token_address)
+
+                # Find Transfer event in logs
+                for log in receipt.get('logs', []):
+                    log_address = Web3.to_checksum_address(log.get('address', ''))
+
+                    # Check if this log is from the expected token contract
+                    if log_address != token_address_checksum:
+                        continue
+
+                    # Check if this is a Transfer event
+                    topics = log.get('topics', [])
+                    if not topics or topics[0].hex() != transfer_topic:
+                        continue
+
+                    # Decode Transfer event: Transfer(address indexed from, address indexed to, uint256 value)
+                    if len(topics) < 3:
+                        continue
+
+                    # Extract 'to' address from topics[2]
+                    to_address = Web3.to_checksum_address("0x" + topics[2].hex()[-40:])
+
+                    # Check recipient matches
+                    if to_address != expected_recipient:
+                        continue
+
+                    # Extract amount from data
+                    data = log.get('data', '0x')
+                    if isinstance(data, str):
+                        amount_wei = int(data, 16) if data != '0x' else 0
+                    else:
+                        amount_wei = int.from_bytes(data, byteorder='big')
+
+                    # Get token decimals (most stablecoins use 6 decimals)
+                    decimals = 6  # USDC standard
+                    actual_amount = Decimal(amount_wei) / Decimal(10**decimals)
+
+                    # Check amount (with 1% tolerance)
+                    expected_decimal = Decimal(str(expected_amount))
+                    min_amount = expected_decimal * Decimal("0.99")
+
+                    if actual_amount < min_amount:
+                        return False, f"Amount too low: expected {expected_amount}, got {actual_amount}"
+
+                    return True, "ERC20 transfer verified"
+
+                return False, f"No matching Transfer event found for token {token_address}"
+
+        except Exception as e:
+            logger.error(f"On-chain verification error: {e}")
+            return False, f"Verification failed: {str(e)}"
+
     async def verify_payment(
         self,
         payment_id: str,
@@ -352,20 +480,30 @@ class X402Service:
             
             if payment.status == PaymentStatus.COMPLETED:
                 return True, "Already completed"
-            
-            # Verify on-chain (simplified - in production would check actual tx)
-            # For now, we trust the tx_hash provided
+
+            # Verify transaction on-chain
             try:
-                # TODO: Verify transaction on-chain
-                # - Check tx exists
-                # - Check recipient matches
-                # - Check amount matches
-                # - Check token matches
-                
+                # Verify the transaction matches payment parameters
+                success, message = self._verify_transaction_on_chain(
+                    tx_hash=tx_hash,
+                    chain=payment.chain,
+                    expected_recipient=self.payment_recipient,
+                    expected_amount=payment.amount,
+                    token_address=payment.token_address,
+                )
+
+                if not success:
+                    payment.status = PaymentStatus.FAILED
+                    logger.warning(f"Payment {payment_id} verification failed: {message}")
+                    return False, f"Verification failed: {message}"
+
+                # Mark as completed
                 payment.tx_hash = tx_hash
                 payment.status = PaymentStatus.COMPLETED
                 payment.completed_at = datetime.utcnow()
-                
+
+                logger.info(f"Payment {payment_id} verified on-chain: {message}")
+
                 # Grant subscription
                 if payment.product_type == "subscription":
                     tier = SubscriptionTier(payment.product_id)

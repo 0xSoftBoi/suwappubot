@@ -162,6 +162,12 @@ async def gas_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
 
 
+async def gas_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle gas menu callback - redirect to gas command."""
+    # Reuse the existing gas_callback functionality
+    await gas_callback(update, context)
+
+
 # Create handlers
 gas_handler = CommandHandler("g", gas_command)
 

@@ -779,7 +779,37 @@ following_handler = CommandHandler("following", following_command)
 profile_handler = CommandHandler("profile", profile_command)
 stats_handler = CommandHandler("tstats", stats_command)
 
+async def copy_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle copy trading main menu callback."""
+    query = update.callback_query
+    await query.answer()
+
+    text = (
+        "📋 *Copy Trading*\n\n"
+        "Follow and automatically copy trades from top traders!\n\n"
+        "• 🏆 Browse top traders\n"
+        "• 👥 Manage who you're following\n"
+        "• 👤 Set up your trader profile\n"
+        "• 📊 View your trading stats"
+    )
+
+    keyboard = [
+        [InlineKeyboardButton("🏆 Top Traders", callback_data="copy_traders")],
+        [InlineKeyboardButton("👥 Following", callback_data="copy_following")],
+        [InlineKeyboardButton("👤 My Profile", callback_data="copy_profile")],
+        [InlineKeyboardButton("📊 My Stats", callback_data="copy_mystats")],
+        [InlineKeyboardButton("« Back", callback_data="main_menu")],
+    ]
+
+    await query.edit_message_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
 # Callback handlers
+copy_menu_callback_handler = CallbackQueryHandler(copy_menu_callback, pattern="^copy_menu$")
 traders_callback_handler = CallbackQueryHandler(traders_callback, pattern="^copy_traders$")
 view_trader_callback_handler = CallbackQueryHandler(view_trader_callback, pattern=r"^copy_view_\d+$")
 follow_callback_handler = CallbackQueryHandler(follow_callback, pattern=r"^copy_follow_\d+_(notify|auto)$")

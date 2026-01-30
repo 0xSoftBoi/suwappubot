@@ -1276,7 +1276,10 @@ class SwapEngine:
         
         if is_solana_source:
             # Solana -> EVM: Not implemented yet (requires Solana signing)
-            raise SwapError("Solana to EVM via Wormhole not yet implemented")
+            raise SwapError(
+                "Solana to EVM bridging via Wormhole is not yet supported. "
+                "Please bridge manually at portal.wormhole.com"
+            )
         
         # EVM -> Solana or EVM -> EVM
         chain = get_chain_by_name(quote.from_chain)

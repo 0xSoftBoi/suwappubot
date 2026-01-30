@@ -18,16 +18,16 @@ from bot.handlers.start import (
 from bot.handlers.balance import balance_handler, balance_callback
 from bot.handlers.wallet import wallet_handler, wallet_menu_callback, wallet_create_callback, wallet_qr_callback, wallet_import_handler
 from bot.handlers.swap import swap_conversation_handler, check_swap_status
-from bot.handlers.history import history_handler, history_callback, share_pnl_handler
+from bot.handlers.history import history_handler, history_callback, history_menu_callback, share_pnl_handler
 from bot.handlers.portfolio import portfolio_handler, portfolio_callback
-from bot.handlers.gas import gas_handler, gas_callback
+from bot.handlers.gas import gas_handler, gas_callback, gas_menu_callback
 from bot.handlers.favorites import favorites_handler, favorites_callback, use_favorite_callback, delete_favorite_callback
 from bot.handlers.settings import (
     settings_handler, settings_callback, toggle_notify_callback, 
     slippage_conversation, toggle_panic_handler, settings_menu_callback
 )
 from bot.handlers.admin import status_handler, clear_cache_handler, broadcast_handler
-from bot.handlers.quickswap import quickswap_handler, quickswap_confirm_callback
+from bot.handlers.quickswap import quickswap_handler, quickswap_confirm_callback, quickswap_menu_callback
 from bot.handlers.custodial import (
     custodial_handler, custodial_callback, deposit_callback, 
     deposit_qr_callback, withdrawal_conversation
@@ -45,7 +45,8 @@ from bot.handlers.referral import (
 )
 from bot.handlers.limit_orders import (
     orders_handler, dca_handler, limit_order_conversation,
-    dca_view_handler, dca_actions_handler, dca_menu_callback
+    dca_view_handler, dca_actions_handler, dca_menu_callback,
+    limit_orders_menu_callback_handler
 )
 from bot.handlers.tax import (
     tax_handler, tax_year_callback_handler, tax_download_callback_handler, tax_menu_callback_handler
@@ -65,7 +66,8 @@ from bot.handlers.subscription import (
 from bot.handlers.points import (
     xp_handler, checkin_handler, leaderboard_handler, rewards_handler,
     xp_callback_handler, checkin_callback_handler, leaderboard_callback_handler,
-    rewards_callback_handler, redeem_callback_handler, noop_callback_handler as xp_noop_handler
+    rewards_callback_handler, redeem_callback_handler, noop_callback_handler as xp_noop_handler,
+    points_menu_callback_handler
 )
 # Copy Trading handlers
 from bot.handlers.copy import (
@@ -74,11 +76,11 @@ from bot.handlers.copy import (
     unfollow_callback_handler, following_callback_handler, profile_callback_handler,
     toggle_public_callback_handler, edit_emoji_callback_handler, set_emoji_callback_handler,
     my_followers_callback_handler, mystats_callback_handler, copy_now_callback_handler,
-    skip_copy_callback_handler, profile_edit_conversation
+    skip_copy_callback_handler, profile_edit_conversation, copy_menu_callback_handler
 )
 # Token Sniping handlers
 from bot.handlers.snipe import snipe_conversation_handler
-from bot.handlers.dashboard import dashboard_handler
+from bot.handlers.dashboard import dashboard_handler, dashboard_menu_callback
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
@@ -200,6 +202,7 @@ def add_handlers(application: Application) -> None:
     # Balance & Portfolio
     application.add_handler(CallbackQueryHandler(balance_callback, pattern="^balance$"))
     application.add_handler(CallbackQueryHandler(portfolio_callback, pattern="^portfolio"))
+    application.add_handler(CallbackQueryHandler(history_menu_callback, pattern="^history_menu$"))
     
     # Wallet
     application.add_handler(CallbackQueryHandler(wallet_menu_callback, pattern="^wallet_menu$"))
@@ -209,12 +212,15 @@ def add_handlers(application: Application) -> None:
     # Swap
     application.add_handler(CallbackQueryHandler(check_swap_status, pattern="^swap_status_"))
     application.add_handler(CallbackQueryHandler(quickswap_confirm_callback, pattern="^quickswap_confirm$"))
+    application.add_handler(CallbackQueryHandler(quickswap_menu_callback, pattern="^quickswap_menu$"))
     
     # Gas
     application.add_handler(CallbackQueryHandler(gas_callback, pattern="^gas_refresh$"))
+    application.add_handler(CallbackQueryHandler(gas_menu_callback, pattern="^gas_menu$"))
     
     # Favorites
     application.add_handler(CallbackQueryHandler(favorites_callback, pattern="^favorites$"))
+    application.add_handler(CallbackQueryHandler(favorites_callback, pattern="^favorites_menu$"))
     application.add_handler(CallbackQueryHandler(use_favorite_callback, pattern="^fav_use_"))
     application.add_handler(CallbackQueryHandler(delete_favorite_callback, pattern="^fav_delete_"))
     
@@ -240,10 +246,11 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(fees_refresh_callback, pattern="^fees_refresh$"))
     application.add_handler(CallbackQueryHandler(sweep_fees_callback, pattern="^sweep_all_fees$"))
     
-    # DCA management
+    # DCA and Limit Orders management
     application.add_handler(dca_view_handler)
     application.add_handler(dca_actions_handler)
     application.add_handler(dca_menu_callback)
+    application.add_handler(limit_orders_menu_callback_handler)
     
     # Alerts
     application.add_handler(CallbackQueryHandler(alerts_menu_callback, pattern="^alerts_menu$"))
@@ -259,6 +266,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(tax_year_callback_handler)
     application.add_handler(tax_download_callback_handler)
     application.add_handler(tax_menu_callback_handler)
+
+    # Dashboard
+    application.add_handler(CallbackQueryHandler(dashboard_menu_callback, pattern="^dashboard_menu$"))
     
     # Admin metrics
     application.add_handler(metrics_volume_handler)
@@ -279,6 +289,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(sub_back_callback)
     
     # Points/XP callbacks
+    application.add_handler(points_menu_callback_handler)
     application.add_handler(xp_callback_handler)
     application.add_handler(checkin_callback_handler)
     application.add_handler(leaderboard_callback_handler)
@@ -287,6 +298,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(xp_noop_handler)
     
     # Copy Trading callbacks
+    application.add_handler(copy_menu_callback_handler)
     application.add_handler(traders_callback_handler)
     application.add_handler(view_trader_callback_handler)
     application.add_handler(follow_callback_handler)

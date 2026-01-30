@@ -11,8 +11,9 @@ Provides endpoints for:
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 import logging
+import base64
 
-from fastapi import APIRouter, Depends, HTTPException, Response, Query
+from fastapi import APIRouter, Depends, HTTPException, Response, Query, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -81,13 +82,19 @@ def get_db():
         yield session
 
 
-def get_current_user(
+async def get_current_user(
     db: Session = Depends(get_db),
-    # Import from main to reuse JWT logic
+    request: Request = None,
 ) -> Optional[User]:
     """Get current user from JWT token if authenticated."""
-    # This will be called with authorization header
-    return None
+    from api.main import get_current_user_from_token
+
+    user_payload = await get_current_user_from_token(request)
+    if not user_payload:
+        return None
+
+    user_id = user_payload.get("user_id")
+    return db.query(User).filter(User.id == user_id).first() if user_id else None
 
 
 # --- Endpoints ---
@@ -265,44 +272,144 @@ async def oauth_callback(
 
 @router.post("/link", response_model=OAuthLinkResponse)
 async def oauth_link(
-    request: OAuthLinkRequest,
+    link_request: OAuthLinkRequest,
     db: Session = Depends(get_db),
-    # current_user: User = Depends(get_current_user),
+    request: Request = None,
+    current_user: User = Depends(get_current_user),
 ):
     """
     Link OAuth account to existing user.
 
     Requires authenticated user. Starts OAuth flow for linking.
     """
-    # TODO: Implement proper current user dependency
-    raise HTTPException(status_code=501, detail="OAuth linking not yet implemented")
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    provider = link_request.provider
+    if provider not in ("google", "twitter"):
+        raise HTTPException(status_code=400, detail="Invalid OAuth provider")
+
+    if not settings.is_oauth_configured(provider):
+        raise HTTPException(status_code=501, detail=f"OAuth not configured for {provider}")
+
+    # Check if provider not already linked
+    existing = db.query(OAuthIdentity).filter(
+        OAuthIdentity.user_id == current_user.id,
+        OAuthIdentity.provider == provider,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"{provider.capitalize()} account already linked")
+
+    oauth_service = get_oauth_service()
+
+    # Generate state and PKCE for linking
+    state = oauth_service.generate_state()
+    auth_url, code_verifier = oauth_service.get_authorization_url(provider, state)
+
+    # Store state in database for CSRF validation with action="link"
+    oauth_state = OAuthState(
+        state=state,
+        provider=provider,
+        code_verifier=code_verifier,
+        action="link",  # Important - this tells callback to link, not create new user
+        user_id=current_user.id,  # Link to this user
+        expires_at=datetime.utcnow() + timedelta(minutes=10),
+    )
+    db.add(oauth_state)
+    db.commit()
+
+    return OAuthLinkResponse(
+        authorization_url=auth_url,
+        state=state,
+    )
 
 
 @router.delete("/unlink/{provider}")
 async def oauth_unlink(
     provider: str,
     db: Session = Depends(get_db),
-    # current_user: User = Depends(get_current_user),
+    request: Request = None,
+    current_user: User = Depends(get_current_user),
 ):
     """
     Unlink OAuth account from user.
 
     User must have another authentication method available.
     """
-    # TODO: Implement proper current user dependency
-    raise HTTPException(status_code=501, detail="OAuth unlinking not yet implemented")
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    if provider not in ("google", "twitter"):
+        raise HTTPException(status_code=400, detail="Invalid OAuth provider")
+
+    # Find identity to unlink
+    identity = db.query(OAuthIdentity).filter(
+        OAuthIdentity.user_id == current_user.id,
+        OAuthIdentity.provider == provider,
+    ).first()
+
+    if not identity:
+        raise HTTPException(status_code=404, detail=f"{provider.capitalize()} account not linked")
+
+    # Safety check - must have other auth methods
+    other_identities = db.query(OAuthIdentity).filter(
+        OAuthIdentity.user_id == current_user.id,
+        OAuthIdentity.id != identity.id,
+    ).count()
+
+    has_telegram = current_user.telegram_id is not None
+    has_wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).count() > 0
+
+    if other_identities == 0 and not has_telegram and not has_wallet:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot unlink: this is your only authentication method"
+        )
+
+    # If unlinking primary, promote another to primary
+    if identity.is_primary and other_identities > 0:
+        new_primary = db.query(OAuthIdentity).filter(
+            OAuthIdentity.user_id == current_user.id,
+            OAuthIdentity.id != identity.id,
+        ).first()
+        if new_primary:
+            new_primary.is_primary = True
+
+    # Delete identity (cascade deletes tokens via relationship)
+    db.delete(identity)
+    db.commit()
+
+    return {"success": True, "message": f"{provider.capitalize()} account unlinked"}
 
 
 @router.get("/identities", response_model=list[OAuthIdentityResponse])
 async def get_oauth_identities(
     db: Session = Depends(get_db),
-    # current_user: User = Depends(get_current_user),
+    request: Request = None,
+    current_user: User = Depends(get_current_user),
 ):
     """
     Get all OAuth identities linked to current user.
     """
-    # TODO: Implement proper current user dependency
-    raise HTTPException(status_code=501, detail="Not implemented")
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    identities = db.query(OAuthIdentity).filter(
+        OAuthIdentity.user_id == current_user.id
+    ).all()
+
+    return [
+        OAuthIdentityResponse(
+            id=identity.id,
+            provider=identity.provider,
+            email=identity.email,
+            name=identity.name,
+            profile_image=identity.profile_image,
+            is_primary=identity.is_primary,
+            created_at=identity.created_at,
+        )
+        for identity in identities
+    ]
 
 
 # --- Helper Functions ---
@@ -444,11 +551,13 @@ async def _store_oauth_tokens(
     tokens,
 ) -> OAuthToken:
     """
-    Store OAuth tokens with encryption.
+    Store OAuth tokens with KMS envelope encryption.
 
-    TODO: Implement KMS envelope encryption for tokens.
-    For now, stores tokens directly (should be encrypted in production).
+    Note: Access and refresh tokens are encrypted separately with fresh DEKs,
+    but we only store metadata for the access token (refresh uses same scheme).
     """
+    from bot.utils.envelope_crypto import encrypt_private_key_v2, encode_for_db
+
     # Delete existing tokens for this identity
     db.query(OAuthToken).filter(
         OAuthToken.identity_id == identity.id
@@ -457,18 +566,75 @@ async def _store_oauth_tokens(
     # Calculate expiration
     expires_at = datetime.utcnow() + timedelta(seconds=tokens.expires_in)
 
+    # Encrypt access token with KMS
+    access_encrypted = encrypt_private_key_v2(tokens.access_token)
+    access_fields = encode_for_db(access_encrypted)
+
+    # Encrypt refresh token with KMS (if present)
+    # Note: We use a concatenated format "nonce:dek:ciphertext" to store all metadata
+    refresh_token_encrypted = None
+    if tokens.refresh_token:
+        refresh_encrypted = encrypt_private_key_v2(tokens.refresh_token)
+        # Store as "wrapped_dek|nonce|ciphertext" to preserve all metadata
+        refresh_token_encrypted = "|".join([
+            base64.b64encode(refresh_encrypted.wrapped_dek).decode("ascii"),
+            base64.b64encode(refresh_encrypted.nonce).decode("ascii"),
+            base64.b64encode(refresh_encrypted.ciphertext).decode("ascii"),
+        ])
+
     # Create new token record
-    # TODO: Encrypt tokens with KMS before storage
     oauth_token = OAuthToken(
         identity_id=identity.id,
-        access_token_encrypted=tokens.access_token,  # Should be encrypted
-        refresh_token_encrypted=tokens.refresh_token,  # Should be encrypted
+        access_token_encrypted=access_fields["encrypted_private_key"],
+        refresh_token_encrypted=refresh_token_encrypted,
         token_type=tokens.token_type,
         scope=tokens.scope,
         expires_at=expires_at,
-        encryption_scheme="plaintext",  # TODO: Change to kms_aesgcm_v2
+        encryption_scheme="kms_aesgcm_v2",
+        kms_wrapped_dek=access_fields["kms_wrapped_dek"],
+        aesgcm_nonce=access_fields["aesgcm_nonce"],
     )
     db.add(oauth_token)
     db.commit()
 
     return oauth_token
+
+
+def _get_oauth_access_token(db: Session, identity_id: int) -> Optional[str]:
+    """
+    Get and decrypt OAuth access token for an identity.
+
+    Args:
+        db: Database session
+        identity_id: The OAuth identity ID
+
+    Returns:
+        Decrypted access token or None if not found/expired
+    """
+    from bot.utils.envelope_crypto import decrypt_wallet_key
+
+    # Query token
+    oauth_token = db.query(OAuthToken).filter(
+        OAuthToken.identity_id == identity_id
+    ).first()
+
+    if not oauth_token:
+        return None
+
+    # Check expiration
+    if oauth_token.is_expired:
+        logger.warning(f"OAuth token expired for identity {identity_id}")
+        return None
+
+    # Decrypt access token
+    try:
+        access_token = decrypt_wallet_key(
+            encrypted_private_key=oauth_token.access_token_encrypted,
+            encryption_scheme=oauth_token.encryption_scheme,
+            kms_wrapped_dek=oauth_token.kms_wrapped_dek,
+            aesgcm_nonce=oauth_token.aesgcm_nonce,
+        )
+        return access_token
+    except Exception as e:
+        logger.error(f"Failed to decrypt OAuth access token: {e}")
+        return None
