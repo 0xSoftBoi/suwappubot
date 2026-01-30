@@ -76,11 +76,6 @@ CMakeCache.txt
 cmake_install.cmake
 Makefile
 
-# iOS build
-ios/SuwappuApp/SuwappuApp.xcodeproj/xcuserdata/
-ios/SuwappuApp/SuwappuApp.xcodeproj/project.xcworkspace/xcuserdata/
-*.xcuserstate
-
 # Cursor
 .cursor/
 
