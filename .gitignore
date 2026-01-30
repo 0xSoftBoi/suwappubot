@@ -81,3 +81,4 @@ Makefile
 
 node_modules/
 .vercel
+webapp/bun.lock
