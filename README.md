@@ -1,200 +1,105 @@
-# Suwappu: Cross-Chain DEX Bot & Liquidity SDK
+# Suwappu 🌸
 
-[![Agent-Ready](https://img.shields.io/badge/Agent--Ready-Model--Context--Protocol-blueviolet)](README_AGENT.md)
+Cross-chain DEX bot & liquidity infrastructure for humans and AI agents.
+
+[![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/README_AGENT.md)
 [![A2A-Optimized](https://img.shields.io/badge/A2A-Optimized-blue)](agent-card.json)
 
-Suwappu is a high-performance liquidity infrastructure and cross-chain swap bot. It allows humans and **other AI agents** to swap tokens across 7+ chains with native performance and machine-readable discovery.
+## Overview
 
-## Features
+```mermaid
+flowchart LR
+    subgraph Clients["Clients"]
+        TG["📱 Telegram"]
+        WA["💬 WhatsApp"]
+        AI["🤖 AI Agents"]
+    end
 
-- Cross-chain stablecoin swaps (Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, Solana)
-- Support for major stablecoins (USDT, USDC, DAI, BUSD)
-- Powered by Li.Fi API for cross-chain swaps
-- Jupiter API integration for Solana swaps
-- Secure wallet management with encrypted private keys (EVM + Solana)
-- Real-time price quotes and fee estimation
-- Telegram and WhatsApp Business API integration
-- Agent-First Design: Built-in MCP support, A2A auth, and semantic tool discovery
+    subgraph Suwappu["Suwappu Platform"]
+        Bot["Bot Service"]
+        API["API (TypeScript)"]
+        Web["Webapp (React)"]
+    end
 
-## Quick Start
+    subgraph Chains["7 Chains"]
+        EVM["EVM Chains"]
+        SOL["Solana"]
+    end
 
-### Prerequisites
-
-- Python 3.10+
-- Telegram Bot Token (from [@BotFather](https://t.me/botfather))
-- RPC endpoints for supported chains (Alchemy, Infura, or public RPCs)
-- PostgreSQL database (or SQLite for development)
-
-### Installation
-
-```bash
-# Clone the repository
-git clone <repository-url>
-cd suwappubot
-
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-cp .env.template .env
-# Edit .env with your configuration
+    TG --> Bot --> API
+    TG --> Web --> API
+    WA --> API
+    AI --> API
+    API --> EVM & SOL
 ```
 
-### Running Locally
+**Swap tokens across 7 chains** via Telegram, WhatsApp, or programmatic API.
 
-```bash
-# Run the monolith (API + Bot)
-uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
-```
+| Feature | Description |
+|---------|-------------|
+| **Cross-Chain Swaps** | ETH, BSC, Polygon, Arbitrum, Optimism, Base, Solana |
+| **Telegram Mini App** | Native in-app experience |
+| **Agent API** | MCP + A2A ready for AI integrations |
+| **Secure Wallets** | AES-256-GCM encrypted keys |
 
-The bot uses **polling mode** by default, which works for single-instance local development.
+---
 
-## Configuration
+## 📚 Documentation
 
-### Required Settings
+| Component | Description | README |
+|-----------|-------------|--------|
+| **API (TypeScript)** | Hono + Effect-TS backend | [api-ts/README.md](api-ts/README.md) |
+| **Webapp** | React + Vite Mini App | [webapp/README.md](webapp/README.md) |
+| **Bot** | Python Telegram handlers | [bot/](bot/) |
+| **Infrastructure** | AWS CDK stacks | [infra/README.md](infra/README.md) |
+| **Agent Integration** | MCP & A2A guide | [docs/README_AGENT.md](docs/README_AGENT.md) |
 
-| Variable | Description |
-|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather |
-| `ENCRYPTION_KEY` | 32-byte hex key for encrypting wallet private keys |
-| `DATABASE_URL` | Database connection string |
+### Additional Docs
 
-### Optional Settings
+- [Deployment Guide](docs/DEPLOYMENT.md)
+- [AWS Infrastructure](docs/AWS_DEPLOYMENT.md)
+- [Scaling Guide](docs/SCALING_GUIDE.md)
+- [Health Check](HEALTH_CHECK.md)
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `USE_WEBHOOK` | Enable webhook mode for Telegram | `false` |
-| `WEBHOOK_URL` | Public URL for webhook endpoint | - |
-| `WEBHOOK_SECRET_TOKEN` | Custom secret for webhook verification | auto-generated |
-| `LIFI_API_KEY` | Li.Fi API key for higher rate limits | - |
-| `JUPITER_API_KEY` | Jupiter API key | - |
-| `LOG_LEVEL` | Logging level | `INFO` |
-
-See `.env.template` for all available options.
-
-## Deployment
-
-### Telegram Bot: Polling vs Webhook Mode
-
-Suwappu supports two modes for receiving Telegram updates:
-
-| Mode | Use Case | Replicas |
-|------|----------|----------|
-| **Polling** | Local development | Single instance only |
-| **Webhook** | Production | Multiple replicas supported |
-
-#### Polling Mode (Default)
-
-The bot polls Telegram's servers for updates. Simple but causes conflicts with multiple replicas:
-
-```
-telegram.error.Conflict: terminated by other getUpdates request
-```
-
-**Use for:** Local development, single-instance deployments.
-
-#### Webhook Mode (Production)
-
-Telegram pushes updates to your server. Safe with multiple replicas since Telegram sends each update exactly once.
-
-**Enable webhook mode:**
-
-```bash
-# In your production environment
-USE_WEBHOOK=true
-WEBHOOK_URL=https://api.your-domain.com/telegram/webhook
-# Optional: custom secret (auto-generated from bot token if not set)
-WEBHOOK_SECRET_TOKEN=your_custom_secret
-```
-
-**Requirements:**
-- HTTPS endpoint (TLS termination at load balancer is fine)
-- Publicly accessible URL
-- Port 443, 80, 88, or 8443
-
-### Production Deployment (ECS/Kubernetes)
-
-1. **Set environment variables:**
-   ```bash
-   USE_WEBHOOK=true
-   WEBHOOK_URL=https://api.your-domain.com/telegram/webhook
-   DATABASE_URL=postgresql://user:pass@host:5432/suwappu
-   ```
-
-2. **Deploy multiple replicas** - no polling conflicts with webhook mode
-
-3. **Verify webhook is set:**
-   ```bash
-   curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo
-   ```
-
-4. **Check logs for:**
-   ```
-   ✓ Telegram webhook set: https://api.your-domain.com/telegram/webhook
-   ```
-
-### Docker
-
-```bash
-# Build
-docker build -t suwappu .
-
-# Run (polling mode for local)
-docker run -p 8000:8000 --env-file .env suwappu
-
-# Run (webhook mode for production)
-docker run -p 8000:8000 \
-  -e USE_WEBHOOK=true \
-  -e WEBHOOK_URL=https://api.your-domain.com/telegram/webhook \
-  --env-file .env suwappu
-```
-
-### Docker Compose
-
-```bash
-# Local development (polling)
-docker-compose -f docker-compose.local.yml up
-
-# Production (webhook)
-docker-compose up
-```
+---
 
 ## Architecture
 
+### System Overview
+
 ```mermaid
 flowchart TB
-    subgraph Users["Users"]
+    subgraph Users["👥 Users"]
         TG["Telegram Client"]
         WA["WhatsApp Client"]
         Agent["AI Agents"]
     end
 
     subgraph TelegramEco["Telegram Ecosystem"]
-        Bot["Bot Commands"]
-        MiniApp["Mini App Dashboard"]
+        Bot["🤖 Bot Commands"]
+        MiniApp["📱 Mini App"]
     end
 
-    subgraph Infrastructure["AWS Infrastructure"]
+    subgraph AWS["☁️ AWS Infrastructure"]
         subgraph ECS["ECS Fargate"]
-            API["FastAPI Backend<br/>:10000"]
+            APIService["API Service\n(Hono/Effect)"]
+            WebService["Webapp Service\n(React/Nginx)"]
+            BotService["Bot Service\n(Python)"]
         end
-        RDS[(PostgreSQL<br/>RDS)]
-        ECR["ECR Registry"]
+        
+        ALB["Application\nLoad Balancer"]
+        RDS[(PostgreSQL)]
         SM["Secrets Manager"]
-        CW["CloudWatch Logs"]
+        ECR["ECR Registry"]
     end
 
-    subgraph External["External Services"]
+    subgraph External["🔗 External APIs"]
         LiFi["Li.Fi API"]
         Jupiter["Jupiter API"]
-        RPCs["RPC Endpoints<br/>Alchemy/Public"]
+        RPCs["RPC Endpoints"]
     end
 
-    subgraph Chains["Supported Chains"]
+    subgraph Chains["⛓️ Supported Chains"]
         ETH["Ethereum"]
         BSC["BSC"]
         POLY["Polygon"]
@@ -204,353 +109,266 @@ flowchart TB
         SOL["Solana"]
     end
 
-    TG --> Bot
-    TG --> MiniApp
-    WA --> API
-    Agent --> API
+    TG --> Bot & MiniApp
+    WA --> APIService
+    Agent --> APIService
 
-    Bot --> API
-    MiniApp --> API
+    Bot --> BotService --> APIService
+    MiniApp --> WebService
+    WebService --> APIService
 
-    API --> RDS
-    API --> LiFi
-    API --> Jupiter
-    API --> RPCs
+    ALB --> APIService & WebService & BotService
+    APIService --> RDS
+    APIService --> LiFi & Jupiter & RPCs
     SM --> ECS
     ECR --> ECS
-    ECS --> CW
 
     LiFi --> ETH & BSC & POLY & ARB & OPT & BASE
     Jupiter --> SOL
-    RPCs --> Chains
 
-    style Infrastructure fill:#ff9900,color:#000
+    style AWS fill:#ff9900,color:#000
     style TelegramEco fill:#0088cc,color:#fff
     style External fill:#28a745,color:#fff
-    style Chains fill:#6f42c1,color:#fff
 ```
 
-### Project Structure
+### Data Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant TG as Telegram
+    participant W as Webapp
+    participant A as API
+    participant L as Li.Fi/Jupiter
+    participant C as Chain
+
+    U->>TG: Open Mini App
+    TG->>W: Load webapp
+    W->>A: GET /webapp/user (initData)
+    A-->>W: User profile + wallets
+    
+    U->>W: Request swap
+    W->>A: POST /webapp/swap/quote
+    A->>L: Get quote
+    L-->>A: Quote response
+    A-->>W: Display quote
+    
+    U->>W: Confirm swap
+    W->>A: POST /webapp/swap/execute
+    A->>C: Submit transaction
+    C-->>A: Tx hash
+    A-->>W: Swap confirmed
+    W-->>U: Show success
+```
+
+### Deployment Environments
+
+```mermaid
+flowchart LR
+    subgraph Dev["🟡 Development"]
+        DevAPI["devapi.suwappu.bot"]
+        DevWeb["devfront.suwappu.bot"]
+    end
+
+    subgraph Prod["🟢 Production"]
+        ProdAPI["api.suwappu.bot"]
+        ProdWeb["app.suwappu.bot"]
+    end
+
+    subgraph AWS["AWS ECS"]
+        DevCluster["suwappu-cluster\n(dev services)"]
+        ProdCluster["suwappu-cluster\n(prod services)"]
+    end
+
+    DevAPI --> DevCluster
+    DevWeb --> DevCluster
+    ProdAPI --> ProdCluster
+    ProdWeb --> ProdCluster
+
+    style Dev fill:#ffc107,color:#000
+    style Prod fill:#28a745,color:#fff
+```
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- [Bun](https://bun.sh) v1.3+
+- PostgreSQL 14+
+- Telegram Bot Token
+
+### Local Development
+
+```bash
+# Clone
+git clone https://github.com/0xSoftBoi/suwappubot.git
+cd suwappubot
+
+# API (TypeScript)
+cd api-ts
+bun install
+cp .env.example .env
+bun run dev
+
+# Webapp (separate terminal)
+cd webapp
+bun install
+bun run dev
+
+# Bot (Python - optional)
+cd bot
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+python -m bot.main
+```
+
+### Docker
+
+```bash
+# Full stack local
+docker-compose -f docker-compose.local.yml up
+
+# Production (webhook mode)
+docker-compose up
+```
+
+---
+
+## Project Structure
 
 ```
 suwappubot/
-├── api/                  # FastAPI application
-│   ├── main.py           # Lifespan manager, webhook endpoint
-│   ├── webapp.py         # Telegram Mini App validation
-│   └── routes/           # API route modules
-├── bot/                  # Telegram bot logic
-│   ├── main.py           # Handler registration
-│   ├── config/           # Settings and configuration
-│   ├── handlers/         # Command and callback handlers
-│   ├── services/         # Business logic (swaps, wallets, fees)
-│   └── models/           # SQLAlchemy models
-├── database/             # Database setup and migrations
-├── webapp/               # Telegram Mini App (React/Vite)
-├── tui/                  # Terminal UI for monitoring (Bun/Ink)
-└── .github/workflows/    # CI/CD pipelines
+├── api-ts/           # TypeScript API (Hono + Effect)
+│   ├── src/
+│   │   ├── routes/   # API endpoints
+│   │   ├── services/ # Business logic
+│   │   └── db/       # Drizzle schema
+│   └── README.md     # 📖 API docs
+│
+├── webapp/           # Telegram Mini App (React)
+│   ├── src/
+│   │   ├── pages/    # Route pages
+│   │   ├── components/
+│   │   └── theme/    # Design system
+│   └── README.md     # 📖 Webapp docs
+│
+├── bot/              # Python Telegram bot
+│   ├── handlers/     # Command handlers
+│   └── services/     # Swap/wallet logic
+│
+├── infra/            # AWS CDK infrastructure
+│   └── README.md     # 📖 Infra docs
+│
+├── docs/             # Additional documentation
+│   ├── README_AGENT.md
+│   ├── DEPLOYMENT.md
+│   └── ...
+│
+├── .github/workflows/  # CI/CD pipelines
+└── docker-compose.yml
 ```
 
-### Environment Setup
-
-```mermaid
-flowchart LR
-    subgraph Local["Local Development"]
-        DC["docker-compose.local.yml"]
-        ENV_L[".env.local"]
-        PG_L[(Postgres Container)]
-        REDIS_L[(Redis Container)]
-    end
-
-    subgraph Dev["AWS Development"]
-        ECS_D["ECS: suwappu-dev-service"]
-        SEC_D["Secrets: suwappu/dev-secrets"]
-        RDS_D[(RDS PostgreSQL)]
-        VERCEL["Vercel: suwappu.dev"]
-    end
-
-    subgraph Prod["AWS Production"]
-        ECS_P["ECS: SuwappuStack-SuwappuService"]
-        SEC_P["Secrets: suwappu/app-secrets"]
-        RDS_P[(RDS PostgreSQL)]
-    end
-
-    DC --> PG_L & REDIS_L
-    ENV_L --> DC
-    SEC_D --> ECS_D
-    ECS_D --> RDS_D
-    SEC_P --> ECS_P
-    ECS_P --> RDS_P
-
-    style Local fill:#28a745,color:#fff
-    style Dev fill:#ffc107,color:#000
-    style Prod fill:#dc3545,color:#fff
-```
-
-### Key Endpoints
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /health` | Health check |
-| `POST /telegram/webhook` | Telegram webhook receiver |
-| `POST /webhook` | WhatsApp webhook receiver |
-| `GET /tools` | Agent tool discovery |
-| `GET /.well-known/ai-plugin.json` | MCP manifest |
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `/start` | Start the bot and show main menu |
-| `/swap` | Initiate a cross-chain swap |
-| `/balance` | Check wallet balances across chains |
-| `/wallet` | Wallet management |
-| `/help` | Show help information |
+---
 
 ## Supported Chains & Tokens
 
-| Chain | Tokens |
-|-------|--------|
-| Ethereum | USDT, USDC, DAI, ETH |
-| BSC | USDT, BUSD, BNB |
-| Polygon | USDT, USDC, MATIC |
-| Arbitrum | USDT, USDC, ETH |
-| Optimism | USDT, USDC, ETH |
-| Base | USDT, USDC, ETH |
-| Solana | USDT, USDC, SOL |
+| Chain | ID | Tokens | Bridge |
+|-------|-----|--------|--------|
+| Ethereum | 1 | USDT, USDC, DAI, ETH | Li.Fi |
+| BSC | 56 | USDT, BUSD, BNB | Li.Fi |
+| Polygon | 137 | USDT, USDC, MATIC | Li.Fi |
+| Arbitrum | 42161 | USDT, USDC, ETH | Li.Fi |
+| Optimism | 10 | USDT, USDC, ETH | Li.Fi |
+| Base | 8453 | USDT, USDC, ETH | Li.Fi |
+| Solana | - | USDT, USDC, SOL | Jupiter |
 
-## Agent Interoperability (A2A)
+---
 
-Suwappu is designed for the agentic economy. Other AI agents can discover and use Suwappu via:
+## Bot Commands
 
-- **Integration Guide**: [README_AGENT.md](README_AGENT.md)
-- **Tool Discovery**: `GET /tools`
-- **MCP Manifest**: `GET /.well-known/ai-plugin.json`
-- **A2A Agent Card**: `GET /agent-card.json`
+| Command | Description |
+|---------|-------------|
+| `/start` | Start bot, show menu |
+| `/swap` | Initiate cross-chain swap |
+| `/balance` | Check wallet balances |
+| `/wallet` | Wallet management |
+| `/help` | Help & support |
 
-## Security
+---
 
-- Private keys are encrypted at rest using AES-256-GCM
-- Webhook requests verified via `X-Telegram-Bot-Api-Secret-Token` header
-- HTTPS required for production webhook endpoints
-- Never share private keys or bot tokens
+## Agent Integration
 
-## Testing
-
-```bash
-# Run all tests
-pytest tests/
-
-# Run with coverage
-pytest tests/ --cov=bot --cov=api
-```
-
-## Troubleshooting
-
-### Polling Conflicts
-
-**Error:** `telegram.error.Conflict: terminated by other getUpdates request`
-
-**Cause:** Multiple instances trying to poll simultaneously.
-
-**Solution:** Enable webhook mode for multi-replica deployments:
-```bash
-USE_WEBHOOK=true
-WEBHOOK_URL=https://your-domain.com/telegram/webhook
-```
-
-### Webhook Not Receiving Updates
-
-1. Verify webhook is set:
-   ```bash
-   curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo
-   ```
-
-2. Check the URL is publicly accessible
-
-3. Verify HTTPS is working (self-signed certs not allowed)
-
-4. Check logs for secret token verification failures
-
-### Database Connection Issues
-
-**Error:** `Database initialization failed - API running in degraded mode`
-
-**Solution:** Verify `DATABASE_URL` is correct and the database is accessible.
-
-## API-TS Infrastructure
-
-The TypeScript API (`api-ts/`) is deployed on AWS ECS Fargate with separate dev and production environments.
-
-### Architecture
-
-```mermaid
-flowchart TB
-    subgraph Internet["Internet"]
-        Users["Users / Agents"]
-    end
-
-    subgraph DNS["DNS (suwappu.bot)"]
-        DevDNS["devapi.suwappu.bot"]
-        ProdDNS["api.suwappu.bot"]
-    end
-
-    subgraph AWS["AWS us-east-1"]
-        subgraph ALB["Application Load Balancers"]
-            DevLB["suwapp-suwap-ppzluzyhsvuj<br/>DEV ALB"]
-            ProdLB["suwappu-api-prod<br/>PROD ALB"]
-        end
-
-        subgraph ECS["ECS Cluster: suwappu-cluster"]
-            DevService["suwappu-api-ts-dev<br/>Task: suwappu-api-ts-dev:4"]
-            ProdService["suwappu-api-ts-prod<br/>Task: suwappu-api-ts-prod:1"]
-        end
-
-        subgraph TG["Target Groups"]
-            DevTG["suwappu-api-ts-dev<br/>:8000"]
-            ProdTG["suwappu-api-ts-prod<br/>:8000"]
-        end
-
-        ECR["ECR: suwappu-api-ts"]
-        RDS[(RDS PostgreSQL)]
-        SM["Secrets Manager"]
-    end
-
-    Users --> DevDNS & ProdDNS
-    DevDNS --> DevLB
-    ProdDNS --> ProdLB
-    DevLB --> DevTG --> DevService
-    ProdLB --> ProdTG --> ProdService
-    DevService & ProdService --> RDS
-    SM --> ECS
-    ECR --> ECS
-
-    style DevLB fill:#ffc107,color:#000
-    style ProdLB fill:#28a745,color:#fff
-    style DevService fill:#ffc107,color:#000
-    style ProdService fill:#28a745,color:#fff
-```
-
-### Environments
-
-#### API (api-ts)
-| Environment | Domain | Load Balancer DNS | ECS Service | Image Tag |
-|-------------|--------|-------------------|-------------|-----------|
-| **Development** | `devapi.suwappu.bot` | `suwapp-suwap-ppzluzyhsvuj-1262209256.us-east-1.elb.amazonaws.com` | `suwappu-api-ts-dev` | `development` |
-| **Production** | `api.suwappu.bot` | `suwappu-api-prod-1251755078.us-east-1.elb.amazonaws.com` | `suwappu-api-ts-prod` | `latest` |
-
-#### Webapp (webapp)
-| Environment | Domain | Load Balancer DNS | ECS Service | Image Tag |
-|-------------|--------|-------------------|-------------|-----------|
-| **Development** | `devfront.suwappu.bot` | `suwappu-webapp-dev-1074869316.us-east-1.elb.amazonaws.com` | `suwappu-webapp-dev` | `development` |
-| **Production** | `app.suwappu.bot` | `suwappu-webapp-prod-494496315.us-east-1.elb.amazonaws.com` | `suwappu-webapp-prod` | `latest` |
-
-### DNS Records (suwappu.bot)
-
-Add these CNAME records to your DNS provider:
-
-#### API Endpoints
-| Type | Name | Value | Purpose |
-|------|------|-------|---------|
-| CNAME | `api` | `suwappu-api-prod-1251755078.us-east-1.elb.amazonaws.com` | Production API |
-| CNAME | `devapi` | `suwapp-suwap-ppzluzyhsvuj-1262209256.us-east-1.elb.amazonaws.com` | Development API |
-
-#### Webapp Endpoints
-| Type | Name | Value | Purpose |
-|------|------|-------|---------|
-| CNAME | `app` | `suwappu-webapp-prod-494496315.us-east-1.elb.amazonaws.com` | Production Webapp |
-| CNAME | `devfront` | `suwappu-webapp-dev-1074869316.us-east-1.elb.amazonaws.com` | Development Webapp |
-
-### SSL Certificate
-
-**Certificate ARN:** `arn:aws:acm:us-east-1:905418423235:certificate/74e95aae-e397-44cc-9005-d964c97ebc41`
-
-**Domains:** `api.suwappu.bot`, `*.suwappu.bot`
-
-**DNS Validation Records:**
-
-| Type | Name | Value |
-|------|------|-------|
-| CNAME | `_16ec242628bf5f4ce403c01e2d963f99.api` | `_3bb764a49e402d61b97e1a5e349f2c7e.jkddzztszm.acm-validations.aws.` |
-| CNAME | `_e3b65c239aa4569ad15ac3818d1e75ec` | `_b735bde063cb06a22005607fcb1cec81.jkddzztszm.acm-validations.aws.` |
-
-### AWS Resources
+Suwappu is designed for the **agentic economy**. AI agents can:
 
 ```mermaid
 flowchart LR
-    subgraph ECS["ECS Resources"]
-        Cluster["Cluster:<br/>suwappu-cluster"]
-        DevSvc["Service:<br/>suwappu-api-ts-dev"]
-        ProdSvc["Service:<br/>suwappu-api-ts-prod"]
-        DevTask["Task Def:<br/>suwappu-api-ts-dev:4"]
-        ProdTask["Task Def:<br/>suwappu-api-ts-prod:1"]
-    end
-
-    subgraph ALB["Load Balancers"]
-        DevALB["ALB:<br/>Suwapp-Suwap-PpZLUzYhsvuj"]
-        ProdALB["ALB:<br/>suwappu-api-prod"]
-    end
-
-    subgraph TG["Target Groups"]
-        DevTG["TG:<br/>suwappu-api-ts-dev"]
-        ProdTG["TG:<br/>suwappu-api-ts-prod"]
-    end
-
-    Cluster --> DevSvc & ProdSvc
-    DevSvc --> DevTask
-    ProdSvc --> ProdTask
-    DevALB --> DevTG --> DevSvc
-    ProdALB --> ProdTG --> ProdSvc
-
-    style DevSvc fill:#ffc107,color:#000
-    style ProdSvc fill:#28a745,color:#fff
-    style DevALB fill:#ffc107,color:#000
-    style ProdALB fill:#28a745,color:#fff
+    Agent["🤖 AI Agent"] --> Discover["GET /tools"]
+    Discover --> Quote["POST /v1/agent/quote"]
+    Quote --> Execute["POST /v1/agent/swap"]
+    Execute --> Result["Swap Complete"]
 ```
 
-### Health Check Script
+- **Tool Discovery:** `GET /tools`
+- **MCP Manifest:** `GET /.well-known/ai-plugin.json`
+- **Agent Card:** `GET /agent-card.json`
 
-Monitor all API instances:
+See [docs/README_AGENT.md](docs/README_AGENT.md) for integration guide.
 
-```bash
-# Basic health check
-./scripts/health-check.sh
+---
 
-# Include DNS resolution
-./scripts/health-check.sh --dns
+## Deployment
 
-# Watch mode (every 10s)
-./scripts/health-check.sh --watch --dns
-```
+### Environments
 
-### Useful AWS CLI Commands
+| Environment | API | Webapp | Branch |
+|-------------|-----|--------|--------|
+| **Production** | api.suwappu.bot | app.suwappu.bot | `main` |
+| **Development** | devapi.suwappu.bot | devfront.suwappu.bot | `dev` |
 
-```bash
-# Check service status
-aws --profile Swappu ecs describe-services \
-  --cluster suwappu-cluster \
-  --services suwappu-api-ts-prod suwappu-api-ts-dev \
-  --query 'services[*].[serviceName,runningCount,desiredCount]' \
-  --output table
+### CI/CD
 
-# View recent logs
-aws --profile Swappu logs tail /ecs/suwappu --follow
+Push to `main` or `dev` triggers GitHub Actions → ECR → ECS deployment.
 
-# Check certificate status
-aws --profile Swappu acm describe-certificate \
-  --certificate-arn arn:aws:acm:us-east-1:905418423235:certificate/74e95aae-e397-44cc-9005-d964c97ebc41 \
-  --query 'Certificate.[Status,DomainValidationOptions[*].ValidationStatus]'
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for details.
 
-# Force new deployment
-aws --profile Swappu ecs update-service \
-  --cluster suwappu-cluster \
-  --service suwappu-api-ts-prod \
-  --force-new-deployment
-```
+---
+
+## Contributing
+
+1. Fork & create feature branch
+2. Follow existing patterns
+3. Add tests for new features
+4. PR with description
+
+### Code Style
+
+- **TypeScript:** Effect-TS patterns, strict mode
+- **React:** Functional components, hooks
+- **Python:** Type hints, async/await
+
+---
+
+## Security
+
+- Private keys encrypted with AES-256-GCM
+- Telegram auth via HMAC validation
+- API keys for agent/admin endpoints
+- HTTPS required in production
+
+Report vulnerabilities to security@suwappu.bot
+
+---
 
 ## License
 
 MIT
 
-## Disclaimer
+---
 
-This bot interacts with blockchain networks and handles cryptocurrency. Use at your own risk. Always test with small amounts first.
+## Links
+
+- **Production:** https://app.suwappu.bot
+- **API Docs:** https://api.suwappu.bot/docs
+- **Telegram Bot:** [@SuwappuBot](https://t.me/SuwappuBot)
