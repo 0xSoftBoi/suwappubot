@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { AppLayout, AppHeader } from '../components/layout'
+import { useNavigate } from 'react-router-dom'
+import { AppLayout, UserHeader } from '../components/layout'
 import { BalanceCard, TokenItem } from '../components/cards'
 import { QuickActions, NotificationBanner } from '../components/ui'
 import { usePortfolio } from '../hooks/usePortfolio'
@@ -45,6 +46,7 @@ function formatUsd(value: number): string {
 }
 
 export function Home() {
+  const navigate = useNavigate()
   const [showBanner, setShowBanner] = useState(true)
   const { data: portfolio, isLoading, error } = usePortfolio()
 
@@ -54,15 +56,9 @@ export function Home() {
   const tokens = portfolio?.tokens || []
 
   const header = (
-    <AppHeader
-      title="Suwappu"
-      rightAction={
-        <button className="p-1.5 text-suwappu-text-secondary hover:text-suwappu-text transition-colors">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        </button>
-      }
+    <UserHeader
+      showSettings={true}
+      onSettingsClick={() => navigate('/settings')}
     />
   )
 
