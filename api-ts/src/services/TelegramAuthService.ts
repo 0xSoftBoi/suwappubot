@@ -95,6 +95,11 @@ export const TelegramAuthServiceLive = Layer.effect(
 
 					// Constant-time comparison
 					if (calculatedHash !== receivedHash) {
+						console.log('Hash mismatch:', {
+							receivedHash: receivedHash.substring(0, 16) + '...',
+							calculatedHash: calculatedHash.substring(0, 16) + '...',
+							botTokenPrefix: env.TELEGRAM_BOT_TOKEN?.substring(0, 10) + '...',
+						})
 						return Option.none<TelegramUser>()
 					}
 
