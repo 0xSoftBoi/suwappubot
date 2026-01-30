@@ -1,17 +1,10 @@
-# Suwappu Telegram Mini App
+# Suwappu Webapp 🌸
 
-A Telegram Web App for viewing portfolio and swap history.
+Telegram Mini App for cross-chain swaps, portfolio tracking, and wallet management.
 
-## Tech Stack
+**Live:** https://app.suwappu.bot
 
-- **Vite** - Build tool
-- **React 18** - UI framework
-- **TypeScript** - Type safety
-- **Tailwind CSS** - Styling
-- **@twa-dev/sdk** - Telegram WebApp SDK
-- **@tanstack/react-query** - Data fetching
-
-## Development
+## Quick Start
 
 ```bash
 # Install dependencies
@@ -20,78 +13,205 @@ bun install
 # Start dev server
 bun run dev
 
-# Build for production
-bun run build
-
-# Preview production build
-bun run preview
+# Open http://localhost:5173
 ```
 
-## Environment Variables
+## Tech Stack
 
-Copy `.env.example` to `.env` and configure:
-
-```bash
-VITE_API_URL=http://localhost:8000  # Backend API URL
-```
+| Tool | Purpose |
+|------|---------|
+| **Vite** | Build tool & dev server |
+| **React 18** | UI framework |
+| **TypeScript** | Type safety |
+| **Tailwind CSS** | Styling |
+| **Framer Motion** | Animations |
+| **TanStack Query** | Data fetching & caching |
+| **@twa-dev/sdk** | Telegram WebApp SDK |
+| **Storybook** | Component development |
 
 ## Project Structure
 
 ```
 webapp/
 ├── src/
-│   ├── components/     # React components
-│   │   ├── Navigation.tsx
-│   │   ├── Portfolio.tsx
-│   │   ├── TokenBalance.tsx
-│   │   ├── SwapHistory.tsx
-│   │   └── SwapCard.tsx
-│   ├── hooks/          # React hooks
-│   │   ├── useTelegram.ts
-│   │   ├── usePortfolio.ts
-│   │   └── useSwapHistory.ts
-│   ├── lib/            # Utilities
-│   │   ├── telegram.ts  # Telegram SDK wrapper
-│   │   └── api.ts       # API client
-│   ├── types/          # TypeScript types
-│   │   └── api.ts
-│   ├── App.tsx         # Main app component
-│   ├── main.tsx        # Entry point
-│   └── index.css       # Global styles
-├── index.html
-├── package.json
-├── tailwind.config.js
-├── tsconfig.json
-└── vite.config.ts
+│   ├── components/          # Reusable UI components
+│   │   ├── ui/              # Base UI primitives
+│   │   ├── auth/            # Auth flow components
+│   │   ├── cards/           # Card variants
+│   │   ├── icons/           # SVG icons
+│   │   ├── layout/          # Layout components
+│   │   ├── swap/            # Swap-specific components
+│   │   └── tiers/           # Tier/membership components
+│   ├── pages/               # Route pages
+│   │   ├── Home.tsx         # Landing/dashboard
+│   │   ├── Swap.tsx         # Swap interface
+│   │   ├── Wallet.tsx       # Wallet management
+│   │   ├── Portfolio.tsx    # Holdings view
+│   │   ├── Settings.tsx     # User settings
+│   │   └── Welcome.tsx      # Onboarding flow
+│   ├── hooks/               # React hooks
+│   ├── lib/                 # Utilities & API client
+│   ├── contexts/            # React contexts
+│   ├── theme/               # Design tokens
+│   ├── types/               # TypeScript types
+│   └── stories/             # Storybook stories
+├── .storybook/              # Storybook config
+└── dist/                    # Production build
 ```
 
-## Telegram Integration
+## Design System
 
-The app uses the [Telegram WebApp API](https://core.telegram.org/bots/webapps) for:
+We use a **Kawaii-inspired** design system with sakura theme.
 
-- **User context** - Get user info (id, name, photo)
-- **Theme sync** - Match Telegram's dark/light mode
-- **Haptic feedback** - Native feel on mobile
-- **Main button** - Bottom action button
-- **Back button** - Navigation
+### Colors
 
-### Authentication
+```tsx
+// Primary - Sakura/Magenta palette
+'sakura-light': '#FFD1DC'
+'sakura-mid': '#FFB7C5'
+'magenta': '#E91E8C'
+'rose': '#F8A5C2'
+'purple': '#6C3483'
+'purple-deep': '#4A235A'
 
-The app sends `initData` to the backend via `X-Telegram-Init-Data` header. The backend validates this using HMAC with the bot token.
+// Secondary - Sky/Ocean
+'sky': '#E8F4FD'
+'cyan': '#B3E5FC'
+'navy': '#1A237E'
+'ocean': '#0D1B4C'
 
-## Testing in Development
+// Semantic
+'success': '#A8E6A3'
+'warning': '#FFE4A0'
+'error': '#F8A0A0'
+```
 
-1. Use [@BotFather](https://t.me/botfather) to create a test bot
-2. Set the bot's menu button to your dev URL (use ngrok for HTTPS)
-3. Open the bot in Telegram and tap the menu button
+### Using Design Tokens
 
-Or use the Telegram WebApp test mode in browser dev tools.
+```tsx
+// Tailwind classes with suwappu prefix
+<div className="bg-suwappu-sakura-light text-suwappu-text">
+  <button className="bg-suwappu-gradient shadow-suwappu-button rounded-suwappu-pill">
+    Swap
+  </button>
+</div>
+```
+
+### Telegram Theme Integration
+
+The app syncs with Telegram's theme (dark/light mode):
+
+```tsx
+// Telegram CSS variables auto-applied
+<div className="bg-tg-bg text-tg-text">
+  <button className="bg-tg-button text-tg-button-text">
+    Action
+  </button>
+</div>
+```
+
+## Development
+
+### Environment Variables
+
+```bash
+# .env.development
+VITE_API_URL=https://devapi.suwappu.bot
+
+# .env.production
+VITE_API_URL=https://api.suwappu.bot
+```
+
+### Running Storybook
+
+```bash
+bun run storybook
+# Opens http://localhost:6006
+```
+
+### Testing in Telegram
+
+1. Use [BotFather](https://t.me/botfather) to set your dev URL as the menu button
+2. Use [ngrok](https://ngrok.com) for HTTPS: `ngrok http 5173`
+3. Open the bot in Telegram → tap menu button
+
+Or use browser dev tools with Telegram WebApp mock.
+
+### Build & Preview
+
+```bash
+# Production build
+bun run build
+
+# Preview locally
+bun run preview
+```
+
+## Key Components
+
+### Pages
+
+| Page | Route | Description |
+|------|-------|-------------|
+| `Welcome` | `/welcome` | Onboarding, wallet connection |
+| `Home` | `/` | Dashboard with quick actions |
+| `Swap` | `/swap` | Token swap interface |
+| `Wallet` | `/wallet` | Wallet & address management |
+| `Portfolio` | `/portfolio` | Holdings & history |
+| `Settings` | `/settings` | Preferences, notifications |
+
+### UI Components
+
+- **QuickActions** - Grid of action buttons (Swap, Send, etc.)
+- **ChainSelector** - Multi-chain dropdown
+- **StatusBadge** - Transaction status indicators
+- **NotificationBanner** - Alert/info banners
+- **SettingsDrawer** - Slide-out settings panel
+
+## API Integration
+
+API client in `src/lib/api.ts` handles:
+- Auth via Telegram `initData` header
+- Portfolio data
+- Swap quotes & execution
+- Transaction history
+
+```tsx
+// Example: fetching portfolio
+const { data } = useQuery({
+  queryKey: ['portfolio'],
+  queryFn: () => api.getPortfolio(),
+})
+```
 
 ## Deployment
 
-The app is deployed to AWS ECS via Docker containers with nginx serving the static build.
+Deployed via GitHub Actions to AWS ECS (Docker + nginx).
 
-| Environment | URL | ECS Service |
-|-------------|-----|-------------|
-| **Production** | `https://app.suwappu.bot` | `suwappu-webapp-prod` |
-| **Development** | `https://devfront.suwappu.bot` | `suwappu-webapp-dev` |
+| Environment | URL | Branch |
+|-------------|-----|--------|
+| Production | https://app.suwappu.bot | `main` |
+| Development | https://devfront.suwappu.bot | `dev` |
+
+### Manual Deploy
+
+Push to `main` or `dev` branch - CI handles the rest.
+
+## Contributing
+
+1. Create feature branch from `main`
+2. Follow existing patterns & use design tokens
+3. Add Storybook stories for new components
+4. Test in Telegram before PR
+5. PR with screenshots/recordings
+
+### Code Style
+
+- Functional components with hooks
+- TypeScript strict mode
+- Tailwind for styling (no inline styles)
+- Framer Motion for animations
+
+---
+
+Questions? Ask in the team chat or check [TURNKEY_AUTH_SKILL.md](./TURNKEY_AUTH_SKILL.md) for auth details.
