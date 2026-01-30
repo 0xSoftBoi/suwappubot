@@ -140,7 +140,8 @@ const protectedWebapp = new Hono()
 protectedWebapp.use('*', telegramAuth())
 
 // GET /webapp/users/me/portfolio
-protectedWebapp.get('/users/me/portfolio', async (c) => {
+// Protected routes use /webapp/me/* paths
+protectedWebapp.get('/portfolio', async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
 
 	const result = await runEffectEither(
@@ -209,8 +210,8 @@ protectedWebapp.get('/users/me/portfolio', async (c) => {
 	return c.json(result.right)
 })
 
-// GET /webapp/users/me/swaps
-protectedWebapp.get('/users/me/swaps', async (c) => {
+// GET /webapp/me/swaps
+protectedWebapp.get('/swaps', async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
 	const limit = Number(c.req.query('limit') || 20)
 	const offset = Number(c.req.query('offset') || 0)
@@ -261,7 +262,7 @@ protectedWebapp.get('/users/me/swaps', async (c) => {
 	return c.json(result.right)
 })
 
-// Mount protected routes
-webappRoutes.route('/', protectedWebapp)
+// Mount protected routes at /me to avoid middleware catching unprotected routes
+webappRoutes.route('/me', protectedWebapp)
 
 export { webappRoutes }
