@@ -270,7 +270,8 @@ protectedWebapp.get('/swaps', async (c) => {
 	return c.json(result.right)
 })
 
-// Mount protected routes at /me to avoid middleware catching unprotected routes
+// Mount protected routes at both /me and /users/me for backward compatibility
 webappRoutes.route('/me', protectedWebapp)
+webappRoutes.route('/users/me', protectedWebapp)
 
 export { webappRoutes }
