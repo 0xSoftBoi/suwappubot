@@ -23,6 +23,8 @@ env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: suwappu-webapp
   ECS_CLUSTER: suwappu-cluster
+  TURNKEY_ORG_ID: 5cf56ed5-5d6b-4290-8edb-f52670162aab
+  TURNKEY_PROXY_URL: https://api.turnkey.com
 
 permissions:
   id-token: write
@@ -56,12 +58,14 @@ jobs:
             echo "tag=development" >> $GITHUB_OUTPUT
             echo "api_url=https://devapi.suwappu.bot" >> $GITHUB_OUTPUT
             echo "url=https://devfront.suwappu.bot" >> $GITHUB_OUTPUT
+            echo "rp_id=devfront.suwappu.bot" >> $GITHUB_OUTPUT
           else
             echo "env=production" >> $GITHUB_OUTPUT
             echo "service=suwappu-webapp-prod" >> $GITHUB_OUTPUT
             echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
             echo "api_url=https://api.suwappu.bot" >> $GITHUB_OUTPUT
             echo "url=https://app.suwappu.bot" >> $GITHUB_OUTPUT
+            echo "rp_id=app.suwappu.bot" >> $GITHUB_OUTPUT
           fi
 
       - name: Build, tag, and push image to Amazon ECR
@@ -70,10 +74,16 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ steps.env.outputs.tag }}
           VITE_API_URL: ${{ steps.env.outputs.api_url }}
+          VITE_TURNKEY_ORG_ID: ${{ env.TURNKEY_ORG_ID }}
+          VITE_TURNKEY_RP_ID: ${{ steps.env.outputs.rp_id }}
+          VITE_TURNKEY_PROXY_URL: ${{ env.TURNKEY_PROXY_URL }}
         run: |
           cd webapp
           docker build \
             --build-arg VITE_API_URL=$VITE_API_URL \
+            --build-arg VITE_TURNKEY_ORG_ID=$VITE_TURNKEY_ORG_ID \
+            --build-arg VITE_TURNKEY_RP_ID=$VITE_TURNKEY_RP_ID \
+            --build-arg VITE_TURNKEY_PROXY_URL=$VITE_TURNKEY_PROXY_URL \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
             .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
@@ -110,6 +120,7 @@ jobs:
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Environment | ${{ steps.env.outputs.env }} |" >> $GITHUB_STEP_SUMMARY
           echo "| URL | ${{ steps.env.outputs.url }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Turnkey RP ID | ${{ steps.env.outputs.rp_id }} |" >> $GITHUB_STEP_SUMMARY
           echo "| ECS Service | ${{ steps.env.outputs.service }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Image | ${{ steps.build-image.outputs.image }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
