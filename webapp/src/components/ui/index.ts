@@ -17,3 +17,5 @@ export { NotificationBanner } from './NotificationBanner'
 export type { NotificationBannerProps } from './NotificationBanner'
 
 export { FeatureGrid } from './FeatureGrid'
+
+export { QuickSwap } from './QuickSwap'

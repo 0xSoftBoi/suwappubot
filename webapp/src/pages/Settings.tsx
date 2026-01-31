@@ -7,7 +7,7 @@ import { useAuth, formatAddress } from '../contexts/AuthContext'
 import { api } from '../lib/api'
 import type { UserPreferences, LinkedWalletInfo, UserProfile } from '../types/api'
 
-type SettingsView = 'main' | 'slippage' | 'notifications' | 'wallets'
+type SettingsView = 'main' | 'slippage' | 'notifications' | 'wallets' | 'gas'
 
 // Slippage stored as basis points (50 = 0.5%)
 const bpToPercent = (bp: number) => (bp / 100).toFixed(1)
@@ -195,6 +195,75 @@ export function Settings() {
     )
   }
 
+  // Gas Settings View
+  if (view === 'gas') {
+    const gasPresets = [
+      { id: 'slow', label: '🐢 Slow', description: 'Lower fees, may take longer', multiplier: 0.8 },
+      { id: 'normal', label: '⚡ Normal', description: 'Balanced speed and cost', multiplier: 1.0 },
+      { id: 'fast', label: '🚀 Fast', description: 'Higher fees, faster confirmation', multiplier: 1.2 },
+      { id: 'auto', label: '🤖 Auto', description: 'Automatically adjust based on network', multiplier: 1.0 },
+    ]
+
+    // Gas settings stored in localStorage for now (can be moved to API later)
+    const [gasMode, setGasMode] = useState(() => localStorage.getItem('suwappu_gas_mode') || 'auto')
+
+    const handleGasChange = (mode: string) => {
+      setGasMode(mode)
+      localStorage.setItem('suwappu_gas_mode', mode)
+    }
+
+    return (
+      <AppLayout
+        header={<AppHeader title="Gas Settings" showBack onBack={() => setView('main')} />}
+        activeNav="settings"
+      >
+        <div className="p-3 pb-20 space-y-4">
+          <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 overflow-hidden">
+            <div className="px-3 py-2 border-b border-suwappu-sakura-mid/10">
+              <span className="font-heading font-semibold text-sm text-suwappu-purple-deep">
+                Transaction Speed
+              </span>
+            </div>
+            <div className="divide-y divide-suwappu-sakura-mid/10">
+              {gasPresets.map((preset) => (
+                <button
+                  key={preset.id}
+                  onClick={() => handleGasChange(preset.id)}
+                  className="w-full px-3 py-3 flex items-center gap-3 hover:bg-suwappu-sakura-light/30 transition-colors"
+                >
+                  <div className="flex-1 text-left">
+                    <p className="font-medium text-sm text-suwappu-text">{preset.label}</p>
+                    <p className="text-xs text-suwappu-text-secondary">{preset.description}</p>
+                  </div>
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                    gasMode === preset.id 
+                      ? 'border-suwappu-magenta-mid bg-suwappu-magenta-mid' 
+                      : 'border-suwappu-text-secondary/30'
+                  }`}>
+                    {gasMode === preset.id && (
+                      <span className="text-white text-xs">✓</span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <p className="text-xs text-suwappu-text-secondary px-1">
+            Gas settings affect transaction speed and fees. Auto mode is recommended for most users.
+          </p>
+
+          <div className="bg-suwappu-sakura-light/30 rounded-suwappu-lg p-3">
+            <p className="text-xs text-suwappu-text-secondary">
+              💡 <strong>Tip:</strong> Use Fast during high network activity for quicker confirmations. 
+              Slow is best for non-urgent transactions to save on fees.
+            </p>
+          </div>
+        </div>
+      </AppLayout>
+    )
+  }
+
   if (view === 'wallets') {
     return (
       <AppLayout
@@ -285,6 +354,7 @@ export function Settings() {
         <div className="space-y-1">
           <SettingsItem icon="🔔" label="Notifications" hasArrow onClick={() => setView('notifications')} />
           <SettingsItem icon="📊" label="Slippage" value={`${slippageDisplay}%`} hasArrow onClick={() => setView('slippage')} />
+          <SettingsItem icon="⛽" label="Gas Settings" value="Auto" hasArrow onClick={() => setView('gas')} />
           <SettingsItem icon="🌐" label="Language" value="English" hasArrow />
         </div>
 

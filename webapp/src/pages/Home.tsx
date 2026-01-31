@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AppLayout, UserHeader } from '../components/layout'
 import { BalanceCard, TokenItem } from '../components/cards'
-import { QuickActions, NotificationBanner, FeatureGrid } from '../components/ui'
+import { QuickActions, NotificationBanner, FeatureGrid, QuickSwap } from '../components/ui'
 import { usePortfolio } from '../hooks/usePortfolio'
 import type { Token } from '../types/api'
 
@@ -78,6 +78,8 @@ export function Home() {
         <QuickActions />
 
         <FeatureGrid />
+
+        <QuickSwap />
 
         <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 overflow-hidden">
           <div className="flex items-center justify-between px-3 py-2 border-b border-suwappu-sakura-mid/10">
