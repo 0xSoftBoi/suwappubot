@@ -175,55 +175,24 @@ with get_session() as session:
 ### 14. **Cache Quote Results**
 **Issue**: Same quotes requested multiple times
 **Location**: `bot/services/swap_engine.py:get_quote()`
-**Fix**: Add short-term cache (5-10 seconds)
-```python
-from bot.utils.cache import cache
-
-@cache(ttl_seconds=5)
-async def get_quote(...):
-    # Cache key includes: from_chain, to_chain, from_token, to_token, amount
-    ...
-```
+**Status**: ✅ Wired `quote_cache` (15s TTL) into `get_quote()` with cache key based on chain/token/amount/slippage
 
 ### 15. **Batch Database Queries**
 **Issue**: Multiple individual queries instead of batch
 **Location**: Various handlers
-**Fix**: Use `session.query().filter().in_()` for batch operations
-```python
-# Instead of:
-for user_id in user_ids:
-    user = session.query(User).filter(User.id == user_id).first()
-
-# Use:
-users = session.query(User).filter(User.id.in_(user_ids)).all()
-```
+**Status**: ✅ Pre-validation loop in `swap.py:confirm_swap()` now uses `Wallet.id.in_()` batch query
 
 ### 16. **Lazy Loading Prevention**
 **Issue**: SQLAlchemy lazy loading can cause N+1 queries
 **Location**: Models with relationships
-**Fix**: Use `joinedload` or `selectinload`
-```python
-from sqlalchemy.orm import joinedload
-
-wallets = session.query(Wallet).options(
-    joinedload(Wallet.user)
-).all()
-```
+**Status**: ✅ `User.wallets` and `User.subscription` use `lazy="selectin"`, `User.swaps` stays `lazy="select"` (large collection)
 
 ## 🔒 Security Improvements
 
 ### 17. **Private Key Exposure Risk**
-**Issue**: Private keys stored in memory during swap execution
+**Issue**: Private keys stored in memory during swap execution; `wallet_encrypted_key` was undefined
 **Location**: `bot/services/swap_engine.py:execute_swap()`
-**Fix**: Clear from memory immediately after use
-```python
-try:
-    # Use key
-finally:
-    # Clear from memory
-    wallet_data["encrypted_private_key"] = None
-    del wallet_data
-```
+**Status**: ✅ Fixed undefined variable bug, key extracted in session block, cleared after use in both success and error paths
 
 ### 18. **SQL Injection Prevention**
 **Issue**: Raw SQL queries (if any)
@@ -232,15 +201,8 @@ finally:
 
 ### 19. **Input Length Limits**
 **Issue**: No limits on input length (DoS risk)
-**Location**: All handlers
-**Fix**: Add max length validation
-```python
-MAX_MESSAGE_LENGTH = 4096
-MAX_AMOUNT_LENGTH = 50
-
-if len(user_input) > MAX_MESSAGE_LENGTH:
-    raise ValueError("Input too long")
-```
+**Location**: `bot/utils/validators.py`
+**Status**: ✅ Added `MAX_INPUT_LENGTH=50` and `MAX_AMOUNT=10M` checks to `validate_amount()`
 
 ### 20. **Rate Limiting Per User**
 **Issue**: No per-user rate limiting
@@ -267,36 +229,13 @@ def check_user_rate_limit(user_id: int, max_per_minute: int = 10):
 
 ### 21. **Failed Swap Alerting**
 **Issue**: No alerts when swaps fail repeatedly
-**Location**: New service
-**Fix**: Create alert system
-```python
-# Track failure rate
-if failure_rate > 0.1:  # 10%
-    send_alert(f"High swap failure rate: {failure_rate}")
-```
+**Location**: `bot/services/tx_poller.py`
+**Status**: ✅ Enhanced failure notifications with retry button and history link via `InlineKeyboardMarkup`
 
 ### 22. **Performance Metrics**
 **Issue**: No tracking of swap execution times
 **Location**: `bot/services/swap_engine.py`
-**Fix**: Add timing decorator
-```python
-import time
-from functools import wraps
-
-def track_performance(func):
-    @wraps(func)
-    async def wrapper(*args, **kwargs):
-        start = time.time()
-        try:
-            result = await func(*args, **kwargs)
-            duration = time.time() - start
-            log_metric(f"{func.__name__}_duration", duration)
-            return result
-        except Exception as e:
-            log_metric(f"{func.__name__}_error", 1)
-            raise
-    return wrapper
-```
+**Status**: ✅ Added `@track_time(MetricNames.SWAP_QUOTE)` and `@track_time(MetricNames.SWAP_EXECUTE)` decorators
 
 ### 23. **Database Query Logging**
 **Issue**: No visibility into slow queries
@@ -319,13 +258,7 @@ def receive_after_cursor_execute(conn, cursor, statement, parameters, context, e
 ### 24. **Progress Updates During Swap**
 **Issue**: User sees "Executing swap..." with no updates
 **Location**: `bot/handlers/swap.py:confirm_swap()`
-**Fix**: Send periodic updates
-```python
-# Update message every 5 seconds
-await query.edit_message_text("⏳ Executing swap... (Step 1/3)")
-await asyncio.sleep(5)
-await query.edit_message_text("⏳ Executing swap... (Step 2/3)")
-```
+**Status**: ✅ Added "Building transactions" and "Processing results" progress updates for multi-wallet swaps
 
 ### 25. **Better Error Messages**
 **Issue**: Generic error messages don't help users
@@ -333,13 +266,9 @@ await query.edit_message_text("⏳ Executing swap... (Step 2/3)")
 **Status**: ✅ Already implemented, but can be improved
 
 ### 26. **Swap History Pagination**
-**Issue**: All swaps shown at once (can be slow)
+**Issue**: All swaps shown at once (can be slow); `total_swaps` variable was undefined
 **Location**: `bot/handlers/history.py`
-**Fix**: Add pagination
-```python
-# Show 10 swaps per page
-swaps = get_user_swaps(user_id, limit=10, offset=page * 10)
-```
+**Status**: ✅ Added pagination (5 per page), prev/next nav buttons, fixed undefined `total_swaps` bug, registered `history_page_handler` in `bot/main.py`
 
 ### 27. **Confirmation Timeout**
 **Issue**: Users can confirm swaps hours after quote expires
@@ -355,63 +284,26 @@ if quote_age > 60:  # 1 minute
 ## 🧪 Testing & Quality
 
 ### 28. **Unit Tests Missing**
-**Issue**: No automated tests
-**Location**: New `tests/` directory
-**Fix**: Add pytest tests
-```python
-# tests/test_swap_engine.py
-async def test_quote_expiration():
-    quote = SwapQuote(..., timestamp=datetime.utcnow() - timedelta(seconds=31))
-    with pytest.raises(SwapError, match="expired"):
-        await swap_engine.execute_swap(quote, ...)
-```
+**Issue**: No automated tests for fee service and history handler
+**Location**: `tests/test_fee_service.py`, `tests/test_history.py`
+**Status**: ✅ Added fee calculation tests, swap amount validation tests, history pagination tests, and status emoji tests
 
 ### 29. **Integration Tests**
-**Issue**: No end-to-end tests
-**Location**: New `tests/integration/`
-**Fix**: Add integration tests with testnet
+**Issue**: No end-to-end tests for multi-wallet swaps
+**Location**: `tests/integration/test_multi_wallet_swap.py`
+**Status**: ✅ Added multi-wallet swap integration tests (single wallet, partial failure, all-fail scenarios)
 
 ### 30. **Type Hints Missing**
 **Issue**: Some functions missing type hints
-**Location**: Various files
-**Fix**: Add comprehensive type hints
-```python
-from typing import Optional, List, Dict, Tuple
-
-async def execute_swap(
-    quote: SwapQuote,
-    wallet_id: int,
-    user_id: int,
-) -> Optional[SwapTransaction]:
-    ...
-```
+**Location**: `bot/services/fee_service.py`, `bot/handlers/history.py`
+**Status**: ✅ Added `Dict`, `List` return types to `fee_service.py` methods, `Optional` import to `history.py`
 
 ## 📝 Documentation
 
 ### 31. **API Documentation**
-**Issue**: No API docs for services
-**Location**: All service files
-**Fix**: Add docstrings with examples
-```python
-"""
-Execute a swap based on a quote.
-
-Args:
-    quote: SwapQuote from get_quote()
-    wallet_id: User's wallet ID
-    user_id: Database user ID
-
-Returns:
-    SwapTransaction record
-
-Raises:
-    SwapError: If swap fails
-
-Example:
-    >>> quote = await swap_engine.get_quote(...)
-    >>> tx = await swap_engine.execute_swap(quote, wallet_id, user_id)
-"""
-```
+**Issue**: No API endpoint summaries for OpenAPI docs
+**Location**: `api/main.py`
+**Status**: ✅ Added `summary` parameters to key endpoints (health, tools, execute, wallets, portfolio, swaps, provision)
 
 ## 🚀 Quick Wins (Easy to Implement)
 

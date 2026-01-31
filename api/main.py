@@ -390,9 +390,9 @@ def get_db():
 
 # --- Health Check ---
 
-@app.get("/health", tags=["Health"])
+@app.get("/health", tags=["Health"], summary="Service health check")
 async def health_check():
-    """Health check endpoint for Render and monitoring."""
+    """Health check endpoint for load balancers, monitoring, and orchestration."""
     from database.db import DATABASE_AVAILABLE
     return {
         "status": "healthy",
@@ -838,7 +838,7 @@ async def get_agent_card():
     with open("api/agent-card.json", "r") as f:
         return json.load(f)
 
-@app.get("/tools", tags=["Agents"])
+@app.get("/tools", tags=["Agents"], summary="Agent tool discovery")
 async def get_tools(agent_key: str = Depends(get_agent_key)):
     """
     Returns a semantic directory of tools available to AI agents.
@@ -889,7 +889,7 @@ async def get_tools(agent_key: str = Depends(get_agent_key)):
         ]
     }
 
-@app.post("/v1/agent/execute", tags=["Agents"])
+@app.post("/v1/agent/execute", tags=["Agents"], summary="Execute natural language trading command")
 async def agent_execute(
     request: AgentExecuteRequest,
     agent_key: str = Depends(get_agent_key),
@@ -921,7 +921,7 @@ async def agent_execute(
         "timestamp": datetime.utcnow()
     }
 
-@app.post("/v1/agent/wallets", response_model=WalletResponse, tags=["Agents"])
+@app.post("/v1/agent/wallets", response_model=WalletResponse, tags=["Agents"], summary="Provision a new wallet")
 async def provision_agent_wallet(
     request: AgentWalletCreate,
     agent_key: str = Depends(get_agent_key),
@@ -954,7 +954,7 @@ async def health():
     """Returns the operational status of the Suwappu Monolith. Agents should check this before trade batches."""
     return {"status": "ok", "timestamp": datetime.utcnow()}
 
-@app.get("/users/{user_id}/wallets", response_model=List[WalletResponse], tags=["Wallets"])
+@app.get("/users/{user_id}/wallets", response_model=List[WalletResponse], tags=["Wallets"], summary="List user wallets")
 async def get_wallets(
     user_id: int, 
     db: Session = Depends(get_db),
@@ -980,7 +980,7 @@ async def get_wallets(
         ))
     return res
 
-@app.get("/users/{user_id}/portfolio", response_model=PortfolioResponse, tags=["Portfolio"])
+@app.get("/users/{user_id}/portfolio", response_model=PortfolioResponse, tags=["Portfolio"], summary="Get user portfolio balances")
 async def get_portfolio(
     user_id: int, 
     db: Session = Depends(get_db),
@@ -1028,7 +1028,7 @@ async def get_portfolio(
         chains=chains_value
     )
 
-@app.get("/users/{user_id}/swaps", response_model=List[SwapResponse], tags=["Swaps"])
+@app.get("/users/{user_id}/swaps", response_model=List[SwapResponse], tags=["Swaps"], summary="Get user swap history")
 async def get_swaps(
     user_id: int,
     limit: int = 50,

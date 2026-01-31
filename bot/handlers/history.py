@@ -1,5 +1,6 @@
 """Transaction history handlers."""
 
+from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from datetime import datetime
@@ -11,28 +12,36 @@ from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
 from bot.services.pnl import pnl_service
 
+SWAPS_PER_PAGE = 5
+
 
 @enforce_tos
-async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /history command - show recent swap history."""
+async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0) -> None:
+    """Handle /history command - show recent swap history with pagination."""
     user = update.effective_user
-    
+
+    # Determine reply method based on whether this is a callback or command
+    if update.callback_query:
+        reply_func = update.callback_query.edit_message_text
+    else:
+        reply_func = update.message.reply_text
+
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        
+
         if not db_user:
-            await update.message.reply_text(
+            await reply_func(
                 "❌ Please use /start first to set up your account."
             )
             return
-        
-        # Get last 10 swaps
-        swaps = session.query(SwapTransaction).filter(
+
+        # Get total count
+        total_swaps = session.query(SwapTransaction).filter(
             SwapTransaction.user_id == db_user.id
-        ).order_by(SwapTransaction.created_at.desc()).limit(10).all()
-        
-        if not swaps:
-            await update.message.reply_text(
+        ).count()
+
+        if total_swaps == 0:
+            await reply_func(
                 "📜 *Transaction History*\n\n"
                 "No swaps yet. Use /s to make your first swap!",
                 parse_mode="Markdown",
@@ -41,51 +50,67 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 ])
             )
             return
-        
+
+        # Get paginated swaps
+        swaps = session.query(SwapTransaction).filter(
+            SwapTransaction.user_id == db_user.id
+        ).order_by(SwapTransaction.created_at.desc()).offset(page * SWAPS_PER_PAGE).limit(SWAPS_PER_PAGE).all()
+
         # Build history message
         lines = ["📜 *Transaction History*\n"]
-        
+
         for swap in swaps:
             status_emoji = _get_status_emoji(swap.status)
             date_str = swap.created_at.strftime("%m/%d %H:%M")
-            
+
             from_display = f"{swap.from_token}"
             to_display = f"{swap.to_token}"
-            
+
             # Amount
             try:
                 from_amount = float(swap.from_amount) / 1e6 if swap.from_amount else 0
                 amount_str = f"{from_amount:,.2f}"
-            except:
+            except Exception:
                 amount_str = "?"
-            
+
             line = (
                 f"{status_emoji} `{date_str}` "
                 f"{amount_str} {from_display} → {to_display}"
             )
-            
+
             if swap.tx_hash:
                 line += f"\n   └ {format_tx_link(swap.tx_hash, swap.from_chain)}"
-            
+
             lines.append(line)
             lines.append("")
-        
-        lines.append(f"_Showing last {total_swaps} swaps_")
-        
+
+        total_pages = max(1, (total_swaps + SWAPS_PER_PAGE - 1) // SWAPS_PER_PAGE)
+        lines.append(f"_Page {page + 1}/{total_pages} • {total_swaps} total swaps_")
+
         keyboard = []
+
+        # Navigation buttons
+        nav_buttons = []
+        if page > 0:
+            nav_buttons.append(InlineKeyboardButton("« Prev", callback_data=f"history_page_{page - 1}"))
+        if (page + 1) * SWAPS_PER_PAGE < total_swaps:
+            nav_buttons.append(InlineKeyboardButton("Next »", callback_data=f"history_page_{page + 1}"))
+        if nav_buttons:
+            keyboard.append(nav_buttons)
+
         # Add Share button for the most recent completed swap (as a demo)
         recent_completed = [s for s in swaps if s.status == SwapStatus.COMPLETED.value]
         if recent_completed:
             s = recent_completed[0]
             keyboard.append([InlineKeyboardButton(f"🖼️ Share PNL ({s.to_token})", callback_data=f"pnl_share_{s.id}")])
-            
+
         keyboard.append([
             InlineKeyboardButton("🔄 New Swap", callback_data="swap_start"),
             InlineKeyboardButton("📊 Stats", callback_data="history_stats"),
         ])
         keyboard.append([InlineKeyboardButton("« Back", callback_data="main_menu")])
-        
-        await update.message.reply_text(
+
+        await reply_func(
             "\n".join(lines),
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard),
@@ -93,13 +118,21 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
 
 
+async def history_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle history pagination callbacks."""
+    query = update.callback_query
+    await query.answer()
+    page = int(query.data.replace("history_page_", ""))
+    await history_command(update, context, page=page)
+
+
 async def history_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show detailed swap statistics."""
     query = update.callback_query
     await query.answer()
-    
+
     user = update.effective_user
-    
+
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
         
@@ -227,6 +260,7 @@ async def share_pnl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # Individual callbacks
 history_callback = CallbackQueryHandler(history_command, pattern="^history$")
 history_menu_callback = CallbackQueryHandler(history_command, pattern="^history_menu$")
+history_page_handler = CallbackQueryHandler(history_page_callback, pattern="^history_page_")
 share_pnl_handler = CallbackQueryHandler(share_pnl_callback, pattern="^pnl_share_")
 
 # Create handlers

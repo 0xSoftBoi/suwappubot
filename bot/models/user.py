@@ -40,9 +40,9 @@ class User(Base):
     last_active_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
-    wallets = relationship("Wallet", back_populates="user", cascade="all, delete-orphan")
-    swaps = relationship("SwapTransaction", back_populates="user", cascade="all, delete-orphan")
-    subscription = relationship("Subscription", back_populates="user", uselist=False)
+    wallets = relationship("Wallet", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
+    swaps = relationship("SwapTransaction", back_populates="user", cascade="all, delete-orphan", lazy="select")
+    subscription = relationship("Subscription", back_populates="user", uselist=False, lazy="selectin")
     
     def __repr__(self) -> str:
         return f"<User(telegram_id={self.telegram_id}, username={self.username})>"

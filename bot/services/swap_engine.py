@@ -22,6 +22,8 @@ import aiohttp
 import base64
 
 from bot.config.settings import settings
+from bot.utils.cache import quote_cache
+from bot.utils.performance import track_time, MetricNames
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
 from bot.config.tokens import get_token_address, get_token_decimals
 from bot.services.lifi_api import LiFiAPI, LiFiQuote, LiFiError
@@ -168,6 +170,7 @@ class SwapEngine:
             return suwappu_core.to_human_amount(amount_raw, decimals)
         return int(amount_raw) / (10 ** decimals)
     
+    @track_time(MetricNames.SWAP_QUOTE)
     async def get_quote(
         self,
         from_chain: str,
@@ -181,7 +184,7 @@ class SwapEngine:
     ) -> SwapQuote:
         """
         Get a swap quote from the appropriate provider.
-        
+
         Args:
             from_chain: Source chain name
             to_chain: Destination chain name
@@ -191,21 +194,30 @@ class SwapEngine:
             from_address: Sender wallet address
             to_address: Receiver wallet address (defaults to from_address)
             slippage: Slippage tolerance as percentage
-            
+
         Returns:
             SwapQuote with unified quote data
         """
+        # Check quote cache
+        cache_key = f"quote:{from_chain}:{to_chain}:{from_token}:{to_token}:{amount}:{slippage}"
+        cached = await quote_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         amount_raw = self._get_token_amount_raw(amount, from_token, from_chain)
-        
+
         if self._is_solana_only_swap(from_chain, to_chain):
-            return await self._get_jupiter_quote(
+            quote = await self._get_jupiter_quote(
                 from_token, to_token, amount, amount_raw, from_address, int(slippage * 100)
             )
         else:
-            return await self._get_lifi_quote(
+            quote = await self._get_lifi_quote(
                 from_chain, to_chain, from_token, to_token,
                 amount, amount_raw, from_address, to_address, slippage
             )
+
+        await quote_cache.set(cache_key, quote)
+        return quote
     
     async def _get_lifi_quote(
         self,
@@ -451,6 +463,7 @@ class SwapEngine:
         
         return quotes
     
+    @track_time(MetricNames.SWAP_EXECUTE)
     async def execute_swap(
         self,
         quote: SwapQuote,
@@ -498,6 +511,7 @@ class SwapEngine:
                 # We'll use the wallet object directly for high-level signing
                 wallet_address = wallet.address
                 wallet_chain_type = wallet.chain_type
+                wallet_encrypted_key = wallet.encrypted_private_key
             
             # Validate quote freshness
             quote_validator.validate_quote_freshness(quote)
@@ -599,17 +613,19 @@ class SwapEngine:
                     tx_hash = await self._execute_lifi_swap(quote, wallet)
                 
                 # Clean up local references
+                wallet_encrypted_key = None
                 del wallet
-                
+
                 return swap_tx
-                
+
             except Exception as e:
                 import traceback
                 traceback.print_exc()
                 # Mark as failed
                 # Clean up local references
+                wallet_encrypted_key = None
                 del wallet
-                
+
                 raise SwapError(f"Swap execution failed: {repr(e)}")
     
     async def _execute_lifi_swap(self, quote: SwapQuote, wallet_data: dict) -> str:

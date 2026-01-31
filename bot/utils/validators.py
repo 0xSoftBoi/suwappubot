@@ -97,27 +97,38 @@ def validate_private_key(private_key: str, chain_type: str = "evm") -> bool:
     return validate_evm_private_key(private_key)
 
 
+MAX_AMOUNT = 10_000_000  # $10M max per swap
+MAX_INPUT_LENGTH = 50    # Max chars for amount input
+
+
 def validate_amount(amount_str: str) -> Optional[float]:
     """
     Validate and parse an amount string.
-    
+
     Args:
         amount_str: Amount as string (e.g., "100", "50.5", "1,000.00")
-        
+
     Returns:
         Parsed float amount or None if invalid
     """
     try:
+        if len(amount_str) > MAX_INPUT_LENGTH:
+            return None
+
         # Remove commas and whitespace
         clean = amount_str.replace(",", "").replace(" ", "").strip()
-        
+
         # Parse as float
         amount = float(clean)
-        
+
         # Must be positive
         if amount <= 0:
             return None
-            
+
+        # Cap at maximum amount
+        if amount > MAX_AMOUNT:
+            return None
+
         return amount
     except (ValueError, TypeError):
         return None

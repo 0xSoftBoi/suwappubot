@@ -30,6 +30,7 @@ from bot.services.referral_service import referral_service
 from bot.services.points_service import points_service
 from bot.services.token_security.token_analyzer import token_analyzer
 from bot.services.x402_service import x402_service
+from bot.utils.quote_validator import quote_validator
 
 
 # Conversation states
@@ -515,8 +516,6 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
 
 async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle swap confirmation."""
-    from datetime import datetime
-    
     query = update.callback_query
     await query.answer()
     
@@ -532,21 +531,53 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     if not quote:
         await query.edit_message_text("❌ Quote expired. Please start over.")
         return ConversationHandler.END
+
+    # Validate quote freshness (30s expiry via quote_validator)
+    try:
+        quote_validator.validate_quote_freshness(quote)
+    except SwapError as e:
+        await query.edit_message_text(
+            f"⏰ {str(e)}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 New Quote", callback_data="swap_requote")],
+                [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
+            ])
+        )
+        return ConversationHandler.END
     
-    # Check quote age (max 60 seconds for confirmation)
-    CONFIRMATION_TIMEOUT = 60  # seconds
-    if hasattr(quote, 'timestamp') and quote.timestamp:
-        quote_age = (datetime.utcnow() - quote.timestamp).total_seconds()
-        if quote_age > CONFIRMATION_TIMEOUT:
-            await query.edit_message_text(
-                f"⏰ Quote expired ({quote_age:.0f}s old). Please start a new swap.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 New Swap", callback_data="swap_start")],
-                    [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
-                ])
-            )
-            return ConversationHandler.END
-    
+    # Pre-validate balance and gas for all selected wallets
+    selected_wallet_ids = swap_data.get("selected_wallets", [swap_data.get("wallet_id")])
+
+    with get_session() as session:
+        wallets = session.query(Wallet).filter(Wallet.id.in_(selected_wallet_ids)).all()
+        wallet_map = {w.id: w for w in wallets}
+
+        for wid in selected_wallet_ids:
+            wallet = wallet_map.get(wid)
+            if not wallet:
+                continue
+
+            try:
+                await quote_validator.validate_balance(
+                    wallet_id=wid,
+                    quote=quote,
+                    wallet_service=wallet_service,
+                )
+                await quote_validator.validate_gas(
+                    wallet_address=wallet.address,
+                    quote=quote,
+                    wallet_service=wallet_service,
+                )
+            except SwapError as e:
+                await query.edit_message_text(
+                    f"❌ Insufficient funds on wallet {wallet.name[:20]}\n\n{str(e)}",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("« Back", callback_data="swap_back_to_wallets")],
+                        [InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")],
+                    ])
+                )
+                return ConversationHandler.END
+
     # Show safety simulation message for Solana Pro users
     status_text = "⏳ Executing multi-swap..."
     if quote.from_chain == "solana" and quote.to_chain == "solana":
@@ -559,19 +590,29 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     try:
         attempt_id = swap_data.get("attempt_id") or "no_attempt"
         selected_wallet_ids = swap_data.get("selected_wallets", [swap_data.get("wallet_id")])
-        
+
+        # Progress update: building transactions
+        if len(selected_wallet_ids) > 1:
+            await query.edit_message_text(
+                f"⏳ Building transactions for {len(selected_wallet_ids)} wallets...",
+                parse_mode="Markdown"
+            )
+
         # Prepare list of (quote, wallet_id) for execute_multi_swap
         # For simplicity, we use the same quote for all (might need individual ones for strict gas checks)
         quotes_with_wallets = []
         for wid in selected_wallet_ids:
             quotes_with_wallets.append((quote, wid))
-            
+
         swap_results = await swap_engine.execute_multi_swap(
             quotes_with_wallets=quotes_with_wallets,
             user_id=user_id,
             attempt_id=attempt_id,
         )
         
+        # Progress update: processing results
+        await query.edit_message_text("⏳ Processing results...", parse_mode="Markdown")
+
         # Process results
         num_success = 0
         total_fee_usd = 0
@@ -622,80 +663,12 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             f"Total platform fee: {format_usd(total_fee_usd)}\n\n"
             f"Check individual status in /hx."
         )
-                    
-                    # Record referral reward (30% of fee to referrer)
-                    # This automatically credits the referrer if one exists
-                    referral_service.record_reward(
-                        referee_id=user_id,
-                        swap_id=swap_tx.id,
-                        fee_amount_usd=fee_usd,
-                    )
-                    
-                    # Award points for swap
-                    from bot.services.points_service import points_service
-                    swap_amount_usd = fee_usd / (fee_percentage / 100) if fee_percentage > 0 else 0
-                    points_earned, is_first_today, new_level = points_service.award_swap_points(
-                        user_id=user_id,
-                        swap_amount_usd=swap_amount_usd,
-                        swap_id=swap_tx.id,
-                    )
-                    
-                    # Record trade for copy trading
-                    from bot.services.copy_service import copy_service
-                    followers_to_notify = await copy_service.record_trade(
-                        trader_id=user_id,
-                        swap=swap_tx,
-                        amount_usd=swap_amount_usd,
-                    )
-                    
-                    # Send notifications to followers
-                    if followers_to_notify:
-                        await _notify_followers(
-                            context.bot,
-                            followers_to_notify,
-                            swap_data,
-                            swap_tx,
-                        )
-                    
-                    # Store for message
-                    swap_data["points_earned"] = points_earned
-                    swap_data["new_level"] = new_level
-                    swap_data["followers_notified"] = len(followers_to_notify)
-        
-        from_chain_config = get_chain_by_name(swap_data["from_chain"])
-        
-        # Build success message with points info
-        points_earned = swap_data.get("points_earned", 0)
-        new_level = swap_data.get("new_level")
-        followers_notified = swap_data.get("followers_notified", 0)
-        
-        points_text = ""
-        if points_earned > 0:
-            points_text = f"\n💰 *+{points_earned} XP earned!*"
-            if new_level:
-                from bot.models.points import LEVELS
-                level_info = LEVELS.get(new_level, {})
-                points_text += f"\n🎉 Level up! You're now {level_info.get('emoji', '')} {level_info.get('name', new_level)}!"
-        
-        followers_text = ""
-        if followers_notified > 0:
-            followers_text = f"\n👥 {followers_notified} follower(s) notified"
-        
-        text = (
-            f"✅ *Swap Submitted!*\n\n"
-            f"*Transaction:*\n"
-            f"{format_tx_link(swap_tx.tx_hash, swap_data['from_chain'])}\n\n"
-            f"*Fee:* {format_usd(fee_usd)} ({fee_percentage}%){points_text}{followers_text}\n"
-            f"*Status:* {swap_tx.status}\n\n"
-            f"The swap is being processed. This may take a few minutes for cross-chain swaps."
-        )
-        
+
         keyboard = [
-            [InlineKeyboardButton("🔍 Check Status", callback_data=f"swap_status_{swap_tx.id}")],
             [InlineKeyboardButton("🔄 New Swap", callback_data="swap_start")],
             [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
         ]
-        
+
         await query.edit_message_text(
             text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
         )

@@ -7,7 +7,7 @@ Suwappu Competitive Pricing:
 """
 
 import logging
-from typing import Optional, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from decimal import Decimal, ROUND_DOWN
 from dataclasses import dataclass
 from datetime import datetime
@@ -254,7 +254,7 @@ class FeeService:
         
         return fee_tx
     
-    def get_fee_summary(self, user_id: int) -> dict:
+    def get_fee_summary(self, user_id: int) -> Dict[str, float]:
         """Get fee summary for a user."""
         with get_session() as session:
             from sqlalchemy import func
@@ -287,7 +287,7 @@ class FeeService:
             "_Example: $1,000 swap = $8 fee_"
         )
 
-    def get_uncollected_fees(self) -> list:
+    def get_uncollected_fees(self) -> List[Dict[str, object]]:
         """
         Get all uncollected fees grouped by chain and token.
 
@@ -322,7 +322,7 @@ class FeeService:
                 for r in results
             ]
 
-    async def sweep_all_fees(self) -> list:
+    async def sweep_all_fees(self) -> List[Dict[str, object]]:
         """
         Sweep all uncollected fees to the collector address.
 

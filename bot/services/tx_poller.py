@@ -5,6 +5,8 @@ import logging
 from typing import Optional, List
 from datetime import datetime, timedelta
 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
 from bot.models.swap import SwapTransaction, SwapStatus
 from bot.config.chains import get_chain_by_name, ChainType
 from bot.utils.http_client import get_session
@@ -246,6 +248,12 @@ class TransactionPoller:
                     f"Chain: {tx.from_chain} → {tx.to_chain}\n\n"
                     f"[View Transaction]({self._get_explorer_link(tx)})"
                 )
+                await self._bot.send_message(
+                    chat_id=telegram_id,
+                    text=text,
+                    parse_mode="Markdown",
+                    disable_web_page_preview=True,
+                )
             elif new_status == SwapStatus.FAILED.value:
                 text = (
                     f"❌ *Swap Failed*\n\n"
@@ -253,15 +261,19 @@ class TransactionPoller:
                     f"Reason: {tx.error_message or 'Transaction reverted'}\n\n"
                     f"Your funds should remain in your wallet."
                 )
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 Retry Swap", callback_data="swap_start")],
+                    [InlineKeyboardButton("📜 History", callback_data="history")],
+                ])
+                await self._bot.send_message(
+                    chat_id=telegram_id,
+                    text=text,
+                    parse_mode="Markdown",
+                    reply_markup=keyboard,
+                    disable_web_page_preview=True,
+                )
             else:
                 return  # Don't notify for other status changes
-            
-            await self._bot.send_message(
-                chat_id=telegram_id,
-                text=text,
-                parse_mode="Markdown",
-                disable_web_page_preview=True,
-            )
             
         except Exception as e:
             logger.error(f"Failed to notify user: {e}")

@@ -18,7 +18,7 @@ from bot.handlers.start import (
 from bot.handlers.balance import balance_handler, balance_callback
 from bot.handlers.wallet import wallet_handler, wallet_menu_callback, wallet_create_callback, wallet_qr_callback, wallet_import_handler
 from bot.handlers.swap import swap_conversation_handler, check_swap_status
-from bot.handlers.history import history_handler, history_callback, history_menu_callback, share_pnl_handler
+from bot.handlers.history import history_handler, history_callback, history_menu_callback, history_page_handler, share_pnl_handler
 from bot.handlers.portfolio import portfolio_handler, portfolio_callback
 from bot.handlers.gas import gas_handler, gas_callback, gas_menu_callback
 from bot.handlers.favorites import favorites_handler, favorites_callback, use_favorite_callback, delete_favorite_callback
@@ -203,6 +203,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(balance_callback, pattern="^balance$"))
     application.add_handler(CallbackQueryHandler(portfolio_callback, pattern="^portfolio"))
     application.add_handler(CallbackQueryHandler(history_menu_callback, pattern="^history_menu$"))
+    application.add_handler(history_page_handler)
     
     # Wallet
     application.add_handler(CallbackQueryHandler(wallet_menu_callback, pattern="^wallet_menu$"))
