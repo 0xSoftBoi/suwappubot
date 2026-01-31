@@ -15,3 +15,5 @@ export type { ToggleItemProps } from './ToggleItem'
 
 export { NotificationBanner } from './NotificationBanner'
 export type { NotificationBannerProps } from './NotificationBanner'
+
+export { FeatureGrid } from './FeatureGrid'
