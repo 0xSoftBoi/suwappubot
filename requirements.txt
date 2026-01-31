@@ -26,7 +26,7 @@ pyyaml==6.0.1
 qrcode[pil]==7.4.2
 solana==0.34.3
 solders==0.21.0
-spl-token>=0.2.0
+# spl-token - functionality included in solana-py
 sqlalchemy>=2.0.29
 uvicorn[standard]>=0.32.1
 fastapi>=0.104.0
