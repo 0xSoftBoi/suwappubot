@@ -2,7 +2,7 @@
 
 import logging
 import asyncio
-from telegram import Update, MenuButtonWebApp, WebAppInfo
+from telegram import Update, MenuButtonWebApp, WebAppInfo, BotCommand
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -333,6 +333,33 @@ async def post_init(application) -> None:
         logger.info(f"✓ Menu button set to Mini App: {settings.webapp_url}")
     except Exception as e:
         logger.warning(f"Could not set menu button: {e}")
+
+    # Register bot commands for Telegram autocomplete menu
+    try:
+        commands = [
+            BotCommand("start", "Main menu"),
+            BotCommand("s", "Quick swap - /s <amount> <token>"),
+            BotCommand("w", "Wallet management"),
+            BotCommand("b", "Check balances"),
+            BotCommand("p", "Portfolio overview"),
+            BotCommand("a", "Price alerts"),
+            BotCommand("o", "Limit orders & DCA"),
+            BotCommand("snipe", "Token sniping"),
+            BotCommand("hx", "Transaction history"),
+            BotCommand("g", "Gas tracker"),
+            BotCommand("f", "Favorite tokens"),
+            BotCommand("ref", "Referral program"),
+            BotCommand("xp", "Points & XP"),
+            BotCommand("checkin", "Daily check-in"),
+            BotCommand("traders", "Copy trading"),
+            BotCommand("tax", "Tax export"),
+            BotCommand("set", "Settings"),
+            BotCommand("h", "Help"),
+        ]
+        await application.bot.set_my_commands(commands)
+        logger.info(f"✓ Registered {len(commands)} bot commands")
+    except Exception as e:
+        logger.warning(f"Could not register bot commands: {e}")
 
     # Seed default milestones and rewards for points system
     from bot.services.points_service import points_service
