@@ -17,6 +17,7 @@
     "@turnkey/api-key-stamper": "^0.6.0",
     "@turnkey/sdk-server": "^5.0.1",
     "@types/jsonwebtoken": "^9.0.10",
+    "alchemy-sdk": "^3.6.5",
     "drizzle-orm": "^0.45.1",
     "effect": "^3.10.0",
     "hono": "^4.6.0",
