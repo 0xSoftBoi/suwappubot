@@ -237,6 +237,105 @@ class ApiClient {
       body: JSON.stringify(preferences),
     })
   }
+
+  // === Points & Rewards ===
+
+  /**
+   * Get user's points stats
+   */
+  async getPointsStats(): Promise<PointsStats> {
+    return this.fetch<PointsStats>('/webapp/me/points/stats')
+  }
+
+  /**
+   * Daily check-in
+   */
+  async dailyCheckin(): Promise<CheckinResult> {
+    return this.fetch<CheckinResult>('/webapp/me/points/checkin', { method: 'POST' })
+  }
+
+  /**
+   * Get points transaction history
+   */
+  async getPointsHistory(limit = 20, offset = 0): Promise<PointTransaction[]> {
+    return this.fetch<PointTransaction[]>(`/webapp/me/points/history?limit=${limit}&offset=${offset}`)
+  }
+
+  /**
+   * Get leaderboard
+   */
+  async getLeaderboard(limit = 10): Promise<LeaderboardEntry[]> {
+    return this.fetch<LeaderboardEntry[]>(`/webapp/me/points/leaderboard?limit=${limit}`)
+  }
+
+  /**
+   * Get available rewards
+   */
+  async getRewards(): Promise<Reward[]> {
+    return this.fetch<Reward[]>('/webapp/me/points/rewards')
+  }
+
+  /**
+   * Redeem a reward
+   */
+  async redeemReward(rewardId: number): Promise<RedemptionResult> {
+    return this.fetch<RedemptionResult>(`/webapp/me/points/redeem/${rewardId}`, { method: 'POST' })
+  }
+}
+
+// Points types
+export interface PointsStats {
+  totalPoints: number
+  currentStreak: number
+  longestStreak: number
+  lastCheckin: string | null
+  canCheckin: boolean
+  rank?: number
+}
+
+export interface CheckinResult {
+  success: boolean
+  pointsAwarded: number
+  newTotal: number
+  streak: number
+  bonusPoints?: number
+}
+
+export interface PointTransaction {
+  id: number
+  amount: number
+  action: string
+  description: string | null
+  createdAt: string
+}
+
+export interface LeaderboardEntry {
+  rank: number
+  userId: number
+  username: string | null
+  firstName: string | null
+  totalPoints: number
+  currentStreak: number
+}
+
+export interface Reward {
+  id: number
+  name: string
+  description: string
+  emoji: string
+  pointsCost: number
+  rewardType: string
+  rewardValue: string | null
+  stock: number | null
+}
+
+export interface RedemptionResult {
+  id: number
+  pointsSpent: number
+  rewardType: string
+  rewardValue: string | null
+  status: string
+  expiresAt: string | null
 }
 
 // Export singleton instance

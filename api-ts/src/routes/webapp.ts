@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { Effect, Either, Option } from 'effect'
 import jwt from 'jsonwebtoken'
 import { telegramAuth } from '../middleware'
-import { TelegramAuthService, UserService, WalletService, SwapService, BalanceService, TurnkeyService } from '../services'
+import { TelegramAuthService, UserService, WalletService, SwapService, BalanceService, TurnkeyService, PointsService } from '../services'
 import { runEffect, runEffectEither } from '../runtime'
 import type { TelegramUser } from '../services/TelegramAuthService'
 import { mapErrorToResponse } from '../errors'
@@ -366,6 +366,172 @@ protectedWebapp.put('/preferences', async (c) => {
 		return c.json({ error: result.left.message || 'Failed to update preferences' }, 500)
 	}
 
+	return c.json(result.right)
+})
+
+// === Points Routes ===
+
+// GET /webapp/me/points/stats - Get user's points stats
+protectedWebapp.get('/points/stats', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const pointsService = yield* PointsService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			const stats = yield* pointsService.getUserStats(userOption.value.id)
+			return {
+				...stats,
+				lastCheckin: stats.lastCheckin?.toISOString() ?? null,
+			}
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// POST /webapp/me/points/checkin - Daily check-in
+protectedWebapp.post('/points/checkin', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const pointsService = yield* PointsService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			return yield* pointsService.dailyCheckin(userOption.value.id)
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 400)
+	}
+	return c.json(result.right)
+})
+
+// GET /webapp/me/points/history - Get points history
+protectedWebapp.get('/points/history', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const limit = Math.min(Number(c.req.query('limit') || 20), 100)
+	const offset = Number(c.req.query('offset') || 0)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const pointsService = yield* PointsService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			const history = yield* pointsService.getPointHistory(userOption.value.id, limit, offset)
+			return history.map((tx) => ({
+				id: tx.id,
+				amount: tx.amount,
+				action: tx.action,
+				description: tx.description,
+				createdAt: tx.createdAt.toISOString(),
+			}))
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// GET /webapp/me/points/leaderboard - Get leaderboard
+protectedWebapp.get('/points/leaderboard', async (c) => {
+	const limit = Math.min(Number(c.req.query('limit') || 10), 100)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pointsService = yield* PointsService
+			return yield* pointsService.getLeaderboard(limit)
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// GET /webapp/me/points/rewards - Get available rewards
+protectedWebapp.get('/points/rewards', async (c) => {
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pointsService = yield* PointsService
+			const rewards = yield* pointsService.getAvailableRewards()
+			return rewards.map((r) => ({
+				id: r.id,
+				name: r.name,
+				description: r.description,
+				emoji: r.emoji,
+				pointsCost: r.pointsCost,
+				rewardType: r.rewardType,
+				rewardValue: r.rewardValue,
+				stock: r.stock,
+			}))
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// POST /webapp/me/points/redeem/:rewardId - Redeem a reward
+protectedWebapp.post('/points/redeem/:rewardId', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const rewardId = Number(c.req.param('rewardId'))
+
+	if (Number.isNaN(rewardId)) {
+		return c.json({ error: 'Invalid reward ID' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const pointsService = yield* PointsService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			const redemption = yield* pointsService.redeemReward(userOption.value.id, rewardId)
+			return {
+				id: redemption.id,
+				pointsSpent: redemption.pointsSpent,
+				rewardType: redemption.rewardType,
+				rewardValue: redemption.rewardValue,
+				status: redemption.status,
+				expiresAt: redemption.expiresAt?.toISOString() ?? null,
+			}
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 400)
+	}
 	return c.json(result.right)
 })
 
