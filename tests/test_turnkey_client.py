@@ -85,14 +85,15 @@ class TestTurnkeyClientStamp:
         import base64
         import json
         
-        # Since we need a real P-256 key for the test, let's generate one
-        from ecdsa import SigningKey, NIST256p
-        
-        sk = SigningKey.generate(curve=NIST256p)
-        vk = sk.get_verifying_key()
-        
-        private_hex = sk.to_string().hex()
-        public_hex = "04" + vk.to_string().hex()  # Uncompressed format
+        # Generate a real P-256 key for the test
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        sk = ec.generate_private_key(ec.SECP256R1())
+        pk = sk.public_key()
+
+        private_hex = format(sk.private_numbers().private_value, '064x')
+        pub_numbers = pk.public_numbers()
+        public_hex = "04" + format(pub_numbers.x, '064x') + format(pub_numbers.y, '064x')
         
         client = TurnkeyClient(
             organization_id="org_123",
@@ -157,15 +158,16 @@ class TestTurnkeyClientAsync:
     @pytest.fixture
     def mock_client(self):
         """Create a mock Turnkey client."""
-        from ecdsa import SigningKey, NIST256p
-        
-        sk = SigningKey.generate(curve=NIST256p)
-        vk = sk.get_verifying_key()
-        
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        sk = ec.generate_private_key(ec.SECP256R1())
+        pk = sk.public_key()
+        pub_numbers = pk.public_numbers()
+
         return TurnkeyClient(
             organization_id="org_123",
-            api_public_key="04" + vk.to_string().hex(),
-            api_private_key=sk.to_string().hex(),
+            api_public_key="04" + format(pub_numbers.x, '064x') + format(pub_numbers.y, '064x'),
+            api_private_key=format(sk.private_numbers().private_value, '064x'),
             base_url="https://api.turnkey.com",
         )
     

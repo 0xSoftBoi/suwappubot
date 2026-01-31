@@ -73,15 +73,11 @@ class TurnkeyClient:
         self._api_private_key = api_private_key
         self._base_url = base_url.rstrip("/")
         
-        # Import ecdsa for signing
-        try:
-            from ecdsa import SigningKey, NIST256p
-            self._signing_key = SigningKey.from_string(
-                bytes.fromhex(api_private_key),
-                curve=NIST256p
-            )
-        except ImportError:
-            raise ImportError("ecdsa package required. Install with: pip install ecdsa")
+        from cryptography.hazmat.primitives.asymmetric import ec
+        self._signing_key = ec.derive_private_key(
+            int.from_bytes(bytes.fromhex(api_private_key), "big"),
+            ec.SECP256R1(),
+        )
     
     def _create_stamp(self, body: str) -> str:
         """
@@ -91,18 +87,16 @@ class TurnkeyClient:
         is signed with the API key pair. The stamp is base64-encoded JSON
         with hex-encoded signature.
         """
-        from ecdsa.util import sigencode_der
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import ec as ec_alg
         import base64
-        
-        # Create hash of request body
-        body_hash = hashlib.sha256(body.encode()).digest()
-        
-        # Sign the hash with P-256 (DER encoded)
-        signature = self._signing_key.sign_digest(
-            body_hash,
-            sigencode=sigencode_der
+
+        # Sign the request body with P-256 (DER encoded)
+        signature = self._signing_key.sign(
+            body.encode(),
+            ec_alg.ECDSA(hashes.SHA256()),
         )
-        
+
         # Encode signature as hex (Turnkey's required format)
         signature_hex = signature.hex()
         
