@@ -37,7 +37,9 @@ export const EnvSchema = Schema.Struct({
 	FEE_WALLET_EVM: Schema.optionalWith(Schema.String, {
 		default: () => '0x6456f69215C470e1545Ed6eea4621C136B30D85d',
 	}),
-	FEE_WALLET_SOLANA: Schema.optional(Schema.String),
+	FEE_WALLET_SOLANA: Schema.optionalWith(Schema.String, {
+		default: () => '4Xxbeusi6NL46AtZQHJrPREtYFCByKE48oxrpLvWEWJh',
+	}),
 	FEE_BPS: Schema.optionalWith(Schema.NumberFromString, { default: () => 30 }), // 0.3% default
 })
 

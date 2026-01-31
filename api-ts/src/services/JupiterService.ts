@@ -91,6 +91,9 @@ export const JupiterServiceLive = Layer.succeed(JupiterService, {
 				}))
 			}
 
+			// Platform fee: 0.3% (30 bps) to Suwappu
+			const platformFeeBps = process.env.FEE_BPS || '30'
+			
 			const queryParams = new URLSearchParams({
 				inputMint,
 				outputMint,
@@ -98,6 +101,7 @@ export const JupiterServiceLive = Layer.succeed(JupiterService, {
 				slippageBps: String(slippageBps),
 				onlyDirectRoutes: 'false',
 				asLegacyTransaction: 'false',
+				platformFeeBps,
 			})
 
 			const url = `${JUPITER_API_BASE}/quote?${queryParams.toString()}`
@@ -134,11 +138,15 @@ export const JupiterServiceLive = Layer.succeed(JupiterService, {
 				}))
 			}
 
+			// Fee account for platform fees
+			const feeAccount = process.env.FEE_WALLET_SOLANA || '4Xxbeusi6NL46AtZQHJrPREtYFCByKE48oxrpLvWEWJh'
+			
 			const body: Record<string, unknown> = {
 				quoteResponse: quote,
 				userPublicKey,
 				wrapAndUnwrapSol: wrapUnwrapSOL,
 				dynamicComputeUnitLimit: true,
+				feeAccount,
 			}
 
 			if (computeUnitPriceMicroLamports) {
