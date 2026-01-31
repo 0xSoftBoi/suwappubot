@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AnimatePresence, motion, type Variants } from 'framer-motion'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useTelegram } from './hooks/useTelegram'
-import { Welcome, Home, Swap, Wallet, Portfolio, Settings } from './pages'
+import { Welcome, Home, Swap, Wallet, Portfolio, History, Settings } from './pages'
 import './theme/suwappu.css'
 
 // Page transition variants
@@ -173,6 +173,16 @@ function AppContent() {
             <ProtectedRoute>
               <PageTransition>
                 <Portfolio />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/history"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <History />
               </PageTransition>
             </ProtectedRoute>
           }
