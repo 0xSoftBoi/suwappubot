@@ -392,9 +392,10 @@ export function Settings() {
           <span className="flex-1 text-left text-sm font-heading font-medium">Log Out</span>
         </button>
 
-        <div className="pt-4">
-          <p className="text-[10px] text-suwappu-text-secondary text-center">
-            Suwappu v1.0.0
+        {/* Version Info */}
+        <div className="pt-4 space-y-1">
+          <p className="text-xs text-suwappu-text-secondary text-center font-mono bg-suwappu-sakura-light/50 py-2 px-4 rounded-lg inline-block mx-auto">
+            Webapp v1.3.4 • API {import.meta.env.VITE_API_URL?.includes('devapi') ? 'DEV' : 'PROD'}
           </p>
         </div>
       </div>
