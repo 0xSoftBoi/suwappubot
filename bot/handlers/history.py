@@ -14,6 +14,17 @@ from bot.services.pnl import pnl_service
 
 SWAPS_PER_PAGE = 5
 
+FILTER_CHAINS = ["all", "ethereum", "solana", "base", "arbitrum", "polygon", "bsc"]
+FILTER_LABELS = {
+    "all": "All",
+    "ethereum": "ETH",
+    "solana": "SOL",
+    "base": "Base",
+    "arbitrum": "ARB",
+    "polygon": "POL",
+    "bsc": "BSC",
+}
+
 
 @enforce_tos
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0) -> None:
@@ -26,6 +37,9 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, pa
     else:
         reply_func = update.message.reply_text
 
+    # Get active chain filter
+    active_filter = context.user_data.get("history_filter", "all")
+
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
 
@@ -35,29 +49,40 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, pa
             )
             return
 
-        # Get total count
-        total_swaps = session.query(SwapTransaction).filter(
+        # Build base query with optional chain filter
+        base_query = session.query(SwapTransaction).filter(
             SwapTransaction.user_id == db_user.id
-        ).count()
+        )
+        if active_filter != "all":
+            base_query = base_query.filter(
+                (SwapTransaction.from_chain == active_filter) |
+                (SwapTransaction.to_chain == active_filter)
+            )
+
+        # Get total count
+        total_swaps = base_query.count()
 
         if total_swaps == 0:
+            # Build filter row even when empty
+            filter_buttons = _build_filter_buttons(active_filter)
+            keyboard = [filter_buttons]
+            keyboard.append([InlineKeyboardButton("🔄 Start Swap", callback_data="swap_start")])
             await reply_func(
                 "📜 *Transaction History*\n\n"
                 "No swaps yet. Use /s to make your first swap!",
                 parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 Start Swap", callback_data="swap_start")]
-                ])
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return
 
         # Get paginated swaps
-        swaps = session.query(SwapTransaction).filter(
-            SwapTransaction.user_id == db_user.id
-        ).order_by(SwapTransaction.created_at.desc()).offset(page * SWAPS_PER_PAGE).limit(SWAPS_PER_PAGE).all()
+        swaps = base_query.order_by(
+            SwapTransaction.created_at.desc()
+        ).offset(page * SWAPS_PER_PAGE).limit(SWAPS_PER_PAGE).all()
 
         # Build history message
-        lines = ["📜 *Transaction History*\n"]
+        filter_label = f" ({FILTER_LABELS.get(active_filter, active_filter)})" if active_filter != "all" else ""
+        lines = [f"📜 *Transaction History*{filter_label}\n"]
 
         for swap in swaps:
             status_emoji = _get_status_emoji(swap.status)
@@ -89,6 +114,9 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, pa
 
         keyboard = []
 
+        # Chain filter row
+        keyboard.append(_build_filter_buttons(active_filter))
+
         # Navigation buttons
         nav_buttons = []
         if page > 0:
@@ -116,6 +144,28 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, pa
             reply_markup=InlineKeyboardMarkup(keyboard),
             disable_web_page_preview=True,
         )
+
+
+def _build_filter_buttons(active_filter: str) -> list:
+    """Build the chain filter button row."""
+    from telegram import InlineKeyboardButton
+    buttons = []
+    for chain in FILTER_CHAINS:
+        label = FILTER_LABELS.get(chain, chain)
+        if chain == active_filter:
+            label = f"[{label}]"
+        buttons.append(InlineKeyboardButton(label, callback_data=f"history_filter_{chain}"))
+    return buttons
+
+
+async def history_filter_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle chain filter selection."""
+    query = update.callback_query
+    await query.answer()
+    chain = query.data.replace("history_filter_", "")
+    context.user_data["history_filter"] = chain
+    # Reset to page 0 when changing filter
+    await history_command(update, context, page=0)
 
 
 async def history_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -261,6 +311,7 @@ async def share_pnl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 history_callback = CallbackQueryHandler(history_command, pattern="^history$")
 history_menu_callback = CallbackQueryHandler(history_command, pattern="^history_menu$")
 history_page_handler = CallbackQueryHandler(history_page_callback, pattern="^history_page_")
+history_filter_handler = CallbackQueryHandler(history_filter_callback, pattern="^history_filter_")
 share_pnl_handler = CallbackQueryHandler(share_pnl_callback, pattern="^pnl_share_")
 
 # Create handlers

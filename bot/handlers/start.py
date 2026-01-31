@@ -62,56 +62,25 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
-    # Create inline keyboard with all features
+    # Compact 3-row menu
     keyboard = [
-        [InlineKeyboardButton("━━ 🌸 SUWAPPU MENU ━━", callback_data="noop")],
-        # Core Trading
         [
             InlineKeyboardButton("🔄 Swap", callback_data="swap_start"),
-            InlineKeyboardButton("⚡ Quick Swap", callback_data="quickswap_menu"),
-        ],
-        [
-            InlineKeyboardButton("📈 Limit Orders", callback_data="limit_orders_menu"),
-            InlineKeyboardButton("🎯 Snipe", callback_data="snipe_menu"),
-        ],
-        # Wallet & Portfolio
-        [
-            InlineKeyboardButton("👛 Wallets", callback_data="wallet_menu"),
             InlineKeyboardButton("💰 Balance", callback_data="balance"),
+            InlineKeyboardButton("👛 Wallets", callback_data="wallet_menu"),
         ],
         [
             InlineKeyboardButton("📊 Portfolio", callback_data="portfolio"),
+            InlineKeyboardButton("🔔 Alerts", callback_data="alerts_menu"),
+            InlineKeyboardButton("📈 Orders", callback_data="limit_orders_menu"),
+        ],
+        [
             InlineKeyboardButton("📜 History", callback_data="history_menu"),
-        ],
-        # Advanced Features
-        [
-            InlineKeyboardButton("🔔 Price Alerts", callback_data="alerts_menu"),
-            InlineKeyboardButton("📋 Copy Trading", callback_data="copy_menu"),
-        ],
-        [
-            InlineKeyboardButton("⭐ Favorites", callback_data="favorites_menu"),
-            InlineKeyboardButton("⛽ Gas Tracker", callback_data="gas_menu"),
-        ],
-        # Custodial
-        [
-            InlineKeyboardButton("🏦 Custodial", callback_data="custodial_menu"),
-        ],
-        # Rewards & Settings
-        [
-            InlineKeyboardButton("🎁 Referrals", callback_data="ref_menu"),
-            InlineKeyboardButton("✨ Points", callback_data="points_menu"),
-        ],
-        [
-            InlineKeyboardButton("📊 Dashboard", callback_data="dashboard_menu"),
-            InlineKeyboardButton("📝 Tax Export", callback_data="tax_menu"),
-        ],
-        [
-            InlineKeyboardButton("⚙️ Settings", callback_data="settings_menu"),
-            InlineKeyboardButton("📖 Help", callback_data="help"),
+            InlineKeyboardButton("More...", callback_data="menu_more"),
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     welcome_text = WELCOME_MESSAGE + referral_message
     await update.message.reply_text(
         welcome_text,
@@ -200,52 +169,21 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
-    # Create inline keyboard with all features
+    # Compact 3-row menu
     keyboard = [
-        [InlineKeyboardButton("━━ 🌸 SUWAPPU MENU ━━", callback_data="noop")],
-        # Core Trading
         [
             InlineKeyboardButton("🔄 Swap", callback_data="swap_start"),
-            InlineKeyboardButton("⚡ Quick Swap", callback_data="quickswap_menu"),
-        ],
-        [
-            InlineKeyboardButton("📈 Limit Orders", callback_data="limit_orders_menu"),
-            InlineKeyboardButton("🎯 Snipe", callback_data="snipe_menu"),
-        ],
-        # Wallet & Portfolio
-        [
-            InlineKeyboardButton("👛 Wallets", callback_data="wallet_menu"),
             InlineKeyboardButton("💰 Balance", callback_data="balance"),
+            InlineKeyboardButton("👛 Wallets", callback_data="wallet_menu"),
         ],
         [
             InlineKeyboardButton("📊 Portfolio", callback_data="portfolio"),
+            InlineKeyboardButton("🔔 Alerts", callback_data="alerts_menu"),
+            InlineKeyboardButton("📈 Orders", callback_data="limit_orders_menu"),
+        ],
+        [
             InlineKeyboardButton("📜 History", callback_data="history_menu"),
-        ],
-        # Advanced Features
-        [
-            InlineKeyboardButton("🔔 Price Alerts", callback_data="alerts_menu"),
-            InlineKeyboardButton("📋 Copy Trading", callback_data="copy_menu"),
-        ],
-        [
-            InlineKeyboardButton("⭐ Favorites", callback_data="favorites_menu"),
-            InlineKeyboardButton("⛽ Gas Tracker", callback_data="gas_menu"),
-        ],
-        # Custodial
-        [
-            InlineKeyboardButton("🏦 Custodial", callback_data="custodial_menu"),
-        ],
-        # Rewards & Settings
-        [
-            InlineKeyboardButton("🎁 Referrals", callback_data="ref_menu"),
-            InlineKeyboardButton("✨ Points", callback_data="points_menu"),
-        ],
-        [
-            InlineKeyboardButton("📊 Dashboard", callback_data="dashboard_menu"),
-            InlineKeyboardButton("📝 Tax Export", callback_data="tax_menu"),
-        ],
-        [
-            InlineKeyboardButton("⚙️ Settings", callback_data="settings_menu"),
-            InlineKeyboardButton("📖 Help", callback_data="help"),
+            InlineKeyboardButton("More...", callback_data="menu_more"),
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -265,6 +203,45 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             parse_mode="Markdown",
             reply_markup=reply_markup,
         )
+
+
+async def more_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle More... menu callback - shows remaining features."""
+    query = update.callback_query
+    await query.answer()
+
+    keyboard = [
+        [
+            InlineKeyboardButton("🎯 Snipe", callback_data="snipe_menu"),
+            InlineKeyboardButton("📋 Copy Trading", callback_data="copy_menu"),
+        ],
+        [
+            InlineKeyboardButton("⭐ Favorites", callback_data="favorites_menu"),
+            InlineKeyboardButton("⛽ Gas Tracker", callback_data="gas_menu"),
+        ],
+        [
+            InlineKeyboardButton("🏦 Custodial", callback_data="custodial_menu"),
+            InlineKeyboardButton("🎁 Referrals", callback_data="ref_menu"),
+        ],
+        [
+            InlineKeyboardButton("✨ Points", callback_data="points_menu"),
+            InlineKeyboardButton("📊 Dashboard", callback_data="dashboard_menu"),
+        ],
+        [
+            InlineKeyboardButton("📝 Tax Export", callback_data="tax_menu"),
+            InlineKeyboardButton("⚙️ Settings", callback_data="settings_menu"),
+        ],
+        [
+            InlineKeyboardButton("📖 Help", callback_data="help"),
+        ],
+        [InlineKeyboardButton("« Back", callback_data="main_menu")],
+    ]
+
+    await query.edit_message_text(
+        "🌸 *More Features*",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
 
 
 async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

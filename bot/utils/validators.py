@@ -115,8 +115,10 @@ def validate_amount(amount_str: str) -> Optional[float]:
         if len(amount_str) > MAX_INPUT_LENGTH:
             return None
 
-        # Remove commas and whitespace
+        # Remove leading $ sign, commas, and whitespace
         clean = amount_str.replace(",", "").replace(" ", "").strip()
+        if clean.startswith("$"):
+            clean = clean[1:]
 
         # Parse as float
         amount = float(clean)

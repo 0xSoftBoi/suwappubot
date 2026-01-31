@@ -129,9 +129,16 @@ async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         ).first()
 
         if not wallet:
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("Create Solana Wallet", callback_data="wallet_create_solana"),
+                    InlineKeyboardButton("Import", callback_data="wallet_import_solana"),
+                ],
+                [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
+            ])
             await update.message.reply_text(
-                "You need a Solana wallet to snipe tokens.\n"
-                "Use /wallet to create one."
+                "You need a Solana wallet to snipe tokens.",
+                reply_markup=keyboard,
             )
             return ConversationHandler.END
 

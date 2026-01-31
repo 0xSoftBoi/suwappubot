@@ -1,7 +1,7 @@
 """Error handling and user-friendly error messages."""
 
 from typing import Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -11,6 +11,8 @@ class UserFriendlyError:
     user_message: str
     technical_message: str
     suggestion: Optional[str] = None
+    recovery_actions: Optional[list[tuple[str, str]]] = field(default=None)
+    """List of (button_text, callback_data) pairs for recovery buttons."""
 
 
 # Error message mappings
@@ -20,7 +22,8 @@ ERROR_MESSAGES = {
         code="NO_ROUTES_FOUND",
         user_message="❌ No swap route found for this pair.",
         technical_message="Li.Fi returned no routes",
-        suggestion="Try a different token pair or smaller amount."
+        suggestion="Try a different token pair or smaller amount.",
+        recovery_actions=[("Try Different Pair", "swap_start"), ("Main Menu", "main_menu")],
     ),
     "INSUFFICIENT_LIQUIDITY": UserFriendlyError(
         code="INSUFFICIENT_LIQUIDITY",
@@ -40,25 +43,28 @@ ERROR_MESSAGES = {
         technical_message="Amount exceeds maximum threshold",
         suggestion="Try a smaller amount or split into multiple swaps."
     ),
-    
+
     # Transaction errors
     "INSUFFICIENT_BALANCE": UserFriendlyError(
         code="INSUFFICIENT_BALANCE",
         user_message="❌ Insufficient balance for this swap.",
         technical_message="Wallet balance too low",
-        suggestion="Check your balance and try a smaller amount."
+        suggestion="Check your balance and try a smaller amount.",
+        recovery_actions=[("Try Different Amount", "swap_start"), ("Main Menu", "main_menu")],
     ),
     "INSUFFICIENT_GAS": UserFriendlyError(
         code="INSUFFICIENT_GAS",
         user_message="❌ Not enough gas to complete transaction.",
         technical_message="Insufficient native token for gas",
-        suggestion="Add more ETH/BNB/MATIC for gas fees."
+        suggestion="Add more ETH/BNB/MATIC for gas fees.",
+        recovery_actions=[("View Wallets", "wallet_menu"), ("Main Menu", "main_menu")],
     ),
     "SLIPPAGE_TOO_HIGH": UserFriendlyError(
         code="SLIPPAGE_TOO_HIGH",
         user_message="❌ Price moved too much during swap.",
         technical_message="Slippage exceeded tolerance",
-        suggestion="Increase slippage tolerance or try again."
+        suggestion="Increase slippage tolerance or try again.",
+        recovery_actions=[("Retry", "swap_requote"), ("Settings", "settings_menu")],
     ),
     "TRANSACTION_REVERTED": UserFriendlyError(
         code="TRANSACTION_REVERTED",
@@ -72,7 +78,7 @@ ERROR_MESSAGES = {
         technical_message="Transaction not mined in time",
         suggestion="Check explorer for status. May still complete."
     ),
-    
+
     # Network errors
     "RPC_ERROR": UserFriendlyError(
         code="RPC_ERROR",
@@ -86,7 +92,7 @@ ERROR_MESSAGES = {
         technical_message="High network traffic",
         suggestion="Wait a few minutes or increase gas price."
     ),
-    
+
     # API errors
     "RATE_LIMITED": UserFriendlyError(
         code="RATE_LIMITED",
@@ -100,7 +106,7 @@ ERROR_MESSAGES = {
         technical_message="External API error",
         suggestion="Please try again in a moment."
     ),
-    
+
     # Wallet errors
     "INVALID_ADDRESS": UserFriendlyError(
         code="INVALID_ADDRESS",
@@ -114,13 +120,14 @@ ERROR_MESSAGES = {
         technical_message="No wallet in database",
         suggestion="Add a wallet first with /w."
     ),
-    
+
     # Quote errors
     "QUOTE_EXPIRED": UserFriendlyError(
         code="QUOTE_EXPIRED",
         user_message="⏰ Quote expired.",
         technical_message="Quote TTL exceeded",
-        suggestion="Get a new quote and try again."
+        suggestion="Get a new quote and try again.",
+        recovery_actions=[("Get New Quote", "swap_requote"), ("Main Menu", "main_menu")],
     ),
     "PRICE_IMPACT_HIGH": UserFriendlyError(
         code="PRICE_IMPACT_HIGH",
@@ -128,7 +135,7 @@ ERROR_MESSAGES = {
         technical_message="Price impact > 5%",
         suggestion="Consider swapping a smaller amount."
     ),
-    
+
     # Generic
     "UNKNOWN_ERROR": UserFriendlyError(
         code="UNKNOWN_ERROR",
@@ -150,6 +157,28 @@ def format_error_for_user(error: UserFriendlyError) -> str:
     if error.suggestion:
         message += f"\n\n💡 {error.suggestion}"
     return message
+
+
+def format_error_with_buttons(error: UserFriendlyError):
+    """Format error with recovery action buttons.
+
+    Returns:
+        Tuple of (text, InlineKeyboardMarkup | None)
+    """
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    text = format_error_for_user(error)
+
+    if not error.recovery_actions:
+        return text, None
+
+    buttons = [
+        InlineKeyboardButton(label, callback_data=cb)
+        for label, cb in error.recovery_actions
+    ]
+    # Put all buttons in one row (max 2-3 is fine)
+    keyboard = InlineKeyboardMarkup([buttons])
+    return text, keyboard
 
 
 def detect_error_code(error_message: str) -> str:

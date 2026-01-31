@@ -219,8 +219,8 @@ class TestSwapFlowIntegration:
                 gas_cost_usd=0, fee_cost_usd=0, total_cost_usd=0,
                 estimated_time=0, price_impact=0, exchange_rate=0,
                 raw_quote={}, 
-                timestamp=datetime.utcnow() - timedelta(seconds=61), # 61s old
-                expires_in=60
+                timestamp=datetime.utcnow() - timedelta(seconds=120), # 120s old, exceeds 90s default
+                expires_in=90
             )
             
             with pytest.raises(SwapError) as excinfo:

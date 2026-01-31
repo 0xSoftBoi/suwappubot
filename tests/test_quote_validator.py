@@ -36,7 +36,7 @@ class TestQuoteFreshness:
     
     def test_expired_quote(self):
         """Test expired quote raises error."""
-        quote = MockQuote(timestamp=datetime.utcnow() - timedelta(seconds=60))
+        quote = MockQuote(timestamp=datetime.utcnow() - timedelta(seconds=120))
         with pytest.raises(SwapError, match="expired"):
             QuoteValidator.validate_quote_freshness(quote)
     
