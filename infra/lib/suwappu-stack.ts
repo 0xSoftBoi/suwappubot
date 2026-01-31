@@ -7,6 +7,11 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cw_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
+import * as sns from 'aws-cdk-lib/aws-sns';
 import { Construct } from 'constructs';
 
 export class SuwappuStack extends cdk.Stack {
@@ -124,9 +129,10 @@ export class SuwappuStack extends cdk.Stack {
       allocatedStorage: 20,
       maxAllocatedStorage: 100,
       storageType: rds.StorageType.GP3,
+      storageEncrypted: true,
       multiAz: false, // Cost optimization
       deletionProtection: true,
-      backupRetention: cdk.Duration.days(7),
+      backupRetention: cdk.Duration.days(14),
       removalPolicy: cdk.RemovalPolicy.SNAPSHOT,
       publiclyAccessible: false,
     });
@@ -160,8 +166,8 @@ export class SuwappuStack extends cdk.Stack {
 
     // ==================== Task Definition ====================
     const taskDefinition = new ecs.FargateTaskDefinition(this, 'SuwappuTask', {
-      memoryLimitMiB: 512,
-      cpu: 256,
+      memoryLimitMiB: 1024,
+      cpu: 512,
     });
 
     // Grant secrets access to task
@@ -224,9 +230,29 @@ export class SuwappuStack extends cdk.Stack {
       securityGroup: albSecurityGroup,
     });
 
-    const listener = this.loadBalancer.addListener('HttpListener', {
+    // ==================== ACM Certificate ====================
+    const certificate = new acm.Certificate(this, 'SuwappuCert', {
+      domainName: 'api.suwappu.bot',
+      subjectAlternativeNames: ['*.suwappu.bot'],
+      validation: acm.CertificateValidation.fromDns(), // Add DNS CNAME records after deploy
+    });
+
+    // HTTP listener — redirect all traffic to HTTPS
+    this.loadBalancer.addListener('HttpListener', {
       port: 80,
       protocol: elbv2.ApplicationProtocol.HTTP,
+      defaultAction: elbv2.ListenerAction.redirect({
+        protocol: 'HTTPS',
+        port: '443',
+        permanent: true,
+      }),
+    });
+
+    // HTTPS listener
+    const httpsListener = this.loadBalancer.addListener('HttpsListener', {
+      port: 443,
+      protocol: elbv2.ApplicationProtocol.HTTPS,
+      certificates: [certificate],
     });
 
     // ==================== Fargate Service ====================
@@ -244,8 +270,8 @@ export class SuwappuStack extends cdk.Stack {
       enableExecuteCommand: true, // For debugging
     });
 
-    // Register with load balancer
-    listener.addTargets('SuwappuTarget', {
+    // Register with HTTPS listener
+    httpsListener.addTargets('SuwappuTarget', {
       port: 10000,
       protocol: elbv2.ApplicationProtocol.HTTP,
       targets: [this.service],
@@ -269,6 +295,105 @@ export class SuwappuStack extends cdk.Stack {
       scaleInCooldown: cdk.Duration.seconds(60),
       scaleOutCooldown: cdk.Duration.seconds(60),
     });
+
+    // ==================== WAF ====================
+    const webAcl = new wafv2.CfnWebACL(this, 'SuwappuWaf', {
+      scope: 'REGIONAL',
+      defaultAction: { allow: {} },
+      visibilityConfig: {
+        cloudWatchMetricsEnabled: true,
+        metricName: 'SuwappuWafMetrics',
+        sampledRequestsEnabled: true,
+      },
+      rules: [
+        {
+          name: 'AWSCommonRules',
+          priority: 1,
+          overrideAction: { none: {} },
+          statement: {
+            managedRuleGroupStatement: {
+              vendorName: 'AWS',
+              name: 'AWSManagedRulesCommonRuleSet',
+            },
+          },
+          visibilityConfig: {
+            cloudWatchMetricsEnabled: true,
+            metricName: 'AWSCommonRules',
+            sampledRequestsEnabled: true,
+          },
+        },
+        {
+          name: 'RateLimit',
+          priority: 2,
+          action: { block: {} },
+          statement: {
+            rateBasedStatement: {
+              limit: 2000,
+              aggregateKeyType: 'IP',
+            },
+          },
+          visibilityConfig: {
+            cloudWatchMetricsEnabled: true,
+            metricName: 'RateLimit',
+            sampledRequestsEnabled: true,
+          },
+        },
+      ],
+    });
+
+    new wafv2.CfnWebACLAssociation(this, 'WafAlbAssociation', {
+      resourceArn: this.loadBalancer.loadBalancerArn,
+      webAclArn: webAcl.attrArn,
+    });
+
+    // ==================== CloudWatch Alarms + SNS ====================
+    const alertTopic = new sns.Topic(this, 'SuwappuAlerts', {
+      topicName: 'suwappu-alerts',
+    });
+
+    // ECS CPU alarm
+    new cloudwatch.Alarm(this, 'EcsCpuAlarm', {
+      metric: this.service.metricCpuUtilization(),
+      threshold: 80,
+      evaluationPeriods: 2,
+      alarmDescription: 'ECS CPU utilization > 80%',
+    }).addAlarmAction(new cw_actions.SnsAction(alertTopic));
+
+    // ECS Memory alarm
+    new cloudwatch.Alarm(this, 'EcsMemoryAlarm', {
+      metric: this.service.metricMemoryUtilization(),
+      threshold: 80,
+      evaluationPeriods: 2,
+      alarmDescription: 'ECS memory utilization > 80%',
+    }).addAlarmAction(new cw_actions.SnsAction(alertTopic));
+
+    // ALB 5xx alarm
+    new cloudwatch.Alarm(this, 'Alb5xxAlarm', {
+      metric: this.loadBalancer.metrics.httpCodeTarget(
+        elbv2.HttpCodeTarget.TARGET_5XX_COUNT,
+        { period: cdk.Duration.minutes(5) },
+      ),
+      threshold: 10,
+      evaluationPeriods: 1,
+      alarmDescription: 'ALB 5xx errors > 10 in 5 minutes',
+    }).addAlarmAction(new cw_actions.SnsAction(alertTopic));
+
+    // RDS CPU alarm
+    new cloudwatch.Alarm(this, 'RdsCpuAlarm', {
+      metric: this.database.metricCPUUtilization(),
+      threshold: 80,
+      evaluationPeriods: 2,
+      alarmDescription: 'RDS CPU utilization > 80%',
+    }).addAlarmAction(new cw_actions.SnsAction(alertTopic));
+
+    // RDS free storage alarm (< 5 GB)
+    new cloudwatch.Alarm(this, 'RdsFreeStorageAlarm', {
+      metric: this.database.metricFreeStorageSpace(),
+      threshold: 5 * 1024 * 1024 * 1024, // 5 GB in bytes
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+      alarmDescription: 'RDS free storage < 5 GB',
+    }).addAlarmAction(new cw_actions.SnsAction(alertTopic));
 
     // ==================== Outputs ====================
     new cdk.CfnOutput(this, 'LoadBalancerDns', {
@@ -305,6 +430,12 @@ export class SuwappuStack extends cdk.Stack {
       value: appSecrets.secretArn,
       description: 'Secrets Manager ARN for app secrets',
       exportName: 'SuwappuSecretsArn',
+    });
+
+    new cdk.CfnOutput(this, 'AlertTopicArn', {
+      value: alertTopic.topicArn,
+      description: 'SNS Topic ARN for alerts (subscribe your email)',
+      exportName: 'SuwappuAlertTopicArn',
     });
   }
 }
