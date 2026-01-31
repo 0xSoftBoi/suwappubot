@@ -1,6 +1,6 @@
 export { TelegramAuthService, TelegramAuthServiceLive, type TelegramUser } from './TelegramAuthService'
 export { WalletService, WalletServiceLive } from './WalletService'
-export { SwapService, SwapServiceLive } from './SwapService'
+export { SwapService, SwapServiceLive, type QuoteParams, type SwapQuote, type LifiQuote, type ExecuteSwapParams, type ExecuteSwapResult } from './SwapService'
 export { UserService, UserServiceLive } from './UserService'
 export { PointsService, PointsServiceLive, type UserPointsStats, type LeaderboardEntry, type CheckinResult, type SwapPointsResult } from './PointsService'
 export { BalanceService, BalanceServiceLive, type TokenBalance } from './BalanceService'
