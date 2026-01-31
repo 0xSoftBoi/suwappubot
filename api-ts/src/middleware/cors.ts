@@ -11,7 +11,7 @@ export function createCorsMiddleware(allowedOrigins: string) {
 			return null
 		},
 		allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-		allowHeaders: ['Content-Type', 'Authorization', 'X-Agent-Key', 'X-Admin-Key', 'X-Telegram-Init-Data'],
+		allowHeaders: ['Content-Type', 'Authorization', 'X-Agent-Key', 'X-Admin-Key', 'X-Telegram-Init-Data', 'X-Dev-User-Id'],
 		exposeHeaders: ['Content-Length'],
 		maxAge: 86400,
 	})
