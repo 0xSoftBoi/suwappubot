@@ -24,7 +24,7 @@
     "postgres": "^3.4.5"
   },
   "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
+    "@biomejs/biome": "^2.3.13",
     "@types/bun": "^1.1.14",
     "drizzle-kit": "^0.31.8",
     "typescript": "^5.6.3"
