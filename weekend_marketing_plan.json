@@ -1,0 +1,649 @@
+{
+  "plan": {
+    "title": "Weekend Marketing Plan — Suwappu Bot",
+    "description": "Actionable two-day plan to activate Suwappu's growth flywheel. Built from research into what Trojan ($25B volume, 2M users), Banana Gun ($15B+), BonkBot ($14B+), and Maestro ($12.8B) actually did to grow — adapted for a weekend sprint.",
+    "budget": "$0-150"
+  },
+  "competitive_landscape": {
+    "competitors": [
+      {
+        "name": "Trojan",
+        "lifetime_volume": "$25B+",
+        "users": "2M+",
+        "key_growth_mechanic": "5-level deep referral (25% L1 → 3.5% L5), $65M+ paid to referrers",
+        "chains": ["Solana"],
+        "base_fee": "1%",
+        "best_fee": "0.9% (with referral)",
+        "referral_rate": "25%",
+        "referral_duration": "Lifetime",
+        "referral_depth": 5
+      },
+      {
+        "name": "Banana Gun",
+        "lifetime_volume": "$15B+",
+        "users": null,
+        "key_growth_mechanic": "40% revenue share to token holders, BANANA bonus per trade",
+        "chains": ["Ethereum", "Solana", "Base", "BNB Chain"],
+        "base_fee": "1%",
+        "best_fee": "1%",
+        "referral_rate": "N/A (token-based)",
+        "referral_duration": "N/A",
+        "referral_depth": 0
+      },
+      {
+        "name": "BonkBot",
+        "lifetime_volume": "$14B+",
+        "users": "526K+",
+        "key_growth_mechanic": "30%→20%→10% decaying referral, 100% fee burn to BONK",
+        "chains": ["Solana"],
+        "base_fee": "1%",
+        "best_fee": "1%",
+        "referral_rate": "30% (month 1), decays to 10%",
+        "referral_duration": "Lifetime (decaying)",
+        "referral_depth": 1
+      },
+      {
+        "name": "Maestro",
+        "lifetime_volume": "$12.8B",
+        "users": "573K+",
+        "key_growth_mechanic": "First-mover advantage, freemium + $200/mo premium tier",
+        "chains": ["Ethereum", "BSC", "Solana", "Tron", "TON", "Base", "Avalanche", "Arbitrum", "Metis", "Linea"],
+        "base_fee": "1%",
+        "best_fee": "1% (premium features at $200/mo)",
+        "referral_rate": null,
+        "referral_duration": null,
+        "referral_depth": 0
+      }
+    ],
+    "suwappu_advantages": [
+      {
+        "advantage": "7-chain cross-chain",
+        "details": "ETH, BSC, Polygon, Arbitrum, Optimism, Base, Solana",
+        "why_it_matters": "Trojan/BonkBot = Solana only. Banana Gun = 4 chains. Maestro = closest competitor."
+      },
+      {
+        "advantage": "AI Agent interoperability (A2A/x402)",
+        "details": "Implements Google's A2A protocol for agent-to-agent communication",
+        "why_it_matters": "No trading bot has this. First-mover in agent-ready trading."
+      },
+      {
+        "advantage": "Telegram Mini App",
+        "details": "Full webapp experience inside Telegram",
+        "why_it_matters": "Not just command-line bot interactions"
+      },
+      {
+        "advantage": "WhatsApp integration",
+        "details": "WhatsApp Business API support",
+        "why_it_matters": "No competitor offers this — opens non-Telegram crypto markets"
+      },
+      {
+        "advantage": "TEE-backed wallets (Turnkey)",
+        "details": "Trusted Execution Environment with envelope encryption",
+        "why_it_matters": "Enterprise-grade security vs basic encrypted keys"
+      },
+      {
+        "advantage": "Gamification with fee discounts",
+        "details": "Points → levels → 0.4% fee at Diamond",
+        "why_it_matters": "Competitors charge flat 0.9-1%"
+      }
+    ],
+    "positioning_statement": "The only cross-chain trading bot that works across 7 chains, integrates with AI agents, and rewards you for every swap. Inside Telegram."
+  },
+  "referral_comparison": {
+    "suwappu": {
+      "l1_rate": "30%",
+      "duration": "Lifetime",
+      "depth": 1,
+      "fee_with_referral": "0.8% (base) → 0.4% (Diamond)",
+      "referral_discount": "Via XP tiers"
+    },
+    "trojan": {
+      "l1_rate": "25%",
+      "duration": "Lifetime",
+      "depth": 5,
+      "fee_with_referral": "0.9%",
+      "referral_discount": "10% off fees"
+    },
+    "bonkbot": {
+      "l1_rate": "30% (month 1)",
+      "duration": "Decays to 10%",
+      "depth": 1,
+      "fee_with_referral": "1%",
+      "referral_discount": "None"
+    },
+    "banana_gun": {
+      "l1_rate": "N/A (token-based)",
+      "duration": "N/A",
+      "depth": 0,
+      "fee_with_referral": "1%",
+      "referral_discount": "None"
+    },
+    "marketing_highlights": [
+      "\"30% forever\" — simple, memorable, no fine print",
+      "Fee discounts stack — your fee drops from 0.8% to 0.4% as you trade more, AND you earn 30% of referral fees",
+      "Comparison graphic — side-by-side with Trojan's 25% and BonkBot's decaying 30%→10%"
+    ]
+  },
+  "schedule": {
+    "saturday": [
+      {
+        "time_utc": "09:00-10:00",
+        "task": "Set up Twitter/X account, bio, banner",
+        "section": "Social Presence Setup",
+        "details": {
+          "twitter": {
+            "profile_pic": "Sakura logo (already exists in branding)",
+            "banner": "Cross-chain swaps. 7 chains. One bot. — with chain logos",
+            "bio": "Cross-chain DEX inside Telegram | 7 chains | 30% referral commissions | AI agent ready | t.me/SuwappuBot",
+            "pinned_tweet": "The launch thread",
+            "follow_targets": "50-100 accounts: DeFi protocols, aggregators, AI agent projects, crypto media"
+          }
+        }
+      },
+      {
+        "time_utc": "10:00-11:00",
+        "task": "Create Telegram community group, pin messages",
+        "section": "Social Presence Setup",
+        "details": {
+          "group_name": "@SuwappuCommunity",
+          "pinned_content": [
+            "What Suwappu does (one paragraph)",
+            "Referral program rules (30% lifetime)",
+            "Link to bot",
+            "Genesis Sprint rules"
+          ],
+          "setup": [
+            "Set up welcome bot message for new members",
+            "Add community link to bot's /start menu response"
+          ]
+        }
+      },
+      {
+        "time_utc": "11:00-13:00",
+        "task": "Build and deploy landing page",
+        "section": "Landing Page",
+        "details": {
+          "domain": "suwappu.bot",
+          "tech": "Existing webapp/ React + Vite infrastructure or simple static HTML",
+          "hero_text": "Swap tokens across 7 chains from Telegram.\nOne bot. No app downloads. No browser extensions.",
+          "sections": [
+            {"name": "Hero", "content": "Headline + CTA + Mini App screenshot", "purpose": "Convert visitors to bot users"},
+            {"name": "How it works", "content": "3 steps: Open bot → Create wallet → Swap", "purpose": "Reduce friction / demystify"},
+            {"name": "Supported chains", "content": "Logo grid: ETH, BSC, Polygon, Arbitrum, Optimism, Base, Solana", "purpose": "Show breadth"},
+            {"name": "Referral program", "content": "Earn 30% of all trading fees from users you refer. Forever.", "purpose": "Incentivize sharing"},
+            {"name": "Levels & rewards", "content": "Bronze→Diamond table with fee discounts (0.8%→0.4%)", "purpose": "Gamification hook"},
+            {"name": "Security", "content": "TEE wallets, envelope encryption, non-custodial", "purpose": "Build trust"},
+            {"name": "For AI agents", "content": "The first trading bot with A2A protocol support", "purpose": "Differentiation"},
+            {"name": "Footer", "content": "Bot link, Docs, Twitter, Community, GitHub", "purpose": "Navigation"}
+          ],
+          "fallback": "Linktree/Bento/bio.link page with core links (15 minutes)"
+        }
+      },
+      {
+        "time_utc": "13:00-14:00",
+        "task": "Create visual assets (screenshots, comparison graphics)",
+        "section": "Asset Creation",
+        "details": {
+          "tools": ["Canva", "Figma", "screenshots"],
+          "assets": [
+            "Bot interaction screenshots — swap flow, wallet view, portfolio, Mini App",
+            "Chain logos grid — 7 chain logos with Suwappu logo in center",
+            "Referral earnings infographic — 10 traders × $1K/month × 0.8% fee = $24/month passive income",
+            "Fee tier comparison — Suwappu vs Trojan vs BonkBot vs Banana Gun",
+            "Level progression visual — Bronze→Diamond with XP requirements and fee discounts"
+          ]
+        }
+      },
+      {
+        "time_utc": "14:00-16:00",
+        "task": "Write and publish launch thread on Twitter",
+        "section": "Twitter/X Playbook"
+      },
+      {
+        "time_utc": "16:00-17:00",
+        "task": "Set up Zealy space and quests",
+        "section": "Zealy Quest Campaign"
+      },
+      {
+        "time_utc": "17:00-18:00",
+        "task": "Activate Genesis Sprint (2x XP, announce in bot + community)",
+        "section": "Genesis Sprint"
+      },
+      {
+        "time_utc": "18:00-19:00",
+        "task": "First round of Twitter engagement (reply, QT, follow)",
+        "section": "Twitter/X Playbook"
+      }
+    ],
+    "sunday": [
+      {
+        "time_utc": "09:00-10:00",
+        "task": "Seed referral codes, share with inner circle",
+        "section": "Referral Program"
+      },
+      {
+        "time_utc": "10:00-12:00",
+        "task": "Telegram community seeding (Tier 1 groups)",
+        "section": "Community Seeding"
+      },
+      {
+        "time_utc": "12:00-13:00",
+        "task": "Reddit posts (r/defi, r/solana, r/ethereum)",
+        "section": "Reddit & Forum Outreach"
+      },
+      {
+        "time_utc": "13:00-14:00",
+        "task": "AI agent thread + post in agent communities",
+        "section": "AI Agent Angle"
+      },
+      {
+        "time_utc": "14:00-16:00",
+        "task": "KOL outreach DMs (20-30 messages)",
+        "section": "KOL Outreach"
+      },
+      {
+        "time_utc": "16:00-18:00",
+        "task": "Twitter engagement blitz (reply to every mention, search and engage)",
+        "section": "Twitter/X Playbook"
+      },
+      {
+        "time_utc": "18:00-19:00",
+        "task": "Post Genesis Sprint leaderboard on Twitter",
+        "section": "Genesis Sprint"
+      },
+      {
+        "time_utc": "19:00-20:00",
+        "task": "Respond to all feedback, plan Monday follow-ups",
+        "section": "Post-Weekend Roadmap"
+      }
+    ]
+  },
+  "twitter_playbook": {
+    "launch_thread": {
+      "total_tweets": 9,
+      "hook_options": [
+        {
+          "style": "problem-led",
+          "text": "Bridging tokens across chains still takes 5 steps, 3 apps, and 10 minutes.\n\nWe built a bot that does it in one message inside Telegram.\n\n7 chains. < 30 seconds. Here's Suwappu 🧵"
+        },
+        {
+          "style": "metric-led",
+          "text": "What if you could swap tokens across 7 different blockchains without leaving Telegram?\n\nNo browser extension. No app download. No seed phrases to manage.\n\nWe built it. Here's how it works 🧵"
+        },
+        {
+          "style": "contrarian",
+          "text": "Every Telegram trading bot only works on one chain.\n\nWe thought that was broken, so we built one that works on all of them.\n\n🧵"
+        }
+      ],
+      "tweets": [
+        {
+          "number": 1,
+          "topic": "Hook",
+          "note": "Spend 40% of effort here. Use one of the hook options above."
+        },
+        {
+          "number": 2,
+          "topic": "The Problem",
+          "text": "Right now, if you want to swap on Solana, you use BonkBot. For ETH sniping, Banana Gun. For BSC, Maestro.\n\nThat's 3 different bots, 3 different wallets, 3 different sets of fees.\n\nSuwappu is one bot for all 7 chains: ETH, BSC, Polygon, Arbitrum, Optimism, Base, and Solana."
+        },
+        {
+          "number": 3,
+          "topic": "How It Works",
+          "text": "Type /s 100 USDC → ETH\n\nThat's it. The bot finds the best route via Li.Fi (EVM) or Jupiter (Solana), shows you the quote, and executes.",
+          "asset_needed": "Screenshot of swap flow"
+        },
+        {
+          "number": 4,
+          "topic": "Referral Program",
+          "text": "We're launching with a 30% lifetime referral program.\n\nFor context:\n- Trojan pays 25% (direct only)\n- BonkBot pays 30% → 20% → 10% (decays)\n- Suwappu pays 30%. Forever. No decay. No tiers.\n\nIf your referrals trade, you earn. Permanently."
+        },
+        {
+          "number": 5,
+          "topic": "Gamification / XP",
+          "text": "Every swap earns XP. XP unlocks fee discounts:\n\n🥉 Bronze (0 XP) → 0.8% fee\n🥈 Silver (1K XP) → 0.7%\n🥇 Gold (5K XP) → 0.6%\n💎 Platinum (25K XP) → 0.5%\n👑 Diamond (100K XP) → 0.4%\n\nDaily check-ins, streaks, and a reward store. Your fees shrink the more you trade."
+        },
+        {
+          "number": 6,
+          "topic": "AI Agent Integration",
+          "text": "Here's what no other trading bot has: AI agent support.\n\nSuwappu implements the A2A protocol. Any AI agent can discover our tools, authenticate, and execute trades programmatically.\n\nThe first trading bot ready for the autonomous agent economy.\n\nDocs: api.suwappu.bot/docs"
+        },
+        {
+          "number": 7,
+          "topic": "Security",
+          "text": "Your keys live in Turnkey's TEE (Trusted Execution Environment). Not in a database. Not in plaintext.\n\nEnvelope encryption with KMS. Auto-migration from legacy to v2 encryption. Non-custodial by design.\n\nWe take security seriously because we have to."
+        },
+        {
+          "number": 8,
+          "topic": "Mini App / UX",
+          "text": "Don't like typing commands? Open the Telegram Mini App.\n\nFull dashboard, portfolio tracking, one-tap swaps, and wallet management — all inside Telegram.",
+          "asset_needed": "Screenshot of Mini App"
+        },
+        {
+          "number": 9,
+          "topic": "CTA",
+          "text": "Try it now:\n\n🤖 Bot: t.me/SuwappuBot\n📊 Mini App: app.suwappu.bot\n📖 Docs: api.suwappu.bot/docs\n\nThis weekend we're running a Genesis Sprint — 2x XP on all swaps, bonus points for first swap, and the leaderboard goes live Sunday night.\n\nGet your referral code: /ref"
+        }
+      ]
+    },
+    "engagement_strategy": {
+      "search_keywords": [
+        "best telegram trading bot",
+        "cross chain swap",
+        "bridge tokens",
+        "banana gun alternative",
+        "trojan alternative",
+        "AI agent crypto",
+        "A2A protocol",
+        "telegram mini app"
+      ],
+      "tactics": [
+        "Post 3-4 times per day during launch weekend",
+        "Use polls: 'How many chains does your trading bot support? (1 / 2-3 / 4+ / I use multiple bots)'",
+        "Reply to every comment on your thread within 1 hour",
+        "Quote-tweet anyone who tries the bot and shares feedback",
+        "Tag relevant projects when mentioning integrations (Li.Fi, Jupiter, etc.)"
+      ]
+    }
+  },
+  "genesis_sprint": {
+    "name": "Genesis Sprint",
+    "duration": "Saturday 00:00 UTC → Sunday 23:59 UTC",
+    "theme": "First-ever Suwappu trading competition",
+    "inspired_by": [
+      {"project": "Hamster Kombat", "result": "300M users"},
+      {"project": "Major", "result": "40M users in 5 days"}
+    ],
+    "rules": [
+      {"action": "First swap ever", "points": 200, "xp_multiplier": null},
+      {"action": "Every swap", "points": "Normal rates", "xp_multiplier": "2x"},
+      {"action": "Daily check-in (/checkin)", "points": "10 + streak bonus", "xp_multiplier": null},
+      {"action": "Refer a friend who starts bot", "points": 500, "xp_multiplier": null},
+      {"action": "Refer a friend who completes first swap", "points": "200 + 30% fee share", "xp_multiplier": null},
+      {"action": "Share PnL on Twitter (screenshot)", "points": 25, "xp_multiplier": null}
+    ],
+    "prizes": [
+      {"tier": "Top 3 on leaderboard", "reward": "Genesis Trader badge (permanent)"},
+      {"tier": "Top referrer", "reward": "Genesis Referrer badge"},
+      {"tier": "First 50 users to swap", "reward": "Early Adopter badge"},
+      {"tier": "All participants", "reward": "2x XP carries forward, streak starts counting"}
+    ],
+    "announcement_channels": [
+      "Telegram community group (pinned)",
+      "Launch thread (Tweet 9)",
+      "Bot announcement via /start update",
+      "Sunday evening: leaderboard on Twitter"
+    ]
+  },
+  "community_seeding": {
+    "telegram_groups": {
+      "tier_1_high_relevance": [
+        "Solana trading / alpha groups (BonkBot users who need EVM chains)",
+        "Base ecosystem groups (new chain, high activity, fewer bots)",
+        "Arbitrum DeFi groups (strong DeFi culture)",
+        "Li.Fi community (natural connection — Suwappu uses their API)",
+        "Jupiter community (Solana integration)"
+      ],
+      "tier_2_broader_defi": [
+        "General DeFi trading groups",
+        "Cross-chain / bridging discussion groups",
+        "Telegram bot user groups",
+        "Crypto trading strategy groups"
+      ],
+      "tier_3_ai_agent": [
+        "AI agent builder communities",
+        "LangChain / AutoGPT / CrewAI groups",
+        "x402 protocol discussion groups",
+        "Web3 AI intersection groups"
+      ]
+    },
+    "approach": {
+      "do": [
+        "Join 2-3 days before if possible (or read the room first)",
+        "Contribute value: answer questions about cross-chain swaps",
+        "Mention Suwappu naturally when relevant",
+        "Share referral link when someone asks for bot recommendations",
+        "Use designated promo channels if available"
+      ],
+      "dont": [
+        "Don't post your link as your first message",
+        "Don't spam multiple messages",
+        "Don't use generic copy-paste promotional text",
+        "Don't join 20 groups and post simultaneously"
+      ]
+    },
+    "message_templates": {
+      "trading_groups": "Been testing a new cross-chain TG bot called Suwappu — lets you swap across ETH, Solana, Base, Arbitrum, etc from one bot. Uses Li.Fi for routing and Jupiter for Solana. Anyone else tried multi-chain bots vs single-chain ones?",
+      "solana_groups": "For anyone who trades both Solana and EVM chains — I've been using Suwappu bot which handles Jupiter swaps on Solana AND Li.Fi swaps on EVM chains in one place. Saves me from juggling BonkBot + a separate EVM bot.",
+      "ai_agent_groups": "Interesting project: Suwappu is a cross-chain trading bot that implements the A2A protocol — any AI agent can discover and call its trading API. Has an agent card at suwappu.bot/.well-known. Curious if anyone's building agent-to-agent trading flows."
+    },
+    "reddit": {
+      "subreddits": [
+        {"name": "r/defi", "angle": "Built a cross-chain trading bot inside Telegram, looking for feedback"},
+        {"name": "r/solana", "angle": "We added Solana support via Jupiter to our 7-chain Telegram trading bot"},
+        {"name": "r/ethereum", "angle": "Focus on the aggregation / Li.Fi integration angle"},
+        {"name": "r/CryptoCurrency", "angle": "Daily discussion thread only (standalone posts get removed)"}
+      ],
+      "discord_servers": [
+        "Li.Fi Discord",
+        "Jupiter Discord",
+        "Base ecosystem Discord",
+        "Arbitrum ecosystem Discord",
+        "AI agent / autonomous agent Discords"
+      ],
+      "framing": "Builder sharing work, asking for feedback. Not a sales pitch."
+    }
+  },
+  "ai_agent_strategy": {
+    "why_now": [
+      "Google released A2A protocol April 2025",
+      "Coinbase launched x402 for agent payments in 2025",
+      "550+ AI agent crypto projects on CoinGecko ($4.3B market cap)",
+      "Anthropic, Google Cloud, AWS adopting x402",
+      "ERC-8004 proposal for on-chain agent identity (August 2025)"
+    ],
+    "weekend_actions": [
+      "Tweet thread specifically for AI/agent audience (separate from main launch thread)",
+      "Post in AI agent communities (Tier 3 groups)",
+      "Tag relevant projects: Questflow (A2A.build), LangChain, x402 discussions",
+      "Submit to agent directories: Register on A2A.build (Questflow's portal)"
+    ],
+    "developer_content": [
+      "Link to /docs-portal (already built)",
+      "Agent registration flow (POST /v1/agent/register)",
+      "Natural language trade example (POST /v1/agent/execute)",
+      "suwappu_sk_ API key format and rate limiting"
+    ],
+    "dedicated_thread": "We built the first cross-chain trading bot with A2A protocol support.\n\nAny AI agent can discover our trading tools, authenticate with an API key, and execute swaps across 7 chains.\n\nAgent card: suwappu.bot/.well-known/agent-card.json\nAPI docs: api.suwappu.bot/docs\n\nIf you're building AI agents that need to trade, we're ready."
+  },
+  "zealy_campaign": {
+    "platform": "Zealy (formerly Crew3)",
+    "stats": "700K+ monthly active users, 100M+ completed quests",
+    "setup_time": "1-2 hours Saturday",
+    "quests": {
+      "onboarding": {
+        "xp_range": "10-50 each",
+        "tasks": [
+          "Follow @SuwappuBot on Twitter",
+          "Join Suwappu Telegram community",
+          "Start the Suwappu bot (/start)",
+          "Create a wallet in the bot (/w)",
+          "Complete your first check-in (/checkin)"
+        ]
+      },
+      "trading": {
+        "xp_range": "100-500 each",
+        "tasks": [
+          "Complete your first swap",
+          "Swap on 2 different chains",
+          "Swap on 3+ chains in one day",
+          "Share your PnL screenshot on Twitter (tag @Suwappu)"
+        ]
+      },
+      "referral": {
+        "xp_range": "500-1000 each",
+        "tasks": [
+          "Generate your referral code (/ref)",
+          "Refer 1 friend who starts the bot",
+          "Refer 3 friends who complete a swap"
+        ]
+      },
+      "content": {
+        "xp_range": "100-250 each",
+        "tasks": [
+          "Quote-tweet the launch thread with your experience",
+          "Write a tweet about your favorite Suwappu feature",
+          "Create a short tutorial or tip about using the bot"
+        ]
+      }
+    },
+    "cost": {
+      "free_tier": "5,000 quest verifications/month",
+      "paid_tier": "$150/month"
+    },
+    "bot_warning": "Expect 50-80% bot activity. Swap-completion quests are the quality filter."
+  },
+  "kol_outreach": {
+    "insight": "Micro-KOLs (10K-100K followers) deliver 40% higher conversion rates than large accounts",
+    "target_profiles": [
+      "DeFi educators who review trading bots",
+      "Cross-chain / bridge content creators",
+      "AI agent builders with crypto interest",
+      "Solana/Base ecosystem commentators"
+    ],
+    "outreach_template": "Hey [name], been following your content on [topic]. We just launched Suwappu — a cross-chain trading bot inside Telegram that works across 7 chains including Solana via Jupiter. We have a 30% lifetime referral program. Would love to get your honest take on it if you have a few minutes to try it. No strings attached. t.me/SuwappuBot",
+    "principles": [
+      "Reference their specific content (not generic)",
+      "Don't ask for a post — ask for honest feedback",
+      "Offer early / exclusive access angle",
+      "Be transparent: new project looking for genuine feedback",
+      "If they like it, they'll post organically"
+    ],
+    "volume": {
+      "target_dms": "20-30",
+      "expected_response_rate": "10-15%",
+      "expected_conversations": "2-4",
+      "success_criteria": "1 organic post from a KOL"
+    }
+  },
+  "content_templates": {
+    "one_liners": [
+      "Cross-chain swaps inside Telegram. 7 chains. One bot.",
+      "The only Telegram trading bot that works on Ethereum, Solana, and 5 more chains.",
+      "Earn 30% of trading fees forever. Just share your referral link.",
+      "Your trading fees drop from 0.8% to 0.4% the more you trade.",
+      "The first trading bot with AI agent support. Your agent can trade too."
+    ],
+    "short_pitch": "Suwappu is a cross-chain DEX bot inside Telegram. Swap tokens across Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, and Solana — all from one bot. Uses Li.Fi for EVM routing and Jupiter for Solana.\n\n30% lifetime referral commissions. XP system with fee discounts (0.8% → 0.4%). AI agent API support (A2A protocol).\n\nTry it: t.me/SuwappuBot",
+    "comparison_table": {
+      "headers": ["", "Suwappu", "Trojan", "BonkBot", "Banana Gun"],
+      "rows": [
+        ["Chains", "7", "1 (Solana)", "1 (Solana)", "4"],
+        ["Base fee", "0.8%", "1%", "1%", "1%"],
+        ["Best fee", "0.4% (Diamond)", "0.9% (referral)", "1%", "1%"],
+        ["Referral", "30% lifetime", "25% (5 levels)", "30%→10% (decays)", "Token-based"],
+        ["Mini App", "Yes", "No", "No", "Yes (Pro)"],
+        ["AI agents", "A2A protocol", "No", "No", "No"]
+      ],
+      "disclaimer": "Not saying we're better at everything — Trojan's speed on Solana is hard to beat. But if you trade across chains, this saves you from juggling multiple bots."
+    },
+    "reddit_post": {
+      "title": "Built a cross-chain Telegram trading bot — supports 7 chains including Solana. Looking for feedback.",
+      "body": "Hey everyone. We've been building Suwappu, a trading bot that lives inside Telegram and lets you swap tokens across Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, and Solana.\n\nThe idea is that instead of using BonkBot for Solana AND a separate bot for EVM chains, you use one bot for everything. It routes through Li.Fi (EVM) and Jupiter (Solana).\n\nA few things that might be interesting:\n- 30% lifetime referral commissions (no decay, no tiers)\n- XP system where your fees drop from 0.8% to 0.4% as you trade more\n- Telegram Mini App with full dashboard\n- AI agent API support (A2A protocol) — any AI agent can discover and use our trading tools\n\nStill early stage. Would genuinely appreciate feedback from people who use TG trading bots. What features matter most to you? What would make you switch?\n\nBot: t.me/SuwappuBot"
+    }
+  },
+  "metrics": {
+    "primary": [
+      {"metric": "New /start users", "saturday_target": "30-50", "sunday_target": "50-100", "weekend_total": "80-150"},
+      {"metric": "Wallets created", "saturday_target": "20-30", "sunday_target": "30-50", "weekend_total": "50-80"},
+      {"metric": "First swaps", "saturday_target": "5-10", "sunday_target": "10-20", "weekend_total": "15-30"},
+      {"metric": "Referral codes generated", "saturday_target": "10-15", "sunday_target": "15-30", "weekend_total": "25-45"},
+      {"metric": "Referral conversions", "saturday_target": "3-5", "sunday_target": "5-15", "weekend_total": "8-20"},
+      {"metric": "Community members (TG group)", "saturday_target": "15-25", "sunday_target": "25-50", "weekend_total": "40-75"},
+      {"metric": "Twitter followers", "saturday_target": "30-50", "sunday_target": "50-100", "weekend_total": "80-150"},
+      {"metric": "Twitter thread impressions", "saturday_target": null, "sunday_target": null, "weekend_total": "5,000-15,000"},
+      {"metric": "Zealy quest completions", "saturday_target": null, "sunday_target": null, "weekend_total": "100-300"}
+    ],
+    "attribution": [
+      "Referral codes track user-to-user attribution automatically",
+      "UTM parameters on landing page links: ?utm_source=twitter&utm_campaign=genesis",
+      "Bot /start deep links: t.me/SuwappuBot?start=twitter, ?start=reddit, ?start=zealy",
+      "Zealy dashboard tracks quest completion funnels"
+    ],
+    "success_criteria": {
+      "solid": "50+ new users who start the bot",
+      "strong_signal": "10+ completed swaps",
+      "flywheel_starting": "5+ organic referrals",
+      "breakout_signal": "1 piece of organic content from someone outside the team"
+    }
+  },
+  "post_weekend_roadmap": {
+    "monday": [
+      "Pull all metrics from database, Twitter analytics, Zealy dashboard",
+      "Identify which channel drove the most bot starts",
+      "Read every piece of feedback received",
+      "Write a Week 1 recap Twitter thread with real numbers"
+    ],
+    "week_2": {
+      "if_twitter_worked": "Increase posting cadence to 2-3x/day",
+      "if_referrals_worked": "Enhance referral UX, add referral leaderboard to Mini App",
+      "if_zealy_worked": "Expand quest campaigns, consider paid tier",
+      "if_ai_angle_worked": "Write a developer tutorial, submit to agent directories"
+    },
+    "week_2_to_4": [
+      {"initiative": "Multi-level referrals (add 2-3 levels like Trojan)", "effort": "Medium", "impact": "High"},
+      {"initiative": "Trading competitions (weekly, monthly)", "effort": "Low", "impact": "Medium"},
+      {"initiative": "KOL partnerships (paid, $3-7K budget)", "effort": "Low effort, medium cost", "impact": "High"},
+      {"initiative": "Content calendar (3 threads/week + daily engagement)", "effort": "Medium", "impact": "High"},
+      {"initiative": "Galxe/Layer3 campaigns", "effort": "Low", "impact": "Medium"},
+      {"initiative": "Revenue sharing model (token or fee distribution)", "effort": "High", "impact": "Very High"},
+      {"initiative": "WhatsApp marketing (unique channel)", "effort": "Medium", "impact": "Unknown"}
+    ],
+    "month_2_plus": {
+      "token_considerations": {
+        "banana_gun_model": "40% revenue share to holders, buyback & burn, ~10% APY",
+        "bonkbot_model": "100% of fees buy and burn BONK",
+        "trojan_model": "No token yet, but $65M+ in referral payouts",
+        "prerequisites": [
+          "Consistent trading volume (proves product works)",
+          "Active referral network (proves distribution works)",
+          "Legal review (compliance is non-optional in 2026)"
+        ]
+      }
+    }
+  },
+  "anti_patterns": [
+    {"dont": "Promise token launches or airdrops", "why": "Creates mercenary users who leave after claiming", "instead": "Promise real utility: fee discounts, referral income"},
+    {"dont": "Pay for Twitter ads this weekend", "why": "Expensive, low-signal, hard to target", "instead": "Organic engagement + micro-KOL outreach"},
+    {"dont": "Spam Telegram groups", "why": "Gets you banned permanently from high-value communities", "instead": "Value-first engagement"},
+    {"dont": "Fake volume or users", "why": "Destroys trust if discovered, inflates vanity metrics", "instead": "Track real conversions (swaps completed, not just /start)"},
+    {"dont": "Over-engineer the landing page", "why": "Wastes Saturday on pixel-pushing instead of distribution", "instead": "Ship a clean MVP page, iterate Monday"},
+    {"dont": "Ignore early users", "why": "First users are your most valuable asset", "instead": "Reply to every message within 1 hour this weekend"},
+    {"dont": "Copy competitor's messaging directly", "why": "Looks derivative, positions you as a clone", "instead": "Lead with what's genuinely different (7 chains, A2A, fee discounts)"},
+    {"dont": "Launch on too many channels simultaneously", "why": "Spreads thin, can't respond to feedback", "instead": "Pick 2-3 channels, do them well"},
+    {"dont": "Compare on speed/MEV (Trojan's strength)", "why": "You'll lose against specialized Solana bots", "instead": "Compare on breadth, cost, rewards, and agent support"}
+  ],
+  "budget": {
+    "weekend_1": {
+      "total": "$0-150",
+      "items": [
+        {"item": "Zealy free tier", "cost": "$0", "notes": "5,000 verifications/month"},
+        {"item": "Zealy paid (if needed)", "cost": "$150/month", "notes": "Only if free tier fills up"},
+        {"item": "Landing page hosting", "cost": "$0", "notes": "Vercel/Netlify free tier"},
+        {"item": "Canva for graphics", "cost": "$0", "notes": "Free tier sufficient"},
+        {"item": "Twitter/X account", "cost": "$0", "notes": "Or $8/month for blue check"},
+        {"item": "Telegram group", "cost": "$0"}
+      ]
+    },
+    "week_2_if_traction": {
+      "total": "$4,158-10,158",
+      "condition": "Only spend if weekend metrics justify it",
+      "items": [
+        {"item": "2-3 micro-KOL partnerships", "cost": "$3,000-7,000", "notes": "10K-100K follower range"},
+        {"item": "Zealy paid tier", "cost": "$150/month"},
+        {"item": "Galxe campaign", "cost": "$500-2,000", "notes": "Quest distribution"},
+        {"item": "Twitter Blue", "cost": "$8/month", "notes": "Verification + algorithm boost"},
+        {"item": "Telegram Ads (test)", "cost": "$500-1,000", "notes": "CPM model, paid in TON"}
+      ]
+    }
+  }
+}
