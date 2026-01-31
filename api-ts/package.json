@@ -21,7 +21,8 @@
     "effect": "^3.10.0",
     "hono": "^4.6.0",
     "jsonwebtoken": "^9.0.3",
-    "postgres": "^3.4.5"
+    "postgres": "^3.4.5",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.13",

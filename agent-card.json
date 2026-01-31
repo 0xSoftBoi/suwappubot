@@ -1,10 +1,26 @@
 {
   "$schema": "https://specs.a2aprotocol.ai/agent-card.json",
+  "id": "suwappu-dex",
   "name": "Suwappu",
   "description": "Cross-chain DEX for AI agents. Swap tokens across 7 chains via natural language.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "url": "https://api.suwappu.bot",
   "logo": "https://suwappu.bot/logo.png",
+  "protocolVersions": ["0.3"],
+  "interfaces": [
+    {
+      "type": "JSON-RPC",
+      "baseUrl": "https://api.suwappu.bot/a2a",
+      "version": "1.0"
+    }
+  ],
+  "securitySchemes": [
+    {
+      "type": "http",
+      "scheme": "bearer",
+      "description": "Register at POST /v1/agent/register to get an API key (suwappu_sk_...)"
+    }
+  ],
   "capabilities": {
     "streaming": false,
     "pushNotifications": true,

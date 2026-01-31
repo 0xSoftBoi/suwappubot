@@ -3,7 +3,8 @@ import { logger } from 'hono/logger'
 import { HTTPException } from 'hono/http-exception'
 
 import { createCorsMiddleware, agentKeyAuth } from './middleware'
-import { healthRoutes, toolsRoutes, webappRoutes, usersRoutes, agentRoutes, pointsRoutes, swapRoutes } from './routes'
+import { healthRoutes, toolsRoutes, webappRoutes, usersRoutes, agentRoutes, a2aRoutes, pointsRoutes, swapRoutes } from './routes'
+import agentCard from '../../agent-card.json'
 
 export interface AppConfig {
 	allowedOrigins: string
@@ -33,13 +34,16 @@ export function createApp(config: AppConfig) {
 
 	// Swap routes - mounted first so public endpoints (tokens, chains) are accessible
 	app.route('/webapp/swap', swapRoutes)
-	
+
 	// Webapp routes - Telegram auth
 	app.route('/webapp', webappRoutes)
 
 	// Agent A2A API routes (v1/agent/*) - uses Bearer token auth internally
 	// Registration is public, other endpoints require Bearer token
 	app.route('/v1/agent', agentRoutes)
+
+	// A2A JSON-RPC endpoint - uses Bearer token auth internally
+	app.route('/a2a', a2aRoutes)
 
 	// Legacy internal API routes - X-Agent-Key required
 	const agentProtected = new Hono()
@@ -49,64 +53,9 @@ export function createApp(config: AppConfig) {
 	agentProtected.route('/users', pointsRoutes)
 	app.route('/', agentProtected)
 
-	// Agent card for A2A discovery
-	app.get('/agent-card.json', (c) => {
-		return c.json({
-			"$schema": "https://specs.a2aprotocol.ai/agent-card.json",
-			"name": "Suwappu",
-			"description": "Cross-chain DEX for AI agents. Swap tokens across 7 chains via natural language.",
-			"version": "0.1.0",
-			"url": "https://api.suwappu.bot",
-			"logo": "https://suwappu.bot/logo.png",
-			"capabilities": {
-				"streaming": false,
-				"pushNotifications": true,
-				"stateTransitionHistory": false
-			},
-			"authentication": {
-				"schemes": ["bearer"],
-				"credentials": null
-			},
-			"defaultInputModes": ["text"],
-			"defaultOutputModes": ["text"],
-			"skills": [
-				{
-					"id": "swap",
-					"name": "Token Swap",
-					"description": "Swap tokens across 7 chains (ETH, BSC, Polygon, Arbitrum, Optimism, Base, Solana)",
-					"tags": ["defi", "swap", "trading", "cross-chain"],
-					"examples": [
-						"swap 0.5 ETH to USDC on Base",
-						"swap 100 USDC to SOL on Solana"
-					]
-				},
-				{
-					"id": "quote",
-					"name": "Get Quote",
-					"description": "Get a swap quote without executing",
-					"tags": ["defi", "quote", "price"],
-					"examples": [
-						"quote 1 ETH to USDC",
-						"price of 100 USDC in ETH"
-					]
-				},
-				{
-					"id": "portfolio",
-					"name": "Portfolio Check",
-					"description": "Check token balances across all chains",
-					"tags": ["balance", "portfolio", "wallet"],
-					"examples": [
-						"check balance",
-						"show portfolio"
-					]
-				}
-			],
-			"provider": {
-				"organization": "Suwappu",
-				"url": "https://suwappu.bot"
-			}
-		})
-	})
+	// Agent card for A2A discovery (standard path + legacy)
+	app.get('/.well-known/agent.json', (c) => c.json(agentCard))
+	app.get('/agent-card.json', (c) => c.json(agentCard))
 
 	// OpenAPI / AI plugin manifest
 	app.get('/ai-plugin.json', (c) => {

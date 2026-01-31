@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Option } from 'effect'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { DrizzleService, requireDb, agents, type Agent } from '../db'
 import { DatabaseError } from '../errors'
 import crypto from 'crypto'
@@ -11,27 +11,38 @@ export interface RegisterAgentParams {
 	metadata?: Record<string, unknown>
 }
 
+export interface UpdateAgentParams {
+	description?: string
+	callbackUrl?: string | null
+	metadata?: Record<string, unknown>
+}
+
 export interface AgentServiceInterface {
 	readonly registerAgent: (
 		params: RegisterAgentParams
 	) => Effect.Effect<{ agent: Agent; apiKey: string }, DatabaseError, DrizzleService>
-	
+
 	readonly getAgentByApiKey: (
 		apiKey: string
 	) => Effect.Effect<Option.Option<Agent>, DatabaseError, DrizzleService>
-	
+
 	readonly getAgentByName: (
 		name: string
 	) => Effect.Effect<Option.Option<Agent>, DatabaseError, DrizzleService>
-	
+
 	readonly getAgentById: (
 		id: number
 	) => Effect.Effect<Option.Option<Agent>, DatabaseError, DrizzleService>
-	
+
+	readonly updateAgent: (
+		agentId: number,
+		params: UpdateAgentParams
+	) => Effect.Effect<Agent, DatabaseError, DrizzleService>
+
 	readonly updateAgentActivity: (
 		agentId: number
 	) => Effect.Effect<void, DatabaseError, DrizzleService>
-	
+
 	readonly incrementAgentStats: (
 		agentId: number,
 		type: 'request' | 'swap'
@@ -69,7 +80,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 			// Generate API key
 			const apiKey = generateApiKey()
 			const apiKeyHash = hashApiKey(apiKey)
-			
+
 			// Store only last 8 chars for display (like sk_...xxx)
 			const apiKeyDisplay = `suwappu_sk_...${apiKey.slice(-8)}`
 
@@ -119,7 +130,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 			if (result.length === 0) {
 				return Option.none()
 			}
-			
+
 			// Check if agent is active
 			if (!result[0].isActive) {
 				return Option.none()
@@ -161,6 +172,37 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 			return result.length > 0 ? Option.some(result[0]) : Option.none()
 		}),
 
+	updateAgent: (agentId: number, params: UpdateAgentParams) =>
+		Effect.gen(function* () {
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+			)
+
+			const updates: Record<string, unknown> = { updatedAt: new Date() }
+			if (params.description !== undefined) updates.description = params.description
+			if (params.callbackUrl !== undefined) updates.callbackUrl = params.callbackUrl
+			if (params.metadata !== undefined) updates.metadata = params.metadata
+
+			const result = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.update(agents)
+						.set(updates)
+						.where(eq(agents.id, agentId))
+						.returning(),
+				catch: (e) =>
+					new DatabaseError({ message: `Failed to update agent: ${e}`, cause: e }),
+			})
+
+			if (result.length === 0) {
+				return yield* Effect.fail(
+					new DatabaseError({ message: 'Agent not found' })
+				)
+			}
+
+			return result[0]
+		}),
+
 	updateAgentActivity: (agentId: number) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
@@ -184,27 +226,18 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 				Effect.mapError((e) => new DatabaseError({ message: e.message }))
 			)
 
-			// Note: In production, use SQL increment for atomicity
-			// This is simplified for now
-			const agent = yield* Effect.tryPromise({
-				try: () => db.select().from(agents).where(eq(agents.id, agentId)),
-				catch: (e) =>
-					new DatabaseError({ message: `Failed to get agent stats: ${e}`, cause: e }),
-			})
-
-			if (agent.length === 0) return
-
+			// Atomic increment using SQL
 			const updates: Record<string, unknown> = { updatedAt: new Date() }
 			if (type === 'request') {
-				updates.totalRequests = (agent[0].totalRequests || 0) + 1
+				updates.totalRequests = sql`COALESCE(${agents.totalRequests}, 0) + 1`
 			} else if (type === 'swap') {
-				updates.totalSwaps = (agent[0].totalSwaps || 0) + 1
+				updates.totalSwaps = sql`COALESCE(${agents.totalSwaps}, 0) + 1`
 			}
 
 			yield* Effect.tryPromise({
 				try: () => db.update(agents).set(updates).where(eq(agents.id, agentId)),
 				catch: (e) =>
-					new DatabaseError({ message: `Failed to update agent stats: ${e}`, cause: e }),
+					new DatabaseError({ message: `Failed to increment agent stats: ${e}`, cause: e }),
 			})
 		}),
 })
