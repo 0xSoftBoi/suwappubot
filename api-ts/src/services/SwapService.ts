@@ -291,6 +291,8 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				slippage: String(params.slippage || 0.03),
 				order: params.order || 'RECOMMENDED',
 				integrator: params.integrator || 'suwappu',
+				referrer: process.env.FEE_WALLET_EVM || '0x6456f69215C470e1545Ed6eea4621C136B30D85d',
+				fee: '0.003', // 0.3% integrator fee
 			})
 
 			const url = `${LIFI_API_BASE}/quote?${queryParams.toString()}`

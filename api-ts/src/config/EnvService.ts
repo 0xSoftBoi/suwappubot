@@ -32,6 +32,13 @@ export const EnvSchema = Schema.Struct({
 	ALLOWED_ORIGINS: Schema.optionalWith(Schema.String, {
 		default: () => 'https://app.suwappu.bot,https://devfront.suwappu.bot,http://localhost:3000,http://localhost:5173',
 	}),
+
+	// Fee Collection
+	FEE_WALLET_EVM: Schema.optionalWith(Schema.String, {
+		default: () => '0x6456f69215C470e1545Ed6eea4621C136B30D85d',
+	}),
+	FEE_WALLET_SOLANA: Schema.optional(Schema.String),
+	FEE_BPS: Schema.optionalWith(Schema.NumberFromString, { default: () => 30 }), // 0.3% default
 })
 
 export type Env = Schema.Schema.Type<typeof EnvSchema>
