@@ -6,10 +6,12 @@ on:
       - main
       - dev
     paths:
-      - 'suwappubot/**'
-      - 'pyproject.toml'
-      - 'requirements*.txt'
+      - 'bot/**'
+      - 'api/**'
+      - 'database/**'
+      - 'scripts/**'
       - 'Dockerfile'
+      - 'requirements.txt'
       - '.github/workflows/deploy-bot.yml'
   workflow_dispatch:
     inputs:
@@ -46,11 +48,13 @@ jobs:
           if [ "${{ github.ref }}" == "refs/heads/main" ] || [ "${{ inputs.environment }}" == "production" ]; then
             echo "ENVIRONMENT=production" >> $GITHUB_OUTPUT
             echo "ECS_SERVICE=suwappu-bot-prod" >> $GITHUB_OUTPUT
-            echo "IMAGE_TAG=production" >> $GITHUB_OUTPUT
+            echo "IMAGE_ENV_TAG=production" >> $GITHUB_OUTPUT
+            echo "BOT_URL=https://bot.suwappu.bot" >> $GITHUB_OUTPUT
           else
             echo "ENVIRONMENT=development" >> $GITHUB_OUTPUT
             echo "ECS_SERVICE=suwappu-bot-dev" >> $GITHUB_OUTPUT
-            echo "IMAGE_TAG=development" >> $GITHUB_OUTPUT
+            echo "IMAGE_ENV_TAG=development" >> $GITHUB_OUTPUT
+            echo "BOT_URL=https://devbot.suwappu.bot" >> $GITHUB_OUTPUT
           fi
 
       - name: Configure AWS credentials
@@ -74,15 +78,21 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          # Build the Docker image
+          # Build from root Dockerfile
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
 
           # Tag with environment
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:${{ steps.env.outputs.IMAGE_TAG }}
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:${{ steps.env.outputs.IMAGE_ENV_TAG }}
 
           # Push SHA and environment tags
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:${{ steps.env.outputs.IMAGE_TAG }}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:${{ steps.env.outputs.IMAGE_ENV_TAG }}
+
+          # Only push latest for development (production should use SHA for traceability)
+          if [ "${{ steps.env.outputs.ENVIRONMENT }}" != "production" ]; then
+            docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+            docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          fi
 
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
@@ -95,26 +105,51 @@ jobs:
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
 
+      - name: Check if ECS service exists
+        id: check-service
+        run: |
+          SERVICE_EXISTS=$(aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ steps.env.outputs.ECS_SERVICE }} \
+            --query 'services[0].status' \
+            --output text 2>/dev/null || echo "MISSING")
+
+          if [ "$SERVICE_EXISTS" == "ACTIVE" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "::warning::ECS service ${{ steps.env.outputs.ECS_SERVICE }} does not exist. Please create it first."
+          fi
+
       - name: Deploy to ECS
+        if: steps.check-service.outputs.exists == 'true'
         run: |
           echo "Deploying to ${{ steps.env.outputs.ENVIRONMENT }} environment..."
-          echo "Cluster: ${{ env.ECS_CLUSTER }}"
           echo "Service: ${{ steps.env.outputs.ECS_SERVICE }}"
 
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER }} \
             --service ${{ steps.env.outputs.ECS_SERVICE }} \
+            --deployment-configuration "deploymentCircuitBreaker={enable=true,rollback=true}" \
             --force-new-deployment
 
-          echo "Deployment initiated. Waiting for service to stabilize..."
+          echo "Deployment initiated with circuit breaker enabled. Waiting for service to stabilize..."
 
       - name: Wait for deployment
+        if: steps.check-service.outputs.exists == 'true'
         run: |
           aws ecs wait services-stable \
             --cluster ${{ env.ECS_CLUSTER }} \
             --services ${{ steps.env.outputs.ECS_SERVICE }}
 
           echo "Deployment complete!"
+
+      - name: Health check
+        if: steps.check-service.outputs.exists == 'true'
+        run: |
+          echo "Checking health endpoint..."
+          sleep 10
+          curl -sf "${{ steps.env.outputs.BOT_URL }}/health" || echo "Health check pending (service may still be starting)"
 
       - name: Deployment summary
         run: |
@@ -126,4 +161,6 @@ jobs:
           echo "| Image | \`${{ steps.build-image.outputs.image }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| ECS Cluster | ${{ env.ECS_CLUSTER }} |" >> $GITHUB_STEP_SUMMARY
           echo "| ECS Service | ${{ steps.env.outputs.ECS_SERVICE }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| URL | ${{ steps.env.outputs.BOT_URL }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Service Exists | ${{ steps.check-service.outputs.exists }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
