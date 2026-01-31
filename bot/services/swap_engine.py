@@ -36,7 +36,7 @@ from bot.services.wormhole_api import WormholeAPI, WormholeQuote, WormholeError
 from bot.services.cow_api import CoWProtocolAPI, cow_api, CoWError
 from bot.services.socket_api import SocketAPI, socket_api, SocketError
 from bot.services.jito_api import JitoAPI, jito_api, JitoError, TipPriority
-from bot.services.tax_export import TaxExporter
+from bot.services.tax_export import TaxExportService
 from bot.services.token_security.simulation import simulation_service
 from bot.services.x402_service import x402_service
 from bot.services.wallet import WalletService

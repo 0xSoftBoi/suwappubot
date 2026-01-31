@@ -32,7 +32,7 @@ from .subscription import (
     SubscriptionTier,
     X402Payment,
     PaymentStatus,
-    TokenGate,
+    APICredit,
     APICredit,
 )
 

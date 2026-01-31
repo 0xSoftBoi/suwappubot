@@ -14,8 +14,7 @@ from web3 import Web3
 
 from bot.config.settings import settings
 from bot.models.subscription import (
-    Subscription, SubscriptionTier, X402Payment, PaymentStatus,
-    TokenGate, APICredit
+    Subscription, SubscriptionTier, X402Payment, PaymentStatus, APICredit
 )
 from bot.services.wallet import WalletService
 from database.db import get_session
