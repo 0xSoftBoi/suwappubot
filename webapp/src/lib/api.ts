@@ -40,9 +40,9 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${token}`
     }
 
-    // Dev mode: add dev user header when no other auth and on dev API
+    // Dev mode: ALWAYS add dev user header on dev API (as fallback for invalid/expired auth)
     const isDev = this.baseUrl.includes('devapi') || this.baseUrl.includes('localhost')
-    if (isDev && !initData && !token) {
+    if (isDev) {
       headers['X-Dev-User-Id'] = '12345'
     }
 

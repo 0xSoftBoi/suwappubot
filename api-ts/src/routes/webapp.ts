@@ -222,6 +222,55 @@ protectedWebapp.get('/portfolio', async (c) => {
 	return c.json(result.right)
 })
 
+// GET /webapp/users/me/wallets - Get user's wallets
+protectedWebapp.get('/wallets', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const walletService = yield* WalletService
+
+			// Find user by telegram_id
+			const userOption = yield* Effect.either(userService.getUserByTelegramId(telegramUser.id))
+
+			if (Either.isLeft(userOption) || Option.isNone(userOption.right)) {
+				return { wallets: [] }
+			}
+
+			const user = userOption.right.value
+
+			// Get active wallets
+			const walletsResult = yield* Effect.either(walletService.getActiveWallets(user.id))
+			
+			if (Either.isLeft(walletsResult)) {
+				return { wallets: [] }
+			}
+
+			const wallets = walletsResult.right
+
+			return {
+				wallets: wallets.map((w) => ({
+					address: w.address,
+					name: w.name || 'Wallet',
+					chainType: w.chainType,
+					provider: w.walletProvider,
+					isDefault: w.isDefault,
+					createdAt: w.createdAt?.toISOString() ?? '',
+				})),
+			}
+		}).pipe(
+			Effect.catchAll(() => Effect.succeed({ wallets: [] }))
+		)
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ wallets: [] })
+	}
+
+	return c.json(result.right)
+})
+
 // GET /webapp/me/swaps
 protectedWebapp.get('/swaps', async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
