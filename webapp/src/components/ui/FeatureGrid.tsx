@@ -9,13 +9,13 @@ interface Feature {
 
 const features: Feature[] = [
   { icon: '🔔', label: 'Alerts', path: '/alerts' },
-  { icon: '📈', label: 'Limit Orders', path: '/orders' },
+  { icon: '📈', label: 'Limit Orders', path: '/limit-orders' },
+  { icon: '🎯', label: 'Points', path: '/points' },
   { icon: '📜', label: 'History', path: '/history' },
-  { icon: '⛽', label: 'Gas Tracker', path: '/gas' },
-  { icon: '⭐', label: 'Favorites', path: '/favorites' },
   { icon: '📋', label: 'Copy Trade', path: '/copy', badge: 'Soon' },
-  { icon: '🎯', label: 'Snipe', path: '/snipe', badge: 'Soon' },
-  { icon: '🎁', label: 'Referrals', path: '/referrals' },
+  { icon: '🎁', label: 'Referrals', path: '/referrals', badge: 'Soon' },
+  { icon: '🔗', label: 'Wallets', path: '/settings' },
+  { icon: '⚙️', label: 'Settings', path: '/settings' },
 ]
 
 export function FeatureGrid() {

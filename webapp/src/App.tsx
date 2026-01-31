@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AnimatePresence, motion, type Variants } from 'framer-motion'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useTelegram } from './hooks/useTelegram'
-import { Welcome, Home, Swap, Wallet, Portfolio, History, Points, Settings } from './pages'
+import { Welcome, Home, Swap, Wallet, Portfolio, History, Points, LimitOrders, PriceAlerts, Settings } from './pages'
 import './theme/suwappu.css'
 
 // Page transition variants
@@ -193,6 +193,26 @@ function AppContent() {
             <ProtectedRoute>
               <PageTransition>
                 <Points />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/limit-orders"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <LimitOrders />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/alerts"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <PriceAlerts />
               </PageTransition>
             </ProtectedRoute>
           }
