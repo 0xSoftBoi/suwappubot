@@ -8,26 +8,30 @@ type AuthStep = 'welcome' | 'create' | 'login' | 'verifying' | 'success'
 export function Welcome() {
   const [step, setStep] = useState<AuthStep>('welcome')
   const navigate = useNavigate()
-  const { login } = useAuth()
+  const { createPasskeyWallet, loginWithPasskey, isLoading, error, clearError } = useAuth()
 
   const handleCreateWallet = async () => {
     setStep('verifying')
-    // Simulate passkey creation
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    setStep('success')
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    login({ address: '0x7a3b...9f2e', type: 'passkey' })
-    navigate('/home')
+    clearError()
+    const success = await createPasskeyWallet()
+    if (success) {
+      setStep('success')
+      navigate('/home')
+    } else {
+      setStep('create')
+    }
   }
 
   const handleLogin = async () => {
     setStep('verifying')
-    // Simulate passkey login
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    setStep('success')
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    login({ address: '0x7a3b...9f2e', type: 'passkey' })
-    navigate('/home')
+    clearError()
+    const success = await loginWithPasskey()
+    if (success) {
+      setStep('success')
+      navigate('/home')
+    } else {
+      setStep('login')
+    }
   }
 
   if (step === 'verifying') {
@@ -108,11 +112,16 @@ export function Welcome() {
 
           <button
             onClick={handleCreateWallet}
-            className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-suwappu-gradient text-white font-heading font-bold rounded-suwappu-pill shadow-suwappu-button transition-all duration-300 hover:-translate-y-0.5 hover:shadow-suwappu-button-hover"
+            disabled={isLoading}
+            className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-suwappu-gradient text-white font-heading font-bold rounded-suwappu-pill shadow-suwappu-button transition-all duration-300 hover:-translate-y-0.5 hover:shadow-suwappu-button-hover disabled:opacity-50"
           >
             <BiometricIcon className="w-5 h-5" />
             Create Wallet
           </button>
+
+          {error && (
+            <p className="text-center text-sm text-red-500 mt-3">{error}</p>
+          )}
 
           <p className="text-center text-xs text-suwappu-text-secondary mt-4">
             Powered by Turnkey TEE infrastructure
@@ -146,11 +155,16 @@ export function Welcome() {
           </p>
           <button
             onClick={handleLogin}
-            className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-suwappu-gradient text-white font-heading font-bold rounded-suwappu-pill shadow-suwappu-button transition-all duration-300 hover:-translate-y-0.5 hover:shadow-suwappu-button-hover"
+            disabled={isLoading}
+            className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-suwappu-gradient text-white font-heading font-bold rounded-suwappu-pill shadow-suwappu-button transition-all duration-300 hover:-translate-y-0.5 hover:shadow-suwappu-button-hover disabled:opacity-50"
           >
             <BiometricIcon className="w-5 h-5" />
             Login with Passkey
           </button>
+
+          {error && (
+            <p className="text-center text-sm text-red-500 mt-3">{error}</p>
+          )}
 
           <button
             onClick={() => setStep('welcome')}
@@ -191,28 +205,6 @@ export function Welcome() {
           >
             <BiometricIcon className="w-5 h-5" />
             Login with Passkey
-          </button>
-
-          <div className="relative py-4">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-suwappu-sakura-mid/30" />
-            </div>
-            <div className="relative flex justify-center text-xs">
-              <span className="px-2 bg-suwappu-bg text-suwappu-text-secondary">or connect wallet</span>
-            </div>
-          </div>
-
-          <button className="w-full flex items-center gap-3 p-3 bg-white rounded-suwappu-xl shadow-suwappu-1 hover:shadow-suwappu-2 transition-shadow">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-orange-500 flex items-center justify-center">
-              <span className="text-white text-lg">🦊</span>
-            </div>
-            <div className="flex-1 text-left">
-              <span className="font-heading font-semibold text-sm text-suwappu-text block">MetaMask</span>
-              <span className="text-xs text-suwappu-text-secondary">Connect external wallet</span>
-            </div>
-            <svg className="w-5 h-5 text-suwappu-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
           </button>
         </div>
       </div>

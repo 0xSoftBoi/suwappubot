@@ -2,7 +2,7 @@
  * PasskeyLogin component - Login with existing passkey
  */
 
-import { usePasskey } from '../../hooks/usePasskey'
+import { useAuth } from '../../contexts/AuthContext'
 
 interface PasskeyLoginProps {
   onSuccess?: () => void
@@ -16,16 +16,16 @@ export function PasskeyLogin({
   className = '',
 }: PasskeyLoginProps) {
   const {
-    isSupported,
+    isPasskeySupported,
     isLoading,
     error,
-    authenticate,
+    loginWithPasskey,
     clearError,
-  } = usePasskey()
+  } = useAuth()
 
   const handleLogin = async () => {
     clearError()
-    const success = await authenticate()
+    const success = await loginWithPasskey()
 
     if (success) {
       onSuccess?.()
@@ -34,7 +34,7 @@ export function PasskeyLogin({
     }
   }
 
-  if (!isSupported) {
+  if (!isPasskeySupported) {
     return null
   }
 

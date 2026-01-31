@@ -2,7 +2,7 @@
  * PasskeyRegister component - Create a new passkey + Turnkey wallet
  */
 
-import { usePasskey } from '../../hooks/usePasskey'
+import { useAuth } from '../../contexts/AuthContext'
 
 interface PasskeyRegisterProps {
   displayName?: string
@@ -18,17 +18,17 @@ export function PasskeyRegister({
   className = '',
 }: PasskeyRegisterProps) {
   const {
-    isSupported,
-    isPlatformAvailable,
+    isPasskeySupported,
+    isPlatformAuthAvailable,
     isLoading,
     error,
-    register,
+    createPasskeyWallet,
     clearError,
-  } = usePasskey()
+  } = useAuth()
 
   const handleRegister = async () => {
     clearError()
-    const success = await register(displayName)
+    const success = await createPasskeyWallet(displayName)
 
     if (success) {
       onSuccess?.('')
@@ -37,7 +37,7 @@ export function PasskeyRegister({
     }
   }
 
-  if (!isSupported) {
+  if (!isPasskeySupported) {
     return (
       <div className={`px-4 py-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg ${className}`}>
         <p className="text-sm text-yellow-600">
@@ -47,7 +47,7 @@ export function PasskeyRegister({
     )
   }
 
-  if (!isPlatformAvailable) {
+  if (!isPlatformAuthAvailable) {
     return (
       <div className={`px-4 py-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg ${className}`}>
         <p className="text-sm text-yellow-600">

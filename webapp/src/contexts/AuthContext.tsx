@@ -25,25 +25,20 @@ import {
   getAuthMethod as getStoredAuthMethod,
   clearAuthToken,
 } from '../lib/auth'
-import {
-  isWalletAvailable,
-  getCurrentAddress,
-  connectAndLinkWallet,
-  onAccountsChanged,
-  formatAddress,
-} from '../lib/turnkey'
+import { formatAddress } from '../lib/turnkey'
 import {
   isPasskeySupported,
   isPlatformAuthenticatorAvailable,
   registerPasskey,
   authenticateWithPasskey,
+  createTurnkeyWallet,
 } from '../lib/turnkey-passkey'
 import { api } from '../lib/api'
 
 // Standalone wallet info for non-Telegram auth
 interface WalletInfo {
   address: string
-  type: 'passkey' | 'metamask' | 'walletconnect'
+  type: 'passkey'
 }
 
 // Auth context state
@@ -54,8 +49,6 @@ interface AuthContextType {
 
   // Wallet state
   linkedWallets: LinkedWallet[]
-  connectedAddress: string | null
-  isWalletAvailable: boolean
   isPasskeySupported: boolean
   isPlatformAuthAvailable: boolean
 
@@ -71,13 +64,11 @@ interface AuthContextType {
   walletInfo: WalletInfo | null
 
   // Actions
-  connectWallet: () => Promise<void>
-  createPasskeyWallet: (displayName?: string) => Promise<void>
-  loginWithPasskey: () => Promise<void>
+  createPasskeyWallet: (displayName?: string) => Promise<boolean>
+  loginWithPasskey: () => Promise<boolean>
+  createWallet: (chainType: 'evm' | 'solana', name?: string) => Promise<string | null>
   refreshWallets: () => Promise<void>
   clearError: () => void
-  // Simple login/logout for standalone mode
-  login: (wallet: WalletInfo) => void
   logout: () => void
 }
 
@@ -94,8 +85,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Wallet state
   const [linkedWallets, setLinkedWallets] = useState<LinkedWallet[]>([])
-  const [connectedAddress, setConnectedAddress] = useState<string | null>(null)
-  const [walletAvailable, setWalletAvailable] = useState(false)
   const [passkeySupported, setPasskeySupported] = useState(false)
   const [platformAuthAvailable, setPlatformAuthAvailable] = useState(false)
 
@@ -132,19 +121,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
           storeAuthMethod('telegram')
         }
 
-        // Check wallet availability
-        setWalletAvailable(isWalletAvailable())
+        // Check passkey support
         setPasskeySupported(isPasskeySupported())
 
         // Check platform authenticator
         const platformAuth = await isPlatformAuthenticatorAvailable()
         setPlatformAuthAvailable(platformAuth)
-
-        // Check current wallet connection
-        const address = await getCurrentAddress()
-        if (address) {
-          setConnectedAddress(address)
-        }
 
         // Load linked wallets if authenticated
         if (tgUser && initData) {
@@ -166,21 +148,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     init()
   }, [])
 
-  // Listen for wallet account changes
-  useEffect(() => {
-    if (!walletAvailable) return
-
-    const unsubscribe = onAccountsChanged((accounts) => {
-      if (accounts.length === 0) {
-        setConnectedAddress(null)
-      } else {
-        setConnectedAddress(accounts[0])
-      }
-    })
-
-    return unsubscribe
-  }, [walletAvailable])
-
   // Internal wallet refresh
   const refreshWalletsInternal = async () => {
     try {
@@ -197,41 +164,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     await refreshWalletsInternal()
   }, [isTelegramAuth])
 
-  // Connect and link MetaMask wallet
-  const connectWallet = useCallback(async () => {
-    if (!isTelegramAuth) {
-      setError('Please open this app from Telegram first')
-      return
-    }
-
-    try {
-      setIsLoading(true)
-      setError(null)
-
-      const result = await connectAndLinkWallet()
-
-      if (result.success && result.walletAddress) {
-        setConnectedAddress(result.walletAddress)
-        await refreshWalletsInternal()
-      }
-    } catch (err: any) {
-      console.error('Wallet connection failed:', err)
-      setError(err.message || 'Failed to connect wallet')
-    } finally {
-      setIsLoading(false)
-    }
-  }, [isTelegramAuth])
-
   // Create passkey wallet
-  const createPasskeyWallet = useCallback(async (displayName?: string) => {
-    if (!isTelegramAuth) {
-      setError('Please open this app from Telegram first')
-      return
-    }
-
+  const createPasskeyWallet = useCallback(async (displayName?: string): Promise<boolean> => {
     if (!passkeySupported) {
       setError('Passkeys are not supported in this browser')
-      return
+      return false
     }
 
     try {
@@ -241,23 +178,32 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const result = await registerPasskey(displayName || telegramUser?.first_name)
 
       if (result.success) {
-        await refreshWalletsInternal()
+        // Store wallet info for standalone auth
+        if (result.walletAddress) {
+          login({ address: result.walletAddress, type: 'passkey' })
+        }
+        if (isTelegramAuth) {
+          await refreshWalletsInternal()
+        }
+        return true
       } else {
         setError(result.error || 'Failed to create passkey wallet')
+        return false
       }
     } catch (err: any) {
       console.error('Passkey registration failed:', err)
       setError(err.message || 'Failed to create passkey wallet')
+      return false
     } finally {
       setIsLoading(false)
     }
-  }, [isTelegramAuth, passkeySupported, telegramUser])
+  }, [passkeySupported, telegramUser, isTelegramAuth])
 
   // Login with existing passkey
-  const loginWithPasskey = useCallback(async () => {
+  const loginWithPasskey = useCallback(async (): Promise<boolean> => {
     if (!passkeySupported) {
       setError('Passkeys are not supported in this browser')
-      return
+      return false
     }
 
     try {
@@ -268,19 +214,57 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       if (result.success) {
         setAuthToken(result.token, result.expiresAt)
-        setAuthMethod('passkey')
-        storeAuthMethod('passkey')
-        await refreshWalletsInternal()
+        // Store wallet info for standalone auth
+        if (result.walletAddress) {
+          login({ address: result.walletAddress, type: 'passkey' })
+        } else {
+          setAuthMethod('passkey')
+          storeAuthMethod('passkey')
+        }
+        if (isTelegramAuth) {
+          await refreshWalletsInternal()
+        }
+        return true
       } else {
         setError(result.error || 'Passkey authentication failed')
+        return false
       }
     } catch (err: any) {
       console.error('Passkey login failed:', err)
       setError(err.message || 'Failed to authenticate with passkey')
+      return false
     } finally {
       setIsLoading(false)
     }
-  }, [passkeySupported])
+  }, [passkeySupported, isTelegramAuth])
+
+  // Create a new Turnkey wallet (after initial passkey registration)
+  const createWallet = useCallback(async (
+    chainType: 'evm' | 'solana',
+    name?: string
+  ): Promise<string | null> => {
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      const result = await createTurnkeyWallet(chainType, name)
+
+      if (result.success && result.address) {
+        if (isTelegramAuth) {
+          await refreshWalletsInternal()
+        }
+        return result.address
+      } else {
+        setError(result.error || 'Failed to create wallet')
+        return null
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to create wallet')
+      return null
+    } finally {
+      setIsLoading(false)
+    }
+  }, [isTelegramAuth])
 
   // Clear error
   const clearError = useCallback(() => {
@@ -307,8 +291,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     telegramUser,
     isTelegramAuth,
     linkedWallets,
-    connectedAddress,
-    isWalletAvailable: walletAvailable,
     isPasskeySupported: passkeySupported,
     isPlatformAuthAvailable: platformAuthAvailable,
     isLoading,
@@ -316,12 +298,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isAuthenticated,
     authMethod,
     walletInfo,
-    connectWallet,
     createPasskeyWallet,
     loginWithPasskey,
+    createWallet,
     refreshWallets,
     clearError,
-    login,
     logout,
   }
 
