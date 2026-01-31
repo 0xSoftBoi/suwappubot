@@ -117,9 +117,25 @@ function ConnectWalletPrompt({
         <h2 className="font-heading font-bold text-lg text-suwappu-purple-deep mb-1">
           Create Your Wallet
         </h2>
-        <p className="text-sm text-suwappu-text-secondary mb-4">
-          Secure your funds with a passkey wallet powered by Turnkey
+        <p className="text-sm text-suwappu-text-secondary mb-3">
+          Secure your funds with a passkey wallet
         </p>
+        
+        {/* Provider badges */}
+        <div className="flex items-center justify-center gap-3 mb-4">
+          <div className="flex items-center gap-1.5 px-2 py-1 bg-blue-50 rounded-full">
+            <svg className="w-4 h-4 text-blue-500" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1.41 16.09l-4.24-4.24 1.41-1.41 2.83 2.83 5.66-5.66 1.41 1.41-7.07 7.07z"/>
+            </svg>
+            <span className="text-xs font-semibold text-blue-600">Telegram</span>
+          </div>
+          <div className="flex items-center gap-1.5 px-2 py-1 bg-purple-50 rounded-full">
+            <svg className="w-4 h-4 text-purple-500" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
+            </svg>
+            <span className="text-xs font-semibold text-purple-600">Turnkey</span>
+          </div>
+        </div>
 
         {isPasskeySupported && isPlatformAuthAvailable ? (
           <button
@@ -155,10 +171,17 @@ function ConnectWalletPrompt({
         )}
       </div>
 
-      <div className="bg-suwappu-info/10 border border-suwappu-info/20 rounded-suwappu-lg p-3">
-        <p className="text-xs text-suwappu-info">
-          <strong>🔒 Secure by design:</strong> Your wallet is protected by biometrics (Face ID/Touch ID). 
-          No seed phrases to remember or lose.
+      <div className="bg-suwappu-sakura-light/50 rounded-suwappu-lg p-3 space-y-2">
+        <p className="text-xs text-suwappu-text">
+          <strong>🔐 How it works:</strong>
+        </p>
+        <ul className="text-xs text-suwappu-text-secondary space-y-1 ml-4 list-disc">
+          <li><strong>Telegram</strong> — Your identity & login</li>
+          <li><strong>Turnkey</strong> — Secure key management (TEE-backed)</li>
+          <li><strong>Passkey</strong> — Face ID / Touch ID protection</li>
+        </ul>
+        <p className="text-xs text-suwappu-text-secondary italic">
+          No seed phrases. Your keys never leave secure hardware.
         </p>
       </div>
     </div>
