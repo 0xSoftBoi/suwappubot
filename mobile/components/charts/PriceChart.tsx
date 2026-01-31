@@ -166,7 +166,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     backgroundColor: colors.card,
   },
-  pillActive: { backgroundColor: colors.text },
+  pillActive: { backgroundColor: colors.primary },
   pillText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
-  pillTextActive: { color: colors.bg },
+  pillTextActive: { color: '#fff' },
 })

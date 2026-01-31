@@ -178,7 +178,7 @@ const styles = StyleSheet.create({
   },
   chipActive: { backgroundColor: colors.primary },
   chipText: { fontSize: 14, color: colors.textSecondary },
-  chipTextActive: { color: colors.bg, fontWeight: '600' },
+  chipTextActive: { color: '#fff', fontWeight: '600' },
   submitButton: {
     backgroundColor: colors.primary,
     borderRadius: radius.md,
@@ -187,5 +187,5 @@ const styles = StyleSheet.create({
     marginTop: spacing.xxxl,
   },
   submitDisabled: { opacity: 0.4 },
-  submitText: { color: colors.bg, fontSize: 17, fontWeight: '600' },
+  submitText: { color: '#fff', fontSize: 17, fontWeight: '600' },
 })

@@ -105,7 +105,7 @@ export default function SettingsScreen() {
           <Switch
             value={mevProtection}
             onValueChange={setMevProtection}
-            trackColor={{ false: colors.borderLight, true: colors.success }}
+            trackColor={{ false: colors.borderLight, true: colors.primary }}
           />
         </View>
       </View>
@@ -121,7 +121,7 @@ export default function SettingsScreen() {
           <Switch
             value={notificationsEnabled}
             onValueChange={toggleNotifications}
-            trackColor={{ false: colors.borderLight, true: colors.success }}
+            trackColor={{ false: colors.borderLight, true: colors.primary }}
           />
         </View>
       </View>
@@ -137,7 +137,7 @@ export default function SettingsScreen() {
           <Switch
             value={twoFaEnabled}
             onValueChange={toggleTwoFa}
-            trackColor={{ false: colors.borderLight, true: colors.success }}
+            trackColor={{ false: colors.borderLight, true: colors.primary }}
           />
         </View>
         {twoFaEnabled && (

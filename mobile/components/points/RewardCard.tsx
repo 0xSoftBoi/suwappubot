@@ -60,6 +60,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   redeemDisabled: { opacity: 0.3 },
-  redeemText: { color: colors.bg, fontSize: 14, fontWeight: '600' },
-  redeemTextDisabled: { color: colors.bg },
+  redeemText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  redeemTextDisabled: { color: '#fff' },
 })

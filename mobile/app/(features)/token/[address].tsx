@@ -127,12 +127,12 @@ const styles = StyleSheet.create({
   },
   swapButton: {
     flex: 1,
-    backgroundColor: colors.text,
+    backgroundColor: colors.primary,
     borderRadius: radius.lg,
     paddingVertical: 16,
     alignItems: 'center',
   },
-  swapButtonText: { color: colors.bg, fontSize: 16, fontWeight: '600' },
+  swapButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   alertButton: {
     flex: 1,
     backgroundColor: colors.card,

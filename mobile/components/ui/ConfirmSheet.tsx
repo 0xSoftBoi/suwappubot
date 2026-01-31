@@ -109,7 +109,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   confirmText: {
-    color: colors.bg,
+    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },

@@ -119,7 +119,7 @@ export default function CreateSnipeScreen() {
         <Switch
           value={useMevProtection}
           onValueChange={setUseMevProtection}
-          trackColor={{ false: colors.borderLight, true: colors.success }}
+          trackColor={{ false: colors.borderLight, true: colors.primary }}
         />
       </View>
 
@@ -168,7 +168,7 @@ const styles = StyleSheet.create({
   },
   chipActive: { backgroundColor: colors.primary },
   chipText: { fontSize: 14, color: colors.textSecondary },
-  chipTextActive: { color: colors.bg, fontWeight: '600' },
+  chipTextActive: { color: '#fff', fontWeight: '600' },
   modeCard: {
     backgroundColor: colors.card,
     borderRadius: radius.md,
@@ -206,5 +206,5 @@ const styles = StyleSheet.create({
     marginTop: spacing.xxxl,
   },
   submitDisabled: { opacity: 0.4 },
-  submitText: { color: colors.bg, fontSize: 17, fontWeight: '600' },
+  submitText: { color: '#fff', fontSize: 17, fontWeight: '600' },
 })

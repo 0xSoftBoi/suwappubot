@@ -42,7 +42,7 @@ const suwappuTheme = {
     ...DarkTheme.colors,
     background: '#000',
     card: '#111',
-    primary: '#fff',
+    primary: '#FF85A1',
   },
 }
 

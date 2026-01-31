@@ -4,6 +4,7 @@
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useAuth } from '../../contexts/AuthContext'
+import { colors, spacing, radius } from '../../lib/theme'
 
 export default function MoreScreen() {
   const router = useRouter()
@@ -55,38 +56,38 @@ export default function MoreScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  content: { padding: 24 },
+  container: { flex: 1, backgroundColor: colors.bg },
+  content: { padding: spacing.xxl },
   userCard: {
-    backgroundColor: '#111',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 24,
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
+    marginBottom: spacing.xxl,
   },
-  userName: { fontSize: 20, fontWeight: '600', color: '#fff' },
-  userAddress: { fontSize: 13, color: '#666', marginTop: 4, fontFamily: 'SpaceMono' },
+  userName: { fontSize: 20, fontWeight: '600', color: colors.text },
+  userAddress: { fontSize: 13, color: colors.textTertiary, marginTop: spacing.xs, fontFamily: 'SpaceMono' },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 32,
+    gap: spacing.md,
+    marginBottom: spacing.xxxl,
   },
   gridItem: {
-    backgroundColor: '#111',
-    borderRadius: 16,
-    padding: 20,
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
     width: '48%',
     alignItems: 'center',
-    gap: 8,
+    gap: spacing.sm,
   },
   gridIcon: { fontSize: 28 },
-  gridLabel: { fontSize: 14, color: '#fff', fontWeight: '500' },
+  gridLabel: { fontSize: 14, color: colors.text, fontWeight: '500' },
   logoutButton: {
     borderWidth: 1,
-    borderColor: '#333',
-    borderRadius: 12,
-    paddingVertical: 16,
+    borderColor: colors.borderLight,
+    borderRadius: radius.md,
+    paddingVertical: spacing.lg,
     alignItems: 'center',
   },
-  logoutText: { color: '#f87171', fontSize: 16, fontWeight: '500' },
+  logoutText: { color: colors.error, fontSize: 16, fontWeight: '500' },
 })

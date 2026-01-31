@@ -3,7 +3,7 @@
  * Replaces expo-router's default ErrorBoundary export.
  */
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
-import { colors, spacing } from '../../lib/theme'
+import { colors, spacing, radius } from '../../lib/theme'
 
 interface Props {
   error: Error
@@ -65,13 +65,13 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   button: {
-    backgroundColor: colors.text,
-    borderRadius: 14,
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
     paddingVertical: 14,
     paddingHorizontal: 40,
   },
   buttonText: {
-    color: colors.bg,
+    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },

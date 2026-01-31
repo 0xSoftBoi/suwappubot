@@ -113,7 +113,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
   },
   checkinDisabled: { backgroundColor: colors.cardAlt },
-  checkinText: { color: colors.bg, fontSize: 16, fontWeight: '600' },
+  checkinText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   checkinTextDisabled: { color: colors.textTertiary },
   quickLinks: {
     flexDirection: 'row',

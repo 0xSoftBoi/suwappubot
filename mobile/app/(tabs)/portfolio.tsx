@@ -10,6 +10,7 @@ import { useRouter } from 'expo-router'
 import { api } from '../../lib/api'
 import { useState, useCallback } from 'react'
 import { AllocationBar } from '../../components/portfolio/AllocationBar'
+import { colors, spacing, radius } from '../../lib/theme'
 
 export default function PortfolioScreen() {
   const router = useRouter()
@@ -46,7 +47,7 @@ export default function PortfolioScreen() {
       style={styles.container}
       contentContainerStyle={styles.content}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
       }
     >
       {/* Total Value */}
@@ -166,58 +167,58 @@ export default function PortfolioScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  content: { padding: 24 },
+  container: { flex: 1, backgroundColor: colors.bg },
+  content: { padding: spacing.xxl },
   totalCard: {
-    backgroundColor: '#111',
-    borderRadius: 20,
-    padding: 24,
-    marginBottom: 16,
+    backgroundColor: colors.card,
+    borderRadius: radius.xl,
+    padding: spacing.xxl,
+    marginBottom: spacing.lg,
   },
-  totalLabel: { fontSize: 14, color: '#888', marginBottom: 8 },
-  totalAmount: { fontSize: 36, fontWeight: '700', color: '#fff' },
-  filters: { marginBottom: 16, flexGrow: 0 },
+  totalLabel: { fontSize: 14, color: colors.textSecondary, marginBottom: spacing.sm },
+  totalAmount: { fontSize: 36, fontWeight: '700', color: colors.text },
+  filters: { marginBottom: spacing.lg, flexGrow: 0 },
   filterChip: {
-    backgroundColor: '#111',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginRight: 8,
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    marginRight: spacing.sm,
   },
-  filterChipActive: { backgroundColor: '#fff' },
-  filterText: { color: '#888', fontSize: 13, fontWeight: '500', textTransform: 'capitalize' },
-  filterTextActive: { color: '#000' },
-  section: { marginTop: 24 },
-  sectionTitle: { fontSize: 18, fontWeight: '600', color: '#fff', marginBottom: 16 },
+  filterChipActive: { backgroundColor: colors.primary },
+  filterText: { color: colors.textSecondary, fontSize: 13, fontWeight: '500', textTransform: 'capitalize' },
+  filterTextActive: { color: '#fff' },
+  section: { marginTop: spacing.xxl },
+  sectionTitle: { fontSize: 18, fontWeight: '600', color: colors.text, marginBottom: spacing.lg },
   tokenRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#111',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 8,
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    marginBottom: spacing.sm,
   },
   tokenInfo: {},
-  tokenSymbol: { fontSize: 16, fontWeight: '600', color: '#fff' },
-  tokenChain: { fontSize: 12, color: '#666', marginTop: 2, textTransform: 'capitalize' },
+  tokenSymbol: { fontSize: 16, fontWeight: '600', color: colors.text },
+  tokenChain: { fontSize: 12, color: colors.textTertiary, marginTop: 2, textTransform: 'capitalize' },
   tokenValues: { alignItems: 'flex-end' },
-  tokenBalance: { fontSize: 15, color: '#fff' },
-  tokenUsd: { fontSize: 13, color: '#888', marginTop: 2 },
+  tokenBalance: { fontSize: 15, color: colors.text },
+  tokenUsd: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
   swapRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: '#111',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 8,
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    marginBottom: spacing.sm,
   },
-  swapTokens: { fontSize: 15, fontWeight: '500', color: '#fff' },
-  swapDate: { fontSize: 12, color: '#666', marginTop: 4 },
+  swapTokens: { fontSize: 15, fontWeight: '500', color: colors.text },
+  swapDate: { fontSize: 12, color: colors.textTertiary, marginTop: spacing.xs },
   swapRight: { alignItems: 'flex-end' },
-  swapAmount: { fontSize: 15, color: '#fff' },
-  swapStatus: { fontSize: 12, color: '#888', marginTop: 4, textTransform: 'capitalize' },
-  statusOk: { color: '#4ade80' },
-  statusErr: { color: '#f87171' },
-  emptyText: { fontSize: 14, color: '#666', textAlign: 'center', paddingVertical: 24 },
+  swapAmount: { fontSize: 15, color: colors.text },
+  swapStatus: { fontSize: 12, color: colors.textSecondary, marginTop: spacing.xs, textTransform: 'capitalize' },
+  statusOk: { color: colors.success },
+  statusErr: { color: colors.error },
+  emptyText: { fontSize: 14, color: colors.textTertiary, textAlign: 'center', paddingVertical: spacing.xxl },
 })

@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../../contexts/AuthContext'
 import { api } from '../../lib/api'
 import { useState, useCallback } from 'react'
+import { colors, spacing, radius } from '../../lib/theme'
 
 export default function HomeScreen() {
   const { user, walletAddress } = useAuth()
@@ -39,7 +40,7 @@ export default function HomeScreen() {
       style={styles.container}
       contentContainerStyle={styles.content}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
       }
     >
       {/* Header */}
@@ -132,46 +133,46 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  content: { padding: 24, paddingTop: 60 },
-  header: { marginBottom: 24 },
-  greeting: { fontSize: 28, fontWeight: '700', color: '#fff' },
-  address: { fontSize: 14, color: '#666', marginTop: 4, fontFamily: 'SpaceMono' },
+  container: { flex: 1, backgroundColor: colors.bg },
+  content: { padding: spacing.xxl, paddingTop: 60 },
+  header: { marginBottom: spacing.xxl },
+  greeting: { fontSize: 28, fontWeight: '700', color: colors.text },
+  address: { fontSize: 14, color: colors.textTertiary, marginTop: spacing.xs, fontFamily: 'SpaceMono' },
   valueCard: {
-    backgroundColor: '#111',
-    borderRadius: 20,
-    padding: 24,
-    marginBottom: 24,
+    backgroundColor: colors.card,
+    borderRadius: radius.xl,
+    padding: spacing.xxl,
+    marginBottom: spacing.xxl,
   },
-  valueLabel: { fontSize: 14, color: '#888', marginBottom: 8 },
-  valueAmount: { fontSize: 36, fontWeight: '700', color: '#fff' },
-  quickActions: { flexDirection: 'row', gap: 12, marginBottom: 32 },
+  valueLabel: { fontSize: 14, color: colors.textSecondary, marginBottom: spacing.sm },
+  valueAmount: { fontSize: 36, fontWeight: '700', color: colors.text },
+  quickActions: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.xxxl },
   actionButton: {
     flex: 1,
-    backgroundColor: '#111',
-    borderRadius: 16,
-    padding: 16,
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
     alignItems: 'center',
-    gap: 8,
+    gap: spacing.sm,
   },
   actionEmoji: { fontSize: 24 },
-  actionLabel: { fontSize: 13, color: '#fff', fontWeight: '500' },
+  actionLabel: { fontSize: 13, color: colors.text, fontWeight: '500' },
   section: {},
-  sectionTitle: { fontSize: 18, fontWeight: '600', color: '#fff', marginBottom: 16 },
+  sectionTitle: { fontSize: 18, fontWeight: '600', color: colors.text, marginBottom: spacing.lg },
   swapRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: '#111',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 8,
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    marginBottom: spacing.sm,
   },
-  swapTokens: { fontSize: 15, fontWeight: '500', color: '#fff' },
-  swapChain: { fontSize: 12, color: '#666', marginTop: 4 },
+  swapTokens: { fontSize: 15, fontWeight: '500', color: colors.text },
+  swapChain: { fontSize: 12, color: colors.textTertiary, marginTop: spacing.xs },
   swapRight: { alignItems: 'flex-end' },
-  swapAmount: { fontSize: 15, color: '#fff' },
-  swapStatus: { fontSize: 12, color: '#888', marginTop: 4, textTransform: 'capitalize' },
-  statusComplete: { color: '#4ade80' },
-  statusFailed: { color: '#f87171' },
-  emptyText: { fontSize: 14, color: '#666', textAlign: 'center', paddingVertical: 24 },
+  swapAmount: { fontSize: 15, color: colors.text },
+  swapStatus: { fontSize: 12, color: colors.textSecondary, marginTop: spacing.xs, textTransform: 'capitalize' },
+  statusComplete: { color: colors.success },
+  statusFailed: { color: colors.error },
+  emptyText: { fontSize: 14, color: colors.textTertiary, textAlign: 'center', paddingVertical: spacing.xxl },
 })

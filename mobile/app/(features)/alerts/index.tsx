@@ -130,5 +130,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
   },
-  createText: { color: colors.bg, fontSize: 15, fontWeight: '600' },
+  createText: { color: '#fff', fontSize: 15, fontWeight: '600' },
 })

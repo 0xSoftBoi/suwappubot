@@ -5,6 +5,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'rea
 import { useRouter } from 'expo-router'
 import { useAuth } from '../../contexts/AuthContext'
 import { useState } from 'react'
+import { colors, spacing, radius } from '../../lib/theme'
 
 export default function LoginScreen() {
   const { loginWithPasskey, loginWithOAuth } = useAuth()
@@ -47,7 +48,7 @@ export default function LoginScreen() {
           disabled={isLoggingIn}
         >
           {isLoggingIn ? (
-            <ActivityIndicator color="#000" />
+            <ActivityIndicator color="#fff" />
           ) : (
             <Text style={styles.primaryButtonText}>Sign In with Passkey</Text>
           )}
@@ -78,29 +79,29 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000', paddingHorizontal: 24, paddingTop: 60 },
+  container: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: spacing.xxl, paddingTop: 60 },
   backButton: { marginBottom: 40 },
-  backText: { color: '#888', fontSize: 16 },
-  content: { gap: 16 },
-  title: { fontSize: 32, fontWeight: '700', color: '#fff', marginBottom: 4 },
-  subtitle: { fontSize: 16, color: '#888', marginBottom: 24 },
-  error: { color: '#ff4444', fontSize: 14, textAlign: 'center', marginBottom: 8 },
+  backText: { color: colors.textSecondary, fontSize: 16 },
+  content: { gap: spacing.lg },
+  title: { fontSize: 32, fontWeight: '700', color: colors.text, marginBottom: 4 },
+  subtitle: { fontSize: 16, color: colors.textSecondary, marginBottom: spacing.xxl },
+  error: { color: colors.error, fontSize: 14, textAlign: 'center', marginBottom: spacing.sm },
   primaryButton: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
+    backgroundColor: colors.primary,
+    borderRadius: radius.lg,
     paddingVertical: 18,
     alignItems: 'center',
   },
-  primaryButtonText: { color: '#000', fontSize: 17, fontWeight: '600' },
-  divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 8 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: '#222' },
-  dividerText: { color: '#666', paddingHorizontal: 12, fontSize: 13 },
+  primaryButtonText: { color: '#fff', fontSize: 17, fontWeight: '600' },
+  divider: { flexDirection: 'row', alignItems: 'center', marginVertical: spacing.sm },
+  dividerLine: { flex: 1, height: 1, backgroundColor: colors.border },
+  dividerText: { color: colors.textTertiary, paddingHorizontal: spacing.md, fontSize: 13 },
   oauthButton: {
     borderWidth: 1,
-    borderColor: '#333',
-    borderRadius: 12,
+    borderColor: colors.borderLight,
+    borderRadius: radius.md,
     paddingVertical: 14,
     alignItems: 'center',
   },
-  oauthButtonText: { color: '#fff', fontSize: 15, fontWeight: '500' },
+  oauthButtonText: { color: colors.text, fontSize: 15, fontWeight: '500' },
 })

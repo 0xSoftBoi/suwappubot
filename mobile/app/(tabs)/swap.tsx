@@ -9,6 +9,7 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { useLocalSearchParams } from 'expo-router'
 import { api } from '../../lib/api'
 import { SwapConfirmSheet } from '../../components/swap/SwapConfirmSheet'
+import { colors, spacing, radius } from '../../lib/theme'
 
 export default function SwapScreen() {
   const params = useLocalSearchParams<{ token?: string; chain?: string }>()
@@ -107,7 +108,7 @@ export default function SwapScreen() {
           <TextInput
             style={styles.amountInput}
             placeholder="0.00"
-            placeholderTextColor="#555"
+            placeholderTextColor={colors.textMuted}
             keyboardType="decimal-pad"
             value={amount}
             onChangeText={setAmount}
@@ -177,7 +178,7 @@ export default function SwapScreen() {
         disabled={!quote || swapMutation.isPending}
       >
         {swapMutation.isPending ? (
-          <ActivityIndicator color="#000" />
+          <ActivityIndicator color="#fff" />
         ) : (
           <Text style={styles.swapButtonText}>
             {!amount ? 'Enter amount' : !quote ? 'Getting quote...' : 'Review Swap'}
@@ -226,83 +227,83 @@ export default function SwapScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  content: { padding: 24, gap: 0 },
+  container: { flex: 1, backgroundColor: colors.bg },
+  content: { padding: spacing.xxl, gap: 0 },
   tokenCard: {
-    backgroundColor: '#111',
-    borderRadius: 16,
-    padding: 20,
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
   },
-  cardLabel: { fontSize: 13, color: '#888', marginBottom: 12 },
+  cardLabel: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.md },
   tokenRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   tokenSelector: {
-    backgroundColor: '#222',
-    borderRadius: 12,
-    paddingHorizontal: 16,
+    backgroundColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
     paddingVertical: 10,
   },
-  tokenSymbol: { fontSize: 18, fontWeight: '600', color: '#fff' },
+  tokenSymbol: { fontSize: 18, fontWeight: '600', color: colors.text },
   amountInput: {
     flex: 1,
     fontSize: 28,
     fontWeight: '600',
-    color: '#fff',
+    color: colors.text,
     textAlign: 'right',
-    marginLeft: 16,
+    marginLeft: spacing.lg,
   },
   receiveAmount: {
     flex: 1,
     fontSize: 28,
     fontWeight: '600',
-    color: '#888',
+    color: colors.textSecondary,
     textAlign: 'right',
-    marginLeft: 16,
+    marginLeft: spacing.lg,
   },
-  chainLabel: { fontSize: 12, color: '#555', marginTop: 8, textTransform: 'capitalize' },
+  chainLabel: { fontSize: 12, color: colors.textMuted, marginTop: spacing.sm, textTransform: 'capitalize' },
   arrowContainer: { alignItems: 'center', marginVertical: -12, zIndex: 1 },
   arrowButton: {
-    backgroundColor: '#222',
+    backgroundColor: colors.border,
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 3,
-    borderColor: '#000',
+    borderColor: colors.bg,
   },
-  arrowText: { fontSize: 18, color: '#fff' },
+  arrowText: { fontSize: 18, color: colors.text },
   quoteDetails: {
-    backgroundColor: '#111',
-    borderRadius: 16,
-    padding: 20,
-    marginTop: 16,
-    gap: 12,
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
+    marginTop: spacing.lg,
+    gap: spacing.md,
   },
   detailRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  detailLabel: { fontSize: 13, color: '#888' },
-  detailValue: { fontSize: 13, color: '#fff' },
-  warning: { color: '#f59e0b' },
+  detailLabel: { fontSize: 13, color: colors.textSecondary },
+  detailValue: { fontSize: 13, color: colors.text },
+  warning: { color: colors.warning },
   swapButton: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
+    backgroundColor: colors.primary,
+    borderRadius: radius.lg,
     paddingVertical: 18,
     alignItems: 'center',
-    marginTop: 24,
+    marginTop: spacing.xxl,
   },
-  swapButtonDisabled: { backgroundColor: '#333' },
-  swapButtonText: { color: '#000', fontSize: 17, fontWeight: '600' },
+  swapButtonDisabled: { backgroundColor: colors.borderLight },
+  swapButtonText: { color: '#fff', fontSize: 17, fontWeight: '600' },
   successBanner: {
-    backgroundColor: '#064e3b',
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 16,
+    backgroundColor: colors.primaryDim,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    marginTop: spacing.lg,
   },
-  successText: { color: '#4ade80', fontSize: 14, textAlign: 'center' },
+  successText: { color: colors.primary, fontSize: 14, textAlign: 'center' },
   errorBanner: {
-    backgroundColor: '#450a0a',
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 16,
+    backgroundColor: 'rgba(239,68,68,0.12)',
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    marginTop: spacing.lg,
   },
-  errorText: { color: '#f87171', fontSize: 14, textAlign: 'center' },
+  errorText: { color: colors.error, fontSize: 14, textAlign: 'center' },
 })

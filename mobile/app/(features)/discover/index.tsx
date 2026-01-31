@@ -52,7 +52,7 @@ export default function DiscoverScreen() {
         style={styles.container}
         contentContainerStyle={styles.content}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
         {/* Search */}
@@ -117,9 +117,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     backgroundColor: colors.card,
   },
-  tabActive: { backgroundColor: colors.text },
+  tabActive: { backgroundColor: colors.primary },
   tabText: { fontSize: 14, fontWeight: '600', color: colors.textSecondary },
-  tabTextActive: { color: colors.bg },
+  tabTextActive: { color: '#fff' },
   sectionLabel: {
     fontSize: 13,
     color: colors.textSecondary,

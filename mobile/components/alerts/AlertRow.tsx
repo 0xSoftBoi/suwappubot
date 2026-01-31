@@ -32,7 +32,7 @@ export default function AlertRow({ alert, onToggle, onDelete }: AlertRowProps) {
           <Switch
             value={alert.isActive}
             onValueChange={() => onToggle(alert.id)}
-            trackColor={{ false: colors.borderLight, true: colors.success }}
+            trackColor={{ false: colors.borderLight, true: colors.primary }}
           />
         )}
       </View>

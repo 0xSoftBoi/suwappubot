@@ -118,5 +118,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: spacing.xxl,
   },
-  followText: { color: colors.bg, fontSize: 17, fontWeight: '600' },
+  followText: { color: '#fff', fontSize: 17, fontWeight: '600' },
 })

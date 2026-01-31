@@ -56,7 +56,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   ctaText: {
-    color: colors.bg,
+    color: '#fff',
     fontSize: 15,
     fontWeight: '600',
   },

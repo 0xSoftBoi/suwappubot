@@ -86,7 +86,7 @@ export function SwapConfirmSheet({ visible, details, isPending, onConfirm, onCan
             disabled={isPending}
           >
             {isPending ? (
-              <ActivityIndicator color={colors.bg} />
+              <ActivityIndicator color="#fff" />
             ) : (
               <Text style={styles.confirmText}>Confirm Swap</Text>
             )}
@@ -150,14 +150,14 @@ const styles = StyleSheet.create({
   warningBannerSevere: { backgroundColor: 'rgba(239,68,68,0.12)' },
   warningText: { fontSize: 13, color: colors.warning, textAlign: 'center' },
   confirmButton: {
-    backgroundColor: colors.text,
+    backgroundColor: colors.primary,
     borderRadius: radius.lg,
     paddingVertical: 16,
     alignItems: 'center',
     marginBottom: spacing.md,
   },
   confirmButtonDisabled: { backgroundColor: colors.borderLight },
-  confirmText: { color: colors.bg, fontSize: 17, fontWeight: '600' },
+  confirmText: { color: '#fff', fontSize: 17, fontWeight: '600' },
   cancelButton: {
     borderRadius: radius.lg,
     paddingVertical: 14,
