@@ -4,7 +4,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
-import { WalletInfo, ConnectWallet, PasskeyRegister } from './auth'
+import { WalletInfo, PasskeyRegister } from './auth'
 import { api } from '../lib/api'
 
 interface SettingsDrawerProps {
@@ -17,7 +17,6 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
   const {
     telegramUser,
     linkedWallets,
-    isWalletAvailable,
     isPasskeySupported,
     isPlatformAuthAvailable,
     refreshWallets,
@@ -72,11 +71,6 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
     } finally {
       setUnlinkingAddress(null)
     }
-  }
-
-  // Handle wallet connection success
-  const handleWalletSuccess = () => {
-    refreshWallets()
   }
 
   // Handle passkey success
@@ -167,7 +161,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
             )}
           </div>
 
-          {/* Connect Wallet */}
+          {/* Add Wallet */}
           <div>
             <h3 className="text-sm font-medium text-tg-hint uppercase tracking-wide mb-3">
               Add Wallet
@@ -182,20 +176,12 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
                 />
               )}
 
-              {/* MetaMask option */}
-              {isWalletAvailable && (
-                <ConnectWallet
-                  onSuccess={handleWalletSuccess}
-                  linkToAccount={true}
-                />
-              )}
-
               {/* No options available */}
-              {!isWalletAvailable && !(isPasskeySupported && isPlatformAuthAvailable) && (
+              {!(isPasskeySupported && isPlatformAuthAvailable) && (
                 <div className="text-sm text-tg-hint text-center py-4">
                   <p>No wallet options available</p>
                   <p className="text-xs mt-1">
-                    Install MetaMask or use a browser with passkey support
+                    Use a browser with passkey support
                   </p>
                 </div>
               )}

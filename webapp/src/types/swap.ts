@@ -20,7 +20,8 @@ export interface SwapQuoteRequest {
   toToken: string    // address
   fromChain: string
   toChain: string
-  amount: string
+  amount: string     // human-readable amount (e.g. "1.5")
+  fromDecimals: number  // decimals of fromToken, used to convert to wei
   slippage?: number  // percentage, e.g. 0.5 for 0.5%
 }
 
@@ -40,15 +41,46 @@ export interface SwapQuote {
   expiresAt: string
   minReceived: string
   slippage: number
+  estimatedDuration?: number  // seconds
 }
 
 export interface SwapExecuteRequest {
   quoteId: string
-  walletAddress: string
 }
 
 export interface SwapExecuteResult {
-  swapId: string
-  txHash: string
-  status: 'pending' | 'submitted'
+  success: boolean
+  swapId: number
+  status: 'signed'
+  signedTransaction: string
+  message: string
+  chain: {
+    chainId: number
+    rpcNeeded: boolean
+  }
+  swap: {
+    fromChain: string
+    toChain: string
+    fromToken: string
+    toToken: string
+    fromAmount: string
+    expectedToAmount: string
+  }
+}
+
+export interface SwapStatusResponse {
+  id: number
+  status: 'pending' | 'signed' | 'completed' | 'failed'
+  fromChain: string
+  toChain: string
+  fromToken: string
+  toToken: string
+  fromAmount: string
+  toAmount: string | null
+  txHash: string | null
+  bridgeTxHash: string | null
+  destinationTxHash: string | null
+  errorMessage: string | null
+  createdAt: string
+  completedAt: string | null
 }

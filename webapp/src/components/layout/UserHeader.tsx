@@ -7,7 +7,7 @@ export interface UserHeaderProps {
 }
 
 export function UserHeader({ showSettings = true, onSettingsClick }: UserHeaderProps) {
-  const { linkedWallets, connectedAddress, walletInfo } = useAuth()
+  const { linkedWallets, walletInfo } = useAuth()
   const telegramUser = getTelegramUser()
 
   // Get display name
@@ -15,7 +15,7 @@ export function UserHeader({ showSettings = true, onSettingsClick }: UserHeaderP
   const username = telegramUser?.username ? `@${telegramUser.username}` : null
 
   // Get wallet address to display
-  const walletAddress = connectedAddress || linkedWallets[0]?.address || walletInfo?.address || null
+  const walletAddress = linkedWallets[0]?.address || walletInfo?.address || null
 
   // Get avatar - use Telegram photo or generate from name
   const avatarUrl = telegramUser?.photo_url

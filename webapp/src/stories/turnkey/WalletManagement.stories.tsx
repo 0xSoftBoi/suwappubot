@@ -22,7 +22,7 @@ type Story = StoryObj
 // Mock wallet data
 const mockWallets = [
   { address: '0x7a3b8f2e9c1d4a5b6c7d8e9f0a1b2c3d4e5f6789', chain: 'evm', provider: 'turnkey', name: 'Main Wallet' },
-  { address: '0x1234567890abcdef1234567890abcdef12345678', chain: 'evm', provider: 'external', name: 'MetaMask' },
+  { address: '0x1234567890abcdef1234567890abcdef12345678', chain: 'evm', provider: 'external', name: 'Linked Wallet' },
   { address: 'HN7cABqLq46Es1jh92dQQisAr1v36mrBJ6dBfdkxyS3x', chain: 'solana', provider: 'turnkey', name: 'Solana Wallet' },
 ]
 
@@ -91,7 +91,7 @@ export const WalletCardVariants: Story = {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-heading font-bold text-suwappu-text">MetaMask</span>
+                <span className="font-heading font-bold text-suwappu-text">Linked Wallet</span>
                 <span className="px-2 py-0.5 text-xs font-heading bg-orange-100 text-orange-700 rounded-full">
                   External
                 </span>
@@ -270,8 +270,8 @@ export const AddWalletOptions: Story = {
             </svg>
           </div>
           <div className="flex-1 text-left">
-            <div className="font-heading font-bold text-suwappu-text">Connect MetaMask</div>
-            <div className="text-sm text-suwappu-text-secondary">Link existing wallet</div>
+            <div className="font-heading font-bold text-suwappu-text">Link External Wallet</div>
+            <div className="text-sm text-suwappu-text-secondary">Connect existing wallet</div>
           </div>
         </button>
 

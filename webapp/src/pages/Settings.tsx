@@ -209,7 +209,7 @@ export function Settings() {
                   key={wallet.address}
                   name={wallet.name}
                   address={wallet.address}
-                  type={wallet.provider === 'turnkey' ? 'passkey' : 'metamask'}
+                  type={wallet.provider === 'turnkey' ? 'passkey' : 'walletconnect'}
                   isPrimary={wallet.isDefault}
                 />
               ))}

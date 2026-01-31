@@ -434,20 +434,6 @@ export const LinkedWallets: Story = {
             </div>
           </div>
 
-          <div className="flex items-center gap-3 p-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-orange-500 flex items-center justify-center">
-              <span className="text-white">🦊</span>
-            </div>
-            <div className="flex-1">
-              <p className="font-heading font-semibold text-sm text-suwappu-text">MetaMask</p>
-              <p className="font-mono text-xs text-suwappu-text-secondary">0x1234...5678</p>
-            </div>
-            <button className="p-1.5 text-suwappu-text-secondary">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-              </svg>
-            </button>
-          </div>
         </div>
 
         <button className="w-full flex items-center justify-center gap-2 p-3 bg-white rounded-suwappu-xl shadow-suwappu-1 text-suwappu-magenta-mid font-heading font-semibold text-sm border-2 border-dashed border-suwappu-sakura-mid">

@@ -1,8 +1,8 @@
 /**
  * Hook to create a viem LocalAccount backed by Turnkey passkey.
  *
- * Bridges Turnkey SDK session with wagmi/viem for transaction signing.
- * The account can be used with wagmi hooks like useSendTransaction.
+ * Bridges Turnkey SDK session with viem for transaction signing.
+ * The account can be used with viem's sendTransaction and signMessage.
  */
 
 import { useCallback } from 'react'

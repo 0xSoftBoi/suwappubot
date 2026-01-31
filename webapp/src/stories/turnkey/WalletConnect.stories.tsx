@@ -28,8 +28,8 @@ function WalletIcon({ className = '' }: { className?: string }) {
   )
 }
 
-// MetaMask fox icon (simplified)
-function MetaMaskIcon({ className = '' }: { className?: string }) {
+// External Wallet fox icon (simplified)
+function ExternalWalletIcon({ className = '' }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor">
       <path d="M21.5 11.75L18.75 9l1-3.5-2.25.75L15 4l-3 2.5L9 4 6.5 6.25l-2.25-.75 1 3.5L2.5 11.75l2.75 2.75-.5 3.25 3-1 2.25 2 2-1.5 2 1.5 2.25-2 3 1-.5-3.25 2.75-2.75z" />
@@ -46,11 +46,11 @@ export const DefaultButton: Story = {
   ),
 }
 
-export const MetaMaskButton: Story = {
+export const ExternalWalletButton: Story = {
   render: () => (
     <button className="flex items-center justify-center gap-3 px-8 py-4 bg-gradient-to-r from-orange-400 to-orange-500 text-white font-heading font-bold rounded-suwappu-pill shadow-suwappu-button transition-all duration-300 hover:-translate-y-0.5 hover:shadow-suwappu-button-hover active:translate-y-0">
-      <MetaMaskIcon className="w-6 h-6" />
-      Connect MetaMask
+      <ExternalWalletIcon className="w-6 h-6" />
+      Connect External Wallet
     </button>
   ),
 }
@@ -141,8 +141,8 @@ export const WithDropdown: Story = {
         {isOpen && (
           <div className="absolute top-full left-0 right-0 mt-2 p-2 bg-white rounded-suwappu-xl shadow-suwappu-3 border border-suwappu-sakura-mid/20 z-10">
             <button className="w-full flex items-center gap-3 px-4 py-3 rounded-suwappu-lg hover:bg-suwappu-sakura-light/30 transition-colors">
-              <MetaMaskIcon className="w-6 h-6 text-orange-500" />
-              <span className="font-heading font-semibold text-suwappu-text">MetaMask</span>
+              <ExternalWalletIcon className="w-6 h-6 text-orange-500" />
+              <span className="font-heading font-semibold text-suwappu-text">External Wallet</span>
             </button>
             <button className="w-full flex items-center gap-3 px-4 py-3 rounded-suwappu-lg hover:bg-suwappu-sakura-light/30 transition-colors">
               <svg className="w-6 h-6 text-blue-500" viewBox="0 0 24 24" fill="currentColor">
@@ -184,11 +184,11 @@ export const InstallPrompt: Story = {
   render: () => (
     <div className="p-6 bg-white rounded-suwappu-xxl shadow-suwappu-3 border border-suwappu-sakura-mid/20 max-w-sm text-center">
       <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-orange-400 to-orange-500 rounded-suwappu-xl flex items-center justify-center">
-        <MetaMaskIcon className="w-10 h-10 text-white" />
+        <ExternalWalletIcon className="w-10 h-10 text-white" />
       </div>
-      <h3 className="font-heading text-xl font-bold text-suwappu-purple-deep mb-2">Install MetaMask</h3>
+      <h3 className="font-heading text-xl font-bold text-suwappu-purple-deep mb-2">Install External Wallet</h3>
       <p className="font-body text-sm text-suwappu-text-secondary mb-4">
-        To connect your wallet, please install the MetaMask browser extension.
+        To connect your wallet, please install the External Wallet browser extension.
       </p>
       <a
         href="https://metamask.io/download/"
@@ -199,7 +199,7 @@ export const InstallPrompt: Story = {
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
         </svg>
-        Download MetaMask
+        Download External Wallet
       </a>
     </div>
   ),

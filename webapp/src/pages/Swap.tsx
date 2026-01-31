@@ -37,6 +37,7 @@ export function Swap() {
       fromChain: fromToken.chain,
       toChain: toToken.chain,
       amount: fromAmount,
+      fromDecimals: fromToken.decimals,
       slippage: 0.5,
     }
   }, [fromToken, toToken, fromAmount])
@@ -80,10 +81,10 @@ export function Swap() {
 
   const handleConfirm = () => {
     if (!quote) return
-    
+
     setIsConfirming(false)
     executeSwap(
-      { quoteId: quote.id, walletAddress: '0x...' }, // TODO: Get real wallet address
+      { quoteId: quote.id },
       {
         onSuccess: () => {
           setIsSuccess(true)
