@@ -1,4 +1,4 @@
-name: Deploy API-TS to AWS ECS
+name: Deploy Bot to AWS ECS
 
 on:
   push:
@@ -6,8 +6,11 @@ on:
       - main
       - dev
     paths:
-      - 'api-ts/**'
-      - '.github/workflows/deploy-api-ts.yml'
+      - 'suwappubot/**'
+      - 'pyproject.toml'
+      - 'requirements*.txt'
+      - 'Dockerfile'
+      - '.github/workflows/deploy-bot.yml'
   workflow_dispatch:
     inputs:
       environment:
@@ -21,7 +24,7 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: suwappu-api-ts
+  ECR_REPOSITORY: suwappu
   ECS_CLUSTER: suwappu-cluster
 
 permissions:
@@ -30,7 +33,7 @@ permissions:
 
 jobs:
   deploy:
-    name: Build and Deploy API-TS
+    name: Build and Deploy Bot
     runs-on: ubuntu-latest
 
     steps:
@@ -42,13 +45,11 @@ jobs:
         run: |
           if [ "${{ github.ref }}" == "refs/heads/main" ] || [ "${{ inputs.environment }}" == "production" ]; then
             echo "ENVIRONMENT=production" >> $GITHUB_OUTPUT
-            echo "ECS_SERVICE=suwappu-api-ts-prod" >> $GITHUB_OUTPUT
-            echo "API_URL=https://api.suwappu.bot" >> $GITHUB_OUTPUT
+            echo "ECS_SERVICE=suwappu-bot-prod" >> $GITHUB_OUTPUT
             echo "IMAGE_TAG=production" >> $GITHUB_OUTPUT
           else
             echo "ENVIRONMENT=development" >> $GITHUB_OUTPUT
-            echo "ECS_SERVICE=suwappu-api-ts-dev" >> $GITHUB_OUTPUT
-            echo "API_URL=https://devapi.suwappu.bot" >> $GITHUB_OUTPUT
+            echo "ECS_SERVICE=suwappu-bot-dev" >> $GITHUB_OUTPUT
             echo "IMAGE_TAG=development" >> $GITHUB_OUTPUT
           fi
 
@@ -72,7 +73,6 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
-        working-directory: api-ts
         run: |
           # Build the Docker image
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
@@ -116,15 +116,9 @@ jobs:
 
           echo "Deployment complete!"
 
-      - name: Health check
-        run: |
-          echo "Checking health endpoint..."
-          sleep 10
-          curl -sf "${{ steps.env.outputs.API_URL }}/health" || echo "Health check pending (service may still be starting)"
-
       - name: Deployment summary
         run: |
-          echo "## API-TS Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## Bot Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -132,5 +126,4 @@ jobs:
           echo "| Image | \`${{ steps.build-image.outputs.image }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| ECS Cluster | ${{ env.ECS_CLUSTER }} |" >> $GITHUB_STEP_SUMMARY
           echo "| ECS Service | ${{ steps.env.outputs.ECS_SERVICE }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| API URL | ${{ steps.env.outputs.API_URL }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY

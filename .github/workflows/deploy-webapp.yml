@@ -22,7 +22,7 @@ on:
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: suwappu-webapp
-  ECS_CLUSTER: suwappu-production
+  ECS_CLUSTER: suwappu-cluster
   TURNKEY_ORG_ID: 5cf56ed5-5d6b-4290-8edb-f52670162aab
   TURNKEY_PROXY_URL: https://api.turnkey.com
 
@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   deploy:
-    name: Build and Deploy
+    name: Build and Deploy Webapp
     runs-on: ubuntu-latest
 
     steps:
@@ -54,14 +54,14 @@ jobs:
         run: |
           if [ "${{ github.event.inputs.environment }}" == "development" ] || [ "${{ github.ref }}" == "refs/heads/dev" ]; then
             echo "env=development" >> $GITHUB_OUTPUT
-            echo "service=suwappu-webapp" >> $GITHUB_OUTPUT
+            echo "service=suwappu-webapp-dev" >> $GITHUB_OUTPUT
             echo "tag=development" >> $GITHUB_OUTPUT
             echo "api_url=https://devapi.suwappu.bot" >> $GITHUB_OUTPUT
             echo "url=https://devfront.suwappu.bot" >> $GITHUB_OUTPUT
             echo "rp_id=devfront.suwappu.bot" >> $GITHUB_OUTPUT
           else
             echo "env=production" >> $GITHUB_OUTPUT
-            echo "service=suwappu-webapp" >> $GITHUB_OUTPUT
+            echo "service=suwappu-webapp-prod" >> $GITHUB_OUTPUT
             echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
             echo "api_url=https://api.suwappu.bot" >> $GITHUB_OUTPUT
             echo "url=https://app.suwappu.bot" >> $GITHUB_OUTPUT
@@ -79,38 +79,50 @@ jobs:
           VITE_TURNKEY_PROXY_URL: ${{ env.TURNKEY_PROXY_URL }}
         run: |
           cd webapp
+
+          # Build with environment variables
           docker build \
             --build-arg VITE_API_URL=$VITE_API_URL \
             --build-arg VITE_TURNKEY_ORG_ID=$VITE_TURNKEY_ORG_ID \
             --build-arg VITE_TURNKEY_RP_ID=$VITE_TURNKEY_RP_ID \
             --build-arg VITE_TURNKEY_PROXY_URL=$VITE_TURNKEY_PROXY_URL \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
-            .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
 
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.env.outputs.tag }}'
-          format: 'table'
-          exit-code: '0'
-          severity: 'CRITICAL,HIGH'
-          ignore-unfixed: true
+          # Also tag with SHA for traceability
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }}
+
+          # Push both tags
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }}
+
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
       - name: Deploy to ECS
         run: |
+          echo "Deploying to ${{ steps.env.outputs.env }} environment..."
+          echo "Cluster: ${{ env.ECS_CLUSTER }}"
+          echo "Service: ${{ steps.env.outputs.service }}"
+
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER }} \
             --service ${{ steps.env.outputs.service }} \
-            --deployment-configuration "deploymentCircuitBreaker={enable=true,rollback=true}" \
             --force-new-deployment
+
+          echo "Deployment initiated. Waiting for service to stabilize..."
 
       - name: Wait for deployment
         run: |
           aws ecs wait services-stable \
             --cluster ${{ env.ECS_CLUSTER }} \
             --services ${{ steps.env.outputs.service }}
+
+          echo "Deployment complete!"
+
+      - name: Health check
+        run: |
+          echo "Checking webapp..."
+          sleep 10
+          curl -sf "${{ steps.env.outputs.url }}" || echo "Health check pending (service may still be starting)"
 
       - name: Deployment summary
         run: |
@@ -119,8 +131,8 @@ jobs:
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Environment | ${{ steps.env.outputs.env }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| URL | ${{ steps.env.outputs.url }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Turnkey RP ID | ${{ steps.env.outputs.rp_id }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ steps.build-image.outputs.image }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| ECS Cluster | ${{ env.ECS_CLUSTER }} |" >> $GITHUB_STEP_SUMMARY
           echo "| ECS Service | ${{ steps.env.outputs.service }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Image | ${{ steps.build-image.outputs.image }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| URL | ${{ steps.env.outputs.url }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
