@@ -490,12 +490,8 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         
         return CONFIRM_SWAP
         
-    except Exception as e:
-        await query.edit_message_text(f"❌ Error getting quotes: {str(e)}")
-        return ConversationHandler.END
-        
     except SwapError as e:
-        await loading_msg.edit_text(
+        await query.edit_message_text(
             f"❌ Error getting quote: {str(e)}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 Try Again", callback_data="swap_start")],
@@ -504,7 +500,7 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         )
         return ConversationHandler.END
     except Exception as e:
-        await loading_msg.edit_text(
+        await query.edit_message_text(
             f"❌ Unexpected error: {str(e)}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 Try Again", callback_data="swap_start")],

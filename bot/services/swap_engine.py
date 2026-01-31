@@ -612,19 +612,33 @@ class SwapEngine:
                 else:
                     tx_hash = await self._execute_lifi_swap(quote, wallet)
                 
+                # Persist tx_hash to the database record
+                with get_session() as session:
+                    db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
+                    if db_tx:
+                        db_tx.tx_hash = tx_hash
+                        db_tx.status = SwapStatus.SUBMITTED.value
+
                 # Clean up local references
                 wallet_encrypted_key = None
-                del wallet
+
+                # Re-fetch the updated record to return
+                with get_session() as session:
+                    swap_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
 
                 return swap_tx
 
             except Exception as e:
-                import traceback
-                traceback.print_exc()
+                logger.error(f"Swap execution failed: {e}", exc_info=True)
                 # Mark as failed
+                with get_session() as session:
+                    db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
+                    if db_tx:
+                        db_tx.status = SwapStatus.FAILED.value
+                        db_tx.error_message = str(e)
+
                 # Clean up local references
                 wallet_encrypted_key = None
-                del wallet
 
                 raise SwapError(f"Swap execution failed: {repr(e)}")
     

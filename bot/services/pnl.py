@@ -243,9 +243,9 @@ class PnLService:
                     stats.total_volume_usd += float(swap.from_amount)
                 if swap.gas_cost:
                     stats.total_gas_paid_usd += float(swap.gas_cost)
-            except:
+            except (ValueError, TypeError, AttributeError):
                 pass
-            
+
             # Update streak
             today = datetime.utcnow().date()
             if stats.last_swap_date:

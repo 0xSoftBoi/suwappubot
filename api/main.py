@@ -833,7 +833,7 @@ async def passkey_auth_complete(
                 "big"
             ) % 1000000
             user = db.query(User).filter(User.id == user_id).first()
-        except:
+        except (ValueError, TypeError, IndexError):
             pass
 
     if not user:

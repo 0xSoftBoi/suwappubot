@@ -11,6 +11,7 @@ from bot.models.advanced import (
     DCAOrder, DCAExecution, DCAStatus,
     SwapTemplate,
 )
+from bot.models.swap import SwapStatus
 from bot.services.price_service import price_service
 from bot.services.swap_engine import SwapEngine
 from database.db import get_session
@@ -449,7 +450,7 @@ class OrderService:
             )
             
             # 4. Update status on submission
-            if swap_tx and swap_tx.status in ["submitted", "completed"]:
+            if swap_tx and swap_tx.status in [SwapStatus.SUBMITTED.value, SwapStatus.COMPLETED.value]:
                 with get_session() as session:
                     db_order = session.query(LimitOrder).filter(LimitOrder.id == order.id).first()
                     if db_order:
@@ -487,8 +488,9 @@ class OrderService:
                 return
 
             # Convert amount for quote
-            # Note: order.amount_per_execution is stored as string raw amount
-            amount_human = float(order.amount_per_execution) / (10**18) # Simplified, should use token decimals
+            from bot.config.tokens import get_token_decimals
+            decimals = get_token_decimals(order.from_token, order.from_chain)
+            amount_human = float(order.amount_per_execution) / (10 ** decimals)
             
             quote = await self._swap_engine.get_quote(
                 from_chain=order.from_chain,
@@ -510,7 +512,7 @@ class OrderService:
             )
             
             # 3. Update DCA Stats on success
-            if swap_tx and swap_tx.status in ["submitted", "completed"]:
+            if swap_tx and swap_tx.status in [SwapStatus.SUBMITTED.value, SwapStatus.COMPLETED.value]:
                 with get_session() as session:
                     db_order = session.query(DCAOrder).filter(DCAOrder.id == order.id).first()
                     if db_order:

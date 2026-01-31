@@ -1,6 +1,7 @@
 """Balance checking handlers."""
 
 import asyncio
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
@@ -15,6 +16,7 @@ from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
 
 
+logger = logging.getLogger(__name__)
 wallet_service = WalletService()
 
 
@@ -55,7 +57,8 @@ async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             wallet_id, address, chain_type, name = wallet_info
             try:
                 return await wallet_service.get_balances_by_address(address, chain_type)
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Failed to fetch balance for {address} on {chain_type}: {e}")
                 return {}
         
         balance_results = await asyncio.gather(

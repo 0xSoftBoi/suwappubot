@@ -504,11 +504,11 @@ async def confirm_snipe_callback(update: Update, context: ContextTypes.DEFAULT_T
                 detected_at=datetime.utcnow(),
             )
 
-        # Note: In production, this would get the actual keypair from wallet service
-        # For now, we'll simulate the result
+        # TODO: Integrate actual snipe execution with wallet service
         # result = await snipe_executor.execute_snipe(launch, keypair, config)
+        logger.warning(f"Snipe execution for {token_mint} is using SIMULATED results - not yet production-ready")
 
-        # Simulated success for demonstration
+        # Simulated success - replace with actual execution
         result_success = True
         result_signature = "simulated_signature_" + token_mint[:8]
         result_tokens = 1000000000  # Simulated

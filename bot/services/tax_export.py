@@ -166,13 +166,13 @@ class TaxExportService:
             try:
                 amount = Decimal(str(tx.from_amount)) if tx.from_amount else Decimal("0")
                 total_volume += amount
-            except:
+            except (ValueError, TypeError):
                 pass
-            
+
             if tx.gas_cost:
                 try:
                     total_gas += Decimal(str(tx.gas_cost))
-                except:
+                except (ValueError, TypeError):
                     pass
             
             chains.add(tx.from_chain)

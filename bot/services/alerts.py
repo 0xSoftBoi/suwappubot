@@ -123,7 +123,7 @@ class AlertService:
                     should_trigger = current_price <= alert.target_price
                     
                 elif alert.alert_type == AlertType.PERCENT_CHANGE.value:
-                    if alert.base_price is None:
+                    if alert.base_price is None or alert.base_price == 0:
                         alert.base_price = current_price
                     else:
                         change_pct = ((current_price - alert.base_price) / alert.base_price) * 100

@@ -91,7 +91,8 @@ class MetricsService:
                     
                     day = tx.created_at.strftime("%Y-%m-%d")
                     volume_by_day[day] += amount
-                except:
+                except (ValueError, TypeError, AttributeError) as e:
+                    logger.warning(f"Error parsing volume for tx {getattr(tx, 'id', '?')}: {e}")
                     pass
             
             return {
@@ -129,7 +130,8 @@ class MetricsService:
                         total_swept += amount
                     else:
                         pending += amount
-                except:
+                except (ValueError, TypeError, AttributeError) as e:
+                    logger.warning(f"Error parsing fee for fee {getattr(fee, 'id', '?')}: {e}")
                     pass
             
             return {
@@ -181,7 +183,7 @@ class MetricsService:
                 try:
                     amount = Decimal(str(tx.from_amount)) if tx.from_amount else Decimal("0")
                     users_data[tx.user_id]["volume"] += amount
-                except:
+                except (ValueError, TypeError, AttributeError):
                     pass
             
             # Sort by volume

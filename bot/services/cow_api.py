@@ -20,7 +20,7 @@ from eth_account.messages import encode_typed_data
 
 from bot.config.settings import settings
 from bot.config.chains import get_chain_by_name
-from bot.config.tokens import get_token_address, get_token_decimals
+from bot.config.tokens import get_token_address, get_token_decimals, get_decimals_by_address
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
 
@@ -225,13 +225,11 @@ class CoWProtocolAPI:
         buy_amount = quote.get("buyAmount", "0")
         fee_amount = quote.get("feeAmount", "0")
         
-        # Get decimals for human-readable amounts
-        # Note: We'd need token info to do this properly
-        # For now, assume 18 decimals for most tokens
-        buy_decimals = 18  # TODO: Get from token config
+        # Get decimals for human-readable amounts using address lookup
+        buy_decimals = get_decimals_by_address(to_token, chain)
         buy_amount_human = int(buy_amount) / (10 ** buy_decimals)
-        fee_decimals = 18
-        fee_amount_human = int(fee_amount) / (10 ** fee_decimals)
+        sell_decimals = get_decimals_by_address(from_token, chain)
+        fee_amount_human = int(fee_amount) / (10 ** sell_decimals)
         
         return CoWQuote(
             quote_id=data.get("id", ""),

@@ -581,3 +581,17 @@ def get_token_decimals(symbol: str, chain_name: str) -> int:
         return token.decimals
     return 18  # Default
 
+
+def get_decimals_by_address(address: str, chain_name: str) -> int:
+    """Get token decimals by contract address and chain. Returns 18 if not found."""
+    if not address:
+        return 18
+    addr_lower = address.lower()
+    for token in TOKENS.values():
+        chain_addr = token.addresses.get(chain_name.lower())
+        if chain_addr and chain_addr.lower() == addr_lower:
+            if token.symbol == "USDC" and chain_name.lower() == "bsc":
+                return 18
+            return token.decimals
+    return 18
+

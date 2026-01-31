@@ -270,6 +270,7 @@ class Settings(BaseSettings):
 
     # Admin API (for dashboard / ops tooling)
     admin_api_key: Optional[str] = Field(default=None, description="Secret key for admin dashboard access")
+    admin_telegram_ids: str = Field(default="", description="Comma-separated Telegram user IDs for admin access")
     
     # Application Settings
     log_level: str = Field(default="INFO", description="Logging level")

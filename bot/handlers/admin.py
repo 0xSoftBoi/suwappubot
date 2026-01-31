@@ -13,13 +13,13 @@ from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction, SwapStatus
 
 
-# Admin user IDs (add your Telegram ID here)
-ADMIN_IDS = []  # e.g., [123456789]
+# Admin user IDs from settings, fail-closed if not configured
+ADMIN_IDS = [int(x) for x in settings.admin_telegram_ids.split(",") if x.strip()] if settings.admin_telegram_ids else []
 
 
 def is_admin(user_id: int) -> bool:
-    """Check if user is admin."""
-    return user_id in ADMIN_IDS or len(ADMIN_IDS) == 0  # Allow all if no admins set
+    """Check if user is admin. Denies all if no admin IDs configured (fail-closed)."""
+    return len(ADMIN_IDS) > 0 and user_id in ADMIN_IDS
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

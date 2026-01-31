@@ -54,7 +54,7 @@ class CustodialBalance(Base):
         """Get balance as float."""
         try:
             return float(self.balance)
-        except:
+        except (ValueError, TypeError):
             return 0.0
 
 

@@ -69,17 +69,20 @@ async def dca_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         user_id = db_user.id
     
     orders = order_service.get_user_dca_orders(user_id)
-    
+
     keyboard = []
     if orders:
+        text = f"📊 *Your DCA Orders* ({len(orders)})\n\nSelect an order to view details:"
         for order in orders:
             icon = "🟢" if order.status == DCAStatus.ACTIVE.value else "⏸"
             btn_text = f"{icon} {order.to_token}: ${order.amount_per_execution}"
             keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"dca_view_{order.id}")])
-    
+    else:
+        text = "📊 *DCA Orders*\n\nNo active DCA orders. Create one to start dollar-cost averaging!"
+
     keyboard.append([InlineKeyboardButton("➕ Create DCA", callback_data="dca_create")])
     keyboard.append([InlineKeyboardButton("« Back", callback_data="main_menu")])
-    
+
     await update.message.reply_text(text, parse_mode="Markdown",
                                      reply_markup=InlineKeyboardMarkup(keyboard))
 

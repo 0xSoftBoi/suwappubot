@@ -214,7 +214,7 @@ class SimulationService:
             decimals = get_token_decimals(token, chain)
             raw = Decimal(amount)
             return raw / Decimal(10 ** decimals)
-        except:
+        except (ValueError, TypeError, KeyError):
             return Decimal(amount)
     
     def format_simulation_result(self, result: SimulationResult) -> str:
