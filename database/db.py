@@ -123,6 +123,8 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         from bot.models.snipe import SnipeOrder, SnipeConfig, SnipeHistory, WatchedToken, AutoSnipeRule
         # OAuth models
         from bot.models.oauth import OAuthIdentity, OAuthToken, OAuthState
+        # Agent registration models
+        from bot.models.agent import RegisteredAgent
 
         # Create all tables
         Base.metadata.create_all(bind=engine)
@@ -185,6 +187,14 @@ def _ensure_schema(db_engine) -> None:
     if "hot_wallets" in tables:
         _add_encryption_columns(db_engine, inspector, "hot_wallets", is_sqlite)
         _add_turnkey_columns(db_engine, inspector, "hot_wallets", is_sqlite, include_sub_org=False)
+
+    # --- registered_agents: unique index on api_key ---
+    if "registered_agents" in tables:
+        with db_engine.begin() as conn:
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_registered_agents_api_key "
+                "ON registered_agents(api_key)"
+            ))
 
     # --- users: TOS columns and telegram_id nullability ---
     if "users" in tables:

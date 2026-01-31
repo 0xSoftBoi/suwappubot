@@ -37,6 +37,7 @@ from database.db import init_db, engine, get_session, DATABASE_AVAILABLE
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction
 from bot.models.advanced import LimitOrder, DCAOrder
+from bot.models.agent import RegisteredAgent
 from bot.utils.db_monitor import setup_db_monitoring
 from bot.main import add_handlers
 from telegram.ext import Application
@@ -198,15 +199,31 @@ admin_key_header = APIKeyHeader(name=ADMIN_KEY_NAME, auto_error=False)
 async def get_agent_key(
     api_key: str = Security(api_key_header),
 ):
-    """Verify the agent's API key. Fallback to settings.agent_api_key."""
+    """Verify the agent's API key against global key or registered agent keys."""
     valid_key = getattr(settings, "agent_api_key", None)
     if not valid_key:
         # In development, allow if no key is set
         return "dev-key"
-    
+
+    # Fast path: check global key
     if api_key == valid_key:
         return api_key
-    
+
+    # Check registered agent keys in DB
+    if api_key and DATABASE_AVAILABLE:
+        try:
+            with get_session() as session:
+                agent = session.query(RegisteredAgent).filter(
+                    RegisteredAgent.api_key == api_key,
+                    RegisteredAgent.is_active == True,
+                ).first()
+                if agent:
+                    agent.last_seen_at = datetime.utcnow()
+                    session.commit()
+                    return api_key
+        except Exception:
+            pass
+
     raise HTTPException(
         status_code=403,
         detail="Invalid or missing Agent API Key. Discovery requires authentication."
@@ -315,6 +332,17 @@ class AgentWalletCreate(BaseModel):
     user_id: int
     name: Optional[str] = "Agent Managed Wallet"
     chain_type: str = "evm"
+
+class AgentRegisterRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    callback_url: Optional[str] = None
+
+class AgentRegisterResponse(BaseModel):
+    agent_id: int
+    name: str
+    api_key: str
+    message: str
 
 class SwapResponse(BaseModel):
     id: int
@@ -906,6 +934,39 @@ async def get_tools(agent_key: str = Depends(get_agent_key)):
             }
         ]
     }
+
+@app.post("/v1/agent/register", response_model=AgentRegisterResponse, status_code=201, tags=["Agents"], summary="Register an external agent")
+async def register_agent(
+    request: AgentRegisterRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Public endpoint for external A2A agents to self-register and obtain an API key.
+    No authentication required. The returned API key should be stored securely
+    by the caller — it cannot be retrieved again.
+    """
+    # Generate a unique prefixed API key
+    api_key = f"suw_ag_{secrets.token_urlsafe(32)}"
+
+    agent = RegisteredAgent(
+        name=request.name,
+        description=request.description,
+        callback_url=request.callback_url,
+        api_key=api_key,
+        is_active=True,
+        created_at=datetime.utcnow(),
+    )
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
+
+    return AgentRegisterResponse(
+        agent_id=agent.id,
+        name=agent.name,
+        api_key=api_key,
+        message="Store this key securely. It cannot be retrieved again.",
+    )
+
 
 @app.post("/v1/agent/execute", tags=["Agents"], summary="Execute natural language trading command")
 async def agent_execute(
