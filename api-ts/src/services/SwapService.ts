@@ -103,6 +103,7 @@ export interface LifiQuote {
 		id: string
 		type: string
 		tool: string
+		toolDetails?: { key: string; name: string; logoURI?: string }
 		action: Record<string, unknown>
 		estimate: QuoteEstimate
 	}>
