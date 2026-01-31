@@ -3,7 +3,7 @@ import { logger } from 'hono/logger'
 import { HTTPException } from 'hono/http-exception'
 
 import { createCorsMiddleware, agentKeyAuth } from './middleware'
-import { healthRoutes, toolsRoutes, webappRoutes, usersRoutes, agentRoutes, pointsRoutes, swapRoutes } from './routes'
+import { healthRoutes, toolsRoutes, webappRoutes, usersRoutes, agentRoutes, pointsRoutes, swapRoutes, walletsRoutes, balancesRoutes } from './routes'
 
 export interface AppConfig {
 	allowedOrigins: string
@@ -34,6 +34,8 @@ export function createApp(config: AppConfig) {
 	// Webapp routes - Telegram auth (mounted before agent-protected routes)
 	app.route('/webapp', webappRoutes)
 	app.route('/webapp/swap', swapRoutes)
+	app.route('/webapp/wallets', walletsRoutes)
+	app.route('/webapp/balances', balancesRoutes)
 
 	// Agent API routes - Agent API key required
 	const v1 = new Hono()

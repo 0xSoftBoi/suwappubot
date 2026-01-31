@@ -11,6 +11,13 @@ export interface CreateTurnkeyWalletParams {
 	turnkeyAccountId: string
 }
 
+export interface AddExternalWalletParams {
+	userId: number
+	address: string
+	chainType: 'evm' | 'solana'
+	name?: string
+}
+
 export interface WalletServiceInterface {
 	readonly getUserWallets: (
 		userId: number
@@ -21,6 +28,17 @@ export interface WalletServiceInterface {
 	readonly createTurnkeyWallet: (
 		params: CreateTurnkeyWalletParams
 	) => Effect.Effect<Wallet, DatabaseError, DrizzleService>
+	readonly addExternalWallet: (
+		params: AddExternalWalletParams
+	) => Effect.Effect<Wallet, DatabaseError, DrizzleService>
+	readonly removeWallet: (
+		userId: number,
+		address: string
+	) => Effect.Effect<boolean, DatabaseError, DrizzleService>
+	readonly getWalletByAddress: (
+		userId: number,
+		address: string
+	) => Effect.Effect<Wallet | null, DatabaseError, DrizzleService>
 }
 
 export class WalletService extends Context.Tag('WalletService')<
@@ -89,5 +107,85 @@ export const WalletServiceLive = Layer.succeed(WalletService, {
 			})
 
 			return result[0]
+		}),
+
+	addExternalWallet: (params: AddExternalWalletParams) =>
+		Effect.gen(function* () {
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+			)
+
+			// Check if wallet already exists for this user
+			const existing = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(wallets)
+						.where(and(eq(wallets.userId, params.userId), eq(wallets.address, params.address.toLowerCase()))),
+				catch: (e) => new DatabaseError({ message: `Failed to check existing wallet: ${e}`, cause: e }),
+			})
+
+			if (existing.length > 0) {
+				return existing[0]
+			}
+
+			const result = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.insert(wallets)
+						.values({
+							userId: params.userId,
+							address: params.address.toLowerCase(),
+							chainType: params.chainType,
+							walletProvider: 'external',
+							name: params.name || 'External Wallet',
+							isActive: true,
+							isDefault: false,
+						})
+						.returning(),
+				catch: (e) =>
+					new DatabaseError({ message: `Failed to add external wallet: ${e}`, cause: e }),
+			})
+
+			return result[0]
+		}),
+
+	removeWallet: (userId: number, address: string) =>
+		Effect.gen(function* () {
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+			)
+
+			const result = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.update(wallets)
+						.set({ isActive: false })
+						.where(and(eq(wallets.userId, userId), eq(wallets.address, address.toLowerCase())))
+						.returning(),
+				catch: (e) =>
+					new DatabaseError({ message: `Failed to remove wallet: ${e}`, cause: e }),
+			})
+
+			return result.length > 0
+		}),
+
+	getWalletByAddress: (userId: number, address: string) =>
+		Effect.gen(function* () {
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+			)
+
+			const result = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(wallets)
+						.where(and(eq(wallets.userId, userId), eq(wallets.address, address.toLowerCase()))),
+				catch: (e) =>
+					new DatabaseError({ message: `Failed to get wallet: ${e}`, cause: e }),
+			})
+
+			return result[0] || null
 		}),
 })

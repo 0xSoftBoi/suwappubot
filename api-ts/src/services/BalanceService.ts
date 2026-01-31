@@ -1,4 +1,5 @@
 import { Context, Effect, Layer } from 'effect'
+import { Alchemy, Network } from 'alchemy-sdk'
 import type { Wallet } from '../db'
 
 // Token balance with USD value
@@ -10,9 +11,19 @@ export interface TokenBalance {
 	balance: string
 	usdValue: number
 	decimals: number
+	logoUrl?: string
 }
 
-// Chain RPC endpoints (use env vars in production)
+// Alchemy network mapping
+const ALCHEMY_NETWORKS: Record<string, Network> = {
+	ethereum: Network.ETH_MAINNET,
+	polygon: Network.MATIC_MAINNET,
+	arbitrum: Network.ARB_MAINNET,
+	optimism: Network.OPT_MAINNET,
+	base: Network.BASE_MAINNET,
+}
+
+// Chain RPC endpoints (fallback for non-Alchemy chains)
 const RPC_ENDPOINTS: Record<string, string> = {
 	ethereum: process.env.ETH_RPC_URL || 'https://eth.llamarpc.com',
 	polygon: process.env.POLYGON_RPC_URL || 'https://polygon.llamarpc.com',
@@ -26,12 +37,24 @@ const RPC_ENDPOINTS: Record<string, string> = {
 // Native token info by chain
 const NATIVE_TOKENS: Record<string, { symbol: string; name: string; decimals: number }> = {
 	ethereum: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
-	polygon: { symbol: 'MATIC', name: 'Polygon', decimals: 18 },
+	polygon: { symbol: 'POL', name: 'Polygon', decimals: 18 },
 	arbitrum: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
 	optimism: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
 	base: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
 	bsc: { symbol: 'BNB', name: 'BNB Chain', decimals: 18 },
 	solana: { symbol: 'SOL', name: 'Solana', decimals: 9 },
+}
+
+// Get or create Alchemy client for a chain
+function getAlchemyClient(chain: string): Alchemy | null {
+	const apiKey = process.env.ALCHEMY_API_KEY
+	const network = ALCHEMY_NETWORKS[chain]
+
+	if (!apiKey || !network) {
+		return null
+	}
+
+	return new Alchemy({ apiKey, network })
 }
 
 // Simple price cache (in production, use Redis)
@@ -41,12 +64,94 @@ const PRICE_CACHE_TTL = 60 * 1000 // 1 minute
 export interface BalanceServiceInterface {
 	readonly getWalletBalances: (wallet: Wallet) => Effect.Effect<TokenBalance[], Error>
 	readonly getTokenPrice: (symbol: string) => Effect.Effect<number, Error>
+	readonly getMultiChainBalances: (address: string, chains?: string[]) => Effect.Effect<TokenBalance[], Error>
 }
 
 export class BalanceService extends Context.Tag('BalanceService')<
 	BalanceService,
 	BalanceServiceInterface
 >() {}
+
+// Fetch token balances using Alchemy SDK
+async function fetchAlchemyBalances(address: string, chain: string): Promise<TokenBalance[]> {
+	const alchemy = getAlchemyClient(chain)
+	if (!alchemy) {
+		// Fall back to native balance only
+		const balance = await fetchEvmNativeBalance(address, chain)
+		const balanceNum = parseFloat(balance)
+		if (balanceNum <= 0) return []
+
+		const token = NATIVE_TOKENS[chain]
+		const price = await fetchTokenPrice(token.symbol)
+		return [{
+			symbol: token.symbol,
+			name: token.name,
+			address: 'native',
+			chain,
+			balance,
+			usdValue: balanceNum * price,
+			decimals: token.decimals,
+		}]
+	}
+
+	try {
+		const balances: TokenBalance[] = []
+
+		// Get native balance
+		const nativeBalance = await alchemy.core.getBalance(address)
+		const token = NATIVE_TOKENS[chain]
+		const nativeBalanceNum = Number(nativeBalance) / Math.pow(10, token.decimals)
+
+		if (nativeBalanceNum > 0) {
+			const price = await fetchTokenPrice(token.symbol)
+			balances.push({
+				symbol: token.symbol,
+				name: token.name,
+				address: 'native',
+				chain,
+				balance: nativeBalanceNum.toFixed(6),
+				usdValue: nativeBalanceNum * price,
+				decimals: token.decimals,
+			})
+		}
+
+		// Get token balances using Alchemy
+		const tokenBalances = await alchemy.core.getTokenBalances(address)
+
+		for (const tb of tokenBalances.tokenBalances) {
+			if (!tb.tokenBalance || tb.tokenBalance === '0x0' || tb.tokenBalance === '0') continue
+
+			try {
+				const metadata = await alchemy.core.getTokenMetadata(tb.contractAddress)
+				if (!metadata.decimals || !metadata.symbol) continue
+
+				const rawBalance = BigInt(tb.tokenBalance)
+				const balanceNum = Number(rawBalance) / Math.pow(10, metadata.decimals)
+
+				if (balanceNum > 0.0001) { // Filter dust
+					const price = await fetchTokenPrice(metadata.symbol)
+					balances.push({
+						symbol: metadata.symbol,
+						name: metadata.name || metadata.symbol,
+						address: tb.contractAddress,
+						chain,
+						balance: balanceNum.toFixed(6),
+						usdValue: balanceNum * price,
+						decimals: metadata.decimals,
+						logoUrl: metadata.logo || undefined,
+					})
+				}
+			} catch {
+				// Skip tokens we can't get metadata for
+			}
+		}
+
+		return balances
+	} catch (e) {
+		console.error(`Failed to fetch Alchemy balances for ${chain}:`, e)
+		return []
+	}
+}
 
 // Fetch native balance for EVM chains
 async function fetchEvmNativeBalance(address: string, chain: string): Promise<string> {
@@ -170,14 +275,21 @@ export const BalanceServiceLive = Layer.succeed(BalanceService, {
 						decimals: 9,
 					})
 				} else {
-					// EVM wallet - fetch balance for common chains
-					const evmChains = ['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc']
+					// EVM wallet - use Alchemy for supported chains
+					const alchemyChains = ['ethereum', 'polygon', 'arbitrum', 'optimism', 'base']
+					const fallbackChains = ['bsc']
 
-					for (const chain of evmChains) {
+					// Fetch from Alchemy-supported chains in parallel
+					const alchemyResults = await Promise.all(
+						alchemyChains.map((chain) => fetchAlchemyBalances(wallet.address, chain))
+					)
+					balances.push(...alchemyResults.flat())
+
+					// Fallback for non-Alchemy chains
+					for (const chain of fallbackChains) {
 						const balance = await fetchEvmNativeBalance(wallet.address, chain)
 						const balanceNum = parseFloat(balance)
 
-						// Only include if balance > 0
 						if (balanceNum > 0) {
 							const token = NATIVE_TOKENS[chain]
 							const price = await fetchTokenPrice(token.symbol)
@@ -205,5 +317,17 @@ export const BalanceServiceLive = Layer.succeed(BalanceService, {
 		Effect.tryPromise({
 			try: () => fetchTokenPrice(symbol),
 			catch: (e) => new Error(`Failed to fetch price for ${symbol}: ${e}`),
+		}),
+
+	getMultiChainBalances: (address: string, chains?: string[]) =>
+		Effect.tryPromise({
+			try: async () => {
+				const targetChains = chains || ['ethereum', 'polygon', 'arbitrum', 'optimism', 'base']
+				const results = await Promise.all(
+					targetChains.map((chain) => fetchAlchemyBalances(address, chain))
+				)
+				return results.flat()
+			},
+			catch: (e) => new Error(`Failed to fetch multi-chain balances: ${e}`),
 		}),
 })
