@@ -31,9 +31,11 @@ export function createApp(config: AppConfig) {
 	// Public routes
 	app.route('/', healthRoutes)
 
-	// Webapp routes - Telegram auth (mounted before agent-protected routes)
-	app.route('/webapp', webappRoutes)
+	// Swap routes - mounted first so public endpoints (tokens, chains) are accessible
 	app.route('/webapp/swap', swapRoutes)
+	
+	// Webapp routes - Telegram auth
+	app.route('/webapp', webappRoutes)
 
 	// Agent API routes - Agent API key required
 	const v1 = new Hono()

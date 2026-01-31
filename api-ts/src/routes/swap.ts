@@ -10,8 +10,8 @@ import { EnvService } from '../config/EnvService'
 
 const swapRoutes = new Hono()
 
-// All swap routes require telegram auth
-swapRoutes.use('*', telegramAuth())
+// Note: Public routes (tokens, chains) are defined first, before auth middleware
+// Protected routes use the telegramAuth middleware explicitly
 
 // In-memory quote cache (in production, use Redis)
 const quoteCache = new Map<string, { quote: SwapQuote; expiry: number }>()
@@ -47,7 +47,7 @@ function getCachedQuote(quoteId: string): SwapQuote | null {
  * - slippage: Optional, default 0.03 (3%)
  * - order: Optional, "RECOMMENDED" | "FASTEST" | "CHEAPEST" | "SAFEST"
  */
-swapRoutes.get('/quote', async (c) => {
+swapRoutes.get('/quote', telegramAuth(), async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
 	
 	// Extract query params
@@ -147,7 +147,7 @@ swapRoutes.get('/quote', async (c) => {
  * - quoteId: The quote ID to execute
  * - idempotencyKey: Optional unique key to prevent duplicate swaps
  */
-swapRoutes.post('/execute', async (c) => {
+swapRoutes.post('/execute', telegramAuth(), async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
 	const body = await c.req.json().catch(() => ({}))
 	
@@ -329,7 +329,7 @@ swapRoutes.post('/execute', async (c) => {
  * GET /webapp/swap/status/:swapId
  * Get the status of a swap
  */
-swapRoutes.get('/status/:swapId', async (c) => {
+swapRoutes.get('/status/:swapId', telegramAuth(), async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
 	const swapId = parseInt(c.req.param('swapId'), 10)
 

@@ -290,3 +290,186 @@ async def get_my_swaps(
         )
         for swap in swaps
     ]
+
+
+# --- Wallet Management Endpoints ---
+
+class LinkedWallet(BaseModel):
+    address: str
+    chainType: str
+    linkedAt: str
+    provider: str
+    name: Optional[str] = None
+
+
+class WalletCreateRequest(BaseModel):
+    chainType: str = "evm"
+    name: Optional[str] = None
+
+
+class WalletCreateResponse(BaseModel):
+    success: bool
+    address: Optional[str] = None
+    chain: Optional[str] = None
+    message: Optional[str] = None
+
+
+@router.get("/users/me/wallets", response_model=List[LinkedWallet])
+async def get_my_wallets(
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all wallets linked to the current Telegram user.
+    """
+    # Find user by telegram_id
+    user = db.query(User).filter(User.telegram_id == tg_user.id).first()
+    if not user:
+        return []
+
+    # Get all active wallets
+    wallets = db.query(Wallet).filter(
+        Wallet.user_id == user.id,
+        Wallet.is_active == True
+    ).all()
+
+    return [
+        LinkedWallet(
+            address=wallet.address,
+            chainType=wallet.chain_type or "evm",
+            linkedAt=wallet.created_at.isoformat() if wallet.created_at else "",
+            provider=wallet.wallet_provider or "local",
+            name=wallet.name,
+        )
+        for wallet in wallets
+    ]
+
+
+@router.post("/wallets/default", response_model=WalletCreateResponse)
+async def get_or_create_wallet(
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the user's default wallet, or create one if none exists.
+    Uses Turnkey for secure wallet creation when available.
+    """
+    from bot.services.wallet import WalletService
+    from bot.services.turnkey_client import is_turnkey_configured, get_turnkey_client
+
+    wallet_service = WalletService()
+
+    # Find or create user
+    user = db.query(User).filter(User.telegram_id == tg_user.id).first()
+    if not user:
+        user = User(
+            telegram_id=tg_user.id,
+            username=tg_user.username,
+            first_name=tg_user.first_name,
+            last_name=tg_user.last_name,
+            created_at=datetime.utcnow(),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    # Check if user already has a default wallet
+    default_wallet = db.query(Wallet).filter(
+        Wallet.user_id == user.id,
+        Wallet.is_active == True,
+        Wallet.is_default == True
+    ).first()
+
+    if default_wallet:
+        return WalletCreateResponse(
+            success=True,
+            address=default_wallet.address,
+            chain=default_wallet.chain_type or "ethereum",
+        )
+
+    # Create new wallet using Turnkey if configured
+    try:
+        if is_turnkey_configured():
+            turnkey = get_turnkey_client()
+            
+            # Create sub-organization for user
+            sub_org_name = f"tg_user_{user.id}"
+            sub_org = await turnkey.create_sub_organization(name=sub_org_name)
+            
+            # Create EVM wallet
+            turnkey_wallet = await turnkey.create_wallet(
+                wallet_name="Telegram Wallet",
+                chain_type="evm",
+                organization_id=sub_org.sub_org_id,
+            )
+            
+            # Store wallet in database
+            wallet = Wallet(
+                user_id=user.id,
+                name="Telegram Wallet",
+                address=turnkey_wallet.address,
+                chain_type="evm",
+                wallet_provider="turnkey",
+                turnkey_sub_org_id=sub_org.sub_org_id,
+                turnkey_wallet_id=turnkey_wallet.wallet_id,
+                turnkey_account_id=turnkey_wallet.account_id,
+                is_active=True,
+                is_default=True,
+                created_at=datetime.utcnow(),
+            )
+            db.add(wallet)
+            db.commit()
+            
+            return WalletCreateResponse(
+                success=True,
+                address=turnkey_wallet.address,
+                chain="ethereum",
+            )
+        else:
+            # Fallback to local wallet creation
+            wallet = await wallet_service.create_wallet(
+                user_id=user.id,
+                name="Telegram Wallet",
+                chain_type="evm",
+            )
+            return WalletCreateResponse(
+                success=True,
+                address=wallet.address,
+                chain="ethereum",
+            )
+    except Exception as e:
+        return WalletCreateResponse(
+            success=False,
+            message=str(e),
+        )
+
+
+@router.delete("/wallets/{address}")
+async def unlink_wallet(
+    address: str,
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Unlink (deactivate) a wallet from the current Telegram user.
+    """
+    # Find user by telegram_id
+    user = db.query(User).filter(User.telegram_id == tg_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Find the wallet
+    wallet = db.query(Wallet).filter(
+        Wallet.user_id == user.id,
+        Wallet.address.ilike(address),
+        Wallet.is_active == True
+    ).first()
+
+    if not wallet:
+        raise HTTPException(status_code=404, detail="Wallet not found")
+
+    # Deactivate instead of delete
+    wallet.is_active = False
+    db.commit()
+
+    return {"success": True, "message": "Wallet unlinked successfully"}

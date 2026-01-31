@@ -55,3 +55,39 @@ export interface HealthStatus {
   service: string
   timestamp?: string
 }
+
+// User preferences (settings page)
+export interface UserPreferences {
+  defaultSlippage: number // basis points: 50 = 0.5%
+  notificationsEnabled: boolean
+  twoFaEnabled: boolean
+  twoFaThreshold: number
+}
+
+export interface UserProfile {
+  id: number
+  telegramId?: number
+  username?: string
+  firstName?: string
+  lastName?: string
+}
+
+export interface LinkedWalletInfo {
+  address: string
+  name: string
+  chainType: 'evm' | 'solana'
+  provider: 'local' | 'turnkey' | 'external'
+  isDefault: boolean
+  linkedAt: string
+}
+
+export interface UserPreferencesResponse {
+  user: UserProfile
+  preferences: UserPreferences
+  wallets: LinkedWalletInfo[]
+}
+
+export interface UpdatePreferencesResponse {
+  success: boolean
+  preferences: UserPreferences
+}

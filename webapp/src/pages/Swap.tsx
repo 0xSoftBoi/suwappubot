@@ -112,15 +112,15 @@ export function Swap() {
   // Convert SwapToken to Token for TokenInput
   const fromTokenDisplay = fromToken ? {
     symbol: fromToken.symbol,
-    icon: fromToken.logoUrl || fromToken.symbol.slice(0, 2),
+    logoUrl: fromToken.logoUrl,
     name: fromToken.name,
-  } : { symbol: 'Select', icon: '?', name: 'Select token' }
+  } : { symbol: 'Select', name: 'Select token' }
 
   const toTokenDisplay = toToken ? {
     symbol: toToken.symbol,
-    icon: toToken.logoUrl || toToken.symbol.slice(0, 2),
+    logoUrl: toToken.logoUrl,
     name: toToken.name,
-  } : { symbol: 'Select', icon: '?', name: 'Select token' }
+  } : { symbol: 'Select', name: 'Select token' }
 
   const header = <AppHeader title="Swap" />
 

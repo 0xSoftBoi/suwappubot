@@ -270,6 +270,105 @@ protectedWebapp.get('/swaps', async (c) => {
 	return c.json(result.right)
 })
 
+// GET /webapp/me/preferences - Get user preferences
+protectedWebapp.get('/preferences', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const walletService = yield* WalletService
+
+			// Find user by telegram_id
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			const user = userOption.value
+
+			// Get linked wallets
+			const wallets = yield* walletService.getActiveWallets(user.id)
+
+			return {
+				user: {
+					id: user.id,
+					telegramId: user.telegramId,
+					username: user.username,
+					firstName: user.firstName,
+					lastName: user.lastName,
+				},
+				preferences: {
+					defaultSlippage: user.defaultSlippage ?? 50, // basis points (50 = 0.5%)
+					notificationsEnabled: user.notificationsEnabled ?? true,
+					twoFaEnabled: user.twoFaEnabled ?? false,
+					twoFaThreshold: user.twoFaThreshold ?? 1000,
+				},
+				wallets: wallets.map((w) => ({
+					address: w.address,
+					name: w.name || 'Wallet',
+					chainType: w.chainType,
+					provider: w.walletProvider,
+					isDefault: w.isDefault,
+					linkedAt: w.createdAt?.toISOString() ?? '',
+				})),
+			}
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message || 'Failed to fetch preferences' }, 500)
+	}
+
+	return c.json(result.right)
+})
+
+// PUT /webapp/me/preferences - Update user preferences
+protectedWebapp.put('/preferences', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const body = await c.req.json().catch(() => ({}))
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+
+			// Find user by telegram_id
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			const user = userOption.value
+
+			// Update preferences
+			const updatedUser = yield* userService.updateUserPreferences(user.id, {
+				defaultSlippage: body.defaultSlippage,
+				notificationsEnabled: body.notificationsEnabled,
+				twoFaEnabled: body.twoFaEnabled,
+				twoFaThreshold: body.twoFaThreshold,
+			})
+
+			return {
+				success: true,
+				preferences: {
+					defaultSlippage: updatedUser.defaultSlippage ?? 50,
+					notificationsEnabled: updatedUser.notificationsEnabled ?? true,
+					twoFaEnabled: updatedUser.twoFaEnabled ?? false,
+					twoFaThreshold: updatedUser.twoFaThreshold ?? 1000,
+				},
+			}
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message || 'Failed to update preferences' }, 500)
+	}
+
+	return c.json(result.right)
+})
+
 // Mount protected routes at both /me and /users/me for backward compatibility
 webappRoutes.route('/me', protectedWebapp)
 webappRoutes.route('/users/me', protectedWebapp)

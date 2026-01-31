@@ -22,7 +22,7 @@ on:
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: suwappu-webapp
-  ECS_CLUSTER: suwappu-cluster
+  ECS_CLUSTER: suwappu-production
   TURNKEY_ORG_ID: 5cf56ed5-5d6b-4290-8edb-f52670162aab
   TURNKEY_PROXY_URL: https://api.turnkey.com
 
@@ -54,14 +54,14 @@ jobs:
         run: |
           if [ "${{ github.event.inputs.environment }}" == "development" ] || [ "${{ github.ref }}" == "refs/heads/dev" ]; then
             echo "env=development" >> $GITHUB_OUTPUT
-            echo "service=suwappu-webapp-dev" >> $GITHUB_OUTPUT
+            echo "service=suwappu-webapp" >> $GITHUB_OUTPUT
             echo "tag=development" >> $GITHUB_OUTPUT
             echo "api_url=https://devapi.suwappu.bot" >> $GITHUB_OUTPUT
             echo "url=https://devfront.suwappu.bot" >> $GITHUB_OUTPUT
             echo "rp_id=devfront.suwappu.bot" >> $GITHUB_OUTPUT
           else
             echo "env=production" >> $GITHUB_OUTPUT
-            echo "service=suwappu-webapp-prod" >> $GITHUB_OUTPUT
+            echo "service=suwappu-webapp" >> $GITHUB_OUTPUT
             echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
             echo "api_url=https://api.suwappu.bot" >> $GITHUB_OUTPUT
             echo "url=https://app.suwappu.bot" >> $GITHUB_OUTPUT

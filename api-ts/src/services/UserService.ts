@@ -10,6 +10,13 @@ export interface CreateUserParams {
 	lastName?: string
 }
 
+export interface UpdateUserPreferencesParams {
+	defaultSlippage?: number // stored as basis points (50 = 0.5%)
+	notificationsEnabled?: boolean
+	twoFaEnabled?: boolean
+	twoFaThreshold?: number
+}
+
 export interface UserServiceInterface {
 	readonly getUserById: (
 		id: number
@@ -23,6 +30,10 @@ export interface UserServiceInterface {
 	readonly getOrCreateUser: (
 		params: CreateUserParams
 	) => Effect.Effect<{ user: User; isNew: boolean }, DatabaseError, DrizzleService>
+	readonly updateUserPreferences: (
+		userId: number,
+		params: UpdateUserPreferencesParams
+	) => Effect.Effect<User, DatabaseError, DrizzleService>
 }
 
 export class UserService extends Context.Tag('UserService')<
@@ -121,5 +132,42 @@ export const UserServiceLive = Layer.succeed(UserService, {
 			})
 
 			return { user: created[0], isNew: true }
+		}),
+
+	updateUserPreferences: (userId: number, params: UpdateUserPreferencesParams) =>
+		Effect.gen(function* () {
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+			)
+
+			// Build update object with only provided fields
+			const updateData: Record<string, unknown> = {
+				updatedAt: new Date(),
+			}
+			if (params.defaultSlippage !== undefined) {
+				updateData.defaultSlippage = params.defaultSlippage
+			}
+			if (params.notificationsEnabled !== undefined) {
+				updateData.notificationsEnabled = params.notificationsEnabled
+			}
+			if (params.twoFaEnabled !== undefined) {
+				updateData.twoFaEnabled = params.twoFaEnabled
+			}
+			if (params.twoFaThreshold !== undefined) {
+				updateData.twoFaThreshold = params.twoFaThreshold
+			}
+
+			const result = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.update(users)
+						.set(updateData)
+						.where(eq(users.id, userId))
+						.returning(),
+				catch: (e) =>
+					new DatabaseError({ message: `Failed to update user preferences: ${e}`, cause: e }),
+			})
+
+			return result[0]
 		}),
 })

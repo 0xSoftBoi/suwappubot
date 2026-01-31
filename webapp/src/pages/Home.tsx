@@ -52,7 +52,7 @@ export function Home() {
 
   // Format portfolio data for display - show $0.00 on error (graceful degradation)
   const balance = portfolio ? formatUsd(portfolio.totalUsdValue) : '$0.00'
-  const change = 0 // TODO: Calculate from historical data
+  // Note: 24h change requires historical price data which API doesn't provide yet
   const tokens = portfolio?.tokens || []
 
   const header = (
@@ -73,7 +73,7 @@ export function Home() {
       )}
 
       <div className="p-3 space-y-4">
-        <BalanceCard balance={balance} change={change} />
+        <BalanceCard balance={balance} />
 
         <QuickActions />
 

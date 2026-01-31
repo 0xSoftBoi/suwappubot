@@ -59,7 +59,7 @@ export function Portfolio() {
   const { data: portfolio, isLoading, error } = usePortfolio()
 
   const totalBalance = portfolio ? formatUsd(portfolio.totalUsdValue) : '$0.00'
-  const change = 0 // TODO: Calculate from historical data
+  // Note: 24h change requires historical price data which API doesn't provide yet
   const tokens = portfolio?.tokens || []
 
   // Calculate chain allocations from real data
@@ -116,7 +116,7 @@ export function Portfolio() {
   return (
     <AppLayout header={<AppHeader title="Portfolio" />} activeNav="portfolio">
       <div className="p-3 pb-20 space-y-4">
-        <BalanceCard balance={totalBalance} change={change} />
+        <BalanceCard balance={totalBalance} />
 
         {/* Chain allocation */}
         {chainAllocations.length > 0 && (
@@ -181,23 +181,24 @@ export function Portfolio() {
           )}
         </div>
 
-        {/* Performance card */}
+        {/* Performance card - requires historical price data from API */}
         <div className="bg-white rounded-suwappu-xl p-3 shadow-suwappu-1">
           <h3 className="font-heading font-semibold text-sm text-suwappu-purple-deep mb-2">Performance</h3>
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="p-2 bg-suwappu-sakura-light/30 rounded-suwappu-lg">
               <p className="text-[10px] text-suwappu-text-secondary">24h</p>
-              <p className="text-sm font-heading font-bold text-suwappu-success">+2.1%</p>
+              <p className="text-sm font-heading font-bold text-suwappu-text-secondary">—</p>
             </div>
             <div className="p-2 bg-suwappu-sakura-light/30 rounded-suwappu-lg">
               <p className="text-[10px] text-suwappu-text-secondary">7d</p>
-              <p className="text-sm font-heading font-bold text-suwappu-success">+8.4%</p>
+              <p className="text-sm font-heading font-bold text-suwappu-text-secondary">—</p>
             </div>
             <div className="p-2 bg-suwappu-sakura-light/30 rounded-suwappu-lg">
               <p className="text-[10px] text-suwappu-text-secondary">30d</p>
-              <p className="text-sm font-heading font-bold text-suwappu-error">-3.2%</p>
+              <p className="text-sm font-heading font-bold text-suwappu-text-secondary">—</p>
             </div>
           </div>
+          <p className="text-[10px] text-suwappu-text-secondary text-center mt-2">Coming soon</p>
         </div>
       </div>
     </AppLayout>

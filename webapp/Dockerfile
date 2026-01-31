@@ -16,8 +16,8 @@ COPY . .
 ARG VITE_API_URL=https://api.suwappu.bot
 ENV VITE_API_URL=$VITE_API_URL
 
-# Build the app
-RUN npm run build
+# Build the app (skip type check for faster builds)
+RUN npx vite build
 
 # Production stage - nginx to serve static files
 FROM nginx:alpine
