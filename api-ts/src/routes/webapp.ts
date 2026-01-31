@@ -152,6 +152,12 @@ protectedWebapp.use('*', telegramAuth())
 protectedWebapp.get('/portfolio', async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
 
+	const emptyPortfolio = {
+		totalUsdValue: 0,
+		tokens: [],
+		lastUpdated: new Date().toISOString(),
+	}
+
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const userService = yield* UserService
@@ -162,11 +168,7 @@ protectedWebapp.get('/portfolio', async (c) => {
 			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
 
 			if (Option.isNone(userOption)) {
-				return {
-					totalUsdValue: 0,
-					tokens: [],
-					lastUpdated: new Date().toISOString(),
-				}
+				return emptyPortfolio
 			}
 
 			const user = userOption.value
@@ -175,11 +177,7 @@ protectedWebapp.get('/portfolio', async (c) => {
 			const wallets = yield* walletService.getActiveWallets(user.id)
 
 			if (wallets.length === 0) {
-				return {
-					totalUsdValue: 0,
-					tokens: [],
-					lastUpdated: new Date().toISOString(),
-				}
+				return emptyPortfolio
 			}
 
 			// Fetch balances for all wallets
@@ -207,12 +205,18 @@ protectedWebapp.get('/portfolio', async (c) => {
 				tokens: allTokens,
 				lastUpdated: new Date().toISOString(),
 			}
-		})
+		}).pipe(
+			// Gracefully handle any errors by returning empty portfolio
+			Effect.catchAll((error) => {
+				console.error('Portfolio fetch error:', error)
+				return Effect.succeed(emptyPortfolio)
+			})
+		)
 	)
 
+	// Result should always be Right now due to catchAll
 	if (Either.isLeft(result)) {
-		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(emptyPortfolio)
 	}
 
 	return c.json(result.right)

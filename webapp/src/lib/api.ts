@@ -23,6 +23,7 @@ class ApiClient {
   /**
    * Build auth headers for requests.
    * Includes both Telegram initData and JWT if available.
+   * Falls back to dev mode for browser testing.
    */
   private getAuthHeaders(): Record<string, string> {
     const headers: Record<string, string> = {}
@@ -37,6 +38,12 @@ class ApiClient {
     const token = getAuthToken()
     if (token) {
       headers['Authorization'] = `Bearer ${token}`
+    }
+
+    // Dev mode: add dev user header when no other auth and on dev API
+    const isDev = this.baseUrl.includes('devapi') || this.baseUrl.includes('localhost')
+    if (isDev && !initData && !token) {
+      headers['X-Dev-User-Id'] = '12345'
     }
 
     return headers

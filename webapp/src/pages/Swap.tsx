@@ -330,6 +330,30 @@ export function Swap() {
               balance={fromToken?.balance}
               usdValue={fromUsdValue}
             />
+            
+            {/* Amount preset buttons */}
+            {fromToken?.balance && parseFloat(fromToken.balance) > 0 && (
+              <div className="flex justify-end gap-2 px-1 -mt-1 mb-1">
+                <button
+                  onClick={() => setFromAmount((parseFloat(fromToken.balance!) * 0.25).toString())}
+                  className="px-2 py-0.5 text-xs font-semibold text-suwappu-magenta-mid bg-suwappu-sakura-light rounded-full hover:bg-suwappu-sakura-mid transition-colors"
+                >
+                  25%
+                </button>
+                <button
+                  onClick={() => setFromAmount((parseFloat(fromToken.balance!) * 0.5).toString())}
+                  className="px-2 py-0.5 text-xs font-semibold text-suwappu-magenta-mid bg-suwappu-sakura-light rounded-full hover:bg-suwappu-sakura-mid transition-colors"
+                >
+                  50%
+                </button>
+                <button
+                  onClick={() => setFromAmount(fromToken.balance!)}
+                  className="px-2 py-0.5 text-xs font-semibold text-suwappu-magenta-mid bg-suwappu-sakura-light rounded-full hover:bg-suwappu-sakura-mid transition-colors"
+                >
+                  MAX
+                </button>
+              </div>
+            )}
 
             <SwapArrow onClick={handleSwapTokens} />
 

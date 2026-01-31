@@ -65,19 +65,21 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 			const walletService = yield* WalletService
 			const swapService = yield* SwapService
 
-			// Get user
-			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
-			if (Option.isNone(userOption)) {
-				return yield* Effect.fail(new NotFoundError({ message: 'User not found', resource: 'user' }))
+			// Get user and wallet - use placeholder if not found (for quotes only)
+			// Use a real address as placeholder since Li.Fi rejects zero address
+			let walletAddress = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045' // vitalik.eth as placeholder
+			
+			const userResult = yield* Effect.either(userService.getUserByTelegramId(telegramUser.id))
+			if (Either.isRight(userResult) && Option.isSome(userResult.right)) {
+				const user = userResult.right.value
+				const walletsResult = yield* Effect.either(walletService.getActiveWallets(user.id))
+				if (Either.isRight(walletsResult) && walletsResult.right.length > 0) {
+					walletAddress = walletsResult.right[0].address
+				}
 			}
-			const user = userOption.value
-
-			// Get user's wallet
-			const wallets = yield* walletService.getActiveWallets(user.id)
-			if (wallets.length === 0) {
-				return yield* Effect.fail(new NotFoundError({ message: 'No wallet found', resource: 'wallet' }))
-			}
-			const wallet = wallets[0]
+			
+			// For backward compat - allow quotes without wallet
+			const wallet = { address: walletAddress }
 
 			// Validate required params
 			if (!fromChain || !toChain || !fromToken || !toToken || !fromAmount) {
