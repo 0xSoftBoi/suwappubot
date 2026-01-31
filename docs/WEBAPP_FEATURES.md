@@ -116,10 +116,10 @@ gantt
 | 8 | Limit Orders | ✅ | ❌ | ✅ | 🟡 UI Ready |
 | 9 | Price Alerts | ✅ | ❌ | ✅ | 🟡 UI Ready |
 | 10 | Quick Swap | ✅ | ✅ | ✅ | 🟢 Complete |
-| 11 | Copy Trading | ❌ | ❌ | ✅ | 🔴 Todo |
+| 11 | Copy Trading | ✅ | ❌ | ✅ | 🟡 UI Ready |
 | 12 | Referral System | ✅ | ❌ | ✅ | 🟡 UI Ready |
 | 13 | Gas Settings | ✅ | ✅ | ✅ | 🟢 Complete |
-| 14 | Subscriptions | ❌ | ❌ | ✅ | 🔴 Todo |
+| 14 | Subscriptions | ✅ | ❌ | ✅ | 🟡 UI Ready |
 
 ## Page Routes
 
@@ -136,7 +136,12 @@ graph LR
         R5["/portfolio"]
         R6["/history"]
         R7["/points"]
-        R8["/settings"]
+        R8["/limit-orders"]
+        R9["/alerts"]
+        R10["/referrals"]
+        R11["/copy"]
+        R12["/premium"]
+        R13["/settings"]
     end
     
     subgraph "Navigation Bar"
@@ -152,10 +157,13 @@ graph LR
     N2 --> R4
     N3 --> R3
     N4 --> R6
-    N5 --> R8
+    N5 --> R13
     
-    R2 -->|Link| R7
-    R2 -->|Link| R5
+    R2 -->|Tools| R7
+    R2 -->|Tools| R8
+    R2 -->|Tools| R9
+    R2 -->|Tools| R10
+    R2 -->|Tools| R11
 ```
 
 ## Data Flow
@@ -240,11 +248,11 @@ graph LR
 
 - [#94](https://github.com/0xSoftBoi/suwappubot/issues/94) ✅ Swap History
 - [#95](https://github.com/0xSoftBoi/suwappubot/issues/95) ✅ Points & Rewards
-- [#96](https://github.com/0xSoftBoi/suwappubot/issues/96) 🔴 Limit Orders
-- [#97](https://github.com/0xSoftBoi/suwappubot/issues/97) 🔴 Price Alerts
+- [#96](https://github.com/0xSoftBoi/suwappubot/issues/96) ✅ Limit Orders
+- [#97](https://github.com/0xSoftBoi/suwappubot/issues/97) ✅ Price Alerts
 - [#98](https://github.com/0xSoftBoi/suwappubot/issues/98) ✅ Favorite Tokens
-- [#99](https://github.com/0xSoftBoi/suwappubot/issues/99) 🔴 Quick Swap
-- [#100](https://github.com/0xSoftBoi/suwappubot/issues/100) 🔴 Copy Trading
-- [#101](https://github.com/0xSoftBoi/suwappubot/issues/101) 🔴 Gas Settings
-- [#102](https://github.com/0xSoftBoi/suwappubot/issues/102) 🔴 Referral System
-- [#103](https://github.com/0xSoftBoi/suwappubot/issues/103) 🔴 Subscriptions
+- [#99](https://github.com/0xSoftBoi/suwappubot/issues/99) ✅ Quick Swap
+- [#100](https://github.com/0xSoftBoi/suwappubot/issues/100) ✅ Copy Trading
+- [#101](https://github.com/0xSoftBoi/suwappubot/issues/101) ✅ Gas Settings
+- [#102](https://github.com/0xSoftBoi/suwappubot/issues/102) ✅ Referral System
+- [#103](https://github.com/0xSoftBoi/suwappubot/issues/103) ✅ Subscriptions
