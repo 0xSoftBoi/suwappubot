@@ -73,6 +73,15 @@ class ApiClient {
     return response.json()
   }
 
+  // === Wallet ===
+
+  /**
+   * Get or create wallet for authenticated user
+   */
+  async getOrCreateWallet(): Promise<{ address: string; chain: string }> {
+    return this.fetch('/webapp/wallets/default', { method: 'POST' })
+  }
+
   // === Portfolio & Swaps ===
 
   /**

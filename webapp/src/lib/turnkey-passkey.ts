@@ -403,3 +403,29 @@ export async function createTurnkeyWallet(
     }
   }
 }
+
+/**
+ * Check if user has an active Turnkey session
+ */
+export function hasTurnkeySession(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    const session = localStorage.getItem('turnkey_session')
+    return session !== null
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Logout from Turnkey (clear local session)
+ */
+export function logoutTurnkey(): void {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.removeItem('turnkey_session')
+    localStorage.removeItem('turnkey_sub_org_id')
+  } catch (e) {
+    console.error('Failed to clear Turnkey session:', e)
+  }
+}

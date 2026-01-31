@@ -120,3 +120,30 @@ export function isTokenExpiringSoon(): boolean {
   const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000)
   return expiry < fiveMinutesFromNow
 }
+
+const WALLET_ADDRESS_KEY = 'suwappu_wallet_address'
+
+/**
+ * Store wallet address
+ */
+export function setWalletAddress(address: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(WALLET_ADDRESS_KEY, address)
+  } catch (e) {
+    console.error('Failed to store wallet address:', e)
+  }
+}
+
+/**
+ * Get stored wallet address
+ */
+export function getWalletAddress(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return localStorage.getItem(WALLET_ADDRESS_KEY)
+  } catch (e) {
+    console.error('Failed to get wallet address:', e)
+    return null
+  }
+}
