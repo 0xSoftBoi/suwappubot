@@ -37,6 +37,7 @@ jobs:
   deploy:
     name: Build and Deploy Bot
     runs-on: ubuntu-latest
+    environment: ${{ (github.ref == 'refs/heads/main' || inputs.environment == 'production') && 'production' || 'development' }}
 
     steps:
       - name: Checkout code
@@ -121,6 +122,39 @@ jobs:
             echo "::warning::ECS service ${{ steps.env.outputs.ECS_SERVICE }} does not exist. Please create it first."
           fi
 
+      - name: Run pre-deploy database backup
+        if: steps.check-service.outputs.exists == 'true'
+        run: |
+          echo "Starting database backup before deploy..."
+          TASK_ARN=$(aws ecs run-task \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --task-definition suwappu-db-backup \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ vars.PRIVATE_SUBNET_IDS }}],securityGroups=[${{ vars.ECS_SECURITY_GROUP_ID }}]}" \
+            --overrides '{"containerOverrides":[{"name":"backup","environment":[{"name":"BACKUP_PREFIX","value":"pre-deploy/bot"}]}]}' \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          echo "Backup task started: ${TASK_ARN}"
+          aws ecs wait tasks-stopped --cluster ${{ env.ECS_CLUSTER }} --tasks "${TASK_ARN}"
+
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --tasks "${TASK_ARN}" \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+
+          if [ "${EXIT_CODE}" != "0" ]; then
+            echo "::error::Database backup failed with exit code ${EXIT_CODE}"
+            exit 1
+          fi
+          echo "Database backup completed successfully."
+
+      # NOTE: Database migrations run at container startup (runtime):
+      # - Bot: database/db.py _ensure_schema() — idempotent, additive DDL
+      # - API-TS: api-ts/start.sh runs drizzle-kit migrate before server start
+      # Migration failures crash the container, triggering ECS circuit breaker rollback.
+
       - name: Deploy to ECS
         if: steps.check-service.outputs.exists == 'true'
         run: |
@@ -131,6 +165,7 @@ jobs:
             --cluster ${{ env.ECS_CLUSTER }} \
             --service ${{ steps.env.outputs.ECS_SERVICE }} \
             --deployment-configuration "deploymentCircuitBreaker={enable=true,rollback=true}" \
+            --enable-execute-command \
             --force-new-deployment
 
           echo "Deployment initiated with circuit breaker enabled. Waiting for service to stabilize..."

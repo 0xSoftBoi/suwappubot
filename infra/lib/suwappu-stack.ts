@@ -12,6 +12,7 @@ import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cw_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sns from 'aws-cdk-lib/aws-sns';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
 
 export class SuwappuStack extends cdk.Stack {
@@ -176,6 +177,19 @@ export class SuwappuStack extends cdk.Stack {
     // Grant secrets access to task
     appSecrets.grantRead(taskDefinition.taskRole);
     this.database.secret?.grantRead(taskDefinition.taskRole);
+
+    // Grant SSM permissions for ECS Exec
+    taskDefinition.taskRole.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: [
+          'ssmmessages:CreateControlChannel',
+          'ssmmessages:CreateDataChannel',
+          'ssmmessages:OpenControlChannel',
+          'ssmmessages:OpenDataChannel',
+        ],
+        resources: ['*'],
+      }),
+    );
 
     // Container definition
     const container = taskDefinition.addContainer('suwappu', {
@@ -345,6 +359,65 @@ export class SuwappuStack extends cdk.Stack {
       comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
       alarmDescription: 'RDS free storage < 5 GB',
     }).addAlarmAction(new cw_actions.SnsAction(alertTopic));
+
+    // ==================== DB Backup (pre-deploy) ====================
+    const backupBucket = new s3.Bucket(this, 'SuwappuDbBackups', {
+      bucketName: 'suwappu-db-backups',
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      lifecycleRules: [
+        {
+          expiration: cdk.Duration.days(90),
+        },
+      ],
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    const backupLogGroup = new logs.LogGroup(this, 'SuwappuBackupLogs', {
+      logGroupName: '/ecs/suwappu-db-backup',
+      retention: logs.RetentionDays.TWO_WEEKS,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    const backupTaskDef = new ecs.FargateTaskDefinition(this, 'SuwappuDbBackupTask', {
+      memoryLimitMiB: 512,
+      cpu: 256,
+      family: 'suwappu-db-backup',
+    });
+
+    backupTaskDef.addContainer('backup', {
+      image: ecs.ContainerImage.fromAsset('../scripts/db-backup'),
+      logging: ecs.LogDrivers.awsLogs({
+        streamPrefix: 'db-backup',
+        logGroup: backupLogGroup,
+      }),
+      environment: {
+        S3_BUCKET: backupBucket.bucketName,
+        BACKUP_PREFIX: 'pre-deploy',
+      },
+      secrets: {
+        DATABASE_URL: ecs.Secret.fromSecretsManager(
+          this.database.secret!,
+          'DATABASE_URL',
+        ),
+      },
+    });
+
+    backupBucket.grantPut(backupTaskDef.taskRole);
+    this.database.secret?.grantRead(backupTaskDef.taskRole);
+    appSecrets.grantRead(backupTaskDef.taskRole);
+
+    new cdk.CfnOutput(this, 'BackupBucketName', {
+      value: backupBucket.bucketName,
+      description: 'S3 bucket for database backups',
+      exportName: 'SuwappuBackupBucket',
+    });
+
+    new cdk.CfnOutput(this, 'BackupTaskDefinition', {
+      value: backupTaskDef.family!,
+      description: 'Task definition family for DB backup',
+      exportName: 'SuwappuBackupTaskFamily',
+    });
 
     // ==================== Outputs ====================
     new cdk.CfnOutput(this, 'LoadBalancerDns', {

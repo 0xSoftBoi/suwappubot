@@ -34,6 +34,7 @@ jobs:
   deploy:
     name: Build and Deploy Webapp
     runs-on: ubuntu-latest
+    environment: ${{ (github.ref == 'refs/heads/main' || inputs.environment == 'production') && 'production' || 'development' }}
 
     steps:
       - name: Checkout code
@@ -106,6 +107,7 @@ jobs:
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER }} \
             --service ${{ steps.env.outputs.service }} \
+            --enable-execute-command \
             --force-new-deployment
 
           echo "Deployment initiated. Waiting for service to stabilize..."

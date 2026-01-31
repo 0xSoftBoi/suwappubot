@@ -32,6 +32,7 @@ jobs:
   deploy:
     name: Build and Deploy API-TS
     runs-on: ubuntu-latest
+    environment: ${{ (github.ref == 'refs/heads/main' || inputs.environment == 'production') && 'production' || 'development' }}
 
     steps:
       - name: Checkout code
@@ -95,6 +96,33 @@ jobs:
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
 
+      - name: Run pre-deploy database backup
+        run: |
+          echo "Starting database backup before deploy..."
+          TASK_ARN=$(aws ecs run-task \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --task-definition suwappu-db-backup \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ vars.PRIVATE_SUBNET_IDS }}],securityGroups=[${{ vars.ECS_SECURITY_GROUP_ID }}]}" \
+            --overrides '{"containerOverrides":[{"name":"backup","environment":[{"name":"BACKUP_PREFIX","value":"pre-deploy/api-ts"}]}]}' \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          echo "Backup task started: ${TASK_ARN}"
+          aws ecs wait tasks-stopped --cluster ${{ env.ECS_CLUSTER }} --tasks "${TASK_ARN}"
+
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --tasks "${TASK_ARN}" \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+
+          if [ "${EXIT_CODE}" != "0" ]; then
+            echo "::error::Database backup failed with exit code ${EXIT_CODE}"
+            exit 1
+          fi
+          echo "Database backup completed successfully."
+
       - name: Deploy to ECS
         run: |
           echo "Deploying to ${{ steps.env.outputs.ENVIRONMENT }} environment..."
@@ -104,6 +132,7 @@ jobs:
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER }} \
             --service ${{ steps.env.outputs.ECS_SERVICE }} \
+            --enable-execute-command \
             --force-new-deployment
 
           echo "Deployment initiated. Waiting for service to stabilize..."
