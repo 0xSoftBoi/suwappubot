@@ -55,6 +55,18 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Run tests
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-timeout
+          pytest tests/ -x --timeout=30
+
       - name: Build, tag, and push Docker image
         id: build-image
         env:
@@ -84,7 +96,7 @@ jobs:
         with:
           image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}'
           format: 'table'
-          exit-code: '0'
+          exit-code: '1'
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
 

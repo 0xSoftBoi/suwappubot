@@ -51,6 +51,13 @@ logs/
 .DS_Store
 Thumbs.db
 
+# Infrastructure & sub-projects
+infra/
+tui/
+webapp/
+.github/
+node_modules/
+
 # Deployment
 deploy.sh
 DEPLOYMENT.md

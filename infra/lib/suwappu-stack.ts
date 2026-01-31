@@ -7,13 +7,17 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cw_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
+import * as sns from 'aws-cdk-lib/aws-sns';
 import { Construct } from 'constructs';
 
 export class SuwappuStack extends cdk.Stack {
   public readonly vpc: ec2.Vpc;
   public readonly cluster: ecs.Cluster;
   public readonly database: rds.DatabaseInstance;
-  public readonly service: ecs.FargateService;
   public readonly loadBalancer: elbv2.ApplicationLoadBalancer;
 
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -104,6 +108,8 @@ export class SuwappuStack extends cdk.Stack {
     });
 
     // ==================== RDS PostgreSQL ====================
+    // NOTE: storageEncrypted requires instance replacement — migrate separately
+    // via snapshot-copy-encrypt-restore workflow
     this.database = new rds.DatabaseInstance(this, 'SuwappuDatabase', {
       engine: rds.DatabaseInstanceEngine.postgres({
         version: rds.PostgresEngineVersion.VER_15,
@@ -126,7 +132,7 @@ export class SuwappuStack extends cdk.Stack {
       storageType: rds.StorageType.GP3,
       multiAz: false, // Cost optimization
       deletionProtection: true,
-      backupRetention: cdk.Duration.days(7),
+      backupRetention: cdk.Duration.days(14),
       removalPolicy: cdk.RemovalPolicy.SNAPSHOT,
       publiclyAccessible: false,
     });
@@ -159,9 +165,12 @@ export class SuwappuStack extends cdk.Stack {
     });
 
     // ==================== Task Definition ====================
+    // NOTE: ECS services (suwappu-bot-prod, suwappu-api-ts-*, suwappu-webapp-*)
+    // are managed outside CDK. This task definition is kept for reference but
+    // the Fargate service has been removed from CDK to avoid state drift.
     const taskDefinition = new ecs.FargateTaskDefinition(this, 'SuwappuTask', {
-      memoryLimitMiB: 512,
-      cpu: 256,
+      memoryLimitMiB: 1024,
+      cpu: 512,
     });
 
     // Grant secrets access to task
@@ -224,51 +233,118 @@ export class SuwappuStack extends cdk.Stack {
       securityGroup: albSecurityGroup,
     });
 
-    const listener = this.loadBalancer.addListener('HttpListener', {
+    // ==================== ACM Certificate ====================
+    // Import existing validated certificate (created outside CDK)
+    const certificate = acm.Certificate.fromCertificateArn(
+      this,
+      'SuwappuCert',
+      'arn:aws:acm:us-east-1:905418423235:certificate/74e95aae-e397-44cc-9005-d964c97ebc41',
+    );
+
+    // HTTP listener — redirect all traffic to HTTPS
+    this.loadBalancer.addListener('HttpListener', {
       port: 80,
       protocol: elbv2.ApplicationProtocol.HTTP,
+      defaultAction: elbv2.ListenerAction.redirect({
+        protocol: 'HTTPS',
+        port: '443',
+        permanent: true,
+      }),
     });
 
-    // ==================== Fargate Service ====================
-    this.service = new ecs.FargateService(this, 'SuwappuService', {
-      cluster: this.cluster,
-      taskDefinition,
-      desiredCount: 1,
-      securityGroups: [ecsSecurityGroup],
-      vpcSubnets: {
-        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+    // HTTPS listener with default fixed response (services add their own rules)
+    const httpsListener = this.loadBalancer.addListener('HttpsListener', {
+      port: 443,
+      protocol: elbv2.ApplicationProtocol.HTTPS,
+      certificates: [certificate],
+      defaultAction: elbv2.ListenerAction.fixedResponse(404, {
+        contentType: 'text/plain',
+        messageBody: 'Not Found',
+      }),
+    });
+
+    // ==================== WAF ====================
+    const webAcl = new wafv2.CfnWebACL(this, 'SuwappuWaf', {
+      scope: 'REGIONAL',
+      defaultAction: { allow: {} },
+      visibilityConfig: {
+        cloudWatchMetricsEnabled: true,
+        metricName: 'SuwappuWafMetrics',
+        sampledRequestsEnabled: true,
       },
-      circuitBreaker: {
-        rollback: true,
-      },
-      enableExecuteCommand: true, // For debugging
+      rules: [
+        {
+          name: 'AWSCommonRules',
+          priority: 1,
+          overrideAction: { none: {} },
+          statement: {
+            managedRuleGroupStatement: {
+              vendorName: 'AWS',
+              name: 'AWSManagedRulesCommonRuleSet',
+            },
+          },
+          visibilityConfig: {
+            cloudWatchMetricsEnabled: true,
+            metricName: 'AWSCommonRules',
+            sampledRequestsEnabled: true,
+          },
+        },
+        {
+          name: 'RateLimit',
+          priority: 2,
+          action: { block: {} },
+          statement: {
+            rateBasedStatement: {
+              limit: 2000,
+              aggregateKeyType: 'IP',
+            },
+          },
+          visibilityConfig: {
+            cloudWatchMetricsEnabled: true,
+            metricName: 'RateLimit',
+            sampledRequestsEnabled: true,
+          },
+        },
+      ],
     });
 
-    // Register with load balancer
-    listener.addTargets('SuwappuTarget', {
-      port: 10000,
-      protocol: elbv2.ApplicationProtocol.HTTP,
-      targets: [this.service],
-      healthCheck: {
-        path: '/health',
-        interval: cdk.Duration.seconds(30),
-        timeout: cdk.Duration.seconds(5),
-        healthyThresholdCount: 2,
-        unhealthyThresholdCount: 3,
-      },
+    new wafv2.CfnWebACLAssociation(this, 'WafAlbAssociation', {
+      resourceArn: this.loadBalancer.loadBalancerArn,
+      webAclArn: webAcl.attrArn,
     });
 
-    // ==================== Auto Scaling ====================
-    const scaling = this.service.autoScaleTaskCount({
-      minCapacity: 1,
-      maxCapacity: 3,
+    // ==================== CloudWatch Alarms + SNS ====================
+    const alertTopic = new sns.Topic(this, 'SuwappuAlerts', {
+      topicName: 'suwappu-alerts',
     });
 
-    scaling.scaleOnCpuUtilization('CpuScaling', {
-      targetUtilizationPercent: 70,
-      scaleInCooldown: cdk.Duration.seconds(60),
-      scaleOutCooldown: cdk.Duration.seconds(60),
-    });
+    // ALB 5xx alarm
+    new cloudwatch.Alarm(this, 'Alb5xxAlarm', {
+      metric: this.loadBalancer.metrics.httpCodeTarget(
+        elbv2.HttpCodeTarget.TARGET_5XX_COUNT,
+        { period: cdk.Duration.minutes(5) },
+      ),
+      threshold: 10,
+      evaluationPeriods: 1,
+      alarmDescription: 'ALB 5xx errors > 10 in 5 minutes',
+    }).addAlarmAction(new cw_actions.SnsAction(alertTopic));
+
+    // RDS CPU alarm
+    new cloudwatch.Alarm(this, 'RdsCpuAlarm', {
+      metric: this.database.metricCPUUtilization(),
+      threshold: 80,
+      evaluationPeriods: 2,
+      alarmDescription: 'RDS CPU utilization > 80%',
+    }).addAlarmAction(new cw_actions.SnsAction(alertTopic));
+
+    // RDS free storage alarm (< 5 GB)
+    new cloudwatch.Alarm(this, 'RdsFreeStorageAlarm', {
+      metric: this.database.metricFreeStorageSpace(),
+      threshold: 5 * 1024 * 1024 * 1024, // 5 GB in bytes
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+      alarmDescription: 'RDS free storage < 5 GB',
+    }).addAlarmAction(new cw_actions.SnsAction(alertTopic));
 
     // ==================== Outputs ====================
     new cdk.CfnOutput(this, 'LoadBalancerDns', {
@@ -289,12 +365,6 @@ export class SuwappuStack extends cdk.Stack {
       exportName: 'SuwappuClusterName',
     });
 
-    new cdk.CfnOutput(this, 'ServiceName', {
-      value: this.service.serviceName,
-      description: 'ECS Service Name',
-      exportName: 'SuwappuServiceName',
-    });
-
     new cdk.CfnOutput(this, 'DatabaseEndpoint', {
       value: this.database.dbInstanceEndpointAddress,
       description: 'RDS Database Endpoint',
@@ -305,6 +375,12 @@ export class SuwappuStack extends cdk.Stack {
       value: appSecrets.secretArn,
       description: 'Secrets Manager ARN for app secrets',
       exportName: 'SuwappuSecretsArn',
+    });
+
+    new cdk.CfnOutput(this, 'AlertTopicArn', {
+      value: alertTopic.topicArn,
+      description: 'SNS Topic ARN for alerts (subscribe your email)',
+      exportName: 'SuwappuAlertTopicArn',
     });
   }
 }
