@@ -48,9 +48,9 @@ function formatUsd(value: number): string {
 export function Home() {
   const navigate = useNavigate()
   const [showBanner, setShowBanner] = useState(true)
-  const { data: portfolio, isLoading, error } = usePortfolio()
+  const { data: portfolio, isLoading, error, refetch } = usePortfolio()
 
-  // Format portfolio data for display
+  // Format portfolio data for display - show $0.00 on error (graceful degradation)
   const balance = portfolio ? formatUsd(portfolio.totalUsdValue) : '$0.00'
   const change = 0 // TODO: Calculate from historical data
   const tokens = portfolio?.tokens || []
@@ -90,15 +90,23 @@ export function Home() {
                 <div className="h-2 bg-suwappu-sakura-light/50 rounded w-16" />
               </div>
             </div>
-          ) : error ? (
+          ) : error || tokens.length === 0 ? (
             <div className="p-6 text-center">
-              <div className="w-12 h-12 mx-auto mb-2 bg-suwappu-error/10 rounded-full flex items-center justify-center">
-                <span className="text-xl">⚠️</span>
+              <div className="w-16 h-16 mx-auto mb-3 bg-suwappu-sakura-light rounded-full flex items-center justify-center">
+                <span className="text-3xl">🌸</span>
               </div>
-              <p className="text-sm text-suwappu-error mb-1">Failed to load assets</p>
-              <p className="text-xs text-suwappu-text-secondary">Please try again later</p>
+              <p className="font-heading font-semibold text-suwappu-purple-deep mb-1">No assets yet</p>
+              <p className="text-xs text-suwappu-text-secondary mb-3">
+                {error ? 'Tap to refresh' : 'Add funds to start trading'}
+              </p>
+              <button 
+                onClick={() => error ? refetch() : navigate('/wallet')}
+                className="px-4 py-2 bg-suwappu-gradient text-white text-sm font-heading font-bold rounded-suwappu-pill shadow-suwappu-button"
+              >
+                {error ? 'Refresh' : 'Add Funds'}
+              </button>
             </div>
-          ) : tokens.length > 0 ? (
+          ) : (
             <div className="divide-y divide-suwappu-sakura-mid/10">
               {tokens.map((token) => (
                 <TokenItem
@@ -110,19 +118,6 @@ export function Home() {
                   icon={getTokenIcon(token)}
                 />
               ))}
-            </div>
-          ) : (
-            <div className="p-6 text-center">
-              <div className="w-16 h-16 mx-auto mb-3 bg-suwappu-sakura-light rounded-full flex items-center justify-center">
-                <span className="text-3xl">🌸</span>
-              </div>
-              <p className="font-heading font-semibold text-suwappu-purple-deep mb-1">No assets yet</p>
-              <p className="text-xs text-suwappu-text-secondary mb-3">
-                Add funds to start trading
-              </p>
-              <button className="px-4 py-2 bg-suwappu-gradient text-white text-sm font-heading font-bold rounded-suwappu-pill shadow-suwappu-button">
-                Add Funds
-              </button>
             </div>
           )}
         </div>
