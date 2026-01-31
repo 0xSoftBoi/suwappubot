@@ -1,2 +1,2 @@
-[test]
-preload = ["./src/test/happy-dom-setup.ts"]
+# Unit tests need happy-dom for React hooks
+# Integration tests use real fetch

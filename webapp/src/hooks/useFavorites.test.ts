@@ -1,6 +1,18 @@
-import { describe, it, expect, beforeEach } from 'bun:test'
+import { describe, it, expect, beforeEach, beforeAll } from 'bun:test'
 import { renderHook, act } from '@testing-library/react'
+import { Window } from 'happy-dom'
 import { useFavoriteTokens, useFavoritePairs } from './useFavorites'
+
+// Setup DOM environment
+beforeAll(() => {
+  const window = new Window()
+  // @ts-ignore
+  globalThis.window = window
+  // @ts-ignore
+  globalThis.document = window.document
+  // @ts-ignore  
+  globalThis.navigator = window.navigator
+})
 
 // Mock localStorage
 let store: Record<string, string> = {}

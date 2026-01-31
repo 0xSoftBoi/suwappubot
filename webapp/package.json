@@ -9,9 +9,11 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
-    "test": "bun test",
+    "test": "bun test src/hooks src/lib --preload ./src/test/happy-dom-setup.ts",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:integration": "bun test src/test/integration",
+    "test:all": "bun run test && bun run test:integration"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",
