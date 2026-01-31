@@ -22,7 +22,7 @@ pytest-cov==5.0.0
 pytest==8.1.1
 python-dotenv==1.0.1
 python-telegram-bot==21.3
-pyyaml==6.0.1
+pyyaml==6.0.3
 qrcode[pil]==7.4.2
 solana==0.34.3
 solders==0.27.1
