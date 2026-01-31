@@ -4,7 +4,7 @@ import { HTTPException } from 'hono/http-exception'
 
 import { createCorsMiddleware, agentKeyAuth } from './middleware'
 import { healthRoutes, toolsRoutes, webappRoutes, usersRoutes, agentRoutes, a2aRoutes, pointsRoutes, swapRoutes } from './routes'
-import agentCard from '../../agent-card.json'
+import agentCard from '../agent-card.json'
 
 export interface AppConfig {
 	allowedOrigins: string

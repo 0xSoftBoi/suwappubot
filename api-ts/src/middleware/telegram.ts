@@ -13,10 +13,28 @@ declare module 'hono' {
 
 /**
  * Middleware to validate X-Telegram-Init-Data header and extract user
+ * In development mode (NODE_ENV=development), allows X-Dev-User-Id header to bypass Telegram auth
  */
 export function telegramAuth() {
 	return async (c: Context, next: Next) => {
 		const initData = c.req.header('X-Telegram-Init-Data')
+
+		// Development mode: allow bypass with dev user ID
+		if (process.env.NODE_ENV === 'development') {
+			const devUserId = c.req.header('X-Dev-User-Id')
+			if (devUserId) {
+				c.set('telegramUser', {
+					id: parseInt(devUserId, 10),
+					firstName: 'Dev',
+					lastName: 'User',
+					username: 'devuser',
+					languageCode: 'en',
+					isPremium: false,
+				})
+				await next()
+				return
+			}
+		}
 
 		if (!initData) {
 			throw new HTTPException(401, { message: 'Missing Telegram authentication' })

@@ -1,14 +1,8 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
-# Add sslmode to DATABASE_URL if not present
-if [[ "$DATABASE_URL" != *"sslmode="* ]]; then
-    if [[ "$DATABASE_URL" == *"?"* ]]; then
-        export DATABASE_URL="${DATABASE_URL}&sslmode=require"
-    else
-        export DATABASE_URL="${DATABASE_URL}?sslmode=require"
-    fi
-fi
+echo "Running database migrations..."
+bun run drizzle-kit migrate || echo "Migration failed or already up to date"
 
-echo "🚀 Starting server..."
+echo "Starting API server..."
 exec bun run src/index.ts

@@ -23,7 +23,12 @@ WORKDIR /app
 # Copy only necessary files
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/src ./src
+COPY --from=builder /app/drizzle ./drizzle
+COPY --from=builder /app/drizzle.config.ts ./
 COPY --from=builder /app/package.json ./
+COPY --from=builder /app/start.sh ./
+COPY --from=builder /app/agent-card.json ./
+RUN chmod +x start.sh
 
 # Use existing bun user
 USER bun
@@ -35,5 +40,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD bun -e "fetch('http://localhost:8000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
-# Start the server
-CMD ["bun", "run", "src/index.ts"]
+# Run migrations then start the server
+CMD ["./start.sh"]
