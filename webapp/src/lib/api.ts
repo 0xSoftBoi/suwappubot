@@ -10,6 +10,7 @@ import { getAuthToken } from './auth'
 import type { Portfolio, Swap, ApiError, HealthStatus } from '../types/api'
 import type { LinkedWallet, AuthChallenge, LinkWalletResponse } from '../types/auth'
 import type { SwapToken, SwapQuote, SwapQuoteRequest, SwapExecuteRequest, SwapExecuteResult } from '../types/swap'
+import type { UserSettings, UpdateSettingsRequest } from '../hooks/useSettings'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -158,7 +159,7 @@ class ApiClient {
    * Get available tokens for swapping
    * TODO: Replace mock with real API
    */
-  async getTokens(_chain?: string, _includeBalances = true): Promise<SwapToken[]> {
+  async getSwapTokens(_chain?: string, _includeBalances = true): Promise<SwapToken[]> {
     // Mock data - replace with real API call
     await new Promise(resolve => setTimeout(resolve, 300))
     return mockTokens
@@ -219,6 +220,59 @@ class ApiClient {
       txHash: `0x${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`,
       status: 'submitted',
     }
+  }
+
+  // === Settings ===
+
+  /**
+   * Get current user's settings
+   */
+  async getSettings(): Promise<UserSettings> {
+    return this.fetch<UserSettings>('/webapp/settings')
+  }
+
+  /**
+   * Update current user's settings
+   */
+  async updateSettings(updates: UpdateSettingsRequest): Promise<UserSettings> {
+    return this.fetch<UserSettings>('/webapp/settings', {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    })
+  }
+
+  // === Tokens ===
+
+  /**
+   * Get list of supported tokens
+   */
+  async getTokens(options?: { chain?: string; search?: string; page?: number; pageSize?: number }) {
+    const params = new URLSearchParams()
+    if (options?.chain) params.set('chain', options.chain)
+    if (options?.search) params.set('search', options.search)
+    if (options?.page) params.set('page', String(options.page))
+    if (options?.pageSize) params.set('pageSize', String(options.pageSize))
+    const query = params.toString()
+    return this.fetch<{ tokens: unknown[]; total: number; page: number; pageSize: number }>(
+      `/tokens${query ? `?${query}` : ''}`
+    )
+  }
+
+  /**
+   * Get token prices
+   */
+  async getTokenPrices(ids?: string[]) {
+    const params = new URLSearchParams()
+    if (ids && ids.length > 0) params.set('ids', ids.join(','))
+    const query = params.toString()
+    return this.fetch<{ prices: unknown[] }>(`/tokens/prices${query ? `?${query}` : ''}`)
+  }
+
+  /**
+   * Search tokens
+   */
+  async searchTokens(query: string) {
+    return this.fetch<{ results: unknown[] }>(`/tokens/search?q=${encodeURIComponent(query)}`)
   }
 }
 

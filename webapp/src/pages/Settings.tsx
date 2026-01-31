@@ -1,24 +1,65 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AppLayout, AppHeader } from '../components/layout'
 import { SettingsItem, ToggleItem } from '../components/ui'
 import { WalletCard } from '../components/cards'
 import { useAuth } from '../contexts/AuthContext'
+import { useSettings, useUpdateSettings } from '../hooks/useSettings'
 
 type SettingsView = 'main' | 'slippage' | 'notifications' | 'wallets'
 
 export function Settings() {
   const [view, setView] = useState<SettingsView>('main')
+  const navigate = useNavigate()
+  const { logout } = useAuth()
+
+  // Fetch settings from API
+  const { data: settings, isLoading: isLoadingSettings } = useSettings()
+  const updateSettings = useUpdateSettings()
+
+  // Local state for form fields (synced with API data)
   const [slippage, setSlippage] = useState('0.5')
   const [priceAlerts, setPriceAlerts] = useState(true)
   const [txUpdates, setTxUpdates] = useState(true)
   const [promotions, setPromotions] = useState(false)
-  const navigate = useNavigate()
-  const { logout } = useAuth()
+
+  // Sync local state with API data when it loads
+  useEffect(() => {
+    if (settings) {
+      setSlippage(String(settings.slippage))
+      setPriceAlerts(settings.priceAlerts)
+      setTxUpdates(settings.txUpdates)
+      setPromotions(settings.promotions)
+    }
+  }, [settings])
 
   const handleLogout = () => {
     logout()
     navigate('/')
+  }
+
+  // Handle slippage save
+  const handleSlippageSave = async (value: string) => {
+    const numValue = parseFloat(value)
+    if (!isNaN(numValue) && numValue >= 0.01 && numValue <= 50) {
+      try {
+        await updateSettings.mutateAsync({ slippage: numValue })
+      } catch (error) {
+        console.error('Failed to save slippage:', error)
+      }
+    }
+  }
+
+  // Handle notification toggle
+  const handleNotificationToggle = async (
+    type: 'priceAlerts' | 'txUpdates' | 'promotions',
+    value: boolean
+  ) => {
+    try {
+      await updateSettings.mutateAsync({ [type]: value })
+    } catch (error) {
+      console.error('Failed to save notification setting:', error)
+    }
   }
 
   if (view === 'slippage') {
@@ -38,8 +79,12 @@ export function Settings() {
               {presets.map((preset) => (
                 <button
                   key={preset}
-                  onClick={() => setSlippage(preset)}
-                  className={`flex-1 py-2 rounded-suwappu-lg text-sm font-heading font-semibold transition-colors ${
+                  onClick={() => {
+                    setSlippage(preset)
+                    handleSlippageSave(preset)
+                  }}
+                  disabled={updateSettings.isPending}
+                  className={`flex-1 py-2 rounded-suwappu-lg text-sm font-heading font-semibold transition-colors disabled:opacity-50 ${
                     slippage === preset
                       ? 'bg-suwappu-gradient text-white'
                       : 'bg-suwappu-sakura-light text-suwappu-text'
@@ -55,10 +100,18 @@ export function Settings() {
                 type="text"
                 value={slippage}
                 onChange={(e) => setSlippage(e.target.value)}
-                className="flex-1 px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-suwappu-magenta-mid/30"
+                onBlur={() => handleSlippageSave(slippage)}
+                disabled={updateSettings.isPending}
+                className="flex-1 px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-suwappu-magenta-mid/30 disabled:opacity-50"
               />
               <span className="text-sm text-suwappu-text-secondary">%</span>
             </div>
+
+            {updateSettings.isPending && (
+              <p className="text-xs text-suwappu-text-secondary mt-2 text-center">
+                Saving...
+              </p>
+            )}
           </div>
 
           {parseFloat(slippage) > 1 && (
@@ -86,23 +139,41 @@ export function Settings() {
               label="Price Alerts"
               description="Get notified when tokens hit your target"
               enabled={priceAlerts}
-              onToggle={() => setPriceAlerts(!priceAlerts)}
+              onToggle={() => {
+                const newValue = !priceAlerts
+                setPriceAlerts(newValue)
+                handleNotificationToggle('priceAlerts', newValue)
+              }}
             />
             <ToggleItem
               icon="🔄"
               label="Transaction Updates"
               description="Swap confirmations and status updates"
               enabled={txUpdates}
-              onToggle={() => setTxUpdates(!txUpdates)}
+              onToggle={() => {
+                const newValue = !txUpdates
+                setTxUpdates(newValue)
+                handleNotificationToggle('txUpdates', newValue)
+              }}
             />
             <ToggleItem
               icon="🎁"
               label="Promotions"
               description="News, updates, and special offers"
               enabled={promotions}
-              onToggle={() => setPromotions(!promotions)}
+              onToggle={() => {
+                const newValue = !promotions
+                setPromotions(newValue)
+                handleNotificationToggle('promotions', newValue)
+              }}
             />
           </div>
+
+          {updateSettings.isPending && (
+            <p className="text-xs text-suwappu-text-secondary text-center">
+              Saving...
+            </p>
+          )}
         </div>
       </AppLayout>
     )
@@ -173,7 +244,13 @@ export function Settings() {
         {/* Settings Menu */}
         <div className="space-y-1">
           <SettingsItem icon="🔔" label="Notifications" hasArrow onClick={() => setView('notifications')} />
-          <SettingsItem icon="📊" label="Slippage" value={`${slippage}%`} hasArrow onClick={() => setView('slippage')} />
+          <SettingsItem
+            icon="📊"
+            label="Slippage"
+            value={isLoadingSettings ? '...' : `${slippage}%`}
+            hasArrow
+            onClick={() => setView('slippage')}
+          />
           <SettingsItem icon="🌐" label="Language" value="English" hasArrow />
         </div>
 
