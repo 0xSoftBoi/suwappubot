@@ -11,7 +11,7 @@ import type { SwapToken } from '../types/swap'
 export function useTokens(chain?: string, includeBalances = true) {
   return useQuery({
     queryKey: ['tokens', chain, includeBalances],
-    queryFn: () => api.getTokens(chain, includeBalances),
+    queryFn: () => api.getTokens(chain),
     staleTime: 60 * 1000, // 1 minute
     refetchOnWindowFocus: false,
   })

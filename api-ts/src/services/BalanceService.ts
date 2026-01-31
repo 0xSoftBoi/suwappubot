@@ -12,13 +12,14 @@ export interface TokenBalance {
 	decimals: number
 }
 
-// Chain RPC endpoints (use env vars in production)
+// Chain RPC endpoints (use env vars in production, Alchemy as primary fallback)
+const alchemyKey = process.env.ALCHEMY_API_KEY || ''
 const RPC_ENDPOINTS: Record<string, string> = {
-	ethereum: process.env.ETH_RPC_URL || 'https://eth.llamarpc.com',
-	polygon: process.env.POLYGON_RPC_URL || 'https://polygon.llamarpc.com',
-	arbitrum: process.env.ARBITRUM_RPC_URL || 'https://arbitrum.llamarpc.com',
-	optimism: process.env.OPTIMISM_RPC_URL || 'https://optimism.llamarpc.com',
-	base: process.env.BASE_RPC_URL || 'https://base.llamarpc.com',
+	ethereum: process.env.ETH_RPC_URL || (alchemyKey ? `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://eth.llamarpc.com'),
+	arbitrum: process.env.ARBITRUM_RPC_URL || (alchemyKey ? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://arbitrum.llamarpc.com'),
+	optimism: process.env.OPTIMISM_RPC_URL || (alchemyKey ? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://optimism.llamarpc.com'),
+	polygon: process.env.POLYGON_RPC_URL || (alchemyKey ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://polygon.llamarpc.com'),
+	base: process.env.BASE_RPC_URL || (alchemyKey ? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://base.llamarpc.com'),
 	bsc: process.env.BSC_RPC_URL || 'https://bsc.llamarpc.com',
 	solana: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
 }
@@ -48,32 +49,37 @@ export class BalanceService extends Context.Tag('BalanceService')<
 	BalanceServiceInterface
 >() {}
 
-// Fetch native balance for EVM chains
+// Fetch native balance for EVM chains (1 retry, 5s timeout per attempt)
 async function fetchEvmNativeBalance(address: string, chain: string): Promise<string> {
 	const rpcUrl = RPC_ENDPOINTS[chain]
 	if (!rpcUrl) return '0'
 
-	try {
-		const response = await fetch(rpcUrl, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				jsonrpc: '2.0',
-				method: 'eth_getBalance',
-				params: [address, 'latest'],
-				id: 1,
-			}),
-		})
+	const maxAttempts = 2
+	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+		try {
+			const response = await fetch(rpcUrl, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					jsonrpc: '2.0',
+					method: 'eth_getBalance',
+					params: [address, 'latest'],
+					id: 1,
+				}),
+				signal: AbortSignal.timeout(5000),
+			})
 
-		const data = (await response.json()) as { result?: string }
-		if (data.result) {
-			const balanceWei = BigInt(data.result)
-			const decimals = NATIVE_TOKENS[chain]?.decimals || 18
-			const balance = Number(balanceWei) / Math.pow(10, decimals)
-			return balance.toFixed(6)
+			const data = (await response.json()) as { result?: string }
+			if (data.result) {
+				const balanceWei = BigInt(data.result)
+				const decimals = NATIVE_TOKENS[chain]?.decimals || 18
+				const balance = Number(balanceWei) / Math.pow(10, decimals)
+				return balance.toFixed(6)
+			}
+		} catch (e) {
+			console.error(`Failed to fetch ${chain} balance (attempt ${attempt}/${maxAttempts}, rpc=${rpcUrl}):`, e)
+			if (attempt < maxAttempts) continue
 		}
-	} catch (e) {
-		console.error(`Failed to fetch ${chain} balance:`, e)
 	}
 
 	return '0'

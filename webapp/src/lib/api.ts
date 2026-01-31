@@ -165,12 +165,20 @@ class ApiClient {
 
   /**
    * Get available tokens for swapping
-   * TODO: Replace mock with real API
    */
-  async getTokens(_chain?: string, _includeBalances = true): Promise<SwapToken[]> {
-    // Mock data - replace with real API call
-    await new Promise(resolve => setTimeout(resolve, 300))
-    return mockTokens
+  async getTokens(chain?: string): Promise<SwapToken[]> {
+    const chainId = chain || '1'
+    const res = await this.fetch<{ tokens: Array<{ address: string; symbol: string; decimals: number; name: string; logoURI?: string; priceUSD?: string }> }>(
+      `/webapp/swap/tokens?chainId=${chainId}`
+    )
+    return res.tokens.map(t => ({
+      symbol: t.symbol,
+      name: t.name,
+      address: t.address,
+      chain: chainId,
+      decimals: t.decimals,
+      logoUrl: t.logoURI,
+    }))
   }
 
   /**

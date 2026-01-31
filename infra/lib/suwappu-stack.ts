@@ -295,7 +295,7 @@ export class SuwappuStack extends cdk.Stack {
           action: { block: {} },
           statement: {
             rateBasedStatement: {
-              limit: 2000,
+              limit: 300,
               aggregateKeyType: 'IP',
             },
           },
