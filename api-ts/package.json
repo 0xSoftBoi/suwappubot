@@ -1,6 +1,6 @@
 {
   "name": "@suwappu/api-ts",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "dev": "bun --hot run src/index.ts",
