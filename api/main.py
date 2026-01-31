@@ -274,6 +274,15 @@ if _well_known_dir.is_dir():
         name="well-known",
     )
 
+# Mount docs portal static site
+_docs_portal_dir = Path(__file__).parent / "static" / "docs"
+if _docs_portal_dir.is_dir():
+    app.mount(
+        "/docs-portal",
+        StaticFiles(directory=str(_docs_portal_dir), html=True),
+        name="docs-portal",
+    )
+
 # Include webapp router for Telegram Mini App
 app.include_router(webapp_router)
 
@@ -1290,6 +1299,12 @@ async def telegram_webhook(request: Request):
         # Errors are logged but we don't want to block the webhook
 
     return {"status": "ok"}
+
+
+@app.get("/", include_in_schema=False)
+async def root_redirect():
+    """Redirect root to the API documentation portal."""
+    return RedirectResponse(url="/docs-portal/")
 
 
 if __name__ == "__main__":
