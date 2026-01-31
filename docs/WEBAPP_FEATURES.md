@@ -113,12 +113,12 @@ gantt
 | 5 | Settings | ✅ | ✅ | ✅ | 🟢 Complete |
 | 6 | Points & Rewards | ✅ | ✅ | ✅ | 🟢 Complete |
 | 7 | Favorites | ✅ | ❌ | ✅ | 🟡 Frontend only |
-| 8 | Limit Orders | ❌ | ❌ | ✅ | 🔴 Todo |
-| 9 | Price Alerts | ❌ | ❌ | ✅ | 🔴 Todo |
-| 10 | Quick Swap | ❌ | ❌ | ✅ | 🔴 Todo |
+| 8 | Limit Orders | ✅ | ❌ | ✅ | 🟡 UI Ready |
+| 9 | Price Alerts | ✅ | ❌ | ✅ | 🟡 UI Ready |
+| 10 | Quick Swap | ✅ | ✅ | ✅ | 🟢 Complete |
 | 11 | Copy Trading | ❌ | ❌ | ✅ | 🔴 Todo |
-| 12 | Referral System | ❌ | ❌ | ✅ | 🔴 Todo |
-| 13 | Gas Settings | ❌ | ❌ | ✅ | 🔴 Todo |
+| 12 | Referral System | ✅ | ❌ | ✅ | 🟡 UI Ready |
+| 13 | Gas Settings | ✅ | ✅ | ✅ | 🟢 Complete |
 | 14 | Subscriptions | ❌ | ❌ | ✅ | 🔴 Todo |
 
 ## Page Routes
