@@ -191,6 +191,7 @@ def _ensure_schema(db_engine) -> None:
         _add_tos_columns(db_engine, inspector, is_sqlite)
         _fix_user_nullability(db_engine, inspector, is_sqlite)
         _add_referral_columns(db_engine, inspector, is_sqlite)
+        _add_push_token_column(db_engine, inspector, is_sqlite)
 
 
 def _fix_user_nullability(db_engine, inspector, is_sqlite: bool) -> None:
@@ -248,6 +249,19 @@ def _add_referral_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
+
+
+def _add_push_token_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add push notification token column to users table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("users")}
+
+    if "push_token" not in cols:
+        if is_sqlite:
+            ddl = "ALTER TABLE users ADD COLUMN push_token VARCHAR(255) DEFAULT NULL"
+        else:
+            ddl = "ALTER TABLE users ADD COLUMN IF NOT EXISTS push_token VARCHAR(255) DEFAULT NULL"
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
 
 
 def _add_encryption_columns(db_engine, inspector, table_name: str, is_sqlite: bool) -> None:

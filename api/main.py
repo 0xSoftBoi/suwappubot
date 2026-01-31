@@ -9,6 +9,7 @@ from fastapi import FastAPI, Depends, HTTPException, Query, Request, Security, R
 from fastapi.security.api_key import APIKeyHeader, APIKey
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 # Import webapp router
 from api.webapp import router as webapp_router
@@ -247,12 +248,29 @@ app.add_middleware(
 
 wallet_service = WalletService()
 
+# Mount .well-known for Apple App Site Association
+_well_known_dir = Path(__file__).parent / "static" / ".well-known"
+if _well_known_dir.is_dir():
+    app.mount(
+        "/.well-known",
+        StaticFiles(directory=str(_well_known_dir)),
+        name="well-known",
+    )
+
 # Include webapp router for Telegram Mini App
 app.include_router(webapp_router)
 
 # --- Import and register OAuth routes ---
 from api.routes.oauth import router as oauth_router
 app.include_router(oauth_router)
+
+# --- Import and register mobile app API routes ---
+from api.routes.settings import router as settings_router
+app.include_router(settings_router)
+
+# --- Import and register Phase 2 mobile feature routes ---
+from api.routes.mobile import router as mobile_router
+app.include_router(mobile_router)
 
 # --- Pydantic Models (Aligned with Mobile/Web) ---
 

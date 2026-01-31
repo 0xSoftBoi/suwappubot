@@ -1,3 +1,3 @@
 export { createCorsMiddleware } from './cors'
-export { agentKeyAuth, adminKeyAuth } from './auth'
+export { agentKeyAuth, adminKeyAuth, agentBearerAuth } from './auth'
 export { telegramAuth } from './telegram'

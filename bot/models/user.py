@@ -34,6 +34,9 @@ class User(Base):
     totp_secret = Column(String(64), nullable=True)  # TOTP secret for 2FA
     two_fa_threshold = Column(Integer, default=1000)  # USD threshold for 2FA
     
+    # Push notifications (Expo push token for iOS/Android app)
+    push_token = Column(String(255), nullable=True, default=None)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
