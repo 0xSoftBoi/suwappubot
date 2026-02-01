@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Git Conventions
+
+- Do NOT add "Co-Authored-By" lines to commit messages.
+
 ## Project Overview
 
 Suwappu is a cross-chain DEX bot and liquidity infrastructure. It provides:
