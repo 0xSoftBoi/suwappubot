@@ -13,6 +13,20 @@ const swapRoutes = new Hono()
 // Note: Public routes (tokens, chains) are defined first, before auth middleware
 // Protected routes use the telegramAuth middleware explicitly
 
+// Chain ID to RPC endpoint mapping for broadcasting transactions
+const alchemyKey = process.env.ALCHEMY_API_KEY || ''
+const CHAIN_RPC_ENDPOINTS: Record<number, string> = {
+	1: process.env.ETH_RPC_URL || (alchemyKey ? `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://eth.llamarpc.com'),
+	10: process.env.OPTIMISM_RPC_URL || (alchemyKey ? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://optimism.llamarpc.com'),
+	56: process.env.BSC_RPC_URL || 'https://bsc.llamarpc.com',
+	137: process.env.POLYGON_RPC_URL || (alchemyKey ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://polygon.llamarpc.com'),
+	8453: process.env.BASE_RPC_URL || (alchemyKey ? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://base.llamarpc.com'),
+	42161: process.env.ARBITRUM_RPC_URL || (alchemyKey ? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://arbitrum.llamarpc.com'),
+	43114: process.env.AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc',
+	59144: process.env.LINEA_RPC_URL || 'https://rpc.linea.build',
+	324: process.env.ZKSYNC_RPC_URL || 'https://mainnet.era.zksync.io',
+}
+
 // In-memory quote cache as fallback when Redis is not available
 const quoteCacheMemory = new Map<string, { quote: SwapQuote; expiry: number }>()
 const QUOTE_TTL_MS = QUOTE_TTL * 1000
@@ -236,8 +250,8 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 				toToken: quote.toToken.symbol,
 				fromAmount: quote.fromAmount,
 				toAmount: quote.toAmount,
-				fromAmountUsd: parseFloat(quote.estimatedGasUsd) || null,
-				toAmountUsd: null,
+				fromAmountUsd: parseFloat(quote.fromAmountUsd) || null,
+				toAmountUsd: parseFloat(quote.toAmountUsd) || null,
 				status: 'pending',
 				routeProvider: 'lifi',
 				routeData: JSON.stringify(quote._rawQuote),
@@ -298,18 +312,42 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 
 			const signedTransaction = signResult.signedTransaction
 
-			// Submit to RPC
-			// For now, return the signed tx - in production, submit to the chain's RPC
 			console.log('[SwapRoute] Transaction signed successfully')
 
-			// In a full implementation, you would:
-			// 1. Get the appropriate RPC endpoint for the chain
-			// 2. Send the signed transaction using eth_sendRawTransaction
-			// 3. Wait for confirmation
-			// 4. Update swap status to 'completed' or 'failed'
+			// Broadcast the signed transaction to the chain RPC
+			const rpcUrl = CHAIN_RPC_ENDPOINTS[txRequest.chainId]
+			let txHash: string | null = null
 
-			// For now, update status to 'signed' and return
-			yield* swapService.updateSwapStatus(swapRecord.id, 'signed', signedTransaction)
+			if (rpcUrl) {
+				const broadcastResult = yield* Effect.tryPromise({
+					try: async () => {
+						const res = await fetch(rpcUrl, {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify({
+								jsonrpc: '2.0',
+								method: 'eth_sendRawTransaction',
+								params: [signedTransaction],
+								id: 1,
+							}),
+						})
+						const data = await res.json() as { result?: string; error?: { message: string; code: number } }
+						if (data.error) {
+							throw new Error(`RPC error: ${data.error.message} (code ${data.error.code})`)
+						}
+						return data.result as string
+					},
+					catch: (e) => new Error(`Failed to broadcast transaction: ${e}`),
+				})
+				txHash = broadcastResult
+				console.log('[SwapRoute] Transaction broadcast, txHash:', txHash)
+			} else {
+				console.warn(`[SwapRoute] No RPC endpoint for chainId ${txRequest.chainId}, transaction signed but not broadcast`)
+			}
+
+			// Update swap status with tx hash
+			const newStatus = txHash ? 'submitted' : 'signed'
+			yield* swapService.updateSwapStatus(swapRecord.id, newStatus, txHash || signedTransaction)
 
 			// Clear the quote from cache (Redis and in-memory)
 			yield* deleteCachedQuote(redis, quoteId)
@@ -317,13 +355,12 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 			return {
 				success: true,
 				swapId: swapRecord.id,
-				status: 'signed',
-				signedTransaction,
-				message: 'Transaction signed. Submit to chain to complete swap.',
-				chain: {
-					chainId: txRequest.chainId,
-					rpcNeeded: true,
-				},
+				status: newStatus,
+				txHash,
+				signedTransaction: txHash ? undefined : signedTransaction,
+				message: txHash
+					? 'Transaction submitted to the network.'
+					: 'Transaction signed but no RPC available for broadcast.',
 				swap: {
 					fromChain: quote.fromChain,
 					toChain: quote.toChain,
@@ -446,18 +483,93 @@ interface TokenListResponse {
 		name: string
 		logoURI?: string
 		priceUSD?: string
+		balance?: string
 	}>
+}
+
+// Chain ID to chain key mapping (reverse of CHAIN_IDS in SwapService)
+const CHAIN_ID_TO_KEY: Record<string, string> = {
+	'1': 'ethereum',
+	'10': 'optimism',
+	'56': 'bsc',
+	'137': 'polygon',
+	'42161': 'arbitrum',
+	'43114': 'avalanche',
+	'8453': 'base',
+	'59144': 'linea',
+	'324': 'zksync',
+}
+
+// Native token addresses (zero address or chain-specific)
+const NATIVE_TOKEN_ADDRESS = '0x0000000000000000000000000000000000000000'
+
+/**
+ * Fetch native token balance for a wallet on a given chain
+ */
+async function fetchNativeBalance(address: string, chainId: string): Promise<string | null> {
+	const rpcUrl = CHAIN_RPC_ENDPOINTS[parseInt(chainId, 10)]
+	if (!rpcUrl) return null
+
+	try {
+		const res = await fetch(rpcUrl, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				jsonrpc: '2.0',
+				method: 'eth_getBalance',
+				params: [address, 'latest'],
+				id: 1,
+			}),
+			signal: AbortSignal.timeout(5000),
+		})
+		const data = await res.json() as { result?: string }
+		if (data.result) {
+			const balanceWei = BigInt(data.result)
+			const balance = Number(balanceWei) / 1e18
+			return balance.toFixed(6)
+		}
+	} catch (e) {
+		console.error(`[SwapRoute] Failed to fetch native balance for chain ${chainId}:`, e)
+	}
+	return null
 }
 
 /**
  * GET /webapp/swap/tokens
  * Get popular tokens for a chain (cached for 5 minutes)
+ *
+ * Optional: include auth headers to get wallet balances for the native token
  */
 swapRoutes.get('/tokens', async (c) => {
 	const chainId = c.req.query('chainId')
-	
+
 	if (!chainId) {
 		return c.json({ error: 'Validation Error', message: 'chainId is required' }, 400)
+	}
+
+	// Try to extract wallet address from auth (optional — endpoint remains public)
+	let walletAddress: string | null = null
+	const initData = c.req.header('X-Telegram-Init-Data')
+	if (initData) {
+		// Try to resolve wallet for authenticated user
+		const walletResult = await runEffectEither(
+			Effect.gen(function* () {
+				const userService = yield* UserService
+				const walletService = yield* WalletService
+				// Parse telegram user ID from initData
+				const params = new URLSearchParams(initData)
+				const userParam = params.get('user')
+				if (!userParam) return null
+				const tgUser = JSON.parse(decodeURIComponent(userParam)) as { id: number }
+				const userOption = yield* userService.getUserByTelegramId(tgUser.id)
+				if (Option.isNone(userOption)) return null
+				const wallets = yield* walletService.getActiveWallets(userOption.value.id)
+				return wallets.length > 0 ? wallets[0].address : null
+			})
+		)
+		if (Either.isRight(walletResult) && walletResult.right) {
+			walletAddress = walletResult.right
+		}
 	}
 
 	const result = await runEffectEither(
@@ -518,7 +630,22 @@ swapRoutes.get('/tokens', async (c) => {
 		return c.json({ error: 'Failed to fetch tokens' }, 500)
 	}
 
-	return c.json(result.right)
+	const tokenList = result.right
+
+	// If authenticated, fetch native balance and attach to matching token
+	if (walletAddress) {
+		const nativeBalance = await fetchNativeBalance(walletAddress, chainId)
+		if (nativeBalance) {
+			const nativeToken = tokenList.tokens.find(
+				(t) => t.address.toLowerCase() === NATIVE_TOKEN_ADDRESS
+			)
+			if (nativeToken) {
+				nativeToken.balance = nativeBalance
+			}
+		}
+	}
+
+	return c.json(tokenList)
 })
 
 export { swapRoutes }

@@ -9,7 +9,7 @@ import { getInitData } from './telegram'
 import { getAuthToken } from './auth'
 import type { Portfolio, Swap, ApiError, HealthStatus, UserPreferencesResponse, UpdatePreferencesResponse, UserPreferences } from '../types/api'
 import type { LinkedWallet, AuthChallenge, LinkWalletResponse } from '../types/auth'
-import type { SwapToken, SwapQuote, SwapQuoteRequest, SwapExecuteRequest, SwapExecuteResult } from '../types/swap'
+import type { SwapToken, SwapQuote, SwapQuoteRequest, SwapExecuteRequest, SwapExecuteResult, SwapStatusResponse } from '../types/swap'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -109,7 +109,14 @@ class ApiClient {
    * Get a specific swap by ID
    */
   async getSwap(id: string): Promise<Swap> {
-    return this.fetch<Swap>(`/swaps/${id}`)
+    return this.fetch<Swap>(`/webapp/swap/status/${id}`)
+  }
+
+  /**
+   * Get swap status (typed for polling)
+   */
+  async getSwapStatus(swapId: string): Promise<SwapStatusResponse> {
+    return this.fetch<SwapStatusResponse>(`/webapp/swap/status/${swapId}`)
   }
 
   // === Auth ===
@@ -173,20 +180,27 @@ class ApiClient {
   /**
    * Get available tokens for swapping (PUBLIC API - no auth needed)
    */
-  async getTokens(chainId = '1', _includeBalances = true): Promise<SwapToken[]> {
-    // Use public /tokens endpoint (no auth required)
-    // Note: _includeBalances reserved for future wallet balance integration
-    const response = await fetch(`${this.baseUrl}/tokens?chainId=${chainId}`)
+  async getTokens(chainId = '1', includeBalances = true): Promise<SwapToken[]> {
+    // Pass auth headers if available so backend can return wallet balances
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+    }
+    if (includeBalances) {
+      Object.assign(headers, this.getAuthHeaders())
+    }
+
+    const response = await fetch(`${this.baseUrl}/webapp/swap/tokens?chainId=${chainId}`, { headers })
     if (!response.ok) throw new Error('Failed to fetch tokens')
     const data = await response.json()
-    
+
     return data.tokens.map((t: any) => ({
       symbol: t.symbol,
       name: t.name,
       address: t.address,
       chain: chainId,
       decimals: t.decimals,
-      logoUrl: t.logoURI || t.logoUrl, // Support both Li.Fi (logoURI) and other APIs (logoUrl)
+      logoUrl: t.logoURI || t.logoUrl,
+      balance: t.balance || undefined,
     }))
   }
 
@@ -194,7 +208,7 @@ class ApiClient {
    * Get chains list (PUBLIC API - no auth needed)
    */
   async getChains(): Promise<{ id: number, key: string, name: string }[]> {
-    const response = await fetch(`${this.baseUrl}/chains`)
+    const response = await fetch(`${this.baseUrl}/webapp/swap/chains`)
     if (!response.ok) throw new Error('Failed to fetch chains')
     const data = await response.json()
     return data.chains

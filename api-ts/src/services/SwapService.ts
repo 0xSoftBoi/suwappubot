@@ -133,6 +133,8 @@ export interface SwapQuote {
 	priceImpact: string
 	estimatedGas: string
 	estimatedGasUsd: string
+	fromAmountUsd: string
+	toAmountUsd: string
 	bridgeFee: string
 	bridgeFeeUsd: string
 	slippage: number
@@ -369,6 +371,8 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				fromAmount: response.action.fromAmount,
 				toAmount: response.estimate.toAmount,
 				toAmountMin: response.estimate.toAmountMin,
+				fromAmountUsd: fromUsd.toFixed(2),
+				toAmountUsd: toUsd.toFixed(2),
 				exchangeRate: exchangeRate.toFixed(6),
 				priceImpact: priceImpact.toFixed(2),
 				estimatedGas: response.estimate.gasCosts[0]?.amount || '0',

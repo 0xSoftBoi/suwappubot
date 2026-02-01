@@ -1,10 +1,10 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { AppLayout, AppHeader } from '../components/layout'
 import { TokenInput, SwapArrow, SwapDetails, TokenSelector } from '../components/swap'
 import { ChainSelector, defaultChains, SkeletonCard, QuoteSkeleton } from '../components/ui'
 import { useTokens } from '../hooks/useTokens'
 import { useSwapQuote } from '../hooks/useSwapQuote'
-import { useSwapExecute } from '../hooks/useSwapExecute'
+import { useSwapExecute, useSwapStatus } from '../hooks/useSwapExecute'
 import { useHaptic } from '../hooks/useHaptic'
 import { parseAmountInput, toSmallestUnit } from '../lib/amount-parser'
 import type { SwapToken } from '../types/swap'
@@ -19,6 +19,19 @@ export function Swap() {
   const [showToSelector, setShowToSelector] = useState(false)
   const [isConfirming, setIsConfirming] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
+  const [activeSwapId, setActiveSwapId] = useState<number | null>(null)
+  const [activeTxHash, setActiveTxHash] = useState<string | null>(null)
+
+  // Poll swap status after execution
+  const { data: swapStatus } = useSwapStatus(activeSwapId)
+
+  // Transition to success when swap completes
+  useEffect(() => {
+    if (swapStatus?.status === 'completed') {
+      setIsSuccess(true)
+      setActiveSwapId(null)
+    }
+  }, [swapStatus?.status])
 
   // Fetch available tokens for selected chain
   const { data: tokens, isLoading: tokensLoading } = useTokens(selectedChain)
@@ -125,10 +138,17 @@ export function Swap() {
 
     setIsConfirming(false)
     executeSwap(
-      { quoteId: quote.id },
+      { quoteId: quote.quoteId },
       {
-        onSuccess: () => {
-          setIsSuccess(true)
+        onSuccess: (result) => {
+          setActiveTxHash(result.txHash)
+          if (result.txHash) {
+            // Transaction broadcast — poll for completion
+            setActiveSwapId(result.swapId)
+          } else {
+            // No broadcast (signed only) — show success immediately
+            setIsSuccess(true)
+          }
         },
       }
     )
@@ -136,20 +156,24 @@ export function Swap() {
 
   const handleReset = () => {
     setIsSuccess(false)
+    setActiveSwapId(null)
+    setActiveTxHash(null)
     setFromAmount('')
     resetSwapState()
   }
 
   // Format display values
   const toAmount = quote?.toAmount || ''
-  const fromUsdValue = quote ? `~$${quote.fromAmountUsd.toFixed(2)}` : undefined
-  const toUsdValue = quote ? `~$${quote.toAmountUsd.toFixed(2)}` : undefined
-  const exchangeRate = quote && fromToken && toToken 
-    ? `1 ${fromToken.symbol} = ${quote.exchangeRate.toFixed(4)} ${toToken.symbol}`
+  const fromUsdValue = quote?.fromAmountUsd != null ? `~$${Number(quote.fromAmountUsd).toFixed(2)}` : undefined
+  const toUsdValue = quote?.toAmountUsd != null ? `~$${Number(quote.toAmountUsd).toFixed(2)}` : undefined
+  const exchangeRate = quote && fromToken && toToken
+    ? `1 ${fromToken.symbol} = ${parseFloat(quote.exchangeRate).toFixed(4)} ${toToken.symbol}`
     : undefined
-  const priceImpact = quote ? `${quote.priceImpact.toFixed(2)}%` : undefined
-  const networkFee = quote ? `~$${quote.gasUsd.toFixed(2)}` : undefined
-  const minReceived = quote && toToken ? `${quote.minReceived} ${toToken.symbol}` : undefined
+  const priceImpact = quote ? `${parseFloat(quote.priceImpact).toFixed(2)}%` : undefined
+  const networkFee = quote ? `~$${quote.estimatedGasUsd}` : undefined
+  const minReceived = quote && toToken
+    ? `${(parseFloat(quote.toAmountMin) / Math.pow(10, toToken.decimals)).toFixed(6)} ${toToken.symbol}`
+    : undefined
 
   // Convert SwapToken to Token for TokenInput
   const fromTokenDisplay = fromToken ? {
@@ -164,6 +188,23 @@ export function Swap() {
     name: toToken.name,
   } : { symbol: 'Select', name: 'Select token' }
 
+  // Explorer URL helper
+  const getExplorerUrl = (txHash: string, chainId: string) => {
+    const explorers: Record<string, string> = {
+      '1': 'https://etherscan.io/tx/',
+      '10': 'https://optimistic.etherscan.io/tx/',
+      '56': 'https://bscscan.com/tx/',
+      '137': 'https://polygonscan.com/tx/',
+      '8453': 'https://basescan.org/tx/',
+      '42161': 'https://arbiscan.io/tx/',
+      '43114': 'https://snowtrace.io/tx/',
+      '59144': 'https://lineascan.build/tx/',
+      '324': 'https://explorer.zksync.io/tx/',
+    }
+    return `${explorers[chainId] || 'https://etherscan.io/tx/'}${txHash}`
+  }
+
+  const displayTxHash = activeTxHash || swapStatus?.txHash
   const header = <AppHeader title="Swap" />
 
   // Success state
@@ -181,10 +222,22 @@ export function Swap() {
             <p className="text-xs text-suwappu-text-secondary mb-4">
               Successfully swapped {fromAmount} {fromToken?.symbol} for {toAmount} {toToken?.symbol}
             </p>
+            {displayTxHash && (
+              <p className="text-xs text-suwappu-text-secondary mb-4 font-mono truncate">
+                Tx: {displayTxHash.slice(0, 10)}...{displayTxHash.slice(-8)}
+              </p>
+            )}
             <div className="space-y-2">
-              <button className="w-full px-4 py-2 bg-suwappu-gradient text-white font-heading font-bold text-sm rounded-suwappu-pill shadow-suwappu-button">
-                View Transaction
-              </button>
+              {displayTxHash && (
+                <a
+                  href={getExplorerUrl(displayTxHash, selectedChain)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block w-full px-4 py-2 bg-suwappu-gradient text-white font-heading font-bold text-sm rounded-suwappu-pill shadow-suwappu-button text-center"
+                >
+                  View Transaction
+                </a>
+              )}
               <button
                 onClick={handleReset}
                 className="w-full px-4 py-2 text-suwappu-magenta-mid font-heading font-semibold text-sm"
@@ -198,8 +251,43 @@ export function Swap() {
     )
   }
 
-  // Pending state
-  if (swapPending) {
+  // Pending/polling state — either executing or waiting for on-chain confirmation
+  if (swapPending || activeSwapId != null) {
+    const statusLabel = swapPending
+      ? 'Signing transaction...'
+      : swapStatus?.status === 'submitted'
+      ? 'Waiting for confirmation...'
+      : swapStatus?.status === 'failed'
+      ? 'Swap failed'
+      : 'Processing swap...'
+
+    // If swap failed during polling, show error with reset option
+    if (swapStatus?.status === 'failed') {
+      return (
+        <AppLayout header={header} activeNav="swap">
+          <div className="p-3 pb-20 flex flex-col items-center justify-center min-h-[60vh]">
+            <div className="bg-white rounded-suwappu-xxl p-6 shadow-suwappu-2 text-center max-w-xs">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-suwappu-error/20 flex items-center justify-center">
+                <svg className="w-8 h-8 text-suwappu-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </div>
+              <h3 className="font-heading font-bold text-lg text-suwappu-purple-deep mb-1">Swap Failed</h3>
+              <p className="text-xs text-suwappu-text-secondary mb-4">
+                {swapStatus.errorMessage || 'The swap transaction failed.'}
+              </p>
+              <button
+                onClick={handleReset}
+                className="w-full px-4 py-2 bg-suwappu-gradient text-white font-heading font-bold text-sm rounded-suwappu-pill shadow-suwappu-button"
+              >
+                Try Again
+              </button>
+            </div>
+          </div>
+        </AppLayout>
+      )
+    }
+
     return (
       <AppLayout header={header} activeNav="swap">
         <div className="p-3 pb-20 flex flex-col items-center justify-center min-h-[60vh]">
@@ -211,9 +299,20 @@ export function Swap() {
               </svg>
             </div>
             <h3 className="font-heading font-bold text-lg text-suwappu-purple-deep mb-1">Swap in Progress</h3>
-            <p className="text-xs text-suwappu-text-secondary mb-4">
+            <p className="text-xs text-suwappu-text-secondary mb-2">
               Swapping {fromAmount} {fromToken?.symbol} for {toToken?.symbol}...
             </p>
+            <p className="text-xs text-suwappu-magenta-mid mb-4">{statusLabel}</p>
+            {displayTxHash && (
+              <a
+                href={getExplorerUrl(displayTxHash, selectedChain)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-suwappu-magenta-mid underline mb-4 block"
+              >
+                View on Explorer
+              </a>
+            )}
             <div className="w-full h-1.5 bg-suwappu-sakura-light rounded-full overflow-hidden">
               <div className="h-full bg-suwappu-gradient animate-pulse w-2/3" />
             </div>

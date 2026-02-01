@@ -26,10 +26,8 @@ export interface SwapQuoteRequest {
 }
 
 export interface SwapQuote {
-  /** Quote identifier - API returns as quoteId */
+  /** Quote identifier */
   quoteId: string
-  /** Legacy field name - some code uses id */
-  id?: string
   fromToken: {
     address: string
     symbol: string
@@ -73,13 +71,10 @@ export interface SwapExecuteRequest {
 export interface SwapExecuteResult {
   success: boolean
   swapId: number
-  status: 'signed'
-  signedTransaction: string
+  status: 'signed' | 'submitted'
+  txHash: string | null
+  signedTransaction?: string
   message: string
-  chain: {
-    chainId: number
-    rpcNeeded: boolean
-  }
   swap: {
     fromChain: string
     toChain: string
@@ -92,7 +87,7 @@ export interface SwapExecuteResult {
 
 export interface SwapStatusResponse {
   id: number
-  status: 'pending' | 'signed' | 'completed' | 'failed'
+  status: 'pending' | 'signed' | 'submitted' | 'completed' | 'failed'
   fromChain: string
   toChain: string
   fromToken: string
