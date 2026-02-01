@@ -130,7 +130,7 @@ jobs:
             --cluster ${{ env.ECS_CLUSTER }} \
             --task-definition suwappu-db-backup \
             --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[${{ vars.PRIVATE_SUBNET_IDS }}],securityGroups=[${{ vars.ECS_SECURITY_GROUP_ID }}]}" \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ vars.PRIVATE_SUBNET_IDS || 'subnet-053c24a62515265c8,subnet-028201d90d1e42146' }}],securityGroups=[${{ vars.ECS_SECURITY_GROUP_ID || 'sg-0cc9f4d21fa8a5175' }}]}" \
             --overrides '{"containerOverrides":[{"name":"backup","environment":[{"name":"BACKUP_PREFIX","value":"pre-deploy/bot"}]}]}' \
             --query 'tasks[0].taskArn' \
             --output text)
