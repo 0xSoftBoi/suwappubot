@@ -202,6 +202,7 @@ def _ensure_schema(db_engine) -> None:
         _fix_user_nullability(db_engine, inspector, is_sqlite)
         _add_referral_columns(db_engine, inspector, is_sqlite)
         _add_push_token_column(db_engine, inspector, is_sqlite)
+        _add_user_settings_columns(db_engine, inspector, is_sqlite)
 
 
 def _fix_user_nullability(db_engine, inspector, is_sqlite: bool) -> None:
@@ -272,6 +273,27 @@ def _add_push_token_column(db_engine, inspector, is_sqlite: bool) -> None:
             ddl = "ALTER TABLE users ADD COLUMN IF NOT EXISTS push_token VARCHAR(255) DEFAULT NULL"
         with db_engine.begin() as conn:
             conn.execute(text(ddl))
+
+
+def _add_user_settings_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add panic sell and 2FA columns to users table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("users")}
+
+    new_columns = [
+        ("panic_sell_enabled", "BOOLEAN", "0"),
+        ("two_fa_enabled", "BOOLEAN", "0"),
+        ("totp_secret", "VARCHAR(64)", "NULL"),
+        ("two_fa_threshold", "INTEGER", "1000"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE users ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
 
 
 def _add_encryption_columns(db_engine, inspector, table_name: str, is_sqlite: bool) -> None:
