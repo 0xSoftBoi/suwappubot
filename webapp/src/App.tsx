@@ -1,52 +1,18 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { AnimatePresence, motion, type Variants } from 'framer-motion'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useTelegram } from './hooks/useTelegram'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Welcome, Home, Swap, Wallet, Portfolio, History, Points, LimitOrders, PriceAlerts, Referrals, CopyTrading, Subscriptions, Settings } from './pages'
 import './theme/suwappu.css'
 
-// Page transition variants - smooth iOS-like feel
-const pageVariants: Variants = {
-  initial: {
-    opacity: 0,
-    scale: 0.98,
-    y: 8,
-  },
-  enter: {
-    opacity: 1,
-    scale: 1,
-    y: 0,
-    transition: {
-      duration: 0.3,
-      ease: [0.22, 1, 0.36, 1], // custom smooth ease-out
-    },
-  },
-  exit: {
-    opacity: 0,
-    scale: 0.98,
-    y: -8,
-    transition: {
-      duration: 0.2,
-      ease: [0.22, 1, 0.36, 1],
-    },
-  },
-}
-
-// Page wrapper with animation
+// Page wrapper with CSS animation
 function PageTransition({ children }: { children: React.ReactNode }) {
   return (
-    <motion.div
-      variants={pageVariants}
-      initial="initial"
-      animate="enter"
-      exit="exit"
-      className="h-full"
-    >
+    <div className="h-full animate-page-enter">
       {children}
-    </motion.div>
+    </div>
   )
 }
 
@@ -142,7 +108,6 @@ function AppContent() {
   const location = useLocation()
 
   return (
-    <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
         {/* Public routes */}
         <Route
@@ -281,7 +246,6 @@ function AppContent() {
         {/* Fallback redirect */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </AnimatePresence>
   )
 }
 

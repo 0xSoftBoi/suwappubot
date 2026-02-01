@@ -168,13 +168,52 @@ class UserRateLimiter:
         """Get remaining requests for user."""
         now = datetime.utcnow()
         cutoff = now - timedelta(seconds=self.window_seconds)
-        
+
         recent = [
             ts for ts in self._user_requests.get(user_id, [])
             if ts > cutoff
         ]
-        
+
         return max(0, self.max_requests - len(recent))
+
+    async def cleanup_stale(self) -> int:
+        """Remove entries for users with no recent requests."""
+        async with self._lock:
+            now = datetime.utcnow()
+            cutoff = now - timedelta(seconds=self.window_seconds)
+            stale_keys = [
+                uid for uid, timestamps in self._user_requests.items()
+                if not any(ts > cutoff for ts in timestamps)
+            ]
+            for uid in stale_keys:
+                del self._user_requests[uid]
+            return len(stale_keys)
+
+    async def start_cleanup_loop(self, interval_seconds: int = 300) -> None:
+        """Start a background task that periodically purges stale entries."""
+        self._cleanup_task = asyncio.ensure_future(self._cleanup_loop(interval_seconds))
+
+    async def _cleanup_loop(self, interval: int) -> None:
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                removed = await self.cleanup_stale()
+                if removed > 0:
+                    logger.debug(f"Rate limiter cleanup: removed {removed} stale user entries")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Rate limiter cleanup error: {e}")
+
+    async def stop_cleanup_loop(self) -> None:
+        """Cancel the background cleanup task."""
+        task = getattr(self, "_cleanup_task", None)
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 # Global instances

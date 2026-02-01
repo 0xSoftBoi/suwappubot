@@ -1,12 +1,9 @@
-FROM python:3.11-slim
+# Stage 1: Builder
+FROM python:3.11-slim AS builder
 
-# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-WORKDIR /app
-
-# Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
@@ -14,17 +11,38 @@ RUN apt-get update && apt-get install -y \
     make \
     libpq-dev \
     libssl-dev \
-    curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && which curl || (echo "curl not found!" && exit 1)
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy application code
-COPY . .
+RUN python -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
 
-# Install dependencies and build C++ extension
+WORKDIR /app
+
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir psycopg2-binary gunicorn
-RUN pip install -e .
+
+COPY . .
+RUN pip install --no-cache-dir .
+
+# Stage 2: Runtime
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y \
+    libpq5 \
+    libssl3 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+
+WORKDIR /app
+
+COPY . .
 
 # Make scripts executable
 RUN chmod +x scripts/*.sh

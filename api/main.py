@@ -19,6 +19,7 @@ import secrets
 import json
 import jwt
 import hashlib
+import hmac
 
 # Add project root to path to import bot modules
 project_root = str(Path(__file__).parent.parent)
@@ -175,6 +176,9 @@ async def lifespan(app: FastAPI):
         await tx_poller.stop()
         await webhook_dispatcher.stop()
         await health_monitor.stop()
+        from bot.utils.http_client import close_session
+        await close_session()
+        logger.info("✓ HTTP session closed")
     logger.info("✓ Cleanup complete")
 
 app = FastAPI(
@@ -259,13 +263,18 @@ async def get_agent_or_admin_key(
     return await get_agent_key(agent_key)
 
 # Setup CORS
+_cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from api.middleware.csrf import CSRFMiddleware
+app.add_middleware(CSRFMiddleware)
 
 wallet_service = WalletService()
 
@@ -1290,7 +1299,7 @@ async def telegram_webhook(request: Request):
     secret_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
     expected_secret = settings.get_webhook_secret()
 
-    if secret_token != expected_secret:
+    if not secret_token or not hmac.compare_digest(secret_token, expected_secret):
         logger.warning("Telegram webhook request with invalid secret token")
         raise HTTPException(status_code=403, detail="Invalid secret token")
 

@@ -460,7 +460,13 @@ class SwapEngine:
         
         # Sort by best output (highest to_amount_human)
         quotes.sort(key=lambda q: q.to_amount_human, reverse=True)
-        
+
+        if not quotes:
+            logger.warning(
+                f"All quote providers failed for {from_token} -> {to_token} "
+                f"({from_chain} -> {to_chain}), amount={amount}"
+            )
+
         return quotes
     
     @track_time(MetricNames.SWAP_EXECUTE)

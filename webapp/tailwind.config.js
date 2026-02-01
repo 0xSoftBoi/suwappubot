@@ -81,6 +81,9 @@ export default {
         'suwappu-bounce': 'suwappu-bounce 1.4s ease-in-out infinite',
         'suwappu-shimmer': 'suwappu-shimmer 1.5s infinite',
         'suwappu-heart': 'suwappu-heart-burst 0.6s ease-in-out',
+        'page-enter': 'page-enter 0.3s cubic-bezier(0.22, 1, 0.36, 1) both',
+        'toast-enter': 'toast-enter 0.2s ease-out both',
+        'toast-exit': 'toast-exit 0.2s ease-out both',
       },
       keyframes: {
         'suwappu-petal-float': {
@@ -107,6 +110,18 @@ export default {
           '50%': { transform: 'scale(0.9)' },
           '75%': { transform: 'scale(1.1)' },
           '100%': { transform: 'scale(1)' },
+        },
+        'page-enter': {
+          '0%': { opacity: '0', transform: 'scale(0.98) translateY(8px)' },
+          '100%': { opacity: '1', transform: 'scale(1) translateY(0)' },
+        },
+        'toast-enter': {
+          '0%': { opacity: '0', transform: 'translateY(50px) scale(0.9)' },
+          '100%': { opacity: '1', transform: 'translateY(0) scale(1)' },
+        },
+        'toast-exit': {
+          '0%': { opacity: '1', transform: 'translateY(0) scale(1)' },
+          '100%': { opacity: '0', transform: 'translateY(20px) scale(0.9)' },
         },
       },
     },

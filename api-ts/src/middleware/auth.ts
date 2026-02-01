@@ -50,12 +50,15 @@ export function agentBearerAuth() {
 			})
 		}
 
-		const apiKey = authHeader.slice(7) // Remove 'Bearer ' prefix
+		const apiKey = authHeader.slice(7).trim()
 
-		if (!apiKey || !apiKey.startsWith('suwappu_sk_')) {
+		const API_KEY_MIN_LENGTH = 32
+		const API_KEY_PATTERN = /^suwappu_sk_[a-zA-Z0-9_-]+$/
+
+		if (!apiKey || apiKey.length < API_KEY_MIN_LENGTH || !API_KEY_PATTERN.test(apiKey)) {
 			throw new HTTPException(401, { 
 				message: 'Invalid API key format',
-				cause: { hint: 'API key should start with suwappu_sk_' }
+				cause: { hint: 'API key must start with suwappu_sk_ followed by at least 21 alphanumeric characters' }
 			})
 		}
 
@@ -118,12 +121,15 @@ export function agentBearerAuthAllowInactive() {
 			})
 		}
 
-		const apiKey = authHeader.slice(7)
+		const apiKey = authHeader.slice(7).trim()
 
-		if (!apiKey || !apiKey.startsWith('suwappu_sk_')) {
+		const API_KEY_MIN_LENGTH = 32
+		const API_KEY_PATTERN = /^suwappu_sk_[a-zA-Z0-9_-]+$/
+
+		if (!apiKey || apiKey.length < API_KEY_MIN_LENGTH || !API_KEY_PATTERN.test(apiKey)) {
 			throw new HTTPException(401, {
 				message: 'Invalid API key format',
-				cause: { hint: 'API key should start with suwappu_sk_' }
+				cause: { hint: 'API key must start with suwappu_sk_ followed by at least 21 alphanumeric characters' }
 			})
 		}
 

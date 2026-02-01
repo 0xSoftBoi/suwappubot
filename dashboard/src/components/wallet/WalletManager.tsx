@@ -7,7 +7,14 @@ import { CreateWalletModal } from './CreateWalletModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTurnkey } from '@turnkey/react-wallet-kit';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL;
+
+if (\!API_BASE) {
+  console.error(
+    '[WalletManager] NEXT_PUBLIC_API_URL is not set. ' +
+    'Add it to your .env.local file. API calls will fail.'
+  );
+}
 
 interface WalletManagerProps {
   onWalletSelect?: (wallet: WalletItem) => void;

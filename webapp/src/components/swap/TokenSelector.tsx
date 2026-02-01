@@ -77,6 +77,9 @@ export function TokenSelector({
       {/* Selected Token Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        aria-label={label || "Select token"}
         className="flex items-center gap-2 px-3 py-2 bg-suwappu-sakura-light rounded-suwappu-lg hover:bg-suwappu-sakura-mid/30 transition-colors w-full"
       >
         {selectedToken ? (
@@ -122,12 +125,14 @@ export function TokenSelector({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by name or address..."
+              aria-label="Search tokens"
+              role="searchbox"
               className="w-full px-3 py-2 text-sm bg-suwappu-sakura-light/50 rounded-suwappu-md focus:outline-none focus:ring-2 focus:ring-suwappu-magenta-mid/30"
             />
           </div>
 
           {/* Token List */}
-          <div className="overflow-y-auto flex-1">
+          <div className="overflow-y-auto flex-1" role="listbox">
             {isLoading && (
               <SkeletonCard rows={4} variant="compact" />
             )}
@@ -148,6 +153,8 @@ export function TokenSelector({
               <button
                 key={`${token.chain}-${token.address}`}
                 onClick={() => handleSelect(token)}
+                role="option"
+                aria-selected={selectedToken?.address === token.address && selectedToken?.chain === token.chain}
                 className="w-full flex items-center gap-3 px-3 py-2 hover:bg-suwappu-sakura-light/50 transition-colors"
               >
                 {token.logoUrl ? (

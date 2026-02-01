@@ -148,7 +148,11 @@ class InputSanitizer:
                 raise SanitizationError("Invalid EVM address format")
             
             # Normalize to checksum address
-            return address  # Could add checksum validation
+            try:
+                from web3 import Web3
+                return Web3.to_checksum_address(address)
+            except ValueError:
+                raise SanitizationError("Invalid EVM address checksum")
             
         elif address_type == "solana":
             # Solana address validation (base58)

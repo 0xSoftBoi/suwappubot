@@ -92,12 +92,11 @@ jobs:
         with:
           image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}'
           format: 'table'
-          exit-code: '0'
+          exit-code: '1'
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
 
       - name: Run pre-deploy database backup
-        continue-on-error: true  # Don't block deploy if backup fails (fix subnet vars later)
         run: |
           echo "Starting database backup before deploy..."
           TASK_ARN=$(aws ecs run-task \
@@ -133,10 +132,11 @@ jobs:
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER }} \
             --service ${{ steps.env.outputs.ECS_SERVICE }} \
+            --deployment-configuration "deploymentCircuitBreaker={enable=true,rollback=true}" \
             --enable-execute-command \
             --force-new-deployment
 
-          echo "Deployment initiated. Waiting for service to stabilize..."
+          echo "Deployment initiated with circuit breaker enabled. Waiting for service to stabilize..."
 
       - name: Wait for deployment
         run: |

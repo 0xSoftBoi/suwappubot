@@ -49,11 +49,25 @@ class ApiClient {
     return headers
   }
 
+  private getCsrfToken(): string | null {
+    const match = document.cookie.match(/(^|;\s*)suwappu_csrf=([^;]+)/)
+    return match ? decodeURIComponent(match[2]) : null
+  }
+
   private async fetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    const method = (options.method || 'GET').toUpperCase()
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...this.getAuthHeaders(),
       ...(options.headers as Record<string, string>),
+    }
+
+    // Add CSRF token for state-changing requests
+    if (method !== 'GET' && method !== 'HEAD') {
+      const csrf = this.getCsrfToken()
+      if (csrf) {
+        headers['X-CSRF-Token'] = csrf
+      }
     }
 
     const response = await fetch(`${this.baseUrl}${endpoint}`, {

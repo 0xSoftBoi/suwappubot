@@ -265,6 +265,12 @@ class Settings(BaseSettings):
         description="URL for the Telegram Mini App dashboard"
     )
 
+    # CORS
+    cors_origins: str = Field(
+        default="https://app.suwappu.bot,https://devfront.suwappu.bot,http://localhost:5173,http://localhost:3000",
+        description="Comma-separated list of allowed CORS origins"
+    )
+
     # Agent Interoperability
     agent_api_key: Optional[str] = Field(default=None, description="Secret key for other AI agents to access the API")
 

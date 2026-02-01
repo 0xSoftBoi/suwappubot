@@ -84,6 +84,8 @@ export function BottomNav({ active, onNavigate }: BottomNavProps) {
           <button
             key={item.id}
             onClick={() => handleNavigate(item)}
+            aria-label={item.label}
+            aria-current={activeItem === item.id ? "page" : undefined}
             className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-colors ${
               activeItem === item.id
                 ? 'text-suwappu-magenta-mid'

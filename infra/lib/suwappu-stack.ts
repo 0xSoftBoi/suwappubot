@@ -13,6 +13,7 @@ import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cw_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as kms from 'aws-cdk-lib/aws-kms';
 import { Construct } from 'constructs';
 
 export class SuwappuStack extends cdk.Stack {
@@ -109,8 +110,16 @@ export class SuwappuStack extends cdk.Stack {
     });
 
     // ==================== RDS PostgreSQL ====================
+    const rdsEncryptionKey = new kms.Key(this, 'RdsEncryptionKey', {
+      alias: 'suwappu/rds',
+      description: 'KMS key for Suwappu RDS encryption at rest',
+      enableKeyRotation: true,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
     // NOTE: storageEncrypted requires instance replacement — migrate separately
-    // via snapshot-copy-encrypt-restore workflow
+    // via snapshot-copy-encrypt-restore workflow.
+    // After migration, add: storageEncrypted: true, storageEncryptionKey: rdsEncryptionKey
     this.database = new rds.DatabaseInstance(this, 'SuwappuDatabase', {
       engine: rds.DatabaseInstanceEngine.postgres({
         version: rds.PostgresEngineVersion.VER_15,
@@ -131,7 +140,7 @@ export class SuwappuStack extends cdk.Stack {
       allocatedStorage: 20,
       maxAllocatedStorage: 100,
       storageType: rds.StorageType.GP3,
-      multiAz: false, // Cost optimization
+      multiAz: true, // High availability
       deletionProtection: true,
       backupRetention: cdk.Duration.days(14),
       removalPolicy: cdk.RemovalPolicy.SNAPSHOT,
@@ -248,11 +257,17 @@ export class SuwappuStack extends cdk.Stack {
     });
 
     // ==================== ACM Certificate ====================
-    // Import existing validated certificate (created outside CDK)
+    const certificateArn = this.node.tryGetContext('certificateArn');
+    if (!certificateArn) {
+      throw new Error(
+        'Missing required CDK context variable "certificateArn". ' +
+        'Pass it via: cdk deploy -c certificateArn=arn:aws:acm:REGION:ACCOUNT:certificate/ID'
+      );
+    }
     const certificate = acm.Certificate.fromCertificateArn(
       this,
       'SuwappuCert',
-      'arn:aws:acm:us-east-1:905418423235:certificate/74e95aae-e397-44cc-9005-d964c97ebc41',
+      certificateArn,
     );
 
     // HTTP listener — redirect all traffic to HTTPS
