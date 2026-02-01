@@ -33,6 +33,9 @@ export const EnvSchema = Schema.Struct({
 		default: () => 'https://app.suwappu.bot,https://devfront.suwappu.bot,http://localhost:3000,http://localhost:5173',
 	}),
 
+	// Redis
+	REDIS_URL: Schema.optional(Schema.String),
+
 	// Fee Collection
 	FEE_WALLET_EVM: Schema.optionalWith(Schema.String, {
 		default: () => '0x6456f69215C470e1545Ed6eea4621C136B30D85d',

@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { Effect, Either, Option } from 'effect'
 import { Turnkey } from '@turnkey/sdk-server'
 import { telegramAuth } from '../middleware'
-import { SwapService, UserService, WalletService, type QuoteParams, type SwapQuote } from '../services'
+import { SwapService, UserService, WalletService, RedisService, cacheKeys, QUOTE_TTL, TOKEN_LIST_TTL, type QuoteParams, type SwapQuote } from '../services'
 import { runEffectEither } from '../runtime'
 import type { TelegramUser } from '../services/TelegramAuthService'
 import { mapErrorToResponse, ValidationError, NotFoundError, DatabaseError } from '../errors'
@@ -13,26 +13,49 @@ const swapRoutes = new Hono()
 // Note: Public routes (tokens, chains) are defined first, before auth middleware
 // Protected routes use the telegramAuth middleware explicitly
 
-// In-memory quote cache (in production, use Redis)
-const quoteCache = new Map<string, { quote: SwapQuote; expiry: number }>()
-const QUOTE_TTL = 30_000 // 30 seconds
+// In-memory quote cache as fallback when Redis is not available
+const quoteCacheMemory = new Map<string, { quote: SwapQuote; expiry: number }>()
+const QUOTE_TTL_MS = QUOTE_TTL * 1000
 
-function cacheQuote(quote: SwapQuote): void {
-	quoteCache.set(quote.quoteId, {
-		quote,
-		expiry: Date.now() + QUOTE_TTL,
+// Cache quote using Redis with in-memory fallback
+const cacheQuote = (redis: typeof RedisService.Type, quote: SwapQuote): Effect.Effect<void, never> =>
+	Effect.gen(function* () {
+		const key = cacheKeys.quote(quote.quoteId)
+		const result = yield* Effect.either(redis.set(quote, key, QUOTE_TTL))
+		if (Either.isLeft(result) || !redis.isConnected()) {
+			// Fallback to in-memory
+			quoteCacheMemory.set(quote.quoteId, {
+				quote,
+				expiry: Date.now() + QUOTE_TTL_MS,
+			})
+		}
 	})
-}
 
-function getCachedQuote(quoteId: string): SwapQuote | null {
-	const cached = quoteCache.get(quoteId)
-	if (!cached) return null
-	if (Date.now() > cached.expiry) {
-		quoteCache.delete(quoteId)
-		return null
-	}
-	return cached.quote
-}
+// Get cached quote from Redis with in-memory fallback
+const getCachedQuote = (redis: typeof RedisService.Type, quoteId: string): Effect.Effect<SwapQuote | null, never> =>
+	Effect.gen(function* () {
+		const key = cacheKeys.quote(quoteId)
+		const result = yield* Effect.either(redis.get<SwapQuote>(key))
+		if (Either.isRight(result) && result.right) {
+			return result.right
+		}
+		// Fallback to in-memory
+		const cached = quoteCacheMemory.get(quoteId)
+		if (!cached) return null
+		if (Date.now() > cached.expiry) {
+			quoteCacheMemory.delete(quoteId)
+			return null
+		}
+		return cached.quote
+	})
+
+// Delete cached quote
+const deleteCachedQuote = (redis: typeof RedisService.Type, quoteId: string): Effect.Effect<void, never> =>
+	Effect.gen(function* () {
+		const key = cacheKeys.quote(quoteId)
+		yield* Effect.either(redis.del(key))
+		quoteCacheMemory.delete(quoteId)
+	})
 
 /**
  * GET /webapp/swap/quote
@@ -64,6 +87,7 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 			const userService = yield* UserService
 			const walletService = yield* WalletService
 			const swapService = yield* SwapService
+			const redis = yield* RedisService
 
 			// Get user and wallet - use placeholder if not found (for quotes only)
 			// Use a real address as placeholder since Li.Fi rejects zero address
@@ -115,8 +139,8 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 				})
 			)
 
-			// Cache the quote for execution
-			cacheQuote(quote)
+			// Cache the quote for execution (Redis with in-memory fallback)
+			yield* cacheQuote(redis, quote)
 
 			// Return quote without internal data
 			const { _rawQuote, transactionRequest, ...publicQuote } = quote
@@ -165,6 +189,7 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 			const userService = yield* UserService
 			const walletService = yield* WalletService
 			const swapService = yield* SwapService
+			const redis = yield* RedisService
 
 			// Get user
 			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
@@ -187,8 +212,8 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 				}))
 			}
 
-			// Get cached quote
-			const quote = getCachedQuote(quoteId)
+			// Get cached quote from Redis (with in-memory fallback)
+			const quote = yield* getCachedQuote(redis, quoteId)
 			if (!quote) {
 				return yield* Effect.fail(new ValidationError({ 
 					message: 'Quote expired or not found. Please request a new quote.',
@@ -286,8 +311,8 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 			// For now, update status to 'signed' and return
 			yield* swapService.updateSwapStatus(swapRecord.id, 'signed', signedTransaction)
 
-			// Clear the quote from cache
-			quoteCache.delete(quoteId)
+			// Clear the quote from cache (Redis and in-memory)
+			yield* deleteCachedQuote(redis, quoteId)
 
 			return {
 				success: true,
@@ -411,9 +436,22 @@ swapRoutes.get('/chains', async (c) => {
 	return c.json({ chains })
 })
 
+// Token list response type
+interface TokenListResponse {
+	chainId: number
+	tokens: Array<{
+		address: string
+		symbol: string
+		decimals: number
+		name: string
+		logoURI?: string
+		priceUSD?: string
+	}>
+}
+
 /**
  * GET /webapp/swap/tokens
- * Get popular tokens for a chain
+ * Get popular tokens for a chain (cached for 5 minutes)
  */
 swapRoutes.get('/tokens', async (c) => {
 	const chainId = c.req.query('chainId')
@@ -422,41 +460,65 @@ swapRoutes.get('/tokens', async (c) => {
 		return c.json({ error: 'Validation Error', message: 'chainId is required' }, 400)
 	}
 
-	// Fetch tokens from Li.Fi
-	try {
-		const response = await fetch(`https://li.quest/v1/tokens?chains=${chainId}`, {
-			headers: {
-				'Accept': 'application/json',
-				...(process.env.LIFI_API_KEY && {
-					'x-lifi-api-key': process.env.LIFI_API_KEY,
-				}),
-			},
-		})
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const redis = yield* RedisService
+			const cacheKey = cacheKeys.tokenList(chainId)
 
-		if (!response.ok) {
-			throw new Error(`Failed to fetch tokens: ${response.statusText}`)
-		}
+			// Try to get from cache first
+			const cached = yield* Effect.either(redis.get<TokenListResponse>(cacheKey))
+			if (Either.isRight(cached) && cached.right) {
+				return cached.right
+			}
 
-		const data = await response.json() as { tokens: Record<string, Array<{ address: string; symbol: string; decimals: number; name: string; logoURI?: string; priceUSD?: string }>> }
-		
-		// Return tokens for the requested chain
-		const tokens = data.tokens[chainId] || []
-		
-		return c.json({ 
-			chainId: parseInt(chainId, 10),
-			tokens: tokens.slice(0, 50).map((t) => ({
-				address: t.address,
-				symbol: t.symbol,
-				decimals: t.decimals,
-				name: t.name,
-				logoURI: t.logoURI,
-				priceUSD: t.priceUSD,
-			})),
+			// Fetch tokens from Li.Fi
+			const response = yield* Effect.tryPromise({
+				try: async () => {
+					const res = await fetch(`https://li.quest/v1/tokens?chains=${chainId}`, {
+						headers: {
+							'Accept': 'application/json',
+							...(process.env.LIFI_API_KEY && {
+								'x-lifi-api-key': process.env.LIFI_API_KEY,
+							}),
+						},
+					})
+
+					if (!res.ok) {
+						throw new Error(`Failed to fetch tokens: ${res.statusText}`)
+					}
+
+					return await res.json() as { tokens: Record<string, Array<{ address: string; symbol: string; decimals: number; name: string; logoURI?: string; priceUSD?: string }>> }
+				},
+				catch: (e) => new Error(`Token fetch failed: ${e}`),
+			})
+
+			// Format response
+			const tokens = response.tokens[chainId] || []
+			const tokenListResponse: TokenListResponse = {
+				chainId: parseInt(chainId, 10),
+				tokens: tokens.slice(0, 50).map((t) => ({
+					address: t.address,
+					symbol: t.symbol,
+					decimals: t.decimals,
+					name: t.name,
+					logoURI: t.logoURI,
+					priceUSD: t.priceUSD,
+				})),
+			}
+
+			// Cache for 5 minutes
+			yield* Effect.either(redis.set(tokenListResponse, cacheKey, TOKEN_LIST_TTL))
+
+			return tokenListResponse
 		})
-	} catch (error) {
-		console.error('[SwapRoute] Failed to fetch tokens:', error)
+	)
+
+	if (Either.isLeft(result)) {
+		console.error('[SwapRoute] Failed to fetch tokens:', result.left)
 		return c.json({ error: 'Failed to fetch tokens' }, 500)
 	}
+
+	return c.json(result.right)
 })
 
 export { swapRoutes }

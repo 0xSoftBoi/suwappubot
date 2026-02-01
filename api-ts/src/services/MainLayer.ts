@@ -11,6 +11,7 @@ import { TurnkeyServiceLive } from './TurnkeyService'
 import { AgentServiceLive } from './AgentService'
 import { TokenServiceLive } from './TokenService'
 import { JupiterServiceLive } from './JupiterService'
+import { RedisServiceLive } from './RedisService'
 
 // Base configuration layer
 export const ConfigLayer = EnvServiceLive
@@ -24,6 +25,9 @@ export const TelegramAuthLayer = TelegramAuthServiceLive.pipe(Layer.provide(Conf
 // Turnkey layer depends on config
 export const TurnkeyLayer = TurnkeyServiceLive.pipe(Layer.provide(ConfigLayer))
 
+// Redis layer depends on config
+export const RedisLayer = RedisServiceLive.pipe(Layer.provide(ConfigLayer))
+
 // Service layers (stateless, no dependencies on other services)
 export const ServicesLayer = Layer.mergeAll(WalletServiceLive, SwapServiceLive, UserServiceLive, PointsServiceLive, BalanceServiceLive, AgentServiceLive, TokenServiceLive, JupiterServiceLive)
 
@@ -33,6 +37,7 @@ export const MainLayer = Layer.mergeAll(
 	DatabaseLayer,
 	TelegramAuthLayer,
 	TurnkeyLayer,
+	RedisLayer,
 	ServicesLayer
 )
 

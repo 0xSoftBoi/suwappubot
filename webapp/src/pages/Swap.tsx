@@ -1,13 +1,16 @@
 import { useState, useEffect, useMemo } from 'react'
 import { AppLayout, AppHeader } from '../components/layout'
 import { TokenInput, SwapArrow, SwapDetails, TokenSelector } from '../components/swap'
-import { SkeletonCard, QuoteSkeleton } from '../components/ui'
+import { ChainSelector, defaultChains, SkeletonCard, QuoteSkeleton } from '../components/ui'
 import { useTokens } from '../hooks/useTokens'
 import { useSwapQuote } from '../hooks/useSwapQuote'
 import { useSwapExecute } from '../hooks/useSwapExecute'
+import { useHaptic } from '../hooks/useHaptic'
 import type { SwapToken } from '../types/swap'
 
 export function Swap() {
+  const haptic = useHaptic()
+  const [selectedChain, setSelectedChain] = useState('1') // Default to Ethereum
   const [fromAmount, setFromAmount] = useState('')
   const [fromToken, setFromToken] = useState<SwapToken | null>(null)
   const [toToken, setToToken] = useState<SwapToken | null>(null)
@@ -16,18 +19,36 @@ export function Swap() {
   const [isConfirming, setIsConfirming] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
 
-  // Fetch available tokens
-  const { data: tokens, isLoading: tokensLoading } = useTokens()
+  // Fetch available tokens for selected chain
+  const { data: tokens, isLoading: tokensLoading } = useTokens(selectedChain)
 
-  // Set default tokens when loaded
+  // Set default tokens when loaded or chain changes
   useEffect(() => {
-    if (tokens && tokens.length > 0 && !fromToken) {
-      const eth = tokens.find((t: SwapToken) => t.symbol === 'ETH')
+    if (tokens && tokens.length > 0) {
+      // Find native token (ETH on mainnet, MATIC on Polygon, etc.) and USDC
+      const nativeToken = tokens.find((t: SwapToken) => 
+        t.symbol === 'ETH' || t.symbol === 'MATIC' || t.symbol === 'WETH'
+      )
       const usdc = tokens.find((t: SwapToken) => t.symbol === 'USDC')
-      if (eth) setFromToken(eth)
-      if (usdc) setToToken(usdc)
+      
+      // Only set if current tokens don't exist on new chain
+      const fromTokenExists = fromToken && tokens.some((t: SwapToken) => t.address === fromToken.address)
+      const toTokenExists = toToken && tokens.some((t: SwapToken) => t.address === toToken.address)
+      
+      if (!fromTokenExists && nativeToken) setFromToken(nativeToken)
+      if (!toTokenExists && usdc) setToToken(usdc)
     }
-  }, [tokens, fromToken])
+  }, [tokens, selectedChain])
+
+  // Handle chain selection
+  const handleChainSelect = (chainId: string) => {
+    haptic.selection()
+    setSelectedChain(chainId)
+    // Reset tokens when chain changes - they'll be set by the effect above
+    setFromToken(null)
+    setToToken(null)
+    setFromAmount('')
+  }
 
   // Build quote request
   const quoteRequest = useMemo(() => {
@@ -267,6 +288,7 @@ export function Swap() {
           <TokenSelector
             selectedToken={fromToken}
             onSelect={handleFromTokenSelect}
+            chain={selectedChain}
             excludeAddresses={toToken ? [toToken.address] : []}
           />
           <button
@@ -287,6 +309,7 @@ export function Swap() {
           <TokenSelector
             selectedToken={toToken}
             onSelect={handleToTokenSelect}
+            chain={selectedChain}
             excludeAddresses={fromToken ? [fromToken.address] : []}
           />
           <button
@@ -316,9 +339,19 @@ export function Swap() {
   return (
     <AppLayout header={header} activeNav="swap">
       <div className="p-3 pb-20 space-y-1">
+        {/* Chain Selector */}
+        <div className="bg-white rounded-suwappu-xl p-3 shadow-suwappu-1 mb-2">
+          <span className="text-xs text-suwappu-text-secondary mb-2 block">Network</span>
+          <ChainSelector
+            chains={defaultChains}
+            selected={selectedChain}
+            onSelect={handleChainSelect}
+          />
+        </div>
+
         {tokensLoading ? (
-          <div className="bg-white rounded-suwappu-xl p-6 shadow-suwappu-1 text-center">
-            <div className="animate-pulse">Loading tokens...</div>
+          <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 overflow-hidden">
+            <SkeletonCard rows={2} variant="token" />
           </div>
         ) : (
           <>
@@ -370,10 +403,8 @@ export function Swap() {
 
             {/* Quote loading indicator */}
             {quoteFetching && (
-              <div className="text-center py-2">
-                <span className="text-xs text-suwappu-text-secondary animate-pulse">
-                  Fetching best rate...
-                </span>
+              <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 mt-4">
+                <QuoteSkeleton />
               </div>
             )}
 
