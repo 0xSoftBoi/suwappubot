@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { Effect, Either, Option } from 'effect'
 import { Turnkey } from '@turnkey/sdk-server'
 import { telegramAuth } from '../middleware'
-import { SwapService, UserService, WalletService, RedisService, cacheKeys, QUOTE_TTL, TOKEN_LIST_TTL, type QuoteParams, type SwapQuote } from '../services'
+import { SwapService, UserService, WalletService, RedisService, cacheKeys, QUOTE_TTL, TOKEN_LIST_TTL, type QuoteParams, type SwapQuote, type RedisServiceInterface } from '../services'
 import { runEffectEither } from '../runtime'
 import type { TelegramUser } from '../services/TelegramAuthService'
 import { mapErrorToResponse, ValidationError, NotFoundError, DatabaseError } from '../errors'
@@ -18,10 +18,10 @@ const quoteCacheMemory = new Map<string, { quote: SwapQuote; expiry: number }>()
 const QUOTE_TTL_MS = QUOTE_TTL * 1000
 
 // Cache quote using Redis with in-memory fallback
-const cacheQuote = (redis: typeof RedisService.Type, quote: SwapQuote): Effect.Effect<void, never> =>
+const cacheQuote = (redis: RedisServiceInterface, quote: SwapQuote): Effect.Effect<void, never> =>
 	Effect.gen(function* () {
 		const key = cacheKeys.quote(quote.quoteId)
-		const result = yield* Effect.either(redis.set(quote, key, QUOTE_TTL))
+		const result = yield* Effect.either(redis.set(key, quote, QUOTE_TTL))
 		if (Either.isLeft(result) || !redis.isConnected()) {
 			// Fallback to in-memory
 			quoteCacheMemory.set(quote.quoteId, {
@@ -32,7 +32,7 @@ const cacheQuote = (redis: typeof RedisService.Type, quote: SwapQuote): Effect.E
 	})
 
 // Get cached quote from Redis with in-memory fallback
-const getCachedQuote = (redis: typeof RedisService.Type, quoteId: string): Effect.Effect<SwapQuote | null, never> =>
+const getCachedQuote = (redis: RedisServiceInterface, quoteId: string): Effect.Effect<SwapQuote | null, never> =>
 	Effect.gen(function* () {
 		const key = cacheKeys.quote(quoteId)
 		const result = yield* Effect.either(redis.get<SwapQuote>(key))
@@ -50,7 +50,7 @@ const getCachedQuote = (redis: typeof RedisService.Type, quoteId: string): Effec
 	})
 
 // Delete cached quote
-const deleteCachedQuote = (redis: typeof RedisService.Type, quoteId: string): Effect.Effect<void, never> =>
+const deleteCachedQuote = (redis: RedisServiceInterface, quoteId: string): Effect.Effect<void, never> =>
 	Effect.gen(function* () {
 		const key = cacheKeys.quote(quoteId)
 		yield* Effect.either(redis.del(key))
@@ -507,7 +507,7 @@ swapRoutes.get('/tokens', async (c) => {
 			}
 
 			// Cache for 5 minutes
-			yield* Effect.either(redis.set(tokenListResponse, cacheKey, TOKEN_LIST_TTL))
+			yield* Effect.either(redis.set(cacheKey, tokenListResponse, TOKEN_LIST_TTL))
 
 			return tokenListResponse
 		})

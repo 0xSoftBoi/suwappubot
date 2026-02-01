@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { AppLayout, AppHeader } from '../components/layout'
 import { AddressCard, TokenItem } from '../components/cards'
-import { ChainSelector } from '../components/ui'
+import { ChainSelector, Toast } from '../components/ui'
+import { useHaptic } from '../hooks/useHaptic'
 import { useAuth } from '../contexts/AuthContext'
 import { useWallet, chains as walletChains, chainMeta } from '../hooks/useWallet'
 import { usePortfolio } from '../hooks/usePortfolio'
@@ -199,14 +200,21 @@ function ReceiveView({
   onBack: () => void 
 }) {
   const [copied, setCopied] = useState(false)
+  const [showToast, setShowToast] = useState(false)
+  const haptic = useHaptic()
   const chain = walletChains.find(c => c.id === chainId)
   const meta = chainMeta[chainId]
 
   const copyAddress = async () => {
     try {
       await navigator.clipboard.writeText(address)
+      haptic.success()
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      setShowToast(true)
+      setTimeout(() => {
+        setCopied(false)
+        setShowToast(false)
+      }, 2000)
     } catch {
       // Fallback for older browsers
       const textArea = document.createElement('textarea')
@@ -215,8 +223,13 @@ function ReceiveView({
       textArea.select()
       document.execCommand('copy')
       document.body.removeChild(textArea)
+      haptic.success()
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      setShowToast(true)
+      setTimeout(() => {
+        setCopied(false)
+        setShowToast(false)
+      }, 2000)
     }
   }
 
@@ -225,6 +238,12 @@ function ReceiveView({
       header={<AppHeader title="Receive" showBack onBack={onBack} />}
       activeNav="wallet"
     >
+      <Toast 
+        message="Address copied to clipboard!" 
+        isVisible={showToast} 
+        type="success"
+        onClose={() => setShowToast(false)}
+      />
       <div className="p-3 pb-20 space-y-4">
         <div className="bg-white rounded-suwappu-xl p-4 shadow-suwappu-1 text-center">
           {/* Chain indicator */}

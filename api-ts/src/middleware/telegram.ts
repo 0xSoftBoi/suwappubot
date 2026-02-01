@@ -25,11 +25,11 @@ export function telegramAuth() {
 			if (devUserId) {
 				c.set('telegramUser', {
 					id: parseInt(devUserId, 10),
-					firstName: 'Dev',
-					lastName: 'User',
+					first_name: 'Dev',
+					last_name: 'User',
 					username: 'devuser',
-					languageCode: 'en',
-					isPremium: false,
+					language_code: 'en',
+					is_premium: false,
 				})
 				await next()
 				return

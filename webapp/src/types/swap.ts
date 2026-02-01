@@ -26,22 +26,44 @@ export interface SwapQuoteRequest {
 }
 
 export interface SwapQuote {
-  id: string
-  fromToken: SwapToken
-  toToken: SwapToken
+  /** Quote identifier - API returns as quoteId */
+  quoteId: string
+  /** Legacy field name - some code uses id */
+  id?: string
+  fromToken: {
+    address: string
+    symbol: string
+    decimals: number
+    logoURI?: string
+  }
+  toToken: {
+    address: string
+    symbol: string
+    decimals: number
+    logoURI?: string
+  }
+  fromChain: string
+  toChain: string
   fromAmount: string
   toAmount: string
-  fromAmountUsd: number
-  toAmountUsd: number
-  exchangeRate: number
-  priceImpact: number  // percentage
+  toAmountMin: string
+  fromAmountUsd?: number
+  toAmountUsd?: number
+  exchangeRate: string
+  priceImpact: string  // percentage as string
   estimatedGas: string
-  gasUsd: number
+  estimatedGasUsd: string
+  bridgeFee?: string
+  bridgeFeeUsd?: string
   route: string
-  expiresAt: string
-  minReceived: string
   slippage: number
   estimatedDuration?: number  // seconds
+  txData?: {
+    to: string
+    value: string
+    chainId: number
+    gasLimit: string
+  }
 }
 
 export interface SwapExecuteRequest {

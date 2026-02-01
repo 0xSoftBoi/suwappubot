@@ -76,7 +76,7 @@ export const RedisServiceLive = Layer.effect(
 
 		const client = new Redis(env.REDIS_URL, {
 			maxRetriesPerRequest: 3,
-			retryDelayOnFailover: 100,
+			retryStrategy: (times) => Math.min(times * 100, 3000),
 			lazyConnect: true,
 		})
 

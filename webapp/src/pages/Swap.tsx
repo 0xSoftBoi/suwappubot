@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { AppLayout, AppHeader } from '../components/layout'
 import { TokenInput, SwapArrow, SwapDetails, TokenSelector } from '../components/swap'
 import { ChainSelector, defaultChains, SkeletonCard, QuoteSkeleton } from '../components/ui'
@@ -6,6 +6,7 @@ import { useTokens } from '../hooks/useTokens'
 import { useSwapQuote } from '../hooks/useSwapQuote'
 import { useSwapExecute } from '../hooks/useSwapExecute'
 import { useHaptic } from '../hooks/useHaptic'
+import { parseAmountInput, toSmallestUnit } from '../lib/amount-parser'
 import type { SwapToken } from '../types/swap'
 
 export function Swap() {
@@ -50,19 +51,37 @@ export function Swap() {
     setFromAmount('')
   }
 
+  // Parse and normalize amount input (handles "0.5", "1,000", "$50", etc.)
+  const parsedAmount = useMemo(() => {
+    if (!fromAmount) return null
+    return parseAmountInput(fromAmount, fromToken?.decimals || 18)
+  }, [fromAmount, fromToken?.decimals])
+
   // Build quote request
   const quoteRequest = useMemo(() => {
-    if (!fromToken || !toToken || !fromAmount) return null
+    if (!fromToken || !toToken || !parsedAmount?.value) return null
+    
+    const amountNum = parseFloat(parsedAmount.value)
+    if (isNaN(amountNum) || amountNum <= 0) return null
+    
+    // If it looks like raw wei, use directly; otherwise convert
+    const amountInSmallestUnit = parsedAmount.isRawUnit 
+      ? parsedAmount.value
+      : toSmallestUnit(parsedAmount.value, fromToken.decimals)
+    
+    // TODO: If fiat amount, convert using token price
+    // if (parsedAmount.isFiat) { ... }
+    
     return {
       fromToken: fromToken.address,
       toToken: toToken.address,
       fromChain: fromToken.chain,
       toChain: toToken.chain,
-      amount: fromAmount,
+      amount: amountInSmallestUnit,
       fromDecimals: fromToken.decimals,
       slippage: 0.5,
     }
-  }, [fromToken, toToken, fromAmount])
+  }, [fromToken, toToken, parsedAmount])
 
   // Fetch quote (debounced)
   const { 

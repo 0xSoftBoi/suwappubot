@@ -45,8 +45,18 @@ interface ErrorResponse {
 	body: { error: string; message?: string; fields?: Record<string, string> }
 }
 
-export const mapErrorToResponse = (error: AppError): ErrorResponse =>
-	Match.value(error).pipe(
+export const mapErrorToResponse = (error: AppError | Error | unknown): ErrorResponse => {
+	// Handle plain Error or unknown errors
+	if (!(error && typeof error === 'object' && '_tag' in error)) {
+		const message = error instanceof Error ? error.message : 'Unknown error'
+		return {
+			status: 500,
+			body: { error: 'Internal Error', message },
+		}
+	}
+
+	// Handle tagged AppError types
+	return Match.value(error as AppError).pipe(
 		Match.tag('ValidationError', (e) => ({
 			status: e.status,
 			body: {
@@ -77,3 +87,4 @@ export const mapErrorToResponse = (error: AppError): ErrorResponse =>
 		})),
 		Match.exhaustive
 	)
+}
