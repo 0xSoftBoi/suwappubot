@@ -24,7 +24,7 @@ from bot.handlers.portfolio import portfolio_handler, portfolio_callback
 from bot.handlers.gas import gas_handler, gas_callback, gas_menu_callback
 from bot.handlers.favorites import favorites_handler, favorites_callback, use_favorite_callback, delete_favorite_callback
 from bot.handlers.settings import (
-    settings_handler, settings_callback, toggle_notify_callback, 
+    settings_handler, settings_callback, toggle_notify_handler,
     slippage_conversation, toggle_panic_handler, settings_menu_callback
 )
 from bot.handlers.admin import status_handler, clear_cache_handler, broadcast_handler
@@ -230,7 +230,7 @@ def add_handlers(application: Application) -> None:
     
     # Settings
     application.add_handler(settings_menu_callback)
-    application.add_handler(toggle_notify_callback)
+    application.add_handler(toggle_notify_handler)
     application.add_handler(toggle_panic_handler)
     
     # Custodial

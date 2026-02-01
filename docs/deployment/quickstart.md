@@ -150,5 +150,5 @@ sudo systemctl restart suwappubot
 4. Configure backups
 5. Set up hot wallets for deposits (use admin commands)
 
-For detailed deployment instructions, see [DEPLOYMENT.md](./DEPLOYMENT.md)
+For detailed deployment instructions, see [deployment.md](./deployment.md)
 

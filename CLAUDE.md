@@ -10,6 +10,13 @@ Suwappu is a cross-chain DEX bot and liquidity infrastructure. It provides:
 - Agent-to-Agent (A2A) API for AI agent interoperability
 - Telegram Mini App dashboard
 
+For detailed technical guides, see the reorganized documentation in `docs/`:
+- **Architecture**: [docs/architecture/scaling_guide.md](docs/architecture/scaling_guide.md)
+- **Deployment**: [docs/deployment/aws_deployment.md](docs/deployment/aws_deployment.md)
+- **Development**: [docs/development/local_setup.md](docs/development/local_setup.md)
+- **Agent Guide**: [docs/features/agent_integration.md](docs/features/agent_integration.md)
+- **Operations**: [docs/operations/health_check.md](docs/operations/health_check.md)
+
 ## Commands
 
 ```bash

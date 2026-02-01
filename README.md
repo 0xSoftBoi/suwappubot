@@ -2,7 +2,7 @@
 
 Cross-chain DEX bot & liquidity infrastructure for humans and AI agents.
 
-[![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/README_AGENT.md)
+[![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/features/agent_integration.md)
 [![A2A-Optimized](https://img.shields.io/badge/A2A-Optimized-blue)](agent-card.json)
 
 ## Overview
@@ -46,22 +46,17 @@ flowchart LR
 
 ## 📚 Documentation
 
-| Component | Description | README |
+| Category | Description | Key Links |
 |-----------|-------------|--------|
-| **API (TypeScript)** | Hono + Effect-TS backend | [api-ts/README.md](api-ts/README.md) |
-| **Webapp** | React + Vite Mini App | [webapp/README.md](webapp/README.md) |
-| **Bot** | Python Telegram handlers | [bot/](bot/) |
-| **Infrastructure** | AWS CDK stacks | [infra/README.md](infra/README.md) |
-| **Agent Integration** | MCP & A2A guide | [docs/README_AGENT.md](docs/README_AGENT.md) |
-
-### Additional Docs
-
-- [Deployment Guide](docs/DEPLOYMENT.md)
-- [AWS Infrastructure](docs/AWS_DEPLOYMENT.md)
-- [Scaling Guide](docs/SCALING_GUIDE.md)
-- [Health Check](HEALTH_CHECK.md)
+| **Core Components** | Service-specific readmes | [API (TS)](api-ts/README.md) • [Webapp](webapp/README.md) • [Bot](bot/) • [Infra](infra/README.md) |
+| **Architecture** | High-level design | [Scaling Guide](docs/architecture/scaling_guide.md) |
+| **Development** | Setup & Debugging | [Debug Guide](docs/development/debug.md) • [Local Setup](docs/development/local_setup.md) • [Migrations](docs/development/migrations.md) |
+| **Deployment** | AWS, CI/CD, Releases | [AWS Guide](docs/deployment/aws_deployment.md) • [CI/CD](docs/deployment/ci_cd.md) • [Releasing](docs/deployment/releasing.md) |
+| **Features** | Swaps, Agents, Mobile | [Agent Integration](docs/features/agent_integration.md) • [Mobile Plan](docs/features/mobile_plan.md) |
+| **Operations** | Health & Improvements | [Health Check](docs/operations/health_check.md) • [Improvements](docs/operations/improvements.md) |
 
 ---
+
 
 ## Architecture
 
@@ -241,33 +236,19 @@ docker-compose up
 ```
 suwappubot/
 ├── api-ts/           # TypeScript API (Hono + Effect)
-│   ├── src/
-│   │   ├── routes/   # API endpoints
-│   │   ├── services/ # Business logic
-│   │   └── db/       # Drizzle schema
-│   └── README.md     # 📖 API docs
-│
 ├── webapp/           # Telegram Mini App (React)
-│   ├── src/
-│   │   ├── pages/    # Route pages
-│   │   ├── components/
-│   │   └── theme/    # Design system
-│   └── README.md     # 📖 Webapp docs
-│
 ├── bot/              # Python Telegram bot
-│   ├── handlers/     # Command handlers
-│   └── services/     # Swap/wallet logic
-│
 ├── infra/            # AWS CDK infrastructure
-│   └── README.md     # 📖 Infra docs
-│
-├── docs/             # Additional documentation
-│   ├── README_AGENT.md
-│   ├── DEPLOYMENT.md
-│   └── ...
-│
-├── .github/workflows/  # CI/CD pipelines
-└── docker-compose.yml
+├── mobile/           # Expo iOS Mobile App
+├── tui/              # Terminal Monitoring Dashboard
+├── docs/             # Centralized Documentation
+│   ├── architecture/ # Design & Roadmap
+│   ├── deployment/   # AWS, CI/CD, Releases
+│   ├── development/  # Setup, Debug, Migrations, Scripts
+│   ├── features/     # Feature-specific guides
+│   ├── operations/   # Health, Post-mortems, Fixes
+│   └── archive/      # Task summaries & historical docs
+└── .github/workflows/# CI/CD pipelines
 ```
 
 ---
@@ -312,9 +293,9 @@ flowchart LR
 
 - **Tool Discovery:** `GET /tools`
 - **MCP Manifest:** `GET /.well-known/ai-plugin.json`
-- **Agent Card:** `GET /agent-card.json`
+- **Agent Skill:** [docs/features/agent_skill.md](docs/features/agent_skill.md)
 
-See [docs/README_AGENT.md](docs/README_AGENT.md) for integration guide.
+See [docs/features/agent_integration.md](docs/features/agent_integration.md) for integration guide.
 
 ---
 
@@ -331,7 +312,7 @@ See [docs/README_AGENT.md](docs/README_AGENT.md) for integration guide.
 
 Push to `main` or `dev` triggers GitHub Actions → ECR → ECS deployment.
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for details.
+See [docs/deployment/aws_deployment.md](docs/deployment/aws_deployment.md) for details.
 
 ---
 

@@ -159,8 +159,8 @@ If deployment fails:
 ## Support
 
 - Check logs first: `docker-compose logs` or `journalctl -u suwappubot`
-- Review [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed instructions
-- Check [DEPLOYMENT_QUICKSTART.md](./DEPLOYMENT_QUICKSTART.md) for quick reference
+- Review [deployment.md](./deployment.md) for detailed instructions
+- Check [quickstart.md](./quickstart.md) for quick reference
 
 ---
 

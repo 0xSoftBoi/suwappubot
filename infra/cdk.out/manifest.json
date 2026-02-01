@@ -23,7 +23,7 @@
         "validateOnSynth": false,
         "assumeRoleArn": "arn:${AWS::Partition}:iam::905418423235:role/cdk-hnb659fds-deploy-role-905418423235-us-east-1",
         "cloudFormationExecutionRoleArn": "arn:${AWS::Partition}:iam::905418423235:role/cdk-hnb659fds-cfn-exec-role-905418423235-us-east-1",
-        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-905418423235-us-east-1/921bb3fbac91f916c0dc4cbd6c1fe10a8d2de31a1b7beae8184e584ffa3931c3.json",
+        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-905418423235-us-east-1/92e00b42e3d5999e3fb5375fb921de0a096db8accefb922505b43d4b7b2b03cb.json",
         "requiresBootstrapStackVersion": 6,
         "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version",
         "additionalDependencies": [
@@ -380,6 +380,60 @@
           {
             "type": "aws:cdk:logicalId",
             "data": "RdsFreeStorageAlarm0E00E3B8"
+          }
+        ],
+        "/SuwappuStack/SuwappuDbBackups/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SuwappuDbBackups327B34A4"
+          }
+        ],
+        "/SuwappuStack/SuwappuBackupLogs/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SuwappuBackupLogs31F49896"
+          }
+        ],
+        "/SuwappuStack/SuwappuDbBackupTask/TaskRole/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SuwappuDbBackupTaskTaskRole5A234424"
+          }
+        ],
+        "/SuwappuStack/SuwappuDbBackupTask/TaskRole/DefaultPolicy/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SuwappuDbBackupTaskTaskRoleDefaultPolicyAF8455A1"
+          }
+        ],
+        "/SuwappuStack/SuwappuDbBackupTask/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SuwappuDbBackupTask2BC5171E"
+          }
+        ],
+        "/SuwappuStack/SuwappuDbBackupTask/ExecutionRole/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SuwappuDbBackupTaskExecutionRole0AB3DAB4"
+          }
+        ],
+        "/SuwappuStack/SuwappuDbBackupTask/ExecutionRole/DefaultPolicy/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SuwappuDbBackupTaskExecutionRoleDefaultPolicy3A2E55AA"
+          }
+        ],
+        "/SuwappuStack/BackupBucketName": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "BackupBucketName"
+          }
+        ],
+        "/SuwappuStack/BackupTaskDefinition": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "BackupTaskDefinition"
           }
         ],
         "/SuwappuStack/LoadBalancerDns": [

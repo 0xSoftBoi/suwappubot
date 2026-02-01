@@ -1,21 +1,36 @@
 {
   "version": "48.0.0",
   "files": {
-    "921bb3fbac91f916c0dc4cbd6c1fe10a8d2de31a1b7beae8184e584ffa3931c3": {
+    "92e00b42e3d5999e3fb5375fb921de0a096db8accefb922505b43d4b7b2b03cb": {
       "displayName": "SuwappuStack Template",
       "source": {
         "path": "SuwappuStack.template.json",
         "packaging": "file"
       },
       "destinations": {
-        "905418423235-us-east-1-7dd2fdd7": {
+        "905418423235-us-east-1-7809e0e3": {
           "bucketName": "cdk-hnb659fds-assets-905418423235-us-east-1",
-          "objectKey": "921bb3fbac91f916c0dc4cbd6c1fe10a8d2de31a1b7beae8184e584ffa3931c3.json",
+          "objectKey": "92e00b42e3d5999e3fb5375fb921de0a096db8accefb922505b43d4b7b2b03cb.json",
           "region": "us-east-1",
           "assumeRoleArn": "arn:${AWS::Partition}:iam::905418423235:role/cdk-hnb659fds-file-publishing-role-905418423235-us-east-1"
         }
       }
     }
   },
-  "dockerImages": {}
+  "dockerImages": {
+    "53908bcf585d923968c20ae059319bdb934a0b6494bed4a5914e80ea3fd453a5": {
+      "displayName": "SuwappuDbBackupTask/backup/AssetImage",
+      "source": {
+        "directory": "asset.53908bcf585d923968c20ae059319bdb934a0b6494bed4a5914e80ea3fd453a5"
+      },
+      "destinations": {
+        "905418423235-us-east-1-732cf4bd": {
+          "repositoryName": "cdk-hnb659fds-container-assets-905418423235-us-east-1",
+          "imageTag": "53908bcf585d923968c20ae059319bdb934a0b6494bed4a5914e80ea3fd453a5",
+          "region": "us-east-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::905418423235:role/cdk-hnb659fds-image-publishing-role-905418423235-us-east-1"
+        }
+      }
+    }
+  }
 }

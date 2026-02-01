@@ -2,6 +2,43 @@
 
 Complete guide for deploying Suwappu to AWS.
 
+## Architecture
+
+```
+                    ┌─────────────────┐
+                    │   Route 53      │
+                    │   (DNS)         │
+                    └────────┬────────┘
+                             │
+                    ┌────────▼────────┐
+                    │   ALB           │
+                    │   (Load Balancer)│
+                    └────────┬────────┘
+                             │
+              ┌──────────────┼──────────────┐
+              │              │              │
+       ┌──────▼──────┐┌──────▼──────┐┌──────▼──────┐
+       │   ECS Task  ││   ECS Task  ││   ECS Task  │
+       │   (Fargate) ││   (Fargate) ││   (Fargate) │
+       └──────┬──────┘└──────┬──────┘└──────┬──────┘
+              │              │              │
+              └──────────────┼──────────────┘
+                             │
+                    ┌────────▼────────┐
+                    │   RDS PostgreSQL│
+                    │   (Database)    │
+                    └─────────────────┘
+```
+
+**Components:**
+- **VPC**: 2 AZs with public/private/isolated subnets
+- **ECS Fargate**: Auto-scaling 1-3 containers
+- **RDS PostgreSQL**: Managed database with backups
+- **ALB**: Internet-facing load balancer
+- **ECR**: Container registry
+- **Secrets Manager**: Secure credential storage
+- **CloudWatch**: Logs and metrics
+
 ## Prerequisites
 
 1. **AWS Account** with administrative access
@@ -26,6 +63,7 @@ Complete guide for deploying Suwappu to AWS.
 # 5. Check status
 ./scripts/deploy-aws.sh status
 ```
+
 
 ## Detailed Steps
 
@@ -256,6 +294,18 @@ aws logs tail /ecs/suwappu --since 10m
 docker run -p 10000:10000 suwappu:latest
 curl http://localhost:10000/health
 ```
+
+## Cost Estimates
+
+| Component | Monthly Cost |
+|-----------|-------------|
+| ECS Fargate (1 task, 0.25 vCPU, 0.5GB) | ~$10 |
+| RDS PostgreSQL (t3.micro) | ~$15 |
+| ALB | ~$20 |
+| NAT Gateway | ~$35 |
+| ECR Storage | ~$1 |
+| CloudWatch Logs | ~$5 |
+| **Total** | **~$85/month** |
 
 ## Cost Optimization
 
