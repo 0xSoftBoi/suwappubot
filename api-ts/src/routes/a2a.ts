@@ -159,8 +159,14 @@ async function processMessage(text: string, agent: Agent): Promise<{ parts: Part
 
 	// --- Chains list ---
 	if (lower.includes('chains') || lower.includes('supported')) {
+		const uniqueChains = Object.values(CHAINS)
+			.filter((chain, index, self) =>
+				index === self.findIndex((c) => c.id === chain.id)
+			)
+			.map((c) => c.name)
+
 		const chainList = [
-			...Object.values(CHAINS).map((c) => c.name),
+			...uniqueChains,
 			'Solana',
 		]
 		return {

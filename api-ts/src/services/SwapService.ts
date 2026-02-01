@@ -292,7 +292,7 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				order: params.order || 'RECOMMENDED',
 				integrator: params.integrator || 'suwappu',
 				referrer: process.env.FEE_WALLET_EVM || '0x6456f69215C470e1545Ed6eea4621C136B30D85d',
-				fee: '0.003', // 0.3% integrator fee
+				// fee: '0.003', // 0.3% integrator fee - Disabled until configured in Li.Fi dashboard
 			})
 
 			const url = `${LIFI_API_BASE}/quote?${queryParams.toString()}`
