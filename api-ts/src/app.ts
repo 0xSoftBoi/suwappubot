@@ -45,18 +45,19 @@ export function createApp(config: AppConfig) {
 	// A2A JSON-RPC endpoint - uses Bearer token auth internally
 	app.route('/a2a', a2aRoutes)
 
-	// Legacy internal API routes - X-Agent-Key required
-	const agentProtected = new Hono()
-	agentProtected.use('*', agentKeyAuth(config.agentApiKey))
-	agentProtected.route('/', toolsRoutes)
-	agentProtected.route('/users', usersRoutes)
-	agentProtected.route('/users', pointsRoutes)
-	agentProtected.route('/users', limitOrderRoutes)
-	app.route('/', agentProtected)
-
 	// Agent card for A2A discovery (standard path + legacy)
 	app.get('/.well-known/agent.json', (c) => c.json(agentCard))
 	app.get('/agent-card.json', (c) => c.json(agentCard))
+
+	// Legacy internal API routes - X-Agent-Key required
+	// Mounted with explicit paths to avoid intercepting /v1/agent/* and public routes
+	app.use('/tools', agentKeyAuth(config.agentApiKey))
+	app.use('/tools/*', agentKeyAuth(config.agentApiKey))
+	app.use('/users/*', agentKeyAuth(config.agentApiKey))
+	app.route('/', toolsRoutes)
+	app.route('/users', usersRoutes)
+	app.route('/users', pointsRoutes)
+	app.route('/users', limitOrderRoutes)
 
 	// OpenAPI / AI plugin manifest
 	app.get('/ai-plugin.json', (c) => {
