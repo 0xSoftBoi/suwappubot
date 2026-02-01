@@ -465,10 +465,14 @@ async def health_check():
 
 
 # ============ Turnkey Web Authentication ============
+# DEPRECATED: The dashboard now uses @turnkey/react-wallet-kit (EWK) for auth.
+# These endpoints are kept for backward compatibility with non-browser clients
+# (Telegram bot, agent API, etc.). Remove once all clients migrate to EWK.
 
-@app.post("/auth/turnkey/challenge", response_model=AuthChallengeResponse, tags=["Auth"])
+@app.post("/auth/turnkey/challenge", response_model=AuthChallengeResponse, tags=["Auth"], deprecated=True)
 async def auth_challenge(request: AuthChallengeRequest):
     """
+    [DEPRECATED — use EWK handleLogin() on the frontend instead]
     Generate a challenge message for wallet-based authentication.
     The user signs this message with their wallet to prove ownership.
     """
@@ -487,7 +491,7 @@ async def auth_challenge(request: AuthChallengeRequest):
     )
 
 
-@app.post("/auth/turnkey/verify", response_model=AuthVerifyResponse, tags=["Auth"])
+@app.post("/auth/turnkey/verify", response_model=AuthVerifyResponse, tags=["Auth"], deprecated=True)
 async def auth_verify(
     request: AuthVerifyRequest,
     response: Response,
@@ -658,8 +662,11 @@ class PasskeyAuthCompleteResponse(BaseModel):
 # In-memory challenge store for passkeys (use Redis in production)
 _passkey_challenges: Dict[str, Dict[str, Any]] = {}
 
+# DEPRECATED: The dashboard now uses @turnkey/react-wallet-kit (EWK) for passkey auth.
+# These endpoints are kept for backward compatibility with non-browser clients.
+# Remove once all clients migrate to EWK.
 
-@app.post("/auth/passkey/register/init", response_model=PasskeyRegisterInitResponse, tags=["Passkey"])
+@app.post("/auth/passkey/register/init", response_model=PasskeyRegisterInitResponse, tags=["Passkey"], deprecated=True)
 async def passkey_register_init(request: PasskeyRegisterInitRequest):
     """
     Initialize passkey registration.
@@ -695,7 +702,7 @@ async def passkey_register_init(request: PasskeyRegisterInitRequest):
     )
 
 
-@app.post("/auth/passkey/register/complete", response_model=PasskeyRegisterCompleteResponse, tags=["Passkey"])
+@app.post("/auth/passkey/register/complete", response_model=PasskeyRegisterCompleteResponse, tags=["Passkey"], deprecated=True)
 async def passkey_register_complete(
     request: PasskeyRegisterCompleteRequest,
     response: Response,
@@ -789,7 +796,7 @@ async def passkey_register_complete(
     )
 
 
-@app.post("/auth/passkey/authenticate/init", response_model=PasskeyAuthInitResponse, tags=["Passkey"])
+@app.post("/auth/passkey/authenticate/init", response_model=PasskeyAuthInitResponse, tags=["Passkey"], deprecated=True)
 async def passkey_auth_init():
     """
     Initialize passkey authentication.
@@ -815,7 +822,7 @@ async def passkey_auth_init():
     )
 
 
-@app.post("/auth/passkey/authenticate/complete", response_model=PasskeyAuthCompleteResponse, tags=["Passkey"])
+@app.post("/auth/passkey/authenticate/complete", response_model=PasskeyAuthCompleteResponse, tags=["Passkey"], deprecated=True)
 async def passkey_auth_complete(
     request: PasskeyAuthCompleteRequest,
     response: Response,

@@ -5,7 +5,7 @@ import { Plus, RefreshCw, Loader2 } from 'lucide-react';
 import { WalletList, WalletItem } from './WalletList';
 import { CreateWalletModal } from './CreateWalletModal';
 import { useAuth } from '@/contexts/AuthContext';
-import { createTurnkeyWallet } from '@/lib/turnkey-embedded';
+import { useTurnkey } from '@turnkey/react-wallet-kit';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -15,6 +15,7 @@ interface WalletManagerProps {
 
 export function WalletManager({ onWalletSelect }: WalletManagerProps) {
   const { user, isAuthenticated } = useAuth();
+  const turnkey = useTurnkey();
   const [wallets, setWallets] = useState<WalletItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -103,12 +104,16 @@ export function WalletManager({ onWalletSelect }: WalletManagerProps) {
   };
 
   const handleCreatePasskey = async (chainType: 'evm' | 'solana', name: string) => {
-    const result = await createTurnkeyWallet(chainType, name);
+    const addressFormat =
+      chainType === 'solana'
+        ? 'ADDRESS_FORMAT_SOLANA' as const
+        : 'ADDRESS_FORMAT_ETHEREUM' as const;
 
-    if (!result.success) {
-      throw new Error(result.error || 'Failed to create passkey wallet');
-    }
-
+    await turnkey.createWallet({
+      walletName: name,
+      accounts: [addressFormat],
+    });
+    await turnkey.refreshWallets();
     await fetchWallets();
   };
 

@@ -123,7 +123,7 @@ function SwapItem({ swap }: { swap: Swap }) {
           status.bgColor,
           status.color
         )}>
-          <StatusIcon className={clsx('w-3 h-3', status.animate && 'animate-spin')} />
+          <StatusIcon className={clsx('w-3 h-3', (status as any).animate && 'animate-spin')} />
           <span>{status.label}</span>
         </div>
         <span className="text-xs text-gray-2">{formatTime(swap.timestamp)}</span>

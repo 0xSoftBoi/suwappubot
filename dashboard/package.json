@@ -9,6 +9,7 @@
         "lint": "next lint"
     },
     "dependencies": {
+        "@turnkey/react-wallet-kit": "^1.8.0",
         "clsx": "^2.1.1",
         "lucide-react": "^0.563.0",
         "next": "^16.1.6",
