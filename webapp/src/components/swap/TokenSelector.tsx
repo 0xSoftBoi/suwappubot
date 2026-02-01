@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useTokenSearch } from '../../hooks/useTokens'
+import { SkeletonCard } from '../ui'
 import type { SwapToken } from '../../types/swap'
 
 export interface TokenSelectorProps {
@@ -128,9 +129,7 @@ export function TokenSelector({
           {/* Token List */}
           <div className="overflow-y-auto flex-1">
             {isLoading && (
-              <div className="p-4 text-center text-suwappu-text-secondary text-sm">
-                Loading tokens...
-              </div>
+              <SkeletonCard rows={4} variant="compact" />
             )}
 
             {error && (
