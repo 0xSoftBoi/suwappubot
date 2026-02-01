@@ -102,11 +102,20 @@ export function LimitOrders() {
   const [filter, setFilter] = useState<'all' | 'active' | 'filled'>('all')
   const [cancellingId, setCancellingId] = useState<number | null>(null)
 
-  // Fetch limit orders
-  const { data: orders = [], isLoading, error } = useQuery({
+  // Fetch limit orders - gracefully handle API not deployed yet
+  const { data: orders = [], isLoading, error, isError } = useQuery({
     queryKey: ['limitOrders', filter === 'all' ? undefined : filter],
-    queryFn: () => api.getLimitOrders(filter === 'all' ? undefined : filter),
+    queryFn: async () => {
+      try {
+        return await api.getLimitOrders(filter === 'all' ? undefined : filter)
+      } catch (e: any) {
+        // If 404, endpoint doesn't exist yet - return empty
+        if (e?.status === 404) return []
+        throw e
+      }
+    },
     refetchInterval: 30000, // Refresh every 30s to get current prices
+    retry: 1, // Only retry once for this page
   })
 
   // Cancel mutation

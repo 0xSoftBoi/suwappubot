@@ -4,29 +4,33 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AnimatePresence, motion, type Variants } from 'framer-motion'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useTelegram } from './hooks/useTelegram'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { Welcome, Home, Swap, Wallet, Portfolio, History, Points, LimitOrders, PriceAlerts, Referrals, CopyTrading, Subscriptions, Settings } from './pages'
 import './theme/suwappu.css'
 
-// Page transition variants
+// Page transition variants - smooth iOS-like feel
 const pageVariants: Variants = {
   initial: {
     opacity: 0,
-    x: 20,
+    scale: 0.98,
+    y: 8,
   },
   enter: {
     opacity: 1,
-    x: 0,
+    scale: 1,
+    y: 0,
     transition: {
-      duration: 0.25,
-      ease: [0.25, 0.46, 0.45, 0.94], // easeOutQuad
+      duration: 0.3,
+      ease: [0.22, 1, 0.36, 1], // custom smooth ease-out
     },
   },
   exit: {
     opacity: 0,
-    x: -20,
+    scale: 0.98,
+    y: -8,
     transition: {
       duration: 0.2,
-      ease: [0.55, 0.06, 0.68, 0.19], // easeInQuad
+      ease: [0.22, 1, 0.36, 1],
     },
   },
 }
@@ -46,12 +50,28 @@ function PageTransition({ children }: { children: React.ReactNode }) {
   )
 }
 
-// Create React Query client
+// Create React Query client with aggressive caching
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30 * 1000, // 30 seconds
+      // Data considered fresh for 10s, then background refetch
+      staleTime: 10 * 1000,
+      // Keep unused data in cache for 5 minutes
+      gcTime: 5 * 60 * 1000,
+      // Refetch when window regains focus
+      refetchOnWindowFocus: true,
+      // Refetch when network reconnects
+      refetchOnReconnect: true,
+      // Retry failed requests twice (not 3x to fail faster)
       retry: 2,
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+      // Don't throw errors - let components handle them
+      throwOnError: false,
+    },
+    mutations: {
+      // Retry mutations once on failure
+      retry: 1,
+      throwOnError: false,
     },
   },
 })
@@ -267,13 +287,15 @@ function AppContent() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <BrowserRouter>
-          <AppContent />
-        </BrowserRouter>
-      </AuthProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <BrowserRouter>
+            <AppContent />
+          </BrowserRouter>
+        </AuthProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   )
 }
 
