@@ -592,25 +592,25 @@ class SwapEngine:
             try:
                 # Route to appropriate execution method based on provider
                 if quote.provider == "cow":
-                    tx_hash = await self._execute_cow_swap(quote, wallet)
+                    tx_hash = await self._execute_cow_swap(quote, wallet_data)
                 elif quote.provider == "socket":
-                    tx_hash = await self._execute_socket_swap(quote, wallet)
+                    tx_hash = await self._execute_socket_swap(quote, wallet_data)
                 elif quote.provider == "jito":
-                    tx_hash = await self._execute_jito_swap(quote, wallet)
+                    tx_hash = await self._execute_jito_swap(quote, wallet_data)
                 elif quote.provider == "jupiter":
-                    tx_hash = await self._execute_jupiter_swap(quote, wallet)
+                    tx_hash = await self._execute_jupiter_swap(quote, wallet_data)
                 elif quote.provider == "ccip":
-                    tx_hash = await self._execute_ccip_swap(quote, wallet)
+                    tx_hash = await self._execute_ccip_swap(quote, wallet_data)
                 elif quote.provider == "layerzero":
-                    tx_hash = await self._execute_layerzero_swap(quote, wallet)
+                    tx_hash = await self._execute_layerzero_swap(quote, wallet_data)
                 elif quote.provider == "cctp":
-                    tx_hash = await self._execute_cctp_swap(quote, wallet)
+                    tx_hash = await self._execute_cctp_swap(quote, wallet_data)
                 elif quote.provider == "across":
-                    tx_hash = await self._execute_across_swap(quote, wallet)
+                    tx_hash = await self._execute_across_swap(quote, wallet_data)
                 elif quote.provider == "wormhole":
-                    tx_hash = await self._execute_wormhole_swap(quote, wallet)
+                    tx_hash = await self._execute_wormhole_swap(quote, wallet_data)
                 else:
-                    tx_hash = await self._execute_lifi_swap(quote, wallet)
+                    tx_hash = await self._execute_lifi_swap(quote, wallet_data)
                 
                 # Persist tx_hash to the database record
                 with get_session() as session:

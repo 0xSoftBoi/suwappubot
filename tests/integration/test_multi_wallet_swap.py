@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import datetime
 
 from bot.services.swap_engine import SwapEngine, SwapQuote
-from bot.models.swap import SwapStatus
+from bot.models.swap import SwapStatus, SwapTransaction
 
 
 @pytest.fixture
@@ -39,7 +39,7 @@ class TestMultiWalletSwapFlow:
         """Test multi-swap with a single wallet behaves like execute_swap."""
         engine = SwapEngine()
 
-        mock_tx = MagicMock()
+        mock_tx = MagicMock(spec=SwapTransaction)
         mock_tx.status = SwapStatus.SUBMITTED.value
         mock_tx.id = 1
 
@@ -57,11 +57,11 @@ class TestMultiWalletSwapFlow:
         """Test that partial failures are handled: one succeeds, one fails."""
         engine = SwapEngine()
 
-        success_tx = MagicMock()
+        success_tx = MagicMock(spec=SwapTransaction)
         success_tx.status = SwapStatus.SUBMITTED.value
         success_tx.id = 1
 
-        fail_tx = MagicMock()
+        fail_tx = MagicMock(spec=SwapTransaction)
         fail_tx.status = SwapStatus.FAILED.value
         fail_tx.id = 2
         fail_tx.error_message = "Insufficient balance"
