@@ -21,9 +21,7 @@ NC='\033[0m'
 LOG_GROUPS=(
   "/ecs/suwappu-bot"
   "/ecs/suwappu"
-  "/ecs/suwappu-api-ts"
   "/ecs/suwappu-bot-dev"
-  "/ecs/suwappu-dev"
 )
 
 usage() {
