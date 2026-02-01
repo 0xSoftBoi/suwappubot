@@ -125,6 +125,8 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         from bot.models.oauth import OAuthIdentity, OAuthToken, OAuthState
         # Agent registration models
         from bot.models.agent import RegisteredAgent
+        # Webhook events
+        from bot.models.webhook_event import WebhookEvent
 
         # Create all tables
         Base.metadata.create_all(bind=engine)
@@ -195,6 +197,10 @@ def _ensure_schema(db_engine) -> None:
                 "CREATE UNIQUE INDEX IF NOT EXISTS ux_registered_agents_api_key "
                 "ON registered_agents(api_key)"
             ))
+
+    # --- swap_transactions: agent linkage columns ---
+    if "swap_transactions" in tables:
+        _add_swap_agent_columns(db_engine, inspector, is_sqlite)
 
     # --- users: TOS columns and telegram_id nullability ---
     if "users" in tables:
@@ -342,6 +348,32 @@ def _add_turnkey_columns(db_engine, inspector, table_name: str, is_sqlite: bool,
                 ddl = f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
+
+
+def _add_swap_agent_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add agent linkage columns to swap_transactions idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
+
+    new_columns = [
+        ("agent_id", "INTEGER", "NULL"),
+        ("agent_uuid", "VARCHAR(36)", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE swap_transactions ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+    # Index for efficient agent swap lookups
+    with db_engine.begin() as conn:
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_swap_transactions_agent_id "
+            "ON swap_transactions(agent_id)"
+        ))
 
 
 @contextmanager

@@ -32,6 +32,7 @@ from bot.services.alerts import alert_service
 from bot.services.orders import order_service
 from bot.services.tx_poller import tx_poller
 from bot.services.health_monitor import health_monitor
+from bot.services.webhook_dispatcher import webhook_dispatcher
 from bot.utils.preload import preload_config
 from database.db import init_db, engine, get_session, DATABASE_AVAILABLE
 from bot.models.user import User, Wallet
@@ -133,6 +134,8 @@ async def lifespan(app: FastAPI):
         await fee_sweeper.start()
         await alert_service.start(bot=bot_app.bot if bot_initialized else None)
         await order_service.start(bot=bot_app.bot if bot_initialized else None)
+        await webhook_dispatcher.start()
+        tx_poller._webhook_dispatcher = webhook_dispatcher
         await tx_poller.start(bot=bot_app.bot if bot_initialized else None)
         await health_monitor.start(bot=bot_app.bot if bot_initialized else None, admin_ids=admin_ids)
         logger.info("✓ All background services running")
@@ -170,6 +173,7 @@ async def lifespan(app: FastAPI):
         await alert_service.stop()
         await order_service.stop()
         await tx_poller.stop()
+        await webhook_dispatcher.stop()
         await health_monitor.stop()
     logger.info("✓ Cleanup complete")
 
@@ -297,6 +301,10 @@ app.include_router(settings_router)
 # --- Import and register Phase 2 mobile feature routes ---
 from api.routes.mobile import router as mobile_router
 app.include_router(mobile_router)
+
+# --- Import and register internal agent routes (Python-side managed execution) ---
+from api.routes.internal import router as internal_router
+app.include_router(internal_router)
 
 # --- Pydantic Models (Aligned with Mobile/Web) ---
 

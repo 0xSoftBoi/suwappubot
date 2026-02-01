@@ -5,12 +5,17 @@ import { runEffectEither } from '../runtime'
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { agentBearerAuth } from '../middleware'
 import { rateLimit } from '../middleware/rateLimit'
+import { requireDb, swapTransactions } from '../db'
+import { eq, and, desc, sql } from 'drizzle-orm'
+import { EnvService } from '../config/EnvService'
 import {
 	RegisterAgentSchema,
 	QuoteRequestSchema,
 	SwapRequestSchema,
 	ExecuteCommandSchema,
 	UpdateAgentSchema,
+	ExecuteSwapSchema,
+	SwapStatusQuerySchema,
 	formatZodErrors,
 } from './validators'
 import type { Agent } from '../db'
@@ -171,6 +176,8 @@ agentRoutes.use('/execute', agentBearerAuth())
 agentRoutes.use('/portfolio', agentBearerAuth())
 agentRoutes.use('/wallets', agentBearerAuth())
 agentRoutes.use('/wallets/*', agentBearerAuth())
+agentRoutes.use('/swap/*', agentBearerAuth())
+agentRoutes.use('/swaps', agentBearerAuth())
 
 // Apply rate limiting to all authenticated endpoints
 agentRoutes.use('/me', rateLimit())
@@ -181,6 +188,8 @@ agentRoutes.use('/execute', rateLimit())
 agentRoutes.use('/portfolio', rateLimit())
 agentRoutes.use('/wallets', rateLimit())
 agentRoutes.use('/wallets/*', rateLimit())
+agentRoutes.use('/swap/*', rateLimit())
+agentRoutes.use('/swaps', rateLimit())
 
 // GET /v1/agent/me - Get current agent profile
 agentRoutes.get('/me', async (c) => {
@@ -975,7 +984,7 @@ agentRoutes.get('/portfolio', async (c) => {
 	})
 })
 
-// POST /v1/agent/wallets - Create agent wallet via Turnkey
+// POST /v1/agent/wallets - Create agent wallet via Turnkey + internal provision
 agentRoutes.post('/wallets', async (c) => {
 	const agent = c.get('agent')
 
@@ -991,6 +1000,39 @@ agentRoutes.post('/wallets', async (c) => {
 				Effect.mapError((e) => new ValidationError({ message: e.message }))
 			)
 
+			// Call internal Python API to provision a User + Wallet row for swap execution
+			const env = yield* EnvService
+			let internalUserId: number | undefined
+			let internalWalletId: number | undefined
+
+			if (env.INTERNAL_API_KEY && env.INTERNAL_API_URL) {
+				const provisionResult = yield* Effect.tryPromise({
+					try: async () => {
+						const res = await fetch(`${env.INTERNAL_API_URL}/internal/agent/provision-wallet`, {
+							method: 'POST',
+							headers: {
+								'Content-Type': 'application/json',
+								'X-Internal-Key': env.INTERNAL_API_KEY!,
+							},
+							body: JSON.stringify({
+								agent_uuid: agent.uuid,
+								chain_type: 'evm',
+							}),
+						})
+						if (res.ok) {
+							return (await res.json()) as { internal_user_id: number; internal_wallet_id: number }
+						}
+						return null
+					},
+					catch: () => null, // Non-fatal
+				}).pipe(Effect.catchAll(() => Effect.succeed(null)))
+
+				if (provisionResult) {
+					internalUserId = provisionResult.internal_user_id
+					internalWalletId = provisionResult.internal_wallet_id
+				}
+			}
+
 			// Store wallet address in agent metadata
 			const agentService = yield* AgentService
 			const existingMetadata = (agent.metadata as Record<string, unknown>) || {}
@@ -999,6 +1041,8 @@ agentRoutes.post('/wallets', async (c) => {
 					...existingMetadata,
 					wallet_address: wallet.address,
 					wallet_sub_org_id: wallet.subOrgId,
+					...(internalUserId !== undefined && { internal_user_id: internalUserId }),
+					...(internalWalletId !== undefined && { internal_wallet_id: internalWalletId }),
 				},
 			})
 
@@ -1022,6 +1066,313 @@ agentRoutes.post('/wallets', async (c) => {
 		},
 		message: 'Wallet created. Fund it to start swapping.',
 	}, 201)
+})
+
+// POST /v1/agent/swap/execute - Managed swap execution via Python pipeline
+agentRoutes.post('/swap/execute', async (c) => {
+	const agent = c.get('agent')
+
+	let body: unknown
+	try {
+		body = await c.req.json()
+	} catch {
+		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+	}
+
+	const parsed = ExecuteSwapSchema.safeParse(body)
+	if (!parsed.success) {
+		return c.json({
+			success: false,
+			error: 'Validation error',
+			fields: formatZodErrors(parsed.error),
+		}, 400)
+	}
+
+	const { quote_id } = parsed.data
+
+	// Check agent has a Turnkey wallet with internal IDs
+	const metadata = (agent.metadata as Record<string, unknown>) || {}
+	const internalUserId = metadata.internal_user_id as number | undefined
+	const internalWalletId = metadata.internal_wallet_id as number | undefined
+	const walletAddress = metadata.wallet_address as string | undefined
+
+	if (!internalUserId || !internalWalletId || !walletAddress) {
+		return c.json({
+			success: false,
+			error: 'No managed wallet found',
+			hint: 'Create a wallet first using POST /v1/agent/wallets',
+		}, 400)
+	}
+
+	// Look up cached quote
+	const cached = quoteCache.get(quote_id)
+	if (!cached) {
+		return c.json({
+			success: false,
+			error: 'Quote expired or not found',
+			hint: 'Request a new quote using POST /v1/agent/quote',
+		}, 400)
+	}
+
+	if (Date.now() > cached.expiry) {
+		quoteCache.delete(quote_id)
+		return c.json({
+			success: false,
+			error: 'Quote expired',
+			hint: 'Request a new quote using POST /v1/agent/quote',
+		}, 400)
+	}
+
+	const quote = cached.quote
+
+	// Build quote_data for the Python endpoint
+	const quoteData: Record<string, unknown> = cached.isSolana
+		? {
+			provider: 'jupiter',
+			from_chain: 'solana',
+			to_chain: 'solana',
+			from_token: quote.inputMint,
+			to_token: quote.outputMint,
+			from_amount: quote.inAmount,
+			from_amount_human: parseFloat(quote.inAmount) / 1e9,
+			to_amount: quote.outAmount,
+			to_amount_human: parseFloat(quote.outAmount) / 1e6,
+			to_amount_min: quote.otherAmountThreshold,
+			gas_cost_usd: 0,
+			fee_cost_usd: 0,
+			total_cost_usd: 0,
+			estimated_time: 30,
+			price_impact: parseFloat(quote.priceImpactPct || '0'),
+			exchange_rate: 0,
+			raw_quote: quote,
+		}
+		: {
+			provider: 'lifi',
+			from_chain: quote.fromChain?.key || quote.action?.fromChainId?.toString() || 'ethereum',
+			to_chain: quote.toChain?.key || quote.action?.toChainId?.toString() || 'ethereum',
+			from_token: quote.fromToken?.symbol || '',
+			to_token: quote.toToken?.symbol || '',
+			from_amount: quote.fromAmount || '',
+			from_amount_human: parseFloat(quote.fromAmount || '0') / 1e18,
+			to_amount: quote.toAmount || '',
+			to_amount_human: parseFloat(quote.toAmount || '0') / 1e18,
+			to_amount_min: quote.toAmountMin || quote.toAmount || '',
+			gas_cost_usd: parseFloat(quote.estimatedGasUsd || '0'),
+			fee_cost_usd: parseFloat(quote.bridgeFeeUsd || '0'),
+			total_cost_usd: parseFloat(quote.estimatedGasUsd || '0') + parseFloat(quote.bridgeFeeUsd || '0'),
+			estimated_time: quote.estimatedDuration || 60,
+			price_impact: parseFloat(quote.priceImpact || '0'),
+			exchange_rate: parseFloat(quote.exchangeRate || '0'),
+			raw_quote: quote,
+		}
+
+	const idempotencyKey = `agent_${agent.id}_${quote_id}`
+
+	// Call internal Python endpoint
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+
+			if (!env.INTERNAL_API_KEY || !env.INTERNAL_API_URL) {
+				return yield* Effect.fail(
+					new ValidationError({ message: 'Internal API not configured' })
+				)
+			}
+
+			const internalUrl = env.INTERNAL_API_URL
+			const internalKey = env.INTERNAL_API_KEY
+
+			const swapResponse = yield* Effect.tryPromise({
+				try: async () => {
+					const res = await fetch(`${internalUrl}/internal/agent/execute-swap`, {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'X-Internal-Key': internalKey,
+						},
+						body: JSON.stringify({
+							agent_id: agent.id,
+							agent_uuid: agent.uuid,
+							wallet_address: walletAddress,
+							internal_user_id: internalUserId,
+							internal_wallet_id: internalWalletId,
+							chain_type: cached.isSolana ? 'solana' : 'evm',
+							idempotency_key: idempotencyKey,
+							quote_data: quoteData,
+						}),
+					})
+
+					if (!res.ok) {
+						const errBody = await res.json().catch(() => ({ detail: 'Unknown error' })) as { detail?: string }
+						throw new Error(errBody.detail || `Internal API error: ${res.status}`)
+					}
+
+					return (await res.json()) as { swap_id: number; tx_hash: string | null; status: string }
+				},
+				catch: (e) => new ValidationError({ message: e instanceof Error ? e.message : String(e) }),
+			})
+
+			return swapResponse
+		})
+	)
+
+	// Track swap
+	await runEffectEither(
+		Effect.gen(function* () {
+			const agentService = yield* AgentService
+			yield* agentService.incrementAgentStats(agent.id, 'swap')
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	const swapResult = result.right
+
+	return c.json({
+		success: true,
+		swap_id: swapResult.swap_id,
+		status: swapResult.status,
+		tx_hash: swapResult.tx_hash,
+		tracking: {
+			poll_url: `/v1/agent/swap/status/${swapResult.swap_id}`,
+			webhook_note: agent.callbackUrl
+				? 'You will receive webhook notifications at your callback_url'
+				: 'Set callback_url via PATCH /v1/agent/me to receive webhook notifications',
+		},
+	})
+})
+
+// GET /v1/agent/swap/status/:swapId - Get swap status
+agentRoutes.get('/swap/status/:swapId', async (c) => {
+	const agent = c.get('agent')
+	const swapId = parseInt(c.req.param('swapId'), 10)
+
+	if (isNaN(swapId)) {
+		return c.json({ success: false, error: 'Invalid swap ID' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(swapTransactions)
+						.where(
+							and(
+								eq(swapTransactions.id, swapId),
+								eq(swapTransactions.agentId, agent.id)
+							)
+						)
+						.limit(1),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+
+			if (rows.length === 0) {
+				return yield* Effect.fail(new ValidationError({ message: 'Swap not found' }))
+			}
+
+			const s = rows[0]
+			return {
+				swap_id: s.id,
+				status: s.status,
+				tx_hash: s.txHash,
+				from_chain: s.fromChain,
+				to_chain: s.toChain,
+				from_token: s.fromToken,
+				to_token: s.toToken,
+				from_amount: s.fromAmount,
+				to_amount: s.toAmount,
+				error_message: s.errorMessage,
+				created_at: s.createdAt,
+				completed_at: s.completedAt,
+			}
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json({ success: true, ...result.right })
+})
+
+// GET /v1/agent/swaps - Paginated swap history for agent
+agentRoutes.get('/swaps', async (c) => {
+	const agent = c.get('agent')
+
+	const statusFilter = c.req.query('status')
+	const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '20', 10) || 20, 1), 100)
+	const offset = Math.max(parseInt(c.req.query('offset') || '0', 10) || 0, 0)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+
+			const conditions = [eq(swapTransactions.agentId, agent.id)]
+			if (statusFilter) {
+				conditions.push(eq(swapTransactions.status, statusFilter))
+			}
+
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(swapTransactions)
+						.where(and(...conditions))
+						.orderBy(desc(swapTransactions.createdAt))
+						.limit(limit)
+						.offset(offset),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+
+			const countRows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ count: sql<number>`count(*)` })
+						.from(swapTransactions)
+						.where(and(...conditions)),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+
+			const total = countRows[0]?.count ?? 0
+
+			return {
+				swaps: rows.map((s) => ({
+					swap_id: s.id,
+					status: s.status,
+					tx_hash: s.txHash,
+					from_chain: s.fromChain,
+					to_chain: s.toChain,
+					from_token: s.fromToken,
+					to_token: s.toToken,
+					from_amount: s.fromAmount,
+					to_amount: s.toAmount,
+					created_at: s.createdAt,
+					completed_at: s.completedAt,
+				})),
+				pagination: {
+					total,
+					limit,
+					offset,
+					has_more: offset + limit < total,
+				},
+			}
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json({ success: true, ...result.right })
 })
 
 export { agentRoutes }

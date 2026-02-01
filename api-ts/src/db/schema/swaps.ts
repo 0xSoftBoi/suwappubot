@@ -44,6 +44,10 @@ export const swapTransactions = pgTable('swap_transactions', {
 
 	// Error handling
 	errorMessage: text('error_message'),
+
+	// Agent linkage (nullable -- only set for agent-initiated swaps)
+	agentId: integer('agent_id'),
+	agentUuid: varchar('agent_uuid', { length: 36 }),
 })
 
 export type SwapTransaction = typeof swapTransactions.$inferSelect

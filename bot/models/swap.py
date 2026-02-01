@@ -64,7 +64,11 @@ class SwapTransaction(Base):
     
     # Error handling
     error_message = Column(Text, nullable=True)
-    
+
+    # Agent linkage (nullable -- only set for agent-initiated swaps)
+    agent_id = Column(Integer, nullable=True, index=True)
+    agent_uuid = Column(String(36), nullable=True)
+
     # Relationships
     user = relationship("User", back_populates="swaps")
     

@@ -49,6 +49,16 @@ export const UpdateAgentSchema = z.object({
 	'At least one field must be provided'
 )
 
+export const ExecuteSwapSchema = z.object({
+	quote_id: z.string().min(1, 'quote_id is required'),
+})
+
+export const SwapStatusQuerySchema = z.object({
+	status: z.string().optional(),
+	limit: z.coerce.number().int().min(1).max(100).optional().default(20),
+	offset: z.coerce.number().int().min(0).optional().default(0),
+})
+
 /** Format Zod errors into a flat field map */
 export function formatZodErrors(error: z.ZodError): Record<string, string> {
 	const fields: Record<string, string> = {}

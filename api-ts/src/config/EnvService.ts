@@ -33,6 +33,12 @@ export const EnvSchema = Schema.Struct({
 		default: () => 'https://app.suwappu.bot,https://devfront.suwappu.bot,http://localhost:3000,http://localhost:5173',
 	}),
 
+	// Internal Python API
+	INTERNAL_API_KEY: Schema.optional(Schema.String),
+	INTERNAL_API_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'http://localhost:8000',
+	}),
+
 	// Redis
 	REDIS_URL: Schema.optional(Schema.String),
 
