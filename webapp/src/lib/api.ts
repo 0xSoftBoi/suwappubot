@@ -288,6 +288,34 @@ class ApiClient {
   async redeemReward(rewardId: number): Promise<RedemptionResult> {
     return this.fetch<RedemptionResult>(`/webapp/me/points/redeem/${rewardId}`, { method: 'POST' })
   }
+
+  // === Limit Orders ===
+
+  /**
+   * Get user's limit orders
+   */
+  async getLimitOrders(status?: string, limit = 20, offset = 0): Promise<LimitOrder[]> {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+    if (status) params.set('status', status)
+    return this.fetch<LimitOrder[]>(`/webapp/me/limit-orders?${params}`)
+  }
+
+  /**
+   * Create a new limit order
+   */
+  async createLimitOrder(request: CreateLimitOrderRequest): Promise<CreateLimitOrderResult> {
+    return this.fetch<CreateLimitOrderResult>('/webapp/me/limit-orders', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    })
+  }
+
+  /**
+   * Cancel a limit order
+   */
+  async cancelLimitOrder(orderId: number): Promise<{ id: number; status: string; message: string }> {
+    return this.fetch(`/webapp/me/limit-orders/${orderId}`, { method: 'DELETE' })
+  }
 }
 
 // Points types
@@ -343,6 +371,49 @@ export interface RedemptionResult {
   rewardValue: string | null
   status: string
   expiresAt: string | null
+}
+
+// Limit Order types
+export interface LimitOrder {
+  id: number
+  fromChain: string
+  fromToken: string
+  fromTokenSymbol: string
+  fromAmount: string
+  toChain: string
+  toToken: string
+  toTokenSymbol: string
+  targetPrice: number
+  currentPrice: number | null
+  triggerType: 'lte' | 'gte'
+  status: 'active' | 'filled' | 'cancelled' | 'expired' | 'failed'
+  createdAt: string | null
+  expiresAt: string | null
+  executedAt: string | null
+  executedPrice: number | null
+  executedTxHash: string | null
+}
+
+export interface CreateLimitOrderRequest {
+  fromChain: string
+  fromToken: string
+  fromTokenSymbol: string
+  fromAmount: string
+  toChain: string
+  toToken: string
+  toTokenSymbol: string
+  targetPrice: number
+  triggerType?: 'lte' | 'gte'
+  slippage?: number
+  walletAddress: string
+  expiresInHours?: number
+}
+
+export interface CreateLimitOrderResult {
+  id: number
+  status: string
+  targetPrice: number
+  createdAt: string | null
 }
 
 // Export singleton instance

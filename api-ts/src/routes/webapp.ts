@@ -588,6 +588,160 @@ protectedWebapp.post('/points/redeem/:rewardId', async (c) => {
 	return c.json(result.right)
 })
 
+// === Limit Order Routes ===
+import { LimitOrderService } from '../services'
+
+// GET /webapp/me/limit-orders - Get user's limit orders
+protectedWebapp.get('/limit-orders', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const status = c.req.query('status')
+	const limit = Math.min(Number(c.req.query('limit') || 20), 100)
+	const offset = Number(c.req.query('offset') || 0)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const limitOrderService = yield* LimitOrderService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			const orders = yield* limitOrderService.getUserOrders(userOption.value.id, status, limit, offset)
+			return orders.map((order) => ({
+				id: order.id,
+				fromChain: order.fromChain,
+				fromToken: order.fromToken,
+				fromTokenSymbol: order.fromTokenSymbol,
+				fromAmount: order.fromAmount,
+				toChain: order.toChain,
+				toToken: order.toToken,
+				toTokenSymbol: order.toTokenSymbol,
+				targetPrice: order.targetPrice,
+				currentPrice: order.currentPrice,
+				triggerType: order.triggerType,
+				status: order.status,
+				createdAt: order.createdAt?.toISOString() ?? null,
+				expiresAt: order.expiresAt?.toISOString() ?? null,
+				executedAt: order.executedAt?.toISOString() ?? null,
+				executedPrice: order.executedPrice,
+				executedTxHash: order.executedTxHash,
+			}))
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// POST /webapp/me/limit-orders - Create a limit order
+protectedWebapp.post('/limit-orders', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	let body: {
+		fromChain: string
+		fromToken: string
+		fromTokenSymbol: string
+		fromAmount: string
+		toChain: string
+		toToken: string
+		toTokenSymbol: string
+		targetPrice: number
+		triggerType?: 'lte' | 'gte'
+		slippage?: number
+		walletAddress: string
+		expiresInHours?: number
+	}
+
+	try {
+		body = await c.req.json()
+	} catch {
+		return c.json({ error: 'Invalid JSON body' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const limitOrderService = yield* LimitOrderService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			let expiresAt: Date | undefined
+			if (body.expiresInHours && body.expiresInHours > 0) {
+				expiresAt = new Date(Date.now() + body.expiresInHours * 60 * 60 * 1000)
+			}
+
+			const order = yield* limitOrderService.createOrder({
+				userId: userOption.value.id,
+				fromChain: body.fromChain,
+				fromToken: body.fromToken,
+				fromTokenSymbol: body.fromTokenSymbol,
+				fromAmount: body.fromAmount,
+				toChain: body.toChain,
+				toToken: body.toToken,
+				toTokenSymbol: body.toTokenSymbol,
+				targetPrice: body.targetPrice,
+				triggerType: body.triggerType || 'lte',
+				slippage: body.slippage,
+				walletAddress: body.walletAddress,
+				expiresAt,
+			})
+
+			return {
+				id: order.id,
+				status: order.status,
+				targetPrice: order.targetPrice,
+				createdAt: order.createdAt?.toISOString() ?? null,
+			}
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 400)
+	}
+	return c.json(result.right, 201)
+})
+
+// DELETE /webapp/me/limit-orders/:orderId - Cancel a limit order
+protectedWebapp.delete('/limit-orders/:orderId', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const orderId = Number(c.req.param('orderId'))
+
+	if (Number.isNaN(orderId)) {
+		return c.json({ error: 'Invalid order ID' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const limitOrderService = yield* LimitOrderService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			const order = yield* limitOrderService.cancelOrder(orderId, userOption.value.id)
+			return {
+				id: order.id,
+				status: order.status,
+				message: 'Order cancelled successfully',
+			}
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 400)
+	}
+	return c.json(result.right)
+})
+
 // Mount protected routes at both /me and /users/me for backward compatibility
 webappRoutes.route('/me', protectedWebapp)
 webappRoutes.route('/users/me', protectedWebapp)

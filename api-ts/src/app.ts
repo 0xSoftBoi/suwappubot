@@ -3,7 +3,7 @@ import { logger } from 'hono/logger'
 import { HTTPException } from 'hono/http-exception'
 
 import { createCorsMiddleware, agentKeyAuth } from './middleware'
-import { healthRoutes, toolsRoutes, webappRoutes, usersRoutes, agentRoutes, a2aRoutes, pointsRoutes, swapRoutes } from './routes'
+import { healthRoutes, toolsRoutes, webappRoutes, usersRoutes, agentRoutes, a2aRoutes, pointsRoutes, swapRoutes, limitOrderRoutes } from './routes'
 import agentCard from '../agent-card.json'
 
 export interface AppConfig {
@@ -51,6 +51,7 @@ export function createApp(config: AppConfig) {
 	agentProtected.route('/', toolsRoutes)
 	agentProtected.route('/users', usersRoutes)
 	agentProtected.route('/users', pointsRoutes)
+	agentProtected.route('/users', limitOrderRoutes)
 	app.route('/', agentProtected)
 
 	// Agent card for A2A discovery (standard path + legacy)

@@ -9,3 +9,4 @@ export { AgentService, AgentServiceLive, type RegisterAgentParams, type UpdateAg
 export { TokenService, TokenServiceLive, CHAINS, type TokenInfo, type ChainInfo } from './TokenService'
 export { JupiterService, JupiterServiceLive, SOLANA_TOKENS, type JupiterQuote, type JupiterSwapResponse } from './JupiterService'
 export { RedisService, RedisServiceLive, cacheKeys, QUOTE_TTL, TOKEN_LIST_TTL } from './RedisService'
+export { LimitOrderService, LimitOrderServiceLive, type CreateLimitOrderParams, type LimitOrderWithPrice, type PriceCheckResult } from './LimitOrderService'
