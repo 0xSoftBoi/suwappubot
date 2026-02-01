@@ -1,14 +1,14 @@
 import { Hono } from 'hono'
 import { logger } from 'hono/logger'
 import { HTTPException } from 'hono/http-exception'
+import { serveStatic } from 'hono/bun'
 
-import { createCorsMiddleware, agentKeyAuth } from './middleware'
-import { healthRoutes, toolsRoutes, webappRoutes, usersRoutes, agentRoutes, a2aRoutes, pointsRoutes, swapRoutes, limitOrderRoutes } from './routes'
+import { createCorsMiddleware, adminKeyAuth } from './middleware'
+import { healthRoutes, webappRoutes, agentRoutes, a2aRoutes, swapRoutes, adminRoutes } from './routes'
 import agentCard from '../agent-card.json'
 
 export interface AppConfig {
 	allowedOrigins: string
-	agentApiKey?: string
 	adminApiKey?: string
 }
 
@@ -49,15 +49,20 @@ export function createApp(config: AppConfig) {
 	app.get('/.well-known/agent.json', (c) => c.json(agentCard))
 	app.get('/agent-card.json', (c) => c.json(agentCard))
 
-	// Legacy internal API routes - X-Agent-Key required
-	// Mounted with explicit paths to avoid intercepting /v1/agent/* and public routes
-	app.use('/tools', agentKeyAuth(config.agentApiKey))
-	app.use('/tools/*', agentKeyAuth(config.agentApiKey))
-	app.use('/users/*', agentKeyAuth(config.agentApiKey))
-	app.route('/', toolsRoutes)
-	app.route('/users', usersRoutes)
-	app.route('/users', pointsRoutes)
-	app.route('/users', limitOrderRoutes)
+	// Admin API routes - X-Admin-Key required
+	app.use('/admin/*', adminKeyAuth(config.adminApiKey))
+	app.route('/admin', adminRoutes)
+
+	// Dashboard SPA - static files
+	app.use('/dashboard/*', serveStatic({
+		root: './dashboard/dist',
+		rewriteRequestPath: (path) => path.replace(/^\/dashboard/, ''),
+	}))
+	app.get('/dashboard/*', serveStatic({
+		root: './dashboard/dist',
+		rewriteRequestPath: () => '/index.html',
+	}))
+	app.get('/dashboard', (c) => c.redirect('/dashboard/'))
 
 	// OpenAPI / AI plugin manifest
 	app.get('/ai-plugin.json', (c) => {

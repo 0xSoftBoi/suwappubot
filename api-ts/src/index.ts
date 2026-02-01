@@ -12,7 +12,6 @@ async function main() {
 	// Create app with config
 	const app = createApp({
 		allowedOrigins: env.ALLOWED_ORIGINS,
-		agentApiKey: env.AGENT_API_KEY,
 		adminApiKey: env.ADMIN_API_KEY,
 	})
 

@@ -14,7 +14,6 @@ export const EnvSchema = Schema.Struct({
 	TELEGRAM_BOT_TOKEN: Schema.optional(Schema.String),
 
 	// API Keys
-	AGENT_API_KEY: Schema.optional(Schema.String),
 	ADMIN_API_KEY: Schema.optional(Schema.String),
 
 	// Turnkey
