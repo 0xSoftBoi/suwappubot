@@ -12,6 +12,9 @@ RUN bun install
 # Copy source
 COPY . .
 
+# Ensure drizzle folder exists (may be gitignored locally)
+RUN mkdir -p drizzle
+
 # Type check (skipped - pre-existing test file errors)
 # RUN bun run check
 
