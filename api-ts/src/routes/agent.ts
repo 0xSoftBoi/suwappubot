@@ -1,11 +1,11 @@
 import { Hono } from 'hono'
 import { Effect, Either, Option } from 'effect'
-import { AgentService, BalanceService, TurnkeyService, TokenService, SwapService, JupiterService, CHAINS, SOLANA_TOKENS, type QuoteParams } from '../services'
+import { AgentService, BalanceService, TurnkeyService, TokenService, SwapService, JupiterService, CHAINS, COMMON_TOKENS, SOLANA_TOKENS, type QuoteParams } from '../services'
 import { runEffectEither } from '../runtime'
 import { mapErrorToResponse, ValidationError } from '../errors'
-import { agentBearerAuth } from '../middleware'
+import { agentBearerAuth, agentBearerAuthAllowInactive } from '../middleware'
 import { rateLimit } from '../middleware/rateLimit'
-import { requireDb, swapTransactions } from '../db'
+import { requireDb, swapTransactions, webhookEvents } from '../db'
 import { eq, and, desc, sql } from 'drizzle-orm'
 import { EnvService } from '../config/EnvService'
 import {
@@ -16,10 +16,13 @@ import {
 	UpdateAgentSchema,
 	ExecuteSwapSchema,
 	SwapStatusQuerySchema,
+	WebhookEventsQuerySchema,
 	formatZodErrors,
 } from './validators'
 import type { Agent } from '../db'
 import { z } from 'zod'
+import crypto from 'crypto'
+import openApiSpec from '../../openapi-agent.json'
 
 // Extend Hono's context to include our agent
 type AgentContext = {
@@ -52,6 +55,65 @@ const quoteCacheCleanup = setInterval(() => {
 		}
 	}
 }, 5 * 60_000)
+
+// CoinGecko ID mapping for token prices
+const COINGECKO_IDS: Record<string, string> = {
+	eth: 'ethereum', sol: 'solana', bnb: 'binancecoin', usdc: 'usd-coin',
+	usdt: 'tether', btc: 'bitcoin', dai: 'dai', wbtc: 'wrapped-bitcoin',
+	arb: 'arbitrum', op: 'optimism', avax: 'avalanche-2', matic: 'matic-network',
+	weth: 'weth', bonk: 'bonk', jup: 'jupiter-exchange-solana', ray: 'raydium',
+}
+
+// Token price cache (60s TTL)
+const tokenPriceCache = new Map<string, { usd: number; change_24h: number | null; timestamp: number }>()
+const PRICE_CACHE_TTL = 60_000
+
+async function fetchTokenPrices(symbols: string[]): Promise<Record<string, { usd: number; change_24h: number | null }>> {
+	const now = Date.now()
+	const result: Record<string, { usd: number; change_24h: number | null }> = {}
+	const toFetch: string[] = []
+
+	for (const sym of symbols) {
+		const lower = sym.toLowerCase()
+		const cached = tokenPriceCache.get(lower)
+		if (cached && now - cached.timestamp < PRICE_CACHE_TTL) {
+			result[sym.toUpperCase()] = { usd: cached.usd, change_24h: cached.change_24h }
+		} else if (COINGECKO_IDS[lower]) {
+			toFetch.push(lower)
+		}
+	}
+
+	if (toFetch.length > 0) {
+		const ids = toFetch.map((s) => COINGECKO_IDS[s]).join(',')
+		try {
+			const res = await fetch(
+				`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`
+			)
+			if (res.ok) {
+				const data = await res.json() as Record<string, { usd?: number; usd_24h_change?: number }>
+				for (const sym of toFetch) {
+					const cgId = COINGECKO_IDS[sym]
+					const priceData = data[cgId]
+					if (priceData?.usd !== undefined) {
+						const entry = { usd: priceData.usd, change_24h: priceData.usd_24h_change ?? null }
+						tokenPriceCache.set(sym, { ...entry, timestamp: now })
+						result[sym.toUpperCase()] = entry
+					}
+				}
+			}
+		} catch {
+			// CoinGecko unavailable, return what we have from cache
+		}
+	}
+
+	return result
+}
+
+// Chain name/id mapping for token listing
+const CHAIN_NAMES: Record<number, string> = {
+	1: 'Ethereum', 10: 'Optimism', 56: 'BNB Chain', 137: 'Polygon',
+	42161: 'Arbitrum', 8453: 'Base', 43114: 'Avalanche',
+}
 
 // Helper to detect if chain is Solana
 function isSolanaChain(chain: string): boolean {
@@ -178,6 +240,12 @@ agentRoutes.use('/wallets', agentBearerAuth())
 agentRoutes.use('/wallets/*', agentBearerAuth())
 agentRoutes.use('/swap/*', agentBearerAuth())
 agentRoutes.use('/swaps', agentBearerAuth())
+agentRoutes.use('/prices', agentBearerAuth())
+agentRoutes.use('/tokens', agentBearerAuth())
+agentRoutes.use('/webhooks', agentBearerAuth())
+agentRoutes.use('/webhooks/*', agentBearerAuth())
+agentRoutes.use('/keys/*', agentBearerAuth())
+agentRoutes.use('/reactivate', agentBearerAuthAllowInactive())
 
 // Apply rate limiting to all authenticated endpoints
 agentRoutes.use('/me', rateLimit())
@@ -190,6 +258,12 @@ agentRoutes.use('/wallets', rateLimit())
 agentRoutes.use('/wallets/*', rateLimit())
 agentRoutes.use('/swap/*', rateLimit())
 agentRoutes.use('/swaps', rateLimit())
+agentRoutes.use('/prices', rateLimit())
+agentRoutes.use('/tokens', rateLimit())
+agentRoutes.use('/webhooks', rateLimit())
+agentRoutes.use('/webhooks/*', rateLimit())
+agentRoutes.use('/keys/*', rateLimit())
+agentRoutes.use('/reactivate', rateLimit())
 
 // GET /v1/agent/me - Get current agent profile
 agentRoutes.get('/me', async (c) => {
@@ -1374,5 +1448,412 @@ agentRoutes.get('/swaps', async (c) => {
 
 	return c.json({ success: true, ...result.right })
 })
+
+// ===========================================
+// TOKEN PRICES
+// ===========================================
+
+// GET /v1/agent/prices - Get token prices
+agentRoutes.get('/prices', async (c) => {
+	const symbolsParam = c.req.query('symbols')
+	if (!symbolsParam) {
+		return c.json({
+			success: false,
+			error: 'Missing required query parameter: symbols',
+			hint: 'GET /v1/agent/prices?symbols=ETH,SOL,USDC',
+			supported: Object.keys(COINGECKO_IDS).map((s) => s.toUpperCase()),
+		}, 400)
+	}
+
+	const symbols = symbolsParam.split(',').map((s) => s.trim()).filter(Boolean)
+	if (symbols.length === 0 || symbols.length > 20) {
+		return c.json({
+			success: false,
+			error: 'Provide 1-20 comma-separated symbols',
+		}, 400)
+	}
+
+	const prices = await fetchTokenPrices(symbols)
+	const unknownSymbols = symbols
+		.filter((s) => !prices[s.toUpperCase()])
+		.map((s) => s.toUpperCase())
+
+	return c.json({
+		success: true,
+		prices,
+		...(unknownSymbols.length > 0 && { unknown_symbols: unknownSymbols }),
+	})
+})
+
+// ===========================================
+// TOKEN SEARCH / LISTING
+// ===========================================
+
+// GET /v1/agent/tokens - List available tokens per chain
+agentRoutes.get('/tokens', async (c) => {
+	const chainParam = c.req.query('chain')
+	const searchParam = c.req.query('search')?.toUpperCase()
+
+	const buildTokenList = (chainId: number, tokens: Record<string, string>) => {
+		let entries = Object.entries(tokens).map(([symbol, address]) => ({
+			symbol,
+			address,
+			decimals: symbol === 'USDC' || symbol === 'USDT' || symbol.includes('USDC') ? 6 : 18,
+		}))
+		if (searchParam) {
+			entries = entries.filter((t) => t.symbol.includes(searchParam))
+		}
+		return entries
+	}
+
+	if (chainParam) {
+		const lower = chainParam.toLowerCase().trim()
+
+		// Handle Solana
+		if (lower === 'solana' || lower === 'sol') {
+			let tokens = Object.entries(SOLANA_TOKENS).map(([symbol, info]) => ({
+				symbol,
+				address: info.address,
+				decimals: info.decimals,
+			}))
+			if (searchParam) {
+				tokens = tokens.filter((t) => t.symbol.includes(searchParam))
+			}
+			return c.json({
+				success: true,
+				chain: 'Solana',
+				chain_id: 'solana',
+				tokens,
+			})
+		}
+
+		// EVM chain
+		const chainInfo = CHAINS[lower]
+		if (!chainInfo) {
+			return c.json({
+				success: false,
+				error: `Unknown chain: ${chainParam}`,
+				supported: [...new Set(Object.values(CHAINS).map((c) => c.key)), 'solana'],
+			}, 400)
+		}
+
+		const chainTokens = COMMON_TOKENS[chainInfo.id] || {}
+		return c.json({
+			success: true,
+			chain: chainInfo.name,
+			chain_id: chainInfo.id,
+			tokens: buildTokenList(chainInfo.id, chainTokens),
+		})
+	}
+
+	// No chain param — return all
+	const chains: Array<{ chain: string; chain_id: number | string; tokens: Array<{ symbol: string; address: string; decimals: number }> }> = []
+
+	for (const [chainId, tokens] of Object.entries(COMMON_TOKENS)) {
+		const id = parseInt(chainId, 10)
+		const name = CHAIN_NAMES[id] || `Chain ${id}`
+		chains.push({
+			chain: name,
+			chain_id: id,
+			tokens: buildTokenList(id, tokens),
+		})
+	}
+
+	// Add Solana
+	let solanaTokens = Object.entries(SOLANA_TOKENS).map(([symbol, info]) => ({
+		symbol,
+		address: info.address,
+		decimals: info.decimals,
+	}))
+	if (searchParam) {
+		solanaTokens = solanaTokens.filter((t) => t.symbol.includes(searchParam))
+	}
+	chains.push({ chain: 'Solana', chain_id: 'solana' as any, tokens: solanaTokens })
+
+	return c.json({ success: true, chains })
+})
+
+// ===========================================
+// WALLETS (GET)
+// ===========================================
+
+// GET /v1/agent/wallets - List agent wallets
+agentRoutes.get('/wallets', async (c) => {
+	const agent = c.get('agent')
+	const metadata = (agent.metadata as Record<string, unknown>) || {}
+	const walletAddress = metadata.wallet_address as string | undefined
+
+	if (!walletAddress) {
+		return c.json({
+			success: true,
+			wallets: [],
+			hint: 'Create a wallet with POST /v1/agent/wallets',
+		})
+	}
+
+	return c.json({
+		success: true,
+		wallets: [
+			{
+				address: walletAddress,
+				chain_type: 'evm',
+				supported_chains: ['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc', 'avalanche'],
+			},
+		],
+	})
+})
+
+// ===========================================
+// WEBHOOK EVENTS
+// ===========================================
+
+// GET /v1/agent/webhooks - List webhook events
+agentRoutes.get('/webhooks', async (c) => {
+	const agent = c.get('agent')
+
+	const parsed = WebhookEventsQuerySchema.safeParse(c.req.query())
+	if (!parsed.success) {
+		return c.json({
+			success: false,
+			error: 'Validation error',
+			fields: formatZodErrors(parsed.error),
+		}, 400)
+	}
+
+	const { status, event_type, limit, offset } = parsed.data
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+
+			const conditions = [eq(webhookEvents.agentId, agent.id)]
+			if (status) {
+				conditions.push(eq(webhookEvents.status, status))
+			}
+			if (event_type) {
+				conditions.push(eq(webhookEvents.eventType, event_type))
+			}
+
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(webhookEvents)
+						.where(and(...conditions))
+						.orderBy(desc(webhookEvents.createdAt))
+						.limit(limit)
+						.offset(offset),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+
+			const countRows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ count: sql<number>`count(*)` })
+						.from(webhookEvents)
+						.where(and(...conditions)),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+
+			const total = countRows[0]?.count ?? 0
+
+			return {
+				events: rows.map((ev) => ({
+					id: ev.id,
+					event_type: ev.eventType,
+					status: ev.status,
+					attempts: ev.attempts,
+					last_error: ev.lastError,
+					response_status: ev.responseStatus,
+					callback_url: ev.callbackUrl,
+					created_at: ev.createdAt,
+					delivered_at: ev.deliveredAt,
+				})),
+				pagination: {
+					total,
+					limit,
+					offset,
+					has_more: offset + limit < total,
+				},
+			}
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		const { status: errStatus, body } = mapErrorToResponse(result.left)
+		return c.json(body, errStatus as 200)
+	}
+
+	return c.json({ success: true, ...result.right })
+})
+
+// POST /v1/agent/webhooks/test - Test webhook delivery
+agentRoutes.post('/webhooks/test', async (c) => {
+	const agent = c.get('agent')
+
+	if (!agent.callbackUrl) {
+		return c.json({
+			success: false,
+			error: 'No callback_url configured',
+			hint: 'Set callback_url via PATCH /v1/agent/me first',
+		}, 400)
+	}
+
+	// Extract raw API key from Authorization header for signing
+	const rawApiKey = c.req.header('Authorization')!.slice(7)
+	const signingKey = crypto.createHash('sha256').update(rawApiKey).digest()
+
+	const testPayload = {
+		event: 'webhook.test',
+		timestamp: new Date().toISOString(),
+		data: {
+			message: 'Test webhook from Suwappu',
+			agent_id: agent.uuid,
+		},
+	}
+
+	const jsonBody = JSON.stringify(testPayload)
+	const deliveryId = crypto.randomUUID()
+	const timestamp = Math.floor(Date.now() / 1000).toString()
+	const signature = crypto.createHmac('sha256', signingKey).update(jsonBody).digest('hex')
+
+	const startTime = Date.now()
+	try {
+		const res = await fetch(agent.callbackUrl, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'X-Suwappu-Event': 'webhook.test',
+				'X-Suwappu-Delivery': deliveryId,
+				'X-Suwappu-Timestamp': timestamp,
+				'X-Suwappu-Signature': signature,
+			},
+			body: jsonBody,
+			signal: AbortSignal.timeout(10000),
+		})
+
+		return c.json({
+			success: true,
+			callback_url: agent.callbackUrl,
+			status_code: res.status,
+			response_time_ms: Date.now() - startTime,
+		})
+	} catch (err) {
+		return c.json({
+			success: false,
+			callback_url: agent.callbackUrl,
+			error: err instanceof Error ? err.message : 'Connection failed',
+			response_time_ms: Date.now() - startTime,
+		})
+	}
+})
+
+// ===========================================
+// API KEY ROTATION
+// ===========================================
+
+// POST /v1/agent/keys/rotate - Rotate API key
+agentRoutes.post('/keys/rotate', async (c) => {
+	const agent = c.get('agent')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const agentService = yield* AgentService
+			return yield* agentService.rotateApiKey(agent.id)
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json({
+		success: true,
+		api_key: result.right.apiKey,
+		message: 'API key rotated. Save this key — the old key is now invalid.',
+	})
+})
+
+// ===========================================
+// AGENT LIFECYCLE
+// ===========================================
+
+// POST /v1/agent/me/deactivate - Deactivate agent
+agentRoutes.post('/me/deactivate', async (c) => {
+	const agent = c.get('agent')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const agentService = yield* AgentService
+			return yield* agentService.deactivateAgent(agent.id)
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json({
+		success: true,
+		message: 'Agent deactivated. Use POST /v1/agent/reactivate to restore.',
+	})
+})
+
+// POST /v1/agent/reactivate - Reactivate agent (uses allow-inactive auth)
+agentRoutes.post('/reactivate', async (c) => {
+	const agent = c.get('agent')
+
+	if (agent.isActive) {
+		return c.json({
+			success: true,
+			message: 'Agent is already active.',
+		})
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const agentService = yield* AgentService
+			return yield* agentService.reactivateAgent(agent.id)
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json({
+		success: true,
+		message: 'Agent reactivated.',
+	})
+})
+
+// DELETE /v1/agent/me - Permanently delete agent
+agentRoutes.delete('/me', async (c) => {
+	const agent = c.get('agent')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const agentService = yield* AgentService
+			yield* agentService.deleteAgent(agent.id)
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.body(null, 204)
+})
+
+// ===========================================
+// OPENAPI SPEC
+// ===========================================
+
+// GET /v1/agent/openapi - Machine-readable API spec
+agentRoutes.get('/openapi', (c) => c.json(openApiSpec))
 
 export { agentRoutes }

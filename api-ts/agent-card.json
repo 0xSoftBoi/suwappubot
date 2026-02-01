@@ -3,9 +3,10 @@
   "id": "suwappu-dex",
   "name": "Suwappu",
   "description": "Cross-chain DEX for AI agents. Swap tokens across 7 chains via natural language.",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "url": "https://api.suwappu.bot",
   "logo": "https://suwappu.bot/logo.png",
+  "openApiUrl": "https://api.suwappu.bot/v1/agent/openapi",
   "protocolVersions": ["0.3"],
   "interfaces": [
     {
@@ -62,6 +63,45 @@
       "examples": [
         "check balance",
         "show portfolio"
+      ]
+    },
+    {
+      "id": "prices",
+      "name": "Token Prices",
+      "description": "Get real-time token prices with 24h change",
+      "tags": ["defi", "price", "market-data"],
+      "examples": [
+        "get ETH price",
+        "check SOL and USDC prices"
+      ]
+    },
+    {
+      "id": "tokens",
+      "name": "Token Discovery",
+      "description": "List available tokens per chain for quoting and swapping",
+      "tags": ["defi", "tokens", "discovery"],
+      "examples": [
+        "list tokens on Base",
+        "search for USD tokens"
+      ]
+    },
+    {
+      "id": "key-management",
+      "name": "API Key Management",
+      "description": "Rotate API keys for security",
+      "tags": ["security", "keys"],
+      "examples": [
+        "rotate my API key"
+      ]
+    },
+    {
+      "id": "webhook-management",
+      "name": "Webhook Management",
+      "description": "List webhook delivery events and test webhook endpoints",
+      "tags": ["webhooks", "notifications"],
+      "examples": [
+        "list webhook events",
+        "test my webhook"
       ]
     }
   ],

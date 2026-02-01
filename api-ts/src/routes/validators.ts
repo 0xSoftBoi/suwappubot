@@ -59,6 +59,13 @@ export const SwapStatusQuerySchema = z.object({
 	offset: z.coerce.number().int().min(0).optional().default(0),
 })
 
+export const WebhookEventsQuerySchema = z.object({
+	status: z.enum(['pending', 'delivered', 'failed']).optional(),
+	event_type: z.string().max(50).optional(),
+	limit: z.coerce.number().int().min(1).max(100).optional().default(20),
+	offset: z.coerce.number().int().min(0).optional().default(0),
+})
+
 /** Format Zod errors into a flat field map */
 export function formatZodErrors(error: z.ZodError): Record<string, string> {
 	const fields: Record<string, string> = {}

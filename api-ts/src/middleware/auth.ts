@@ -118,3 +118,62 @@ export function agentBearerAuth() {
 		await next()
 	}
 }
+
+/**
+ * Like agentBearerAuth() but allows inactive agents.
+ * Used for reactivation endpoint.
+ */
+export function agentBearerAuthAllowInactive() {
+	return async (c: Context, next: Next) => {
+		const authHeader = c.req.header('Authorization')
+
+		if (!authHeader) {
+			throw new HTTPException(401, {
+				message: 'Missing Authorization header',
+				cause: { hint: 'Use Authorization: Bearer YOUR_API_KEY' }
+			})
+		}
+
+		if (!authHeader.startsWith('Bearer ')) {
+			throw new HTTPException(401, {
+				message: 'Invalid Authorization header format',
+				cause: { hint: 'Use Authorization: Bearer YOUR_API_KEY' }
+			})
+		}
+
+		const apiKey = authHeader.slice(7)
+
+		if (!apiKey || !apiKey.startsWith('suwappu_sk_')) {
+			throw new HTTPException(401, {
+				message: 'Invalid API key format',
+				cause: { hint: 'API key should start with suwappu_sk_' }
+			})
+		}
+
+		const result = await runEffectEither(
+			Effect.gen(function* () {
+				const agentService = yield* AgentService
+				const agentOption = yield* agentService.getAgentByApiKeyIncludingInactive(apiKey)
+
+				if (Option.isNone(agentOption)) {
+					return null
+				}
+
+				return agentOption.value
+			})
+		)
+
+		if (Either.isLeft(result)) {
+			throw new HTTPException(500, { message: 'Internal error validating API key' })
+		}
+
+		const agent = result.right
+		if (!agent) {
+			throw new HTTPException(401, { message: 'Invalid API key' })
+		}
+
+		c.set('agent', agent)
+
+		await next()
+	}
+}
