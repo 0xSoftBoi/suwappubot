@@ -13,9 +13,10 @@ set -euo pipefail
 #   parallel <name> [name..] Launch tmux session with Claude Code in each worktree
 #   help                      Show this help
 
-MAIN_REPO="$HOME/Desktop/suwappumain/suwappubot"
+BARE_REPO="$HOME/Desktop/suwappumain/suwappubot.git"
 WORKTREE_BASE="$HOME/Desktop/suwappumain/worktrees"
-BOOTSTRAP_SCRIPT="$MAIN_REPO/scripts/worktree-setup.sh"
+MAIN_WORKTREE="$WORKTREE_BASE/main"
+BOOTSTRAP_SCRIPT="$MAIN_WORKTREE/scripts/worktree-setup.sh"
 
 _usage() {
   cat <<'HELP'
@@ -37,6 +38,11 @@ _new() {
   local open_claude="${2:-}"
   local wt_path="$WORKTREE_BASE/$name"
 
+  if [[ "$name" == "main" ]]; then
+    echo "Error: 'main' worktree is managed by the bare clone setup. Use 'cd $MAIN_WORKTREE' instead." >&2
+    exit 1
+  fi
+
   if [[ -d "$wt_path" ]]; then
     echo "Worktree '$name' already exists at $wt_path"
     exit 1
@@ -45,12 +51,12 @@ _new() {
   mkdir -p "$WORKTREE_BASE"
 
   # Create worktree: reuse existing branch or create new one
-  if git -C "$MAIN_REPO" show-ref --verify --quiet "refs/heads/$name" 2>/dev/null; then
+  if git -C "$BARE_REPO" show-ref --verify --quiet "refs/heads/$name" 2>/dev/null; then
     echo "==> Using existing branch '$name'"
-    git -C "$MAIN_REPO" worktree add "$wt_path" "$name"
+    git -C "$BARE_REPO" worktree add "$wt_path" "$name"
   else
     echo "==> Creating new branch '$name' from HEAD"
-    git -C "$MAIN_REPO" worktree add "$wt_path" -b "$name"
+    git -C "$BARE_REPO" worktree add "$wt_path" -b "$name"
   fi
 
   # Bootstrap dependencies
@@ -96,7 +102,7 @@ AICTX
 }
 
 _ls() {
-  git -C "$MAIN_REPO" worktree list
+  git -C "$BARE_REPO" worktree list
 }
 
 _cd() {
@@ -116,27 +122,32 @@ _rm() {
   local name="${1:?Usage: sw rm <name>}"
   local wt_path="$WORKTREE_BASE/$name"
 
+  if [[ "$name" == "main" ]]; then
+    echo "Error: Cannot remove the 'main' worktree. It is required by the bare clone setup." >&2
+    exit 1
+  fi
+
   if [[ ! -d "$wt_path" ]]; then
     echo "Error: No worktree '$name' found at $wt_path" >&2
     exit 1
   fi
 
   echo "==> Removing worktree: $wt_path"
-  git -C "$MAIN_REPO" worktree remove "$wt_path" --force
+  git -C "$BARE_REPO" worktree remove "$wt_path" --force
 
   # Ask about branch deletion
-  if git -C "$MAIN_REPO" show-ref --verify --quiet "refs/heads/$name" 2>/dev/null; then
+  if git -C "$BARE_REPO" show-ref --verify --quiet "refs/heads/$name" 2>/dev/null; then
     read -r -p "Delete branch '$name'? [y/N] " answer
     if [[ "$answer" =~ ^[Yy]$ ]]; then
-      git -C "$MAIN_REPO" branch -d "$name" 2>/dev/null || \
-        git -C "$MAIN_REPO" branch -D "$name"
+      git -C "$BARE_REPO" branch -d "$name" 2>/dev/null || \
+        git -C "$BARE_REPO" branch -D "$name"
       echo "Branch '$name' deleted."
     else
       echo "Branch '$name' kept."
     fi
   fi
 
-  git -C "$MAIN_REPO" worktree prune
+  git -C "$BARE_REPO" worktree prune
   echo "Done."
 }
 
@@ -145,7 +156,7 @@ _clean() {
 
   # Get branches merged into main
   local merged
-  merged=$(git -C "$MAIN_REPO" branch --merged main --no-color | sed 's/^[* ]*//' | grep -v '^main$' || true)
+  merged=$(git -C "$BARE_REPO" branch --merged main --no-color | sed 's/^[* ]*//' | grep -v '^main$' || true)
 
   if [[ -z "$merged" ]]; then
     echo "No merged branches found. Nothing to clean."
@@ -160,25 +171,26 @@ _clean() {
     wt_path=$(echo "$line" | awk '{print $1}')
     branch=$(echo "$line" | sed -n 's/.*\[//;s/\].*//p')
 
-    # Skip main repo and bare entries
-    [[ "$wt_path" == "$MAIN_REPO" ]] && continue
+    # Skip bare repo, main worktree, and bare entries
+    [[ "$wt_path" == "$BARE_REPO" ]] && continue
+    [[ "$branch" == "main" ]] && continue
     [[ -z "$branch" ]] && continue
 
     # Check if this branch is in the merged list
     if echo "$merged" | grep -qx "$branch"; then
       read -r -p "Remove worktree '$branch' at $wt_path? (branch merged into main) [y/N] " answer
       if [[ "$answer" =~ ^[Yy]$ ]]; then
-        git -C "$MAIN_REPO" worktree remove "$wt_path" --force
-        git -C "$MAIN_REPO" branch -d "$branch" 2>/dev/null || true
+        git -C "$BARE_REPO" worktree remove "$wt_path" --force
+        git -C "$BARE_REPO" branch -d "$branch" 2>/dev/null || true
         echo "  Removed worktree and branch '$branch'."
         cleaned=$((cleaned + 1))
       else
         echo "  Skipped '$branch'."
       fi
     fi
-  done < <(git -C "$MAIN_REPO" worktree list)
+  done < <(git -C "$BARE_REPO" worktree list)
 
-  git -C "$MAIN_REPO" worktree prune
+  git -C "$BARE_REPO" worktree prune
   echo "Done. Cleaned $cleaned worktree(s)."
 }
 

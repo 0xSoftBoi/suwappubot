@@ -10,14 +10,24 @@ set -euo pipefail
 WORKTREE_DIR="${1:-.}"
 WORKTREE_DIR="$(cd "$WORKTREE_DIR" && pwd)"
 
-MAIN_REPO="$(git -C "$WORKTREE_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/\.git$||')"
-if [[ -z "$MAIN_REPO" ]]; then
+GIT_COMMON="$(git -C "$WORKTREE_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+if [[ -z "$GIT_COMMON" ]]; then
   echo "Error: $WORKTREE_DIR is not inside a git repository." >&2
   exit 1
 fi
 
+# Detect bare repo vs regular repo for locating .env files
+if git -C "$GIT_COMMON" rev-parse --is-bare-repository &>/dev/null && \
+   [[ "$(git -C "$GIT_COMMON" rev-parse --is-bare-repository)" == "true" ]]; then
+  # Bare repo: .env lives in the main worktree, not the bare repo itself
+  MAIN_WORKTREE="$(dirname "$GIT_COMMON")/worktrees/main"
+else
+  # Regular repo: .env lives in the repo root
+  MAIN_WORKTREE="$(echo "$GIT_COMMON" | sed 's|/\.git$||')"
+fi
+
 echo "==> Bootstrapping worktree: $WORKTREE_DIR"
-echo "    Main repo: $MAIN_REPO"
+echo "    Main worktree: $MAIN_WORKTREE"
 
 # ── Python venv + deps ───────────────────────────────────────────────
 if [[ -f "$WORKTREE_DIR/requirements.txt" ]]; then
@@ -33,15 +43,15 @@ fi
 
 # ── .env file ────────────────────────────────────────────────────────
 if [[ ! -f "$WORKTREE_DIR/.env" ]]; then
-  if [[ -f "$MAIN_REPO/.env" ]]; then
-    echo "==> Copying .env from main repo..."
-    cp "$MAIN_REPO/.env" "$WORKTREE_DIR/.env"
-  elif [[ -f "$MAIN_REPO/.env.dev" ]]; then
-    echo "==> Copying .env.dev from main repo..."
-    cp "$MAIN_REPO/.env.dev" "$WORKTREE_DIR/.env"
-  elif [[ -f "$MAIN_REPO/env.example" ]]; then
+  if [[ -f "$MAIN_WORKTREE/.env" ]]; then
+    echo "==> Copying .env from main worktree..."
+    cp "$MAIN_WORKTREE/.env" "$WORKTREE_DIR/.env"
+  elif [[ -f "$MAIN_WORKTREE/.env.dev" ]]; then
+    echo "==> Copying .env.dev from main worktree..."
+    cp "$MAIN_WORKTREE/.env.dev" "$WORKTREE_DIR/.env"
+  elif [[ -f "$MAIN_WORKTREE/env.example" ]]; then
     echo "==> Copying env.example as .env (edit with real values)..."
-    cp "$MAIN_REPO/env.example" "$WORKTREE_DIR/.env"
+    cp "$MAIN_WORKTREE/env.example" "$WORKTREE_DIR/.env"
   else
     echo "    (no .env or env.example found -- skipping)"
   fi
