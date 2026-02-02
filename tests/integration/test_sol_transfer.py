@@ -5,10 +5,18 @@ Tests SOL transfer on Solana devnet.
 """
 
 import asyncio
+import pytest
 from decimal import Decimal
 from bot.services.hot_wallet import HotWalletService
-from database.db import get_session
+from database.db import init_db, get_session
 from bot.models.custodial import HotWallet
+
+
+@pytest.fixture(autouse=True)
+def _init_db(tmp_path):
+    """Ensure database is initialised for every test in this module."""
+    db_url = f"sqlite:///{tmp_path}/test.db"
+    init_db(db_url)
 
 
 async def test_create_solana_hot_wallet():
@@ -38,8 +46,8 @@ async def test_create_solana_hot_wallet():
     return wallet
 
 
-async def test_check_balance(wallet_address: str):
-    """Check SOL balance of wallet."""
+async def _check_balance(wallet_address: str):
+    """Check SOL balance of wallet (helper, not a direct pytest target)."""
     print(f"\n=== Checking SOL Balance ===")
 
     from solana.rpc.async_api import AsyncClient
@@ -60,8 +68,8 @@ async def test_check_balance(wallet_address: str):
         return sol
 
 
-async def test_send_sol(wallet_id: int, to_address: str, amount: float):
-    """Test sending SOL from hot wallet."""
+async def _send_sol(wallet_id: int, to_address: str, amount: float):
+    """Send SOL from hot wallet (helper, not a direct pytest target)."""
     print(f"\n=== Testing SOL Transfer ===")
 
     service = HotWalletService()
@@ -133,7 +141,7 @@ async def main():
                 return
 
         # Check balance
-        balance = await test_check_balance(wallet.address)
+        balance = await _check_balance(wallet.address)
 
         if balance < 0.1:
             print(f"\n⚠️  Insufficient balance: {balance} SOL")
@@ -157,7 +165,7 @@ async def main():
             return
 
         # Send transaction
-        await test_send_sol(wallet_id, to_address, amount)
+        await _send_sol(wallet_id, to_address, amount)
 
     else:
         print("\n" + "=" * 70)

@@ -132,10 +132,12 @@ class TestInputSanitizer:
             InputSanitizer.sanitize_amount("100.50.25")
     
     def test_sanitize_address_valid_evm(self):
-        """Test sanitizing valid EVM address."""
+        """Test sanitizing valid EVM address returns checksum form."""
         address = "0x742d35Cc6634C0532925a3b844Bc9e7595f5bA12"
         result = InputSanitizer.sanitize_address(address, "evm")
-        assert result == address
+        # sanitize_address normalises to EIP-55 checksum
+        from web3 import Web3
+        assert result == Web3.to_checksum_address(address)
     
     def test_sanitize_address_invalid_evm(self):
         """Test sanitizing invalid EVM address."""

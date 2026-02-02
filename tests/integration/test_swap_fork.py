@@ -1,10 +1,17 @@
 
+import shutil
+
 import pytest
 import asyncio
 from unittest.mock import patch, MagicMock
 from web3 import Web3
 from eth_account import Account
 import os
+
+pytestmark = pytest.mark.skipif(
+    shutil.which("anvil") is None,
+    reason="anvil (Foundry) not installed",
+)
 
 from bot.services.swap_engine import SwapEngine, SwapQuote
 from bot.services.wallet import WalletService

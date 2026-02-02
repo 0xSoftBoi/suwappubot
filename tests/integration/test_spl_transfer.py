@@ -143,8 +143,8 @@ async def check_wallet_balance(address: str, token_address: str = None):
         return None
 
 
-async def test_spl_token_transfer(wallet: HotWallet, token_symbol: str, amount: Decimal):
-    """Test SPL token transfer functionality"""
+async def run_spl_token_transfer(wallet: HotWallet, token_symbol: str, amount: Decimal):
+    """Run SPL token transfer (interactive helper, not a direct pytest target)."""
     print_header(f"Testing SPL Token Transfer: {token_symbol}")
     
     if token_symbol not in DEVNET_TOKENS:
@@ -220,8 +220,8 @@ async def test_spl_token_transfer(wallet: HotWallet, token_symbol: str, amount: 
         return False
 
 
-async def test_error_scenarios(wallet: HotWallet):
-    """Test error handling scenarios"""
+async def run_error_scenarios(wallet: HotWallet):
+    """Run error handling scenarios (interactive helper, not a direct pytest target)."""
     print_header("Testing Error Scenarios")
     
     service = HotWalletService()
@@ -349,7 +349,7 @@ async def interactive_menu():
             amount_str = input("Enter USDC amount to transfer (e.g., 0.01): ").strip()
             try:
                 amount = Decimal(amount_str)
-                await test_spl_token_transfer(wallet, "USDC", amount)
+                await run_spl_token_transfer(wallet, "USDC", amount)
             except ValueError:
                 print_error("Invalid amount entered")
                 
@@ -361,7 +361,7 @@ async def interactive_menu():
             amount_str = input("Enter USDT amount to transfer (e.g., 0.01): ").strip()
             try:
                 amount = Decimal(amount_str)
-                await test_spl_token_transfer(wallet, "USDT", amount)
+                await run_spl_token_transfer(wallet, "USDT", amount)
             except ValueError:
                 print_error("Invalid amount entered")
                 
@@ -403,7 +403,7 @@ async def interactive_menu():
                 print_error("No wallet selected. Create or load a wallet first.")
                 continue
             
-            await test_error_scenarios(wallet)
+            await run_error_scenarios(wallet)
             
         elif choice == "8":
             print_header("💰 Funding Instructions")
