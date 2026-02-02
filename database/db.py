@@ -233,7 +233,7 @@ def _add_tos_columns(db_engine, inspector, is_sqlite: bool) -> None:
     cols = {c["name"] for c in inspector.get_columns("users")}
     
     new_columns = [
-        ("tos_accepted", "BOOLEAN", "0"),
+        ("tos_accepted", "BOOLEAN", "FALSE"),
         ("tos_accepted_at", "DATETIME", "NULL"),
     ]
     
@@ -286,8 +286,8 @@ def _add_user_settings_columns(db_engine, inspector, is_sqlite: bool) -> None:
     cols = {c["name"] for c in inspector.get_columns("users")}
 
     new_columns = [
-        ("panic_sell_enabled", "BOOLEAN", "0"),
-        ("two_fa_enabled", "BOOLEAN", "0"),
+        ("panic_sell_enabled", "BOOLEAN", "FALSE"),
+        ("two_fa_enabled", "BOOLEAN", "FALSE"),
         ("totp_secret", "VARCHAR(64)", "NULL"),
         ("two_fa_threshold", "INTEGER", "1000"),
     ]
