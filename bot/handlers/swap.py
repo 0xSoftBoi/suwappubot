@@ -31,7 +31,7 @@ from bot.services.points_service import points_service
 from bot.services.token_security.token_analyzer import token_analyzer
 from bot.services.x402_service import x402_service
 from bot.utils.quote_validator import quote_validator
-from bot.utils.errors import detect_error_code, get_error_message, format_error_with_buttons
+from bot.utils.errors import detect_error_code, detect_error_code_from_exception, get_error_message, format_error_with_buttons
 from bot.services.twofa import twofa_service
 
 
@@ -114,10 +114,12 @@ async def swap_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def start_swap(update: Update, context: ContextTypes.DEFAULT_TYPE, is_callback: bool = False) -> int:
     """Start the swap flow."""
     user = update.effective_user
+    logger.info("swap_start user_id=%s telegram_id=%s is_callback=%s", user.id if user else None, user.id if user else None, is_callback)
 
     # Rate limit swap flow entry
     allowed = await enforce_rate_limit_for_update(update, swap_limiter)
     if not allowed:
+        logger.info("swap_start rate_limited user_id=%s", user.id if user else None)
         return ConversationHandler.END
 
     # Clear previous swap data
@@ -212,6 +214,8 @@ async def swap_pair_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ConversationHandler.END
 
     from_chain, from_token, to_chain, to_token = parts[0], parts[1], parts[2], parts[3]
+    user_id = context.user_data.get("user_id")
+    logger.info("swap_pair_selected user_id=%s pair=%s/%s->%s/%s", user_id, from_chain, from_token, to_chain, to_token)
 
     context.user_data["swap"] = {
         "from_chain": from_chain,
@@ -534,14 +538,18 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     if not allowed:
         return ConversationHandler.END
 
-    amount = validate_amount(update.message.text)
+    user_id = context.user_data.get("user_id")
+    raw_text = update.message.text
+    amount = validate_amount(raw_text)
 
     if amount is None:
+        logger.info("enter_amount invalid user_id=%s raw=%s", user_id, raw_text[:30])
         await update.message.reply_text(
             "❌ Invalid amount. Please enter a valid number (e.g., 100 or 50.5):"
         )
         return ENTER_AMOUNT
 
+    logger.info("enter_amount user_id=%s amount=%s token=%s", user_id, amount, context.user_data.get("swap", {}).get("from_token"))
     context.user_data["swap"]["amount"] = amount
 
     # Get default wallet to start selection
@@ -670,7 +678,8 @@ async def show_wallet_selection(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = context.user_data["user_id"]
     from_chain_config = get_chain_by_name(swap_data["from_chain"])
     chain_type = "solana" if from_chain_config.chain_type == ChainType.SOLANA else "evm"
-    
+    logger.info("show_wallet_selection user_id=%s chain_type=%s", user_id, chain_type)
+
     with get_session() as session:
         wallets = session.query(Wallet).filter(
             Wallet.user_id == user_id,
@@ -679,9 +688,11 @@ async def show_wallet_selection(update: Update, context: ContextTypes.DEFAULT_TY
         ).all()
         
         if not wallets:
+            logger.info("show_wallet_selection no_wallets user_id=%s chain_type=%s", user_id, chain_type)
             await update.message.reply_text("❌ No wallets found. Please add one first.")
             return ConversationHandler.END
-            
+
+        logger.info("show_wallet_selection found=%d wallets user_id=%s", len(wallets), user_id)
         # Initialize selected wallets if not set (default to the one we just found/default)
         if "selected_wallets" not in swap_data:
             swap_data["selected_wallets"] = [swap_data.get("wallet_id")]
@@ -750,15 +761,20 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         return SELECT_WALLETS
         
     await query.edit_message_text("⏳ Getting quotes for all wallets...")
-    
+    logger.info("quote_request user_id=%s wallets=%d pair=%s/%s->%s/%s amount=%s",
+                user_id, len(selected_wallet_ids),
+                swap_data.get("from_chain"), swap_data.get("from_token"),
+                swap_data.get("to_chain"), swap_data.get("to_token"),
+                swap_data.get("amount"))
+
     try:
-        # For simplicity, we get one quote and assume it applies to all 
-        # (in a professional setup we'd get individual quotes, but here 
+        # For simplicity, we get one quote and assume it applies to all
+        # (in a professional setup we'd get individual quotes, but here
         # we'll start with the default wallet's quote as a reference)
         with get_session() as session:
             ref_wallet = session.query(Wallet).filter(Wallet.id == selected_wallet_ids[0]).first()
             wallet_address = ref_wallet.address
-            
+
         quote = await swap_engine.get_quote(
             from_chain=swap_data["from_chain"],
             to_chain=swap_data["to_chain"],
@@ -770,10 +786,12 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         
         context.user_data["swap"]["quote"] = quote
         context.user_data["swap"]["attempt_id"] = secrets.token_urlsafe(16)
-        
+        logger.info("quote_received user_id=%s provider=%s rate=%.6f to_amount=%.6f gas_usd=%.4f",
+                    user_id, quote.provider, quote.exchange_rate, quote.to_amount_human, quote.gas_cost_usd)
+
         from_chain_config = get_chain_by_name(swap_data["from_chain"])
         to_chain_config = get_chain_by_name(swap_data["to_chain"])
-        
+
         # Fees info
         fee_amount, fee_percentage, fee_usd = await fee_service.calculate_fee_with_price(
             amount=quote.from_amount_human,
@@ -859,8 +877,13 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     wallet_id = swap_data.get("wallet_id")
     
     if not quote:
+        logger.warning("confirm_swap quote_missing user_id=%s", user_id)
         await query.edit_message_text("❌ Quote expired. Please start over.")
         return ConversationHandler.END
+
+    logger.info("confirm_swap user_id=%s provider=%s from=%s/%s to=%s/%s amount=%s",
+                user_id, quote.provider, quote.from_chain, quote.from_token,
+                quote.to_chain, quote.to_token, quote.from_amount_human)
 
     # Check if 2FA is required for high-value swaps
     swap_amount_usd = quote.from_amount_human  # Approximate USD value
@@ -965,12 +988,15 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         for wid in selected_wallet_ids:
             quotes_with_wallets.append((quote, wid))
 
+        logger.info("swap_execute_start user_id=%s wallets=%d attempt=%s provider=%s",
+                    user_id, len(selected_wallet_ids), attempt_id, quote.provider)
+
         swap_results = await swap_engine.execute_multi_swap(
             quotes_with_wallets=quotes_with_wallets,
             user_id=user_id,
             attempt_id=attempt_id,
         )
-        
+
         # Progress update: processing results
         await query.edit_message_text("⏳ Processing results...", parse_mode="Markdown")
 
@@ -1015,7 +1041,9 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                 total_points += points_earned
         
         num_fail = len(selected_wallet_ids) - num_success
-        
+        logger.info("swap_complete user_id=%s success=%d fail=%d total_points=%d total_fee_usd=%.4f",
+                    user_id, num_success, num_fail, total_points, total_fee_usd)
+
         from_tok = swap_data.get("from_token", "")
         to_tok = swap_data.get("to_token", "")
         amt = swap_data.get("amount", "")
@@ -1041,8 +1069,9 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         
     except SwapError as e:
-        error_code = detect_error_code(str(e))
+        error_code = detect_error_code_from_exception(e)
         error_obj = get_error_message(error_code)
+        logger.warning("swap_error user_id=%s code=%s msg=%s", user_id, error_code, str(e)[:200])
         text, keyboard = format_error_with_buttons(error_obj)
         if not keyboard:
             keyboard = InlineKeyboardMarkup([
@@ -1051,8 +1080,9 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             ])
         await query.edit_message_text(text, reply_markup=keyboard)
     except Exception as e:
-        error_code = detect_error_code(str(e))
+        error_code = detect_error_code_from_exception(e)
         error_obj = get_error_message(error_code)
+        logger.error("swap_unexpected_error user_id=%s code=%s msg=%s", user_id, error_code, str(e)[:200], exc_info=True)
         text, keyboard = format_error_with_buttons(error_obj)
         if not keyboard:
             keyboard = InlineKeyboardMarkup([
@@ -1114,7 +1144,9 @@ async def swap_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     """Cancel the swap flow."""
     query = update.callback_query
     await query.answer()
-    
+
+    user_id = context.user_data.get("user_id")
+    logger.info("swap_cancel user_id=%s", user_id)
     context.user_data.pop("swap", None)
     
     await query.edit_message_text(
@@ -1141,7 +1173,12 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     if not swap_data or "amount" not in swap_data:
         await query.edit_message_text("❌ Session expired. Please start over.")
         return ConversationHandler.END
-    
+
+    user_id = context.user_data.get("user_id")
+    logger.info("swap_requote user_id=%s pair=%s/%s->%s/%s amount=%s",
+                user_id, swap_data.get("from_chain"), swap_data.get("from_token"),
+                swap_data.get("to_chain"), swap_data.get("to_token"), swap_data.get("amount"))
+
     # Simulate entering the amount again to get a new quote
     # We need to recreate a message-like update
     await query.edit_message_text("⏳ Getting new quote...")

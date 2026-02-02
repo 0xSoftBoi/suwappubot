@@ -91,6 +91,7 @@ from bot.services.health_monitor import health_monitor
 from bot.services.token_security.rug_service import rug_service
 from bot.services.swap_engine import SwapEngine
 from bot.utils.errors import handle_swap_error
+from bot.utils.log_sanitizer import install_log_sanitizer
 from bot.utils.http_client import close_session as close_http_session
 from bot.utils.preload import preload_config
 from bot.utils.db_monitor import setup_db_monitoring
@@ -110,6 +111,7 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=getattr(logging, settings.log_level.upper()),
 )
+install_log_sanitizer()
 logger = logging.getLogger(__name__)
 
 

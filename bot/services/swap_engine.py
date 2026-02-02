@@ -208,15 +208,18 @@ class SwapEngine:
         amount_raw = self._get_token_amount_raw(amount, from_token, from_chain)
 
         if self._is_solana_only_swap(from_chain, to_chain):
+            logger.info("get_quote routing=jupiter (solana-only) pair=%s->%s amount=%s", from_token, to_token, amount)
             quote = await self._get_jupiter_quote(
                 from_token, to_token, amount, amount_raw, from_address, int(slippage * 100)
             )
         else:
+            logger.info("get_quote routing=lifi (evm) pair=%s/%s->%s/%s amount=%s", from_chain, from_token, to_chain, to_token, amount)
             quote = await self._get_lifi_quote(
                 from_chain, to_chain, from_token, to_token,
                 amount, amount_raw, from_address, to_address, slippage
             )
 
+        logger.info("get_quote result provider=%s rate=%.6f to_amount=%.6f", quote.provider, quote.exchange_rate, quote.to_amount_human)
         await quote_cache.set(cache_key, quote)
         return quote
     
@@ -489,6 +492,15 @@ class SwapEngine:
         # Sort by best output (highest to_amount_human)
         quotes.sort(key=lambda q: q.to_amount_human, reverse=True)
 
+        if quotes:
+            logger.info(
+                "get_all_quotes results=%d best=%s best_output=%.6f pair=%s->%s (%s->%s)",
+                len(quotes), quotes[0].provider, quotes[0].to_amount_human,
+                from_token, to_token, from_chain, to_chain,
+            )
+            for q in quotes:
+                logger.debug("get_all_quotes provider=%s output=%.6f gas=%.4f", q.provider, q.to_amount_human, q.gas_cost_usd)
+
         if not quotes:
             logger.warning(
                 f"All quote providers failed for {from_token} -> {to_token} "
@@ -522,8 +534,22 @@ class SwapEngine:
         # Prevent concurrent swaps from same wallet
         if wallet_id not in self._wallet_locks:
             self._wallet_locks[wallet_id] = asyncio.Lock()
-        
-        async with self._wallet_locks[wallet_id]:
+
+        lock = self._wallet_locks[wallet_id]
+
+        if lock.locked():
+            logger.warning("execute_swap lock_contention wallet_id=%d user_id=%d (another swap in progress)", wallet_id, user_id)
+
+        # Acquire with timeout to avoid indefinite blocking
+        try:
+            await asyncio.wait_for(lock.acquire(), timeout=30.0)
+        except asyncio.TimeoutError:
+            logger.error("execute_swap lock_timeout wallet_id=%d user_id=%d", wallet_id, user_id)
+            raise SwapError("Wallet is busy with another swap. Please wait.", error_code="WALLET_LOCKED")
+
+        try:
+            logger.info("execute_swap lock_acquired wallet_id=%d user_id=%d", wallet_id, user_id)
+
             # Idempotency: if we already created/submitted this attempt, return it
             if idempotency_key:
                 with get_session() as session:
@@ -548,21 +574,25 @@ class SwapEngine:
                 wallet_encrypted_key = wallet.encrypted_private_key
             
             # Validate quote freshness
+            logger.info("execute_swap validating_quote_freshness wallet_id=%d user_id=%d provider=%s", wallet_id, user_id, quote.provider)
             quote_validator.validate_quote_freshness(quote)
-            
+
             # Validate balance
+            logger.info("execute_swap validating_balance wallet_id=%d user_id=%d", wallet_id, user_id)
             await quote_validator.validate_balance(
                 wallet_id=wallet_id,
                 quote=quote,
                 wallet_service=self.wallet_service,
             )
-            
+
             # Validate gas
+            logger.info("execute_swap validating_gas wallet_id=%d user_id=%d", wallet_id, user_id)
             await quote_validator.validate_gas(
                 wallet_address=wallet_address,
                 quote=quote,
                 wallet_service=self.wallet_service,
             )
+            logger.info("execute_swap all_validations_passed wallet_id=%d user_id=%d", wallet_id, user_id)
             
             # Create transaction record
             with get_session() as session:
@@ -625,6 +655,7 @@ class SwapEngine:
 
             try:
                 # Route to appropriate execution method based on provider
+                logger.info("execute_swap routing provider=%s wallet_id=%d user_id=%d swap_id=%d", quote.provider, wallet_id, user_id, swap_id)
                 if quote.provider == "cow":
                     tx_hash = await self._execute_cow_swap(quote, wallet_data)
                 elif quote.provider == "socket":
@@ -646,6 +677,7 @@ class SwapEngine:
                 else:
                     tx_hash = await self._execute_lifi_swap(quote, wallet_data)
                 
+                logger.info("execute_swap submitted tx_hash=%s provider=%s wallet_id=%d user_id=%d swap_id=%d", tx_hash, quote.provider, wallet_id, user_id, swap_id)
                 # Persist tx_hash to the database record
                 with get_session() as session:
                     db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
@@ -675,7 +707,10 @@ class SwapEngine:
                 wallet_encrypted_key = None
 
                 raise SwapError(f"Swap execution failed: {repr(e)}")
-    
+        finally:
+            lock.release()
+            logger.info("execute_swap lock_released wallet_id=%d user_id=%d", wallet_id, user_id)
+
     async def _execute_lifi_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via Li.Fi."""
         tx_request = quote.raw_quote.get("transactionRequest", {})

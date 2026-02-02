@@ -19,6 +19,7 @@ from bot.utils.envelope_crypto import (
     encrypt_private_key_v2,
     encode_for_db,
     get_private_key_with_auto_migrate,
+    rotate_wallet_key,
     SCHEME_LEGACY_FERNET_V1,
     SCHEME_KMS_AESGCM_V2,
 )
@@ -821,6 +822,67 @@ class WalletService:
         signed = Account.sign_transaction(transaction, private_key)
         return signed.raw_transaction.hex()
     
+    # === Key Rotation ===
+
+    def rotate_all_keys(
+        self,
+        old_kms_key_id: str,
+        new_kms_key_id: str,
+        batch_size: int = 50,
+    ) -> dict:
+        """
+        Rotate all wallets using a specific KMS key to a new KMS key.
+
+        Processes wallets in batches, commits per-batch, and logs progress.
+
+        Args:
+            old_kms_key_id: The KMS key ID to rotate from.
+            new_kms_key_id: The KMS key ID to rotate to.
+            batch_size: Number of wallets to process per batch.
+
+        Returns:
+            Dict with keys 'rotated', 'failed', 'total'.
+        """
+        stats = {"rotated": 0, "failed": 0, "total": 0}
+
+        with get_session() as session:
+            wallets = session.query(Wallet).filter(
+                Wallet.kms_key_id == old_kms_key_id,
+                Wallet.is_active == True,
+            ).all()
+            stats["total"] = len(wallets)
+            logger.info("rotate_all_keys starting total=%d old_key=%s", len(wallets), old_kms_key_id[:20])
+
+        # Process in batches
+        for offset in range(0, stats["total"], batch_size):
+            with get_session() as session:
+                batch = session.query(Wallet).filter(
+                    Wallet.kms_key_id == old_kms_key_id,
+                    Wallet.is_active == True,
+                ).limit(batch_size).all()
+
+                for wallet in batch:
+                    success = rotate_wallet_key(
+                        wallet_row=wallet,
+                        new_kms_key_id=new_kms_key_id,
+                        session=session,
+                    )
+                    if success:
+                        stats["rotated"] += 1
+                    else:
+                        stats["failed"] += 1
+
+                # Commit the batch
+                session.commit()
+
+            logger.info(
+                "rotate_all_keys progress rotated=%d failed=%d total=%d",
+                stats["rotated"], stats["failed"], stats["total"],
+            )
+
+        logger.info("rotate_all_keys complete rotated=%d failed=%d total=%d", stats["rotated"], stats["failed"], stats["total"])
+        return stats
+
     def sign_solana_transaction_raw(
         self,
         encrypted_private_key: str,
