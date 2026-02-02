@@ -51,6 +51,7 @@ from bot.services.sniping.snipe_executor import SnipeConfig as ExecutorConfig
 from bot.services.sniping.launch_detector import TokenLaunch, LaunchPlatform
 from bot.utils.rate_limiter import UserRateLimiter
 from bot.utils.tos_utils import enforce_tos
+from bot.services.token_security.token_analyzer import token_analyzer
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -291,6 +292,20 @@ async def show_amount_selection(
     else:
         token_info = f"*Token:* `{token_mint[:8]}...{token_mint[-4:]}`\n"
 
+    # Quick safety check
+    safety_line = ""
+    try:
+        is_safe, warnings = await token_analyzer.quick_check(token_mint, chain="solana")
+        if not is_safe and warnings:
+            if any("honeypot" in w.lower() for w in warnings):
+                safety_line = "\n🚫 *HONEYPOT WARNING* - This token may not be sellable!\n"
+            else:
+                safety_line = f"\n⚠️ {warnings[0]}\n"
+        elif is_safe:
+            safety_line = "\n🛡️ Quick check passed\n"
+    except Exception as e:
+        logger.debug(f"Quick safety check failed: {e}")
+
     # Build amount buttons
     amount_buttons = []
     row = []
@@ -312,7 +327,7 @@ async def show_amount_selection(
 
     text = (
         f"*Snipe Token*\n\n"
-        f"{token_info}\n"
+        f"{token_info}{safety_line}\n"
         f"Select amount of SOL to spend:"
     )
 
@@ -413,9 +428,23 @@ async def show_snipe_confirmation(update: Update, context: ContextTypes.DEFAULT_
     else:
         token_info = f"*Contract:* `{token_mint}`\n"
 
+    # Full security analysis
+    security_text = ""
+    dex_url = None
+    is_honeypot = False
+    try:
+        report = await token_analyzer.analyze(token_mint, chain="solana")
+        security_text = f"\n🛡️ *Security Shield*\n{token_analyzer.get_safety_summary(report)}\n"
+        dex_url = report.dex_url
+        is_honeypot = report.is_honeypot
+    except Exception as e:
+        logger.debug(f"Security analysis failed in snipe confirmation: {e}")
+
+    confirm_label = "⚠️ Snipe (RISKY)" if is_honeypot else "Confirm Snipe"
+
     keyboard = [
         [
-            InlineKeyboardButton("Confirm Snipe", callback_data="snipe_confirm"),
+            InlineKeyboardButton(confirm_label, callback_data="snipe_confirm"),
         ],
         [
             InlineKeyboardButton("Jito: ON", callback_data="snipe_toggle_jito"),
@@ -423,13 +452,16 @@ async def show_snipe_confirmation(update: Update, context: ContextTypes.DEFAULT_
         ],
         [InlineKeyboardButton("Cancel", callback_data="snipe_cancel")],
     ]
+    if dex_url:
+        keyboard.append([InlineKeyboardButton("📈 DexScreener Chart", url=dex_url)])
 
     text = (
         f"*Confirm Snipe*\n\n"
         f"{token_info}\n"
         f"*Amount:* {format_sol(sol_amount)} SOL\n"
         f"*Slippage:* 10%\n"
-        f"*MEV Protection:* Jito Enabled\n\n"
+        f"*MEV Protection:* Jito Enabled\n"
+        f"{security_text}\n"
         f"_Click Confirm to execute the snipe_"
     )
 

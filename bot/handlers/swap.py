@@ -801,16 +801,18 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         total_fee_usd = fee_usd * num_wallets
         total_from_human = quote.from_amount_human * num_wallets
         
-        # NEW: Token Security Analysis
+        # Token Security Analysis (all chains via GoPlus + DexScreener)
         security_text = ""
-        if swap_data["to_chain"] == "solana":
-            try:
-                dest_token_address = get_token_address(swap_data["to_token"], "solana")
-                if dest_token_address:
-                    report = await token_analyzer.analyze(dest_token_address)
-                    security_text = f"\n\n�️ *Security Shield*\n{token_analyzer.get_safety_summary(report)}"
-            except Exception as e:
-                logger.debug(f"Security analysis failed: {e}")
+        dex_url = None
+        try:
+            dest_chain = swap_data["to_chain"]
+            dest_token_address = get_token_address(swap_data["to_token"], dest_chain)
+            if dest_token_address:
+                report = await token_analyzer.analyze(dest_token_address, chain=dest_chain)
+                security_text = f"\n\n🛡️ *Security Shield*\n{token_analyzer.get_safety_summary(report)}"
+                dex_url = report.dex_url
+        except Exception as e:
+            logger.debug(f"Security analysis failed: {e}")
         
         text = (
             f"�📊 *Multi-Wallet Swap Quote*\n\n"
@@ -835,6 +837,8 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
             ],
             [InlineKeyboardButton("« Back to Wallets", callback_data="swap_back_to_wallets")],
         ]
+        if dex_url:
+            keyboard.append([InlineKeyboardButton("📈 DexScreener Chart", url=dex_url)])
         
         await query.edit_message_text(
             text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)

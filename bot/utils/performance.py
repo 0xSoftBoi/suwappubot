@@ -221,6 +221,8 @@ class MetricNames:
     API_LIFI = "api_lifi"
     API_JUPITER = "api_jupiter"
     API_COINGECKO = "api_coingecko"
+    API_GOPLUS = "api_goplus"
+    API_DEXSCREENER = "api_dexscreener"
     HANDLER_COMMAND = "handler_command"
     HANDLER_CALLBACK = "handler_callback"
 

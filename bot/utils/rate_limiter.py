@@ -100,6 +100,8 @@ class APIRateLimiter:
             "jupiter": (10, 20),
             "coingecko": (1, 5),
             "rpc": (20, 50),
+            "goplus": (5, 10),
+            "dexscreener": (5, 10),
         }
 
     def get_limiter(self, api_name: str) -> TokenBucket:
