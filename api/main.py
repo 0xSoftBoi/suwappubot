@@ -42,6 +42,7 @@ from bot.models.advanced import LimitOrder, DCAOrder
 from bot.models.agent import RegisteredAgent
 from bot.utils.db_monitor import setup_db_monitoring
 from bot.main import add_handlers
+from bot.utils.redis_cache import redis_cache
 from telegram.ext import Application
 from telegram import Update
 from contextlib import asynccontextmanager
@@ -77,12 +78,22 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("⚠️ Database monitoring disabled (no connection)")
 
-    # 2. Build Bot Application
-    bot_app = (
-        Application.builder()
-        .token(settings.telegram_bot_token)
-        .build()
-    )
+    # 2. Connect Redis (shared cache & distributed locks)
+    if settings.redis_url:
+        await redis_cache.connect(settings.redis_url)
+    else:
+        await redis_cache.connect()  # in-memory fallback
+
+    # 3. Build Bot Application
+    persistence = None
+    if redis_cache._connected:
+        from bot.utils.redis_persistence import RedisPersistence
+        persistence = RedisPersistence(redis_cache.client)
+
+    builder = Application.builder().token(settings.telegram_bot_token)
+    if persistence:
+        builder = builder.persistence(persistence)
+    bot_app = builder.build()
     add_handlers(bot_app)
 
     # Store bot_app in app.state for webhook endpoint access
@@ -179,6 +190,9 @@ async def lifespan(app: FastAPI):
         from bot.utils.http_client import close_session
         await close_session()
         logger.info("✓ HTTP session closed")
+
+    # Close Redis
+    await redis_cache.close()
     logger.info("✓ Cleanup complete")
 
 app = FastAPI(

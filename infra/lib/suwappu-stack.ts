@@ -14,6 +14,7 @@ import * as cw_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as kms from 'aws-cdk-lib/aws-kms';
+import * as elasticache from 'aws-cdk-lib/aws-elasticache';
 import { Construct } from 'constructs';
 
 export class SuwappuStack extends cdk.Stack {
@@ -146,6 +147,35 @@ export class SuwappuStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.SNAPSHOT,
       publiclyAccessible: false,
     });
+
+    // ==================== ElastiCache Redis ====================
+    const redisSecurityGroup = new ec2.SecurityGroup(this, 'RedisSecurityGroup', {
+      vpc: this.vpc,
+      description: 'Security group for ElastiCache Redis',
+      allowAllOutbound: false,
+    });
+    redisSecurityGroup.addIngressRule(
+      ecsSecurityGroup,
+      ec2.Port.tcp(6379),
+      'Allow Redis from ECS'
+    );
+
+    const redisSubnetGroup = new elasticache.CfnSubnetGroup(this, 'RedisSubnetGroup', {
+      description: 'Subnet group for Suwappu Redis',
+      subnetIds: this.vpc.isolatedSubnets.map(s => s.subnetId),
+      cacheSubnetGroupName: 'suwappu-redis-subnets',
+    });
+
+    const redisCluster = new elasticache.CfnCacheCluster(this, 'SuwappuRedis', {
+      clusterName: 'suwappu-redis',
+      engine: 'redis',
+      cacheNodeType: 'cache.t4g.micro',
+      numCacheNodes: 1,
+      engineVersion: '7.1',
+      vpcSecurityGroupIds: [redisSecurityGroup.securityGroupId],
+      cacheSubnetGroupName: redisSubnetGroup.cacheSubnetGroupName,
+    });
+    redisCluster.addDependency(redisSubnetGroup);
 
     // ==================== ECR Repository ====================
     const repository = new ecr.Repository(this, 'SuwappuRepository', {
@@ -469,6 +499,12 @@ export class SuwappuStack extends cdk.Stack {
       value: alertTopic.topicArn,
       description: 'SNS Topic ARN for alerts (subscribe your email)',
       exportName: 'SuwappuAlertTopicArn',
+    });
+
+    new cdk.CfnOutput(this, 'RedisEndpoint', {
+      value: redisCluster.attrRedisEndpointAddress,
+      description: 'ElastiCache Redis Endpoint',
+      exportName: 'SuwappuRedisEndpoint',
     });
   }
 }

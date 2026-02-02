@@ -387,21 +387,44 @@ class OrderService:
     
     async def _order_loop(self):
         """Main order checking loop."""
+        from bot.utils.distributed_lock import RedisLock
+        from bot.utils.redis_cache import redis_cache
+
         while self._running:
             try:
-                # Check limit orders
-                triggered_limits = await self.check_limit_orders()
-                for order in triggered_limits:
-                    await self._execute_limit_order(order)
-                
-                # Check DCA orders
-                due_dca = await self.check_dca_orders()
-                for order in due_dca:
-                    await self._execute_dca_order(order)
-                    
+                # Distributed lock: only one instance checks orders at a time
+                loop_lock = RedisLock(redis_cache.client, "order_check", ttl=30)
+                if not await loop_lock.acquire():
+                    await asyncio.sleep(self._check_interval)
+                    continue
+
+                try:
+                    # Check limit orders
+                    triggered_limits = await self.check_limit_orders()
+                    for order in triggered_limits:
+                        # Per-order lock to prevent double execution
+                        order_lock = RedisLock(redis_cache.client, f"order:{order.id}", ttl=120)
+                        if await order_lock.acquire():
+                            try:
+                                await self._execute_limit_order(order)
+                            finally:
+                                await order_lock.release()
+
+                    # Check DCA orders
+                    due_dca = await self.check_dca_orders()
+                    for order in due_dca:
+                        order_lock = RedisLock(redis_cache.client, f"dca:{order.id}", ttl=120)
+                        if await order_lock.acquire():
+                            try:
+                                await self._execute_dca_order(order)
+                            finally:
+                                await order_lock.release()
+                finally:
+                    await loop_lock.release()
+
             except Exception as e:
                 logger.error(f"Order check error: {e}")
-            
+
             await asyncio.sleep(self._check_interval)
     
     async def _execute_limit_order(self, order: LimitOrder):
@@ -440,7 +463,7 @@ class OrderService:
             )
             
             # 3. Execute Swap
-            idempotency_key = f"lo:{order.id}:{datetime.utcnow().strftime('%Y%m%d%H')}"
+            idempotency_key = f"lo:{order.id}"
             
             swap_tx = await self._swap_engine.execute_swap(
                 quote=quote,
@@ -502,7 +525,7 @@ class OrderService:
             )
             
             # 2. Execute Swap
-            idempotency_key = f"dca:{order.id}:{order.executions_completed}:{datetime.utcnow().strftime('%Y%m%d%H')}"
+            idempotency_key = f"dca:{order.id}:{order.executions_completed}"
             
             swap_tx = await self._swap_engine.execute_swap(
                 quote=quote,

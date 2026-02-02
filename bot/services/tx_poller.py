@@ -98,8 +98,12 @@ class TransactionPoller:
                             f"Transaction {tx.id} status: {old_status} -> {new_status}"
                         )
                         
-                        # Notify user
-                        await self._notify_user(tx, old_status, new_status)
+                        # Notify user (with lock to prevent duplicate notifications)
+                        from bot.utils.distributed_lock import RedisLock
+                        from bot.utils.redis_cache import redis_cache
+                        notify_lock = RedisLock(redis_cache.client, f"tx_notify:{tx.id}", ttl=60)
+                        if await notify_lock.acquire():
+                            await self._notify_user(tx, old_status, new_status)
                         
                 except Exception as e:
                     logger.error(f"Error checking tx {tx.id}: {e}")

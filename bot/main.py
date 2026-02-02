@@ -479,13 +479,21 @@ def main() -> None:
     
     # Create application with lifecycle hooks
     logger.info("Creating bot application...")
-    application = (
+    builder = (
         Application.builder()
         .token(settings.telegram_bot_token)
         .post_init(post_init)
         .post_shutdown(post_shutdown)
-        .build()
     )
+
+    # Add Redis persistence if available
+    from bot.utils.redis_cache import redis_cache
+    if redis_cache._connected and redis_cache.client:
+        from bot.utils.redis_persistence import RedisPersistence
+        builder = builder.persistence(RedisPersistence(redis_cache.client))
+        logger.info("Using Redis-backed conversation persistence")
+
+    application = builder.build()
     
     # Add all handlers
     add_handlers(application)

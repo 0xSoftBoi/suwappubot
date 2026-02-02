@@ -92,8 +92,21 @@ class AlertService:
     
     async def check_alerts(self) -> List[dict]:
         """Check all active alerts and return triggered ones."""
+        from bot.utils.distributed_lock import RedisLock
+        from bot.utils.redis_cache import redis_cache
+
+        lock = RedisLock(redis_cache.client, "alert_check", ttl=30)
+        if not await lock.acquire():
+            return []
+        try:
+            return await self._check_alerts_inner()
+        finally:
+            await lock.release()
+
+    async def _check_alerts_inner(self) -> List[dict]:
+        """Inner alert check logic (runs under distributed lock)."""
         triggered = []
-        
+
         with get_session() as session:
             alerts = session.query(PriceAlert).filter(
                 PriceAlert.is_active == True,

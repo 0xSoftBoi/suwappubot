@@ -60,6 +60,20 @@ class FeeSweeper:
     
     async def _do_sweep(self):
         """Perform a sweep of all uncollected fees."""
+        from bot.utils.distributed_lock import RedisLock
+        from bot.utils.redis_cache import redis_cache
+
+        lock = RedisLock(redis_cache.client, "fee_sweeper", ttl=300)
+        if not await lock.acquire():
+            logger.debug("Another instance is sweeping fees, skipping")
+            return
+        try:
+            await self._do_sweep_inner()
+        finally:
+            await lock.release()
+
+    async def _do_sweep_inner(self):
+        """Inner sweep logic (runs under distributed lock)."""
         uncollected = fee_service.get_uncollected_fees()
         
         if not uncollected:
