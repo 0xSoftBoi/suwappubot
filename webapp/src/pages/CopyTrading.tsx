@@ -212,7 +212,7 @@ export function CopyTrading() {
     }
   }
 
-  const handleSaveSettings = (settings: CopySettings) => {
+  const handleSaveSettings = (_settings: CopySettings) => {
     if (selectedTrader) {
       setTraders(traders.map(t => 
         t.id === selectedTrader.id ? { ...t, isFollowing: true } : t

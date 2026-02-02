@@ -26,7 +26,7 @@ export interface ParsedAmount {
 /**
  * Clean and normalize amount input
  */
-export function parseAmountInput(input: string, tokenDecimals = 18): ParsedAmount {
+export function parseAmountInput(input: string, _tokenDecimals = 18): ParsedAmount {
   const original = input.trim()
   
   // Check for fiat indicators

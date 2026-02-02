@@ -2,7 +2,6 @@ import { useMemo } from 'react'
 import { AppLayout, AppHeader } from '../components/layout'
 import { BalanceCard, TokenItem } from '../components/cards'
 import { usePortfolio } from '../hooks/usePortfolio'
-import type { Token } from '../types/api'
 import { getTokenIcon, chainColors } from '../lib/icons'
 
 // Format USD value
@@ -44,7 +43,7 @@ export function Portfolio() {
   // Loading state
   if (isLoading) {
     return (
-      <AppLayout header={<AppHeader title="Portfolio" />} activeNav="portfolio">
+      <AppLayout header={<AppHeader title="Portfolio" />} activeNav="home">
         <div className="p-3 pb-20 space-y-4">
           <div className="animate-pulse">
             <div className="bg-suwappu-sakura-light rounded-suwappu-xl h-32 mb-4" />
@@ -59,7 +58,7 @@ export function Portfolio() {
   // Error state
   if (error) {
     return (
-      <AppLayout header={<AppHeader title="Portfolio" />} activeNav="portfolio">
+      <AppLayout header={<AppHeader title="Portfolio" />} activeNav="home">
         <div className="p-3 pb-20">
           <div className="bg-white rounded-suwappu-xl p-6 text-center shadow-suwappu-1">
             <div className="w-12 h-12 mx-auto mb-2 bg-suwappu-error/10 rounded-full flex items-center justify-center">
@@ -74,7 +73,7 @@ export function Portfolio() {
   }
 
   return (
-    <AppLayout header={<AppHeader title="Portfolio" />} activeNav="portfolio">
+    <AppLayout header={<AppHeader title="Portfolio" />} activeNav="home">
       <div className="p-3 pb-20 space-y-4">
         <BalanceCard balance={totalBalance} />
 

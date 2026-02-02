@@ -4,7 +4,6 @@ import { AppLayout, UserHeader } from '../components/layout'
 import { BalanceCard, TokenItem } from '../components/cards'
 import { QuickActions, NotificationBanner, FeatureGrid, QuickSwap } from '../components/ui'
 import { usePortfolio } from '../hooks/usePortfolio'
-import type { Token } from '../types/api'
 import { getTokenIcon } from '../lib/icons'
 
 // Format USD value

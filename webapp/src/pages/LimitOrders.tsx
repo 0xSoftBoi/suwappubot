@@ -103,7 +103,7 @@ export function LimitOrders() {
   const [cancellingId, setCancellingId] = useState<number | null>(null)
 
   // Fetch limit orders - gracefully handle API not deployed yet
-  const { data: orders = [], isLoading, error, isError } = useQuery({
+  const { data: orders = [], isLoading, error } = useQuery({
     queryKey: ['limitOrders', filter === 'all' ? undefined : filter],
     queryFn: async () => {
       try {
