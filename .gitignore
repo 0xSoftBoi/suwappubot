@@ -79,6 +79,9 @@ Makefile
 # Cursor
 .cursor/
 
+# Worktree AI context
+.ai-context.md
+
 node_modules/
 .vercel
 webapp/bun.lock
