@@ -29,15 +29,39 @@ export function useSwapExecute() {
 }
 
 /**
+ * Compute adaptive polling interval based on how long we've been polling.
+ * - First 30s: 1s interval (fast feedback)
+ * - 30s to 5min: 3s interval
+ * - 5min to 30min: 10s interval
+ * - After 30min: stop polling (likely stuck)
+ */
+function getAdaptiveInterval(startTime: number): number | false {
+  const elapsed = Date.now() - startTime
+  const THIRTY_SECONDS = 30 * 1000
+  const FIVE_MINUTES = 5 * 60 * 1000
+  const THIRTY_MINUTES = 30 * 60 * 1000
+
+  if (elapsed > THIRTY_MINUTES) return false  // Stop polling
+  if (elapsed > FIVE_MINUTES) return 10_000
+  if (elapsed > THIRTY_SECONDS) return 3_000
+  return 1_000
+}
+
+/**
  * Hook for polling swap status until completion or failure.
- * Uses useQuery with refetchInterval for automatic polling.
+ * Uses adaptive polling: fast at first, slowing down over time.
  */
 export function useSwapStatus(swapId: number | null) {
   const queryClient = useQueryClient()
+  // Track when polling started for adaptive intervals
+  const pollingStartRef = { current: swapId ? Date.now() : 0 }
 
   return useQuery<SwapStatusResponse>({
     queryKey: ['swap-status', swapId],
-    queryFn: () => api.getSwapStatus(String(swapId!)),
+    queryFn: () => {
+      if (!pollingStartRef.current) pollingStartRef.current = Date.now()
+      return api.getSwapStatus(String(swapId!))
+    },
     enabled: swapId != null,
     refetchInterval: (query) => {
       const status = query.state.data?.status
@@ -49,7 +73,7 @@ export function useSwapStatus(swapId: number | null) {
         queryClient.invalidateQueries({ queryKey: ['tokens'] })
         return false
       }
-      return 3000 // Poll every 3 seconds
+      return getAdaptiveInterval(pollingStartRef.current)
     },
     refetchOnWindowFocus: false,
   })

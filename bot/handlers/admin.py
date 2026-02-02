@@ -8,10 +8,13 @@ from telegram.ext import ContextTypes, CommandHandler
 from bot.config.settings import settings
 from bot.config.chains import CHAINS, ChainType
 from bot.utils.cache import price_cache, quote_cache, balance_cache, gas_cache
+from bot.utils.rate_limiter import admin_limiter, enforce_rate_limit_for_update
 from database.db import get_session
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction, SwapStatus
 
+import logging
+logger = logging.getLogger(__name__)
 
 # Admin user IDs from settings, fail-closed if not configured
 ADMIN_IDS = [int(x) for x in settings.admin_telegram_ids.split(",") if x.strip()] if settings.admin_telegram_ids else []
@@ -25,9 +28,13 @@ def is_admin(user_id: int) -> bool:
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /status command - show system health status."""
     user = update.effective_user
-    
+
     if not is_admin(user.id):
         await update.message.reply_text("❌ This command is for admins only.")
+        return
+
+    allowed = await enforce_rate_limit_for_update(update, admin_limiter)
+    if not allowed:
         return
     
     loading_msg = await update.message.reply_text("🔍 Checking system status...")
@@ -190,9 +197,13 @@ def _get_cache_stats() -> dict:
 async def clear_cache_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /clearcache command - clear all caches."""
     user = update.effective_user
-    
+
     if not is_admin(user.id):
         await update.message.reply_text("❌ This command is for admins only.")
+        return
+
+    allowed = await enforce_rate_limit_for_update(update, admin_limiter)
+    if not allowed:
         return
     
     await price_cache.clear()
@@ -206,27 +217,36 @@ async def clear_cache_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /broadcast command - send message to all users."""
     user = update.effective_user
-    
+
     if not is_admin(user.id):
         await update.message.reply_text("❌ This command is for admins only.")
         return
-    
+
+    # Rate limit: max 5 admin commands per minute
+    allowed = await enforce_rate_limit_for_update(update, admin_limiter)
+    if not allowed:
+        return
+
     if not context.args:
         await update.message.reply_text(
             "Usage: /broadcast <message>\n\n"
             "Example: /broadcast 🎉 New feature released!"
         )
         return
-    
+
     message = " ".join(context.args)
-    
+
     with get_session() as session:
         users = session.query(User).all()
         user_ids = [u.telegram_id for u in users]
-    
+
+    status_msg = await update.message.reply_text(
+        f"📤 Broadcasting to {len(user_ids)} users..."
+    )
+
     sent = 0
     failed = 0
-    
+
     for telegram_id in user_ids:
         try:
             await context.bot.send_message(
@@ -235,10 +255,20 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 parse_mode="Markdown",
             )
             sent += 1
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Broadcast failed for {telegram_id}: {e}")
             failed += 1
-    
-    await update.message.reply_text(
+
+        # Throttle: ~30 messages/sec to stay within Telegram limits
+        if (sent + failed) % 30 == 0:
+            await asyncio.sleep(1)
+            # Update progress every 100 users
+            if (sent + failed) % 100 == 0:
+                await status_msg.edit_text(
+                    f"📤 Broadcasting... {sent + failed}/{len(user_ids)}"
+                )
+
+    await status_msg.edit_text(
         f"✅ Broadcast complete!\n"
         f"Sent: {sent}\n"
         f"Failed: {failed}"

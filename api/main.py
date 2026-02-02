@@ -473,6 +473,16 @@ async def health_check():
     }
 
 
+@app.get("/metrics", tags=["Health"], summary="Prometheus metrics")
+async def prometheus_metrics():
+    """Prometheus-compatible metrics endpoint for monitoring."""
+    from bot.utils.prometheus_metrics import metrics
+    return Response(
+        content=metrics.get_metrics(),
+        media_type=metrics.get_content_type(),
+    )
+
+
 # ============ Turnkey Web Authentication ============
 # DEPRECATED: The dashboard now uses @turnkey/react-wallet-kit (EWK) for auth.
 # These endpoints are kept for backward compatibility with non-browser clients

@@ -25,20 +25,19 @@ async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """Handle /balance command."""
     user = update.effective_user
     
-    # Get user from database
+    # Get user from database (single query with eager loading)
     with get_session() as session:
-        db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        
+        from sqlalchemy.orm import joinedload
+        db_user = session.query(User).options(
+            joinedload(User.wallets)
+        ).filter(User.telegram_id == user.id).first()
+
         if not db_user:
             await update.message.reply_text(START_FIRST)
             return
-        
-        # Get user's wallets
-        wallets = session.query(Wallet).filter(
-            Wallet.user_id == db_user.id,
-            Wallet.is_active == True,
-        ).all()
-        
+
+        wallets = [w for w in db_user.wallets if w.is_active]
+
         if not wallets:
             await update.message.reply_text(NO_WALLETS, reply_markup=WALLET_ADD_KEYBOARD)
             return
@@ -111,21 +110,21 @@ async def balance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     user = update.effective_user
     
-    # Get user from database
+    # Get user from database (single query with eager loading)
     with get_session() as session:
-        db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        
+        from sqlalchemy.orm import joinedload
+        db_user = session.query(User).options(
+            joinedload(User.wallets)
+        ).filter(User.telegram_id == user.id).first()
+
         if not db_user:
             await query.edit_message_text(
                 "❌ Please use /start first to set up your account.",
             )
             return
-        
-        wallets = session.query(Wallet).filter(
-            Wallet.user_id == db_user.id,
-            Wallet.is_active == True,
-        ).all()
-        
+
+        wallets = [w for w in db_user.wallets if w.is_active]
+
         if not wallets:
             keyboard = [[InlineKeyboardButton("👛 Add Wallet", callback_data="wallet_add")]]
             await query.edit_message_text(

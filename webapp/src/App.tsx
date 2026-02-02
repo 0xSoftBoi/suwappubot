@@ -1,18 +1,44 @@
-import { useEffect } from 'react'
+import { useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useTelegram } from './hooks/useTelegram'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { Welcome, Home, Swap, Wallet, Portfolio, History, Points, LimitOrders, PriceAlerts, Referrals, CopyTrading, Subscriptions, Settings } from './pages'
 import './theme/suwappu.css'
 
-// Page wrapper with CSS animation
+// Eagerly load Welcome and Home (critical path)
+import { Welcome, Home } from './pages'
+
+// Lazy load all other pages for code splitting
+const Swap = lazy(() => import('./pages/Swap').then(m => ({ default: m.Swap })))
+const Wallet = lazy(() => import('./pages/Wallet').then(m => ({ default: m.Wallet })))
+const Portfolio = lazy(() => import('./pages/Portfolio').then(m => ({ default: m.Portfolio })))
+const History = lazy(() => import('./pages/History').then(m => ({ default: m.History })))
+const Points = lazy(() => import('./pages/Points').then(m => ({ default: m.Points })))
+const LimitOrders = lazy(() => import('./pages/LimitOrders').then(m => ({ default: m.LimitOrders })))
+const PriceAlerts = lazy(() => import('./pages/PriceAlerts').then(m => ({ default: m.PriceAlerts })))
+const Referrals = lazy(() => import('./pages/Referrals').then(m => ({ default: m.Referrals })))
+const CopyTrading = lazy(() => import('./pages/CopyTrading').then(m => ({ default: m.CopyTrading })))
+const Subscriptions = lazy(() => import('./pages/Subscriptions').then(m => ({ default: m.Subscriptions })))
+const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
+
+// Loading fallback for lazy-loaded pages
+function PageLoading() {
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-suwappu-bg">
+      <div className="animate-pulse text-suwappu-text-secondary">Loading...</div>
+    </div>
+  )
+}
+
+// Page wrapper with CSS animation and Suspense for lazy components
 function PageTransition({ children }: { children: React.ReactNode }) {
   return (
-    <div className="h-full animate-page-enter">
-      {children}
-    </div>
+    <Suspense fallback={<PageLoading />}>
+      <div className="h-full animate-page-enter">
+        {children}
+      </div>
+    </Suspense>
   )
 }
 

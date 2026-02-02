@@ -8,6 +8,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { useWallet, chains as walletChains, chainMeta } from '../hooks/useWallet'
 import { usePortfolio } from '../hooks/usePortfolio'
 import type { Token } from '../types/api'
+import { getTokenIcon } from '../lib/icons'
+import { api } from '../lib/api'
 
 // Chain options for the selector - aligned with useWallet
 const chains = [
@@ -17,24 +19,6 @@ const chains = [
   { id: '137', name: 'Polygon', icon: '⬡' },
   { id: '42161', name: 'Arbitrum', icon: '🔷' },
 ]
-
-// Token icon mapping
-const tokenIcons: Record<string, string> = {
-  ETH: 'Ξ',
-  WETH: 'Ξ',
-  USDC: '💵',
-  USDT: '💵',
-  DAI: '◇',
-  MATIC: '⬡',
-  BNB: '🔶',
-  ARB: '🔷',
-  PEPE: '🐸',
-  SOL: '◎',
-}
-
-function getTokenIcon(symbol: string): string {
-  return tokenIcons[symbol.toUpperCase()] || '●'
-}
 
 function formatTokenBalance(balance: string): string {
   const num = parseFloat(balance)
@@ -367,13 +351,22 @@ function SendView({
     setIsSending(true)
 
     try {
-      // TODO: Implement actual send transaction via Turnkey
-      // Will use _fromAddress as the sender, toAddress as recipient
-      // For now, show a coming soon message
-      console.log('Send from:', _fromAddress, 'to:', toAddress, 'amount:', amount, selectedToken?.symbol)
-      alert('Send functionality coming soon! This will use Turnkey to sign and broadcast the transaction.')
+      await api.sendTransaction({
+        fromAddress: _fromAddress,
+        toAddress,
+        amount,
+        tokenAddress: selectedToken.address,
+        tokenSymbol: selectedToken.symbol,
+        chainId,
+      })
+
+      // Reset form on success
+      setToAddress('')
+      setAmount('')
+      setError(null)
+      onBack()
     } catch (err: any) {
-      setError(err.message || 'Failed to send transaction')
+      setError(err.detail || err.message || 'Failed to send transaction')
     } finally {
       setIsSending(false)
     }

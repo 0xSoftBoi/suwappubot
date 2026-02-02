@@ -278,6 +278,9 @@ class Settings(BaseSettings):
     admin_api_key: Optional[str] = Field(default=None, description="Secret key for admin dashboard access")
     admin_telegram_ids: str = Field(default="", description="Comma-separated Telegram user IDs for admin access")
     
+    # Redis (for distributed rate limiting and caching)
+    redis_url: Optional[str] = Field(default=None, description="Redis connection URL (e.g., redis://localhost:6379)")
+
     # Application Settings
     log_level: str = Field(default="INFO", description="Logging level")
     max_swap_amount: float = Field(default=100000, description="Maximum swap amount in USD")

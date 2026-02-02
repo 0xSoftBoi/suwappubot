@@ -45,6 +45,7 @@ from bot.models.user import Wallet
 from bot.models.swap import SwapTransaction, SwapStatus
 from bot.utils.quote_validator import quote_validator
 from bot.utils.exceptions import SwapError
+from bot.utils.circuit_breaker import provider_circuit_breaker
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -408,6 +409,29 @@ class SwapEngine:
             raw_quote=raw_data,
         )
     
+    async def _fetch_quote_with_circuit_breaker(
+        self,
+        provider_name: str,
+        coro,
+    ) -> Optional[SwapQuote]:
+        """Fetch a quote with circuit breaker protection and per-provider timeout."""
+        if not provider_circuit_breaker.is_available(provider_name):
+            logger.debug(f"Skipping {provider_name} (circuit open)")
+            return None
+
+        try:
+            quote = await asyncio.wait_for(coro, timeout=10.0)
+            provider_circuit_breaker.record_success(provider_name)
+            return quote
+        except asyncio.TimeoutError:
+            logger.debug(f"{provider_name} quote timed out")
+            provider_circuit_breaker.record_failure(provider_name)
+            return None
+        except Exception as e:
+            logger.debug(f"{provider_name} quote failed: {e}")
+            provider_circuit_breaker.record_failure(provider_name)
+            return None
+
     async def get_all_quotes(
         self,
         from_chain: str,
@@ -420,44 +444,48 @@ class SwapEngine:
         slippage: float = 0.5,
     ) -> List[SwapQuote]:
         """
-        Get quotes from all available providers for comparison.
-        
+        Get quotes from all available providers in parallel.
+
+        Uses asyncio.gather with per-provider timeouts and circuit breaker
+        to skip known-down providers.
+
         Returns:
             List of SwapQuotes sorted by best output amount
         """
-        quotes = []
         amount_raw = self._get_token_amount_raw(amount, from_token, from_chain)
-        
-        # Get Li.Fi quote
-        try:
-            lifi_quote = await self._get_lifi_quote(
-                from_chain, to_chain, from_token, to_token,
-                amount, amount_raw, from_address, to_address, slippage
-            )
-            quotes.append(lifi_quote)
-        except Exception as e:
-            logger.debug(f"Li.Fi quote failed: {e}")
-        
-        # Get LayerZero quote if applicable (same token cross-chain)
+
+        # Build list of (provider_name, coroutine) tasks
+        tasks = []
+
+        # Li.Fi (always applicable for EVM)
+        tasks.append(("lifi", self._get_lifi_quote(
+            from_chain, to_chain, from_token, to_token,
+            amount, amount_raw, from_address, to_address, slippage
+        )))
+
+        # LayerZero (same token cross-chain)
         if self._is_layerzero_route(from_chain, to_chain, from_token, to_token):
-            try:
-                lz_quote = await self._get_layerzero_quote(
-                    from_chain, to_chain, from_token, amount, amount_raw, slippage
-                )
-                quotes.append(lz_quote)
-            except Exception as e:
-                logger.debug(f"LayerZero quote failed: {e}")
-        
-        # Get Chainlink CCIP quote if applicable (same token cross-chain EVM)
+            tasks.append(("layerzero", self._get_layerzero_quote(
+                from_chain, to_chain, from_token, amount, amount_raw, slippage
+            )))
+
+        # Chainlink CCIP (same token cross-chain EVM)
         if self._is_ccip_route(from_chain, to_chain, from_token, to_token):
-            try:
-                ccip_quote = await self._get_ccip_quote(
-                    from_chain, to_chain, from_token, amount, from_address, to_address
-                )
-                quotes.append(ccip_quote)
-            except Exception as e:
-                logger.debug(f"CCIP quote failed: {e}")
-        
+            tasks.append(("ccip", self._get_ccip_quote(
+                from_chain, to_chain, from_token, amount, from_address, to_address
+            )))
+
+        # Fetch all quotes in parallel with circuit breaker
+        results = await asyncio.gather(
+            *[
+                self._fetch_quote_with_circuit_breaker(name, coro)
+                for name, coro in tasks
+            ],
+            return_exceptions=False,
+        )
+
+        quotes = [q for q in results if q is not None]
+
         # Sort by best output (highest to_amount_human)
         quotes.sort(key=lambda q: q.to_amount_human, reverse=True)
 

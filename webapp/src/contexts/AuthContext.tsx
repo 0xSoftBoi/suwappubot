@@ -24,6 +24,8 @@ import {
   setAuthMethod as storeAuthMethod,
   getAuthMethod as getStoredAuthMethod,
   clearAuthToken,
+  isTokenExpiringSoon,
+  scheduleTokenRefresh,
 } from '../lib/auth'
 import { formatAddress } from '../lib/turnkey'
 import {
@@ -138,6 +140,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (storedMethod && !authMethod) {
           setAuthMethod(storedMethod)
         }
+
+        // Schedule token refresh if we have a JWT
+        if (isTokenExpiringSoon()) {
+          // Token is about to expire, re-authenticate
+          console.warn('Auth token expiring soon, will need re-authentication')
+        }
       } catch (err) {
         console.error('Auth init error:', err)
       } finally {
@@ -146,6 +154,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
 
     init()
+
+    // Set up token refresh timer for passkey/JWT sessions
+    const refreshTimer = scheduleTokenRefresh(async () => {
+      // Attempt to re-authenticate with passkey
+      try {
+        const result = await authenticateWithPasskey()
+        if (result.success) {
+          return { token: result.token, expiresAt: result.expiresAt }
+        }
+      } catch {
+        // Silent failure - user will need to re-auth manually
+      }
+      return null
+    })
+
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer)
+    }
   }, [])
 
   // Internal wallet refresh

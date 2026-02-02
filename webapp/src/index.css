@@ -33,6 +33,18 @@ body {
   color: var(--tg-theme-text-color);
 }
 
+/* Restore focus outlines for keyboard users (removed by Tailwind reset) */
+*:focus-visible {
+  outline: 2px solid var(--tg-theme-link-color);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Hide focus outline for mouse/touch users */
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+
 /* Hide scrollbar but allow scrolling */
 ::-webkit-scrollbar {
   display: none;

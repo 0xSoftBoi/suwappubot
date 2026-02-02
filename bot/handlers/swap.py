@@ -32,6 +32,7 @@ from bot.services.token_security.token_analyzer import token_analyzer
 from bot.services.x402_service import x402_service
 from bot.utils.quote_validator import quote_validator
 from bot.utils.errors import detect_error_code, get_error_message, format_error_with_buttons
+from bot.services.twofa import twofa_service
 
 
 # Conversation states
@@ -72,8 +73,8 @@ def _get_recent_and_favorite_pairs(user_id: int) -> list[dict]:
                         "to_chain": f.to_chain,
                         "to_token": f.to_token,
                     })
-        except Exception:
-            pass  # FavoriteSwapPair may not exist
+        except Exception as e:
+            logger.debug(f"Could not load favorite swap pairs: {e}")
 
         # Recent swaps
         recent = session.query(SwapTransaction).filter(
@@ -122,9 +123,12 @@ async def start_swap(update: Update, context: ContextTypes.DEFAULT_TYPE, is_call
     # Clear previous swap data
     context.user_data.pop("swap", None)
 
-    # Check if user has wallets
+    # Check if user has wallets (single query with join)
     with get_session() as session:
-        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        from sqlalchemy.orm import joinedload
+        db_user = session.query(User).options(
+            joinedload(User.wallets)
+        ).filter(User.telegram_id == user.id).first()
 
         if not db_user:
             text = "❌ Please use /start first to set up your account."
@@ -134,10 +138,7 @@ async def start_swap(update: Update, context: ContextTypes.DEFAULT_TYPE, is_call
                 await update.message.reply_text(text)
             return ConversationHandler.END
 
-        wallets = session.query(Wallet).filter(
-            Wallet.user_id == db_user.id,
-            Wallet.is_active == True,
-        ).all()
+        wallets = [w for w in db_user.wallets if w.is_active]
 
         if not wallets:
             keyboard = [[InlineKeyboardButton("👛 Add Wallet", callback_data="wallet_menu")]]
@@ -310,7 +311,8 @@ async def swap_pct_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 balance = await wallet_service.get_solana_native_balance(default_wallet.address)
             else:
                 balance = await wallet_service.get_solana_token_balance(from_token, default_wallet.address)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Balance fetch failed for pct swap: {e}")
         await query.edit_message_text("❌ Could not fetch balance. Please enter amount manually.")
         return ENTER_AMOUNT
 
@@ -860,6 +862,23 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         await query.edit_message_text("❌ Quote expired. Please start over.")
         return ConversationHandler.END
 
+    # Check if 2FA is required for high-value swaps
+    swap_amount_usd = quote.from_amount_human  # Approximate USD value
+    if twofa_service.requires_2fa(user_id, swap_amount_usd):
+        # Check if user already provided 2FA code in this attempt
+        if not swap_data.get("2fa_verified"):
+            code = twofa_service.generate_simple_code(user_id, action_data={"attempt_id": swap_data.get("attempt_id")})
+            await query.edit_message_text(
+                f"🔐 *2FA Required*\n\n"
+                f"This swap exceeds your security threshold "
+                f"(${twofa_service.get_2fa_threshold(user_id):,.0f}).\n\n"
+                f"Your verification code: `{code}`\n"
+                f"Please reply with this code to confirm.",
+                parse_mode="Markdown",
+            )
+            swap_data["awaiting_2fa"] = True
+            return CONFIRM_SWAP
+
     # Validate quote freshness (30s expiry via quote_validator)
     try:
         quote_validator.validate_quote_freshness(quote)
@@ -906,12 +925,24 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                 )
                 return ConversationHandler.END
 
-    # Show safety simulation message for Solana Pro users
-    status_text = "⏳ Executing multi-swap..."
+    # Show progress indicator with details
+    from_chain_cfg = get_chain_by_name(quote.from_chain)
+    to_chain_cfg = get_chain_by_name(quote.to_chain)
+    status_text = (
+        f"⏳ *Executing Swap...*\n\n"
+        f"{from_chain_cfg.logo_emoji} {format_amount(quote.from_amount_human, symbol=quote.from_token)} → "
+        f"{to_chain_cfg.logo_emoji} ~{format_amount(quote.to_amount_human, symbol=quote.to_token)}\n\n"
+        f"🔄 Preparing transaction..."
+    )
     if quote.from_chain == "solana" and quote.to_chain == "solana":
         tier = await x402_service.get_tier(user_id)
         if tier in [SubscriptionTier.PRO, SubscriptionTier.PREMIUM]:
-            status_text = "🛡️ *Running Deep State Simulation...*\n_Verifying tokens are tradeable and safe._"
+            status_text = (
+                f"🛡️ *Running Deep State Simulation...*\n\n"
+                f"{from_chain_cfg.logo_emoji} {format_amount(quote.from_amount_human, symbol=quote.from_token)} → "
+                f"{to_chain_cfg.logo_emoji} ~{format_amount(quote.to_amount_human, symbol=quote.to_token)}\n\n"
+                f"_Verifying tokens are tradeable and safe._"
+            )
 
     await query.edit_message_text(status_text, parse_mode="Markdown")
     
@@ -922,7 +953,9 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         # Progress update: building transactions
         if len(selected_wallet_ids) > 1:
             await query.edit_message_text(
-                f"⏳ Building transactions for {len(selected_wallet_ids)} wallets...",
+                f"⏳ *Building transactions*\n\n"
+                f"Preparing swaps for *{len(selected_wallet_ids)}* wallets...\n"
+                f"Provider: {quote.provider.upper()}",
                 parse_mode="Markdown"
             )
 
@@ -1031,6 +1064,52 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return ConversationHandler.END
 
 
+async def handle_2fa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle 2FA verification code input during swap confirmation."""
+    swap_data = context.user_data.get("swap", {})
+    user_id = context.user_data.get("user_id")
+
+    if not swap_data.get("awaiting_2fa"):
+        return CONFIRM_SWAP
+
+    code = update.message.text.strip()
+    success, _ = twofa_service.verify_simple_code(user_id, code)
+
+    if not success:
+        await update.message.reply_text(
+            "❌ Invalid or expired code. Please try again or /cancel.",
+        )
+        return CONFIRM_SWAP
+
+    swap_data["2fa_verified"] = True
+    swap_data["awaiting_2fa"] = False
+
+    # Re-trigger confirmation by simulating the confirm callback
+    await update.message.reply_text("✅ Verified! Executing swap...")
+
+    # Create a synthetic callback to trigger confirm_swap
+    # We proceed manually since we're in a message context
+    return await _execute_confirmed_swap(update, context)
+
+
+async def _execute_confirmed_swap(update, context):
+    """Execute swap after all checks pass (used by both callback and 2FA flows)."""
+    # This delegates to confirm_swap logic but the actual execution
+    # happens in confirm_swap via the callback. Since the 2FA flag
+    # is set, confirm_swap will skip the 2FA gate on next callback.
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🚀 Execute Now", callback_data="swap_confirm")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")],
+    ])
+    msg = update.message or getattr(getattr(update, "callback_query", None), "message", None)
+    if msg:
+        await msg.reply_text(
+            "Press Execute Now to complete your swap:",
+            reply_markup=keyboard,
+        )
+    return CONFIRM_SWAP
+
+
 async def swap_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel the swap flow."""
     query = update.callback_query
@@ -1126,9 +1205,18 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         
         return CONFIRM_SWAP
         
-    except Exception as e:
+    except SwapError as e:
         await query.edit_message_text(
-            f"❌ Error: {str(e)}",
+            f"❌ Quote error: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Try Again", callback_data="swap_start")],
+            ]),
+        )
+        return ConversationHandler.END
+    except Exception as e:
+        logger.error(f"Unexpected error in swap_requote: {e}", exc_info=True)
+        await query.edit_message_text(
+            f"❌ Unexpected error: {str(e)}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 Try Again", callback_data="swap_start")],
             ]),
@@ -1293,6 +1381,7 @@ swap_conversation_handler = ConversationHandler(
             CallbackQueryHandler(confirm_swap, pattern="^swap_confirm$"),
             CallbackQueryHandler(swap_requote, pattern="^swap_requote$"),
             CallbackQueryHandler(show_wallet_selection, pattern="^swap_back_to_wallets$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_2fa_code),
         ],
     },
     fallbacks=[

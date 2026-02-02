@@ -6,7 +6,7 @@
  * - JWT token (for Turnkey wallet auth)
  */
 import { getInitData } from './telegram'
-import { getAuthToken } from './auth'
+import { getAuthToken, clearAuthToken } from './auth'
 import type { Portfolio, Swap, ApiError, HealthStatus, UserPreferencesResponse, UpdatePreferencesResponse, UserPreferences } from '../types/api'
 import type { LinkedWallet, AuthChallenge, LinkWalletResponse } from '../types/auth'
 import type { SwapToken, SwapQuote, SwapQuoteRequest, SwapExecuteRequest, SwapExecuteResult, SwapStatusResponse } from '../types/swap'
@@ -40,10 +40,12 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${token}`
     }
 
-    // Dev mode: ALWAYS add dev user header on dev API (as fallback for invalid/expired auth)
-    const isDev = this.baseUrl.includes('devapi') || this.baseUrl.includes('localhost')
-    if (isDev) {
-      headers['X-Dev-User-Id'] = '12345'
+    // Dev mode: Only add dev header in actual development builds, never in production
+    if (import.meta.env.DEV) {
+      const isDev = this.baseUrl.includes('localhost') || this.baseUrl.includes('127.0.0.1')
+      if (isDev) {
+        headers['X-Dev-User-Id'] = '12345'
+      }
     }
 
     return headers
@@ -76,6 +78,11 @@ class ApiClient {
     })
 
     if (!response.ok) {
+      // Handle expired/invalid auth tokens
+      if (response.status === 401) {
+        clearAuthToken()
+      }
+
       const error: ApiError = {
         detail: 'Request failed',
         status: response.status,
@@ -315,6 +322,25 @@ class ApiClient {
    */
   async redeemReward(rewardId: number): Promise<RedemptionResult> {
     return this.fetch<RedemptionResult>(`/webapp/me/points/redeem/${rewardId}`, { method: 'POST' })
+  }
+
+  // === Wallet Send ===
+
+  /**
+   * Send tokens from a wallet to another address
+   */
+  async sendTransaction(request: {
+    fromAddress: string
+    toAddress: string
+    amount: string
+    tokenAddress: string
+    tokenSymbol: string
+    chainId: number
+  }): Promise<{ txHash: string; status: string }> {
+    return this.fetch('/webapp/wallets/send', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    })
   }
 
   // === Limit Orders ===

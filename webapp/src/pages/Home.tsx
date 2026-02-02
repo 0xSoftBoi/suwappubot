@@ -5,35 +5,7 @@ import { BalanceCard, TokenItem } from '../components/cards'
 import { QuickActions, NotificationBanner, FeatureGrid, QuickSwap } from '../components/ui'
 import { usePortfolio } from '../hooks/usePortfolio'
 import type { Token } from '../types/api'
-
-// Chain icons mapping
-const chainIcons: Record<string, string> = {
-  ethereum: 'Ξ',
-  eth: 'Ξ',
-  solana: '◎',
-  sol: '◎',
-  polygon: '⬡',
-  matic: '⬡',
-  arbitrum: '🔵',
-  optimism: '🔴',
-  base: '🔷',
-  bsc: '🟡',
-}
-
-// Get icon for token based on symbol or chain
-function getTokenIcon(token: Token): string {
-  const symbolLower = token.symbol.toLowerCase()
-  const chainLower = token.chain.toLowerCase()
-
-  // Check symbol first
-  if (symbolLower === 'eth') return 'Ξ'
-  if (symbolLower === 'sol') return '◎'
-  if (symbolLower === 'usdc' || symbolLower === 'usdt') return '$'
-  if (symbolLower === 'matic') return '⬡'
-
-  // Fall back to chain icon
-  return chainIcons[chainLower] || token.symbol.charAt(0).toUpperCase()
-}
+import { getTokenIcon } from '../lib/icons'
 
 // Format USD value
 function formatUsd(value: number): string {

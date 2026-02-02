@@ -3,47 +3,7 @@ import { AppLayout, AppHeader } from '../components/layout'
 import { BalanceCard, TokenItem } from '../components/cards'
 import { usePortfolio } from '../hooks/usePortfolio'
 import type { Token } from '../types/api'
-
-// Chain icons mapping
-const chainIcons: Record<string, string> = {
-  ethereum: 'Ξ',
-  eth: 'Ξ',
-  solana: '◎',
-  sol: '◎',
-  polygon: '⬡',
-  matic: '⬡',
-  arbitrum: '🔵',
-  optimism: '🔴',
-  base: '🔷',
-  bsc: '🟡',
-}
-
-// Chain colors for allocation chart
-const chainColors: Record<string, string> = {
-  ethereum: 'bg-blue-500',
-  eth: 'bg-blue-500',
-  solana: 'bg-purple-500',
-  sol: 'bg-purple-500',
-  polygon: 'bg-indigo-500',
-  matic: 'bg-indigo-500',
-  arbitrum: 'bg-sky-500',
-  optimism: 'bg-red-500',
-  base: 'bg-blue-400',
-  bsc: 'bg-yellow-500',
-}
-
-// Get icon for token based on symbol or chain
-function getTokenIcon(token: Token): string {
-  const symbolLower = token.symbol.toLowerCase()
-  const chainLower = token.chain.toLowerCase()
-
-  if (symbolLower === 'eth') return 'Ξ'
-  if (symbolLower === 'sol') return '◎'
-  if (symbolLower === 'usdc' || symbolLower === 'usdt') return '$'
-  if (symbolLower === 'matic') return '⬡'
-
-  return chainIcons[chainLower] || token.symbol.charAt(0).toUpperCase()
-}
+import { getTokenIcon, chainColors } from '../lib/icons'
 
 // Format USD value
 function formatUsd(value: number): string {
