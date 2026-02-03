@@ -23,7 +23,7 @@
         "validateOnSynth": false,
         "assumeRoleArn": "arn:${AWS::Partition}:iam::905418423235:role/cdk-hnb659fds-deploy-role-905418423235-us-east-1",
         "cloudFormationExecutionRoleArn": "arn:${AWS::Partition}:iam::905418423235:role/cdk-hnb659fds-cfn-exec-role-905418423235-us-east-1",
-        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-905418423235-us-east-1/92e00b42e3d5999e3fb5375fb921de0a096db8accefb922505b43d4b7b2b03cb.json",
+        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-905418423235-us-east-1/27ee3d0c2889da62bea561f9a3dcd08304a2917bc6ff20dbf71e8e9e249460ae.json",
         "requiresBootstrapStackVersion": 6,
         "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version",
         "additionalDependencies": [
@@ -256,6 +256,18 @@
             "data": "SuwappuSecrets62048B4F"
           }
         ],
+        "/SuwappuStack/RdsEncryptionKey/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "RdsEncryptionKeyB1A86E21"
+          }
+        ],
+        "/SuwappuStack/RdsEncryptionKey/Alias/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "RdsEncryptionKeyAliasB247BB72"
+          }
+        ],
         "/SuwappuStack/SuwappuDatabase/SubnetGroup/Default": [
           {
             "type": "aws:cdk:logicalId",
@@ -278,6 +290,30 @@
           {
             "type": "aws:cdk:logicalId",
             "data": "SuwappuDatabase7FC7BCD8"
+          }
+        ],
+        "/SuwappuStack/RedisSecurityGroup/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "RedisSecurityGroupB05951F6"
+          }
+        ],
+        "/SuwappuStack/RedisSecurityGroup/from SuwappuStackEcsSecurityGroup1E918140:6379": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "RedisSecurityGroupfromSuwappuStackEcsSecurityGroup1E918140637973887050"
+          }
+        ],
+        "/SuwappuStack/RedisSubnetGroup": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "RedisSubnetGroup"
+          }
+        ],
+        "/SuwappuStack/SuwappuRedis": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SuwappuRedis"
           }
         ],
         "/SuwappuStack/SuwappuRepository/Resource": [
@@ -470,6 +506,12 @@
           {
             "type": "aws:cdk:logicalId",
             "data": "AlertTopicArn"
+          }
+        ],
+        "/SuwappuStack/RedisEndpoint": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "RedisEndpoint"
           }
         ],
         "/SuwappuStack/CDKMetadata/Default": [

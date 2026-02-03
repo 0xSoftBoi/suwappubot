@@ -648,6 +648,46 @@
     "aws:cdk:path": "SuwappuStack/SuwappuSecrets/Resource"
    }
   },
+  "RdsEncryptionKeyB1A86E21": {
+   "Type": "AWS::KMS::Key",
+   "Properties": {
+    "Description": "KMS key for Suwappu RDS encryption at rest",
+    "EnableKeyRotation": true,
+    "KeyPolicy": {
+     "Statement": [
+      {
+       "Action": "kms:*",
+       "Effect": "Allow",
+       "Principal": {
+        "AWS": "arn:aws:iam::905418423235:root"
+       },
+       "Resource": "*"
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "SuwappuStack/RdsEncryptionKey/Resource"
+   }
+  },
+  "RdsEncryptionKeyAliasB247BB72": {
+   "Type": "AWS::KMS::Alias",
+   "Properties": {
+    "AliasName": "alias/suwappu/rds",
+    "TargetKeyId": {
+     "Fn::GetAtt": [
+      "RdsEncryptionKeyB1A86E21",
+      "Arn"
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SuwappuStack/RdsEncryptionKey/Alias/Resource"
+   }
+  },
   "SuwappuDatabaseSubnetGroupE6E68EEA": {
    "Type": "AWS::RDS::DBSubnetGroup",
    "Properties": {
@@ -736,7 +776,7 @@
     },
     "MasterUsername": "suwappu",
     "MaxAllocatedStorage": 100,
-    "MultiAZ": false,
+    "MultiAZ": true,
     "PubliclyAccessible": false,
     "StorageType": "gp3",
     "VPCSecurityGroups": [
@@ -752,6 +792,94 @@
    "DeletionPolicy": "Snapshot",
    "Metadata": {
     "aws:cdk:path": "SuwappuStack/SuwappuDatabase/Resource"
+   }
+  },
+  "RedisSecurityGroupB05951F6": {
+   "Type": "AWS::EC2::SecurityGroup",
+   "Properties": {
+    "GroupDescription": "Security group for ElastiCache Redis",
+    "SecurityGroupEgress": [
+     {
+      "CidrIp": "255.255.255.255/32",
+      "Description": "Disallow all traffic",
+      "FromPort": 252,
+      "IpProtocol": "icmp",
+      "ToPort": 86
+     }
+    ],
+    "VpcId": {
+     "Ref": "SuwappuVpc3688B326"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SuwappuStack/RedisSecurityGroup/Resource"
+   }
+  },
+  "RedisSecurityGroupfromSuwappuStackEcsSecurityGroup1E918140637973887050": {
+   "Type": "AWS::EC2::SecurityGroupIngress",
+   "Properties": {
+    "Description": "Allow Redis from ECS",
+    "FromPort": 6379,
+    "GroupId": {
+     "Fn::GetAtt": [
+      "RedisSecurityGroupB05951F6",
+      "GroupId"
+     ]
+    },
+    "IpProtocol": "tcp",
+    "SourceSecurityGroupId": {
+     "Fn::GetAtt": [
+      "EcsSecurityGroup44008BF1",
+      "GroupId"
+     ]
+    },
+    "ToPort": 6379
+   },
+   "Metadata": {
+    "aws:cdk:path": "SuwappuStack/RedisSecurityGroup/from SuwappuStackEcsSecurityGroup1E918140:6379"
+   }
+  },
+  "RedisSubnetGroup": {
+   "Type": "AWS::ElastiCache::SubnetGroup",
+   "Properties": {
+    "CacheSubnetGroupName": "suwappu-redis-subnets",
+    "Description": "Subnet group for Suwappu Redis",
+    "SubnetIds": [
+     {
+      "Ref": "SuwappuVpcIsolatedSubnet1Subnet52049870"
+     },
+     {
+      "Ref": "SuwappuVpcIsolatedSubnet2Subnet25F394BA"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SuwappuStack/RedisSubnetGroup"
+   }
+  },
+  "SuwappuRedis": {
+   "Type": "AWS::ElastiCache::CacheCluster",
+   "Properties": {
+    "CacheNodeType": "cache.t4g.micro",
+    "CacheSubnetGroupName": "suwappu-redis-subnets",
+    "ClusterName": "suwappu-redis",
+    "Engine": "redis",
+    "EngineVersion": "7.1",
+    "NumCacheNodes": 1,
+    "VpcSecurityGroupIds": [
+     {
+      "Fn::GetAtt": [
+       "RedisSecurityGroupB05951F6",
+       "GroupId"
+      ]
+     }
+    ]
+   },
+   "DependsOn": [
+    "RedisSubnetGroup"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "SuwappuStack/SuwappuRedis"
    }
   },
   "SuwappuRepository3166B522": {
@@ -1708,7 +1836,7 @@
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/31Ty27bMBD8lt5ptnCQ3CWrDQQYjWAb6TFYUWuFsUQKfNgIBP17l5T1aA49cXY4XM5yl1u+fXjiP77BzW5Eddk0suT90YG4MKLeehRb3r92gu3O6rXYscKXjRRHXyp0gVvQQXuHJygbXPiFS6zVQoKTWs3iAH7mRVh+g3sGhzf4ZIWRV4JL4lw5NIQnwejkHiWOvL63qBw7ovBGus9no30XPfyXyFVt0NqBWRQGnW1BQY2Gqo/xXR/QuJzA1OhW982CrzsDM5XlfQYOSrCYK+tACWRjSbObLF0Tk3q5PUunkwMjkvcH7LSVTpv4BqtogSllCGq6ftd4Sw8XpBP8RUYhNMReMjxLJad2fGW0ciAVmoUbWKNryrrX9VzAhAcmoSV7emx9XAtNYxJ9johMNWCdFI2GqoSGypKqvtJwJV1HgjgZe9pL497o+594rZNUjrpr7nhgNziHfMT9wTLZ7dmMVsNH7VZUxkl3Ms50BAMjW766gRPvZKgB04a9COjAA+9TLy5jV0YUO/IG1tLg8EwTZfKWxicJzEANsdobanmM6TvVVGw4/eJd50mgdIX8w36/bh/5I32/DyvlxnjlZIv8MK5/AdQjuIibAwAA"
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/31TTW/bMAz9Lbsr2pCiu9vJVgQLNiMJumNBK4yr2pYMfSQoDP/3UZJjuz3spMenJ+pRpNZ8/fCdf/sCN7sS53rVyJL3RweiZkS99CjWvH/uBNtc1HOxYYUvGymOvlToAjejg/YOT1A2OPMzl1mrhQQntZrEAfzYFWH5De4JHN7gnRVGXgnOiXfKoSF8FyQnY5Q58vraonLsiMIb6d6fjPZd9PBfYqcqg9YOzKIw6GwLCio0VH2MR31AaTmBqdAt7psEn3cGVreW978weg1L1kiwIYhgYOZM+1twUILFnbIOlECWSp7cbvMlcVfP7rb5/eTAsAHrpCADyPvp+adUm7CxabyllySxoCoP2GkrnTbR5CKaYU7XBTV5Hc/GXCP8SVVD6K6tt3iRSt57+5nRyoFUaGZuYI2uKOteV5PFOx6YhJbs6TRHcS00zVz0mdBUb6PhXEJDbyBVdaVJzbqOBHHM9rSXx73k+0O81EkqR42aEQ/sBpeQj7i/WGabPZvQYpJpdhSVcdKdjB8kgoGRLX++gROvZKgB06bOE6ADD7zPvahTCxOKHXkBa2kK+VYTZXYtzWIWmIEaYrU3NB8xpr9ZUbHh9B/vOk8Cpc/I3+zX6/qRP9JffrNSroxXTrbID2n9ByXqvaroAwAA"
    },
    "Metadata": {
     "aws:cdk:path": "SuwappuStack/CDKMetadata/Default"
@@ -1835,6 +1963,18 @@
    },
    "Export": {
     "Name": "SuwappuAlertTopicArn"
+   }
+  },
+  "RedisEndpoint": {
+   "Description": "ElastiCache Redis Endpoint",
+   "Value": {
+    "Fn::GetAtt": [
+     "SuwappuRedis",
+     "RedisEndpoint.Address"
+    ]
+   },
+   "Export": {
+    "Name": "SuwappuRedisEndpoint"
    }
   }
  },

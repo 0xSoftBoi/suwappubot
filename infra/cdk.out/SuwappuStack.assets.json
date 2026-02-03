@@ -1,16 +1,16 @@
 {
   "version": "48.0.0",
   "files": {
-    "92e00b42e3d5999e3fb5375fb921de0a096db8accefb922505b43d4b7b2b03cb": {
+    "27ee3d0c2889da62bea561f9a3dcd08304a2917bc6ff20dbf71e8e9e249460ae": {
       "displayName": "SuwappuStack Template",
       "source": {
         "path": "SuwappuStack.template.json",
         "packaging": "file"
       },
       "destinations": {
-        "905418423235-us-east-1-7809e0e3": {
+        "905418423235-us-east-1-8c6bd52e": {
           "bucketName": "cdk-hnb659fds-assets-905418423235-us-east-1",
-          "objectKey": "92e00b42e3d5999e3fb5375fb921de0a096db8accefb922505b43d4b7b2b03cb.json",
+          "objectKey": "27ee3d0c2889da62bea561f9a3dcd08304a2917bc6ff20dbf71e8e9e249460ae.json",
           "region": "us-east-1",
           "assumeRoleArn": "arn:${AWS::Partition}:iam::905418423235:role/cdk-hnb659fds-file-publishing-role-905418423235-us-east-1"
         }
