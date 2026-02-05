@@ -7,7 +7,7 @@ import { api } from '../lib/api'
 export function usePoints() {
   return useQuery({
     queryKey: ['points'],
-    queryFn: () => api.getPoints(),
+    queryFn: () => api.getMyPoints(),
   })
 }
 
@@ -51,9 +51,9 @@ export function useLeaderboard(limit = 50) {
   })
 }
 
-export function usePointsHistory(limit = 50, offset = 0) {
+export function usePointsHistory(limit = 50) {
   return useQuery({
-    queryKey: ['pointsHistory', limit, offset],
-    queryFn: () => api.getPointsHistory(limit, offset),
+    queryKey: ['pointsHistory', limit],
+    queryFn: () => api.getPointTransactions(limit),
   })
 }

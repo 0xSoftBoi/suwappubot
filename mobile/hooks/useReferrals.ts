@@ -21,13 +21,6 @@ export function useReferralStats() {
 export function useReferralList() {
   return useQuery({
     queryKey: ['referralList'],
-    queryFn: () => api.getReferralList(),
-  })
-}
-
-export function useReferralRewards() {
-  return useQuery({
-    queryKey: ['referralRewards'],
-    queryFn: () => api.getReferralRewards(),
+    queryFn: () => api.getReferrals(),
   })
 }

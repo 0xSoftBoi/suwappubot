@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { SwapExecuteRequest, SwapExecuteResult, SwapStatusResponse } from '../types/swap'
+import type { SwapExecuteRequest, SwapExecuteResult, SwapStatusResponse } from '@suwappu/shared'
 
 /**
  * Hook for executing a swap

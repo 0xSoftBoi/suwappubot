@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { api } from '../lib/api'
-import type { SwapQuoteRequest } from '../types/swap'
+import type { SwapQuoteRequest } from '@suwappu/shared'
 
 /**
  * Debounce delay for quote requests (ms)

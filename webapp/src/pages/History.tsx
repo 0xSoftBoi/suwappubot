@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { AppLayout, AppHeader } from '../components/layout'
 import { useSwapHistory } from '../hooks/useSwapHistory'
-import type { Swap } from '../types/api'
+import type { Swap } from '@suwappu/shared'
 
 // Chain explorer URLs
 const explorerUrls: Record<string, string> = {

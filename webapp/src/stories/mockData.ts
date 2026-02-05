@@ -1,4 +1,4 @@
-import type { Token, Swap, Portfolio } from '../types/api'
+import type { Token, Swap, Portfolio } from '@suwappu/shared'
 
 export const mockTokens: Token[] = [
   {

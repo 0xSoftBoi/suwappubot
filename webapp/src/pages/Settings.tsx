@@ -5,7 +5,7 @@ import { SettingsItem, ToggleItem } from '../components/ui'
 import { WalletCard } from '../components/cards'
 import { useAuth, formatAddress } from '../contexts/AuthContext'
 import { api } from '../lib/api'
-import type { UserPreferences, LinkedWalletInfo, UserProfile } from '../types/api'
+import type { UserPreferences, LinkedWalletInfo, UserProfile } from '@suwappu/shared'
 
 type SettingsView = 'main' | 'slippage' | 'notifications' | 'wallets' | 'gas'
 

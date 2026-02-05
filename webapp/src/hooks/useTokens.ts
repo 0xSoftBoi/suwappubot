@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { api } from '../lib/api'
-import type { SwapToken } from '../types/swap'
+import type { SwapToken } from '@suwappu/shared'
 
 // Supported chains for prefetching
 const SUPPORTED_CHAINS = ['1', '137', '42161', '10', '8453']

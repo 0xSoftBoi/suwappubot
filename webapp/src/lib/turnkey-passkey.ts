@@ -10,7 +10,7 @@ import type {
   PasskeyAuthResult,
   RegistrationInitResponse,
   AuthenticationInitResponse,
-} from '../types/auth'
+} from '@suwappu/shared'
 import { getInitData } from './telegram'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''

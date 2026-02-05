@@ -8,8 +8,7 @@
 import { createContext, useContext, type ReactNode } from 'react'
 import { api } from '../lib/api'
 import { mockApi } from '../lib/api-mock'
-import type { Portfolio, Swap, HealthStatus } from '../types/api'
-import type { LinkedWallet, AuthChallenge, LinkWalletResponse } from '../types/auth'
+import type { Portfolio, Swap, HealthStatus, LinkedWallet, AuthChallenge, LinkWalletResponse } from '@suwappu/shared'
 
 /**
  * API interface that both real and mock clients implement

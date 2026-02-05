@@ -7,7 +7,7 @@ import { useSwapQuote } from '../hooks/useSwapQuote'
 import { useSwapExecute, useSwapStatus } from '../hooks/useSwapExecute'
 import { useHaptic } from '../hooks/useHaptic'
 import { parseAmountInput, toSmallestUnit } from '../lib/amount-parser'
-import type { SwapToken } from '../types/swap'
+import type { SwapToken } from '@suwappu/shared'
 
 export function Swap() {
   const haptic = useHaptic()

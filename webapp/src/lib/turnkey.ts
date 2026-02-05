@@ -3,7 +3,7 @@
  * Handles challenge signing and wallet linking via API.
  */
 
-import type { AuthChallenge, LinkWalletResponse } from '../types/auth'
+import type { AuthChallenge, LinkWalletResponse } from '@suwappu/shared'
 import { getInitData } from './telegram'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''

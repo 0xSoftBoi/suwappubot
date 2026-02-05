@@ -2,8 +2,7 @@
  * React Query hooks for limit orders.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../lib/api'
-import type { CreateOrderRequest } from '../../packages/shared/src/types/orders'
+import { api, type CreateOrderRequest } from '../lib/api'
 
 export function useOrders() {
   return useQuery({

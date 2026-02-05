@@ -7,7 +7,7 @@ import { useHaptic } from '../hooks/useHaptic'
 import { useAuth } from '../contexts/AuthContext'
 import { useWallet, chains as walletChains, chainMeta } from '../hooks/useWallet'
 import { usePortfolio } from '../hooks/usePortfolio'
-import type { Token } from '../types/api'
+import type { Token } from '@suwappu/shared'
 import { getTokenIcon } from '../lib/icons'
 import { api } from '../lib/api'
 

@@ -17,7 +17,7 @@ import type {
   AuthMethod,
   TelegramUser,
   LinkedWallet,
-} from '../types/auth'
+} from '@suwappu/shared'
 import { getTelegramUser, getInitData } from '../lib/telegram'
 import {
   setAuthToken,
