@@ -1,0 +1,186 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@400;500;600;700&family=Nunito:wght@300;400;500;600;700&family=Pacifico&family=Poppins:wght@300;400;500;600;700&family=Quicksand:wght@300;400;500;600;700&display=swap');
+
+:root {
+  /* Suwappu Design Tokens */
+  --suwappu-sakura-light: #FFD1DC;
+  --suwappu-sakura-mid: #FFB7C5;
+  --suwappu-magenta: #E91E8C;
+  --suwappu-rose: #F8A5C2;
+  --suwappu-magenta-mid: #C44569;
+  --suwappu-purple: #6C3483;
+  --suwappu-purple-deep: #4A235A;
+  --suwappu-bg: #FFFBFC;
+  --suwappu-text: #2C3E50;
+  --suwappu-text-secondary: #6C7A89;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Nunito', 'Open Sans', sans-serif;
+  background: var(--suwappu-bg);
+  color: var(--suwappu-text);
+  overflow-x: hidden;
+}
+
+/* Glassmorphism utility classes */
+.glass {
+  background: linear-gradient(135deg, rgba(255,255,255,0.75) 0%, rgba(255,215,220,0.4) 50%, rgba(232,244,253,0.6) 100%);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid rgba(255,183,197,0.3);
+}
+
+.glass-card {
+  background: linear-gradient(145deg, rgba(255,255,255,0.95) 0%, rgba(255,215,220,0.3) 100%);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,183,197,0.25);
+}
+
+/* Sakura petal styling */
+.sakura-petal {
+  position: fixed;
+  width: 10px;
+  height: 10px;
+  background: linear-gradient(135deg, #FFD1DC 0%, #FFB7C5 50%, #F8A5C2 100%);
+  border-radius: 150% 0 150% 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.8;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 209, 220, 0.2);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #FFB7C5, #C44569);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #F8A5C2, #E91E8C);
+}
+
+/* Selection styling */
+::selection {
+  background: rgba(233, 30, 140, 0.3);
+  color: inherit;
+}
+
+/* Gradient text utility */
+.gradient-text {
+  background: linear-gradient(135deg, #E91E8C 0%, #6C3483 50%, #4A235A 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Animated gradient background */
+.animated-gradient {
+  background: linear-gradient(-45deg, #FFD1DC, #FFB7C5, #E91E8C, #6C3483);
+  background-size: 400% 400%;
+  animation: gradient-shift 15s ease infinite;
+}
+
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Video container styling */
+.video-container {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  box-shadow: 0 10px 40px rgba(106, 27, 154, 0.15);
+}
+
+.video-container::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(255, 183, 197, 0.3);
+  border-radius: 20px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Phone frame styling */
+.phone-frame {
+  position: relative;
+  padding: 12px;
+  background: linear-gradient(145deg, #1a1a1a 0%, #2d2d2d 100%);
+  border-radius: 40px;
+  box-shadow:
+    0 25px 50px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+}
+
+.phone-frame::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80px;
+  height: 25px;
+  background: #000;
+  border-radius: 20px;
+  z-index: 20;
+}
+
+.phone-screen {
+  border-radius: 30px;
+  overflow: hidden;
+  background: #000;
+}
+
+/* Button hover effect */
+.btn-suwappu {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.btn-suwappu::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  transition: left 0.5s ease;
+}
+
+.btn-suwappu:hover::before {
+  left: 100%;
+}
+
+/* Section divider */
+.section-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 183, 197, 0.5), transparent);
+}
