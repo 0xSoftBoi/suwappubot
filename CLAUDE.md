@@ -23,6 +23,7 @@ For detailed technical guides, see the reorganized documentation in `docs/`:
 
 ## Commands
 
+### Python Bot + API
 ```bash
 # Run the monolith (API + Bot)
 uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
@@ -31,11 +32,43 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 pytest tests/
 pytest tests/ --cov=bot --cov=api
 
+# Run single test file
+pytest tests/test_wallet.py -v
+
+# Run single test
+pytest tests/test_wallet.py::test_create_wallet -v
+
 # Docker (local development with polling)
 docker-compose -f docker-compose.local.yml up
 
 # Docker (production with webhook)
 docker-compose up
+```
+
+### TypeScript API (api-ts)
+```bash
+cd api-ts
+bun install
+bun run dev      # Hot reload development server
+bun run build    # Build for production
+bun run check    # TypeScript type checking
+
+# Drizzle ORM database commands
+bun run db:generate  # Generate migration files
+bun run db:push      # Push schema changes to database
+bun run db:migrate   # Run migrations
+bun run db:studio    # Open Drizzle Studio GUI
+```
+
+### Webapp (Telegram Mini App)
+```bash
+cd webapp
+npm install     # or bun install
+npm run dev     # Vite dev server
+npm run build   # Build for production
+npm run test    # Run unit tests (hooks, lib)
+npm run test:integration  # Run integration tests
+npm run test:all          # Run all tests
 ```
 
 ### TUI (Terminal UI for AWS monitoring)
@@ -46,24 +79,32 @@ bun run dev     # Development with hot reload
 bun run start   # Production
 ```
 
-### Webapp (Telegram Mini App)
+### Mobile (Expo iOS)
 ```bash
-cd webapp
-npm install     # or bun install
-npm run dev     # Vite dev server
-npm run build   # Build for production
+cd mobile
+bun install
+bun run ios     # Start iOS simulator
+```
+
+### Showcase (Homepage)
+```bash
+cd showcase
+bun install
+bun run dev     # Development server
 ```
 
 ## Architecture
 
-### Monolith Design
-The application runs as a single FastAPI service (`api/main.py`) that:
-1. Initializes database and config via lifespan manager
-2. Builds and starts the Telegram bot application
-3. Starts background services (fee sweeper, alerts, order service, tx poller, health monitor)
-4. Exposes REST endpoints for agents, webhooks, and the Mini App
+### Service Architecture
+Suwappu consists of multiple services:
 
-**Polling vs Webhook Mode**:
+1. **Python Monolith** (`api/` + `bot/`): FastAPI service that runs bot + legacy API
+2. **TypeScript API** (`api-ts/`): Modern Hono + Effect-TS API for agents and webapp
+3. **Webapp** (`webapp/`): React + Vite Telegram Mini App
+4. **Showcase** (`showcase/`): Next.js homepage
+5. **Mobile** (`mobile/`): Expo iOS app
+
+**Polling vs Webhook Mode** (Python Bot):
 - `USE_WEBHOOK=false` (default): Bot polls Telegram. Single instance only.
 - `USE_WEBHOOK=true`: Telegram pushes updates. Safe for multiple replicas.
 
@@ -71,17 +112,23 @@ The application runs as a single FastAPI service (`api/main.py`) that:
 
 | Directory | Purpose |
 |-----------|---------|
-| `api/` | FastAPI endpoints, webhook handlers, auth |
+| `api/` | Python FastAPI endpoints, webhook handlers |
+| `api-ts/` | TypeScript API with Hono + Effect-TS + Drizzle ORM |
 | `bot/handlers/` | Telegram command handlers (start, swap, wallet, etc.) |
 | `bot/services/` | Business logic - swap engines, wallet management, alerts |
-| `bot/models/` | SQLAlchemy models |
+| `bot/models/` | SQLAlchemy models (Python) |
 | `bot/config/` | Settings (pydantic-settings), token configs, chain configs |
 | `bot/utils/` | Encryption, rate limiting, formatters, caching |
 | `database/` | DB init, schema migrations (no Alembic - additive migrations in db.py) |
-| `tui/` | Bun + Ink TUI for AWS ECS monitoring |
+| `packages/shared/` | Shared TypeScript types across api-ts, webapp, mobile |
 | `webapp/` | React + Vite Telegram Mini App |
+| `mobile/` | Expo iOS app |
+| `showcase/` | Next.js homepage |
+| `tui/` | Bun + Ink TUI for AWS ECS monitoring |
+| `infra/` | AWS CDK infrastructure definitions |
+| `docs/` | Centralized documentation |
 
-### Background Services
+### Background Services (Python Monolith)
 
 Started in `api/main.py` lifespan:
 - `fee_sweeper` - Sweeps collected fees to treasury
@@ -90,6 +137,34 @@ Started in `api/main.py` lifespan:
 - `tx_poller` - Transaction status polling
 - `health_monitor` - System health checks
 - `launch_detector` - Token launch sniping (for `/snipe`)
+
+### TypeScript API Architecture
+
+The TypeScript API (`api-ts/`) uses Effect-TS for dependency injection and composable effects:
+
+```typescript
+// Services are Context Tags
+class UserService extends Context.Tag('UserService')<UserService, UserServiceInterface>() {}
+
+// Layers provide implementations
+const UserServiceLive = Layer.succeed(UserService, { ... })
+
+// Effects compose services
+const getUser = Effect.gen(function* () {
+  const userService = yield* UserService
+  return yield* userService.getUserById(id)
+})
+
+// ManagedRuntime executes effects
+const result = await runEffect(getUser)
+```
+
+**Key Concepts**:
+- **Effect**: Lazy computation with typed errors and dependencies
+- **Layer**: Dependency injection container
+- **ManagedRuntime**: Long-lived runtime for executing effects
+- **Schema**: Type-safe validation with `@effect/schema`
+- **Drizzle ORM**: Type-safe SQL queries
 
 ### Data Flow
 
@@ -221,8 +296,18 @@ Telegram handlers in `bot/handlers/` follow:
 - Conversation handlers for multi-step flows (swap, withdrawal, etc.)
 
 ### Settings
-All config via environment variables, loaded by `bot/config/settings.py` using pydantic-settings.
-RPC URLs support comma-separated lists for load balancing.
+All config via environment variables:
+- Python: loaded by `bot/config/settings.py` using pydantic-settings
+- TypeScript: loaded by `api-ts/src/config/EnvService.ts` as Effect Layer
+- RPC URLs support comma-separated lists for load balancing
+
+### Shared Types
+The `packages/shared/` directory contains TypeScript types shared across:
+- `api-ts/` - TypeScript API
+- `webapp/` - Telegram Mini App
+- `mobile/` - iOS app
+
+This ensures type safety across the full stack without duplication.
 
 ## Telegram Bot Commands
 
@@ -243,18 +328,29 @@ Admin: `/st` (status), `/hw` (hot wallets), `/fee` (fees), `/m` (metrics)
 
 ## API Endpoints
 
+### Python API (Legacy)
 | Endpoint | Auth | Description |
 |----------|------|-------------|
 | `GET /health` | None | Health check |
 | `POST /telegram/webhook` | Secret token | Telegram updates |
 | `POST /webhook` | Verify token | WhatsApp messages |
-| `GET /tools` | X-Agent-Key | Agent tool discovery |
+
+### TypeScript API (Primary)
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /health` | None | Health check |
+| `GET /tools` | X-Agent-Key | Agent tool discovery (A2A protocol) |
 | `POST /v1/agent/execute` | X-Agent-Key | Natural language trading |
-| `GET /users/{id}/portfolio` | X-Agent-Key | User balances |
-| `POST /auth/turnkey/*` | None | Wallet-based auth |
+| `GET /users/{id}/wallets` | X-Agent-Key | List user wallets |
+| `GET /users/{id}/portfolio` | X-Agent-Key | User portfolio with balances |
+| `GET /users/{id}/swaps` | X-Agent-Key | User swap history |
+| `POST /webapp/validate` | X-Telegram-Init-Data | Validate Telegram auth |
+| `GET /webapp/users/me/portfolio` | X-Telegram-Init-Data | Current user portfolio |
+| `GET /webapp/users/me/swaps` | X-Telegram-Init-Data | Current user swap history |
 
 ## Testing
 
+### Python Tests
 ```bash
 # Run all tests
 pytest tests/
@@ -268,3 +364,90 @@ pytest tests/test_wallet.py -v
 # Run single test
 pytest tests/test_wallet.py::test_create_wallet -v
 ```
+
+### Webapp Tests
+```bash
+cd webapp
+
+# Run unit tests (hooks, lib)
+bun run test
+
+# Run integration tests
+bun run test:integration
+
+# Run all tests
+bun run test:all
+
+# Run with coverage
+bun run test:coverage
+```
+
+## Deployment
+
+### AWS Infrastructure
+All services deploy to AWS ECS Fargate in the `us-east-1` region (account: 905418423235).
+
+**Environments**:
+- **Production**: main branch → api.suwappu.bot, app.suwappu.bot
+- **Development**: dev branch → devapi.suwappu.bot, devfront.suwappu.bot
+
+### Deployment Skill
+Use the `/deploy` skill to deploy services:
+```bash
+/deploy         # Interactive deployment menu
+/deploy webapp  # Deploy webapp only
+/deploy api-ts  # Deploy TypeScript API only
+```
+
+The deploy skill handles:
+- Building Docker images
+- Pushing to ECR
+- Updating ECS services
+- Health checks
+
+### Manual Deployment
+```bash
+# Deploy TypeScript API
+cd api-ts
+./ecs/setup-dev.sh  # First time setup
+
+AWS_PROFILE=Swappu aws ecs update-service \
+  --cluster suwappu-cluster \
+  --service suwappu-api-ts-dev \
+  --force-new-deployment
+
+# View logs
+aws logs tail /ecs/suwappu --filter-pattern api-ts-dev --follow --profile Swappu
+```
+
+### CI/CD Pipeline
+GitHub Actions automatically deploy on push:
+- Push to `main` → Production
+- Push to `dev` → Development
+- Only deploys if relevant files changed (path filters)
+
+**Workflows**:
+- `.github/workflows/deploy-api-ts.yml` - TypeScript API
+- `.github/workflows/deploy-webapp.yml` - Webapp
+- Path-based triggers prevent unnecessary deployments
+
+### Health Checks
+```bash
+# Check production
+curl https://api.suwappu.bot/health
+
+# Check development
+curl https://devapi.suwappu.bot/health
+
+# Or use the health check script
+python health_check.py
+```
+
+## Custom Skills
+
+This repository has custom Claude Code skills:
+- `/deploy` - Deploy services to AWS ECS (webapp, api-ts, bot)
+- `/worktree` - Manage git worktrees for parallel development
+- `/ralph-loop` - Start/cancel Ralph Loop for autonomous development
+
+Use `/help` in Claude Code to see all available commands.
