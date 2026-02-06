@@ -19,7 +19,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "drizzle-orm": "^0.45.1",
     "effect": "^3.10.0",
-    "esbuild": "^0.27.2",
+    "esbuild": "^0.27.3",
     "hono": "^4.6.0",
     "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.3",
