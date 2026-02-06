@@ -49,7 +49,7 @@ dependencies = [
     "python-dotenv==1.0.1",
     "python-telegram-bot==21.3",
     "pyyaml==6.0.3",
-    "qrcode[pil]==7.4.2",
+    "qrcode[pil]==8.2",
     "solana==0.36.11",
     "solders==0.27.1",
     "sqlalchemy>=2.0.29",
