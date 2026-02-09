@@ -54,9 +54,13 @@ Thumbs.db
 # Infrastructure & sub-projects
 infra/
 tui/
-webapp/
 .github/
 node_modules/
+webapp/node_modules/
+webapp/dist/
+webapp/.storybook/
+webapp/storybook-static/
+webapp/coverage/
 
 # Deployment
 deploy.sh

@@ -79,10 +79,9 @@ jobs:
           VITE_TURNKEY_RP_ID: ${{ steps.env.outputs.rp_id }}
           VITE_TURNKEY_PROXY_URL: ${{ env.TURNKEY_PROXY_URL }}
         run: |
-          cd webapp
-
-          # Build with environment variables
+          # Build from monorepo root so workspace deps (packages/shared) are available
           docker build \
+            -f webapp/Dockerfile \
             --build-arg VITE_API_URL=$VITE_API_URL \
             --build-arg VITE_TURNKEY_ORG_ID=$VITE_TURNKEY_ORG_ID \
             --build-arg VITE_TURNKEY_RP_ID=$VITE_TURNKEY_RP_ID \
