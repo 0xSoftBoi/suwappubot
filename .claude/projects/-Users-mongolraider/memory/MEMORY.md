@@ -2,15 +2,22 @@
 
 This is the main index for cross-project knowledge. It's auto-loaded into every session (200-line limit).
 
-**Topic files** contain detailed information:
-- [credentials.md](./credentials.md) - GitHub accounts, AWS profiles, auth patterns
-- [git-workflows.md](./git-workflows.md) - Git conventions, branch naming, worktree workflow
-- [shell-tools.md](./shell-tools.md) - `sw` worktree manager, aliases, custom commands
-- [debugging.md](./debugging.md) - Recurring issues and solutions
-- [nodejs-patterns.md](./nodejs-patterns.md) - Node.js/TypeScript conventions
-- [aws-patterns.md](./aws-patterns.md) - AWS CLI patterns, ECS deployment
-- [blockchain-dev.md](./blockchain-dev.md) - Solana/EVM/OP Stack patterns
-- [claude-usage.md](./claude-usage.md) - Session workflow preferences
+**Memory Bank Structure** (numbered by priority):
+
+**1-core/** - Critical knowledge (auto-loaded)
+- [credentials.md](./1-core/credentials.md) - GitHub accounts, AWS profiles, auth patterns
+- [git-workflows.md](./1-core/git-workflows.md) - Git conventions, branch naming, worktree workflow
+- [shell-tools.md](./1-core/shell-tools.md) - `sw` worktree manager, aliases, custom commands
+
+**2-patterns/** - Learned patterns (referenced on-demand)
+- [debugging.md](./2-patterns/debugging.md) - Recurring issues and solutions
+- [nodejs-patterns.md](./2-patterns/nodejs-patterns.md) - Node.js/TypeScript conventions
+- [aws-patterns.md](./2-patterns/aws-patterns.md) - AWS CLI patterns, ECS deployment
+- [blockchain-dev.md](./2-patterns/blockchain-dev.md) - Solana/EVM/OP Stack patterns
+- [claude-usage.md](./2-patterns/claude-usage.md) - Session workflow preferences
+
+**3-decisions/** - Architecture Decision Records (ADRs)
+- Document "why" behind major decisions with rationale and consequences
 
 ---
 
@@ -47,7 +54,7 @@ AWS_PROFILE=Swappu aws <command>
 
 ### sw Command (Worktree Manager)
 
-**Quick reference** (see [shell-tools.md](./shell-tools.md) for details):
+**Quick reference** (see [shell-tools.md](./1-core/shell-tools.md) for details):
 
 ```bash
 sw new <name>           # Create worktree
@@ -136,7 +143,7 @@ py="python3"
 dc="docker-compose"
 ```
 
-See [shell-tools.md](./shell-tools.md) for full list.
+See [shell-tools.md](./1-core/shell-tools.md) for full list.
 
 ---
 

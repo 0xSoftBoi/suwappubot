@@ -1,3 +1,7 @@
+<!-- Created: 2026-02-16 -->
+<!-- Last verified: 2026-02-16 -->
+<!-- Next review: 2026-03-16 -->
+
 # Blockchain Development Patterns
 
 This file captures blockchain development patterns for Solana, EVM chains, and OP Stack.

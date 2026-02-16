@@ -1,3 +1,7 @@
+<!-- Created: 2026-02-16 -->
+<!-- Last verified: 2026-02-16 -->
+<!-- Next review: 2026-03-16 -->
+
 # AWS Deployment Patterns
 
 This file captures AWS CLI usage patterns, deployment workflows, and ECS/Fargate conventions.
