@@ -83,7 +83,7 @@ jobs:
         run: |
           echo "Checking showcase..."
           sleep 10
-          curl -sf "https://suwappu.bot" || echo "Health check pending (service may still be starting)"
+          curl -sf "https://www.suwappu.bot" || echo "Health check pending (service may still be starting)"
 
       - name: Deployment summary
         run: |
@@ -95,5 +95,5 @@ jobs:
           echo "| Image | \`${{ steps.build-image.outputs.image }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| ECS Cluster | ${{ env.ECS_CLUSTER }} |" >> $GITHUB_STEP_SUMMARY
           echo "| ECS Service | suwappu-showcase |" >> $GITHUB_STEP_SUMMARY
-          echo "| URL | https://suwappu.bot |" >> $GITHUB_STEP_SUMMARY
+          echo "| URL | https://www.suwappu.bot |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
