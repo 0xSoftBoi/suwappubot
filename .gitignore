@@ -13,6 +13,7 @@ eggs/
 lib/
 !webapp/src/lib/
 !mobile/lib/
+!showcase/src/lib/
 lib64/
 parts/
 sdist/
@@ -86,3 +87,4 @@ Makefile
 node_modules/
 .vercel
 webapp/bun.lock
+.env*.local
