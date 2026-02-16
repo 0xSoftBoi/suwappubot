@@ -4,7 +4,7 @@ import { HTTPException } from 'hono/http-exception'
 import { serveStatic } from 'hono/bun'
 
 import { createCorsMiddleware, adminKeyAuth } from './middleware'
-import { healthRoutes, webappRoutes, agentRoutes, a2aRoutes, swapRoutes, adminRoutes } from './routes'
+import { healthRoutes, webappRoutes, agentRoutes, a2aRoutes, swapRoutes, publicSwapRoutes, adminRoutes } from './routes'
 import agentCard from '../agent-card.json'
 
 export interface AppConfig {
@@ -31,6 +31,9 @@ export function createApp(config: AppConfig) {
 
 	// Public routes
 	app.route('/', healthRoutes)
+
+	// Public swap routes for showcase site
+	app.route('/public/swap', publicSwapRoutes)
 
 	// Swap routes - mounted first so public endpoints (tokens, chains) are accessible
 	app.route('/webapp/swap', swapRoutes)

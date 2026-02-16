@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import '@turnkey/react-wallet-kit/styles.css'
+import { TurnkeyProvider } from '@/components/providers/TurnkeyProvider'
 
 export const metadata: Metadata = {
   title: 'Suwappu - Cross-Chain DEX Bot | Trade Anywhere',
@@ -44,7 +46,9 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
       <body className="antialiased">
-        {children}
+        <TurnkeyProvider>
+          {children}
+        </TurnkeyProvider>
       </body>
     </html>
   )

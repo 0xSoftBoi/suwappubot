@@ -1,6 +1,6 @@
 'use client'
 
-import { Hero, Features, PlatformDemos, HowItWorks, CTA, SocialProof, FAQ, Footer, ComparisonChart } from '@/components/sections'
+import { Hero, Features, PlatformDemos, HowItWorks, CTA, SocialProof, FAQ, Footer, ComparisonChart, SwapWidget } from '@/components/sections'
 import { SakuraPetals, Navigation, Marquee } from '@/components/ui'
 
 export default function ShowcasePage() {
@@ -14,6 +14,8 @@ export default function ShowcasePage() {
 
       {/* Page Sections */}
       <Hero />
+
+      <SwapWidget />
 
       <Marquee />
 

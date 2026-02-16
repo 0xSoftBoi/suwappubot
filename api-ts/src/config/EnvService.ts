@@ -29,7 +29,7 @@ export const EnvSchema = Schema.Struct({
 
 	// CORS
 	ALLOWED_ORIGINS: Schema.optionalWith(Schema.String, {
-		default: () => 'https://app.suwappu.bot,https://devfront.suwappu.bot,http://localhost:3000,http://localhost:5173',
+		default: () => 'https://app.suwappu.bot,https://www.suwappu.bot,https://suwappu.bot,https://devfront.suwappu.bot,http://localhost:3000,http://localhost:5173',
 	}),
 
 	// Internal Python API

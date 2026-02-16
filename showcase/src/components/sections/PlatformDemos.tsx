@@ -17,7 +17,6 @@ const platforms = [
     ),
     description: 'Quick commands, inline keyboards, instant confirmations',
     video: '/videos/telegram-bot-demo.mp4',
-    poster: '/images/telegram-poster.jpg',
     features: [
       'Simple /s command for swaps',
       'Inline keyboard confirmations',
@@ -34,7 +33,6 @@ const platforms = [
     ),
     description: 'Full trading dashboard inside Telegram',
     video: '/videos/mini-app-demo.mp4',
-    poster: '/images/miniapp-poster.jpg',
     features: [
       'Portfolio overview',
       'Advanced swap interface',
@@ -51,7 +49,6 @@ const platforms = [
     ),
     description: 'Trade with interactive message buttons',
     video: '/videos/whatsapp-demo.mp4',
-    poster: '/images/whatsapp-poster.jpg',
     features: [
       'Interactive button messages',
       'Token picker flow',
@@ -68,7 +65,6 @@ const platforms = [
     ),
     description: 'Native iOS & Android experience',
     video: '/videos/mobile-app-demo.mp4',
-    poster: '/images/mobile-poster.jpg',
     features: [
       'Tab-based navigation',
       'Token discovery',
@@ -154,7 +150,6 @@ export default function PlatformDemos() {
               >
                 <VideoPlayer
                   src={activePlatform.video}
-                  poster={activePlatform.poster}
                   title={`${activePlatform.name} Demo`}
                 />
               </motion.div>
