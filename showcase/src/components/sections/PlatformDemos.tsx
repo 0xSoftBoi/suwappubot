@@ -22,7 +22,6 @@ const platforms = [
       'Simple /s command for swaps',
       'Inline keyboard confirmations',
       'Real-time price updates',
-      'Transaction status tracking',
     ],
   },
   {
@@ -40,7 +39,6 @@ const platforms = [
       'Portfolio overview',
       'Advanced swap interface',
       'Price alerts management',
-      'Transaction history',
     ],
   },
   {
@@ -58,7 +56,6 @@ const platforms = [
       'Interactive button messages',
       'Token picker flow',
       'Reply-based confirmations',
-      'Status notifications',
     ],
   },
   {
@@ -76,7 +73,6 @@ const platforms = [
       'Tab-based navigation',
       'Token discovery',
       'Push notifications',
-      'Biometric security',
     ],
   },
 ]
@@ -89,9 +85,9 @@ export default function PlatformDemos() {
   const activePlatform = platforms.find(p => p.id === activeTab)!
 
   return (
-    <section className="py-24 px-6 relative" id="demos">
+    <section className="py-28 px-6 relative" id="demos">
       {/* Background */}
-      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-suwappu-sakura-light/10 to-transparent" />
+      <div className="absolute inset-0 bg-suwappu-cream" />
 
       <div className="max-w-6xl mx-auto relative z-10" ref={ref}>
         {/* Section Header */}
@@ -99,7 +95,7 @@ export default function PlatformDemos() {
           initial={{ opacity: 0, y: 20 }}
           animate={isInView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.6 }}
-          className="text-center mb-12"
+          className="text-center mb-16"
         >
           <span className="inline-block px-4 py-1 rounded-full bg-suwappu-purple/10 text-suwappu-purple text-sm font-medium mb-4">
             Platform Demos
@@ -118,7 +114,7 @@ export default function PlatformDemos() {
           initial={{ opacity: 0, y: 20 }}
           animate={isInView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.6, delay: 0.2 }}
-          className="flex flex-wrap justify-center gap-2 mb-12"
+          className="flex flex-wrap justify-center gap-2 mb-16"
         >
           {platforms.map((platform) => (
             <motion.button

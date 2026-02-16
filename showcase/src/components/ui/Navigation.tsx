@@ -7,7 +7,6 @@ const navLinks = [
   { href: '#features', label: 'Features', section: 'features' },
   { href: '#demos', label: 'Demos', section: 'demos' },
   { href: '#how-it-works', label: 'How It Works', section: 'how-it-works' },
-  { href: '#faq', label: 'FAQ', section: 'faq' },
 ]
 
 export default function Navigation() {
@@ -71,7 +70,7 @@ export default function Navigation() {
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           {/* Logo */}
           <a href="/" className="flex items-center gap-2">
-            <span className="font-display text-2xl gradient-text">Suwappu</span>
+            <span className="font-heading text-2xl font-bold gradient-text">Suwappu</span>
           </a>
 
           {/* Desktop links */}

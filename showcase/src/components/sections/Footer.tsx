@@ -1,24 +1,7 @@
 'use client'
 
-import { useState, FormEvent } from 'react'
 import { motion } from 'framer-motion'
-import { fadeInUp, staggerContainer, staggerItem } from '@/lib/animations'
-
-const chains = [
-  { name: 'Ethereum', color: '#627EEA' },
-  { name: 'BSC', color: '#F0B90B' },
-  { name: 'Polygon', color: '#8247E5' },
-  { name: 'Arbitrum', color: '#28A0F0' },
-  { name: 'Optimism', color: '#FF0420' },
-  { name: 'Base', color: '#0052FF' },
-  { name: 'Solana', color: '#9945FF' },
-]
-
-const partners = [
-  { name: 'Li.Fi', color: '#B57BFF' },
-  { name: 'Jupiter', color: '#C7F284' },
-  { name: 'Turnkey', color: '#00D4AA' },
-]
+import { fadeInUp } from '@/lib/animations'
 
 const productLinks = [
   { label: 'Features', href: '#features' },
@@ -58,162 +41,34 @@ const socialLinks = [
 ]
 
 export default function Footer() {
-  const [email, setEmail] = useState('')
-  const [subscribed, setSubscribed] = useState(false)
-
-  const handleSubscribe = (e: FormEvent) => {
-    e.preventDefault()
-    if (email) {
-      setSubscribed(true)
-      setEmail('')
-      setTimeout(() => setSubscribed(false), 3000)
-    }
-  }
-
   return (
-    <footer className="bg-suwappu-ocean pt-16 pb-8 px-6">
+    <footer className="bg-suwappu-ocean pt-12 pb-8 px-6">
       <div className="max-w-6xl mx-auto">
-        {/* Newsletter */}
-        <motion.div
-          variants={fadeInUp}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true }}
-          className="text-center mb-12"
-        >
-          <h3 className="font-heading text-xl font-bold text-white mb-2">
-            Stay updated with Suwappu
-          </h3>
-          <p className="font-body text-sm text-suwappu-cyan/70 mb-4">
-            Get the latest features, chain integrations, and trading tips.
-          </p>
-          <form
-            onSubmit={handleSubscribe}
-            className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto"
-          >
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@email.com"
-              required
-              className="flex-1 px-4 py-2.5 rounded-xl glass text-white placeholder-white/40 font-body text-sm border border-white/10 focus:border-suwappu-magenta/50 focus:outline-none transition-colors bg-white/5"
-            />
-            <button
-              type="submit"
-              className="px-6 py-2.5 rounded-xl bg-suwappu-gradient text-white font-heading font-semibold text-sm shadow-suwappu-button hover:shadow-suwappu-button-hover transition-shadow"
-            >
-              {subscribed ? 'Subscribed!' : 'Subscribe'}
-            </button>
-          </form>
-        </motion.div>
-
-        {/* Supported Chains */}
-        <motion.div
-          variants={fadeInUp}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true }}
-          className="mb-10"
-        >
-          <p className="font-heading text-sm font-semibold text-white/60 text-center mb-4 uppercase tracking-wider">
-            Supported Chains
-          </p>
-          <motion.div
-            variants={staggerContainer}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true }}
-            className="flex flex-wrap justify-center gap-2"
-          >
-            {chains.map((chain) => (
-              <motion.span
-                key={chain.name}
-                variants={staggerItem}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-white/80 text-xs font-heading"
-              >
-                <span
-                  className="w-2 h-2 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: chain.color }}
-                />
-                {chain.name}
-              </motion.span>
-            ))}
-          </motion.div>
-        </motion.div>
-
-        {/* Powered By */}
-        <motion.div
-          variants={fadeInUp}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true }}
-          className="mb-12"
-        >
-          <p className="font-heading text-sm font-semibold text-white/60 text-center mb-4 uppercase tracking-wider">
-            Powered By
-          </p>
-          <div className="flex justify-center gap-3">
-            {partners.map((partner) => (
-              <span
-                key={partner.name}
-                className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 font-heading text-sm font-semibold text-white/50 hover:text-white hover:border-white/25 transition-all cursor-default"
-                style={{
-                  ['--partner-color' as string]: partner.color,
-                }}
-                onMouseEnter={(e) => {
-                  ;(e.target as HTMLElement).style.color = partner.color
-                }}
-                onMouseLeave={(e) => {
-                  ;(e.target as HTMLElement).style.color = ''
-                }}
-              >
-                {partner.name}
-              </span>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Community CTA */}
-        <motion.div
-          variants={fadeInUp}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true }}
-          className="text-center mb-12"
-        >
-          <a
-            href="https://t.me/SuwappuBot"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#229ED9]/15 border border-[#229ED9]/30 text-[#229ED9] font-heading text-sm font-semibold hover:bg-[#229ED9]/25 transition-colors"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z" />
-            </svg>
-            Join 2,500+ traders on Telegram
-          </a>
-        </motion.div>
-
         {/* Main Footer Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
+        <motion.div
+          variants={fadeInUp}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true }}
+          className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8"
+        >
           {/* Brand */}
-          <div className="md:col-span-2">
-            <span className="font-display text-2xl text-suwappu-sakura-light">Suwappu</span>
-            <p className="font-body text-suwappu-cyan/80 mt-2 max-w-xs">
+          <div>
+            <span className="font-heading text-2xl font-bold text-suwappu-sakura-light">Suwappu</span>
+            <p className="font-body text-suwappu-cyan/80 mt-2 max-w-xs text-sm">
               Cross-chain trading made simple. Swap tokens across 7+ chains from your favorite messaging apps.
             </p>
           </div>
 
           {/* Product Links */}
           <div>
-            <h4 className="font-heading font-semibold text-white mb-4">Product</h4>
+            <h4 className="font-heading font-semibold text-white mb-4 text-sm">Product</h4>
             <ul className="space-y-2">
               {productLinks.map((link) => (
                 <li key={link.label}>
                   <a
                     href={link.href}
-                    className="font-body text-suwappu-cyan/80 hover:text-white transition-colors"
+                    className="font-body text-sm text-suwappu-cyan/80 hover:text-white transition-colors"
                   >
                     {link.label}
                   </a>
@@ -224,7 +79,7 @@ export default function Footer() {
 
           {/* Social / Connect */}
           <div>
-            <h4 className="font-heading font-semibold text-white mb-4">Connect</h4>
+            <h4 className="font-heading font-semibold text-white mb-4 text-sm">Connect</h4>
             <ul className="space-y-2">
               {socialLinks.map((link) => (
                 <li key={link.label}>
@@ -232,7 +87,7 @@ export default function Footer() {
                     href={link.href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-body text-suwappu-cyan/80 hover:text-white transition-colors inline-flex items-center gap-2"
+                    className="font-body text-sm text-suwappu-cyan/80 hover:text-white transition-colors inline-flex items-center gap-2"
                   >
                     {link.icon}
                     {link.label}
@@ -241,24 +96,18 @@ export default function Footer() {
               ))}
             </ul>
           </div>
-        </div>
+        </motion.div>
 
         {/* Bottom Bar */}
-        <div className="pt-8 border-t border-white/10 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div className="pt-6 border-t border-white/10 flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="font-body text-sm text-suwappu-cyan/60">
             &copy; {new Date().getFullYear()} Suwappu. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
-            <a
-              href="#"
-              className="font-body text-sm text-suwappu-cyan/60 hover:text-white transition-colors"
-            >
+            <a href="#" className="font-body text-sm text-suwappu-cyan/60 hover:text-white transition-colors">
               Privacy Policy
             </a>
-            <a
-              href="#"
-              className="font-body text-sm text-suwappu-cyan/60 hover:text-white transition-colors"
-            >
+            <a href="#" className="font-body text-sm text-suwappu-cyan/60 hover:text-white transition-colors">
               Terms of Service
             </a>
           </div>

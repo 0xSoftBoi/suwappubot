@@ -43,15 +43,7 @@ export default function HowItWorks() {
   const isInView = useInView(ref, { once: true, margin: '-100px' })
 
   return (
-    <section className="py-24 px-6 relative" id="how-it-works">
-      {/* Background decoration */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full opacity-10"
-          style={{ background: 'radial-gradient(circle, #FFB7C5 0%, transparent 60%)' }}
-        />
-      </div>
-
+    <section className="py-24 px-6 relative bg-suwappu-blush" id="how-it-works">
       <div className="max-w-5xl mx-auto relative z-10" ref={ref}>
         {/* Section Header */}
         <motion.div

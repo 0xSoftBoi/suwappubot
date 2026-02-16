@@ -12,7 +12,7 @@ interface Petal {
   rotation: number
 }
 
-export default function SakuraPetals({ count = 15 }: { count?: number }) {
+export default function SakuraPetals({ count = 6 }: { count?: number }) {
   const [petals, setPetals] = useState<Petal[]>([])
 
   useEffect(() => {
@@ -21,7 +21,7 @@ export default function SakuraPetals({ count = 15 }: { count?: number }) {
       x: Math.random() * 100,
       delay: Math.random() * 5,
       duration: 8 + Math.random() * 6,
-      size: 8 + Math.random() * 8,
+      size: 6 + Math.random() * 5,
       rotation: Math.random() * 360,
     }))
     setPetals(newPetals)
@@ -49,7 +49,7 @@ export default function SakuraPetals({ count = 15 }: { count?: number }) {
             y: '110vh',
             x: [0, 30, -20, 40, 0],
             rotate: petal.rotation + 720,
-            opacity: [0, 1, 1, 1, 0],
+            opacity: [0, 0.5, 0.5, 0.5, 0],
           }}
           transition={{
             duration: petal.duration,

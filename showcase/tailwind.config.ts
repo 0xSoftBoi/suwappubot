@@ -35,10 +35,13 @@ const config: Config = {
           'bg': '#FFFBFC',
           'text': '#2C3E50',
           'text-secondary': '#6C7A89',
+          'cream': '#FFF8F0',
+          'cream-mid': '#FFF0E5',
+          'blush': '#FFF5F7',
+          'surface': '#FAFAFA',
         },
       },
       fontFamily: {
-        'display': ['Pacifico', 'Dancing Script', 'Satisfy', 'cursive'],
         'heading': ['Quicksand', 'Nunito', 'Poppins', 'sans-serif'],
         'body': ['Nunito', 'Open Sans', 'Lato', 'sans-serif'],
       },
@@ -75,6 +78,8 @@ const config: Config = {
         'sakura-sway': 'sakura-sway 3s ease-in-out infinite',
         'fade-in-up': 'fade-in-up 0.6s ease-out forwards',
         'float': 'float 6s ease-in-out infinite',
+        'marquee': 'marquee 30s linear infinite',
+        'marquee-reverse': 'marquee-reverse 30s linear infinite',
       },
       keyframes: {
         'suwappu-petal-float': {
@@ -109,6 +114,14 @@ const config: Config = {
         'float': {
           '0%, 100%': { transform: 'translateY(0)' },
           '50%': { transform: 'translateY(-20px)' },
+        },
+        'marquee': {
+          '0%': { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(-50%)' },
+        },
+        'marquee-reverse': {
+          '0%': { transform: 'translateX(-50%)' },
+          '100%': { transform: 'translateX(0)' },
         },
       },
     },

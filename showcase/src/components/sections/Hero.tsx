@@ -4,16 +4,6 @@ import { useEffect, useRef, useState } from 'react'
 import { motion, useInView, useMotionValue, animate } from 'framer-motion'
 import { staggerContainer, staggerItem, buttonHover } from '@/lib/animations'
 
-const chains = [
-  { name: 'Ethereum', color: '#627EEA' },
-  { name: 'BSC', color: '#F0B90B' },
-  { name: 'Polygon', color: '#8247E5' },
-  { name: 'Arbitrum', color: '#28A0F0' },
-  { name: 'Optimism', color: '#FF0420' },
-  { name: 'Base', color: '#0052FF' },
-  { name: 'Solana', color: '#9945FF' },
-]
-
 function SwapCounter() {
   const count = useMotionValue(0)
   const [display, setDisplay] = useState('0')
@@ -42,13 +32,13 @@ export default function Hero() {
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
       {/* Animated Gradient Background */}
-      <div className="absolute inset-0 animated-gradient opacity-20" />
+      <div className="absolute inset-0 animated-gradient opacity-15" />
 
       {/* Radial gradient overlay */}
       <div
         className="absolute inset-0"
         style={{
-          background: 'radial-gradient(ellipse at 50% 0%, rgba(255,183,197,0.3) 0%, transparent 50%), radial-gradient(ellipse at 100% 100%, rgba(108,52,131,0.2) 0%, transparent 50%)',
+          background: 'radial-gradient(ellipse at 50% 0%, rgba(255,248,240,0.5) 0%, transparent 50%), radial-gradient(ellipse at 100% 100%, rgba(108,52,131,0.15) 0%, transparent 50%)',
         }}
       />
 
@@ -57,50 +47,35 @@ export default function Hero() {
         variants={staggerContainer}
         initial="hidden"
         animate="visible"
-        className="relative z-10 max-w-6xl mx-auto px-6 pt-20 pb-24"
+        className="relative z-10 max-w-6xl mx-auto px-6 pt-24 pb-20"
       >
         <div className="grid md:grid-cols-2 gap-12 items-center">
           {/* Left side - Text content */}
           <div className="text-left">
             {/* Live badge */}
-            <motion.div variants={staggerItem} className="mb-8">
-              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass text-sm font-medium text-suwappu-purple">
+            <motion.div variants={staggerItem} className="mb-6">
+              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/80 border border-suwappu-sakura-light/40 text-sm font-medium text-suwappu-purple">
                 <span className="w-2 h-2 rounded-full bg-suwappu-success animate-pulse" />
                 Live on 7+ Chains
               </span>
             </motion.div>
 
-            {/* Problem statement */}
-            <motion.p
-              variants={staggerItem}
-              className="font-body text-base text-suwappu-text-secondary mb-4"
-            >
-              Trading crypto shouldn&apos;t require a PhD in DeFi
-            </motion.p>
-
             {/* Main Headline */}
             <motion.h1
               variants={staggerItem}
-              className="font-display text-5xl md:text-6xl lg:text-7xl mb-6"
+              className="font-heading text-4xl md:text-5xl lg:text-6xl font-bold text-suwappu-text mb-4 leading-tight"
             >
-              <span className="gradient-text">Suwappu</span>
+              Swap Across Chains.{' '}
+              <span className="gradient-text">From Any Chat.</span>
             </motion.h1>
-
-            {/* Tagline */}
-            <motion.p
-              variants={staggerItem}
-              className="font-heading text-xl md:text-2xl lg:text-3xl text-suwappu-text mb-4"
-            >
-              Cross-Chain Trading, Made Kawaii
-            </motion.p>
 
             {/* Description */}
             <motion.p
               variants={staggerItem}
-              className="font-body text-lg text-suwappu-text-secondary mb-8 max-w-lg"
+              className="font-body text-lg text-suwappu-text-secondary mb-8 max-w-lg leading-relaxed"
             >
-              Swap tokens across multiple chains directly from Telegram, WhatsApp, or our
-              mobile app. No complicated interfaces, just simple commands.
+              The fastest way to swap tokens across 7+ blockchains. Non-custodial,
+              best-rate aggregation, and it works right inside Telegram.
             </motion.p>
 
             {/* CTA Buttons */}
@@ -130,7 +105,7 @@ export default function Hero() {
                 initial="rest"
                 whileHover="hover"
                 whileTap="tap"
-                className="inline-flex items-center gap-2 px-8 py-4 rounded-suwappu-pill glass font-heading font-semibold text-lg text-suwappu-purple hover:bg-white/60 transition-colors"
+                className="inline-flex items-center gap-2 px-8 py-4 rounded-suwappu-pill bg-white/80 border border-suwappu-sakura-light/40 font-heading font-semibold text-lg text-suwappu-purple hover:bg-white transition-colors"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
@@ -152,7 +127,7 @@ export default function Hero() {
               ].map((badge) => (
                 <span
                   key={badge.label}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full glass text-xs font-medium text-suwappu-text-secondary"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/60 border border-suwappu-sakura-light/30 text-xs font-medium text-suwappu-text-secondary"
                 >
                   <span>{badge.icon}</span>
                   {badge.label}
@@ -164,26 +139,6 @@ export default function Hero() {
             <motion.div variants={staggerItem}>
               <SwapCounter />
             </motion.div>
-
-            {/* Supported Chains */}
-            <motion.div variants={staggerItem} className="mt-8">
-              <p className="text-sm text-suwappu-text-secondary mb-3 font-medium">Supported Chains</p>
-              <div className="flex flex-wrap gap-3">
-                {chains.map((chain) => (
-                  <motion.span
-                    key={chain.name}
-                    whileHover={{ scale: 1.05, y: -2 }}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-suwappu-lg glass-card text-sm font-medium text-suwappu-text cursor-default"
-                  >
-                    <span
-                      className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: chain.color }}
-                    />
-                    {chain.name}
-                  </motion.span>
-                ))}
-              </div>
-            </motion.div>
           </div>
 
           {/* Right side - Phone frame with video */}
@@ -194,9 +149,9 @@ export default function Hero() {
             <div className="relative">
               {/* Decorative glow behind phone */}
               <div
-                className="absolute -inset-8 rounded-full blur-3xl opacity-40"
+                className="absolute -inset-8 rounded-full blur-3xl opacity-30"
                 style={{
-                  background: 'radial-gradient(circle, rgba(106,27,154,0.4) 0%, rgba(255,183,197,0.3) 50%, transparent 70%)',
+                  background: 'radial-gradient(circle, rgba(106,27,154,0.3) 0%, rgba(255,183,197,0.2) 50%, transparent 70%)',
                 }}
               />
 
@@ -235,7 +190,7 @@ export default function Hero() {
         <motion.div
           animate={{ y: [0, 8, 0] }}
           transition={{ duration: 1.5, repeat: Infinity }}
-          className="w-6 h-10 rounded-full border-2 border-suwappu-sakura-mid flex justify-center pt-2"
+          className="w-6 h-10 rounded-full border-2 border-suwappu-sakura-mid/50 flex justify-center pt-2"
         >
           <motion.div
             animate={{ opacity: [1, 0, 1] }}

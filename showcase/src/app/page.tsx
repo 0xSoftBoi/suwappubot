@@ -1,13 +1,13 @@
 'use client'
 
-import { Hero, Features, PlatformDemos, HowItWorks, CTA, SocialProof, FAQ, Footer } from '@/components/sections'
-import { SakuraPetals, Navigation } from '@/components/ui'
+import { Hero, Features, PlatformDemos, HowItWorks, CTA, SocialProof, FAQ, Footer, ComparisonChart } from '@/components/sections'
+import { SakuraPetals, Navigation, Marquee } from '@/components/ui'
 
 export default function ShowcasePage() {
   return (
     <main className="relative">
       {/* Floating Sakura Petals */}
-      <SakuraPetals count={12} />
+      <SakuraPetals count={6} />
 
       {/* Navigation */}
       <Navigation />
@@ -15,23 +15,17 @@ export default function ShowcasePage() {
       {/* Page Sections */}
       <Hero />
 
-      <div className="section-divider" />
+      <Marquee />
 
       <Features />
 
-      <div className="section-divider" />
-
-      <SocialProof />
-
-      <div className="section-divider" />
+      <ComparisonChart />
 
       <PlatformDemos />
 
-      <div className="section-divider" />
-
       <HowItWorks />
 
-      <div className="section-divider" />
+      <SocialProof />
 
       <FAQ />
 
