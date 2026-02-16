@@ -62,11 +62,11 @@ jobs:
         run: |
           echo "Deploying showcase to production..."
           echo "Cluster: ${{ env.ECS_CLUSTER }}"
-          echo "Service: suwappu-showcase-prod"
+          echo "Service: suwappu-showcase"
 
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER }} \
-            --service suwappu-showcase-prod \
+            --service suwappu-showcase \
             --force-new-deployment
 
           echo "Deployment initiated. Waiting for service to stabilize..."
@@ -75,7 +75,7 @@ jobs:
         run: |
           aws ecs wait services-stable \
             --cluster ${{ env.ECS_CLUSTER }} \
-            --services suwappu-showcase-prod
+            --services suwappu-showcase
 
           echo "Deployment complete!"
 
@@ -94,6 +94,6 @@ jobs:
           echo "| Environment | production |" >> $GITHUB_STEP_SUMMARY
           echo "| Image | \`${{ steps.build-image.outputs.image }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| ECS Cluster | ${{ env.ECS_CLUSTER }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| ECS Service | suwappu-showcase-prod |" >> $GITHUB_STEP_SUMMARY
+          echo "| ECS Service | suwappu-showcase |" >> $GITHUB_STEP_SUMMARY
           echo "| URL | https://suwappu.bot |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
