@@ -17,6 +17,7 @@ jobs:
       bot: ${{ steps.filter.outputs.bot }}
       api-ts: ${{ steps.filter.outputs.api-ts }}
       webapp: ${{ steps.filter.outputs.webapp }}
+      showcase: ${{ steps.filter.outputs.showcase }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v3
@@ -34,6 +35,8 @@ jobs:
               - 'api-ts/**'
             webapp:
               - 'webapp/**'
+            showcase:
+              - 'showcase/**'
 
   bot-checks:
     name: Bot lint & test
@@ -114,3 +117,25 @@ jobs:
 
       - name: Test
         run: cd webapp && bun test src/hooks src/lib --preload ./src/test/happy-dom-setup.ts
+
+  showcase-checks:
+    name: Showcase lint & build
+    needs: changes
+    if: needs.changes.outputs.showcase == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: cd showcase && npm ci
+
+      - name: Lint
+        run: cd showcase && npm run lint
+
+      - name: Build
+        run: cd showcase && npm run build

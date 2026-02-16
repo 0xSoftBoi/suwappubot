@@ -190,6 +190,19 @@ export class SuwappuStack extends cdk.Stack {
       ],
     });
 
+    // ==================== ECR Repository (Showcase) ====================
+    const showcaseRepository = new ecr.Repository(this, 'SuwappuShowcaseRepository', {
+      repositoryName: 'suwappu-showcase',
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      imageScanOnPush: true,
+      lifecycleRules: [
+        {
+          maxImageCount: 10,
+          description: 'Keep only 10 images',
+        },
+      ],
+    });
+
     // ==================== ECS Cluster ====================
     this.cluster = new ecs.Cluster(this, 'SuwappuCluster', {
       vpc: this.vpc,
@@ -505,6 +518,12 @@ export class SuwappuStack extends cdk.Stack {
       value: redisCluster.attrRedisEndpointAddress,
       description: 'ElastiCache Redis Endpoint',
       exportName: 'SuwappuRedisEndpoint',
+    });
+
+    new cdk.CfnOutput(this, 'ShowcaseEcrRepositoryUri', {
+      value: showcaseRepository.repositoryUri,
+      description: 'Showcase ECR Repository URI',
+      exportName: 'SuwappuShowcaseEcrUri',
     });
   }
 }
