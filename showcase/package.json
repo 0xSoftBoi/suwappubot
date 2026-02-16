@@ -13,7 +13,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "framer-motion": "^11.15.0",
-    "@turnkey/react-wallet-kit": "^0.1.0"
+    "@turnkey/react-wallet-kit": "^1.8.1"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
