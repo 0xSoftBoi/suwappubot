@@ -80,12 +80,16 @@ jobs:
           VITE_TURNKEY_PROXY_URL: ${{ env.TURNKEY_PROXY_URL }}
         run: |
           # Build from monorepo root so workspace deps (packages/shared) are available
+          # --no-cache prevents stale build artifacts from Docker layer cache
           docker build \
+            --no-cache \
             -f webapp/Dockerfile \
             --build-arg VITE_API_URL=$VITE_API_URL \
             --build-arg VITE_TURNKEY_ORG_ID=$VITE_TURNKEY_ORG_ID \
             --build-arg VITE_TURNKEY_RP_ID=$VITE_TURNKEY_RP_ID \
             --build-arg VITE_TURNKEY_PROXY_URL=$VITE_TURNKEY_PROXY_URL \
+            --build-arg BUILD_TIMESTAMP=$(date -u +%Y%m%d%H%M%S) \
+            --build-arg GIT_SHA=${{ github.sha }} \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
 
           # Also tag with SHA for traceability
@@ -97,15 +101,46 @@ jobs:
 
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
+      - name: Update ECS task definition with new image
+        id: task-def
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          # Get current task definition from the service
+          TASK_DEF_ARN=$(aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ steps.env.outputs.service }} \
+            --query 'services[0].taskDefinition' --output text)
+
+          # Get the full task definition and update the image
+          NEW_IMAGE="${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
+          echo "Updating task definition to image: $NEW_IMAGE"
+
+          aws ecs describe-task-definition --task-definition "$TASK_DEF_ARN" \
+            --query 'taskDefinition' | \
+            jq --arg IMAGE "$NEW_IMAGE" \
+            'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy) |
+             .containerDefinitions[0].image = $IMAGE' > /tmp/new-task-def.json
+
+          # Register the new task definition
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file:///tmp/new-task-def.json \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+
+          echo "Registered new task definition: $NEW_TASK_DEF_ARN"
+          echo "task_def_arn=$NEW_TASK_DEF_ARN" >> $GITHUB_OUTPUT
+
       - name: Deploy to ECS
         run: |
           echo "Deploying to ${{ steps.env.outputs.env }} environment..."
           echo "Cluster: ${{ env.ECS_CLUSTER }}"
           echo "Service: ${{ steps.env.outputs.service }}"
+          echo "Task Definition: ${{ steps.task-def.outputs.task_def_arn }}"
 
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER }} \
             --service ${{ steps.env.outputs.service }} \
+            --task-definition ${{ steps.task-def.outputs.task_def_arn }} \
             --enable-execute-command \
             --force-new-deployment
 

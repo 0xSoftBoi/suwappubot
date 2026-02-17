@@ -33,8 +33,15 @@ ENV VITE_TURNKEY_RP_ID=$VITE_TURNKEY_RP_ID
 ARG VITE_TURNKEY_PROXY_URL
 ENV VITE_TURNKEY_PROXY_URL=$VITE_TURNKEY_PROXY_URL
 
+# Cache-busting args to ensure fresh builds
+ARG BUILD_TIMESTAMP
+ARG GIT_SHA
+
 # Build the app (skip type check for faster builds)
 RUN cd webapp && npx vite build
+
+# Write build info for deployment verification
+RUN echo "{\"buildTime\":\"${BUILD_TIMESTAMP}\",\"gitSha\":\"${GIT_SHA}\"}" > webapp/dist/build-info.json
 
 # Production stage - nginx to serve static files
 FROM nginx:alpine
