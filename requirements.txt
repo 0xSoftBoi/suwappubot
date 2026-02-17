@@ -21,7 +21,7 @@ pytest-asyncio==0.23.6
 pytest-cov==5.0.0
 pytest==8.4.2
 python-dotenv==1.0.1
-python-telegram-bot==21.3
+python-telegram-bot==22.5
 redis>=5.0.0
 pyyaml==6.0.3
 qrcode[pil]==7.4.2
