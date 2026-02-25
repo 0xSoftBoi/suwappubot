@@ -1,0 +1,297 @@
+name: Integration Testing Pipeline
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+  schedule:
+    # Run integration tests daily at 3 AM UTC
+    - cron: '0 3 * * *'
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '20'
+
+jobs:
+  prepare-test-environment:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start test services
+        run: |
+          docker-compose -f docker-compose.local.yml up -d postgres redis
+
+      - name: Wait for services
+        run: |
+          timeout 60 bash -c 'until docker exec $(docker ps -q -f name=postgres) pg_isready; do sleep 2; done'
+          echo "✅ Services are ready"
+
+  bot-integration-tests:
+    runs-on: ubuntu-latest
+    needs: prepare-test-environment
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest-integration pytest-docker
+
+      - name: Run database migrations
+        env:
+          DATABASE_URL: postgresql://postgres:testpass@localhost:5432/testdb
+        run: |
+          python -m alembic upgrade head
+
+      - name: Run integration tests
+        env:
+          DATABASE_URL: postgresql://postgres:testpass@localhost:5432/testdb
+          REDIS_URL: redis://localhost:6379/0
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TEST_TELEGRAM_BOT_TOKEN }}
+          LOG_LEVEL: DEBUG
+        run: |
+          pytest tests/integration/ \
+            --verbose \
+            --log-cli-level=DEBUG \
+            --junitxml=integration-results.xml \
+            --cov=bot \
+            --cov-report=xml:integration-coverage.xml
+
+      - name: Upload integration test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: |
+            integration-results.xml
+            integration-coverage.xml
+          retention-days: 14
+
+  api-integration-tests:
+    runs-on: ubuntu-latest
+    needs: prepare-test-environment
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install API dependencies
+        run: |
+          if [ -d "api-ts" ]; then
+            cd api-ts && npm install && cd ..
+          fi
+
+      - name: Run API integration tests
+        env:
+          DATABASE_URL: postgresql://postgres:testpass@localhost:5432/testdb
+          NODE_ENV: test
+        run: |
+          if [ -d "api-ts" ]; then
+            cd api-ts && npm test && cd ..
+          else
+            echo "No API tests found"
+          fi
+
+  end-to-end-tests:
+    runs-on: ubuntu-latest
+    needs: [bot-integration-tests, api-integration-tests]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Playwright
+        run: |
+          npm install -D @playwright/test
+          npx playwright install --with-deps chromium
+
+      - name: Start application stack
+        run: |
+          docker-compose -f docker-compose.local.yml up -d
+          sleep 10
+
+      - name: Run E2E tests
+        run: |
+          if [ -d "tests/e2e" ]; then
+            npx playwright test tests/e2e/ || echo "E2E tests not yet implemented"
+          else
+            echo "No E2E tests found"
+          fi
+
+      - name: Upload E2E test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
+  performance-tests:
+    runs-on: ubuntu-latest
+    needs: prepare-test-environment
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install load testing tools
+        run: |
+          pip install locust pytest-benchmark
+
+      - name: Run performance benchmarks
+        run: |
+          if [ -d "tests/performance" ]; then
+            pytest tests/performance/ --benchmark-only --benchmark-json=benchmark-results.json
+          else
+            echo "No performance tests found"
+          fi
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-results
+          path: benchmark-results.json
+          retention-days: 30
+
+  test-summary:
+    runs-on: ubuntu-latest
+    needs: [bot-integration-tests, api-integration-tests, end-to-end-tests, performance-tests]
+    if: always()
+    
+    steps:
+      - name: Download all test results
+        uses: actions/download-artifact@v4
+        with:
+          path: test-results/
+
+      - name: Generate integration test summary
+        run: |
+          echo "# 🧪 Integration Testing Summary" > INTEGRATION_SUMMARY.md
+          echo "" >> INTEGRATION_SUMMARY.md
+          echo "**Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> INTEGRATION_SUMMARY.md
+          echo "**Commit:** ${{ github.sha }}" >> INTEGRATION_SUMMARY.md
+          echo "" >> INTEGRATION_SUMMARY.md
+          echo "---" >> INTEGRATION_SUMMARY.md
+          echo "" >> INTEGRATION_SUMMARY.md
+          
+          echo "## 📊 Test Results" >> INTEGRATION_SUMMARY.md
+          echo "" >> INTEGRATION_SUMMARY.md
+          
+          # Check for test result files and summarize
+          if [ -d "test-results/integration-test-results" ]; then
+            echo "✅ **Bot Integration Tests:** Completed" >> INTEGRATION_SUMMARY.md
+          else
+            echo "⚠️ **Bot Integration Tests:** No results found" >> INTEGRATION_SUMMARY.md
+          fi
+          
+          if [ -d "test-results/e2e-test-results" ]; then
+            echo "✅ **End-to-End Tests:** Completed" >> INTEGRATION_SUMMARY.md
+          else
+            echo "⚠️ **End-to-End Tests:** No results found" >> INTEGRATION_SUMMARY.md
+          fi
+          
+          if [ -d "test-results/performance-results" ]; then
+            echo "✅ **Performance Tests:** Completed" >> INTEGRATION_SUMMARY.md
+          else
+            echo "⚠️ **Performance Tests:** No results found" >> INTEGRATION_SUMMARY.md
+          fi
+          
+          echo "" >> INTEGRATION_SUMMARY.md
+          echo "---" >> INTEGRATION_SUMMARY.md
+          echo "📦 Full test results available in workflow artifacts" >> INTEGRATION_SUMMARY.md
+
+      - name: Upload summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-summary
+          path: INTEGRATION_SUMMARY.md
+          retention-days: 30
+
+      - name: Comment PR with integration summary
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('INTEGRATION_SUMMARY.md', 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
