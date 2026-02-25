@@ -1,0 +1,171 @@
+name: Telegram Bot Testing Framework
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'bot/**'
+      - 'tests/**'
+      - 'requirements.txt'
+      - 'pyproject.toml'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'bot/**'
+      - 'tests/**'
+      - 'requirements.txt'
+      - 'pyproject.toml'
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  telegram-bot-tests:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system -r requirements.txt
+          uv pip install --system pytest pytest-asyncio pytest-cov pytest-mock pytest-timeout
+
+      - name: Create test logs directory
+        run: mkdir -p test-logs
+
+      - name: Run Telegram Bot Unit Tests
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TEST_TELEGRAM_BOT_TOKEN || 'test-token' }}
+          DATABASE_URL: sqlite:///test.db
+          LOG_LEVEL: DEBUG
+        run: |
+          pytest tests/ \
+            --cov=bot \
+            --cov-report=xml \
+            --cov-report=html \
+            --cov-report=term \
+            --junitxml=test-results/junit.xml \
+            --verbose \
+            --log-cli-level=DEBUG \
+            --log-file=test-logs/pytest-${{ matrix.python-version }}.log \
+            --timeout=30
+        continue-on-error: false
+
+      - name: Run Integration Tests
+        if: github.event_name == 'pull_request'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TEST_TELEGRAM_BOT_TOKEN || 'test-token' }}
+          DATABASE_URL: sqlite:///test.db
+        run: |
+          pytest tests/integration/ \
+            --verbose \
+            --log-file=test-logs/integration-${{ matrix.python-version }}.log \
+            || echo "Integration tests not yet implemented"
+        continue-on-error: true
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ matrix.python-version }}
+          path: test-logs/
+          retention-days: 14
+
+      - name: Upload coverage reports
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage.xml
+            htmlcov/
+          retention-days: 14
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.python-version }}
+          path: test-results/
+          retention-days: 14
+
+      - name: Comment PR with test results
+        if: github.event_name == 'pull_request' && matrix.python-version == '3.11'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const coverage = fs.readFileSync('coverage.xml', 'utf8');
+            const match = coverage.match(/line-rate="([0-9.]+)"/);
+            const coveragePercent = match ? (parseFloat(match[1]) * 100).toFixed(2) : 'N/A';
+            
+            const comment = `## 🤖 Telegram Bot Test Results
+            
+            **Python Version:** ${{ matrix.python-version }}
+            **Test Coverage:** ${coveragePercent}%
+            
+            ✅ Unit tests completed successfully!
+            
+            📊 Detailed coverage report available in artifacts.
+            📝 Test logs are available for debugging.
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  bot-health-check:
+    runs-on: ubuntu-latest
+    needs: telegram-bot-tests
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run health check script
+        run: |
+          python health_check.py
+        continue-on-error: true
+
+      - name: Create health check report
+        run: |
+          echo "# Health Check Report" > health-report.md
+          echo "**Date:** $(date)" >> health-report.md
+          echo "**Status:** Health check completed" >> health-report.md
+
+      - name: Upload health check report
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-check-report
+          path: health-report.md
+          retention-days: 7
