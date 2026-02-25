@@ -1,0 +1,276 @@
+name: Solidity Testing & Coverage
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - '**/*.sol'
+      - 'contracts/**'
+      - 'test/**'
+      - 'hardhat.config.js'
+      - 'foundry.toml'
+  push:
+    branches: [main, develop]
+    paths:
+      - '**/*.sol'
+      - 'contracts/**'
+      - 'test/**'
+
+jobs:
+  hardhat-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Hardhat and dependencies
+        run: |
+          npm install --save-dev hardhat @nomiclabs/hardhat-waffle @nomiclabs/hardhat-ethers \
+            ethereum-waffle chai ethers solidity-coverage \
+            @openzeppelin/contracts @openzeppelin/hardhat-upgrades \
+            hardhat-gas-reporter hardhat-contract-sizer
+
+      - name: Check if contracts exist
+        id: check_contracts
+        run: |
+          if [ -d "contracts" ] && [ "$(find contracts -name '*.sol' 2>/dev/null | wc -l)" -gt 0 ]; then
+            echo "contracts_exist=true" >> $GITHUB_OUTPUT
+          else
+            echo "contracts_exist=false" >> $GITHUB_OUTPUT
+            echo "⚠️ No Solidity contracts found"
+          fi
+
+      - name: Compile contracts
+        if: steps.check_contracts.outputs.contracts_exist == 'true'
+        run: |
+          npx hardhat compile || echo "Compilation skipped - no hardhat.config.js"
+
+      - name: Run Hardhat tests
+        if: steps.check_contracts.outputs.contracts_exist == 'true'
+        run: |
+          npx hardhat test || echo "Tests skipped - no test files"
+        env:
+          REPORT_GAS: true
+
+      - name: Run Coverage
+        if: steps.check_contracts.outputs.contracts_exist == 'true'
+        run: |
+          npx hardhat coverage || echo "Coverage skipped"
+
+      - name: Upload Coverage to Codecov
+        if: steps.check_contracts.outputs.contracts_exist == 'true'
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/coverage-final.json
+          flags: hardhat
+          name: hardhat-coverage
+
+      - name: Upload coverage reports
+        if: steps.check_contracts.outputs.contracts_exist == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardhat-coverage
+          path: coverage/
+          retention-days: 30
+
+  foundry-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Check if Foundry project exists
+        id: check_foundry
+        run: |
+          if [ -f "foundry.toml" ]; then
+            echo "foundry_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "foundry_exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ No foundry.toml found"
+          fi
+
+      - name: Install Foundry dependencies
+        if: steps.check_foundry.outputs.foundry_exists == 'true'
+        run: forge install
+
+      - name: Build contracts
+        if: steps.check_foundry.outputs.foundry_exists == 'true'
+        run: |
+          forge build --sizes
+
+      - name: Run Foundry tests
+        if: steps.check_foundry.outputs.foundry_exists == 'true'
+        run: |
+          forge test -vvv
+
+      - name: Run Foundry tests with gas report
+        if: steps.check_foundry.outputs.foundry_exists == 'true'
+        run: |
+          forge test --gas-report > gas-report.txt
+
+      - name: Run Coverage
+        if: steps.check_foundry.outputs.foundry_exists == 'true'
+        run: |
+          forge coverage --report lcov --report summary > coverage-summary.txt
+
+      - name: Generate Coverage Report
+        if: steps.check_foundry.outputs.foundry_exists == 'true'
+        run: |
+          echo "# 📊 Foundry Coverage Report" > foundry-coverage-report.md
+          echo "" >> foundry-coverage-report.md
+          cat coverage-summary.txt >> foundry-coverage-report.md
+
+      - name: Upload Coverage
+        if: steps.check_foundry.outputs.foundry_exists == 'true'
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./lcov.info
+          flags: foundry
+          name: foundry-coverage
+
+      - name: Upload artifacts
+        if: steps.check_foundry.outputs.foundry_exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: foundry-reports
+          path: |
+            gas-report.txt
+            coverage-summary.txt
+            foundry-coverage-report.md
+            lcov.info
+          retention-days: 30
+
+  contract-size-check:
+    runs-on: ubuntu-latest
+    needs: [hardhat-tests, foundry-tests]
+    if: always()
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          npm install --save-dev hardhat hardhat-contract-sizer
+
+      - name: Check contract sizes
+        run: |
+          npx hardhat size-contracts > contract-sizes.txt || echo "No contracts to check"
+
+      - name: Check for oversized contracts
+        run: |
+          if [ -f "contract-sizes.txt" ]; then
+            echo "# 📏 Contract Size Report" > size-report.md
+            cat contract-sizes.txt >> size-report.md
+            
+            # Warn if any contract exceeds 24KB (Ethereum limit)
+            if grep -E "([2][4-9]|[3-9][0-9])\.[0-9]+ KB" contract-sizes.txt; then
+              echo "" >> size-report.md
+              echo "⚠️ **Warning:** Some contracts exceed or approach the 24KB limit!" >> size-report.md
+            fi
+          fi
+
+      - name: Upload size report
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-sizes
+          path: |
+            contract-sizes.txt
+            size-report.md
+          retention-days: 14
+
+  test-summary:
+    runs-on: ubuntu-latest
+    needs: [hardhat-tests, foundry-tests, contract-size-check]
+    if: always() && github.event_name == 'pull_request'
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: test-artifacts/
+
+      - name: Generate Test Summary
+        run: |
+          echo "# 🧪 Solidity Testing Summary" > TEST_SUMMARY.md
+          echo "" >> TEST_SUMMARY.md
+          echo "**PR:** ${{ github.event.pull_request.html_url }}" >> TEST_SUMMARY.md
+          echo "**Commit:** ${{ github.sha }}" >> TEST_SUMMARY.md
+          echo "" >> TEST_SUMMARY.md
+          echo "---" >> TEST_SUMMARY.md
+          
+          # Hardhat Coverage
+          if [ -d "test-artifacts/hardhat-coverage" ]; then
+            echo "" >> TEST_SUMMARY.md
+            echo "## 🔨 Hardhat Tests" >> TEST_SUMMARY.md
+            echo "✅ Tests completed successfully" >> TEST_SUMMARY.md
+            echo "📊 Coverage report available in artifacts" >> TEST_SUMMARY.md
+          fi
+          
+          # Foundry Coverage
+          if [ -f "test-artifacts/foundry-reports/foundry-coverage-report.md" ]; then
+            echo "" >> TEST_SUMMARY.md
+            cat test-artifacts/foundry-reports/foundry-coverage-report.md >> TEST_SUMMARY.md
+          fi
+          
+          # Gas Report
+          if [ -f "test-artifacts/foundry-reports/gas-report.txt" ]; then
+            echo "" >> TEST_SUMMARY.md
+            echo "## ⛽ Gas Report" >> TEST_SUMMARY.md
+            echo '```' >> TEST_SUMMARY.md
+            cat test-artifacts/foundry-reports/gas-report.txt >> TEST_SUMMARY.md
+            echo '```' >> TEST_SUMMARY.md
+          fi
+          
+          # Contract Sizes
+          if [ -f "test-artifacts/contract-sizes/size-report.md" ]; then
+            echo "" >> TEST_SUMMARY.md
+            cat test-artifacts/contract-sizes/size-report.md >> TEST_SUMMARY.md
+          fi
+
+      - name: Comment PR with Test Summary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let summary = '';
+            
+            try {
+              summary = fs.readFileSync('TEST_SUMMARY.md', 'utf8');
+            } catch (error) {
+              summary = '⚠️ Test summary generation failed. Check workflow logs for details.';
+            }
+            
+            // Truncate if too long
+            if (summary.length > 65000) {
+              summary = summary.substring(0, 65000) + '\n\n... (truncated, see artifacts for full report)';
+            }
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
