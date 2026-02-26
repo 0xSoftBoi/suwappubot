@@ -61,6 +61,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -e .
+          pip install pytest-timeout
 
       - name: Lint with ruff
         run: |
@@ -69,7 +70,7 @@ jobs:
 
       - name: Run unit tests
         run: |
-          pytest tests/ --ignore=tests/integration -x --timeout=30
+          pytest -p no:pytest_ethereum tests/ --ignore=tests/integration -x --timeout=30
 
   api-ts-checks:
     name: API-TS lint & typecheck

@@ -9,6 +9,11 @@ on:
     # Run integration tests daily at 3 AM UTC
     - cron: '0 3 * * *'
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
 env:
   PYTHON_VERSION: '3.11'
   NODE_VERSION: '20'
@@ -23,12 +28,7 @@ jobs:
 
       - name: Start test services
         run: |
-          docker compose -f docker-compose.local.yml up -d postgres redis
-
-      - name: Wait for services
-        run: |
-          timeout 60 bash -c 'until docker exec $(docker ps -q -f name=postgres) pg_isready; do sleep 2; done'
-          echo "✅ Services are ready"
+          docker compose -f docker-compose.local.yml up -d --wait db redis
 
   bot-integration-tests:
     runs-on: ubuntu-latest
@@ -86,7 +86,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TEST_TELEGRAM_BOT_TOKEN }}
           LOG_LEVEL: DEBUG
         run: |
-          pytest tests/integration/ \
+          pytest -p no:pytest_ethereum tests/integration/ \
             --verbose \
             --log-cli-level=DEBUG \
             --junitxml=integration-results.xml \
@@ -214,7 +214,7 @@ jobs:
       - name: Run performance benchmarks
         run: |
           if [ -d "tests/performance" ]; then
-            pytest tests/performance/ --benchmark-only --benchmark-json=benchmark-results.json
+            pytest -p no:pytest_ethereum tests/performance/ --benchmark-only --benchmark-json=benchmark-results.json
           else
             echo "No performance tests found"
           fi

@@ -16,6 +16,11 @@ on:
       - 'requirements.txt'
       - 'pyproject.toml'
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
 env:
   PYTHON_VERSION: '3.11'
 
@@ -56,7 +61,7 @@ jobs:
           DATABASE_URL: sqlite:///test.db
           LOG_LEVEL: DEBUG
         run: |
-          pytest tests/ \
+          pytest -p no:pytest_ethereum tests/ \
             --cov=bot \
             --cov-report=xml \
             --cov-report=html \
@@ -74,7 +79,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TEST_TELEGRAM_BOT_TOKEN || 'test-token' }}
           DATABASE_URL: sqlite:///test.db
         run: |
-          pytest tests/integration/ \
+          pytest -p no:pytest_ethereum tests/integration/ \
             --verbose \
             --log-file=test-logs/integration-${{ matrix.python-version }}.log \
             || echo "Integration tests not yet implemented"
