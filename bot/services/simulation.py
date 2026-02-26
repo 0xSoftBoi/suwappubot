@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from bot.services.price_service import price_service
 from bot.services.wallet import WalletService
 from bot.config.tokens import get_token_by_symbol, get_token_decimals
-from bot.utils.http_client import HttpClient
+from bot.utils.http_client import get_session as get_http_session, fetch_json
 
 logger = logging.getLogger(__name__)
 

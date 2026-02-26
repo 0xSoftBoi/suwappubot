@@ -18,8 +18,8 @@ def enforce_tos(func):
         if not tos_service.is_accepted_telegram(user.id):
             message_text = (
                 "⚠️ *Terms of Service Required*\n\n"
-                "Before using Suwappu Bot, you must read and accept our Terms of Service\.\n\n"
-                "Please use /start to review and accept the terms\."
+                "Before using Suwappu Bot, you must read and accept our Terms of Service.\n\n"
+                "Please use /start to review and accept the terms."
             )
             
             if update.callback_query:

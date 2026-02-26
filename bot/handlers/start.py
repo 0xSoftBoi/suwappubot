@@ -112,7 +112,7 @@ async def tos_decline_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
     
     await query.edit_message_text(
-        "❌ *Terms Declined*\n\nYou must accept the Terms of Service to use Suwappu Bot\. If you change your mind, use /start to try again\.",
+        "❌ *Terms Declined*\n\nYou must accept the Terms of Service to use Suwappu Bot\\. If you change your mind, use /start to try again\\.",
         parse_mode="MarkdownV2"
     )
 

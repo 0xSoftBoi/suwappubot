@@ -68,50 +68,50 @@ HELP_MESSAGE = """
 
 📖 *Help Guide*
 
-━━ 🔐 *SELF\-CUSTODY MODE* ━━
+━━ 🔐 *SELF-CUSTODY MODE* ━━
 _You hold your private keys_
 
-• /w \- Create/import your wallet
-• /b \- Check your balances
-• /s \- Swap with your wallet
-• /hx \- View transactions
+• /w - Create/import your wallet
+• /b - Check your balances
+• /s - Swap with your wallet
+• /hx - View transactions
 
 ⚠️ You pay gas fees from your wallet
 
 ━━ 🏦 *CUSTODIAL MODE* ━━
 _We manage funds for you_
 
-• /c \- View custodial account
-  ↳ Deposit \- Send tokens to us
-  ↳ Withdraw \- Get tokens back
-  ↳ Swap \- Trade with zero gas
+• /c - View custodial account
+  ↳ Deposit - Send tokens to us
+  ↳ Withdraw - Get tokens back
+  ↳ Swap - Trade with zero gas
 
-✅ We pay all gas fees for you\!
+✅ We pay all gas fees for you!
 
 ━━━━━━━━━━━━━━━━━━━━
 
 *Other Commands:*
-• /p \- All holdings \+ USD value
-• /g \- Live gas prices
-• /f \- Saved swap pairs
-• /set \- Preferences
+• /p - All holdings + USD value
+• /g - Live gas prices
+• /f - Saved swap pairs
+• /set - Preferences
 
 ━━ 🎮 *GROWTH & SOCIAL* ━━
 
-• /xp \- Your points \+ level
-• /checkin \- Daily check\-in
-• /lb \- XP leaderboard
-• /rewards \- Redeem points
+• /xp - Your points + level
+• /checkin - Daily check-in
+• /lb - XP leaderboard
+• /rewards - Redeem points
 
-• /traders \- Top traders to follow
-• /following \- Who you follow
-• /profile \- Your trader profile
+• /traders - Top traders to follow
+• /following - Who you follow
+• /profile - Your trader profile
 
-• /ref \- Your referral code
-• /rewards \- Referral earnings
+• /ref - Your referral code
+• /rewards - Referral earnings
 
 *Fees:*
-• 0\.8% swap fee on all trades
+• 0.8% swap fee on all trades
 • Gas sponsored in custodial mode
 • Earn 30% from referral fees
 """
