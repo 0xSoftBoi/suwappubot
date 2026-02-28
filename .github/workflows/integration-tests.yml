@@ -23,7 +23,7 @@ jobs:
 
       - name: Start test services
         run: |
-          docker-compose -f docker-compose.local.yml up -d postgres redis
+          docker compose -f docker-compose.local.yml up -d postgres redis
 
       - name: Wait for services
         run: |
@@ -173,7 +173,7 @@ jobs:
 
       - name: Start application stack
         run: |
-          docker-compose -f docker-compose.local.yml up -d
+          docker compose -f docker-compose.local.yml up -d
           sleep 10
 
       - name: Run E2E tests
