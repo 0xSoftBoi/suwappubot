@@ -8,7 +8,7 @@ Deploy the Suwappu webapp and/or api-ts services to AWS ECS.
 
 ## Prerequisites
 
-- AWS CLI configured with `Swappu` profile
+- AWS CLI configured (default profile, account `905418423235`)
 - Docker installed and running
 - Access to AWS account `905418423235`
 
@@ -17,7 +17,7 @@ Deploy the Suwappu webapp and/or api-ts services to AWS ECS.
 ### Step 1: Login to ECR
 
 ```bash
-AWS_PROFILE=Swappu aws ecr get-login-password --region us-east-1 | \
+aws ecr get-login-password --region us-east-1 | \
   docker login --username AWS --password-stdin 905418423235.dkr.ecr.us-east-1.amazonaws.com
 ```
 
@@ -49,12 +49,12 @@ docker push 905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu-api-ts:developm
 
 ```bash
 # Webapp services
-AWS_PROFILE=Swappu aws ecs update-service --cluster suwappu-cluster --service suwappu-webapp-prod --force-new-deployment --region us-east-1
-AWS_PROFILE=Swappu aws ecs update-service --cluster suwappu-cluster --service suwappu-webapp-dev --force-new-deployment --region us-east-1
+aws ecs update-service --cluster suwappu-cluster --service suwappu-webapp-prod --force-new-deployment --region us-east-1
+aws ecs update-service --cluster suwappu-cluster --service suwappu-webapp-dev --force-new-deployment --region us-east-1
 
 # API services
-AWS_PROFILE=Swappu aws ecs update-service --cluster suwappu-cluster --service suwappu-api-ts-prod --force-new-deployment --region us-east-1
-AWS_PROFILE=Swappu aws ecs update-service --cluster suwappu-cluster --service suwappu-api-ts-dev --force-new-deployment --region us-east-1
+aws ecs update-service --cluster suwappu-cluster --service suwappu-api-ts-prod --force-new-deployment --region us-east-1
+aws ecs update-service --cluster suwappu-cluster --service suwappu-api-ts-dev --force-new-deployment --region us-east-1
 ```
 
 ### Step 4: Verify Health
@@ -63,7 +63,7 @@ Wait 60-90 seconds for deployment, then check:
 
 ```bash
 # Check ECS service status
-AWS_PROFILE=Swappu aws ecs describe-services \
+aws ecs describe-services \
   --cluster suwappu-cluster \
   --services suwappu-webapp-prod suwappu-webapp-dev suwappu-api-ts-prod suwappu-api-ts-dev \
   --region us-east-1 \
@@ -89,26 +89,26 @@ curl -s http://devapi.suwappu.dev/health
 ### Check Target Health
 ```bash
 # Get target group ARNs
-AWS_PROFILE=Swappu aws elbv2 describe-target-groups --region us-east-1 \
+aws elbv2 describe-target-groups --region us-east-1 \
   --query 'TargetGroups[?contains(TargetGroupName, `suwappu`)].{Name:TargetGroupName,ARN:TargetGroupArn}'
 
 # Check specific target health
-AWS_PROFILE=Swappu aws elbv2 describe-target-health \
+aws elbv2 describe-target-health \
   --target-group-arn <TARGET_GROUP_ARN> --region us-east-1
 ```
 
 ### Check ECS Task Logs
 ```bash
 # List recent tasks
-AWS_PROFILE=Swappu aws ecs list-tasks --cluster suwappu-cluster --service-name <SERVICE_NAME> --region us-east-1
+aws ecs list-tasks --cluster suwappu-cluster --service-name <SERVICE_NAME> --region us-east-1
 
 # Describe task for container details
-AWS_PROFILE=Swappu aws ecs describe-tasks --cluster suwappu-cluster --tasks <TASK_ARN> --region us-east-1
+aws ecs describe-tasks --cluster suwappu-cluster --tasks <TASK_ARN> --region us-east-1
 ```
 
 ### Service Events
 ```bash
-AWS_PROFILE=Swappu aws ecs describe-services \
+aws ecs describe-services \
   --cluster suwappu-cluster \
   --services <SERVICE_NAME> \
   --region us-east-1 \
@@ -117,7 +117,7 @@ AWS_PROFILE=Swappu aws ecs describe-services \
 
 ## Infrastructure Reference
 
-- **AWS Account:** 905418423235 (Swappu profile)
+- **AWS Account:** 905418423235 (default profile)
 - **ECS Cluster:** suwappu-cluster
 - **ECR Repos:** suwappu-webapp, suwappu-api-ts
 - **Region:** us-east-1
