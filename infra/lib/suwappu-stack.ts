@@ -45,9 +45,9 @@ export class SuwappuStack extends cdk.Stack {
       ],
     });
 
-    // NOTE: VPC Endpoints (S3 gateway, ECR API, ECR Docker, CloudWatch Logs,
-    // Secrets Manager) are deployed outside CDK via AWS CLI. Security group:
-    // sg-0f3a1c4cda6c27029. See deployment notes for endpoint IDs.
+    // NOTE: Only an S3 Gateway VPC endpoint is deployed (free, created via CLI:
+    // vpce-0d70a05ed12a18056). Interface endpoints were removed — NAT data
+    // transfer is only ~$1/mo, far less than the ~$29/mo interface endpoint cost.
 
     // ==================== Security Groups ====================
     // ALB security group — shared by ALBs managed outside CDK
