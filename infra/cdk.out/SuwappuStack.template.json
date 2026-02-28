@@ -563,30 +563,6 @@
     "aws:cdk:path": "SuwappuStack/EcsSecurityGroup/Resource"
    }
   },
-  "EcsSecurityGroupfromSuwappuStackAlbSecurityGroupB4856895100005D258E95": {
-   "Type": "AWS::EC2::SecurityGroupIngress",
-   "Properties": {
-    "Description": "Allow from ALB",
-    "FromPort": 10000,
-    "GroupId": {
-     "Fn::GetAtt": [
-      "EcsSecurityGroup44008BF1",
-      "GroupId"
-     ]
-    },
-    "IpProtocol": "tcp",
-    "SourceSecurityGroupId": {
-     "Fn::GetAtt": [
-      "AlbSecurityGroup86A59E99",
-      "GroupId"
-     ]
-    },
-    "ToPort": 10000
-   },
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/EcsSecurityGroup/from SuwappuStackAlbSecurityGroupB4856895:10000"
-   }
-  },
   "RdsSecurityGroup632A77E4": {
    "Type": "AWS::EC2::SecurityGroup",
    "Properties": {
@@ -1298,167 +1274,6 @@
     "aws:cdk:path": "SuwappuStack/SuwappuTask/ExecutionRole/DefaultPolicy/Resource"
    }
   },
-  "SuwappuAlbEE402080": {
-   "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
-   "Properties": {
-    "LoadBalancerAttributes": [
-     {
-      "Key": "deletion_protection.enabled",
-      "Value": "false"
-     }
-    ],
-    "Scheme": "internet-facing",
-    "SecurityGroups": [
-     {
-      "Fn::GetAtt": [
-       "AlbSecurityGroup86A59E99",
-       "GroupId"
-      ]
-     }
-    ],
-    "Subnets": [
-     {
-      "Ref": "SuwappuVpcPublicSubnet1SubnetD763028D"
-     },
-     {
-      "Ref": "SuwappuVpcPublicSubnet2Subnet9F4FED4E"
-     }
-    ],
-    "Type": "application"
-   },
-   "DependsOn": [
-    "SuwappuVpcPublicSubnet1DefaultRouteF4BD07E9",
-    "SuwappuVpcPublicSubnet1RouteTableAssociation7A231D6D",
-    "SuwappuVpcPublicSubnet2DefaultRoute9F18DD95",
-    "SuwappuVpcPublicSubnet2RouteTableAssociationF9700262"
-   ],
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/SuwappuAlb/Resource"
-   }
-  },
-  "SuwappuAlbHttpListener9C476391": {
-   "Type": "AWS::ElasticLoadBalancingV2::Listener",
-   "Properties": {
-    "DefaultActions": [
-     {
-      "RedirectConfig": {
-       "Port": "443",
-       "Protocol": "HTTPS",
-       "StatusCode": "HTTP_301"
-      },
-      "Type": "redirect"
-     }
-    ],
-    "LoadBalancerArn": {
-     "Ref": "SuwappuAlbEE402080"
-    },
-    "Port": 80,
-    "Protocol": "HTTP"
-   },
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/SuwappuAlb/HttpListener/Resource"
-   }
-  },
-  "SuwappuAlbHttpsListenerCE6601D6": {
-   "Type": "AWS::ElasticLoadBalancingV2::Listener",
-   "Properties": {
-    "Certificates": [
-     {
-      "CertificateArn": "arn:aws:acm:us-east-1:905418423235:certificate/74e95aae-e397-44cc-9005-d964c97ebc41"
-     }
-    ],
-    "DefaultActions": [
-     {
-      "FixedResponseConfig": {
-       "ContentType": "text/plain",
-       "MessageBody": "Not Found",
-       "StatusCode": "404"
-      },
-      "Type": "fixed-response"
-     }
-    ],
-    "LoadBalancerArn": {
-     "Ref": "SuwappuAlbEE402080"
-    },
-    "Port": 443,
-    "Protocol": "HTTPS"
-   },
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/SuwappuAlb/HttpsListener/Resource"
-   }
-  },
-  "SuwappuWaf": {
-   "Type": "AWS::WAFv2::WebACL",
-   "Properties": {
-    "DefaultAction": {
-     "Allow": {}
-    },
-    "Rules": [
-     {
-      "Name": "AWSCommonRules",
-      "OverrideAction": {
-       "None": {}
-      },
-      "Priority": 1,
-      "Statement": {
-       "ManagedRuleGroupStatement": {
-        "Name": "AWSManagedRulesCommonRuleSet",
-        "VendorName": "AWS"
-       }
-      },
-      "VisibilityConfig": {
-       "CloudWatchMetricsEnabled": true,
-       "MetricName": "AWSCommonRules",
-       "SampledRequestsEnabled": true
-      }
-     },
-     {
-      "Action": {
-       "Block": {}
-      },
-      "Name": "RateLimit",
-      "Priority": 2,
-      "Statement": {
-       "RateBasedStatement": {
-        "AggregateKeyType": "IP",
-        "Limit": 300
-       }
-      },
-      "VisibilityConfig": {
-       "CloudWatchMetricsEnabled": true,
-       "MetricName": "RateLimit",
-       "SampledRequestsEnabled": true
-      }
-     }
-    ],
-    "Scope": "REGIONAL",
-    "VisibilityConfig": {
-     "CloudWatchMetricsEnabled": true,
-     "MetricName": "SuwappuWafMetrics",
-     "SampledRequestsEnabled": true
-    }
-   },
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/SuwappuWaf"
-   }
-  },
-  "WafAlbAssociation": {
-   "Type": "AWS::WAFv2::WebACLAssociation",
-   "Properties": {
-    "ResourceArn": {
-     "Ref": "SuwappuAlbEE402080"
-    },
-    "WebACLArn": {
-     "Fn::GetAtt": [
-      "SuwappuWaf",
-      "Arn"
-     ]
-    }
-   },
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/WafAlbAssociation"
-   }
-  },
   "SuwappuAlerts4DC00454": {
    "Type": "AWS::SNS::Topic",
    "Properties": {
@@ -1466,38 +1281,6 @@
    },
    "Metadata": {
     "aws:cdk:path": "SuwappuStack/SuwappuAlerts/Resource"
-   }
-  },
-  "Alb5xxAlarm99BFF946": {
-   "Type": "AWS::CloudWatch::Alarm",
-   "Properties": {
-    "AlarmActions": [
-     {
-      "Ref": "SuwappuAlerts4DC00454"
-     }
-    ],
-    "AlarmDescription": "ALB 5xx errors > 10 in 5 minutes",
-    "ComparisonOperator": "GreaterThanOrEqualToThreshold",
-    "Dimensions": [
-     {
-      "Name": "LoadBalancer",
-      "Value": {
-       "Fn::GetAtt": [
-        "SuwappuAlbEE402080",
-        "LoadBalancerFullName"
-       ]
-      }
-     }
-    ],
-    "EvaluationPeriods": 1,
-    "MetricName": "HTTPCode_Target_5XX_Count",
-    "Namespace": "AWS/ApplicationELB",
-    "Period": 300,
-    "Statistic": "Sum",
-    "Threshold": 10
-   },
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/Alb5xxAlarm/Resource"
    }
   },
   "RdsCpuAlarm29EF1690": {
@@ -1836,7 +1619,7 @@
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/31TTW/bMAz9Lbsr2pCiu9vJVgQLNiMJumNBK4yr2pYMfSQoDP/3UZJjuz3spMenJ+pRpNZ8/fCdf/sCN7sS53rVyJL3RweiZkS99CjWvH/uBNtc1HOxYYUvGymOvlToAjejg/YOT1A2OPMzl1mrhQQntZrEAfzYFWH5De4JHN7gnRVGXgnOiXfKoSF8FyQnY5Q58vraonLsiMIb6d6fjPZd9PBfYqcqg9YOzKIw6GwLCio0VH2MR31AaTmBqdAt7psEn3cGVreW978weg1L1kiwIYhgYOZM+1twUILFnbIOlECWSp7cbvMlcVfP7rb5/eTAsAHrpCADyPvp+adUm7CxabyllySxoCoP2GkrnTbR5CKaYU7XBTV5Hc/GXCP8SVVD6K6tt3iRSt57+5nRyoFUaGZuYI2uKOteV5PFOx6YhJbs6TRHcS00zVz0mdBUb6PhXEJDbyBVdaVJzbqOBHHM9rSXx73k+0O81EkqR42aEQ/sBpeQj7i/WGabPZvQYpJpdhSVcdKdjB8kgoGRLX++gROvZKgB06bOE6ADD7zPvahTCxOKHXkBa2kK+VYTZXYtzWIWmIEaYrU3NB8xpr9ZUbHh9B/vOk8Cpc/I3+zX6/qRP9JffrNSroxXTrbID2n9ByXqvaroAwAA"
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/31TwW7bMAz9lt0VbUjR3p14K4wNnZEEvRa0wrqqbckQpQaF4X8fJcd20MNOfHwiqUdS2srt3YP88Q0utFHnZtPqSg5HD6oRTL0MqLZyeO6V2L+a53IvylC1Wh1DZdBHbkUHGzyeoGpx5VcuI7JKg9fWLMER/CzKaJ7AP4LHC3yK0ukPhmvhwnh0jOeAScnVyzxrfevQeHFEFZz2n4/Ohj5p+C9RmNoh0SgIlUNPHRio0XH3yb/GRzSZE7ga/c19S8DXk1E0HcnhNyat0WStBopOAqNwZz7PwUMFhIUhD0ahmFpe1Oa7W2KOXtXluzlzFNgCea1YAMphGf9Sah8P9m0gniQHK+7ygL0l7a1LIm+8Fe74uhjNWq+5qdYV/uKuIW6XmhxftdHzbr8y1njQBt3KjaK1NVf9Y+tF4oxHoaFjeXZ6R8mWlt9c0jkh3pnh9JPtdXqYCYxCtTacL+DVmxyyFlw3TZwBJ9zJYRdUM41uQmkSL0DE25e5ZcoVHb+BLDIjD4JscLyX5POfqLWpY/bf4PvAAcaeUb7T94/tvbznP/ROWm9cMF53KA+T/QdT87SIYAMAAA=="
    },
    "Metadata": {
     "aws:cdk:path": "SuwappuStack/CDKMetadata/Default"
@@ -1858,18 +1641,6 @@
    "Value": "suwappu-db-backup",
    "Export": {
     "Name": "SuwappuBackupTaskFamily"
-   }
-  },
-  "LoadBalancerDns": {
-   "Description": "Load Balancer DNS Name",
-   "Value": {
-    "Fn::GetAtt": [
-     "SuwappuAlbEE402080",
-     "DNSName"
-    ]
-   },
-   "Export": {
-    "Name": "SuwappuLoadBalancerDns"
    }
   },
   "EcrRepositoryUri": {
@@ -1975,6 +1746,24 @@
    },
    "Export": {
     "Name": "SuwappuRedisEndpoint"
+   }
+  },
+  "ShowcaseEcrRepositoryUri": {
+   "Description": "Showcase ECR Repository URI",
+   "Value": {
+    "Fn::Join": [
+     "",
+     [
+      "905418423235.dkr.ecr.us-east-1.",
+      {
+       "Ref": "AWS::URLSuffix"
+      },
+      "/suwappu-showcase"
+     ]
+    ]
+   },
+   "Export": {
+    "Name": "SuwappuShowcaseEcrUri"
    }
   }
  },

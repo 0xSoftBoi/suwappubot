@@ -23,7 +23,7 @@
         "validateOnSynth": false,
         "assumeRoleArn": "arn:${AWS::Partition}:iam::905418423235:role/cdk-hnb659fds-deploy-role-905418423235-us-east-1",
         "cloudFormationExecutionRoleArn": "arn:${AWS::Partition}:iam::905418423235:role/cdk-hnb659fds-cfn-exec-role-905418423235-us-east-1",
-        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-905418423235-us-east-1/27ee3d0c2889da62bea561f9a3dcd08304a2917bc6ff20dbf71e8e9e249460ae.json",
+        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-905418423235-us-east-1/9e9e826aa75851c0d117a5e7600d9f1af3372f0dcfd401a66feaea1d8b32c375.json",
         "requiresBootstrapStackVersion": 6,
         "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version",
         "additionalDependencies": [
@@ -232,12 +232,6 @@
             "data": "EcsSecurityGroup44008BF1"
           }
         ],
-        "/SuwappuStack/EcsSecurityGroup/from SuwappuStackAlbSecurityGroupB4856895:10000": [
-          {
-            "type": "aws:cdk:logicalId",
-            "data": "EcsSecurityGroupfromSuwappuStackAlbSecurityGroupB4856895100005D258E95"
-          }
-        ],
         "/SuwappuStack/RdsSecurityGroup/Resource": [
           {
             "type": "aws:cdk:logicalId",
@@ -364,46 +358,10 @@
             "data": "SuwappuTaskExecutionRoleDefaultPolicy3A1C9E48"
           }
         ],
-        "/SuwappuStack/SuwappuAlb/Resource": [
-          {
-            "type": "aws:cdk:logicalId",
-            "data": "SuwappuAlbEE402080"
-          }
-        ],
-        "/SuwappuStack/SuwappuAlb/HttpListener/Resource": [
-          {
-            "type": "aws:cdk:logicalId",
-            "data": "SuwappuAlbHttpListener9C476391"
-          }
-        ],
-        "/SuwappuStack/SuwappuAlb/HttpsListener/Resource": [
-          {
-            "type": "aws:cdk:logicalId",
-            "data": "SuwappuAlbHttpsListenerCE6601D6"
-          }
-        ],
-        "/SuwappuStack/SuwappuWaf": [
-          {
-            "type": "aws:cdk:logicalId",
-            "data": "SuwappuWaf"
-          }
-        ],
-        "/SuwappuStack/WafAlbAssociation": [
-          {
-            "type": "aws:cdk:logicalId",
-            "data": "WafAlbAssociation"
-          }
-        ],
         "/SuwappuStack/SuwappuAlerts/Resource": [
           {
             "type": "aws:cdk:logicalId",
             "data": "SuwappuAlerts4DC00454"
-          }
-        ],
-        "/SuwappuStack/Alb5xxAlarm/Resource": [
-          {
-            "type": "aws:cdk:logicalId",
-            "data": "Alb5xxAlarm99BFF946"
           }
         ],
         "/SuwappuStack/RdsCpuAlarm/Resource": [
@@ -472,12 +430,6 @@
             "data": "BackupTaskDefinition"
           }
         ],
-        "/SuwappuStack/LoadBalancerDns": [
-          {
-            "type": "aws:cdk:logicalId",
-            "data": "LoadBalancerDns"
-          }
-        ],
         "/SuwappuStack/EcrRepositoryUri": [
           {
             "type": "aws:cdk:logicalId",
@@ -512,6 +464,12 @@
           {
             "type": "aws:cdk:logicalId",
             "data": "RedisEndpoint"
+          }
+        ],
+        "/SuwappuStack/ShowcaseEcrRepositoryUri": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ShowcaseEcrRepositoryUri"
           }
         ],
         "/SuwappuStack/CDKMetadata/Default": [

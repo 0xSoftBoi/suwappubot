@@ -4,11 +4,8 @@ import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
-import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as iam from 'aws-cdk-lib/aws-iam';
-import * as acm from 'aws-cdk-lib/aws-certificatemanager';
-import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cw_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sns from 'aws-cdk-lib/aws-sns';
@@ -21,7 +18,6 @@ export class SuwappuStack extends cdk.Stack {
   public readonly vpc: ec2.Vpc;
   public readonly cluster: ecs.Cluster;
   public readonly database: rds.DatabaseInstance;
-  public readonly loadBalancer: elbv2.ApplicationLoadBalancer;
 
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
@@ -49,7 +45,13 @@ export class SuwappuStack extends cdk.Stack {
       ],
     });
 
+    // NOTE: VPC Endpoints (S3 gateway, ECR API, ECR Docker, CloudWatch Logs,
+    // Secrets Manager) are deployed outside CDK via AWS CLI. Security group:
+    // sg-0f3a1c4cda6c27029. See deployment notes for endpoint IDs.
+
     // ==================== Security Groups ====================
+    // ALB security group — shared by ALBs managed outside CDK
+    // (suwappu-webapp-prod, suwappu-webapp-dev, suwappu-showcase)
     const albSecurityGroup = new ec2.SecurityGroup(this, 'AlbSecurityGroup', {
       vpc: this.vpc,
       description: 'Security group for ALB',
@@ -71,11 +73,6 @@ export class SuwappuStack extends cdk.Stack {
       description: 'Security group for ECS tasks',
       allowAllOutbound: true,
     });
-    ecsSecurityGroup.addIngressRule(
-      albSecurityGroup,
-      ec2.Port.tcp(10000),
-      'Allow from ALB'
-    );
 
     const rdsSecurityGroup = new ec2.SecurityGroup(this, 'RdsSecurityGroup', {
       vpc: this.vpc,
@@ -191,17 +188,11 @@ export class SuwappuStack extends cdk.Stack {
     });
 
     // ==================== ECR Repository (Showcase) ====================
-    const showcaseRepository = new ecr.Repository(this, 'SuwappuShowcaseRepository', {
-      repositoryName: 'suwappu-showcase',
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-      imageScanOnPush: true,
-      lifecycleRules: [
-        {
-          maxImageCount: 10,
-          description: 'Keep only 10 images',
-        },
-      ],
-    });
+    // Showcase repo exists in AWS but is not in CloudFormation state.
+    // Reference it by name to avoid create conflict.
+    const showcaseRepository = ecr.Repository.fromRepositoryName(
+      this, 'SuwappuShowcaseRepository', 'suwappu-showcase'
+    );
 
     // ==================== ECS Cluster ====================
     this.cluster = new ecs.Cluster(this, 'SuwappuCluster', {
@@ -292,114 +283,14 @@ export class SuwappuStack extends cdk.Stack {
       protocol: ecs.Protocol.TCP,
     });
 
-    // ==================== Application Load Balancer ====================
-    this.loadBalancer = new elbv2.ApplicationLoadBalancer(this, 'SuwappuAlb', {
-      vpc: this.vpc,
-      internetFacing: true,
-      securityGroup: albSecurityGroup,
-    });
-
-    // ==================== ACM Certificate ====================
-    const certificateArn = this.node.tryGetContext('certificateArn');
-    if (!certificateArn) {
-      throw new Error(
-        'Missing required CDK context variable "certificateArn". ' +
-        'Pass it via: cdk deploy -c certificateArn=arn:aws:acm:REGION:ACCOUNT:certificate/ID'
-      );
-    }
-    const certificate = acm.Certificate.fromCertificateArn(
-      this,
-      'SuwappuCert',
-      certificateArn,
-    );
-
-    // HTTP listener — redirect all traffic to HTTPS
-    this.loadBalancer.addListener('HttpListener', {
-      port: 80,
-      protocol: elbv2.ApplicationProtocol.HTTP,
-      defaultAction: elbv2.ListenerAction.redirect({
-        protocol: 'HTTPS',
-        port: '443',
-        permanent: true,
-      }),
-    });
-
-    // HTTPS listener with default fixed response (services add their own rules)
-    const httpsListener = this.loadBalancer.addListener('HttpsListener', {
-      port: 443,
-      protocol: elbv2.ApplicationProtocol.HTTPS,
-      certificates: [certificate],
-      defaultAction: elbv2.ListenerAction.fixedResponse(404, {
-        contentType: 'text/plain',
-        messageBody: 'Not Found',
-      }),
-    });
-
-    // ==================== WAF ====================
-    const webAcl = new wafv2.CfnWebACL(this, 'SuwappuWaf', {
-      scope: 'REGIONAL',
-      defaultAction: { allow: {} },
-      visibilityConfig: {
-        cloudWatchMetricsEnabled: true,
-        metricName: 'SuwappuWafMetrics',
-        sampledRequestsEnabled: true,
-      },
-      rules: [
-        {
-          name: 'AWSCommonRules',
-          priority: 1,
-          overrideAction: { none: {} },
-          statement: {
-            managedRuleGroupStatement: {
-              vendorName: 'AWS',
-              name: 'AWSManagedRulesCommonRuleSet',
-            },
-          },
-          visibilityConfig: {
-            cloudWatchMetricsEnabled: true,
-            metricName: 'AWSCommonRules',
-            sampledRequestsEnabled: true,
-          },
-        },
-        {
-          name: 'RateLimit',
-          priority: 2,
-          action: { block: {} },
-          statement: {
-            rateBasedStatement: {
-              limit: 300,
-              aggregateKeyType: 'IP',
-            },
-          },
-          visibilityConfig: {
-            cloudWatchMetricsEnabled: true,
-            metricName: 'RateLimit',
-            sampledRequestsEnabled: true,
-          },
-        },
-      ],
-    });
-
-    new wafv2.CfnWebACLAssociation(this, 'WafAlbAssociation', {
-      resourceArn: this.loadBalancer.loadBalancerArn,
-      webAclArn: webAcl.attrArn,
-    });
+    // NOTE: ALB, certificate, listeners, WAF, and WAF-ALB association removed
+    // from CDK. ALBs are now managed outside CDK per-service. The original CDK
+    // ALB was deleted from AWS, causing stack drift.
 
     // ==================== CloudWatch Alarms + SNS ====================
     const alertTopic = new sns.Topic(this, 'SuwappuAlerts', {
       topicName: 'suwappu-alerts',
     });
-
-    // ALB 5xx alarm
-    new cloudwatch.Alarm(this, 'Alb5xxAlarm', {
-      metric: this.loadBalancer.metrics.httpCodeTarget(
-        elbv2.HttpCodeTarget.TARGET_5XX_COUNT,
-        { period: cdk.Duration.minutes(5) },
-      ),
-      threshold: 10,
-      evaluationPeriods: 1,
-      alarmDescription: 'ALB 5xx errors > 10 in 5 minutes',
-    }).addAlarmAction(new cw_actions.SnsAction(alertTopic));
 
     // RDS CPU alarm
     new cloudwatch.Alarm(this, 'RdsCpuAlarm', {
@@ -478,12 +369,6 @@ export class SuwappuStack extends cdk.Stack {
     });
 
     // ==================== Outputs ====================
-    new cdk.CfnOutput(this, 'LoadBalancerDns', {
-      value: this.loadBalancer.loadBalancerDnsName,
-      description: 'Load Balancer DNS Name',
-      exportName: 'SuwappuLoadBalancerDns',
-    });
-
     new cdk.CfnOutput(this, 'EcrRepositoryUri', {
       value: repository.repositoryUri,
       description: 'ECR Repository URI',
