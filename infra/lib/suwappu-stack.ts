@@ -50,8 +50,9 @@ export class SuwappuStack extends cdk.Stack {
     // transfer is only ~$1/mo, far less than the ~$29/mo interface endpoint cost.
 
     // ==================== Security Groups ====================
-    // ALB security group — shared by ALBs managed outside CDK
-    // (suwappu-webapp-prod, suwappu-webapp-dev, suwappu-showcase)
+    // ALB security group — used by consolidated ALB (suwappu-alb) managed
+    // outside CDK. Host-based routing serves app.suwappu.bot,
+    // devfront.suwappu.bot, and www.suwappu.bot from a single ALB.
     const albSecurityGroup = new ec2.SecurityGroup(this, 'AlbSecurityGroup', {
       vpc: this.vpc,
       description: 'Security group for ALB',
@@ -284,8 +285,8 @@ export class SuwappuStack extends cdk.Stack {
     });
 
     // NOTE: ALB, certificate, listeners, WAF, and WAF-ALB association removed
-    // from CDK. ALBs are now managed outside CDK per-service. The original CDK
-    // ALB was deleted from AWS, causing stack drift.
+    // from CDK. A single consolidated ALB (suwappu-alb) with host-based routing
+    // is managed outside CDK, serving all frontend services.
 
     // ==================== CloudWatch Alarms + SNS ====================
     const alertTopic = new sns.Topic(this, 'SuwappuAlerts', {
