@@ -12,6 +12,7 @@ import * as sns from 'aws-cdk-lib/aws-sns';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import * as elasticache from 'aws-cdk-lib/aws-elasticache';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { Construct } from 'constructs';
 
 export class SuwappuStack extends cdk.Stack {
@@ -174,6 +175,24 @@ export class SuwappuStack extends cdk.Stack {
       cacheSubnetGroupName: redisSubnetGroup.cacheSubnetGroupName,
     });
     redisCluster.addDependency(redisSubnetGroup);
+
+    // ==================== SQS Trade Queue ====================
+    const tradeDLQ = new sqs.Queue(this, 'TradeDLQ', {
+      queueName: 'suwappu-trade-dlq',
+      retentionPeriod: cdk.Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+    });
+
+    const tradeQueue = new sqs.Queue(this, 'TradeQueue', {
+      queueName: 'suwappu-trade-queue',
+      visibilityTimeout: cdk.Duration.seconds(120),
+      retentionPeriod: cdk.Duration.days(4),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      deadLetterQueue: {
+        queue: tradeDLQ,
+        maxReceiveCount: 3,
+      },
+    });
 
     // ==================== ECR Repository ====================
     const repository = new ecr.Repository(this, 'SuwappuRepository', {
@@ -410,6 +429,16 @@ export class SuwappuStack extends cdk.Stack {
       value: showcaseRepository.repositoryUri,
       description: 'Showcase ECR Repository URI',
       exportName: 'SuwappuShowcaseEcrUri',
+    });
+
+    new cdk.CfnOutput(this, 'TradeQueueUrl', {
+      value: tradeQueue.queueUrl,
+      description: 'SQS Trade Queue URL',
+    });
+
+    new cdk.CfnOutput(this, 'TradeDLQUrl', {
+      value: tradeDLQ.queueUrl,
+      description: 'SQS Trade Dead Letter Queue URL',
     });
   }
 }

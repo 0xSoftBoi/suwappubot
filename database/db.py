@@ -129,6 +129,12 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         from bot.models.pnl import TokenPosition
         # Webhook events
         from bot.models.webhook_event import WebhookEvent
+        # Security models (audit logs, withdrawal whitelist, backup codes)
+        from bot.models.security import AuditLog, WithdrawalWhitelist, BackupCode
+        # Perpetual trading models
+        from bot.models.perps import PerpPosition, PerpOrder, HyperLiquidAccount
+        # Native token models
+        from bot.models.token import SuwappuStake, AirdropSnapshot, FeeDiscount
 
         # Create all tables
         Base.metadata.create_all(bind=engine)
@@ -244,6 +250,63 @@ def _ensure_schema(db_engine) -> None:
         from bot.models.advanced import RugMonitor
         RugMonitor.__table__.create(bind=db_engine)
         logger.info("Created rug_monitors table")
+
+    # --- security tables (audit_logs, withdrawal_whitelist, backup_codes) ---
+    _add_security_tables(db_engine, inspector, is_sqlite)
+
+    # --- Phase 4 tables: perps, token ---
+    _add_phase4_tables(db_engine, inspector, is_sqlite)
+
+    # --- users: discord_id column ---
+    if "users" in tables:
+        _add_discord_columns(db_engine, inspector, is_sqlite)
+
+
+def _add_security_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create security tables (audit_logs, withdrawal_whitelist, backup_codes) idempotently."""
+    try:
+        from bot.models.security import AuditLog, WithdrawalWhitelist, BackupCode
+
+        for model in (AuditLog, WithdrawalWhitelist, BackupCode):
+            if not inspector.has_table(model.__tablename__):
+                model.__table__.create(bind=db_engine)
+                logger.info(f"Created {model.__tablename__} table")
+    except Exception as e:
+        logger.warning(f"Failed to create security tables: {e}")
+
+
+def _add_phase4_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create Phase 4 tables (perps, token) idempotently."""
+    try:
+        from bot.models.perps import PerpPosition, PerpOrder, HyperLiquidAccount
+        from bot.models.token import SuwappuStake, AirdropSnapshot, FeeDiscount
+
+        for model in (PerpPosition, PerpOrder, HyperLiquidAccount,
+                      SuwappuStake, AirdropSnapshot, FeeDiscount):
+            if not inspector.has_table(model.__tablename__):
+                model.__table__.create(bind=db_engine)
+                logger.info(f"Created {model.__tablename__} table")
+    except Exception as e:
+        logger.warning(f"Failed to create Phase 4 tables: {e}")
+
+
+def _add_discord_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add Discord user linking columns to users table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("users")}
+
+    new_columns = [
+        ("discord_id", "VARCHAR(100)", "NULL"),
+        ("discord_username", "VARCHAR(255)", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE users ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
 
 
 def _fix_user_nullability(db_engine, inspector, is_sqlite: bool) -> None:

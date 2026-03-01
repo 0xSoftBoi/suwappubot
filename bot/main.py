@@ -89,6 +89,9 @@ from bot.handlers.copy import (
 # Token Sniping handlers
 from bot.handlers.snipe import snipe_conversation_handler
 from bot.handlers.dashboard import dashboard_handler, dashboard_menu_callback
+# Phase 4: Perps & Token handlers
+from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
+from bot.handlers.token import token_conversation_handler, token_menu_callback_handler
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
@@ -168,6 +171,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(premium_handler)       # /premium alias
     application.add_handler(dashboard_handler)    # /dashboard (Mini App)
 
+    # Phase 4: Perps & Token (must be before generic callback handlers)
+    # Note: conversation handlers are registered below in the CONVERSATION section
+
     # Points/XP system
     application.add_handler(xp_handler)          # /xp
     application.add_handler(checkin_handler)     # /checkin
@@ -206,6 +212,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(subscription_conversation)  # x402 subscription flow
     application.add_handler(profile_edit_conversation)  # Copy trading profile editing
     application.add_handler(snipe_conversation_handler)  # Token sniping /snipe
+    application.add_handler(perps_conversation_handler)  # Perps /perps
+    application.add_handler(token_conversation_handler)  # Token /suwappu /token
 
     # ============ CALLBACK QUERY HANDLERS ============
     
@@ -325,6 +333,10 @@ def add_handlers(application: Application) -> None:
     application.add_handler(quests_callback_handler)
     application.add_handler(quest_claim_callback_handler)
 
+    # Phase 4 callbacks
+    application.add_handler(perps_menu_callback_handler)
+    application.add_handler(token_menu_callback_handler)
+
     # Copy Trading callbacks
     application.add_handler(copy_menu_callback_handler)
     application.add_handler(traders_callback_handler)
@@ -379,6 +391,8 @@ async def post_init(application) -> None:
             BotCommand("xp", "Points & XP"),
             BotCommand("checkin", "Daily check-in"),
             BotCommand("traders", "Copy trading"),
+            BotCommand("perps", "Perpetual trading"),
+            BotCommand("suwappu", "Token staking & rewards"),
             BotCommand("tax", "Tax export"),
             BotCommand("set", "Settings"),
             BotCommand("h", "Help"),

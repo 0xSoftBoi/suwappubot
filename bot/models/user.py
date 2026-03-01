@@ -11,6 +11,8 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     telegram_id = Column(Integer, unique=True, nullable=True, index=True)
     whatsapp_id = Column(String(255), unique=True, nullable=True, index=True)
+    discord_id = Column(String(100), unique=True, nullable=True, index=True)
+    discord_username = Column(String(255), nullable=True)
     username = Column(String(255), nullable=True)
     first_name = Column(String(255), nullable=True)
     last_name = Column(String(255), nullable=True)

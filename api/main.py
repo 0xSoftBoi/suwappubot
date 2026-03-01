@@ -168,6 +168,35 @@ async def lifespan(app: FastAPI):
 
         gamification_task = asyncio.create_task(_gamification_scheduler())
 
+        # Phase 4: Perps position monitor
+        if getattr(settings, 'hyperliquid_enabled', False):
+            try:
+                from bot.services.perps_monitor import perps_monitor
+                await perps_monitor.start(bot=bot_app.bot if bot_initialized else None)
+                logger.info("✓ Perps monitor started")
+            except Exception as e:
+                logger.warning(f"⚠️ Perps monitor failed to start: {e}")
+
+        # Phase 4: Trade worker (SQS queue consumer)
+        if getattr(settings, 'trade_worker_enabled', False):
+            try:
+                from bot.services.trade_worker import TradeWorker
+                trade_worker = TradeWorker()
+                await trade_worker.start()
+                logger.info("✓ Trade worker started")
+            except Exception as e:
+                logger.warning(f"⚠️ Trade worker failed to start: {e}")
+
+        # Phase 4: Discord bot
+        if getattr(settings, 'discord_enabled', False) and getattr(settings, 'discord_bot_token', None):
+            try:
+                from bot.platforms.discord_bot import SuwappuDiscordBot
+                discord_bot = SuwappuDiscordBot(settings.discord_bot_token)
+                await discord_bot.start()
+                logger.info("✓ Discord bot started")
+            except Exception as e:
+                logger.warning(f"⚠️ Discord bot failed to start: {e}")
+
         logger.info("✓ All background services running")
     else:
         logger.warning("⚠️ Background services NOT started - database unavailable")
