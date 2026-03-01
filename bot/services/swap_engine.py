@@ -14,6 +14,7 @@ Provider Priority:
 
 import asyncio
 import logging
+import time
 from typing import Optional, List
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -141,6 +142,10 @@ class SwapEngine:
     def _is_ton_only_swap(self, from_chain: str, to_chain: str) -> bool:
         """Check if this is a TON-to-TON swap (use STON.fi)."""
         return from_chain == "ton" and to_chain == "ton"
+
+    def _is_sui_only_swap(self, from_chain: str, to_chain: str) -> bool:
+        """Check if this is a Sui-to-Sui swap (use Aftermath/Cetus)."""
+        return from_chain == "sui" and to_chain == "sui"
     
     def _is_ccip_route(self, from_chain: str, to_chain: str, from_token: str, to_token: str) -> bool:
         """Check if this route can use Chainlink CCIP (same token cross-chain EVM)."""
@@ -220,6 +225,11 @@ class SwapEngine:
             logger.info("get_quote routing=jupiter (solana-only) pair=%s->%s amount=%s", from_token, to_token, amount)
             quote = await self._get_jupiter_quote(
                 from_token, to_token, amount, amount_raw, from_address, int(slippage * 100)
+            )
+        elif self._is_sui_only_swap(from_chain, to_chain):
+            logger.info("get_quote routing=aftermath (sui-only) pair=%s->%s amount=%s", from_token, to_token, amount)
+            quote = await self._get_sui_quote(
+                from_token, to_token, amount, amount_raw, slippage
             )
         else:
             logger.info("get_quote routing=lifi (evm) pair=%s/%s->%s/%s amount=%s", from_chain, from_token, to_chain, to_token, amount)
@@ -601,8 +611,46 @@ class SwapEngine:
                 quote=quote,
                 wallet_service=self.wallet_service,
             )
+            # Phase 4: Check spending limits
+            try:
+                from bot.services.security import spending_tracker, SpendingLimits
+                from bot.models.favorites import UserSettings
+                with get_session() as session:
+                    user_settings = session.query(UserSettings).filter(
+                        UserSettings.user_id == user_id
+                    ).first()
+                    if user_settings:
+                        limits = SpendingLimits(
+                            per_swap_limit=user_settings.per_swap_limit_usd,
+                            daily_limit=user_settings.daily_limit_usd,
+                            require_2fa_above=user_settings.require_2fa_above_usd,
+                        )
+                    else:
+                        limits = SpendingLimits()
+                allowed, limit_msg = await spending_tracker.check_limits(
+                    user_id, quote.from_amount_human, limits
+                )
+                if not allowed:
+                    raise SwapError(f"🚫 {limit_msg}")
+            except SwapError:
+                raise
+            except Exception as e:
+                logger.warning(f"Spending limit check failed (non-blocking): {e}")
+
+            # Phase 4: Apply fee discount from points tier
+            try:
+                from bot.services.token_service import token_service
+                discount_pct = token_service.get_fee_discount(user_id)
+                if discount_pct > 0 and quote.fee_cost_usd > 0:
+                    discount_multiplier = 1.0 - (discount_pct / 100.0)
+                    quote.fee_cost_usd = quote.fee_cost_usd * discount_multiplier
+                    quote.total_cost_usd = quote.gas_cost_usd + quote.fee_cost_usd
+                    logger.info("execute_swap fee_discount=%s%% user_id=%d", discount_pct, user_id)
+            except Exception as e:
+                logger.warning(f"Fee discount check failed (non-blocking): {e}")
+
             logger.info("execute_swap all_validations_passed wallet_id=%d user_id=%d", wallet_id, user_id)
-            
+
             # Capture per-token prices for PnL tracking
             from_token_price = None
             to_token_price = None
@@ -698,6 +746,8 @@ class SwapEngine:
                     tx_hash = await self._execute_across_swap(quote, wallet_data)
                 elif quote.provider == "wormhole":
                     tx_hash = await self._execute_wormhole_swap(quote, wallet_data)
+                elif quote.provider == "aftermath":
+                    tx_hash = await self._execute_sui_swap(quote, wallet_data)
                 else:
                     tx_hash = await self._execute_lifi_swap(quote, wallet_data)
                 
@@ -708,6 +758,12 @@ class SwapEngine:
                     if db_tx:
                         db_tx.tx_hash = tx_hash
                         db_tx.status = SwapStatus.SUBMITTED.value
+
+                # Phase 4: Record spending for limit tracking
+                try:
+                    await spending_tracker.record_spending(user_id, quote.from_amount_human)
+                except Exception:
+                    pass  # Non-critical
 
                 # Clean up local references
                 wallet_encrypted_key = None
@@ -756,6 +812,41 @@ class SwapEngine:
         finally:
             lock.release()
             logger.info("execute_swap lock_released wallet_id=%d user_id=%d", wallet_id, user_id)
+
+    async def _get_sui_quote(
+        self,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: int,
+        slippage: float,
+    ) -> SwapQuote:
+        """Get a quote for a Sui-to-Sui swap via Aftermath/Cetus."""
+        from bot.services.sui_swap import sui_swap_service
+        result = await sui_swap_service.get_quote(from_token, to_token, amount)
+        return SwapQuote(
+            from_chain="sui",
+            to_chain="sui",
+            from_token=from_token,
+            to_token=to_token,
+            from_amount=str(amount_raw),
+            from_amount_human=amount,
+            to_amount=str(result.get("to_amount_raw", 0)),
+            to_amount_human=result.get("to_amount", 0.0),
+            exchange_rate=result.get("exchange_rate", 0.0),
+            gas_cost_usd=result.get("gas_cost_usd", 0.01),
+            fee_cost_usd=result.get("fee_cost_usd", 0.0),
+            total_cost_usd=result.get("total_cost_usd", 0.0),
+            provider="aftermath",
+            route_data=result.get("route_data"),
+            expires_at=time.time() + 60,
+        )
+
+    async def _execute_sui_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a Sui swap via Aftermath/Cetus."""
+        from bot.services.sui_swap import sui_swap_service
+        result = await sui_swap_service.execute_swap(quote.route_data, wallet_data)
+        return result.get("tx_hash", "")
 
     async def _get_stonfi_quote(
         self,

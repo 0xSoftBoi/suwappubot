@@ -13,6 +13,9 @@ const CHAIN_FILTERS = [
   { id: 'base', label: 'Base' },
   { id: 'arbitrum', label: 'ARB' },
   { id: 'bsc', label: 'BSC' },
+  { id: 'sui', label: 'SUI' },
+  { id: 'monad', label: 'MON' },
+  { id: 'berachain', label: 'BERA' },
 ]
 
 // Format price with appropriate decimals

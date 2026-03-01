@@ -116,6 +116,9 @@ class GoPlusAPI:
         "scroll": "534352",
         "gnosis": "100",
         "solana": "solana",
+        "monad": "41454",
+        "berachain": "80094",
+        "mantle": "5000",
     }
 
     @track_time(MetricNames.API_GOPLUS)

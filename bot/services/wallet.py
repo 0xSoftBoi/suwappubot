@@ -102,29 +102,42 @@ class WalletService:
         private_key = base58.b58encode(bytes(keypair)).decode()
         return address, private_key
 
+    def create_sui_wallet(self) -> tuple[str, str]:
+        """
+        Create a new Sui wallet.
+
+        Returns:
+            Tuple of (address, private_key as hex)
+        """
+        from bot.services.sui_wallet import create_sui_keypair
+        address, private_key_bytes = create_sui_keypair()
+        return address, private_key_bytes.hex()
+
     async def create_wallet(self, user_id: int, name: str, chain_type: str = "evm"):
         """
         Convenience method to create and save a wallet in one call.
-        
+
         Routes to Turnkey if configured, otherwise creates local wallet.
-        
+
         Args:
             user_id: Target user
             name: Label for the wallet
-            chain_type: "evm" or "solana"
-            
+            chain_type: "evm", "solana", or "sui"
+
         Returns:
             Wallet object
         """
         # Check if Turnkey is configured
         if settings.wallet_provider == "turnkey":
             return await self._create_turnkey_wallet(user_id, name, chain_type)
-        
+
         # Local wallet creation
         if chain_type == "evm":
             address, pk = self.create_evm_wallet()
         elif chain_type == "solana":
             address, pk = self.create_solana_wallet()
+        elif chain_type == "sui":
+            address, pk = self.create_sui_wallet()
         else:
             raise ValueError(f"Unsupported chain type: {chain_type}")
             
@@ -529,6 +542,28 @@ class WalletService:
         except Exception:
             return 0.0
     
+    async def get_sui_native_balance(self, address: str) -> float:
+        """Get SUI balance for an address."""
+        try:
+            rpc_url = settings.get_rpc_url("sui")
+            if not rpc_url:
+                return 0.0
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "suix_getBalance",
+                    "params": [address, "0x2::sui::SUI"],
+                }
+                async with session.post(rpc_url, json=payload) as resp:
+                    result = await resp.json()
+                    if "result" in result:
+                        total = int(result["result"].get("totalBalance", "0"))
+                        return total / 1e9  # MIST to SUI
+            return 0.0
+        except Exception:
+            return 0.0
+
     async def get_all_balances(self, wallet: Wallet) -> dict[str, dict[str, float]]:
         """
         Get all token balances for a wallet.
@@ -582,9 +617,20 @@ class WalletService:
             
             if chain_balances:
                 balances["solana"] = chain_balances
-        
+
+        elif wallet.chain_type == "sui":
+            chain_balances: dict[str, float] = {}
+
+            # SUI native balance
+            sui_balance = await self.get_sui_native_balance(wallet.address)
+            if sui_balance > 0:
+                chain_balances["SUI"] = sui_balance
+
+            if chain_balances:
+                balances["sui"] = chain_balances
+
         return balances
-    
+
     async def get_balances_by_address(self, address: str, chain_type: str) -> dict[str, dict[str, float]]:
         """
         Get all token balances for an address without needing a Wallet object.
@@ -642,9 +688,19 @@ class WalletService:
             
             if chain_balances:
                 balances["solana"] = chain_balances
-        
+
+        elif chain_type == "sui":
+            chain_balances: dict[str, float] = {}
+
+            sui_balance = await self.get_sui_native_balance(address)
+            if sui_balance > 0:
+                chain_balances["SUI"] = sui_balance
+
+            if chain_balances:
+                balances["sui"] = chain_balances
+
         return balances
-    
+
     # === Transaction Signing ===
     
     async def sign_evm_transaction(self, wallet: Wallet, transaction: dict) -> str:
