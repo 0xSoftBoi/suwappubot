@@ -60,6 +60,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -e .
+          pip install pytest-timeout
 
       - name: Lint with ruff
         run: |

@@ -1234,7 +1234,6 @@ class SwapEngine:
     async def _execute_ccip_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a cross-chain transfer via Chainlink CCIP."""
         from bot.utils.encryption import decrypt_private_key
-        from bot.services.ccip_api import CCIPQuote
         
         # Reconstruct CCIPQuote from raw_quote data
         ccip_quote = CCIPQuote(

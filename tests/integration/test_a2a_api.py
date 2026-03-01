@@ -8,6 +8,19 @@ from typing import Dict, Any
 
 # Configuration
 API_URL = os.getenv("API_URL", "https://devapi.suwappu.bot")
+
+# Skip entire module if API is unreachable (e.g., in CI without live server)
+def _api_reachable():
+    try:
+        r = httpx.get(f"{API_URL}/health", timeout=5.0)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+pytestmark = pytest.mark.skipif(
+    not _api_reachable(),
+    reason=f"API at {API_URL} is not reachable"
+)
 # Optional: Use existing key or let test register one
 EXISTING_API_KEY = os.getenv("AGENT_API_KEY") 
 

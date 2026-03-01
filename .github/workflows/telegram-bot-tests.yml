@@ -2,14 +2,14 @@ name: Telegram Bot Testing Framework
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main, dev]
     paths:
       - 'bot/**'
       - 'tests/**'
       - 'requirements.txt'
       - 'pyproject.toml'
   push:
-    branches: [main, develop]
+    branches: [main, dev]
     paths:
       - 'bot/**'
       - 'tests/**'
@@ -25,7 +25,7 @@ jobs:
     
     strategy:
       matrix:
-        python-version: ['3.10', '3.11', '3.12']
+        python-version: ['3.11', '3.12']
     
     steps:
       - name: Checkout code
@@ -56,7 +56,7 @@ jobs:
           DATABASE_URL: sqlite:///test.db
           LOG_LEVEL: DEBUG
         run: |
-          pytest tests/ \
+          pytest tests/ --ignore=tests/integration \
             --cov=bot \
             --cov-report=xml \
             --cov-report=html \
