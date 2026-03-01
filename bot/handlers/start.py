@@ -79,6 +79,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             InlineKeyboardButton("More...", callback_data="menu_more"),
         ],
     ]
+
+    # Add first-trade prompt for new users
+    if is_new_user:
+        keyboard.insert(0, [
+            InlineKeyboardButton("🚀 Make Your First Trade!", callback_data="first_trade"),
+        ])
+
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     welcome_text = WELCOME_MESSAGE + referral_message
@@ -239,6 +246,54 @@ async def more_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     await query.edit_message_text(
         "🌸 *More Features*",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def first_trade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle first-trade button — pre-fills a popular swap pair and redirects to swap flow."""
+    query = update.callback_query
+    await query.answer()
+
+    user = update.effective_user
+
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.edit_message_text("❌ Please use /start first.")
+            return
+        context.user_data["user_id"] = db_user.id
+
+    # Pre-fill with SOL -> USDC on Solana as a popular beginner pair
+    context.user_data["swap"] = {
+        "from_chain": "solana",
+        "from_token": "SOL",
+        "to_chain": "solana",
+        "to_token": "USDC",
+    }
+
+    quickbuy_row = [
+        InlineKeyboardButton(f"{amt} SOL", callback_data=f"swap_qb_{amt}")
+        for amt in [0.1, 0.5, 1.0, 5.0]
+    ]
+
+    keyboard = [
+        quickbuy_row,
+        [
+            InlineKeyboardButton("25%", callback_data="swap_pct_25"),
+            InlineKeyboardButton("50%", callback_data="swap_pct_50"),
+            InlineKeyboardButton("75%", callback_data="swap_pct_75"),
+            InlineKeyboardButton("Max", callback_data="swap_pct_100"),
+        ],
+        [InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")],
+    ]
+
+    await query.edit_message_text(
+        "🚀 *Your First Trade!*\n\n"
+        "We've set up a popular pair for you:\n"
+        "☀️ *SOL* → *USDC* on Solana\n\n"
+        "Pick an amount or type one:",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )

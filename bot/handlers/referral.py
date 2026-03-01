@@ -55,10 +55,11 @@ async def ref_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("👥 My Referrals", callback_data="ref_list"),
         ],
         [
+            InlineKeyboardButton("🌐 My Network", callback_data="ref_network"),
             InlineKeyboardButton("📋 Copy Code", callback_data=f"ref_copy_{code.code}"),
         ],
     ])
-    
+
     await update.message.reply_text(
         message,
         parse_mode="Markdown",
@@ -106,7 +107,7 @@ async def ref_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message = (
                 "👥 *Your Referrals*\n\n"
                 "You haven't referred anyone yet!\n\n"
-                "Share your referral link to start earning 30% of their fees."
+                "Share your referral link to start earning multi-tier rewards!"
             )
         else:
             message = "👥 *Your Referrals*\n\n"
@@ -128,26 +129,60 @@ async def ref_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=keyboard,
         )
     
+    elif data == "ref_network":
+        # Show referral network tree
+        referrals = referral_service.get_referrals_list(user_id, limit=10)
+        tier_earnings = referral_service.get_tier_earnings(user_id)
+
+        message = "🌐 *Your Referral Network*\n\n"
+
+        if not referrals:
+            message += "Your network is empty. Share your referral link to start building it!\n"
+        else:
+            message += "📊 *Network Earnings*\n"
+            message += f"• Tier 1 (25% direct): *${tier_earnings[1]:.2f}*\n"
+            message += f"• Tier 2 (5% indirect): *${tier_earnings[2]:.2f}*\n"
+            message += f"• Tier 3 (2% level 3): *${tier_earnings[3]:.2f}*\n\n"
+
+            message += "🌳 *Your Referral Tree*\n"
+            for i, ref in enumerate(referrals, 1):
+                username = ref['username'][:15]
+                rewards = ref['total_rewards_usd']
+                message += f"├ {username} - ${rewards:.2f}\n"
+
+        message += "\n_Grow your network for passive multi-tier earnings!_"
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back", callback_data="ref_back")],
+        ])
+
+        await query.edit_message_text(
+            message,
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+
     elif data.startswith("ref_copy_"):
         code = data.replace("ref_copy_", "")
         await query.answer(f"Code: {code} - Share it with friends!", show_alert=True)
-    
+
     elif data == "ref_back":
         # Go back to main referral view
         code = referral_service.get_or_create_code(user_id)
         bot_username = (await context.bot.get_me()).username
         message = referral_service.format_referral_message(user_id, bot_username)
-        
+
         keyboard = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("📊 My Rewards", callback_data="ref_rewards"),
                 InlineKeyboardButton("👥 My Referrals", callback_data="ref_list"),
             ],
             [
+                InlineKeyboardButton("🌐 My Network", callback_data="ref_network"),
                 InlineKeyboardButton("📋 Copy Code", callback_data=f"ref_copy_{code.code}"),
             ],
         ])
-        
+
         await query.edit_message_text(
             message,
             parse_mode="Markdown",

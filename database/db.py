@@ -117,7 +117,7 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         # Referral system models
         from bot.models.referral import Referral, ReferralCode, ReferralReward, ReferralPayout
         # Points/XP and Copy Trading models
-        from bot.models.points import UserPoints, PointTransaction, PointRedemption, Milestone, UserMilestone, Reward
+        from bot.models.points import UserPoints, PointTransaction, PointRedemption, Milestone, UserMilestone, Reward, DailyQuest, UserQuest, JackpotPool
         from bot.models.copy_trading import TraderProfile, CopyFollow, CopyTrade, CopyNotification, TraderTrade
         # Token Sniping models
         from bot.models.snipe import SnipeOrder, SnipeConfig, SnipeHistory, WatchedToken, AutoSnipeRule
@@ -205,9 +205,17 @@ def _ensure_schema(db_engine) -> None:
         _add_swap_agent_columns(db_engine, inspector, is_sqlite)
         _add_swap_price_columns(db_engine, inspector, is_sqlite)
 
-    # --- user_settings: MEV protection column ---
+    # --- user_settings: MEV protection column + quick trade presets ---
     if "user_settings" in tables:
         _add_user_settings_mev_column(db_engine, inspector, is_sqlite)
+        _add_quicktrade_columns(db_engine, inspector, is_sqlite)
+
+    # --- referral_rewards: multi-tier column ---
+    _add_referral_tier_column(db_engine, inspector, is_sqlite)
+
+    # --- limit_orders: advanced order columns ---
+    if "limit_orders" in tables:
+        _add_advanced_order_columns(db_engine, inspector, is_sqlite)
 
     # --- users: TOS columns and telegram_id nullability ---
     if "users" in tables:
@@ -216,6 +224,12 @@ def _ensure_schema(db_engine) -> None:
         _add_referral_columns(db_engine, inspector, is_sqlite)
         _add_push_token_column(db_engine, inspector, is_sqlite)
         _add_user_settings_columns(db_engine, inspector, is_sqlite)
+
+    # --- smart notification columns ---
+    _add_smart_notification_columns(db_engine, inspector, is_sqlite)
+
+    # --- gamification tables: daily_quests, user_quests, jackpot_pools ---
+    _create_gamification_tables(db_engine, inspector, is_sqlite)
 
 
 def _fix_user_nullability(db_engine, inspector, is_sqlite: bool) -> None:
@@ -309,6 +323,27 @@ def _add_user_settings_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 conn.execute(text(ddl))
 
 
+def _add_referral_tier_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add referral_tier column to referral_rewards table idempotently."""
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    if "referral_rewards" not in tables:
+        return
+
+    cols = {c["name"] for c in inspector.get_columns("referral_rewards")}
+
+    if "referral_tier" not in cols:
+        if is_sqlite:
+            ddl = "ALTER TABLE referral_rewards ADD COLUMN referral_tier INTEGER DEFAULT 1"
+        else:
+            ddl = "ALTER TABLE referral_rewards ADD COLUMN IF NOT EXISTS referral_tier INTEGER DEFAULT 1"
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
+
+
 def _add_swap_price_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Add per-token price columns to swap_transactions for PnL tracking."""
     cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
@@ -339,6 +374,46 @@ def _add_user_settings_mev_column(db_engine, inspector, is_sqlite: bool) -> None
             ddl = "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS mev_protection_enabled BOOLEAN DEFAULT TRUE"
         with db_engine.begin() as conn:
             conn.execute(text(ddl))
+
+
+def _add_quicktrade_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add quick-trade preset columns to user_settings table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("user_settings")}
+
+    new_columns = [
+        ("quickbuy_amounts", "VARCHAR(200)", "'0.1,0.5,1,5'"),
+        ("first_trade_completed", "BOOLEAN", "FALSE"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE user_settings ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+
+def _add_advanced_order_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add advanced order columns to limit_orders table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("limit_orders")}
+
+    new_columns = [
+        ("trailing_percent", "FLOAT", "NULL"),
+        ("highest_price_seen", "FLOAT", "NULL"),
+        ("parent_order_id", "INTEGER", "NULL"),
+        ("portion_percent", "FLOAT", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE limit_orders ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE limit_orders ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
 
 
 def _add_encryption_columns(db_engine, inspector, table_name: str, is_sqlite: bool) -> None:
@@ -412,6 +487,163 @@ def _add_swap_agent_columns(db_engine, inspector, is_sqlite: bool) -> None:
         conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_swap_transactions_agent_id "
             "ON swap_transactions(agent_id)"
+        ))
+
+
+def _add_smart_notification_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add smart notification columns to advanced_price_alerts and user_settings idempotently."""
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    # --- advanced_price_alerts: PnL alert fields ---
+    if "advanced_price_alerts" in tables:
+        cols = {c["name"] for c in inspector.get_columns("advanced_price_alerts")}
+
+        new_columns = [
+            ("pnl_threshold_percent", "FLOAT", "NULL"),
+            ("token_address", "VARCHAR(100)", "NULL"),
+        ]
+
+        for col_name, col_type, default in new_columns:
+            if col_name not in cols:
+                if is_sqlite:
+                    ddl = f"ALTER TABLE advanced_price_alerts ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+                else:
+                    ddl = f"ALTER TABLE advanced_price_alerts ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+                with db_engine.begin() as conn:
+                    conn.execute(text(ddl))
+
+    # --- user_settings: notification preference fields ---
+    if "user_settings" in tables:
+        cols = {c["name"] for c in inspector.get_columns("user_settings")}
+
+        new_columns = [
+            ("quiet_hours_start", "INTEGER", "NULL"),
+            ("quiet_hours_end", "INTEGER", "NULL"),
+            ("quiet_hours_timezone", "VARCHAR(50)", "'UTC'"),
+            ("notification_batching", "BOOLEAN", "TRUE"),
+        ]
+
+        for col_name, col_type, default in new_columns:
+            if col_name not in cols:
+                if is_sqlite:
+                    ddl = f"ALTER TABLE user_settings ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+                else:
+                    ddl = f"ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+                with db_engine.begin() as conn:
+                    conn.execute(text(ddl))
+
+
+def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create gamification tables (daily_quests, user_quests, jackpot_pools) idempotently."""
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        # --- daily_quests ---
+        if "daily_quests" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS daily_quests (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        date VARCHAR(10) NOT NULL,
+                        quest_type VARCHAR(50) NOT NULL,
+                        description VARCHAR(255) NOT NULL,
+                        target_value INTEGER NOT NULL,
+                        points_reward INTEGER NOT NULL,
+                        xp_reward INTEGER DEFAULT 0,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS daily_quests (
+                        id SERIAL PRIMARY KEY,
+                        date VARCHAR(10) NOT NULL,
+                        quest_type VARCHAR(50) NOT NULL,
+                        description VARCHAR(255) NOT NULL,
+                        target_value INTEGER NOT NULL,
+                        points_reward INTEGER NOT NULL,
+                        xp_reward INTEGER DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_daily_quests_date ON daily_quests(date)"
+        ))
+
+        # --- user_quests ---
+        if "user_quests" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS user_quests (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL REFERENCES users(id),
+                        quest_id INTEGER NOT NULL REFERENCES daily_quests(id),
+                        progress INTEGER DEFAULT 0,
+                        is_completed BOOLEAN DEFAULT FALSE,
+                        completed_at DATETIME,
+                        claimed BOOLEAN DEFAULT FALSE,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS user_quests (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL REFERENCES users(id),
+                        quest_id INTEGER NOT NULL REFERENCES daily_quests(id),
+                        progress INTEGER DEFAULT 0,
+                        is_completed BOOLEAN DEFAULT FALSE,
+                        completed_at TIMESTAMP,
+                        claimed BOOLEAN DEFAULT FALSE,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_user_quests_user_id ON user_quests(user_id)"
+        ))
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_user_quests_user_quest ON user_quests(user_id, quest_id)"
+        ))
+
+        # --- jackpot_pools ---
+        if "jackpot_pools" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS jackpot_pools (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        date VARCHAR(10) NOT NULL UNIQUE,
+                        total_pool_usd FLOAT DEFAULT 0.0,
+                        winner_user_id INTEGER REFERENCES users(id),
+                        winner_payout_usd FLOAT,
+                        is_drawn BOOLEAN DEFAULT FALSE,
+                        drawn_at DATETIME,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS jackpot_pools (
+                        id SERIAL PRIMARY KEY,
+                        date VARCHAR(10) NOT NULL UNIQUE,
+                        total_pool_usd FLOAT DEFAULT 0.0,
+                        winner_user_id INTEGER REFERENCES users(id),
+                        winner_payout_usd FLOAT,
+                        is_drawn BOOLEAN DEFAULT FALSE,
+                        drawn_at TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_jackpot_pools_date ON jackpot_pools(date)"
         ))
 
 

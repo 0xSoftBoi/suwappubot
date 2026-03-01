@@ -68,7 +68,8 @@ from bot.handlers.points import (
     xp_handler, checkin_handler, leaderboard_handler, rewards_handler,
     xp_callback_handler, checkin_callback_handler, leaderboard_callback_handler,
     rewards_callback_handler, redeem_callback_handler, noop_callback_handler as xp_noop_handler,
-    points_menu_callback_handler
+    points_menu_callback_handler,
+    quests_handler, quests_callback_handler, quest_claim_callback_handler,
 )
 # Copy Trading handlers
 from bot.handlers.copy import (
@@ -165,7 +166,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(checkin_handler)     # /checkin
     application.add_handler(leaderboard_handler) # /lb
     application.add_handler(rewards_handler)     # /rewards (XP rewards)
-    
+    application.add_handler(quests_handler)       # /quests
+
     # Copy Trading
     application.add_handler(traders_handler)     # /traders
     application.add_handler(following_handler)   # /following
@@ -302,7 +304,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(rewards_callback_handler)
     application.add_handler(redeem_callback_handler)
     application.add_handler(xp_noop_handler)
-    
+    application.add_handler(quests_callback_handler)
+    application.add_handler(quest_claim_callback_handler)
+
     # Copy Trading callbacks
     application.add_handler(copy_menu_callback_handler)
     application.add_handler(traders_callback_handler)

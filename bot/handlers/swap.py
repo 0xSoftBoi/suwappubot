@@ -234,7 +234,16 @@ async def swap_pair_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"Enter the amount to swap:"
     )
 
+    # Build quickbuy preset row
+    native_token = "SOL" if from_chain_config.chain_type == ChainType.SOLANA else "ETH"
+    quickbuy_amounts = [0.1, 0.5, 1.0, 5.0]
+    quickbuy_row = [
+        InlineKeyboardButton(f"{amt} {native_token}", callback_data=f"swap_qb_{amt}")
+        for amt in quickbuy_amounts
+    ]
+
     keyboard = [
+        quickbuy_row,
         [
             InlineKeyboardButton("25%", callback_data="swap_pct_25"),
             InlineKeyboardButton("50%", callback_data="swap_pct_50"),
@@ -515,7 +524,16 @@ async def select_to_token(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         f"Enter the amount to swap:"
     )
 
+    # Build quickbuy preset row
+    native_token = "SOL" if from_chain_config.chain_type == ChainType.SOLANA else "ETH"
+    quickbuy_amounts = [0.1, 0.5, 1.0, 5.0]
+    quickbuy_row = [
+        InlineKeyboardButton(f"{amt} {native_token}", callback_data=f"swap_qb_{amt}")
+        for amt in quickbuy_amounts
+    ]
+
     keyboard = [
+        quickbuy_row,
         [
             InlineKeyboardButton("25%", callback_data="swap_pct_25"),
             InlineKeyboardButton("50%", callback_data="swap_pct_50"),
@@ -1097,6 +1115,11 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
 
         keyboard = [
+            [
+                InlineKeyboardButton("Sell 25%", callback_data=f"qsell_25_{to_tok}_{chain_hint}"),
+                InlineKeyboardButton("Sell 50%", callback_data=f"qsell_50_{to_tok}_{chain_hint}"),
+                InlineKeyboardButton("Sell 100%", callback_data=f"qsell_100_{to_tok}_{chain_hint}"),
+            ],
             [InlineKeyboardButton("🔄 New Swap", callback_data="swap_start")],
             [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
         ]
@@ -1425,6 +1448,73 @@ async def _notify_followers(bot, followers_to_notify, swap_data, swap_tx):
             logging.getLogger(__name__).warning(f"Failed to notify follower {follower_info.get('user_id')}: {e}")
 
 
+async def swap_quickbuy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle quickbuy preset amount selection."""
+    query = update.callback_query
+    await query.answer()
+
+    amount = float(query.data.replace("swap_qb_", ""))
+    swap_data = context.user_data.get("swap", {})
+    swap_data["amount"] = amount
+
+    user_id = context.user_data.get("user_id")
+    from_chain = swap_data.get("from_chain")
+    from_chain_config = get_chain_by_name(from_chain)
+    chain_type = "solana" if from_chain_config.chain_type == ChainType.SOLANA else "evm"
+
+    default_wallet = wallet_service.get_default_wallet(user_id, chain_type)
+    if not default_wallet:
+        await query.edit_message_text("❌ No wallet found.")
+        return ConversationHandler.END
+
+    swap_data["wallet_id"] = default_wallet.id
+    swap_data["selected_wallets"] = [default_wallet.id]
+
+    return await _show_quote(update, context)
+
+
+async def quick_sell_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle quick-sell buttons from post-swap card."""
+    query = update.callback_query
+    await query.answer()
+
+    # Parse: qsell_{percent}_{token}_{chain}
+    parts = query.data.split("_")
+    sell_pct = int(parts[1])
+    token = parts[2]
+    chain = parts[3]
+
+    user = update.effective_user
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.edit_message_text("❌ User not found.")
+            return
+        user_id = db_user.id
+
+    chain_config = get_chain_by_name(chain)
+    chain_type = "solana" if chain_config.chain_type == ChainType.SOLANA else "evm"
+    native_token = "SOL" if chain_type == "solana" else "ETH"
+
+    # Pre-fill swap as reverse: sell token back to native
+    context.user_data["swap"] = {
+        "from_chain": chain,
+        "from_token": token,
+        "to_chain": chain,
+        "to_token": native_token,
+        "sell_percent": sell_pct,
+    }
+    context.user_data["user_id"] = user_id
+
+    await query.edit_message_text(
+        f"🔄 *Quick Sell {sell_pct}% {token}*\n\nFetching quote...",
+        parse_mode="Markdown",
+    )
+
+    # TODO: Get balance, calculate amount, show quote
+    # For now, redirect to swap flow
+
+
 # Create conversation handler
 swap_conversation_handler = ConversationHandler(
     entry_points=[
@@ -1446,6 +1536,7 @@ swap_conversation_handler = ConversationHandler(
         ENTER_AMOUNT: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, enter_amount),
             CallbackQueryHandler(swap_pct_callback, pattern=r"^swap_pct_"),
+            CallbackQueryHandler(swap_quickbuy_callback, pattern=r"^swap_qb_"),
         ],
         SELECT_WALLETS: [
             CallbackQueryHandler(toggle_wallet_callback, pattern="^swap_toggle_wallet_"),

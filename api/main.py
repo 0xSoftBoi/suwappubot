@@ -27,6 +27,7 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 from bot.services.wallet import WalletService
+from bot.services.whatsapp_service import whatsapp_service
 from bot.config.settings import settings
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
@@ -150,6 +151,21 @@ async def lifespan(app: FastAPI):
         tx_poller._webhook_dispatcher = webhook_dispatcher
         await tx_poller.start(bot=bot_app.bot if bot_initialized else None)
         await health_monitor.start(bot=bot_app.bot if bot_initialized else None, admin_ids=admin_ids)
+        # Gamification scheduled tasks
+        async def _gamification_scheduler():
+            """Run daily quest generation and jackpot drawing."""
+            from bot.services.points_service import points_service
+            while True:
+                try:
+                    points_service.generate_daily_quests()
+                except Exception as e:
+                    logger.error(f"Quest generation error: {e}")
+
+                # Sleep until next check (every hour)
+                await asyncio.sleep(3600)
+
+        gamification_task = asyncio.create_task(_gamification_scheduler())
+
         logger.info("✓ All background services running")
     else:
         logger.warning("⚠️ Background services NOT started - database unavailable")
@@ -190,6 +206,9 @@ async def lifespan(app: FastAPI):
         from bot.utils.http_client import close_session
         await close_session()
         logger.info("✓ HTTP session closed")
+
+    # Close WhatsApp HTTP session
+    await whatsapp_service.close()
 
     # Close Redis
     await redis_cache.close()
@@ -1237,10 +1256,89 @@ async def admin_get_swaps(
 
 # ============ WhatsApp Webhook ============
 
-from fastapi import Request
-from fastapi.responses import PlainTextResponse
-from bot.services.whatsapp_service import whatsapp_service
 from bot.services.unified_bot_service import unified_bot_service
+from bot.utils.rate_limiter import UserRateLimiter, RateLimitExceeded
+
+# Module-level rate limiter singleton (Round 3C)
+_whatsapp_rate_limiter = UserRateLimiter(max_requests=30, window_seconds=60)
+
+# Unsupported WhatsApp message types (Round 4B)
+_UNSUPPORTED_MESSAGE_TYPES = {"image", "audio", "video", "location", "sticker", "contacts"}
+
+
+async def _verify_whatsapp_signature(request: Request, body: bytes) -> bool:
+    """Verify X-Hub-Signature-256 header from Meta using the app secret."""
+    app_secret = settings.whatsapp_app_secret
+    if not app_secret:
+        return True  # Skip verification in dev if secret not configured
+
+    signature_header = request.headers.get("X-Hub-Signature-256", "")
+    if not signature_header.startswith("sha256="):
+        return False
+
+    expected_sig = hmac.new(
+        app_secret.encode(), body, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(signature_header[7:], expected_sig)
+
+
+async def _process_whatsapp_message(message, text: str):
+    """Process a WhatsApp message in the background."""
+    try:
+        response = await unified_bot_service.handle_command(
+            platform="whatsapp",
+            user_id=message.from_number,
+            text=text,
+            button_payload=message.button_payload,
+            list_reply_id=message.list_reply_id,
+        )
+
+        # Send response — choose the richest applicable format
+        try:
+            if response.image:
+                await whatsapp_service.send_image(
+                    message.from_number,
+                    response.image,
+                    caption=response.text,
+                )
+            elif response.document:
+                await whatsapp_service.send_document(
+                    message.from_number,
+                    response.document["url"],
+                    response.document.get("filename", "file"),
+                    caption=response.text,
+                )
+            elif response.list_sections and response.list_button_text:
+                await whatsapp_service.send_interactive_list(
+                    message.from_number,
+                    response.text,
+                    response.list_button_text,
+                    response.list_sections,
+                    header=response.header,
+                    footer=response.footer,
+                )
+            elif response.buttons:
+                await whatsapp_service.send_interactive_buttons(
+                    message.from_number,
+                    response.text,
+                    response.buttons,
+                    header=response.header,
+                    footer=response.footer,
+                )
+            else:
+                await whatsapp_service.send_text_message(
+                    message.from_number,
+                    response.text,
+                )
+        except Exception as send_err:
+            logger.error(f"WhatsApp send error: {send_err}")
+            await whatsapp_service.send_text_message(
+                message.from_number,
+                response.text,
+            )
+    except Exception as e:
+        logger.error(f"WhatsApp background processing error: {e}", exc_info=True)
+
 
 @app.get("/webhook")
 async def verify_whatsapp_webhook(
@@ -1251,7 +1349,7 @@ async def verify_whatsapp_webhook(
     mode = params.get("hub.mode")
     token = params.get("hub.verify_token")
     challenge = params.get("hub.challenge")
-    
+
     result = whatsapp_service.verify_webhook(mode, token, challenge)
     if result:
         return PlainTextResponse(content=result)
@@ -1260,19 +1358,48 @@ async def verify_whatsapp_webhook(
 @app.post("/webhook")
 async def receive_whatsapp_message(request: Request):
     """Handle incoming WhatsApp messages."""
-    payload = await request.json()
+    # Read raw body for signature verification
+    body = await request.body()
+
+    # 1A: Verify webhook signature
+    if not await _verify_whatsapp_signature(request, body):
+        logger.warning("WhatsApp webhook signature verification failed")
+        raise HTTPException(status_code=403, detail="Invalid signature")
+
+    payload = json.loads(body)
+
+    # 4C: Filter status updates early
+    try:
+        entry = payload.get("entry", [{}])[0]
+        changes = entry.get("changes", [{}])[0]
+        value = changes.get("value", {})
+        if value.get("statuses") and not value.get("messages"):
+            return {"status": "ok"}
+    except (IndexError, AttributeError):
+        pass
 
     # Parse the incoming message
     message = whatsapp_service.parse_webhook_message(payload)
     if not message:
         return {"status": "no_message"}
 
+    # 1C: Message deduplication
+    dedup_key = f"wa_dedup:{message.message_id}"
+    if await redis_cache.get(dedup_key):
+        return {"status": "duplicate"}
+    await redis_cache.set(dedup_key, 1, ttl_seconds=300)
+
+    # 4B: Handle unsupported message types
+    if message.message_type in _UNSUPPORTED_MESSAGE_TYPES:
+        await whatsapp_service.send_text_message(
+            message.from_number,
+            "I can only process text messages. Please send a text command or type *help* to see available options.",
+        )
+        return {"status": "unsupported_type"}
+
     # Rate limit WhatsApp ingress (per sender)
-    from bot.utils.rate_limiter import UserRateLimiter, RateLimitExceeded
-    if not hasattr(receive_whatsapp_message, "_limiter"):
-        receive_whatsapp_message._limiter = UserRateLimiter(max_requests=30, window_seconds=60)
     try:
-        await receive_whatsapp_message._limiter.check(message.from_number)
+        await _whatsapp_rate_limiter.check(message.from_number)
     except RateLimitExceeded as e:
         await whatsapp_service.send_text_message(
             message.from_number,
@@ -1283,30 +1410,13 @@ async def receive_whatsapp_message(request: Request):
     # Mark as read
     await whatsapp_service.mark_as_read(message.message_id)
 
-    # Process command via Unified Service
+    # Build the text to process
     text = message.text or ""
     if message.button_payload:
         text = message.button_payload
 
-    response = await unified_bot_service.handle_command(
-        platform="whatsapp",
-        user_id=message.from_number,
-        text=text
-    )
-
-    # Send response
-    if response.buttons:
-        await whatsapp_service.send_interactive_buttons(
-            message.from_number,
-            response.text,
-            response.buttons,
-            header=response.header
-        )
-    else:
-        await whatsapp_service.send_text_message(
-            message.from_number,
-            response.text
-        )
+    # 2A: Fire off processing in background and return 200 immediately
+    asyncio.create_task(_process_whatsapp_message(message, text))
 
     return {"status": "ok"}
 

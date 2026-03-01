@@ -53,9 +53,10 @@ async def xp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton("📅 Check In", callback_data="xp_checkin"),
+            InlineKeyboardButton("🎯 Quests", callback_data="xp_quests"),
         ]
     ])
-    
+
     await update.message.reply_text(
         msg,
         parse_mode="Markdown",
@@ -90,9 +91,10 @@ async def xp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton("📅 Check In", callback_data="xp_checkin"),
+            InlineKeyboardButton("🎯 Quests", callback_data="xp_quests"),
         ]
     ])
-    
+
     await query.edit_message_text(
         msg,
         parse_mode="Markdown",
@@ -466,6 +468,178 @@ async def points_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 
+# ============== /quests Command ==============
+
+@enforce_tos
+async def quests_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show daily quests."""
+    user = update.effective_user
+    from database.db import get_session
+    from bot.models.user import User
+
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await update.message.reply_text("❌ Please /start first.")
+            return
+        user_id = db_user.id
+
+    quests = points_service.get_today_quests(user_id)
+    jackpot = points_service.get_jackpot_info()
+
+    msg = "🎯 *Daily Quests*\n\n"
+
+    for q in quests:
+        if q["claimed"]:
+            status = "✅"
+        elif q["is_completed"]:
+            status = "🎉"
+        else:
+            status = f"{q['progress']}/{q['target']}"
+
+        # Progress bar
+        pct = min(q["progress"] / q["target"], 1.0) if q["target"] > 0 else 0
+        bar_len = 8
+        filled = int(pct * bar_len)
+        bar = "█" * filled + "░" * (bar_len - filled)
+
+        msg += f"{status} {q['description']}\n"
+        msg += f"   {bar} +{q['points_reward']} pts\n\n"
+
+    msg += f"🎰 *Daily Jackpot:* ${jackpot['pool_usd']:.2f}\n"
+    msg += "_Drawing at midnight UTC_"
+
+    # Build claim buttons for completed but unclaimed quests
+    buttons = []
+    for q in quests:
+        if q["is_completed"] and not q["claimed"]:
+            buttons.append([InlineKeyboardButton(
+                f"🎁 Claim: {q['description'][:30]}",
+                callback_data=f"quest_claim_{q['quest_id']}"
+            )])
+
+    buttons.append([InlineKeyboardButton("📊 My Stats", callback_data="xp_stats")])
+    buttons.append([InlineKeyboardButton("« Back", callback_data="main_menu")])
+
+    await update.message.reply_text(
+        msg, parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+@enforce_tos
+async def quests_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle quests menu callback (from xp_quests button)."""
+    query = update.callback_query
+    await query.answer()
+
+    user = update.effective_user
+    from database.db import get_session
+    from bot.models.user import User
+
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.edit_message_text("❌ Please /start first.")
+            return
+        user_id = db_user.id
+
+    quests = points_service.get_today_quests(user_id)
+    jackpot = points_service.get_jackpot_info()
+
+    msg = "🎯 *Daily Quests*\n\n"
+
+    for q in quests:
+        if q["claimed"]:
+            status = "✅"
+        elif q["is_completed"]:
+            status = "🎉"
+        else:
+            status = f"{q['progress']}/{q['target']}"
+
+        pct = min(q["progress"] / q["target"], 1.0) if q["target"] > 0 else 0
+        bar_len = 8
+        filled = int(pct * bar_len)
+        bar = "█" * filled + "░" * (bar_len - filled)
+
+        msg += f"{status} {q['description']}\n"
+        msg += f"   {bar} +{q['points_reward']} pts\n\n"
+
+    msg += f"🎰 *Daily Jackpot:* ${jackpot['pool_usd']:.2f}\n"
+    msg += "_Drawing at midnight UTC_"
+
+    buttons = []
+    for q in quests:
+        if q["is_completed"] and not q["claimed"]:
+            buttons.append([InlineKeyboardButton(
+                f"🎁 Claim: {q['description'][:30]}",
+                callback_data=f"quest_claim_{q['quest_id']}"
+            )])
+
+    buttons.append([InlineKeyboardButton("📊 My Stats", callback_data="xp_stats")])
+    buttons.append([InlineKeyboardButton("« Back", callback_data="main_menu")])
+
+    await query.edit_message_text(
+        msg, parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def quest_claim_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle quest reward claim."""
+    query = update.callback_query
+    await query.answer()
+
+    quest_id = int(query.data.replace("quest_claim_", ""))
+    user = update.effective_user
+
+    from database.db import get_session
+    from bot.models.user import User
+
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.answer("Please start the bot first!", show_alert=True)
+            return
+        user_id = db_user.id
+
+    success, points, msg = points_service.claim_quest_reward(user_id, quest_id)
+
+    if success:
+        await query.answer(f"🎉 +{points} points!", show_alert=True)
+    else:
+        await query.answer(msg, show_alert=True)
+        return
+
+    # Refresh quests view
+    quests = points_service.get_today_quests(user_id)
+    jackpot = points_service.get_jackpot_info()
+
+    text = "🎯 *Daily Quests*\n\n"
+    for q in quests:
+        if q["claimed"]:
+            status = "✅"
+        elif q["is_completed"]:
+            status = "🎉"
+        else:
+            status = f"{q['progress']}/{q['target']}"
+        pct = min(q["progress"] / q["target"], 1.0) if q["target"] > 0 else 0
+        bar_len = 8
+        filled = int(pct * bar_len)
+        bar = "█" * filled + "░" * (bar_len - filled)
+        text += f"{status} {q['description']}\n   {bar} +{q['points_reward']} pts\n\n"
+
+    text += f"🎰 *Daily Jackpot:* ${jackpot['pool_usd']:.2f}\n_Drawing at midnight UTC_"
+
+    buttons = []
+    for q in quests:
+        if q["is_completed"] and not q["claimed"]:
+            buttons.append([InlineKeyboardButton(f"🎁 Claim: {q['description'][:30]}", callback_data=f"quest_claim_{q['quest_id']}")])
+    buttons.append([InlineKeyboardButton("📊 My Stats", callback_data="xp_stats")])
+
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
 # ============== Register Handlers ==============
 
 xp_handler = CommandHandler("xp", xp_command)
@@ -480,4 +654,7 @@ leaderboard_callback_handler = CallbackQueryHandler(leaderboard_callback, patter
 rewards_callback_handler = CallbackQueryHandler(rewards_callback, pattern="^xp_rewards$")
 redeem_callback_handler = CallbackQueryHandler(redeem_callback, pattern=r"^xp_redeem_\d+$")
 noop_callback_handler = CallbackQueryHandler(noop_callback, pattern="^xp_noop$")
+quests_handler = CommandHandler("quests", quests_command)
+quests_callback_handler = CallbackQueryHandler(quests_callback, pattern="^xp_quests$")
+quest_claim_callback_handler = CallbackQueryHandler(quest_claim_callback, pattern=r"^quest_claim_\d+$")
 

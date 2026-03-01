@@ -51,6 +51,9 @@ async def alerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 condition = f"above ${alert.target_price:.4f}"
             elif alert.alert_type == AlertType.PRICE_BELOW.value:
                 condition = f"below ${alert.target_price:.4f}"
+            elif alert.alert_type == AlertType.PNL_CHANGE.value:
+                sign = "+" if (alert.pnl_threshold_percent or 0) > 0 else ""
+                condition = f"PnL {sign}{alert.pnl_threshold_percent or 0}%"
             else:
                 condition = f"±{alert.percent_threshold}%"
             
@@ -109,6 +112,7 @@ async def alert_select_token(update: Update, context: ContextTypes.DEFAULT_TYPE)
         ],
         [
             InlineKeyboardButton("📊 % Change", callback_data="alert_type_percent"),
+            InlineKeyboardButton("📊 PnL Change", callback_data="alert_type_pnl"),
         ],
         [InlineKeyboardButton("❌ Cancel", callback_data="alert_cancel")],
     ]
@@ -138,6 +142,8 @@ async def alert_select_type(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         text = f"Enter the price above which you want to be alerted:\n\nCurrent {token}: ${current_price:.4f}"
     elif alert_type == "below":
         text = f"Enter the price below which you want to be alerted:\n\nCurrent {token}: ${current_price:.4f}"
+    elif alert_type == "pnl":
+        text = "Enter the PnL % threshold (positive for gains, negative for losses):\n\nExamples: `50` for +50%, `-25` for -25%"
     else:
         text = "Enter the percentage change to alert on (e.g., 5 for ±5%):"
     
@@ -167,12 +173,26 @@ async def alert_enter_price(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         "above": AlertType.PRICE_ABOVE.value,
         "below": AlertType.PRICE_BELOW.value,
         "percent": AlertType.PERCENT_CHANGE.value,
+        "pnl": AlertType.PNL_CHANGE.value,
     }
-    
+
     alert_type = type_map[alert_type_key]
-    
+
     # Create alert
-    if alert_type_key == "percent":
+    if alert_type_key == "pnl":
+        alert = alert_service.create_alert(
+            user_id=user_id,
+            token_symbol=token,
+            alert_type=alert_type,
+        )
+        # Set PnL threshold on the created alert
+        with get_session() as session:
+            db_alert = session.query(PriceAlert).filter(PriceAlert.id == alert.id).first()
+            if db_alert:
+                db_alert.pnl_threshold_percent = value
+        sign = "+" if value > 0 else ""
+        condition = f"PnL {sign}{value}%"
+    elif alert_type_key == "percent":
         alert = alert_service.create_alert(
             user_id=user_id,
             token_symbol=token,
@@ -259,6 +279,9 @@ async def alerts_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 condition = f"above ${alert.target_price:.4f}"
             elif alert.alert_type == AlertType.PRICE_BELOW.value:
                 condition = f"below ${alert.target_price:.4f}"
+            elif alert.alert_type == AlertType.PNL_CHANGE.value:
+                sign = "+" if (alert.pnl_threshold_percent or 0) > 0 else ""
+                condition = f"PnL {sign}{alert.pnl_threshold_percent or 0}%"
             else:
                 condition = f"±{alert.percent_threshold}%"
             
@@ -293,6 +316,30 @@ alert_conversation = ConversationHandler(
     ],
 )
 
+async def alert_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle actionable alert buttons (buy/sell from alerts)."""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+
+    if data.startswith("alert_act_buy_"):
+        token = data.replace("alert_act_buy_", "")
+        await query.edit_message_text(
+            f"🔄 Starting swap to buy {token}...\n\nUse /s to start a swap.",
+            parse_mode="Markdown",
+        )
+    elif data.startswith("alert_act_sell_"):
+        parts = data.replace("alert_act_sell_", "").split("_")
+        pct = parts[0]
+        token = parts[1] if len(parts) > 1 else "UNKNOWN"
+        await query.edit_message_text(
+            f"🔄 Selling {pct}% of {token}...\n\nUse /s to start a swap.",
+            parse_mode="Markdown",
+        )
+
+
 # Create handlers
 alerts_handler = CommandHandler("a", alerts_command)
+alert_action_handler = CallbackQueryHandler(alert_action_callback, pattern="^alert_act_")
 

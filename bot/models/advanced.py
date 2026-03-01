@@ -12,6 +12,7 @@ class AlertType(enum.Enum):
     PRICE_ABOVE = "price_above"
     PRICE_BELOW = "price_below"
     PERCENT_CHANGE = "percent_change"
+    PNL_CHANGE = "pnl_change"
 
 
 class OrderType(enum.Enum):
@@ -19,6 +20,8 @@ class OrderType(enum.Enum):
     LIMIT_SELL = "limit_sell"
     STOP_LOSS = "stop_loss"
     TAKE_PROFIT = "take_profit"
+    TRAILING_STOP = "trailing_stop"
+    BUY_DIP = "buy_dip"
 
 
 class OrderStatus(enum.Enum):
@@ -53,7 +56,11 @@ class AdvancedPriceAlert(Base):
     target_price = Column(Float, nullable=True)  # For price alerts
     percent_threshold = Column(Float, nullable=True)  # For percent change alerts
     base_price = Column(Float, nullable=True)  # Reference price for percent change
-    
+
+    # PnL alert fields
+    pnl_threshold_percent = Column(Float, nullable=True)  # e.g., 50.0 = alert at +50%
+    token_address = Column(String(100), nullable=True)  # for position-based alerts
+
     is_active = Column(Boolean, default=True)
     is_triggered = Column(Boolean, default=False)
     triggered_at = Column(DateTime, nullable=True)
@@ -91,7 +98,13 @@ class LimitOrder(Base):
     amount = Column(String(78), nullable=False)  # Amount to swap
     trigger_price = Column(Float, nullable=False)  # Price to trigger at
     slippage = Column(Float, default=0.5)
-    
+
+    # Advanced order fields
+    trailing_percent = Column(Float, nullable=True)
+    highest_price_seen = Column(Float, nullable=True)
+    parent_order_id = Column(Integer, ForeignKey("limit_orders.id"), nullable=True)
+    portion_percent = Column(Float, nullable=True)
+
     # Expiration
     expires_at = Column(DateTime, nullable=True)
     
