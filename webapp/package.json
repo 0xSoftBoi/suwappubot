@@ -18,6 +18,7 @@
   "dependencies": {
     "@suwappu/shared": "*",
     "@tanstack/react-query": "^5.90.20",
+    "@tonconnect/ui-react": "^2.0.9",
     "@turnkey/sdk-browser": "^5.14.2",
     "@turnkey/viem": "^0.14.22",
     "@twa-dev/sdk": "^7.10.1",

@@ -125,6 +125,8 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         from bot.models.oauth import OAuthIdentity, OAuthToken, OAuthState
         # Agent registration models
         from bot.models.agent import RegisteredAgent
+        # PnL tracking
+        from bot.models.pnl import TokenPosition
         # Webhook events
         from bot.models.webhook_event import WebhookEvent
 
@@ -201,6 +203,11 @@ def _ensure_schema(db_engine) -> None:
     # --- swap_transactions: agent linkage columns ---
     if "swap_transactions" in tables:
         _add_swap_agent_columns(db_engine, inspector, is_sqlite)
+        _add_swap_price_columns(db_engine, inspector, is_sqlite)
+
+    # --- user_settings: MEV protection column ---
+    if "user_settings" in tables:
+        _add_user_settings_mev_column(db_engine, inspector, is_sqlite)
 
     # --- users: TOS columns and telegram_id nullability ---
     if "users" in tables:
@@ -300,6 +307,38 @@ def _add_user_settings_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
+
+
+def _add_swap_price_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add per-token price columns to swap_transactions for PnL tracking."""
+    cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
+
+    new_columns = [
+        ("from_token_price_usd", "FLOAT", "NULL"),
+        ("to_token_price_usd", "FLOAT", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE swap_transactions ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+
+def _add_user_settings_mev_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add MEV protection toggle to user_settings table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("user_settings")}
+
+    if "mev_protection_enabled" not in cols:
+        if is_sqlite:
+            ddl = "ALTER TABLE user_settings ADD COLUMN mev_protection_enabled BOOLEAN DEFAULT TRUE"
+        else:
+            ddl = "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS mev_protection_enabled BOOLEAN DEFAULT TRUE"
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
 
 
 def _add_encryption_columns(db_engine, inspector, table_name: str, is_sqlite: bool) -> None:

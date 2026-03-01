@@ -626,6 +626,27 @@ async def _show_quote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
             )
             num_wallets = len(selected_wallet_ids)
 
+            # MEV protection indicator
+            mev_providers = {"cow", "jito"}
+            if quote.provider in mev_providers:
+                mev_line = f"\n🛡️ *MEV Protected* via {quote.provider.upper()}"
+            else:
+                mev_line = ""
+
+            # Token security analysis
+            security_text = ""
+            dex_url = None
+            try:
+                dest_chain = swap_data["to_chain"]
+                dest_token_address = get_token_address(swap_data["to_token"], dest_chain)
+                if dest_token_address:
+                    report = await token_analyzer.analyze(dest_token_address, chain=dest_chain)
+                    security_text = f"\n\n🛡️ *Security Shield*\n{token_analyzer.get_safety_summary(report)}"
+                    dex_url = report.dex_url
+            except Exception as e:
+                import logging as _log
+                _log.getLogger(__name__).debug(f"Security analysis failed: {e}")
+
             text = (
                 f"📊 *Swap Quote*\n\n"
                 f"*From:*\n"
@@ -637,6 +658,8 @@ async def _show_quote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
                 f"*Fees:*\n"
                 f"• Platform fee: {fee_percentage}% ({format_usd(fee_usd)})\n"
                 f"• Provider: {quote.provider.upper()}"
+                f"{mev_line}"
+                f"{security_text}"
             )
 
             keyboard = [
@@ -645,6 +668,8 @@ async def _show_quote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
                     InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel"),
                 ],
             ]
+            if dex_url:
+                keyboard.append([InlineKeyboardButton("📈 DexScreener Chart", url=dex_url)])
 
             await loading_msg.edit_text(
                 text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
@@ -801,6 +826,13 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         total_fee_usd = fee_usd * num_wallets
         total_from_human = quote.from_amount_human * num_wallets
         
+        # MEV protection indicator
+        mev_providers = {"cow", "jito"}
+        if quote.provider in mev_providers:
+            mev_line = f"\n🛡️ *MEV Protected* via {quote.provider.upper()}"
+        else:
+            mev_line = ""
+
         # Token Security Analysis (all chains via GoPlus + DexScreener)
         security_text = ""
         dex_url = None
@@ -813,9 +845,9 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
                 dex_url = report.dex_url
         except Exception as e:
             logger.debug(f"Security analysis failed: {e}")
-        
+
         text = (
-            f"�📊 *Multi-Wallet Swap Quote*\n\n"
+            f"📊 *Multi-Wallet Swap Quote*\n\n"
             f"*From:*\n"
             f"{from_chain_config.logo_emoji} {format_amount(quote.from_amount_human, symbol=swap_data['from_token'])} "
             f"x *{num_wallets} wallets* (Total: {format_amount(total_from_human, symbol=swap_data['from_token'])})\n"
@@ -826,6 +858,7 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
             f"*Fees (Combined):*\n"
             f"• Platform fee: {fee_percentage}% ({format_usd(total_fee_usd)})\n"
             f"• Provider: {quote.provider.upper()}"
+            f"{mev_line}"
             f"{security_text}\n\n"
             f"⚠️ *Confirmation will execute swaps on {num_wallets} wallets simultaneously.*"
         )

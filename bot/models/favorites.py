@@ -85,6 +85,9 @@ class UserSettings(Base):
     require_2fa_above_usd = Column(Float, default=1000.0)
     panic_sell_enabled = Column(Boolean, default=False)
     
+    # MEV protection
+    mev_protection_enabled = Column(Boolean, default=True)
+
     # Display preferences
     default_chain = Column(String(50), nullable=True)
     show_usd_values = Column(Boolean, default=True)

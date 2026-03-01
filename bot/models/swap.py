@@ -32,11 +32,14 @@ class SwapTransaction(Base):
     from_amount = Column(String(78), nullable=False)  # Store as string for precision
     from_amount_usd = Column(Float, nullable=True)
     
+    from_token_price_usd = Column(Float, nullable=True)  # Price per token at execution
+
     # Destination details
     to_chain = Column(String(50), nullable=False)
     to_token = Column(String(20), nullable=False)
     to_amount = Column(String(78), nullable=True)  # Estimated/actual amount out
     to_amount_usd = Column(Float, nullable=True)
+    to_token_price_usd = Column(Float, nullable=True)  # Price per token at execution
     
     # Transaction details
     status = Column(String(30), default=SwapStatus.PENDING.value)

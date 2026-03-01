@@ -30,6 +30,7 @@ TOKENS: dict[str, TokenConfig] = {
             "optimism": "0x94b008aA00579c1307B0EF2c499aD98a8ce58e58",
             "base": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
             "solana": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+            "ton": "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs",
         },
         logo_emoji="💵",
     ),
@@ -546,6 +547,37 @@ TOKENS: dict[str, TokenConfig] = {
         logo_emoji="🍣",
         is_stablecoin=False,
     ),
+    # TON-specific tokens
+    "TON": TokenConfig(
+        symbol="TON",
+        name="Toncoin",
+        decimals=9,
+        addresses={
+            "ton": "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
+        },
+        logo_emoji="💎",
+        is_stablecoin=False,
+    ),
+    "NOT": TokenConfig(
+        symbol="NOT",
+        name="Notcoin",
+        decimals=9,
+        addresses={
+            "ton": "EQAvlWFDxGF2lXm67y4yzC17wYKD9A0guwPkMs1gOsM__NOT",
+        },
+        logo_emoji="🔔",
+        is_stablecoin=False,
+    ),
+    "DOGS": TokenConfig(
+        symbol="DOGS",
+        name="Dogs",
+        decimals=9,
+        addresses={
+            "ton": "EQCvxJy4eG8hyHBFsZ7eePxrRsUQSFE_jpptRAYBmcG_DOGS",
+        },
+        logo_emoji="🐕",
+        is_stablecoin=False,
+    ),
 }
 
 
@@ -579,6 +611,9 @@ def get_token_decimals(symbol: str, chain_name: str) -> int:
         if symbol.upper() == "USDC" and chain_name.lower() == "bsc":
             return 18
         return token.decimals
+    # TON chain defaults to 9 decimals
+    if chain_name.lower() == "ton":
+        return 9
     return 18  # Default
 
 

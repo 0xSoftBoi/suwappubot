@@ -2,8 +2,10 @@ import { useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { TonConnectProvider } from './contexts/TonConnectContext'
 import { useTelegram } from './hooks/useTelegram'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { OnboardingModal, useOnboarding, defaultOnboardingSteps } from './components/ui'
 import './theme/suwappu.css'
 
 // Eagerly load Welcome and Home (critical path)
@@ -110,6 +112,32 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+// Onboarding wrapper - shows guided tour for first-time users
+function OnboardingWrapper({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuth()
+  const { isOpen, completeOnboarding, steps } = useOnboarding({
+    steps: defaultOnboardingSteps,
+    autoShow: true,
+  })
+
+  // Only show onboarding for authenticated users
+  if (!isAuthenticated) {
+    return <>{children}</>
+  }
+
+  return (
+    <>
+      {children}
+      <OnboardingModal
+        isOpen={isOpen}
+        steps={steps}
+        onComplete={completeOnboarding}
+        onSkip={completeOnboarding}
+      />
+    </>
+  )
+}
+
 // App content with Telegram integration
 function AppContent() {
   const { webApp, colorScheme } = useTelegram()
@@ -134,6 +162,7 @@ function AppContent() {
   const location = useLocation()
 
   return (
+    <OnboardingWrapper>
       <Routes location={location} key={location.pathname}>
         {/* Public routes */}
         <Route
@@ -272,6 +301,7 @@ function AppContent() {
         {/* Fallback redirect */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+    </OnboardingWrapper>
   )
 }
 
@@ -279,11 +309,13 @@ function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <BrowserRouter>
-            <AppContent />
-          </BrowserRouter>
-        </AuthProvider>
+        <TonConnectProvider>
+          <AuthProvider>
+            <BrowserRouter>
+              <AppContent />
+            </BrowserRouter>
+          </AuthProvider>
+        </TonConnectProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   )

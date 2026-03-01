@@ -7,6 +7,7 @@ class ChainType(Enum):
     """Blockchain type."""
     EVM = "evm"
     SOLANA = "solana"
+    TON = "ton"
 
 
 @dataclass
@@ -182,6 +183,17 @@ CHAINS: dict[str, ChainConfig] = {
         logo_emoji="🟢",
         lifi_chain_id=1151111081099710,  # Li.Fi Solana chain ID
     ),
+    "ton": ChainConfig(
+        chain_id="ton",
+        name="ton",
+        display_name="TON",
+        chain_type=ChainType.TON,
+        native_token="TON",
+        native_decimals=9,
+        rpc_url_env="TON_RPC_URL",
+        explorer_url="https://tonscan.org",
+        logo_emoji="💎",
+    ),
 }
 
 
@@ -206,4 +218,9 @@ def get_evm_chains() -> list[ChainConfig]:
 def get_solana_chain() -> ChainConfig:
     """Get Solana chain configuration."""
     return CHAINS["solana"]
+
+
+def get_ton_chain() -> ChainConfig:
+    """Get TON chain configuration."""
+    return CHAINS["ton"]
 

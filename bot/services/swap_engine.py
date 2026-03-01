@@ -137,6 +137,10 @@ class SwapEngine:
     def _is_solana_only_swap(self, from_chain: str, to_chain: str) -> bool:
         """Check if this is a Solana-to-Solana swap (use Jupiter)."""
         return from_chain == "solana" and to_chain == "solana"
+
+    def _is_ton_only_swap(self, from_chain: str, to_chain: str) -> bool:
+        """Check if this is a TON-to-TON swap (use STON.fi)."""
+        return from_chain == "ton" and to_chain == "ton"
     
     def _is_ccip_route(self, from_chain: str, to_chain: str, from_token: str, to_token: str) -> bool:
         """Check if this route can use Chainlink CCIP (same token cross-chain EVM)."""
@@ -207,7 +211,12 @@ class SwapEngine:
 
         amount_raw = self._get_token_amount_raw(amount, from_token, from_chain)
 
-        if self._is_solana_only_swap(from_chain, to_chain):
+        if self._is_ton_only_swap(from_chain, to_chain):
+            logger.info("get_quote routing=stonfi (ton-only) pair=%s->%s amount=%s", from_token, to_token, amount)
+            quote = await self._get_stonfi_quote(
+                from_token, to_token, amount, amount_raw, slippage
+            )
+        elif self._is_solana_only_swap(from_chain, to_chain):
             logger.info("get_quote routing=jupiter (solana-only) pair=%s->%s amount=%s", from_token, to_token, amount)
             quote = await self._get_jupiter_quote(
                 from_token, to_token, amount, amount_raw, from_address, int(slippage * 100)
@@ -594,6 +603,17 @@ class SwapEngine:
             )
             logger.info("execute_swap all_validations_passed wallet_id=%d user_id=%d", wallet_id, user_id)
             
+            # Capture per-token prices for PnL tracking
+            from_token_price = None
+            to_token_price = None
+            try:
+                from bot.services.price_service import price_service as _price_svc
+                _prices = await _price_svc.get_prices([quote.from_token, quote.to_token])
+                from_token_price = _prices.get(quote.from_token)
+                to_token_price = _prices.get(quote.to_token)
+            except Exception:
+                pass  # Non-critical — PnL will use fallback
+
             # Create transaction record
             with get_session() as session:
                 swap_tx = SwapTransaction(
@@ -602,10 +622,12 @@ class SwapEngine:
                     from_token=quote.from_token,
                     from_amount=quote.from_amount,
                     from_amount_usd=quote.from_amount_human,  # Assuming stablecoin
+                    from_token_price_usd=from_token_price,
                     to_chain=quote.to_chain,
                     to_token=quote.to_token,
                     to_amount=quote.to_amount,
                     to_amount_usd=quote.to_amount_human,
+                    to_token_price_usd=to_token_price,
                     status=SwapStatus.EXECUTING.value,
                     route_provider=quote.provider,
                     gas_fee=quote.gas_cost_usd,
@@ -656,7 +678,9 @@ class SwapEngine:
             try:
                 # Route to appropriate execution method based on provider
                 logger.info("execute_swap routing provider=%s wallet_id=%d user_id=%d swap_id=%d", quote.provider, wallet_id, user_id, swap_id)
-                if quote.provider == "cow":
+                if quote.provider == "stonfi":
+                    tx_hash = await self._execute_stonfi_swap(quote, wallet_data)
+                elif quote.provider == "cow":
                     tx_hash = await self._execute_cow_swap(quote, wallet_data)
                 elif quote.provider == "socket":
                     tx_hash = await self._execute_socket_swap(quote, wallet_data)
@@ -692,6 +716,13 @@ class SwapEngine:
                 with get_session() as session:
                     swap_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
 
+                # Record PnL position update (non-blocking)
+                try:
+                    from bot.services.pnl import pnl_service
+                    pnl_service.record_swap_pnl(user_id, swap_tx)
+                except Exception as pnl_err:
+                    logger.warning("PnL recording failed for swap %d: %s", swap_id, pnl_err)
+
                 return swap_tx
 
             except Exception as e:
@@ -710,6 +741,127 @@ class SwapEngine:
         finally:
             lock.release()
             logger.info("execute_swap lock_released wallet_id=%d user_id=%d", wallet_id, user_id)
+
+    async def _get_stonfi_quote(
+        self,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: str,
+        slippage: float,
+    ) -> SwapQuote:
+        """Get quote from STON.fi for TON swaps."""
+        from bot.services.ton.ton_swap import get_quote as stonfi_get_quote
+        from bot.services.ton.ton_tokens import get_jetton_decimals
+
+        quote = await stonfi_get_quote(
+            offer_token=from_token,
+            ask_token=to_token,
+            offer_amount=int(amount_raw),
+            slippage=slippage,
+        )
+
+        if not quote:
+            raise SwapError(f"No STON.fi quote available for {from_token} -> {to_token}")
+
+        to_decimals = get_jetton_decimals(to_token)
+        to_amount_human = int(quote.ask_amount) / (10 ** to_decimals)
+        exchange_rate = to_amount_human / amount if amount > 0 else 0
+
+        return SwapQuote(
+            provider="stonfi",
+            from_chain="ton",
+            to_chain="ton",
+            from_token=from_token,
+            to_token=to_token,
+            from_amount=amount_raw,
+            from_amount_human=amount,
+            to_amount=quote.ask_amount,
+            to_amount_human=to_amount_human,
+            to_amount_min=quote.min_ask_amount,
+            gas_cost_usd=0.05,  # TON gas is very cheap (~0.05 USD)
+            fee_cost_usd=0,
+            total_cost_usd=0.05,
+            estimated_time=15,  # ~15 seconds on TON
+            price_impact=quote.price_impact,
+            exchange_rate=exchange_rate,
+            raw_quote={
+                "offer_address": quote.offer_address,
+                "ask_address": quote.ask_address,
+                "offer_amount": quote.offer_amount,
+                "ask_amount": quote.ask_amount,
+                "min_ask_amount": quote.min_ask_amount,
+                "router_address": quote.router_address,
+            },
+        )
+
+    async def _execute_stonfi_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a swap on STON.fi (TON)."""
+        from bot.services.ton.ton_swap import build_swap_transaction, StonfiQuote
+
+        stonfi_quote = StonfiQuote(
+            offer_address=quote.raw_quote["offer_address"],
+            ask_address=quote.raw_quote["ask_address"],
+            offer_amount=quote.raw_quote["offer_amount"],
+            ask_amount=quote.raw_quote["ask_amount"],
+            min_ask_amount=quote.raw_quote["min_ask_amount"],
+            price_impact=quote.price_impact,
+            fee_amount="0",
+            router_address=quote.raw_quote["router_address"],
+            swap_rate=quote.exchange_rate,
+        )
+
+        tx_params = await build_swap_transaction(stonfi_quote, wallet_data["address"])
+        if not tx_params:
+            raise SwapError("Failed to build STON.fi swap transaction")
+
+        # Sign and send the transaction
+        # TON transaction signing requires tonsdk
+        try:
+            from bot.utils.encryption import decrypt_private_key
+            private_key = decrypt_private_key(wallet_data["encrypted_private_key"])
+
+            # Build and sign the external message
+            from tonsdk.contract.wallet import WalletVersionEnum, Wallets
+            from tonsdk.utils import to_nano, bytes_to_b64str
+
+            import base64
+
+            # Create wallet instance for signing
+            wallet_cls = Wallets.ALL[WalletVersionEnum.v4r2]
+            wallet = wallet_cls(
+                public_key=b"",  # Will be derived from private key
+                private_key=base64.b64decode(private_key) if isinstance(private_key, str) else private_key,
+                wc=0,
+            )
+
+            # Create the internal message
+            body_boc = base64.b64decode(tx_params["body"]) if tx_params.get("body") else b""
+
+            query = wallet.create_transfer_message(
+                to_addr=tx_params["to"],
+                amount=int(tx_params["value"]),
+                payload=body_boc,
+                seqno=0,  # Will be fetched
+            )
+
+            boc = bytes_to_b64str(query["message"].to_boc())
+
+            # Send via TON Center API
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    "https://toncenter.com/api/v2/sendBoc",
+                    json={"boc": boc},
+                ) as resp:
+                    data = await resp.json()
+                    if not data.get("ok"):
+                        raise SwapError(f"TON transaction failed: {data.get('error', 'unknown')}")
+
+                    return data.get("result", {}).get("hash", "pending")
+
+        except ImportError:
+            raise SwapError("TON SDK not installed. Install tonsdk to enable TON swaps.")
 
     async def _execute_lifi_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via Li.Fi."""
