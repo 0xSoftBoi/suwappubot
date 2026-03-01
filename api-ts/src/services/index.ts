@@ -10,3 +10,4 @@ export { TokenService, TokenServiceLive, CHAINS, COMMON_TOKENS, type TokenInfo, 
 export { JupiterService, JupiterServiceLive, SOLANA_TOKENS, type JupiterQuote, type JupiterSwapResponse } from './JupiterService'
 export { RedisService, RedisServiceLive, cacheKeys, QUOTE_TTL, TOKEN_LIST_TTL, type RedisServiceInterface } from './RedisService'
 export { LimitOrderService, LimitOrderServiceLive, type CreateLimitOrderParams, type LimitOrderWithPrice, type PriceCheckResult } from './LimitOrderService'
+export { CopyTradingService, CopyTradingServiceLive, type TopTraderEntry, type TraderProfileDetail, type FollowingEntry, type CopyTradeEntry, type FollowSettings } from './CopyTradingService'

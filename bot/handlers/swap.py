@@ -33,6 +33,7 @@ from bot.services.x402_service import x402_service
 from bot.utils.quote_validator import quote_validator
 from bot.utils.errors import detect_error_code, detect_error_code_from_exception, get_error_message, format_error_with_buttons
 from bot.services.twofa import twofa_service
+from bot.services.ai_service import ai_service
 
 
 # Conversation states
@@ -551,7 +552,7 @@ async def select_to_token(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle amount input."""
+    """Handle amount input. Also tries AI parsing for free-text trade intents."""
     allowed = await enforce_rate_limit_for_update(update, swap_limiter)
     if not allowed:
         return ConversationHandler.END
@@ -561,6 +562,12 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     amount = validate_amount(raw_text)
 
     if amount is None:
+        # Try AI parsing for natural language like "buy 0.5 ETH of BONK"
+        if ai_service.is_available and len(raw_text) > 3:
+            intent = await ai_service.parse_trade_intent(raw_text)
+            if intent and intent.get("action") == "swap":
+                return await _handle_ai_swap_intent(update, context, intent)
+
         logger.info("enter_amount invalid user_id=%s raw=%s", user_id, raw_text[:30])
         await update.message.reply_text(
             "❌ Invalid amount. Please enter a valid number (e.g., 100 or 50.5):"
@@ -688,6 +695,8 @@ async def _show_quote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
             ]
             if dex_url:
                 keyboard.append([InlineKeyboardButton("📈 DexScreener Chart", url=dex_url)])
+            if ai_service.is_available:
+                keyboard.append([InlineKeyboardButton("🤖 AI Safety Analysis", callback_data="ai_safety_analysis")])
 
             await loading_msg.edit_text(
                 text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
@@ -890,6 +899,8 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         ]
         if dex_url:
             keyboard.append([InlineKeyboardButton("📈 DexScreener Chart", url=dex_url)])
+        if ai_service.is_available:
+            keyboard.append([InlineKeyboardButton("🤖 AI Safety Analysis", callback_data="ai_safety_analysis")])
         
         await query.edit_message_text(
             text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
@@ -1197,6 +1208,163 @@ async def _execute_confirmed_swap(update, context):
             "Press Execute Now to complete your swap:",
             reply_markup=keyboard,
         )
+    return CONFIRM_SWAP
+
+
+async def _handle_ai_swap_intent(update: Update, context: ContextTypes.DEFAULT_TYPE, intent: dict) -> int:
+    """Handle a swap intent parsed by AI — pre-fill swap form and show confirmation."""
+    from_token = intent.get("from_token", "").upper()
+    to_token = intent.get("to_token", "").upper()
+    amount_str = intent.get("amount")
+    chain = intent.get("chain", "ethereum").lower()
+
+    amount = validate_amount(amount_str) if amount_str else None
+    chain_config = get_chain_by_name(chain)
+    if not chain_config:
+        chain = "ethereum"
+        chain_config = get_chain_by_name(chain)
+
+    if not from_token or not to_token:
+        await update.message.reply_text(
+            "I couldn't understand that trade. Please enter a valid amount:"
+        )
+        return ENTER_AMOUNT
+
+    # Pre-fill swap data
+    context.user_data["swap"] = {
+        "from_chain": chain,
+        "from_token": from_token,
+        "to_chain": chain,
+        "to_token": to_token,
+    }
+
+    if amount:
+        context.user_data["swap"]["amount"] = amount
+
+    to_chain_config = get_chain_by_name(chain)
+    amount_text = f" {amount} " if amount else " "
+
+    keyboard = [
+        [
+            InlineKeyboardButton("Yes", callback_data="ai_intent_yes"),
+            InlineKeyboardButton("Edit", callback_data="swap_custom_pair"),
+            InlineKeyboardButton("Cancel", callback_data="swap_cancel"),
+        ],
+    ]
+
+    await update.message.reply_text(
+        f"I understood: *Swap{amount_text}{from_token} -> {to_token}* on {chain_config.display_name}. Correct?",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+    if amount:
+        return CONFIRM_SWAP
+    return ENTER_AMOUNT
+
+
+async def ai_intent_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """User confirmed AI-parsed intent — proceed to amount entry or quote."""
+    query = update.callback_query
+    await query.answer()
+
+    swap_data = context.user_data.get("swap", {})
+
+    if swap_data.get("amount"):
+        # Amount already set, get quote
+        user_id = context.user_data.get("user_id")
+        from_chain_config = get_chain_by_name(swap_data["from_chain"])
+        chain_type = "solana" if from_chain_config.chain_type == ChainType.SOLANA else "evm"
+
+        default_wallet = wallet_service.get_default_wallet(user_id, chain_type)
+        if not default_wallet:
+            await query.edit_message_text("No wallet found for this chain.")
+            return ConversationHandler.END
+
+        swap_data["wallet_id"] = default_wallet.id
+        swap_data["selected_wallets"] = [default_wallet.id]
+        return await _show_quote(update, context)
+
+    # No amount — ask for it
+    from_chain_config = get_chain_by_name(swap_data.get("from_chain", "ethereum"))
+    native_token = "SOL" if from_chain_config.chain_type == ChainType.SOLANA else "ETH"
+    quickbuy_row = [
+        InlineKeyboardButton(f"{amt} {native_token}", callback_data=f"swap_qb_{amt}")
+        for amt in [0.1, 0.5, 1.0, 5.0]
+    ]
+    keyboard = [
+        quickbuy_row,
+        [
+            InlineKeyboardButton("25%", callback_data="swap_pct_25"),
+            InlineKeyboardButton("50%", callback_data="swap_pct_50"),
+            InlineKeyboardButton("75%", callback_data="swap_pct_75"),
+            InlineKeyboardButton("Max", callback_data="swap_pct_100"),
+        ],
+        [InlineKeyboardButton("Cancel", callback_data="swap_cancel")],
+    ]
+
+    await query.edit_message_text(
+        f"Swap *{swap_data.get('from_token')} -> {swap_data.get('to_token')}* "
+        f"on {from_chain_config.display_name}\n\nEnter the amount to swap:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+    return ENTER_AMOUNT
+
+
+async def ai_safety_analysis_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle AI Safety Analysis button on swap quote view."""
+    query = update.callback_query
+    await query.answer("Analyzing token safety...")
+
+    swap_data = context.user_data.get("swap", {})
+    dest_chain = swap_data.get("to_chain")
+    dest_token = swap_data.get("to_token")
+
+    if not dest_chain or not dest_token:
+        await query.answer("No token data available.", show_alert=True)
+        return CONFIRM_SWAP
+
+    try:
+        dest_token_address = get_token_address(dest_token, dest_chain)
+        token_data = {"symbol": dest_token, "chain": dest_chain, "address": dest_token_address}
+
+        # Get GoPlus data
+        goplus_data = {}
+        try:
+            from bot.services.goplus_api import goplus_api
+            from dataclasses import asdict
+            security = await goplus_api.get_token_security(dest_chain, dest_token_address)
+            goplus_data = asdict(security)
+        except Exception:
+            pass
+
+        analysis = await ai_service.analyze_token(token_data, goplus_data or {})
+
+        if analysis:
+            current_text = query.message.text or ""
+            new_text = current_text + f"\n\n*AI Safety Analysis:*\n{analysis}"
+            # Preserve existing keyboard but remove AI analysis button
+            old_markup = query.message.reply_markup
+            new_buttons = []
+            if old_markup:
+                for row in old_markup.inline_keyboard:
+                    new_row = [b for b in row if b.callback_data != "ai_safety_analysis"]
+                    if new_row:
+                        new_buttons.append(new_row)
+
+            await query.edit_message_text(
+                new_text,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(new_buttons) if new_buttons else None,
+            )
+        else:
+            await query.answer("AI analysis unavailable right now.", show_alert=True)
+    except Exception as e:
+        logger.warning(f"AI safety analysis callback failed: {e}")
+        await query.answer("Analysis failed. Try again later.", show_alert=True)
+
     return CONFIRM_SWAP
 
 
@@ -1537,6 +1705,7 @@ swap_conversation_handler = ConversationHandler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, enter_amount),
             CallbackQueryHandler(swap_pct_callback, pattern=r"^swap_pct_"),
             CallbackQueryHandler(swap_quickbuy_callback, pattern=r"^swap_qb_"),
+            CallbackQueryHandler(ai_intent_confirm_callback, pattern="^ai_intent_yes$"),
         ],
         SELECT_WALLETS: [
             CallbackQueryHandler(toggle_wallet_callback, pattern="^swap_toggle_wallet_"),
@@ -1546,6 +1715,8 @@ swap_conversation_handler = ConversationHandler(
             CallbackQueryHandler(confirm_swap, pattern="^swap_confirm$"),
             CallbackQueryHandler(swap_requote, pattern="^swap_requote$"),
             CallbackQueryHandler(show_wallet_selection, pattern="^swap_back_to_wallets$"),
+            CallbackQueryHandler(ai_intent_confirm_callback, pattern="^ai_intent_yes$"),
+            CallbackQueryHandler(ai_safety_analysis_callback, pattern="^ai_safety_analysis$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, handle_2fa_code),
         ],
     },

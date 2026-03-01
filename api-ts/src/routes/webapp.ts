@@ -742,6 +742,341 @@ protectedWebapp.delete('/limit-orders/:orderId', async (c) => {
 	return c.json(result.right)
 })
 
+// === Copy Trading Routes ===
+import { CopyTradingService } from '../services'
+
+// GET /webapp/copy/top-traders - Public leaderboard (still requires auth)
+protectedWebapp.get('/copy/top-traders', async (c) => {
+	const limit = Math.min(Number(c.req.query('limit') || 20), 100)
+	const minTrades = c.req.query('minTrades') ? Number(c.req.query('minTrades')) : undefined
+	const minWinRate = c.req.query('minWinRate') ? Number(c.req.query('minWinRate')) : undefined
+	const chain = c.req.query('chain') || undefined
+	const sortBy = c.req.query('sortBy') || undefined
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const copyService = yield* CopyTradingService
+			return yield* copyService.getTopTraders(limit, { minTrades, minWinRate, chain, sortBy })
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// GET /webapp/copy/trader/:id - Trader profile detail
+protectedWebapp.get('/copy/trader/:id', async (c) => {
+	const userId = Number(c.req.param('id'))
+
+	if (Number.isNaN(userId)) {
+		return c.json({ error: 'Invalid trader ID' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const copyService = yield* CopyTradingService
+			return yield* copyService.getTraderProfile(userId)
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+	return c.json(result.right)
+})
+
+// GET /webapp/me/copy/following - Traders user follows
+protectedWebapp.get('/copy/following', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const copyService = yield* CopyTradingService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			return yield* copyService.getFollowing(userOption.value.id)
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// GET /webapp/me/copy/trades - Copy trade history
+protectedWebapp.get('/copy/trades', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const limit = Math.min(Number(c.req.query('limit') || 20), 100)
+	const offset = Number(c.req.query('offset') || 0)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const copyService = yield* CopyTradingService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			return yield* copyService.getCopyTrades(userOption.value.id, limit, offset)
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// POST /webapp/me/copy/follow/:traderId - Follow a trader
+protectedWebapp.post('/copy/follow/:traderId', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const traderId = Number(c.req.param('traderId'))
+
+	if (Number.isNaN(traderId)) {
+		return c.json({ error: 'Invalid trader ID' }, 400)
+	}
+
+	const body = await c.req.json().catch(() => ({}))
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const copyService = yield* CopyTradingService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			return yield* copyService.followTrader(userOption.value.id, traderId, {
+				copyMode: body.copyMode,
+				copyAmountUsd: body.copyAmountUsd,
+				maxTradeUsd: body.maxTradeUsd,
+				dailyLimitUsd: body.dailyLimitUsd,
+				autoSellEnabled: body.autoSellEnabled,
+				chainsFilter: body.chainsFilter,
+			})
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body: errBody } = mapErrorToResponse(result.left)
+		return c.json(errBody, status as 200)
+	}
+	return c.json(result.right, 201)
+})
+
+// DELETE /webapp/me/copy/follow/:traderId - Unfollow a trader
+protectedWebapp.delete('/copy/follow/:traderId', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const traderId = Number(c.req.param('traderId'))
+
+	if (Number.isNaN(traderId)) {
+		return c.json({ error: 'Invalid trader ID' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const copyService = yield* CopyTradingService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			yield* copyService.unfollowTrader(userOption.value.id, traderId)
+			return { success: true, message: 'Unfollowed successfully' }
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body: errBody } = mapErrorToResponse(result.left)
+		return c.json(errBody, status as 200)
+	}
+	return c.json(result.right)
+})
+
+// PUT /webapp/me/copy/follow/:traderId - Update copy settings
+protectedWebapp.put('/copy/follow/:traderId', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const traderId = Number(c.req.param('traderId'))
+
+	if (Number.isNaN(traderId)) {
+		return c.json({ error: 'Invalid trader ID' }, 400)
+	}
+
+	const body = await c.req.json().catch(() => ({}))
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const copyService = yield* CopyTradingService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			return yield* copyService.updateCopySettings(userOption.value.id, traderId, {
+				copyMode: body.copyMode,
+				copyAmountUsd: body.copyAmountUsd,
+				maxTradeUsd: body.maxTradeUsd,
+				dailyLimitUsd: body.dailyLimitUsd,
+				autoSellEnabled: body.autoSellEnabled,
+				chainsFilter: body.chainsFilter,
+			})
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body: errBody } = mapErrorToResponse(result.left)
+		return c.json(errBody, status as 200)
+	}
+	return c.json(result.right)
+})
+
+// === Token Discovery Routes (public) ===
+
+// GET /webapp/tokens/trending - Get trending tokens
+webappRoutes.get('/tokens/trending', async (c) => {
+	const chain = c.req.query('chain')
+
+	try {
+		const url = 'https://api.dexscreener.com/token-boosts/latest/v1'
+		const response = await fetch(url)
+		if (!response.ok) {
+			return c.json({ tokens: [] })
+		}
+		const data = await response.json() as Array<{
+			tokenAddress: string
+			chainId: string
+			icon?: string
+		}>
+
+		let tokens = Array.isArray(data) ? data : []
+		if (chain) {
+			tokens = tokens.filter((t) => t.chainId === chain)
+		}
+
+		// Enrich top 20 with price data
+		const topTokens = tokens.slice(0, 20)
+		const enriched = await Promise.all(
+			topTokens.map(async (token) => {
+				try {
+					const pairRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${token.tokenAddress}`)
+					if (!pairRes.ok) return null
+					const pairData = await pairRes.json() as { pairs?: Array<{
+						baseToken?: { name?: string; symbol?: string }
+						priceUsd?: string
+						priceChange?: { h24?: number }
+						volume?: { h24?: number }
+					}> }
+					const pair = pairData.pairs?.[0]
+					if (!pair) return null
+
+					return {
+						tokenAddress: token.tokenAddress,
+						chainId: token.chainId,
+						name: pair.baseToken?.name || 'Unknown',
+						symbol: pair.baseToken?.symbol || '???',
+						priceUsd: pair.priceUsd ? parseFloat(pair.priceUsd) : 0,
+						priceChange24h: pair.priceChange?.h24 || 0,
+						volume24h: pair.volume?.h24 || 0,
+						logoUrl: token.icon || undefined,
+					}
+				} catch {
+					return null
+				}
+			})
+		)
+
+		return c.json({ tokens: enriched.filter(Boolean) })
+	} catch (error) {
+		console.error('Trending tokens error:', error)
+		return c.json({ tokens: [] })
+	}
+})
+
+// GET /webapp/tokens/:chain/:address/info - Get token info
+webappRoutes.get('/tokens/:chain/:address/info', async (c) => {
+	const { address } = c.req.param()
+
+	try {
+		const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${address}`)
+		if (!response.ok) {
+			return c.json({ pairs: [] })
+		}
+		return c.json(await response.json())
+	} catch (error) {
+		console.error('Token info error:', error)
+		return c.json({ pairs: [] })
+	}
+})
+
+// GET /webapp/tokens/:chain/:address/chart - Get chart data
+webappRoutes.get('/tokens/:chain/:address/chart', async (c) => {
+	const { address } = c.req.param()
+
+	try {
+		const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${address}`)
+		if (!response.ok) {
+			return c.json({ candles: [], pair: null })
+		}
+		const data = await response.json() as { pairs?: Array<{
+			priceUsd?: string
+			priceChange?: { h24?: number; h6?: number; h1?: number; m5?: number }
+		}> }
+		const pair = data.pairs?.[0]
+
+		// Generate synthetic candles from available price change data
+		const candles: Array<{ time: number; open: number; high: number; low: number; close: number }> = []
+		if (pair?.priceUsd) {
+			const currentPrice = parseFloat(pair.priceUsd)
+			const now = Math.floor(Date.now() / 1000)
+			const changes = [
+				pair.priceChange?.h24 || 0,
+				pair.priceChange?.h6 || 0,
+				pair.priceChange?.h1 || 0,
+				pair.priceChange?.m5 || 0,
+			]
+			const intervals = [86400, 21600, 3600, 300]
+
+			let price = currentPrice
+			for (let i = 0; i < changes.length; i++) {
+				const change = changes[i] || 0
+				const prevPrice = price / (1 + change / 100)
+				const high = Math.max(price, prevPrice) * (1 + Math.abs(change) / 200)
+				const low = Math.min(price, prevPrice) * (1 - Math.abs(change) / 200)
+				candles.unshift({
+					time: now - intervals[i],
+					open: prevPrice,
+					high,
+					low,
+					close: price,
+				})
+				price = prevPrice
+			}
+		}
+
+		return c.json({ candles, pair })
+	} catch (error) {
+		console.error('Token chart error:', error)
+		return c.json({ candles: [], pair: null })
+	}
+})
+
 // Mount protected routes at both /me and /users/me for backward compatibility
 webappRoutes.route('/me', protectedWebapp)
 webappRoutes.route('/users/me', protectedWebapp)

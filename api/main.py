@@ -34,6 +34,7 @@ from bot.services.alerts import alert_service
 from bot.services.orders import order_service
 from bot.services.tx_poller import tx_poller
 from bot.services.health_monitor import health_monitor
+from bot.services.rug_monitor import rug_monitor_service
 from bot.services.webhook_dispatcher import webhook_dispatcher
 from bot.utils.preload import preload_config
 from database.db import init_db, engine, get_session, DATABASE_AVAILABLE
@@ -151,6 +152,7 @@ async def lifespan(app: FastAPI):
         tx_poller._webhook_dispatcher = webhook_dispatcher
         await tx_poller.start(bot=bot_app.bot if bot_initialized else None)
         await health_monitor.start(bot=bot_app.bot if bot_initialized else None, admin_ids=admin_ids)
+        await rug_monitor_service.start_monitoring(bot=bot_app.bot if bot_initialized else None)
         # Gamification scheduled tasks
         async def _gamification_scheduler():
             """Run daily quest generation and jackpot drawing."""

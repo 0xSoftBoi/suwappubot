@@ -116,7 +116,11 @@ class CopyFollow(Base):
     
     # Status
     is_active = Column(Boolean, default=True)
-    
+
+    # Enhanced copy settings
+    auto_sell_enabled = Column(Boolean, default=True)  # Mirror sell trades
+    chains_filter = Column(String(200), nullable=True)  # Comma-separated chain filter
+
     # Stats
     total_copied_trades = Column(Integer, default=0)
     total_copied_volume = Column(Float, default=0.0)

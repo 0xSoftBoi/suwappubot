@@ -242,6 +242,71 @@ class WebappApiClient extends BaseApiClient {
     return this.fetch(`/webapp/me/limit-orders/${orderId}`, { method: 'DELETE' })
   }
 
+  // === Token Discovery ===
+
+  /**
+   * Get trending tokens, optionally filtered by chain
+   */
+  async getTrendingTokens(chain?: string): Promise<TrendingToken[]> {
+    const params = chain ? `?chain=${chain}` : ''
+    return this.fetch<TrendingToken[]>(`/webapp/tokens/trending${params}`)
+  }
+
+  /**
+   * Get token info (pairs data from DexScreener)
+   */
+  async getTokenInfo(chain: string, address: string): Promise<TokenInfoResponse> {
+    return this.fetch<TokenInfoResponse>(`/webapp/tokens/${chain}/${address}/info`)
+  }
+
+  /**
+   * Get token chart data (OHLCV candles)
+   */
+  async getTokenChart(chain: string, address: string, timeframe: string = '1h'): Promise<TokenChartResponse> {
+    return this.fetch<TokenChartResponse>(`/webapp/tokens/${chain}/${address}/chart?timeframe=${timeframe}`)
+  }
+
+  // === Copy Trading ===
+
+  async getTopTraders(filters?: { minTrades?: number; minWinRate?: number; chain?: string; sortBy?: string }): Promise<CopyTraderEntry[]> {
+    const params = new URLSearchParams()
+    if (filters?.minTrades) params.set('minTrades', String(filters.minTrades))
+    if (filters?.minWinRate) params.set('minWinRate', String(filters.minWinRate))
+    if (filters?.chain) params.set('chain', filters.chain)
+    if (filters?.sortBy) params.set('sortBy', filters.sortBy)
+    return this.fetch<CopyTraderEntry[]>(`/webapp/me/copy/top-traders?${params}`)
+  }
+
+  async getTraderProfile(id: number): Promise<CopyTraderProfile> {
+    return this.fetch<CopyTraderProfile>(`/webapp/me/copy/trader/${id}`)
+  }
+
+  async getFollowing(): Promise<CopyFollowingEntry[]> {
+    return this.fetch<CopyFollowingEntry[]>('/webapp/me/copy/following')
+  }
+
+  async getCopyTrades(limit = 20, offset = 0): Promise<CopyTradeRecord[]> {
+    return this.fetch<CopyTradeRecord[]>(`/webapp/me/copy/trades?limit=${limit}&offset=${offset}`)
+  }
+
+  async followTrader(traderId: number, settings: CopyFollowSettings): Promise<unknown> {
+    return this.fetch('/webapp/me/copy/follow/' + traderId, {
+      method: 'POST',
+      body: JSON.stringify(settings),
+    })
+  }
+
+  async unfollowTrader(traderId: number): Promise<{ success: boolean; message: string }> {
+    return this.fetch(`/webapp/me/copy/follow/${traderId}`, { method: 'DELETE' })
+  }
+
+  async updateCopySettings(traderId: number, settings: CopyFollowSettings): Promise<unknown> {
+    return this.fetch(`/webapp/me/copy/follow/${traderId}`, {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    })
+  }
+
   // === User Preferences (webapp-specific endpoints) ===
 
   /**
@@ -419,6 +484,126 @@ interface WebappUpdatePreferencesResponse {
   preferences: WebappUserPreferences
 }
 
+// Copy Trading types
+interface CopyTraderEntry {
+  rank: number
+  userId: number
+  displayName: string
+  avatarEmoji: string
+  totalTrades: number
+  winRate: number
+  totalPnlUsd: number
+  totalVolumeUsd: number
+  followerCount: number
+  timesCopied: number
+  rankScore: number
+}
+
+interface CopyTraderProfile {
+  profile: {
+    userId: number
+    displayName: string | null
+    avatarEmoji: string | null
+    bio: string | null
+    isPublic: boolean | null
+  }
+  stats: {
+    totalTrades: number | null
+    winningTrades: number | null
+    winRate: number | null
+    totalPnlUsd: number | null
+    totalVolumeUsd: number | null
+    avgTradeSizeUsd: number | null
+    bestTradePnlUsd: number | null
+    worstTradePnlUsd: number | null
+  }
+  social: {
+    followerCount: number | null
+    timesCopied: number | null
+    totalCopyVolumeUsd: number | null
+  }
+  recentTrades: {
+    fromToken: string
+    toToken: string
+    fromChain: string
+    amountUsd: number
+    pnlUsd: number | null
+    createdAt: string | null
+  }[]
+}
+
+interface CopyFollowingEntry {
+  traderId: number
+  displayName: string | null
+  avatarEmoji: string | null
+  copyMode: string | null
+  copyAmountUsd: number | null
+  autoSellEnabled: boolean | null
+  chainsFilter: string | null
+  totalCopiedTrades: number | null
+  totalCopyPnl: number | null
+  winRate: number | null
+  isActive: boolean | null
+}
+
+interface CopyTradeRecord {
+  id: number
+  traderId: number
+  fromToken: string
+  toToken: string
+  fromChain: string
+  toChain: string
+  traderAmountUsd: number
+  copyAmountUsd: number
+  status: string | null
+  pnlUsd: number | null
+  createdAt: string | null
+}
+
+// Token Discovery types
+interface DexScreenerPair {
+  chainId: string
+  dexId: string
+  pairAddress: string
+  baseToken: { address: string; name: string; symbol: string }
+  quoteToken: { address: string; name: string; symbol: string }
+  priceUsd: string
+  priceChange: { h24: number; h6?: number; h1?: number }
+  volume: { h24: number; h6?: number; h1?: number }
+  liquidity: { usd: number }
+  marketCap?: number
+  fdv?: number
+}
+
+interface TokenInfoResponse {
+  pairs: DexScreenerPair[]
+}
+
+interface TokenChartResponse {
+  candles: Array<{ time: number; open: number; high: number; low: number; close: number }>
+}
+
+interface TrendingToken {
+  url: string
+  chainId: string
+  tokenAddress: string
+  icon?: string
+  name?: string
+  symbol?: string
+  price?: number
+  priceChange24h?: number
+  sparkline?: Array<{ time: number; value: number }>
+}
+
+interface CopyFollowSettings {
+  copyMode?: string
+  copyAmountUsd?: number
+  maxTradeUsd?: number
+  dailyLimitUsd?: number
+  autoSellEnabled?: boolean
+  chainsFilter?: string | null
+}
+
 // Export singleton instance
 export const api = new WebappApiClient(API_BASE)
 
@@ -437,4 +622,13 @@ export type {
   CreateLimitOrderRequest,
   CreateLimitOrderResult,
   SwapToken,
+  CopyTraderEntry,
+  CopyTraderProfile,
+  CopyFollowingEntry,
+  CopyTradeRecord,
+  CopyFollowSettings,
+  DexScreenerPair,
+  TokenInfoResponse,
+  TokenChartResponse,
+  TrendingToken,
 }

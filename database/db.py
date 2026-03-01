@@ -113,7 +113,7 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         from bot.models.swap import SwapTransaction
         # Common operational tables used by services/background tasks
         from bot.models.fees import FeeConfig, FeeTransaction, FeeSummary
-        from bot.models.advanced import LimitOrder, DCAOrder, DCAExecution, SwapTemplate
+        from bot.models.advanced import LimitOrder, DCAOrder, DCAExecution, SwapTemplate, RugMonitor
         # Referral system models
         from bot.models.referral import Referral, ReferralCode, ReferralReward, ReferralPayout
         # Points/XP and Copy Trading models
@@ -228,8 +228,22 @@ def _ensure_schema(db_engine) -> None:
     # --- smart notification columns ---
     _add_smart_notification_columns(db_engine, inspector, is_sqlite)
 
+    # --- x402_payments: Telegram Stars payment columns ---
+    if "x402_payments" in tables:
+        _add_stars_payment_columns(db_engine, inspector, is_sqlite)
+
     # --- gamification tables: daily_quests, user_quests, jackpot_pools ---
     _create_gamification_tables(db_engine, inspector, is_sqlite)
+
+    # --- copy_follows: enhanced copy trading columns ---
+    if "copy_follows" in tables:
+        _add_copy_trading_columns(db_engine, inspector, is_sqlite)
+
+    # --- rug_monitors table ---
+    if not inspector.has_table("rug_monitors"):
+        from bot.models.advanced import RugMonitor
+        RugMonitor.__table__.create(bind=db_engine)
+        logger.info("Created rug_monitors table")
 
 
 def _fix_user_nullability(db_engine, inspector, is_sqlite: bool) -> None:
@@ -536,6 +550,25 @@ def _add_smart_notification_columns(db_engine, inspector, is_sqlite: bool) -> No
                     conn.execute(text(ddl))
 
 
+def _add_stars_payment_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add Telegram Stars payment columns to x402_payments table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("x402_payments")}
+
+    new_columns = [
+        ("payment_method", "VARCHAR(32)", "'crypto'"),
+        ("stars_amount", "INTEGER", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE x402_payments ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE x402_payments ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+
 def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
     """Create gamification tables (daily_quests, user_quests, jackpot_pools) idempotently."""
     try:
@@ -645,6 +678,25 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
         conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_jackpot_pools_date ON jackpot_pools(date)"
         ))
+
+
+def _add_copy_trading_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add enhanced copy trading columns to copy_follows table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("copy_follows")}
+
+    new_columns = [
+        ("auto_sell_enabled", "BOOLEAN", "TRUE"),
+        ("chains_filter", "VARCHAR(200)", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE copy_follows ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE copy_follows ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
 
 
 @contextmanager

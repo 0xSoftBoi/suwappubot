@@ -12,6 +12,7 @@ from bot.utils.formatters import format_amount, format_usd, format_chain_name
 from bot.config.chains import CHAINS, ChainType
 from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
+from bot.services.ai_service import ai_service
 
 
 wallet_service = WalletService()
@@ -99,13 +100,16 @@ async def _build_portfolio_text(wallet_infos, user_id=None):
 
 def _portfolio_keyboard():
     """Return standard portfolio keyboard."""
-    return InlineKeyboardMarkup([
+    buttons = [
         [
             InlineKeyboardButton("\U0001f504 Refresh", callback_data="portfolio_refresh"),
             InlineKeyboardButton("\U0001f504 Swap", callback_data="swap_start"),
         ],
-        [InlineKeyboardButton("\u00ab Back", callback_data="main_menu")],
-    ])
+    ]
+    if ai_service.is_available:
+        buttons.append([InlineKeyboardButton("\U0001f916 AI Analysis", callback_data="portfolio_ai_analysis")])
+    buttons.append([InlineKeyboardButton("\u00ab Back", callback_data="main_menu")])
+    return InlineKeyboardMarkup(buttons)
 
 
 def _error_keyboard():
@@ -205,6 +209,89 @@ async def portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         await query.edit_message_text(
             f"\u274c Error: {str(e)}",
+            reply_markup=_error_keyboard(),
+        )
+
+
+async def portfolio_ai_analysis_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle AI Analysis button on portfolio view."""
+    query = update.callback_query
+    await query.answer()
+
+    user = update.effective_user
+
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.edit_message_text("\u274c Please use /start first.")
+            return
+        user_id = db_user.id
+
+    # Rate limit check
+    if not ai_service.can_analyze(user_id):
+        await query.answer(
+            "AI analysis is available once per hour. Please try again later.",
+            show_alert=True,
+        )
+        return
+
+    await query.edit_message_text("\U0001f916 Generating AI analysis...")
+
+    try:
+        # Gather position data
+        positions = []
+        try:
+            summary = pnl_service.get_pnl_summary(user_id)
+            if summary.get("positions"):
+                positions = summary["positions"]
+            elif summary.get("positions_count", 0) > 0:
+                positions = [{"total_positions": summary["positions_count"],
+                              "realized_pnl": summary.get("total_realized_pnl", 0),
+                              "win_rate": summary.get("win_rate", 0)}]
+        except Exception:
+            pass
+
+        # Get recent trades
+        trades_7d = []
+        try:
+            from bot.models.swap import SwapTransaction
+            from datetime import datetime, timedelta
+            with get_session() as session:
+                recent = session.query(SwapTransaction).filter(
+                    SwapTransaction.user_id == user_id,
+                    SwapTransaction.created_at >= datetime.utcnow() - timedelta(days=7),
+                ).order_by(SwapTransaction.created_at.desc()).limit(20).all()
+                trades_7d = [
+                    {
+                        "from": f"{t.from_token} ({t.from_chain})",
+                        "to": f"{t.to_token} ({t.to_chain})",
+                        "amount": str(t.from_amount),
+                        "status": t.status,
+                    }
+                    for t in recent
+                ]
+        except Exception:
+            pass
+
+        analysis = await ai_service.generate_portfolio_summary(positions, trades_7d)
+        ai_service.record_analysis(user_id)
+
+        if analysis:
+            text = f"\U0001f916 *AI Portfolio Analysis*\n\n{analysis}"
+        else:
+            text = "\U0001f916 AI analysis is not available right now. Please try again later."
+
+        await query.edit_message_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("\U0001f504 Back to Portfolio", callback_data="portfolio_refresh")],
+                [InlineKeyboardButton("\u00ab Main Menu", callback_data="main_menu")],
+            ]),
+        )
+    except Exception as e:
+        await query.edit_message_text(
+            f"\u274c AI analysis failed: {str(e)}",
             reply_markup=_error_keyboard(),
         )
 

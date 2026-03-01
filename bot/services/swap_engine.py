@@ -723,6 +723,21 @@ class SwapEngine:
                 except Exception as pnl_err:
                     logger.warning("PnL recording failed for swap %d: %s", swap_id, pnl_err)
 
+                # Auto-monitor for rug pulls on buy swaps (non-blocking)
+                try:
+                    from bot.services.rug_monitor import rug_monitor_service
+                    # Detect buy swap: from_token is a native/stable, to_token is the purchased token
+                    _native_symbols = {"SOL", "ETH", "MATIC", "BNB", "AVAX", "USDC", "USDT", "DAI"}
+                    _is_buy = quote.from_token.upper() in _native_symbols
+                    if _is_buy:
+                        asyncio.create_task(
+                            rug_monitor_service.auto_monitor(
+                                user_id, quote.to_token, quote.to_chain, wallet_id
+                            )
+                        )
+                except Exception as _rug_err:
+                    logger.warning("Rug monitor hook failed: %s", _rug_err)
+
                 return swap_tx
 
             except Exception as e:

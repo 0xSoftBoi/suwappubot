@@ -23,6 +23,9 @@ interface UseTelegramReturn {
   showAlert: (message: string) => Promise<void>
   showConfirm: (message: string) => Promise<boolean>
   close: () => void
+  requestFullscreen: () => void
+  exitFullscreen: () => void
+  addToHomeScreen: () => void
 }
 
 export function useTelegram(): UseTelegramReturn {
@@ -114,6 +117,24 @@ export function useTelegram(): UseTelegramReturn {
     webApp?.close()
   }, [webApp])
 
+  const requestFullscreen = useCallback(() => {
+    if ((webApp as Record<string, unknown>)?.requestFullscreen) {
+      ;(webApp as Record<string, CallableFunction>).requestFullscreen()
+    }
+  }, [webApp])
+
+  const exitFullscreen = useCallback(() => {
+    if ((webApp as Record<string, unknown>)?.exitFullscreen) {
+      ;(webApp as Record<string, CallableFunction>).exitFullscreen()
+    }
+  }, [webApp])
+
+  const addToHomeScreen = useCallback(() => {
+    if ((webApp as Record<string, unknown>)?.addToHomeScreen) {
+      ;(webApp as Record<string, CallableFunction>).addToHomeScreen()
+    }
+  }, [webApp])
+
   return {
     webApp,
     user,
@@ -128,5 +149,8 @@ export function useTelegram(): UseTelegramReturn {
     showAlert,
     showConfirm,
     close,
+    requestFullscreen,
+    exitFullscreen,
+    addToHomeScreen,
   }
 }

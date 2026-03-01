@@ -23,6 +23,8 @@ const Referrals = lazy(() => import('./pages/Referrals').then(m => ({ default: m
 const CopyTrading = lazy(() => import('./pages/CopyTrading').then(m => ({ default: m.CopyTrading })))
 const Subscriptions = lazy(() => import('./pages/Subscriptions').then(m => ({ default: m.Subscriptions })))
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
+const TokenDetail = lazy(() => import('./pages/TokenDetail'))
+const Discover = lazy(() => import('./pages/Discover'))
 
 // Loading fallback for lazy-loaded pages
 function PageLoading() {
@@ -293,6 +295,27 @@ function AppContent() {
             <ProtectedRoute>
               <PageTransition>
                 <Settings />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/discover"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Discover />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/token/:chain/:address"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <TokenDetail />
               </PageTransition>
             </ProtectedRoute>
           }

@@ -2,6 +2,7 @@
 # C++ Extension Build
 # Testing
 aiocache==0.12.3
+anthropic>=0.39.0
 aiohttp==3.13.3
 alembic==1.16.5
 base58==2.1.1

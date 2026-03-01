@@ -13,6 +13,7 @@ import { TokenServiceLive } from './TokenService'
 import { JupiterServiceLive } from './JupiterService'
 import { RedisServiceLive } from './RedisService'
 import { LimitOrderServiceLive } from './LimitOrderService'
+import { CopyTradingServiceLive } from './CopyTradingService'
 
 // Base configuration layer
 export const ConfigLayer = EnvServiceLive
@@ -30,7 +31,7 @@ export const TurnkeyLayer = TurnkeyServiceLive.pipe(Layer.provide(ConfigLayer))
 export const RedisLayer = RedisServiceLive.pipe(Layer.provide(ConfigLayer))
 
 // Service layers (stateless, no dependencies on other services)
-export const ServicesLayer = Layer.mergeAll(WalletServiceLive, SwapServiceLive, UserServiceLive, PointsServiceLive, BalanceServiceLive, AgentServiceLive, TokenServiceLive, JupiterServiceLive, LimitOrderServiceLive)
+export const ServicesLayer = Layer.mergeAll(WalletServiceLive, SwapServiceLive, UserServiceLive, PointsServiceLive, BalanceServiceLive, AgentServiceLive, TokenServiceLive, JupiterServiceLive, LimitOrderServiceLive, CopyTradingServiceLive)
 
 // Full application layer with all services
 export const MainLayer = Layer.mergeAll(

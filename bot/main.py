@@ -7,6 +7,9 @@ from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
+    PreCheckoutQueryHandler,
+    MessageHandler,
+    filters,
 )
 
 from bot.config.settings import settings
@@ -14,18 +17,19 @@ from bot.handlers.start import (
     start_handler, help_handler, help_callback,
     main_menu_callback, noop_callback,
     tos_accept_callback, tos_decline_callback,
-    more_menu_callback,
+    more_menu_callback, first_trade_callback,
 )
 from bot.handlers.balance import balance_handler, balance_callback
 from bot.handlers.wallet import wallet_handler, wallet_menu_callback, wallet_create_callback, wallet_qr_callback, wallet_import_handler
 from bot.handlers.swap import swap_conversation_handler, check_swap_status
 from bot.handlers.history import history_handler, history_callback, history_menu_callback, history_page_handler, history_filter_handler, share_pnl_handler
-from bot.handlers.portfolio import portfolio_handler, portfolio_callback
+from bot.handlers.portfolio import portfolio_handler, portfolio_callback, portfolio_ai_analysis_callback
 from bot.handlers.gas import gas_handler, gas_callback, gas_menu_callback
 from bot.handlers.favorites import favorites_handler, favorites_callback, use_favorite_callback, delete_favorite_callback
 from bot.handlers.settings import (
     settings_handler, settings_callback, toggle_notify_handler,
-    slippage_conversation, toggle_panic_handler, settings_menu_callback
+    slippage_conversation, toggle_panic_handler, settings_menu_callback,
+    antirug_handler, rug_toggle_handler, rug_disable_handler, rug_sell_handler,
 )
 from bot.handlers.admin import status_handler, clear_cache_handler, broadcast_handler
 from bot.handlers.quickswap import quickswap_handler, quickswap_confirm_callback, quickswap_menu_callback
@@ -61,9 +65,10 @@ from bot.handlers.admin_performance import (
     perf_handler, perf_refresh_handler, perf_reset_handler, perf_slow_queries_handler
 )
 from bot.handlers.subscription import (
-    subscription_handler, subscription_conversation,
+    subscription_handler, premium_handler, subscription_conversation,
     sub_compare_callback, sub_back_callback
 )
+from bot.services.stars_service import stars_service
 # Points/XP system handlers
 from bot.handlers.points import (
     xp_handler, checkin_handler, leaderboard_handler, rewards_handler,
@@ -160,6 +165,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(dca_handler)         # /dca
     application.add_handler(tax_handler)         # /tax
     application.add_handler(subscription_handler)  # /sub (x402)
+    application.add_handler(premium_handler)       # /premium alias
     application.add_handler(dashboard_handler)    # /dashboard (Mini App)
 
     # Points/XP system
@@ -184,6 +190,11 @@ def add_handlers(application: Application) -> None:
     application.add_handler(metrics_handler)            # /metrics
     application.add_handler(perf_handler)               # /perf
     
+    # ============ TELEGRAM STARS PAYMENT HANDLERS ============
+    # PreCheckoutQuery must be answered within 10 seconds - register early
+    application.add_handler(PreCheckoutQueryHandler(stars_service.handle_pre_checkout))
+    application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, stars_service.handle_successful_payment))
+
     # ============ CONVERSATION HANDLERS ============
     # Must be added before generic callback handlers
     application.add_handler(swap_conversation_handler)
@@ -205,9 +216,11 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(more_menu_callback, pattern="^menu_more$"))
     application.add_handler(CallbackQueryHandler(tos_accept_callback, pattern="^tos_accept$"))
     application.add_handler(CallbackQueryHandler(tos_decline_callback, pattern="^tos_decline$"))
-    
+    application.add_handler(CallbackQueryHandler(first_trade_callback, pattern="^first_trade$"))
+
     # Balance & Portfolio
     application.add_handler(CallbackQueryHandler(balance_callback, pattern="^balance$"))
+    application.add_handler(CallbackQueryHandler(portfolio_ai_analysis_callback, pattern="^portfolio_ai_analysis$"))
     application.add_handler(CallbackQueryHandler(portfolio_callback, pattern="^portfolio"))
     application.add_handler(CallbackQueryHandler(history_menu_callback, pattern="^history_menu$"))
     application.add_handler(history_page_handler)
@@ -237,7 +250,11 @@ def add_handlers(application: Application) -> None:
     application.add_handler(settings_menu_callback)
     application.add_handler(toggle_notify_handler)
     application.add_handler(toggle_panic_handler)
-    
+    application.add_handler(antirug_handler)
+    application.add_handler(rug_toggle_handler)
+    application.add_handler(rug_disable_handler)
+    application.add_handler(rug_sell_handler)
+
     # Custodial
     application.add_handler(CallbackQueryHandler(custodial_callback, pattern="^custodial_menu$"))
     application.add_handler(CallbackQueryHandler(deposit_callback, pattern="^custodial_deposit$"))

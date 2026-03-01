@@ -258,6 +258,7 @@ class Settings(BaseSettings):
     whatsapp_phone_number_id: Optional[str] = Field(default=None, description="WhatsApp Business Phone Number ID")
     whatsapp_access_token: Optional[str] = Field(default=None, description="WhatsApp Cloud API Access Token")
     whatsapp_verify_token: str = Field(default="suwappu_verify", description="Webhook verification token")
+    whatsapp_app_secret: Optional[str] = Field(default=None, description="WhatsApp App Secret for webhook signature verification")
     
     # Telegram Mini App
     webapp_url: str = Field(
@@ -270,6 +271,11 @@ class Settings(BaseSettings):
         default="https://app.suwappu.bot,https://devfront.suwappu.bot,http://localhost:5173,http://localhost:3000",
         description="Comma-separated list of allowed CORS origins"
     )
+
+    # AI / Anthropic
+    anthropic_api_key: str = Field(default="", description="Anthropic API key for AI features")
+    ai_model: str = Field(default="claude-haiku-4-5-20251001", description="Fast model for intent parsing")
+    ai_analysis_model: str = Field(default="claude-sonnet-4-6", description="Better model for analysis")
 
     # Agent Interoperability
     agent_api_key: Optional[str] = Field(default=None, description="Secret key for other AI agents to access the API")
