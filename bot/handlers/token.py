@@ -1,80 +1,70 @@
-"""Telegram handler for $SUWAPPU token commands."""
+"""Telegram handler for rewards & tier commands."""
 
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes, CommandHandler, CallbackQueryHandler,
-    ConversationHandler, MessageHandler, filters,
+    ConversationHandler,
 )
 
-from bot.services.token_service import token_service, STAKE_TIERS
+from bot.services.token_service import token_service, TIER_THRESHOLDS
 from bot.services.revenue_sharing import revenue_sharing
 
 logger = logging.getLogger(__name__)
 
 # Conversation states
-TOKEN_MENU, TOKEN_STAKE_AMOUNT = range(2)
+TOKEN_MENU = 0
+
+TIER_EMOJI = {"bronze": "🥉", "silver": "🥈", "gold": "🥇", "diamond": "💎"}
 
 
 async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /suwappu or /token command."""
+    """Handle /rewards command — show tier dashboard."""
     user_id = update.effective_user.id
 
-    # Get stake info
-    stake = token_service.get_stake(user_id)
-    allocation = token_service.get_user_allocation(user_id)
+    # Refresh tier from latest XP + volume
+    tier_record = token_service.refresh_tier(user_id)
     fee_discount = token_service.get_fee_discount(user_id)
 
-    text = "🪙 **$SUWAPPU Token Dashboard**\n\n"
+    text = "🏆 **Rewards Dashboard**\n\n"
 
-    # Staking section
-    if stake:
-        rewards = float(stake.accumulated_rewards or 0)
+    # Tier status
+    emoji = TIER_EMOJI.get(tier_record.tier, "⚪")
+    rewards = float(tier_record.accumulated_rewards or 0)
+
+    if tier_record.tier != "none":
         text += (
-            f"**Staked:** {float(stake.amount):,.0f} $SUWAPPU\n"
-            f"**Tier:** {stake.tier.title()} {'🥉🥈🥇💎'.split()[['bronze','silver','gold','diamond'].index(stake.tier)] if stake.tier in ['bronze','silver','gold','diamond'] else '⚪'}\n"
+            f"**Tier:** {emoji} {tier_record.tier.title()}\n"
+            f"**XP:** {tier_record.qualifying_xp:,}\n"
+            f"**Trade Volume:** ${float(tier_record.qualifying_volume_usd):,.0f}\n"
             f"**Fee Discount:** {fee_discount:.0f}%\n"
-            f"**Pending Rewards:** ${rewards:,.4f}\n"
+            f"**Pending Rewards:** ${rewards:,.4f}\n\n"
         )
-        if stake.unstake_requested_at:
-            text += f"⏳ Unstaking in progress...\n"
-        text += "\n"
     else:
-        text += "**Not staking yet.** Stake $SUWAPPU to earn fee discounts + revenue share!\n\n"
+        text += (
+            "**Tier:** ⚪ None\n"
+            f"**XP:** {tier_record.qualifying_xp:,}\n"
+            f"**Trade Volume:** ${float(tier_record.qualifying_volume_usd):,.0f}\n\n"
+            "Keep trading and earning XP to unlock tiers!\n\n"
+        )
 
-    # Airdrop section
-    if allocation:
-        if allocation.claimed:
-            text += f"✅ **Airdrop:** {float(allocation.allocation):,.0f} $SUWAPPU (claimed)\n\n"
-        else:
-            text += f"🎁 **Airdrop Available:** {float(allocation.allocation):,.0f} $SUWAPPU\n\n"
-
-    # Tier info
+    # Tier requirements
     text += (
-        "**Staking Tiers:**\n"
-        "🥉 Bronze (1K) → 10% fee discount\n"
-        "🥈 Silver (10K) → 20% fee discount\n"
-        "🥇 Gold (100K) → 30% fee discount\n"
-        "💎 Diamond (1M) → 50% fee discount\n"
+        "**Tier Requirements** (XP + Volume):\n"
+        "🥉 Bronze — 1K XP + $500 vol → 10% fee discount\n"
+        "🥈 Silver — 10K XP + $5K vol → 20% fee discount\n"
+        "🥇 Gold — 100K XP + $50K vol → 30% fee discount\n"
+        "💎 Diamond — 1M XP + $500K vol → 50% fee discount\n"
     )
 
     # Buttons
     keyboard = []
 
-    if stake:
-        keyboard.append([
-            InlineKeyboardButton("➕ Stake More", callback_data="token_stake"),
-            InlineKeyboardButton("📤 Unstake", callback_data="token_unstake"),
-        ])
-        if float(stake.accumulated_rewards or 0) > 0:
-            keyboard.append([InlineKeyboardButton("💰 Claim Rewards", callback_data="token_claim")])
-    else:
-        keyboard.append([InlineKeyboardButton("🔒 Stake $SUWAPPU", callback_data="token_stake")])
+    if rewards > 0:
+        keyboard.append([InlineKeyboardButton("💰 Claim Rewards", callback_data="token_claim")])
 
-    if allocation and not allocation.claimed:
-        keyboard.append([InlineKeyboardButton("🎁 Claim Airdrop", callback_data="token_airdrop")])
-
-    keyboard.append([InlineKeyboardButton("📊 Staking Stats", callback_data="token_stats")])
+    keyboard.append([InlineKeyboardButton("📊 Global Stats", callback_data="token_stats")])
+    keyboard.append([InlineKeyboardButton("🔄 Refresh Tier", callback_data="token_refresh")])
     keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="main_menu")])
 
     await update.message.reply_text(
@@ -86,42 +76,12 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def token_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle token menu callbacks."""
+    """Handle rewards menu callbacks."""
     query = update.callback_query
     await query.answer()
     data = query.data
 
-    if data == "token_stake":
-        await query.edit_message_text(
-            "🔒 **Stake $SUWAPPU**\n\n"
-            "Enter the amount of $SUWAPPU tokens to stake:\n\n"
-            "Minimum: 100 $SUWAPPU\n"
-            "Example: `10000`",
-            parse_mode="Markdown",
-        )
-        return TOKEN_STAKE_AMOUNT
-
-    elif data == "token_unstake":
-        stake = token_service.get_stake(query.from_user.id)
-        if not stake:
-            await query.edit_message_text("No active stake found.")
-            return TOKEN_MENU
-
-        try:
-            result = token_service.request_unstake(query.from_user.id, stake.id)
-            await query.edit_message_text(
-                f"📤 **Unstake Requested**\n\n"
-                f"Amount: {float(stake.amount):,.0f} $SUWAPPU\n"
-                f"Cooldown: 7 days\n\n"
-                f"Your tokens will be available for withdrawal after the cooldown period.",
-                parse_mode="Markdown",
-            )
-        except ValueError as e:
-            await query.edit_message_text(f"❌ {str(e)}")
-
-        return TOKEN_MENU
-
-    elif data == "token_claim":
+    if data == "token_claim":
         try:
             rewards = token_service.claim_rewards(query.from_user.id)
             await query.edit_message_text(
@@ -135,36 +95,19 @@ async def token_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         return TOKEN_MENU
 
-    elif data == "token_airdrop":
-        try:
-            snapshot = token_service.claim_airdrop(query.from_user.id)
-            if snapshot:
-                await query.edit_message_text(
-                    f"🎁 **Airdrop Claimed!**\n\n"
-                    f"You received: {float(snapshot.allocation):,.0f} $SUWAPPU\n\n"
-                    f"Tokens have been sent to your wallet.",
-                    parse_mode="Markdown",
-                )
-            else:
-                await query.edit_message_text("No airdrop available to claim.")
-        except ValueError as e:
-            await query.edit_message_text(f"❌ {str(e)}")
-
-        return TOKEN_MENU
-
     elif data == "token_stats":
-        stats = revenue_sharing.get_staking_stats()
+        stats = revenue_sharing.get_rewards_stats()
 
         text = (
-            "📊 **$SUWAPPU Staking Stats**\n\n"
-            f"Total Stakers: {stats['total_stakers']}\n"
-            f"Total Staked: {stats['total_staked']:,.0f} $SUWAPPU\n"
-            f"Rewards Distributed: ${stats['total_rewards_distributed']:,.2f}\n\n"
+            "📊 **Rewards Stats**\n\n"
+            f"Total Users: {stats['total_users']}\n"
+            f"Eligible for Rewards: {stats['eligible_users']}\n"
+            f"Pending Rewards: ${stats['total_rewards_pending']:,.2f}\n\n"
             "**Tier Distribution:**\n"
         )
 
         for tier, count in sorted(stats.get("tier_distribution", {}).items()):
-            emoji = {"bronze": "🥉", "silver": "🥈", "gold": "🥇", "diamond": "💎"}.get(tier, "⚪")
+            emoji = TIER_EMOJI.get(tier, "⚪")
             text += f"  {emoji} {tier.title()}: {count}\n"
 
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="token_menu")]]
@@ -176,57 +119,85 @@ async def token_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return TOKEN_MENU
 
-    elif data == "token_menu":
-        return await token_command(update, context)
+    elif data == "token_refresh":
+        tier_record = token_service.refresh_tier(query.from_user.id)
+        emoji = TIER_EMOJI.get(tier_record.tier, "⚪")
+        fee_discount = token_service.get_fee_discount(query.from_user.id)
 
-    return TOKEN_MENU
-
-
-async def token_stake_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle stake amount input."""
-    try:
-        amount = float(update.message.text.strip().replace(",", ""))
-        if amount < 100:
-            await update.message.reply_text("Minimum stake is 100 $SUWAPPU.")
-            return TOKEN_STAKE_AMOUNT
-
-        stake = token_service.stake(update.effective_user.id, amount)
-        discount = STAKE_TIERS.get(stake.tier, {}).get("discount", 0)
-
-        tier_emoji = {"bronze": "🥉", "silver": "🥈", "gold": "🥇", "diamond": "💎"}.get(stake.tier, "⚪")
-
-        await update.message.reply_text(
-            f"✅ **Staked {amount:,.0f} $SUWAPPU!**\n\n"
-            f"Total Staked: {float(stake.amount):,.0f}\n"
-            f"Tier: {tier_emoji} {stake.tier.title()}\n"
-            f"Fee Discount: {discount:.0f}%\n\n"
-            f"Use /suwappu to manage your stake.",
+        await query.edit_message_text(
+            f"🔄 **Tier Refreshed**\n\n"
+            f"**Tier:** {emoji} {tier_record.tier.title()}\n"
+            f"**XP:** {tier_record.qualifying_xp:,}\n"
+            f"**Volume:** ${float(tier_record.qualifying_volume_usd):,.0f}\n"
+            f"**Fee Discount:** {fee_discount:.0f}%\n\n"
+            f"Use /rewards to see full dashboard.",
             parse_mode="Markdown",
         )
         return ConversationHandler.END
 
-    except ValueError:
-        await update.message.reply_text("Please enter a valid number.")
-        return TOKEN_STAKE_AMOUNT
+    elif data == "token_menu":
+        # Can't call token_command directly since it uses update.message
+        # Re-show via edit
+        user_id = query.from_user.id
+        tier_record = token_service.refresh_tier(user_id)
+        fee_discount = token_service.get_fee_discount(user_id)
+        emoji = TIER_EMOJI.get(tier_record.tier, "⚪")
+        rewards = float(tier_record.accumulated_rewards or 0)
+
+        text = "🏆 **Rewards Dashboard**\n\n"
+        if tier_record.tier != "none":
+            text += (
+                f"**Tier:** {emoji} {tier_record.tier.title()}\n"
+                f"**XP:** {tier_record.qualifying_xp:,}\n"
+                f"**Trade Volume:** ${float(tier_record.qualifying_volume_usd):,.0f}\n"
+                f"**Fee Discount:** {fee_discount:.0f}%\n"
+                f"**Pending Rewards:** ${rewards:,.4f}\n\n"
+            )
+        else:
+            text += (
+                "**Tier:** ⚪ None\n"
+                f"**XP:** {tier_record.qualifying_xp:,}\n"
+                f"**Trade Volume:** ${float(tier_record.qualifying_volume_usd):,.0f}\n\n"
+                "Keep trading and earning XP to unlock tiers!\n\n"
+            )
+
+        text += (
+            "**Tier Requirements** (XP + Volume):\n"
+            "🥉 Bronze — 1K XP + $500 vol → 10% fee discount\n"
+            "🥈 Silver — 10K XP + $5K vol → 20% fee discount\n"
+            "🥇 Gold — 100K XP + $50K vol → 30% fee discount\n"
+            "💎 Diamond — 1M XP + $500K vol → 50% fee discount\n"
+        )
+
+        keyboard = []
+        if rewards > 0:
+            keyboard.append([InlineKeyboardButton("💰 Claim Rewards", callback_data="token_claim")])
+        keyboard.append([InlineKeyboardButton("📊 Global Stats", callback_data="token_stats")])
+        keyboard.append([InlineKeyboardButton("🔄 Refresh Tier", callback_data="token_refresh")])
+        keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="main_menu")])
+
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown",
+        )
+        return TOKEN_MENU
+
+    return TOKEN_MENU
 
 
 # Conversation handler
 token_conversation_handler = ConversationHandler(
     entry_points=[
-        CommandHandler("suwappu", token_command),
-        CommandHandler("token", token_command),
+        CommandHandler("rewards", token_command),
     ],
     states={
         TOKEN_MENU: [
             CallbackQueryHandler(token_menu_callback, pattern="^token_"),
         ],
-        TOKEN_STAKE_AMOUNT: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, token_stake_amount),
-        ],
     },
     fallbacks=[
-        CommandHandler("suwappu", token_command),
-        CommandHandler("token", token_command),
+        CommandHandler("rewards", token_command),
         CallbackQueryHandler(token_menu_callback, pattern="^main_menu$"),
     ],
     name="token_conversation",

@@ -133,8 +133,8 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         from bot.models.security import AuditLog, WithdrawalWhitelist, BackupCode
         # Perpetual trading models
         from bot.models.perps import PerpPosition, PerpOrder, HyperLiquidAccount
-        # Native token models
-        from bot.models.token import SuwappuStake, AirdropSnapshot, FeeDiscount
+        # Points rewards models
+        from bot.models.token import PointsTier, FeeDiscount
 
         # Create all tables
         Base.metadata.create_all(bind=engine)
@@ -276,13 +276,13 @@ def _add_security_tables(db_engine, inspector, is_sqlite: bool) -> None:
 
 
 def _add_phase4_tables(db_engine, inspector, is_sqlite: bool) -> None:
-    """Create Phase 4 tables (perps, token) idempotently."""
+    """Create Phase 4 tables (perps, points rewards) idempotently."""
     try:
         from bot.models.perps import PerpPosition, PerpOrder, HyperLiquidAccount
-        from bot.models.token import SuwappuStake, AirdropSnapshot, FeeDiscount
+        from bot.models.token import PointsTier, FeeDiscount
 
         for model in (PerpPosition, PerpOrder, HyperLiquidAccount,
-                      SuwappuStake, AirdropSnapshot, FeeDiscount):
+                      PointsTier, FeeDiscount):
             if not inspector.has_table(model.__tablename__):
                 model.__table__.create(bind=db_engine)
                 logger.info(f"Created {model.__tablename__} table")

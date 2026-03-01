@@ -392,7 +392,7 @@ async def post_init(application) -> None:
             BotCommand("checkin", "Daily check-in"),
             BotCommand("traders", "Copy trading"),
             BotCommand("perps", "Perpetual trading"),
-            BotCommand("suwappu", "Token staking & rewards"),
+            BotCommand("rewards", "Rewards tiers & fee discounts"),
             BotCommand("tax", "Tax export"),
             BotCommand("set", "Settings"),
             BotCommand("h", "Help"),

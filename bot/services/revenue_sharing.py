@@ -1,24 +1,33 @@
-"""Revenue sharing service for $SUWAPPU stakers."""
+"""Revenue sharing service — distributes protocol fees to top-tier users."""
 
 import logging
 from decimal import Decimal
 from datetime import datetime
 
-from bot.models.token import SuwappuStake
+from bot.models.token import PointsTier
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
 # Revenue sharing configuration
-STAKER_REVENUE_SHARE = 0.30  # 30% of protocol fees go to stakers
+TIER_REVENUE_SHARE = 0.30  # 30% of protocol fees go to eligible tiers
+ELIGIBLE_TIERS = {"bronze", "silver", "gold", "diamond"}
+
+# Weight multipliers per tier (higher tier = bigger share)
+TIER_WEIGHTS = {
+    "bronze": 1,
+    "silver": 3,
+    "gold": 10,
+    "diamond": 30,
+}
 
 
 class RevenueSharingService:
-    """Distributes protocol revenue to $SUWAPPU stakers."""
+    """Distributes protocol revenue to users based on their points tier."""
 
     async def distribute_daily_revenue(self, total_fees_usd: float) -> dict:
         """
-        Distribute daily protocol fees to stakers.
+        Distribute daily protocol fees to tier-holding users.
 
         Args:
             total_fees_usd: Total fees collected in the past 24h
@@ -26,66 +35,65 @@ class RevenueSharingService:
         Returns:
             Distribution summary
         """
-        staker_pool = total_fees_usd * STAKER_REVENUE_SHARE
+        reward_pool = total_fees_usd * TIER_REVENUE_SHARE
 
-        if staker_pool <= 0:
+        if reward_pool <= 0:
             return {"distributed": 0, "recipients": 0, "pool": 0}
 
         with get_session() as session:
-            # Get all active stakes
-            active_stakes = session.query(SuwappuStake).filter_by(
-                is_active=True
+            eligible = session.query(PointsTier).filter(
+                PointsTier.tier.in_(ELIGIBLE_TIERS)
             ).all()
 
-            if not active_stakes:
-                return {"distributed": 0, "recipients": 0, "pool": staker_pool}
+            if not eligible:
+                return {"distributed": 0, "recipients": 0, "pool": reward_pool}
 
-            # Calculate total staked
-            total_staked = sum(float(s.amount) for s in active_stakes)
+            # Calculate weighted total
+            total_weight = sum(TIER_WEIGHTS.get(u.tier, 0) for u in eligible)
 
-            if total_staked <= 0:
-                return {"distributed": 0, "recipients": 0, "pool": staker_pool}
+            if total_weight <= 0:
+                return {"distributed": 0, "recipients": 0, "pool": reward_pool}
 
-            # Distribute proportionally
+            # Distribute proportional to tier weight
             distributed = 0.0
-            for stake in active_stakes:
-                user_share = (float(stake.amount) / total_staked) * staker_pool
-                stake.accumulated_rewards = Decimal(str(
-                    float(stake.accumulated_rewards or 0) + user_share
+            for user_tier in eligible:
+                weight = TIER_WEIGHTS.get(user_tier.tier, 0)
+                user_share = (weight / total_weight) * reward_pool
+                user_tier.accumulated_rewards = Decimal(str(
+                    float(user_tier.accumulated_rewards or 0) + user_share
                 ))
                 distributed += user_share
 
         logger.info(
-            f"Revenue distributed: ${distributed:.2f} to {len(active_stakes)} stakers "
+            f"Revenue distributed: ${distributed:.2f} to {len(eligible)} users "
             f"(from ${total_fees_usd:.2f} total fees)"
         )
 
         return {
             "distributed": distributed,
-            "recipients": len(active_stakes),
-            "pool": staker_pool,
-            "total_staked": total_staked,
+            "recipients": len(eligible),
+            "pool": reward_pool,
+            "total_weight": total_weight,
         }
 
-    def get_staking_stats(self) -> dict:
-        """Get global staking statistics."""
+    def get_rewards_stats(self) -> dict:
+        """Get global rewards statistics."""
         with get_session() as session:
-            active_stakes = session.query(SuwappuStake).filter_by(
-                is_active=True
-            ).all()
+            all_tiers = session.query(PointsTier).all()
 
-            total_staked = sum(float(s.amount) for s in active_stakes)
             tier_counts = {}
-            for stake in active_stakes:
-                tier = stake.tier or "none"
-                tier_counts[tier] = tier_counts.get(tier, 0) + 1
+            for t in all_tiers:
+                tier_name = t.tier or "none"
+                tier_counts[tier_name] = tier_counts.get(tier_name, 0) + 1
+
+            eligible = [t for t in all_tiers if t.tier in ELIGIBLE_TIERS]
 
             return {
-                "total_stakers": len(active_stakes),
-                "total_staked": total_staked,
+                "total_users": len(all_tiers),
+                "eligible_users": len(eligible),
                 "tier_distribution": tier_counts,
-                "total_rewards_distributed": sum(
-                    float(s.accumulated_rewards or 0) for s in active_stakes
+                "total_rewards_pending": sum(
+                    float(t.accumulated_rewards or 0) for t in all_tiers
                 ),
             }
 
