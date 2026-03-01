@@ -30,6 +30,7 @@ from bot.handlers.settings import (
     settings_handler, settings_callback, toggle_notify_handler,
     slippage_conversation, toggle_panic_handler, settings_menu_callback,
     antirug_handler, rug_toggle_handler, rug_disable_handler, rug_sell_handler,
+    security_conversation, whitelist_remove_handler,
 )
 from bot.handlers.admin import status_handler, clear_cache_handler, broadcast_handler
 from bot.handlers.quickswap import quickswap_handler, quickswap_confirm_callback, quickswap_menu_callback
@@ -213,7 +214,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(profile_edit_conversation)  # Copy trading profile editing
     application.add_handler(snipe_conversation_handler)  # Token sniping /snipe
     application.add_handler(perps_conversation_handler)  # Perps /perps
-    application.add_handler(token_conversation_handler)  # Token /suwappu /token
+    application.add_handler(token_conversation_handler)  # Rewards /rewards
+    application.add_handler(security_conversation)  # Security settings (2FA, whitelist, limits)
 
     # ============ CALLBACK QUERY HANDLERS ============
     
@@ -262,6 +264,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(rug_toggle_handler)
     application.add_handler(rug_disable_handler)
     application.add_handler(rug_sell_handler)
+    application.add_handler(whitelist_remove_handler)
 
     # Custodial
     application.add_handler(CallbackQueryHandler(custodial_callback, pattern="^custodial_menu$"))
