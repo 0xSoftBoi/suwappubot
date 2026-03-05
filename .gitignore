@@ -88,3 +88,7 @@ node_modules/
 .vercel
 webapp/bun.lock
 .env*.local
+
+# Next.js build output (showcase)
+showcase/.next/
+showcase/tsconfig.tsbuildinfo
