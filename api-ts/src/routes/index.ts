@@ -1,0 +1,7 @@
+export { healthRoutes } from './health'
+export { webappRoutes } from './webapp'
+export { agentRoutes } from './agent'
+export { a2aRoutes } from './a2a'
+export { swapRoutes, publicSwapRoutes } from './swap'
+export { adminRoutes } from './admin'
+export { mcpRoutes } from './mcp'
