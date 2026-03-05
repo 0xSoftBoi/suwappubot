@@ -8,7 +8,6 @@ from telegram.ext import (
 )
 
 from bot.services.x402_service import x402_service, TIER_LIMITS
-from bot.services.stars_service import stars_service, STARS_PRICES
 from bot.models.subscription import SubscriptionTier
 from database.db import get_session
 from bot.models.user import User
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 # Conversation states
-SELECTING_TIER, SELECTING_PAYMENT_METHOD, SELECTING_CHAIN, CONFIRMING_PAYMENT, ENTERING_BETA_CODE = range(5)
+SELECTING_TIER, SELECTING_CHAIN, CONFIRMING_PAYMENT, ENTERING_BETA_CODE = range(4)
 
 
 async def subscription_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -153,118 +152,42 @@ async def select_tier_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     """Handle tier selection."""
     query = update.callback_query
     await query.answer()
-
+    
     tier_map = {
         "sub_buy_pro": SubscriptionTier.PRO,
         "sub_buy_premium": SubscriptionTier.PREMIUM,
         "sub_buy_enterprise": SubscriptionTier.ENTERPRISE,
     }
-
+    
     tier = tier_map.get(query.data)
     if not tier:
-        await query.edit_message_text("Invalid selection")
+        await query.edit_message_text("❌ Invalid selection")
         return ConversationHandler.END
-
+    
     context.user_data["selected_tier"] = tier
     tier_info = x402_service.get_tier_info(tier)
-
-    # Build payment method selection
-    stars_price = STARS_PRICES.get(tier)
-    stars_line = f"\nTelegram Stars: {stars_price} Stars/month" if stars_price else ""
-
+    
     message = f"""
-**Payment for {tier.value.upper()}**
+💳 **Payment for {tier.value.upper()}**
 
-**Price:** ${tier_info['price_usd']}/month{stars_line}
-
-Select payment method:
-"""
-
-    keyboard = [
-        [InlineKeyboardButton("Crypto (USDC)", callback_data="pay_crypto")],
-    ]
-    if stars_price:
-        keyboard.append(
-            [InlineKeyboardButton(f"Telegram Stars ({stars_price} Stars)", callback_data="pay_stars")]
-        )
-    keyboard.append([InlineKeyboardButton("Cancel", callback_data="sub_back")])
-
-    await query.edit_message_text(
-        message,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
-    return SELECTING_PAYMENT_METHOD
-
-
-async def select_crypto_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle crypto payment method selection - show chain picker."""
-    query = update.callback_query
-    await query.answer()
-
-    tier = context.user_data.get("selected_tier")
-    if not tier:
-        await query.edit_message_text("Session expired. Please start again.")
-        return ConversationHandler.END
-
-    tier_info = x402_service.get_tier_info(tier)
-
-    message = f"""
-**Crypto Payment for {tier.value.upper()}**
-
-**Amount:** ${tier_info['price_usd']} USDC
+**Price:** ${tier_info['price_usd']}/month
 
 Select payment chain:
 """
-
+    
     keyboard = [
-        [InlineKeyboardButton("Base (USDC)", callback_data="chain_base")],
-        [InlineKeyboardButton("ETH (USDC)", callback_data="chain_ethereum")],
-        [InlineKeyboardButton("POL (USDC)", callback_data="chain_polygon")],
-        [InlineKeyboardButton("Cancel", callback_data="sub_back")],
+        [InlineKeyboardButton("🔵 Base (USDC)", callback_data="chain_base")],
+        [InlineKeyboardButton("🟣 ETH (USDC)", callback_data="chain_ethereum")],
+        [InlineKeyboardButton("🟢 POL (USDC)", callback_data="chain_polygon")],
+        [InlineKeyboardButton("🔙 Cancel", callback_data="sub_back")],
     ]
-
+    
     await query.edit_message_text(
         message,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
     return SELECTING_CHAIN
-
-
-async def select_stars_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle Stars payment method selection - send invoice."""
-    query = update.callback_query
-    await query.answer()
-
-    tier = context.user_data.get("selected_tier")
-    if not tier:
-        await query.edit_message_text("Session expired. Please start again.")
-        return ConversationHandler.END
-
-    if tier not in STARS_PRICES:
-        await query.edit_message_text("Stars payment is not available for this tier.")
-        return ConversationHandler.END
-
-    # Send the Stars invoice
-    chat_id = update.effective_chat.id
-    try:
-        await stars_service.create_stars_invoice(
-            bot=context.bot,
-            chat_id=chat_id,
-            tier=tier,
-            duration_months=1,
-        )
-        await query.edit_message_text(
-            "Invoice sent! Complete the payment in the invoice above."
-        )
-    except Exception as e:
-        logger.error(f"Failed to create Stars invoice: {e}")
-        await query.edit_message_text(
-            "Failed to create payment invoice. Please try again later."
-        )
-
-    return ConversationHandler.END
 
 
 async def select_chain_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -470,7 +393,6 @@ def _format_features(features: list) -> str:
 
 # Handlers
 subscription_handler = CommandHandler("sub", subscription_command)
-premium_handler = CommandHandler("premium", subscription_command)  # /premium alias
 
 subscription_conversation = ConversationHandler(
     entry_points=[
@@ -480,10 +402,6 @@ subscription_conversation = ConversationHandler(
     states={
         SELECTING_TIER: [
             CallbackQueryHandler(select_tier_callback, pattern="^sub_buy_"),
-        ],
-        SELECTING_PAYMENT_METHOD: [
-            CallbackQueryHandler(select_crypto_callback, pattern="^pay_crypto$"),
-            CallbackQueryHandler(select_stars_callback, pattern="^pay_stars$"),
         ],
         SELECTING_CHAIN: [
             CallbackQueryHandler(select_chain_callback, pattern="^chain_"),

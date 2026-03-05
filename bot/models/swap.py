@@ -11,6 +11,7 @@ class SwapStatus(enum.Enum):
     QUOTE_RECEIVED = "quote_received"
     AWAITING_APPROVAL = "awaiting_approval"
     APPROVED = "approved"
+    SIGNED = "signed"  # Transaction signed, awaiting broadcast
     EXECUTING = "executing"
     SUBMITTED = "submitted"
     CONFIRMING = "confirming"
@@ -32,14 +33,11 @@ class SwapTransaction(Base):
     from_amount = Column(String(78), nullable=False)  # Store as string for precision
     from_amount_usd = Column(Float, nullable=True)
     
-    from_token_price_usd = Column(Float, nullable=True)  # Price per token at execution
-
     # Destination details
     to_chain = Column(String(50), nullable=False)
     to_token = Column(String(20), nullable=False)
     to_amount = Column(String(78), nullable=True)  # Estimated/actual amount out
     to_amount_usd = Column(Float, nullable=True)
-    to_token_price_usd = Column(Float, nullable=True)  # Price per token at execution
     
     # Transaction details
     status = Column(String(30), default=SwapStatus.PENDING.value)
@@ -67,11 +65,7 @@ class SwapTransaction(Base):
     
     # Error handling
     error_message = Column(Text, nullable=True)
-
-    # Agent linkage (nullable -- only set for agent-initiated swaps)
-    agent_id = Column(Integer, nullable=True, index=True)
-    agent_uuid = Column(String(36), nullable=True)
-
+    
     # Relationships
     user = relationship("User", back_populates="swaps")
     

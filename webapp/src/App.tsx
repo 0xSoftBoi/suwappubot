@@ -1,73 +1,58 @@
-import { useEffect, lazy, Suspense } from 'react'
+import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { AnimatePresence, motion, type Variants } from 'framer-motion'
+import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
-import { TonConnectProvider } from './contexts/TonConnectContext'
 import { useTelegram } from './hooks/useTelegram'
-import { ErrorBoundary } from './components/ErrorBoundary'
-import { OnboardingModal, useOnboarding, defaultOnboardingSteps } from './components/ui'
+import { Welcome, Home, Swap, Wallet, Portfolio, History, Points, DCA, DCACreate, LimitOrders, PriceAlerts, Referrals, CopyTrading, Subscriptions, Settings, Recovery } from './pages'
 import './theme/suwappu.css'
 
-// Eagerly load Welcome and Home (critical path)
-import { Welcome, Home } from './pages'
-
-// Lazy load all other pages for code splitting
-const Swap = lazy(() => import('./pages/Swap').then(m => ({ default: m.Swap })))
-const Wallet = lazy(() => import('./pages/Wallet').then(m => ({ default: m.Wallet })))
-const Portfolio = lazy(() => import('./pages/Portfolio').then(m => ({ default: m.Portfolio })))
-const History = lazy(() => import('./pages/History').then(m => ({ default: m.History })))
-const Points = lazy(() => import('./pages/Points').then(m => ({ default: m.Points })))
-const LimitOrders = lazy(() => import('./pages/LimitOrders').then(m => ({ default: m.LimitOrders })))
-const PriceAlerts = lazy(() => import('./pages/PriceAlerts').then(m => ({ default: m.PriceAlerts })))
-const Referrals = lazy(() => import('./pages/Referrals').then(m => ({ default: m.Referrals })))
-const CopyTrading = lazy(() => import('./pages/CopyTrading').then(m => ({ default: m.CopyTrading })))
-const Subscriptions = lazy(() => import('./pages/Subscriptions').then(m => ({ default: m.Subscriptions })))
-const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
-const TokenDetail = lazy(() => import('./pages/TokenDetail'))
-const Discover = lazy(() => import('./pages/Discover'))
-
-// Loading fallback for lazy-loaded pages
-function PageLoading() {
-  return (
-    <div className="flex items-center justify-center min-h-screen bg-suwappu-bg">
-      <div className="animate-pulse text-suwappu-text-secondary">Loading...</div>
-    </div>
-  )
+// Page transition variants
+const pageVariants: Variants = {
+  initial: {
+    opacity: 0,
+    x: 20,
+  },
+  enter: {
+    opacity: 1,
+    x: 0,
+    transition: {
+      duration: 0.25,
+      ease: [0.25, 0.46, 0.45, 0.94], // easeOutQuad
+    },
+  },
+  exit: {
+    opacity: 0,
+    x: -20,
+    transition: {
+      duration: 0.2,
+      ease: [0.55, 0.06, 0.68, 0.19], // easeInQuad
+    },
+  },
 }
 
-// Page wrapper with CSS animation and Suspense for lazy components
+// Page wrapper with animation
 function PageTransition({ children }: { children: React.ReactNode }) {
   return (
-    <Suspense fallback={<PageLoading />}>
-      <div className="h-full animate-page-enter">
-        {children}
-      </div>
-    </Suspense>
+    <motion.div
+      variants={pageVariants}
+      initial="initial"
+      animate="enter"
+      exit="exit"
+      className="h-full"
+    >
+      {children}
+    </motion.div>
   )
 }
 
-// Create React Query client with aggressive caching
+// Create React Query client
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // Data considered fresh for 10s, then background refetch
-      staleTime: 10 * 1000,
-      // Keep unused data in cache for 5 minutes
-      gcTime: 5 * 60 * 1000,
-      // Refetch when window regains focus
-      refetchOnWindowFocus: true,
-      // Refetch when network reconnects
-      refetchOnReconnect: true,
-      // Retry failed requests twice (not 3x to fail faster)
+      staleTime: 30 * 1000, // 30 seconds
       retry: 2,
-      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
-      // Don't throw errors - let components handle them
-      throwOnError: false,
-    },
-    mutations: {
-      // Retry mutations once on failure
-      retry: 1,
-      throwOnError: false,
     },
   },
 })
@@ -114,32 +99,6 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
-// Onboarding wrapper - shows guided tour for first-time users
-function OnboardingWrapper({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth()
-  const { isOpen, completeOnboarding, steps } = useOnboarding({
-    steps: defaultOnboardingSteps,
-    autoShow: true,
-  })
-
-  // Only show onboarding for authenticated users
-  if (!isAuthenticated) {
-    return <>{children}</>
-  }
-
-  return (
-    <>
-      {children}
-      <OnboardingModal
-        isOpen={isOpen}
-        steps={steps}
-        onComplete={completeOnboarding}
-        onSkip={completeOnboarding}
-      />
-    </>
-  )
-}
-
 // App content with Telegram integration
 function AppContent() {
   const { webApp, colorScheme } = useTelegram()
@@ -164,7 +123,7 @@ function AppContent() {
   const location = useLocation()
 
   return (
-    <OnboardingWrapper>
+    <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
         {/* Public routes */}
         <Route
@@ -240,6 +199,26 @@ function AppContent() {
           }
         />
         <Route
+          path="/dca"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <DCA />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dca/new"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <DCACreate />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/limit-orders"
           element={
             <ProtectedRoute>
@@ -290,6 +269,16 @@ function AppContent() {
           }
         />
         <Route
+          path="/recovery"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Recovery />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/settings/*"
           element={
             <ProtectedRoute>
@@ -300,47 +289,46 @@ function AppContent() {
           }
         />
 
-        <Route
-          path="/discover"
-          element={
-            <ProtectedRoute>
-              <PageTransition>
-                <Discover />
-              </PageTransition>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/token/:chain/:address"
-          element={
-            <ProtectedRoute>
-              <PageTransition>
-                <TokenDetail />
-              </PageTransition>
-            </ProtectedRoute>
-          }
-        />
-
         {/* Fallback redirect */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </OnboardingWrapper>
+    </AnimatePresence>
   )
 }
 
 function App() {
   return (
-    <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <TonConnectProvider>
-          <AuthProvider>
-            <BrowserRouter>
-              <AppContent />
-            </BrowserRouter>
-          </AuthProvider>
-        </TonConnectProvider>
-      </QueryClientProvider>
-    </ErrorBoundary>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <BrowserRouter>
+          <AppContent />
+          <Toaster
+            position="top-center"
+            toastOptions={{
+              duration: 3000,
+              style: {
+                background: '#1a1a2e',
+                color: '#fff',
+                borderRadius: '12px',
+                fontSize: '14px',
+              },
+              success: {
+                iconTheme: {
+                  primary: '#10b981',
+                  secondary: '#fff',
+                },
+              },
+              error: {
+                iconTheme: {
+                  primary: '#ef4444',
+                  secondary: '#fff',
+                },
+              },
+            }}
+          />
+        </BrowserRouter>
+      </AuthProvider>
+    </QueryClientProvider>
   )
 }
 

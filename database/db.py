@@ -63,8 +63,8 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
                 connect_args=connect_args,
                 echo=False,
                 pool_pre_ping=True,  # Check connections before use
-                pool_size=5 if not is_sqlite else 5,  # Reduced for multi-instance (3×15=45 < 66 max)
-                max_overflow=10 if not is_sqlite else 5,  # Extra connections
+                pool_size=20 if not is_sqlite else 5,  # Connection pool
+                max_overflow=30 if not is_sqlite else 5,  # Extra connections
                 pool_recycle=3600,  # Recycle connections hourly
             )
             
@@ -113,11 +113,11 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         from bot.models.swap import SwapTransaction
         # Common operational tables used by services/background tasks
         from bot.models.fees import FeeConfig, FeeTransaction, FeeSummary
-        from bot.models.advanced import LimitOrder, DCAOrder, DCAExecution, SwapTemplate, RugMonitor
+        from bot.models.advanced import LimitOrder, DCAOrder, DCAExecution, SwapTemplate
         # Referral system models
         from bot.models.referral import Referral, ReferralCode, ReferralReward, ReferralPayout
         # Points/XP and Copy Trading models
-        from bot.models.points import UserPoints, PointTransaction, PointRedemption, Milestone, UserMilestone, Reward, DailyQuest, UserQuest, JackpotPool
+        from bot.models.points import UserPoints, PointTransaction, PointRedemption, Milestone, UserMilestone, Reward
         from bot.models.copy_trading import TraderProfile, CopyFollow, CopyTrade, CopyNotification, TraderTrade
         # Token Sniping models
         from bot.models.snipe import SnipeOrder, SnipeConfig, SnipeHistory, WatchedToken, AutoSnipeRule
@@ -125,16 +125,6 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         from bot.models.oauth import OAuthIdentity, OAuthToken, OAuthState
         # Agent registration models
         from bot.models.agent import RegisteredAgent
-        # PnL tracking
-        from bot.models.pnl import TokenPosition
-        # Webhook events
-        from bot.models.webhook_event import WebhookEvent
-        # Security models (audit logs, withdrawal whitelist, backup codes)
-        from bot.models.security import AuditLog, WithdrawalWhitelist, BackupCode
-        # Perpetual trading models
-        from bot.models.perps import PerpPosition, PerpOrder, HyperLiquidAccount
-        # Points rewards models
-        from bot.models.token import PointsTier, FeeDiscount
 
         # Create all tables
         Base.metadata.create_all(bind=engine)
@@ -206,107 +196,12 @@ def _ensure_schema(db_engine) -> None:
                 "ON registered_agents(api_key)"
             ))
 
-    # --- swap_transactions: agent linkage columns ---
-    if "swap_transactions" in tables:
-        _add_swap_agent_columns(db_engine, inspector, is_sqlite)
-        _add_swap_price_columns(db_engine, inspector, is_sqlite)
-
-    # --- user_settings: MEV protection column + quick trade presets ---
-    if "user_settings" in tables:
-        _add_user_settings_mev_column(db_engine, inspector, is_sqlite)
-        _add_quicktrade_columns(db_engine, inspector, is_sqlite)
-
-    # --- referral_rewards: multi-tier column ---
-    _add_referral_tier_column(db_engine, inspector, is_sqlite)
-
-    # --- limit_orders: advanced order columns ---
-    if "limit_orders" in tables:
-        _add_advanced_order_columns(db_engine, inspector, is_sqlite)
-
     # --- users: TOS columns and telegram_id nullability ---
     if "users" in tables:
         _add_tos_columns(db_engine, inspector, is_sqlite)
         _fix_user_nullability(db_engine, inspector, is_sqlite)
         _add_referral_columns(db_engine, inspector, is_sqlite)
         _add_push_token_column(db_engine, inspector, is_sqlite)
-        _add_user_settings_columns(db_engine, inspector, is_sqlite)
-
-    # --- smart notification columns ---
-    _add_smart_notification_columns(db_engine, inspector, is_sqlite)
-
-    # --- x402_payments: Telegram Stars payment columns ---
-    if "x402_payments" in tables:
-        _add_stars_payment_columns(db_engine, inspector, is_sqlite)
-
-    # --- gamification tables: daily_quests, user_quests, jackpot_pools ---
-    _create_gamification_tables(db_engine, inspector, is_sqlite)
-
-    # --- copy_follows: enhanced copy trading columns ---
-    if "copy_follows" in tables:
-        _add_copy_trading_columns(db_engine, inspector, is_sqlite)
-
-    # --- rug_monitors table ---
-    if not inspector.has_table("rug_monitors"):
-        from bot.models.advanced import RugMonitor
-        RugMonitor.__table__.create(bind=db_engine)
-        logger.info("Created rug_monitors table")
-
-    # --- security tables (audit_logs, withdrawal_whitelist, backup_codes) ---
-    _add_security_tables(db_engine, inspector, is_sqlite)
-
-    # --- Phase 4 tables: perps, token ---
-    _add_phase4_tables(db_engine, inspector, is_sqlite)
-
-    # --- users: discord_id column ---
-    if "users" in tables:
-        _add_discord_columns(db_engine, inspector, is_sqlite)
-
-
-def _add_security_tables(db_engine, inspector, is_sqlite: bool) -> None:
-    """Create security tables (audit_logs, withdrawal_whitelist, backup_codes) idempotently."""
-    try:
-        from bot.models.security import AuditLog, WithdrawalWhitelist, BackupCode
-
-        for model in (AuditLog, WithdrawalWhitelist, BackupCode):
-            if not inspector.has_table(model.__tablename__):
-                model.__table__.create(bind=db_engine)
-                logger.info(f"Created {model.__tablename__} table")
-    except Exception as e:
-        logger.warning(f"Failed to create security tables: {e}")
-
-
-def _add_phase4_tables(db_engine, inspector, is_sqlite: bool) -> None:
-    """Create Phase 4 tables (perps, points rewards) idempotently."""
-    try:
-        from bot.models.perps import PerpPosition, PerpOrder, HyperLiquidAccount
-        from bot.models.token import PointsTier, FeeDiscount
-
-        for model in (PerpPosition, PerpOrder, HyperLiquidAccount,
-                      PointsTier, FeeDiscount):
-            if not inspector.has_table(model.__tablename__):
-                model.__table__.create(bind=db_engine)
-                logger.info(f"Created {model.__tablename__} table")
-    except Exception as e:
-        logger.warning(f"Failed to create Phase 4 tables: {e}")
-
-
-def _add_discord_columns(db_engine, inspector, is_sqlite: bool) -> None:
-    """Add Discord user linking columns to users table idempotently."""
-    cols = {c["name"] for c in inspector.get_columns("users")}
-
-    new_columns = [
-        ("discord_id", "VARCHAR(100)", "NULL"),
-        ("discord_username", "VARCHAR(255)", "NULL"),
-    ]
-
-    for col_name, col_type, default in new_columns:
-        if col_name not in cols:
-            if is_sqlite:
-                ddl = f"ALTER TABLE users ADD COLUMN {col_name} {col_type} DEFAULT {default}"
-            else:
-                ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
-            with db_engine.begin() as conn:
-                conn.execute(text(ddl))
 
 
 def _fix_user_nullability(db_engine, inspector, is_sqlite: bool) -> None:
@@ -331,7 +226,7 @@ def _add_tos_columns(db_engine, inspector, is_sqlite: bool) -> None:
     cols = {c["name"] for c in inspector.get_columns("users")}
     
     new_columns = [
-        ("tos_accepted", "BOOLEAN", "FALSE"),
+        ("tos_accepted", "BOOLEAN", "0"),
         ("tos_accepted_at", "DATETIME", "NULL"),
     ]
     
@@ -379,120 +274,6 @@ def _add_push_token_column(db_engine, inspector, is_sqlite: bool) -> None:
             conn.execute(text(ddl))
 
 
-def _add_user_settings_columns(db_engine, inspector, is_sqlite: bool) -> None:
-    """Add panic sell and 2FA columns to users table idempotently."""
-    cols = {c["name"] for c in inspector.get_columns("users")}
-
-    new_columns = [
-        ("panic_sell_enabled", "BOOLEAN", "FALSE"),
-        ("two_fa_enabled", "BOOLEAN", "FALSE"),
-        ("totp_secret", "VARCHAR(64)", "NULL"),
-        ("two_fa_threshold", "INTEGER", "1000"),
-    ]
-
-    for col_name, col_type, default in new_columns:
-        if col_name not in cols:
-            if is_sqlite:
-                ddl = f"ALTER TABLE users ADD COLUMN {col_name} {col_type} DEFAULT {default}"
-            else:
-                ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
-            with db_engine.begin() as conn:
-                conn.execute(text(ddl))
-
-
-def _add_referral_tier_column(db_engine, inspector, is_sqlite: bool) -> None:
-    """Add referral_tier column to referral_rewards table idempotently."""
-    try:
-        tables = set(inspector.get_table_names())
-    except Exception:
-        return
-
-    if "referral_rewards" not in tables:
-        return
-
-    cols = {c["name"] for c in inspector.get_columns("referral_rewards")}
-
-    if "referral_tier" not in cols:
-        if is_sqlite:
-            ddl = "ALTER TABLE referral_rewards ADD COLUMN referral_tier INTEGER DEFAULT 1"
-        else:
-            ddl = "ALTER TABLE referral_rewards ADD COLUMN IF NOT EXISTS referral_tier INTEGER DEFAULT 1"
-        with db_engine.begin() as conn:
-            conn.execute(text(ddl))
-
-
-def _add_swap_price_columns(db_engine, inspector, is_sqlite: bool) -> None:
-    """Add per-token price columns to swap_transactions for PnL tracking."""
-    cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
-
-    new_columns = [
-        ("from_token_price_usd", "FLOAT", "NULL"),
-        ("to_token_price_usd", "FLOAT", "NULL"),
-    ]
-
-    for col_name, col_type, default in new_columns:
-        if col_name not in cols:
-            if is_sqlite:
-                ddl = f"ALTER TABLE swap_transactions ADD COLUMN {col_name} {col_type} DEFAULT {default}"
-            else:
-                ddl = f"ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
-            with db_engine.begin() as conn:
-                conn.execute(text(ddl))
-
-
-def _add_user_settings_mev_column(db_engine, inspector, is_sqlite: bool) -> None:
-    """Add MEV protection toggle to user_settings table idempotently."""
-    cols = {c["name"] for c in inspector.get_columns("user_settings")}
-
-    if "mev_protection_enabled" not in cols:
-        if is_sqlite:
-            ddl = "ALTER TABLE user_settings ADD COLUMN mev_protection_enabled BOOLEAN DEFAULT TRUE"
-        else:
-            ddl = "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS mev_protection_enabled BOOLEAN DEFAULT TRUE"
-        with db_engine.begin() as conn:
-            conn.execute(text(ddl))
-
-
-def _add_quicktrade_columns(db_engine, inspector, is_sqlite: bool) -> None:
-    """Add quick-trade preset columns to user_settings table idempotently."""
-    cols = {c["name"] for c in inspector.get_columns("user_settings")}
-
-    new_columns = [
-        ("quickbuy_amounts", "VARCHAR(200)", "'0.1,0.5,1,5'"),
-        ("first_trade_completed", "BOOLEAN", "FALSE"),
-    ]
-
-    for col_name, col_type, default in new_columns:
-        if col_name not in cols:
-            if is_sqlite:
-                ddl = f"ALTER TABLE user_settings ADD COLUMN {col_name} {col_type} DEFAULT {default}"
-            else:
-                ddl = f"ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
-            with db_engine.begin() as conn:
-                conn.execute(text(ddl))
-
-
-def _add_advanced_order_columns(db_engine, inspector, is_sqlite: bool) -> None:
-    """Add advanced order columns to limit_orders table idempotently."""
-    cols = {c["name"] for c in inspector.get_columns("limit_orders")}
-
-    new_columns = [
-        ("trailing_percent", "FLOAT", "NULL"),
-        ("highest_price_seen", "FLOAT", "NULL"),
-        ("parent_order_id", "INTEGER", "NULL"),
-        ("portion_percent", "FLOAT", "NULL"),
-    ]
-
-    for col_name, col_type, default in new_columns:
-        if col_name not in cols:
-            if is_sqlite:
-                ddl = f"ALTER TABLE limit_orders ADD COLUMN {col_name} {col_type} DEFAULT {default}"
-            else:
-                ddl = f"ALTER TABLE limit_orders ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
-            with db_engine.begin() as conn:
-                conn.execute(text(ddl))
-
-
 def _add_encryption_columns(db_engine, inspector, table_name: str, is_sqlite: bool) -> None:
     """Add envelope encryption columns to a wallet table idempotently."""
     cols = {c["name"] for c in inspector.get_columns(table_name)}
@@ -537,227 +318,6 @@ def _add_turnkey_columns(db_engine, inspector, table_name: str, is_sqlite: bool,
                 ddl = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type} DEFAULT {default}"
             else:
                 ddl = f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
-            with db_engine.begin() as conn:
-                conn.execute(text(ddl))
-
-
-def _add_swap_agent_columns(db_engine, inspector, is_sqlite: bool) -> None:
-    """Add agent linkage columns to swap_transactions idempotently."""
-    cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
-
-    new_columns = [
-        ("agent_id", "INTEGER", "NULL"),
-        ("agent_uuid", "VARCHAR(36)", "NULL"),
-    ]
-
-    for col_name, col_type, default in new_columns:
-        if col_name not in cols:
-            if is_sqlite:
-                ddl = f"ALTER TABLE swap_transactions ADD COLUMN {col_name} {col_type} DEFAULT {default}"
-            else:
-                ddl = f"ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
-            with db_engine.begin() as conn:
-                conn.execute(text(ddl))
-
-    # Index for efficient agent swap lookups
-    with db_engine.begin() as conn:
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_swap_transactions_agent_id "
-            "ON swap_transactions(agent_id)"
-        ))
-
-
-def _add_smart_notification_columns(db_engine, inspector, is_sqlite: bool) -> None:
-    """Add smart notification columns to advanced_price_alerts and user_settings idempotently."""
-    try:
-        tables = set(inspector.get_table_names())
-    except Exception:
-        return
-
-    # --- advanced_price_alerts: PnL alert fields ---
-    if "advanced_price_alerts" in tables:
-        cols = {c["name"] for c in inspector.get_columns("advanced_price_alerts")}
-
-        new_columns = [
-            ("pnl_threshold_percent", "FLOAT", "NULL"),
-            ("token_address", "VARCHAR(100)", "NULL"),
-        ]
-
-        for col_name, col_type, default in new_columns:
-            if col_name not in cols:
-                if is_sqlite:
-                    ddl = f"ALTER TABLE advanced_price_alerts ADD COLUMN {col_name} {col_type} DEFAULT {default}"
-                else:
-                    ddl = f"ALTER TABLE advanced_price_alerts ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
-                with db_engine.begin() as conn:
-                    conn.execute(text(ddl))
-
-    # --- user_settings: notification preference fields ---
-    if "user_settings" in tables:
-        cols = {c["name"] for c in inspector.get_columns("user_settings")}
-
-        new_columns = [
-            ("quiet_hours_start", "INTEGER", "NULL"),
-            ("quiet_hours_end", "INTEGER", "NULL"),
-            ("quiet_hours_timezone", "VARCHAR(50)", "'UTC'"),
-            ("notification_batching", "BOOLEAN", "TRUE"),
-        ]
-
-        for col_name, col_type, default in new_columns:
-            if col_name not in cols:
-                if is_sqlite:
-                    ddl = f"ALTER TABLE user_settings ADD COLUMN {col_name} {col_type} DEFAULT {default}"
-                else:
-                    ddl = f"ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
-                with db_engine.begin() as conn:
-                    conn.execute(text(ddl))
-
-
-def _add_stars_payment_columns(db_engine, inspector, is_sqlite: bool) -> None:
-    """Add Telegram Stars payment columns to x402_payments table idempotently."""
-    cols = {c["name"] for c in inspector.get_columns("x402_payments")}
-
-    new_columns = [
-        ("payment_method", "VARCHAR(32)", "'crypto'"),
-        ("stars_amount", "INTEGER", "NULL"),
-    ]
-
-    for col_name, col_type, default in new_columns:
-        if col_name not in cols:
-            if is_sqlite:
-                ddl = f"ALTER TABLE x402_payments ADD COLUMN {col_name} {col_type} DEFAULT {default}"
-            else:
-                ddl = f"ALTER TABLE x402_payments ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
-            with db_engine.begin() as conn:
-                conn.execute(text(ddl))
-
-
-def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
-    """Create gamification tables (daily_quests, user_quests, jackpot_pools) idempotently."""
-    try:
-        tables = set(inspector.get_table_names())
-    except Exception:
-        return
-
-    with db_engine.begin() as conn:
-        # --- daily_quests ---
-        if "daily_quests" not in tables:
-            if is_sqlite:
-                conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS daily_quests (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        date VARCHAR(10) NOT NULL,
-                        quest_type VARCHAR(50) NOT NULL,
-                        description VARCHAR(255) NOT NULL,
-                        target_value INTEGER NOT NULL,
-                        points_reward INTEGER NOT NULL,
-                        xp_reward INTEGER DEFAULT 0,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )
-                """))
-            else:
-                conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS daily_quests (
-                        id SERIAL PRIMARY KEY,
-                        date VARCHAR(10) NOT NULL,
-                        quest_type VARCHAR(50) NOT NULL,
-                        description VARCHAR(255) NOT NULL,
-                        target_value INTEGER NOT NULL,
-                        points_reward INTEGER NOT NULL,
-                        xp_reward INTEGER DEFAULT 0,
-                        created_at TIMESTAMP DEFAULT NOW()
-                    )
-                """))
-
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_daily_quests_date ON daily_quests(date)"
-        ))
-
-        # --- user_quests ---
-        if "user_quests" not in tables:
-            if is_sqlite:
-                conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS user_quests (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER NOT NULL REFERENCES users(id),
-                        quest_id INTEGER NOT NULL REFERENCES daily_quests(id),
-                        progress INTEGER DEFAULT 0,
-                        is_completed BOOLEAN DEFAULT FALSE,
-                        completed_at DATETIME,
-                        claimed BOOLEAN DEFAULT FALSE,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )
-                """))
-            else:
-                conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS user_quests (
-                        id SERIAL PRIMARY KEY,
-                        user_id INTEGER NOT NULL REFERENCES users(id),
-                        quest_id INTEGER NOT NULL REFERENCES daily_quests(id),
-                        progress INTEGER DEFAULT 0,
-                        is_completed BOOLEAN DEFAULT FALSE,
-                        completed_at TIMESTAMP,
-                        claimed BOOLEAN DEFAULT FALSE,
-                        created_at TIMESTAMP DEFAULT NOW()
-                    )
-                """))
-
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_user_quests_user_id ON user_quests(user_id)"
-        ))
-        conn.execute(text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS ix_user_quests_user_quest ON user_quests(user_id, quest_id)"
-        ))
-
-        # --- jackpot_pools ---
-        if "jackpot_pools" not in tables:
-            if is_sqlite:
-                conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS jackpot_pools (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        date VARCHAR(10) NOT NULL UNIQUE,
-                        total_pool_usd FLOAT DEFAULT 0.0,
-                        winner_user_id INTEGER REFERENCES users(id),
-                        winner_payout_usd FLOAT,
-                        is_drawn BOOLEAN DEFAULT FALSE,
-                        drawn_at DATETIME,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )
-                """))
-            else:
-                conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS jackpot_pools (
-                        id SERIAL PRIMARY KEY,
-                        date VARCHAR(10) NOT NULL UNIQUE,
-                        total_pool_usd FLOAT DEFAULT 0.0,
-                        winner_user_id INTEGER REFERENCES users(id),
-                        winner_payout_usd FLOAT,
-                        is_drawn BOOLEAN DEFAULT FALSE,
-                        drawn_at TIMESTAMP,
-                        created_at TIMESTAMP DEFAULT NOW()
-                    )
-                """))
-
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_jackpot_pools_date ON jackpot_pools(date)"
-        ))
-
-
-def _add_copy_trading_columns(db_engine, inspector, is_sqlite: bool) -> None:
-    """Add enhanced copy trading columns to copy_follows table idempotently."""
-    cols = {c["name"] for c in inspector.get_columns("copy_follows")}
-
-    new_columns = [
-        ("auto_sell_enabled", "BOOLEAN", "TRUE"),
-        ("chains_filter", "VARCHAR(200)", "NULL"),
-    ]
-
-    for col_name, col_type, default in new_columns:
-        if col_name not in cols:
-            if is_sqlite:
-                ddl = f"ALTER TABLE copy_follows ADD COLUMN {col_name} {col_type} DEFAULT {default}"
-            else:
-                ddl = f"ALTER TABLE copy_follows ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
 

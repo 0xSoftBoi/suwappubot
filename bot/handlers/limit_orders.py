@@ -22,11 +22,6 @@ from bot.config.tokens import get_tokens_for_chain, get_token_address
 # States
 LO_TYPE, LO_FROM_CHAIN, LO_FROM_TOKEN, LO_TO_CHAIN, LO_TO_TOKEN, LO_AMOUNT, LO_PRICE, LO_CONFIRM = range(8)
 DCA_TOKEN, DCA_AMOUNT, DCA_INTERVAL, DCA_CONFIRM = range(100, 104)
-TRAIL_CHAIN, TRAIL_TOKEN, TRAIL_AMOUNT, TRAIL_PERCENT, TRAIL_CONFIRM = range(200, 205)
-BUYDIP_CHAIN, BUYDIP_TOKEN, BUYDIP_AMOUNT, BUYDIP_PERCENT, BUYDIP_CONFIRM = range(300, 305)
-MTP_CHAIN, MTP_TOKEN, MTP_AMOUNT, MTP_LEVELS, MTP_CONFIRM = range(400, 405)
-
-wallet_service = WalletService()
 
 
 async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -48,23 +43,17 @@ async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         lines = ["📋 *Your Orders*\n"]
         for order in orders[:10]:
             icon = {"pending": "⏳", "executed": "✅", "cancelled": "❌"}.get(order.status, "❓")
-            extra = ""
-            if order.order_type == OrderType.TRAILING_STOP.value and order.highest_price_seen:
-                extra = f" (high: ${order.highest_price_seen:.2f})"
-            lines.append(f"{icon} {order.order_type}: {order.from_token}→{order.to_token} @${order.trigger_price:.2f}{extra}")
+            lines.append(f"{icon} {order.from_token}→{order.to_token} @${order.trigger_price:.2f}")
         text = "\n".join(lines)
-
+    
     keyboard = [
         [InlineKeyboardButton("🟢 Limit Buy", callback_data="lo_buy"),
          InlineKeyboardButton("🔴 Limit Sell", callback_data="lo_sell")],
         [InlineKeyboardButton("🛑 Stop Loss", callback_data="lo_stop")],
-        [InlineKeyboardButton("📉 Trailing Stop", callback_data="lo_trailing"),
-         InlineKeyboardButton("💰 Buy Dip", callback_data="lo_buydip")],
-        [InlineKeyboardButton("🎯 Multi Take-Profit", callback_data="lo_multitp")],
         [InlineKeyboardButton("« Back", callback_data="main_menu")],
     ]
-
-    await update.message.reply_text(text, parse_mode="Markdown",
+    
+    await update.message.reply_text(text, parse_mode="Markdown", 
                                      reply_markup=InlineKeyboardMarkup(keyboard))
 
 
@@ -480,491 +469,6 @@ async def lo_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 
-# ============ TRAILING STOP FLOW ============
-
-async def lo_trailing_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start trailing stop creation."""
-    query = update.callback_query
-    await query.answer()
-
-    context.user_data["trail"] = {}
-
-    text = "📉 *New Trailing Stop*\n\nSelect chain:"
-    keyboard = []
-    row = []
-    for name, chain in CHAINS.items():
-        row.append(InlineKeyboardButton(f"{chain.logo_emoji} {chain.display_name}", callback_data=f"trfc_{name}"))
-        if len(row) == 2:
-            keyboard.append(row)
-            row = []
-    if row:
-        keyboard.append(row)
-    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="lo_cancel")])
-
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-    return TRAIL_CHAIN
-
-
-async def trail_chain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle trailing stop chain selection."""
-    query = update.callback_query
-    await query.answer()
-
-    chain_name = query.data.replace("trfc_", "")
-    context.user_data["trail"]["chain"] = chain_name
-
-    tokens = get_tokens_for_chain(chain_name)
-    text = f"Chain: *{chain_name.upper()}*\n\nSelect token to sell (trailing stop protects this):"
-    keyboard = []
-    row = []
-    for t in tokens:
-        row.append(InlineKeyboardButton(t.symbol, callback_data=f"trft_{t.symbol}"))
-        if len(row) == 3:
-            keyboard.append(row)
-            row = []
-    if row:
-        keyboard.append(row)
-    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="lo_cancel")])
-
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-    return TRAIL_TOKEN
-
-
-async def trail_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle trailing stop token selection."""
-    query = update.callback_query
-    await query.answer()
-
-    token = query.data.replace("trft_", "")
-    context.user_data["trail"]["token"] = token
-
-    prices = await price_service.get_prices([token])
-    current_price = prices.get(token, 0)
-    context.user_data["trail"]["current_price"] = current_price
-
-    await query.edit_message_text(
-        f"Token: *{token}* (${current_price:.4f})\n\nEnter amount to sell:",
-        parse_mode="Markdown")
-    return TRAIL_AMOUNT
-
-
-async def trail_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle trailing stop amount entry."""
-    try:
-        amount = float(update.message.text.strip())
-        context.user_data["trail"]["amount"] = amount
-    except ValueError:
-        await update.message.reply_text("❌ Invalid amount.")
-        return TRAIL_AMOUNT
-
-    await update.message.reply_text(
-        f"Amount: {amount}\n\nEnter trailing percentage (e.g. 5 for 5%):")
-    return TRAIL_PERCENT
-
-
-async def trail_percent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle trailing stop percent entry."""
-    try:
-        pct = float(update.message.text.strip().replace("%", ""))
-        if pct <= 0 or pct >= 100:
-            raise ValueError
-        context.user_data["trail"]["percent"] = pct
-    except ValueError:
-        await update.message.reply_text("❌ Enter a valid percentage (1-99).")
-        return TRAIL_PERCENT
-
-    trail = context.user_data["trail"]
-    trigger = trail["current_price"] * (1 - pct / 100)
-
-    keyboard = [[InlineKeyboardButton("✅ Confirm", callback_data="trail_confirm"),
-                 InlineKeyboardButton("❌ Cancel", callback_data="lo_cancel")]]
-
-    text = (
-        f"📉 *Confirm Trailing Stop*\n\n"
-        f"Token: *{trail['token']}* ({trail['chain'].upper()})\n"
-        f"Amount: {trail['amount']}\n"
-        f"Trailing: {pct}%\n"
-        f"Current price: ${trail['current_price']:.4f}\n"
-        f"Initial trigger: ${trigger:.4f}\n\n"
-        f"_The trigger will rise as the price rises._"
-    )
-
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-    return TRAIL_CONFIRM
-
-
-async def trail_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Confirm and create trailing stop order."""
-    query = update.callback_query
-    await query.answer()
-
-    user = update.effective_user
-    trail = context.user_data["trail"]
-
-    with get_session() as session:
-        db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        user_id = db_user.id
-
-    chain_type = "solana" if trail["chain"] == "solana" else "evm"
-    wallet = wallet_service.get_default_wallet(user_id, chain_type)
-
-    if not wallet:
-        await query.edit_message_text(f"❌ No {chain_type.upper()} wallet found.")
-        return ConversationHandler.END
-
-    from bot.config.tokens import get_token_decimals
-    decimals = get_token_decimals(trail["token"], trail["chain"])
-    amount_raw = str(int(trail["amount"] * (10 ** decimals)))
-
-    order_service.create_trailing_stop(
-        user_id=user_id,
-        wallet_id=wallet.id,
-        from_chain=trail["chain"],
-        from_token=trail["token"],
-        to_chain=trail["chain"],
-        to_token="USDC",
-        amount=amount_raw,
-        trailing_percent=trail["percent"],
-        current_price=trail["current_price"],
-    )
-
-    await query.edit_message_text(
-        f"✅ *Trailing Stop Created!*\n\n{trail['token']} trailing {trail['percent']}%",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="main_menu")]]))
-    return ConversationHandler.END
-
-
-# ============ BUY DIP FLOW ============
-
-async def lo_buydip_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start buy-the-dip order creation."""
-    query = update.callback_query
-    await query.answer()
-
-    context.user_data["buydip"] = {}
-
-    text = "💰 *New Buy-the-Dip*\n\nSelect chain:"
-    keyboard = []
-    row = []
-    for name, chain in CHAINS.items():
-        row.append(InlineKeyboardButton(f"{chain.logo_emoji} {chain.display_name}", callback_data=f"bdfc_{name}"))
-        if len(row) == 2:
-            keyboard.append(row)
-            row = []
-    if row:
-        keyboard.append(row)
-    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="lo_cancel")])
-
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-    return BUYDIP_CHAIN
-
-
-async def buydip_chain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle buy dip chain selection."""
-    query = update.callback_query
-    await query.answer()
-
-    chain_name = query.data.replace("bdfc_", "")
-    context.user_data["buydip"]["chain"] = chain_name
-
-    tokens = get_tokens_for_chain(chain_name)
-    text = f"Chain: *{chain_name.upper()}*\n\nSelect token to buy on the dip:"
-    keyboard = []
-    row = []
-    for t in tokens:
-        row.append(InlineKeyboardButton(t.symbol, callback_data=f"bdft_{t.symbol}"))
-        if len(row) == 3:
-            keyboard.append(row)
-            row = []
-    if row:
-        keyboard.append(row)
-    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="lo_cancel")])
-
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-    return BUYDIP_TOKEN
-
-
-async def buydip_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle buy dip token selection."""
-    query = update.callback_query
-    await query.answer()
-
-    token = query.data.replace("bdft_", "")
-    context.user_data["buydip"]["token"] = token
-
-    prices = await price_service.get_prices([token])
-    current_price = prices.get(token, 0)
-    context.user_data["buydip"]["current_price"] = current_price
-
-    await query.edit_message_text(
-        f"Token: *{token}* (${current_price:.4f})\n\nEnter amount in USDC to spend:",
-        parse_mode="Markdown")
-    return BUYDIP_AMOUNT
-
-
-async def buydip_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle buy dip amount entry."""
-    try:
-        amount = float(update.message.text.strip())
-        context.user_data["buydip"]["amount"] = amount
-    except ValueError:
-        await update.message.reply_text("❌ Invalid amount.")
-        return BUYDIP_AMOUNT
-
-    await update.message.reply_text(
-        f"Amount: ${amount} USDC\n\nEnter dip percentage to trigger buy (e.g. 10 for -10%):")
-    return BUYDIP_PERCENT
-
-
-async def buydip_percent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle buy dip percent entry."""
-    try:
-        pct = float(update.message.text.strip().replace("%", ""))
-        if pct <= 0 or pct >= 100:
-            raise ValueError
-        context.user_data["buydip"]["percent"] = pct
-    except ValueError:
-        await update.message.reply_text("❌ Enter a valid percentage (1-99).")
-        return BUYDIP_PERCENT
-
-    bd = context.user_data["buydip"]
-    trigger = bd["current_price"] * (1 - pct / 100)
-
-    keyboard = [[InlineKeyboardButton("✅ Confirm", callback_data="buydip_confirm"),
-                 InlineKeyboardButton("❌ Cancel", callback_data="lo_cancel")]]
-
-    text = (
-        f"💰 *Confirm Buy-the-Dip*\n\n"
-        f"Buy: *{bd['token']}* ({bd['chain'].upper()})\n"
-        f"Spend: ${bd['amount']} USDC\n"
-        f"Dip: {pct}%\n"
-        f"Current price: ${bd['current_price']:.4f}\n"
-        f"Trigger at: ${trigger:.4f}"
-    )
-
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-    return BUYDIP_CONFIRM
-
-
-async def buydip_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Confirm and create buy dip order."""
-    query = update.callback_query
-    await query.answer()
-
-    user = update.effective_user
-    bd = context.user_data["buydip"]
-
-    with get_session() as session:
-        db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        user_id = db_user.id
-
-    chain_type = "solana" if bd["chain"] == "solana" else "evm"
-    wallet = wallet_service.get_default_wallet(user_id, chain_type)
-
-    if not wallet:
-        await query.edit_message_text(f"❌ No {chain_type.upper()} wallet found.")
-        return ConversationHandler.END
-
-    from bot.config.tokens import get_token_decimals
-    decimals = get_token_decimals("USDC", bd["chain"])
-    amount_raw = str(int(bd["amount"] * (10 ** decimals)))
-
-    order_service.create_buy_dip(
-        user_id=user_id,
-        wallet_id=wallet.id,
-        from_chain=bd["chain"],
-        from_token="USDC",
-        to_chain=bd["chain"],
-        to_token=bd["token"],
-        amount=amount_raw,
-        dip_percent=bd["percent"],
-        current_price=bd["current_price"],
-    )
-
-    await query.edit_message_text(
-        f"✅ *Buy-the-Dip Created!*\n\nBuy {bd['token']} when it drops {bd['percent']}%",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="main_menu")]]))
-    return ConversationHandler.END
-
-
-# ============ MULTI TAKE-PROFIT FLOW ============
-
-async def lo_multitp_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start multi take-profit creation."""
-    query = update.callback_query
-    await query.answer()
-
-    context.user_data["mtp"] = {"levels": []}
-
-    text = "🎯 *Multi Take-Profit*\n\nSelect chain:"
-    keyboard = []
-    row = []
-    for name, chain in CHAINS.items():
-        row.append(InlineKeyboardButton(f"{chain.logo_emoji} {chain.display_name}", callback_data=f"mtfc_{name}"))
-        if len(row) == 2:
-            keyboard.append(row)
-            row = []
-    if row:
-        keyboard.append(row)
-    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="lo_cancel")])
-
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-    return MTP_CHAIN
-
-
-async def mtp_chain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle multi-TP chain selection."""
-    query = update.callback_query
-    await query.answer()
-
-    chain_name = query.data.replace("mtfc_", "")
-    context.user_data["mtp"]["chain"] = chain_name
-
-    tokens = get_tokens_for_chain(chain_name)
-    text = f"Chain: *{chain_name.upper()}*\n\nSelect token to sell at take-profit levels:"
-    keyboard = []
-    row = []
-    for t in tokens:
-        row.append(InlineKeyboardButton(t.symbol, callback_data=f"mtft_{t.symbol}"))
-        if len(row) == 3:
-            keyboard.append(row)
-            row = []
-    if row:
-        keyboard.append(row)
-    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="lo_cancel")])
-
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-    return MTP_TOKEN
-
-
-async def mtp_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle multi-TP token selection."""
-    query = update.callback_query
-    await query.answer()
-
-    token = query.data.replace("mtft_", "")
-    context.user_data["mtp"]["token"] = token
-
-    await query.edit_message_text(
-        f"Token: *{token}*\n\nEnter total amount to sell across all levels:",
-        parse_mode="Markdown")
-    return MTP_AMOUNT
-
-
-async def mtp_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle multi-TP amount entry."""
-    try:
-        amount = float(update.message.text.strip())
-        context.user_data["mtp"]["amount"] = amount
-    except ValueError:
-        await update.message.reply_text("❌ Invalid amount.")
-        return MTP_AMOUNT
-
-    await update.message.reply_text(
-        f"Amount: {amount}\n\n"
-        "Enter take-profit levels as `price,percent` pairs, one per line.\n"
-        "Example:\n"
-        "`2.00,25`\n"
-        "`3.00,50`\n"
-        "`5.00,25`\n\n"
-        "_Percentages must add up to 100._",
-        parse_mode="Markdown")
-    return MTP_LEVELS
-
-
-async def mtp_levels(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle multi-TP levels entry."""
-    lines = update.message.text.strip().split("\n")
-    levels = []
-    total_pct = 0
-
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        parts = line.split(",")
-        if len(parts) != 2:
-            await update.message.reply_text("❌ Each line must be `price,percent`. Try again.")
-            return MTP_LEVELS
-        try:
-            price = float(parts[0].strip().replace("$", ""))
-            pct = float(parts[1].strip().replace("%", ""))
-            levels.append({"price": price, "percent": pct})
-            total_pct += pct
-        except ValueError:
-            await update.message.reply_text("❌ Invalid number in levels. Try again.")
-            return MTP_LEVELS
-
-    if not levels:
-        await update.message.reply_text("❌ No levels entered. Try again.")
-        return MTP_LEVELS
-
-    if abs(total_pct - 100) > 0.01:
-        await update.message.reply_text(f"❌ Percentages add up to {total_pct}%, must be 100%. Try again.")
-        return MTP_LEVELS
-
-    context.user_data["mtp"]["levels"] = levels
-
-    mtp = context.user_data["mtp"]
-    levels_text = "\n".join([f"  ${l['price']:.2f} → {l['percent']}%" for l in levels])
-
-    keyboard = [[InlineKeyboardButton("✅ Confirm", callback_data="mtp_confirm"),
-                 InlineKeyboardButton("❌ Cancel", callback_data="lo_cancel")]]
-
-    text = (
-        f"🎯 *Confirm Multi Take-Profit*\n\n"
-        f"Token: *{mtp['token']}* ({mtp['chain'].upper()})\n"
-        f"Total amount: {mtp['amount']}\n\n"
-        f"Levels:\n{levels_text}"
-    )
-
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-    return MTP_CONFIRM
-
-
-async def mtp_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Confirm and create multi take-profit orders."""
-    query = update.callback_query
-    await query.answer()
-
-    user = update.effective_user
-    mtp = context.user_data["mtp"]
-
-    with get_session() as session:
-        db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        user_id = db_user.id
-
-    chain_type = "solana" if mtp["chain"] == "solana" else "evm"
-    wallet = wallet_service.get_default_wallet(user_id, chain_type)
-
-    if not wallet:
-        await query.edit_message_text(f"❌ No {chain_type.upper()} wallet found.")
-        return ConversationHandler.END
-
-    from bot.config.tokens import get_token_decimals
-    decimals = get_token_decimals(mtp["token"], mtp["chain"])
-    amount_raw = str(int(mtp["amount"] * (10 ** decimals)))
-
-    order_service.create_multi_tp(
-        user_id=user_id,
-        wallet_id=wallet.id,
-        from_chain=mtp["chain"],
-        from_token=mtp["token"],
-        to_chain=mtp["chain"],
-        to_token="USDC",
-        amount=amount_raw,
-        levels=mtp["levels"],
-    )
-
-    await query.edit_message_text(
-        f"✅ *Multi Take-Profit Created!*\n\n{len(mtp['levels'])} levels set for {mtp['token']}",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="main_menu")]]))
-    return ConversationHandler.END
-
-
 async def lo_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel order creation."""
     query = update.callback_query
@@ -978,10 +482,7 @@ async def lo_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 limit_order_conversation = ConversationHandler(
     entry_points=[
         CallbackQueryHandler(lo_start, pattern="^lo_(buy|sell|stop)$"),
-        CallbackQueryHandler(dca_start, pattern="^dca_create$"),
-        CallbackQueryHandler(lo_trailing_start, pattern="^lo_trailing$"),
-        CallbackQueryHandler(lo_buydip_start, pattern="^lo_buydip$"),
-        CallbackQueryHandler(lo_multitp_start, pattern="^lo_multitp$"),
+        CallbackQueryHandler(dca_start, pattern="^dca_create$")
     ],
     states={
         # Limit Orders
@@ -998,28 +499,10 @@ limit_order_conversation = ConversationHandler(
         DCA_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, dca_amount)],
         DCA_INTERVAL: [CallbackQueryHandler(dca_interval, pattern="^dcai_")],
         DCA_CONFIRM: [CallbackQueryHandler(dca_confirm, pattern="^dca_confirm$")],
-        # Trailing Stop
-        TRAIL_CHAIN: [CallbackQueryHandler(trail_chain, pattern="^trfc_")],
-        TRAIL_TOKEN: [CallbackQueryHandler(trail_token, pattern="^trft_")],
-        TRAIL_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, trail_amount)],
-        TRAIL_PERCENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, trail_percent)],
-        TRAIL_CONFIRM: [CallbackQueryHandler(trail_confirm, pattern="^trail_confirm$")],
-        # Buy Dip
-        BUYDIP_CHAIN: [CallbackQueryHandler(buydip_chain, pattern="^bdfc_")],
-        BUYDIP_TOKEN: [CallbackQueryHandler(buydip_token, pattern="^bdft_")],
-        BUYDIP_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, buydip_amount)],
-        BUYDIP_PERCENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, buydip_percent)],
-        BUYDIP_CONFIRM: [CallbackQueryHandler(buydip_confirm, pattern="^buydip_confirm$")],
-        # Multi Take-Profit
-        MTP_CHAIN: [CallbackQueryHandler(mtp_chain, pattern="^mtfc_")],
-        MTP_TOKEN: [CallbackQueryHandler(mtp_token, pattern="^mtft_")],
-        MTP_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, mtp_amount)],
-        MTP_LEVELS: [MessageHandler(filters.TEXT & ~filters.COMMAND, mtp_levels)],
-        MTP_CONFIRM: [CallbackQueryHandler(mtp_confirm, pattern="^mtp_confirm$")],
     },
     fallbacks=[
         CallbackQueryHandler(lo_cancel, pattern="^lo_cancel$"),
-        CallbackQueryHandler(lo_cancel, pattern="^dca_cancel$"),
+        CallbackQueryHandler(lo_cancel, pattern="^dca_cancel$")
     ],
 )
 
@@ -1045,19 +528,13 @@ async def limit_orders_menu_callback(update: Update, context: ContextTypes.DEFAU
         lines = ["📈 *Your Orders*\n"]
         for order in orders[:10]:
             icon = {"pending": "⏳", "executed": "✅", "cancelled": "❌"}.get(order.status, "❓")
-            extra = ""
-            if order.order_type == OrderType.TRAILING_STOP.value and order.highest_price_seen:
-                extra = f" (high: ${order.highest_price_seen:.2f})"
-            lines.append(f"{icon} {order.order_type}: {order.from_token}→{order.to_token} @${order.trigger_price:.2f}{extra}")
+            lines.append(f"{icon} {order.from_token}→{order.to_token} @${order.trigger_price:.2f}")
         text = "\n".join(lines)
 
     keyboard = [
         [InlineKeyboardButton("🟢 Limit Buy", callback_data="lo_buy"),
          InlineKeyboardButton("🔴 Limit Sell", callback_data="lo_sell")],
         [InlineKeyboardButton("🛑 Stop Loss", callback_data="lo_stop")],
-        [InlineKeyboardButton("📉 Trailing Stop", callback_data="lo_trailing"),
-         InlineKeyboardButton("💰 Buy Dip", callback_data="lo_buydip")],
-        [InlineKeyboardButton("🎯 Multi Take-Profit", callback_data="lo_multitp")],
         [InlineKeyboardButton("« Back", callback_data="main_menu")],
     ]
 

@@ -49,21 +49,13 @@ export const UpdateAgentSchema = z.object({
 	'At least one field must be provided'
 )
 
-export const ExecuteSwapSchema = z.object({
-	quote_id: z.string().min(1, 'quote_id is required'),
-})
-
-export const SwapStatusQuerySchema = z.object({
-	status: z.string().optional(),
-	limit: z.coerce.number().int().min(1).max(100).optional().default(20),
-	offset: z.coerce.number().int().min(0).optional().default(0),
-})
-
-export const WebhookEventsQuerySchema = z.object({
-	status: z.enum(['pending', 'delivered', 'failed']).optional(),
-	event_type: z.string().max(50).optional(),
-	limit: z.coerce.number().int().min(1).max(100).optional().default(20),
-	offset: z.coerce.number().int().min(0).optional().default(0),
+export const CreatePolicySchema = z.object({
+	type: z.enum(['spending_limit', 'whitelist']),
+	params: z.object({
+		maxAmountWei: z.string().optional(),
+		timeWindowSeconds: z.number().optional(),
+		allowedAddresses: z.array(z.string()).optional(),
+	}),
 })
 
 /** Format Zod errors into a flat field map */

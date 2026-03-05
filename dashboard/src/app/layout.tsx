@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import "@turnkey/react-wallet-kit/styles.css";
-import { Providers } from "@/providers";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -23,7 +21,7 @@ export default function RootLayout({
     return (
         <html lang="en">
             <body className={`${inter.className} premium-gradient min-h-screen`}>
-                <Providers>{children}</Providers>
+                {children}
             </body>
         </html>
     );

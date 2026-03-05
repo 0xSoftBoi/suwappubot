@@ -39,13 +39,11 @@ async def quickswap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not args or len(args) < 3:
         await update.message.reply_text(
             "🔄 *Quick Swap*\n\n"
-            "*Usage:* `/s <amount> <from_token> <to_token>`\n\n"
-            "*Examples:*\n"
-            "• `/s 100 USDC ETH` — Swap 100 USDC to ETH\n"
-            "• `/s $50 ETH USDC` — Swap $50 worth of ETH to USDC\n"
-            "• `/s 0.5 SOL USDC solana` — Solana swap\n\n"
-            "_Amounts accept $ prefix and are case-insensitive._\n\n"
-            "For the full swap wizard, tap below.",
+            "Usage: `/s <amount> <from_token> <to_token>`\n\n"
+            "Examples:\n"
+            "• `/s 100 USDC ETH` - Swap 100 USDC to ETH\n"
+            "• `/s 50 ETH USDC` - Swap 50 ETH to USDC\n\n"
+            "For full swap wizard, tap the button below.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 Open Swap Wizard", callback_data="swap_start")]
@@ -227,8 +225,7 @@ async def quickswap_confirm_callback(update: Update, context: ContextTypes.DEFAU
             await query.edit_message_text(
                 f"✅ *Swap Submitted!*\n\n"
                 f"Transaction: `{swap_tx.tx_hash[:20]}...`\n\n"
-                f"Check status with /hx\n\n"
-                f"_Saved! Use /s next time for the same shortcut_",
+                f"Check status with /hx",
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📜 History", callback_data="history")],

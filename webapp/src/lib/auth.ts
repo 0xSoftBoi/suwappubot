@@ -121,50 +121,6 @@ export function isTokenExpiringSoon(): boolean {
   return expiry < fiveMinutesFromNow
 }
 
-/**
- * Schedule a token refresh before expiry.
- * Returns a timer ID that can be cleared if needed.
- */
-export function scheduleTokenRefresh(
-  refreshFn: () => Promise<{ token: string; expiresAt: string } | null>
-): ReturnType<typeof setTimeout> | null {
-  const expiry = getTokenExpiry()
-  if (!expiry) return null
-
-  // Refresh 2 minutes before expiry
-  const refreshAt = expiry.getTime() - 2 * 60 * 1000
-  const delay = refreshAt - Date.now()
-
-  if (delay <= 0) {
-    // Already expired or about to expire, refresh immediately
-    refreshFn().then((result) => {
-      if (result) {
-        setAuthToken(result.token, result.expiresAt)
-      } else {
-        clearAuthToken()
-      }
-    }).catch(() => {
-      clearAuthToken()
-    })
-    return null
-  }
-
-  return setTimeout(async () => {
-    try {
-      const result = await refreshFn()
-      if (result) {
-        setAuthToken(result.token, result.expiresAt)
-        // Schedule the next refresh
-        scheduleTokenRefresh(refreshFn)
-      } else {
-        clearAuthToken()
-      }
-    } catch {
-      clearAuthToken()
-    }
-  }, delay)
-}
-
 const WALLET_ADDRESS_KEY = 'suwappu_wallet_address'
 
 /**

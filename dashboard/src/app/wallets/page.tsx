@@ -9,7 +9,6 @@ import { TurnkeyAuth } from '@/components/auth/TurnkeyAuth';
 
 export default function WalletsPage() {
   const { isAuthenticated, isLoading } = useAuth();
-  const [activeTab, setActiveTab] = React.useState('wallets');
 
   if (isLoading) {
     return (
@@ -31,12 +30,12 @@ export default function WalletsPage() {
     <div className="min-h-screen bg-[#0A0B0F] text-white">
       {/* Desktop sidebar */}
       <div className="hidden lg:block">
-        <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
+        <Sidebar />
       </div>
 
       {/* Mobile nav */}
       <div className="lg:hidden">
-        <MobileNav activeTab={activeTab} onTabChange={setActiveTab} />
+        <MobileNav />
       </div>
 
       {/* Main content */}

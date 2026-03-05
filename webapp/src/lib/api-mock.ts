@@ -4,7 +4,8 @@
  * Provides the same interface as the real API client
  * but returns mock data without making network requests.
  */
-import type { Portfolio, Swap, HealthStatus, LinkedWallet, AuthChallenge, LinkWalletResponse } from '@suwappu/shared'
+import type { Portfolio, Swap, HealthStatus } from '../types/api'
+import type { LinkedWallet, AuthChallenge, LinkWalletResponse } from '../types/auth'
 import { mockPortfolio, mockSwaps } from '../stories/mockData'
 
 // Simulated network delay (ms)

@@ -30,9 +30,6 @@ SWAP_FEE_DECIMAL = SWAP_FEE_PERCENTAGE / Decimal("100")  # 0.008
 REFERRAL_REWARD_PERCENTAGE = Decimal("30")  # 30%
 REFERRAL_REWARD_DECIMAL = REFERRAL_REWARD_PERCENTAGE / Decimal("100")  # 0.30
 
-# Referred user discount: 10% off fees
-REFERRAL_FEE_DISCOUNT = Decimal("0.10")  # 10% discount
-
 # Swap limits
 MIN_SWAP_USD = Decimal("1")  # No barriers to entry
 MAX_SWAP_USD = Decimal("100000")  # Risk management
@@ -77,49 +74,36 @@ class FeeService:
         self,
         swap_amount_usd: float,
         referrer_id: Optional[int] = None,
-        user_id: Optional[int] = None,
     ) -> FeeCalculation:
         """
         Calculate fee for a swap.
-
+        
         Args:
             swap_amount_usd: Swap amount in USD
             referrer_id: Optional referrer user ID for reward calculation
-            user_id: Optional user ID to check for referral fee discount
-
+            
         Returns:
             FeeCalculation with all fee details
         """
         amount = Decimal(str(swap_amount_usd))
-
+        
         # Calculate base fee (0.8%)
         fee_amount = (amount * self.fee_percentage).quantize(
             Decimal("0.01"), rounding=ROUND_DOWN
         )
-
-        # Apply referral discount if user was referred
-        if user_id is not None:
-            try:
-                from bot.services.referral_service import referral_service
-                if referral_service.get_referrer_id(user_id):
-                    fee_amount = (fee_amount * (1 - REFERRAL_FEE_DISCOUNT)).quantize(
-                        Decimal("0.01"), rounding=ROUND_DOWN
-                    )
-            except Exception:
-                pass  # Don't break fee calc if referral lookup fails
-
+        
         # Calculate referral reward if applicable
         has_referrer = referrer_id is not None
         referral_reward = Decimal("0")
-
+        
         if has_referrer:
             referral_reward = (fee_amount * self.referral_percentage).quantize(
                 Decimal("0.01"), rounding=ROUND_DOWN
             )
-
+        
         # Net fee (what we keep)
         net_fee = fee_amount - referral_reward
-
+        
         return FeeCalculation(
             swap_amount_usd=amount,
             fee_amount_usd=fee_amount,

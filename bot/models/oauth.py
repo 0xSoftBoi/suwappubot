@@ -32,6 +32,9 @@ class OAuthIdentity(Base):
     name = Column(String(255), nullable=True)
     profile_image = Column(Text, nullable=True)  # URL
 
+    # Turnkey integration
+    turnkey_authenticator_id = Column(String(255), nullable=True)
+
     # Status
     is_primary = Column(Boolean, default=False)  # Primary login method
     is_verified = Column(Boolean, default=True)  # Email verified by provider

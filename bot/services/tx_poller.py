@@ -1,7 +1,6 @@
 """Transaction status polling service."""
 
 import asyncio
-import json
 import logging
 from typing import Optional, List
 from datetime import datetime, timedelta
@@ -21,14 +20,13 @@ logger = logging.getLogger(__name__)
 class TransactionPoller:
     """Background service to poll and update transaction statuses."""
     
-    def __init__(self, poll_interval: int = 15, max_age_hours: int = 24, webhook_dispatcher=None):
+    def __init__(self, poll_interval: int = 15, max_age_hours: int = 24):
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._poll_interval = poll_interval  # seconds
         self._max_age_hours = max_age_hours
         self._bot = None
         self._lifi = LiFiAPI()
-        self._webhook_dispatcher = webhook_dispatcher
         logger.info(f"Transaction poller initialized (interval: {poll_interval}s)")
     
     async def start(self, bot=None):
@@ -98,12 +96,8 @@ class TransactionPoller:
                             f"Transaction {tx.id} status: {old_status} -> {new_status}"
                         )
                         
-                        # Notify user (with lock to prevent duplicate notifications)
-                        from bot.utils.distributed_lock import RedisLock
-                        from bot.utils.redis_cache import redis_cache
-                        notify_lock = RedisLock(redis_cache.client, f"tx_notify:{tx.id}", ttl=60)
-                        if await notify_lock.acquire():
-                            await self._notify_user(tx, old_status, new_status)
+                        # Notify user
+                        await self._notify_user(tx, old_status, new_status)
                         
                 except Exception as e:
                     logger.error(f"Error checking tx {tx.id}: {e}")
@@ -233,24 +227,20 @@ class TransactionPoller:
         old_status: str,
         new_status: str,
     ):
-        """Notify user of status change via Telegram and/or webhook."""
-        # --- Webhook delivery for agent-initiated swaps ---
-        if getattr(tx, "agent_id", None) and self._webhook_dispatcher:
-            await self._dispatch_agent_webhook(tx, new_status)
-
+        """Notify user of status change."""
         if not self._bot:
             return
-
+        
         try:
             from bot.models.user import User
-
+            
             with get_db_session() as session:
                 user = session.query(User).filter(User.id == tx.user_id).first()
                 if not user:
                     return
-
+                
                 telegram_id = user.telegram_id
-
+            
             if new_status == SwapStatus.COMPLETED.value:
                 text = (
                     f"✅ *Swap Completed!*\n\n"
@@ -284,50 +274,9 @@ class TransactionPoller:
                 )
             else:
                 return  # Don't notify for other status changes
-
+            
         except Exception as e:
             logger.error(f"Failed to notify user: {e}")
-
-    async def _dispatch_agent_webhook(self, tx: SwapTransaction, new_status: str):
-        """Dispatch a webhook to the agent's callback_url."""
-        try:
-            from bot.models.agent import RegisteredAgent
-
-            with get_db_session() as session:
-                agent = session.query(RegisteredAgent).filter(
-                    RegisteredAgent.id == tx.agent_id
-                ).first()
-                if not agent or not agent.callback_url:
-                    return
-                callback_url = agent.callback_url
-
-            event_type = f"swap.{new_status}"
-            payload = json.dumps({
-                "event": event_type,
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "data": {
-                    "swap_id": tx.id,
-                    "status": new_status,
-                    "tx_hash": tx.tx_hash,
-                    "from_chain": tx.from_chain,
-                    "from_token": tx.from_token,
-                    "from_amount": tx.from_amount,
-                    "to_chain": tx.to_chain,
-                    "to_token": tx.to_token,
-                    "to_amount": tx.to_amount,
-                    "completed_at": tx.completed_at.isoformat() + "Z" if tx.completed_at else None,
-                    "error_message": tx.error_message,
-                },
-            })
-
-            await self._webhook_dispatcher.dispatch(
-                agent_id=tx.agent_id,
-                event_type=event_type,
-                payload=payload,
-                callback_url=callback_url,
-            )
-        except Exception as e:
-            logger.error(f"Failed to dispatch agent webhook for tx {tx.id}: {e}")
     
     def _get_explorer_link(self, tx: SwapTransaction) -> str:
         """Get block explorer link for transaction."""

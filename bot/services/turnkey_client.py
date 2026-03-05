@@ -73,11 +73,15 @@ class TurnkeyClient:
         self._api_private_key = api_private_key
         self._base_url = base_url.rstrip("/")
         
-        from cryptography.hazmat.primitives.asymmetric import ec
-        self._signing_key = ec.derive_private_key(
-            int.from_bytes(bytes.fromhex(api_private_key), "big"),
-            ec.SECP256R1(),
-        )
+        # Import ecdsa for signing
+        try:
+            from ecdsa import SigningKey, NIST256p
+            self._signing_key = SigningKey.from_string(
+                bytes.fromhex(api_private_key),
+                curve=NIST256p
+            )
+        except ImportError:
+            raise ImportError("ecdsa package required. Install with: pip install ecdsa")
     
     def _create_stamp(self, body: str) -> str:
         """
@@ -87,16 +91,18 @@ class TurnkeyClient:
         is signed with the API key pair. The stamp is base64-encoded JSON
         with hex-encoded signature.
         """
-        from cryptography.hazmat.primitives import hashes
-        from cryptography.hazmat.primitives.asymmetric import ec as ec_alg
+        from ecdsa.util import sigencode_der
         import base64
-
-        # Sign the request body with P-256 (DER encoded)
-        signature = self._signing_key.sign(
-            body.encode(),
-            ec_alg.ECDSA(hashes.SHA256()),
+        
+        # Create hash of request body
+        body_hash = hashlib.sha256(body.encode()).digest()
+        
+        # Sign the hash with P-256 (DER encoded)
+        signature = self._signing_key.sign_digest(
+            body_hash,
+            sigencode=sigencode_der
         )
-
+        
         # Encode signature as hex (Turnkey's required format)
         signature_hex = signature.hex()
         
@@ -451,7 +457,41 @@ class TurnkeyClient:
         )
         
         return result.get("signRawPayloadResult", {})
-    
+
+    async def sign_typed_data(
+        self,
+        typed_data: dict,
+        sign_with: str,
+        organization_id: Optional[str] = None,
+    ) -> str:
+        """
+        Sign EIP-712 typed data via Turnkey.
+
+        Computes the EIP-712 hash locally, then uses sign_raw_payload
+        to sign the hash with Turnkey's secure enclave.
+        """
+        from eth_account.messages import encode_typed_data
+
+        signable = encode_typed_data(full_message=typed_data)
+        message_hash = signable.body.hex()
+
+        result = await self.sign_raw_payload(
+            payload=message_hash,
+            sign_with=sign_with,
+            encoding="PAYLOAD_ENCODING_HEXADECIMAL",
+            hash_function="HASH_FUNCTION_NO_OP",  # Already hashed
+            organization_id=organization_id,
+        )
+
+        # Reconstruct signature from r, s, v
+        r = result.get("r", "")
+        s = result.get("s", "")
+        v = result.get("v", "")
+
+        # Turnkey returns hex values
+        signature = r + s + v
+        return signature
+
     # === Import/Export ===
     
     async def import_private_key(
@@ -493,8 +533,8 @@ class TurnkeyClient:
         
         return result.get("importPrivateKeyResult", {})
     
-    # === Policies (optional) ===
-    
+    # === Policies ===
+
     async def create_policy(
         self,
         policy_name: str,
@@ -502,17 +542,19 @@ class TurnkeyClient:
         consensus: str,
         condition: str,
         organization_id: Optional[str] = None,
+        notes: Optional[str] = None,
     ) -> str:
         """
         Create a policy in Turnkey.
-        
+
         Args:
             policy_name: Name for the policy
             effect: EFFECT_ALLOW or EFFECT_DENY
             consensus: Consensus requirement
             condition: Policy condition expression
             organization_id: Target organization
-            
+            notes: Optional description/metadata
+
         Returns:
             Policy ID
         """
@@ -522,14 +564,236 @@ class TurnkeyClient:
             "consensus": consensus,
             "condition": condition,
         }
-        
+        if notes:
+            params["notes"] = notes
+
         result = await self._submit_activity(
             "ACTIVITY_TYPE_CREATE_POLICY_V3",
             params,
             organization_id=organization_id,
         )
-        
+
         return result.get("createPolicyResult", {}).get("policyId", "")
+
+    async def delete_policy(
+        self,
+        policy_id: str,
+        organization_id: Optional[str] = None,
+    ) -> bool:
+        """
+        Delete a policy from Turnkey.
+
+        Args:
+            policy_id: ID of the policy to delete
+            organization_id: Target organization
+
+        Returns:
+            True if deleted successfully
+        """
+        params = {
+            "policyId": policy_id,
+        }
+
+        await self._submit_activity(
+            "ACTIVITY_TYPE_DELETE_POLICY",
+            params,
+            organization_id=organization_id,
+        )
+        return True
+
+    async def list_policies(
+        self,
+        organization_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        List all policies in an organization.
+
+        Args:
+            organization_id: Target organization
+
+        Returns:
+            List of policy dicts
+        """
+        org_id = organization_id or self._org_id
+
+        result = await self._request(
+            "POST",
+            "/public/v1/query/list_policies",
+            {"organizationId": org_id}
+        )
+
+        return result.get("policies", [])
+
+    async def create_spending_limit_policy(
+        self,
+        wallet_address: str,
+        limit_amount_wei: str,
+        time_window_seconds: int,
+        policy_name: str,
+        organization_id: Optional[str] = None,
+    ) -> str:
+        """
+        Create a spending limit policy that restricts transaction value.
+
+        Uses Turnkey's policy condition language to enforce that the
+        cumulative value of sign_transaction activities within a time
+        window does not exceed limit_amount_wei.
+
+        Args:
+            wallet_address: Address the policy applies to
+            limit_amount_wei: Max value in wei (as string) per window
+            time_window_seconds: Rolling window in seconds (3600=hourly, 86400=daily)
+            policy_name: Human-readable name
+            organization_id: Sub-org owning the wallet
+
+        Returns:
+            Policy ID
+        """
+        condition = (
+            f"activity.type == 'ACTIVITY_TYPE_SIGN_TRANSACTION_V2' && "
+            f"activity.resource == '{wallet_address}' && "
+            f"cumulative(activity.intent.value, {time_window_seconds}) <= '{limit_amount_wei}'"
+        )
+
+        return await self.create_policy(
+            policy_name=policy_name,
+            effect="EFFECT_DENY",
+            consensus="approvers.any()",
+            condition=condition,
+            organization_id=organization_id,
+            notes=f"Spending limit: {limit_amount_wei} wei per {time_window_seconds}s for {wallet_address}",
+        )
+
+    async def create_address_whitelist_policy(
+        self,
+        wallet_address: str,
+        allowed_addresses: List[str],
+        policy_name: str,
+        organization_id: Optional[str] = None,
+    ) -> str:
+        """
+        Create a whitelist policy that restricts which addresses
+        the wallet can send transactions to.
+
+        Args:
+            wallet_address: Address the policy applies to
+            allowed_addresses: List of allowed destination addresses
+            policy_name: Human-readable name
+            organization_id: Sub-org owning the wallet
+
+        Returns:
+            Policy ID
+        """
+        addr_list = ", ".join(f"'{a.lower()}'" for a in allowed_addresses)
+        condition = (
+            f"activity.type == 'ACTIVITY_TYPE_SIGN_TRANSACTION_V2' && "
+            f"activity.resource == '{wallet_address}' && "
+            f"!([{addr_list}].contains(activity.intent.destination))"
+        )
+
+        return await self.create_policy(
+            policy_name=policy_name,
+            effect="EFFECT_DENY",
+            consensus="approvers.any()",
+            condition=condition,
+            organization_id=organization_id,
+            notes=f"Whitelist policy for {wallet_address}: {len(allowed_addresses)} addresses",
+        )
+
+    # === Recovery Operations ===
+
+    async def init_email_recovery(
+        self,
+        email: str,
+        target_public_key: str,
+        organization_id: Optional[str] = None,
+    ) -> str:
+        """
+        Initialize email-based recovery for a sub-organization.
+
+        Sends a recovery email with a credential bundle that allows
+        the user to create a new authenticator.
+
+        Args:
+            email: Recovery email address
+            target_public_key: Public key of the new authenticator
+            organization_id: Sub-org to recover
+
+        Returns:
+            Activity ID for tracking
+        """
+        params = {
+            "email": email,
+            "targetPublicKey": target_public_key,
+        }
+
+        result = await self._submit_activity(
+            "ACTIVITY_TYPE_INIT_USER_EMAIL_RECOVERY",
+            params,
+            organization_id=organization_id,
+        )
+
+        return result.get("initUserEmailRecoveryResult", {}).get("userId", "")
+
+    async def recover_user(
+        self,
+        authenticator: dict,
+        organization_id: Optional[str] = None,
+    ) -> str:
+        """
+        Complete recovery by adding a new authenticator.
+
+        Called after the user receives the recovery email and
+        creates a new passkey/API key.
+
+        Args:
+            authenticator: New authenticator details (name, type, challenge, attestation)
+            organization_id: Sub-org being recovered
+
+        Returns:
+            Authenticator ID
+        """
+        params = {
+            "authenticator": authenticator,
+        }
+
+        result = await self._submit_activity(
+            "ACTIVITY_TYPE_RECOVER_USER",
+            params,
+            organization_id=organization_id,
+        )
+
+        return result.get("recoverUserResult", {}).get("authenticatorId", [""])[0]
+
+    async def create_api_keys(
+        self,
+        user_id: str,
+        api_keys: list,
+        organization_id: Optional[str] = None,
+    ) -> list:
+        """
+        Create API keys for a user (used during recovery to add new auth).
+
+        Args:
+            user_id: Target user ID
+            api_keys: List of API key configs [{apiKeyName, publicKey}]
+            organization_id: Target organization
+
+        Returns:
+            List of created API key IDs
+        """
+        params = {
+            "userId": user_id,
+            "apiKeys": api_keys,
+        }
+
+        result = await self._submit_activity(
+            "ACTIVITY_TYPE_CREATE_API_KEYS",
+            params,
+            organization_id=organization_id,
+        )
+
+        return result.get("createApiKeysResult", {}).get("apiKeyIds", [])
 
 
 # === Authentication Helpers ===

@@ -6,8 +6,12 @@ export { PointsService, PointsServiceLive, type UserPointsStats, type Leaderboar
 export { BalanceService, BalanceServiceLive, type TokenBalance } from './BalanceService'
 export { TurnkeyService, TurnkeyServiceLive, type TurnkeyWallet } from './TurnkeyService'
 export { AgentService, AgentServiceLive, type RegisterAgentParams, type UpdateAgentParams } from './AgentService'
-export { TokenService, TokenServiceLive, CHAINS, COMMON_TOKENS, type TokenInfo, type ChainInfo } from './TokenService'
+export { TokenService, TokenServiceLive, CHAINS, type TokenInfo, type ChainInfo } from './TokenService'
 export { JupiterService, JupiterServiceLive, SOLANA_TOKENS, type JupiterQuote, type JupiterSwapResponse } from './JupiterService'
-export { RedisService, RedisServiceLive, cacheKeys, QUOTE_TTL, TOKEN_LIST_TTL, type RedisServiceInterface } from './RedisService'
-export { LimitOrderService, LimitOrderServiceLive, type CreateLimitOrderParams, type LimitOrderWithPrice, type PriceCheckResult } from './LimitOrderService'
-export { CopyTradingService, CopyTradingServiceLive, type TopTraderEntry, type TraderProfileDetail, type FollowingEntry, type CopyTradeEntry, type FollowSettings } from './CopyTradingService'
+
+// New services for Python feature parity
+export { DCAService, DCAServiceLive, type CreateDCAParams, type UpdateDCAParams, type DCAStats } from './DCAService'
+export { AlertService, AlertServiceLive, type CreateAlertParams, type UpdateAlertParams, type AlertType, type CheckAlertResult, type AlertStats } from './AlertService'
+export { OrderService, OrderServiceLive, type CreateOrderParams, type UpdateOrderParams, type OrderType, type OrderSide, type OrderStatus, type CheckOrderResult, type OrderStats } from './OrderService'
+export { ReferralService, ReferralServiceLive, type ReferralStats, type ReferredUser, type CreateReferralParams } from './ReferralService'
+export { CopyTradingService, CopyTradingServiceLive, type TraderLeaderboardEntry, type CopySettings, type FollowTraderParams, type UpdateCopySettingsParams } from './CopyTradingService'

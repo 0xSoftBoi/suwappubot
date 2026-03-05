@@ -563,6 +563,30 @@
     "aws:cdk:path": "SuwappuStack/EcsSecurityGroup/Resource"
    }
   },
+  "EcsSecurityGroupfromSuwappuStackAlbSecurityGroupB4856895100005D258E95": {
+   "Type": "AWS::EC2::SecurityGroupIngress",
+   "Properties": {
+    "Description": "Allow from ALB",
+    "FromPort": 10000,
+    "GroupId": {
+     "Fn::GetAtt": [
+      "EcsSecurityGroup44008BF1",
+      "GroupId"
+     ]
+    },
+    "IpProtocol": "tcp",
+    "SourceSecurityGroupId": {
+     "Fn::GetAtt": [
+      "AlbSecurityGroup86A59E99",
+      "GroupId"
+     ]
+    },
+    "ToPort": 10000
+   },
+   "Metadata": {
+    "aws:cdk:path": "SuwappuStack/EcsSecurityGroup/from SuwappuStackAlbSecurityGroupB4856895:10000"
+   }
+  },
   "RdsSecurityGroup632A77E4": {
    "Type": "AWS::EC2::SecurityGroup",
    "Properties": {
@@ -622,46 +646,6 @@
    "DeletionPolicy": "Delete",
    "Metadata": {
     "aws:cdk:path": "SuwappuStack/SuwappuSecrets/Resource"
-   }
-  },
-  "RdsEncryptionKeyB1A86E21": {
-   "Type": "AWS::KMS::Key",
-   "Properties": {
-    "Description": "KMS key for Suwappu RDS encryption at rest",
-    "EnableKeyRotation": true,
-    "KeyPolicy": {
-     "Statement": [
-      {
-       "Action": "kms:*",
-       "Effect": "Allow",
-       "Principal": {
-        "AWS": "arn:aws:iam::905418423235:root"
-       },
-       "Resource": "*"
-      }
-     ],
-     "Version": "2012-10-17"
-    }
-   },
-   "UpdateReplacePolicy": "Retain",
-   "DeletionPolicy": "Retain",
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/RdsEncryptionKey/Resource"
-   }
-  },
-  "RdsEncryptionKeyAliasB247BB72": {
-   "Type": "AWS::KMS::Alias",
-   "Properties": {
-    "AliasName": "alias/suwappu/rds",
-    "TargetKeyId": {
-     "Fn::GetAtt": [
-      "RdsEncryptionKeyB1A86E21",
-      "Arn"
-     ]
-    }
-   },
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/RdsEncryptionKey/Alias/Resource"
    }
   },
   "SuwappuDatabaseSubnetGroupE6E68EEA": {
@@ -752,7 +736,7 @@
     },
     "MasterUsername": "suwappu",
     "MaxAllocatedStorage": 100,
-    "MultiAZ": true,
+    "MultiAZ": false,
     "PubliclyAccessible": false,
     "StorageType": "gp3",
     "VPCSecurityGroups": [
@@ -768,94 +752,6 @@
    "DeletionPolicy": "Snapshot",
    "Metadata": {
     "aws:cdk:path": "SuwappuStack/SuwappuDatabase/Resource"
-   }
-  },
-  "RedisSecurityGroupB05951F6": {
-   "Type": "AWS::EC2::SecurityGroup",
-   "Properties": {
-    "GroupDescription": "Security group for ElastiCache Redis",
-    "SecurityGroupEgress": [
-     {
-      "CidrIp": "255.255.255.255/32",
-      "Description": "Disallow all traffic",
-      "FromPort": 252,
-      "IpProtocol": "icmp",
-      "ToPort": 86
-     }
-    ],
-    "VpcId": {
-     "Ref": "SuwappuVpc3688B326"
-    }
-   },
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/RedisSecurityGroup/Resource"
-   }
-  },
-  "RedisSecurityGroupfromSuwappuStackEcsSecurityGroup1E918140637973887050": {
-   "Type": "AWS::EC2::SecurityGroupIngress",
-   "Properties": {
-    "Description": "Allow Redis from ECS",
-    "FromPort": 6379,
-    "GroupId": {
-     "Fn::GetAtt": [
-      "RedisSecurityGroupB05951F6",
-      "GroupId"
-     ]
-    },
-    "IpProtocol": "tcp",
-    "SourceSecurityGroupId": {
-     "Fn::GetAtt": [
-      "EcsSecurityGroup44008BF1",
-      "GroupId"
-     ]
-    },
-    "ToPort": 6379
-   },
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/RedisSecurityGroup/from SuwappuStackEcsSecurityGroup1E918140:6379"
-   }
-  },
-  "RedisSubnetGroup": {
-   "Type": "AWS::ElastiCache::SubnetGroup",
-   "Properties": {
-    "CacheSubnetGroupName": "suwappu-redis-subnets",
-    "Description": "Subnet group for Suwappu Redis",
-    "SubnetIds": [
-     {
-      "Ref": "SuwappuVpcIsolatedSubnet1Subnet52049870"
-     },
-     {
-      "Ref": "SuwappuVpcIsolatedSubnet2Subnet25F394BA"
-     }
-    ]
-   },
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/RedisSubnetGroup"
-   }
-  },
-  "SuwappuRedis": {
-   "Type": "AWS::ElastiCache::CacheCluster",
-   "Properties": {
-    "CacheNodeType": "cache.t4g.micro",
-    "CacheSubnetGroupName": "suwappu-redis-subnets",
-    "ClusterName": "suwappu-redis",
-    "Engine": "redis",
-    "EngineVersion": "7.1",
-    "NumCacheNodes": 1,
-    "VpcSecurityGroupIds": [
-     {
-      "Fn::GetAtt": [
-       "RedisSecurityGroupB05951F6",
-       "GroupId"
-      ]
-     }
-    ]
-   },
-   "DependsOn": [
-    "RedisSubnetGroup"
-   ],
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/SuwappuRedis"
    }
   },
   "SuwappuRepository3166B522": {
@@ -941,16 +837,6 @@
          "Ref": "SuwappuSecrets62048B4F"
         }
        ]
-      },
-      {
-       "Action": [
-        "ssmmessages:CreateControlChannel",
-        "ssmmessages:CreateDataChannel",
-        "ssmmessages:OpenControlChannel",
-        "ssmmessages:OpenDataChannel"
-       ],
-       "Effect": "Allow",
-       "Resource": "*"
       }
      ],
      "Version": "2012-10-17"
@@ -1274,6 +1160,167 @@
     "aws:cdk:path": "SuwappuStack/SuwappuTask/ExecutionRole/DefaultPolicy/Resource"
    }
   },
+  "SuwappuAlbEE402080": {
+   "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+   "Properties": {
+    "LoadBalancerAttributes": [
+     {
+      "Key": "deletion_protection.enabled",
+      "Value": "false"
+     }
+    ],
+    "Scheme": "internet-facing",
+    "SecurityGroups": [
+     {
+      "Fn::GetAtt": [
+       "AlbSecurityGroup86A59E99",
+       "GroupId"
+      ]
+     }
+    ],
+    "Subnets": [
+     {
+      "Ref": "SuwappuVpcPublicSubnet1SubnetD763028D"
+     },
+     {
+      "Ref": "SuwappuVpcPublicSubnet2Subnet9F4FED4E"
+     }
+    ],
+    "Type": "application"
+   },
+   "DependsOn": [
+    "SuwappuVpcPublicSubnet1DefaultRouteF4BD07E9",
+    "SuwappuVpcPublicSubnet1RouteTableAssociation7A231D6D",
+    "SuwappuVpcPublicSubnet2DefaultRoute9F18DD95",
+    "SuwappuVpcPublicSubnet2RouteTableAssociationF9700262"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "SuwappuStack/SuwappuAlb/Resource"
+   }
+  },
+  "SuwappuAlbHttpListener9C476391": {
+   "Type": "AWS::ElasticLoadBalancingV2::Listener",
+   "Properties": {
+    "DefaultActions": [
+     {
+      "RedirectConfig": {
+       "Port": "443",
+       "Protocol": "HTTPS",
+       "StatusCode": "HTTP_301"
+      },
+      "Type": "redirect"
+     }
+    ],
+    "LoadBalancerArn": {
+     "Ref": "SuwappuAlbEE402080"
+    },
+    "Port": 80,
+    "Protocol": "HTTP"
+   },
+   "Metadata": {
+    "aws:cdk:path": "SuwappuStack/SuwappuAlb/HttpListener/Resource"
+   }
+  },
+  "SuwappuAlbHttpsListenerCE6601D6": {
+   "Type": "AWS::ElasticLoadBalancingV2::Listener",
+   "Properties": {
+    "Certificates": [
+     {
+      "CertificateArn": "arn:aws:acm:us-east-1:905418423235:certificate/74e95aae-e397-44cc-9005-d964c97ebc41"
+     }
+    ],
+    "DefaultActions": [
+     {
+      "FixedResponseConfig": {
+       "ContentType": "text/plain",
+       "MessageBody": "Not Found",
+       "StatusCode": "404"
+      },
+      "Type": "fixed-response"
+     }
+    ],
+    "LoadBalancerArn": {
+     "Ref": "SuwappuAlbEE402080"
+    },
+    "Port": 443,
+    "Protocol": "HTTPS"
+   },
+   "Metadata": {
+    "aws:cdk:path": "SuwappuStack/SuwappuAlb/HttpsListener/Resource"
+   }
+  },
+  "SuwappuWaf": {
+   "Type": "AWS::WAFv2::WebACL",
+   "Properties": {
+    "DefaultAction": {
+     "Allow": {}
+    },
+    "Rules": [
+     {
+      "Name": "AWSCommonRules",
+      "OverrideAction": {
+       "None": {}
+      },
+      "Priority": 1,
+      "Statement": {
+       "ManagedRuleGroupStatement": {
+        "Name": "AWSManagedRulesCommonRuleSet",
+        "VendorName": "AWS"
+       }
+      },
+      "VisibilityConfig": {
+       "CloudWatchMetricsEnabled": true,
+       "MetricName": "AWSCommonRules",
+       "SampledRequestsEnabled": true
+      }
+     },
+     {
+      "Action": {
+       "Block": {}
+      },
+      "Name": "RateLimit",
+      "Priority": 2,
+      "Statement": {
+       "RateBasedStatement": {
+        "AggregateKeyType": "IP",
+        "Limit": 2000
+       }
+      },
+      "VisibilityConfig": {
+       "CloudWatchMetricsEnabled": true,
+       "MetricName": "RateLimit",
+       "SampledRequestsEnabled": true
+      }
+     }
+    ],
+    "Scope": "REGIONAL",
+    "VisibilityConfig": {
+     "CloudWatchMetricsEnabled": true,
+     "MetricName": "SuwappuWafMetrics",
+     "SampledRequestsEnabled": true
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SuwappuStack/SuwappuWaf"
+   }
+  },
+  "WafAlbAssociation": {
+   "Type": "AWS::WAFv2::WebACLAssociation",
+   "Properties": {
+    "ResourceArn": {
+     "Ref": "SuwappuAlbEE402080"
+    },
+    "WebACLArn": {
+     "Fn::GetAtt": [
+      "SuwappuWaf",
+      "Arn"
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SuwappuStack/WafAlbAssociation"
+   }
+  },
   "SuwappuAlerts4DC00454": {
    "Type": "AWS::SNS::Topic",
    "Properties": {
@@ -1281,6 +1328,38 @@
    },
    "Metadata": {
     "aws:cdk:path": "SuwappuStack/SuwappuAlerts/Resource"
+   }
+  },
+  "Alb5xxAlarm99BFF946": {
+   "Type": "AWS::CloudWatch::Alarm",
+   "Properties": {
+    "AlarmActions": [
+     {
+      "Ref": "SuwappuAlerts4DC00454"
+     }
+    ],
+    "AlarmDescription": "ALB 5xx errors > 10 in 5 minutes",
+    "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+    "Dimensions": [
+     {
+      "Name": "LoadBalancer",
+      "Value": {
+       "Fn::GetAtt": [
+        "SuwappuAlbEE402080",
+        "LoadBalancerFullName"
+       ]
+      }
+     }
+    ],
+    "EvaluationPeriods": 1,
+    "MetricName": "HTTPCode_Target_5XX_Count",
+    "Namespace": "AWS/ApplicationELB",
+    "Period": 300,
+    "Statistic": "Sum",
+    "Threshold": 10
+   },
+   "Metadata": {
+    "aws:cdk:path": "SuwappuStack/Alb5xxAlarm/Resource"
    }
   },
   "RdsCpuAlarm29EF1690": {
@@ -1341,285 +1420,10 @@
     "aws:cdk:path": "SuwappuStack/RdsFreeStorageAlarm/Resource"
    }
   },
-  "SuwappuDbBackups327B34A4": {
-   "Type": "AWS::S3::Bucket",
-   "Properties": {
-    "BucketEncryption": {
-     "ServerSideEncryptionConfiguration": [
-      {
-       "ServerSideEncryptionByDefault": {
-        "SSEAlgorithm": "AES256"
-       }
-      }
-     ]
-    },
-    "BucketName": "suwappu-db-backups",
-    "LifecycleConfiguration": {
-     "Rules": [
-      {
-       "ExpirationInDays": 90,
-       "Status": "Enabled"
-      }
-     ]
-    },
-    "PublicAccessBlockConfiguration": {
-     "BlockPublicAcls": true,
-     "BlockPublicPolicy": true,
-     "IgnorePublicAcls": true,
-     "RestrictPublicBuckets": true
-    }
-   },
-   "UpdateReplacePolicy": "Retain",
-   "DeletionPolicy": "Retain",
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/SuwappuDbBackups/Resource"
-   }
-  },
-  "SuwappuBackupLogs31F49896": {
-   "Type": "AWS::Logs::LogGroup",
-   "Properties": {
-    "LogGroupName": "/ecs/suwappu-db-backup",
-    "RetentionInDays": 14
-   },
-   "UpdateReplacePolicy": "Delete",
-   "DeletionPolicy": "Delete",
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/SuwappuBackupLogs/Resource"
-   }
-  },
-  "SuwappuDbBackupTaskTaskRole5A234424": {
-   "Type": "AWS::IAM::Role",
-   "Properties": {
-    "AssumeRolePolicyDocument": {
-     "Statement": [
-      {
-       "Action": "sts:AssumeRole",
-       "Effect": "Allow",
-       "Principal": {
-        "Service": "ecs-tasks.amazonaws.com"
-       }
-      }
-     ],
-     "Version": "2012-10-17"
-    }
-   },
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/SuwappuDbBackupTask/TaskRole/Resource"
-   }
-  },
-  "SuwappuDbBackupTaskTaskRoleDefaultPolicyAF8455A1": {
-   "Type": "AWS::IAM::Policy",
-   "Properties": {
-    "PolicyDocument": {
-     "Statement": [
-      {
-       "Action": [
-        "s3:Abort*",
-        "s3:PutObject",
-        "s3:PutObjectLegalHold",
-        "s3:PutObjectRetention",
-        "s3:PutObjectTagging",
-        "s3:PutObjectVersionTagging"
-       ],
-       "Effect": "Allow",
-       "Resource": {
-        "Fn::Join": [
-         "",
-         [
-          {
-           "Fn::GetAtt": [
-            "SuwappuDbBackups327B34A4",
-            "Arn"
-           ]
-          },
-          "/*"
-         ]
-        ]
-       }
-      },
-      {
-       "Action": [
-        "secretsmanager:DescribeSecret",
-        "secretsmanager:GetSecretValue"
-       ],
-       "Effect": "Allow",
-       "Resource": [
-        {
-         "Ref": "SuwappuDatabaseSecretAttachment64C919C2"
-        },
-        {
-         "Ref": "SuwappuSecrets62048B4F"
-        }
-       ]
-      }
-     ],
-     "Version": "2012-10-17"
-    },
-    "PolicyName": "SuwappuDbBackupTaskTaskRoleDefaultPolicyAF8455A1",
-    "Roles": [
-     {
-      "Ref": "SuwappuDbBackupTaskTaskRole5A234424"
-     }
-    ]
-   },
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/SuwappuDbBackupTask/TaskRole/DefaultPolicy/Resource"
-   }
-  },
-  "SuwappuDbBackupTask2BC5171E": {
-   "Type": "AWS::ECS::TaskDefinition",
-   "Properties": {
-    "ContainerDefinitions": [
-     {
-      "Environment": [
-       {
-        "Name": "S3_BUCKET",
-        "Value": {
-         "Ref": "SuwappuDbBackups327B34A4"
-        }
-       },
-       {
-        "Name": "BACKUP_PREFIX",
-        "Value": "pre-deploy"
-       }
-      ],
-      "Essential": true,
-      "Image": {
-       "Fn::Sub": "905418423235.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-905418423235-us-east-1:53908bcf585d923968c20ae059319bdb934a0b6494bed4a5914e80ea3fd453a5"
-      },
-      "LogConfiguration": {
-       "LogDriver": "awslogs",
-       "Options": {
-        "awslogs-group": {
-         "Ref": "SuwappuBackupLogs31F49896"
-        },
-        "awslogs-stream-prefix": "db-backup",
-        "awslogs-region": "us-east-1"
-       }
-      },
-      "Name": "backup",
-      "Secrets": [
-       {
-        "Name": "DATABASE_URL",
-        "ValueFrom": {
-         "Fn::Join": [
-          "",
-          [
-           {
-            "Ref": "SuwappuDatabaseSecretAttachment64C919C2"
-           },
-           ":DATABASE_URL::"
-          ]
-         ]
-        }
-       }
-      ]
-     }
-    ],
-    "Cpu": "256",
-    "ExecutionRoleArn": {
-     "Fn::GetAtt": [
-      "SuwappuDbBackupTaskExecutionRole0AB3DAB4",
-      "Arn"
-     ]
-    },
-    "Family": "suwappu-db-backup",
-    "Memory": "512",
-    "NetworkMode": "awsvpc",
-    "RequiresCompatibilities": [
-     "FARGATE"
-    ],
-    "TaskRoleArn": {
-     "Fn::GetAtt": [
-      "SuwappuDbBackupTaskTaskRole5A234424",
-      "Arn"
-     ]
-    }
-   },
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/SuwappuDbBackupTask/Resource"
-   }
-  },
-  "SuwappuDbBackupTaskExecutionRole0AB3DAB4": {
-   "Type": "AWS::IAM::Role",
-   "Properties": {
-    "AssumeRolePolicyDocument": {
-     "Statement": [
-      {
-       "Action": "sts:AssumeRole",
-       "Effect": "Allow",
-       "Principal": {
-        "Service": "ecs-tasks.amazonaws.com"
-       }
-      }
-     ],
-     "Version": "2012-10-17"
-    }
-   },
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/SuwappuDbBackupTask/ExecutionRole/Resource"
-   }
-  },
-  "SuwappuDbBackupTaskExecutionRoleDefaultPolicy3A2E55AA": {
-   "Type": "AWS::IAM::Policy",
-   "Properties": {
-    "PolicyDocument": {
-     "Statement": [
-      {
-       "Action": [
-        "ecr:BatchCheckLayerAvailability",
-        "ecr:BatchGetImage",
-        "ecr:GetDownloadUrlForLayer"
-       ],
-       "Effect": "Allow",
-       "Resource": "arn:aws:ecr:us-east-1:905418423235:repository/cdk-hnb659fds-container-assets-905418423235-us-east-1"
-      },
-      {
-       "Action": "ecr:GetAuthorizationToken",
-       "Effect": "Allow",
-       "Resource": "*"
-      },
-      {
-       "Action": [
-        "logs:CreateLogStream",
-        "logs:PutLogEvents"
-       ],
-       "Effect": "Allow",
-       "Resource": {
-        "Fn::GetAtt": [
-         "SuwappuBackupLogs31F49896",
-         "Arn"
-        ]
-       }
-      },
-      {
-       "Action": [
-        "secretsmanager:DescribeSecret",
-        "secretsmanager:GetSecretValue"
-       ],
-       "Effect": "Allow",
-       "Resource": {
-        "Ref": "SuwappuDatabaseSecretAttachment64C919C2"
-       }
-      }
-     ],
-     "Version": "2012-10-17"
-    },
-    "PolicyName": "SuwappuDbBackupTaskExecutionRoleDefaultPolicy3A2E55AA",
-    "Roles": [
-     {
-      "Ref": "SuwappuDbBackupTaskExecutionRole0AB3DAB4"
-     }
-    ]
-   },
-   "Metadata": {
-    "aws:cdk:path": "SuwappuStack/SuwappuDbBackupTask/ExecutionRole/DefaultPolicy/Resource"
-   }
-  },
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/31TwW7bMAz9lt0VbUjR3p14K4wNnZEEvRa0wrqqbckQpQaF4X8fJcd20MNOfHwiqUdS2srt3YP88Q0utFHnZtPqSg5HD6oRTL0MqLZyeO6V2L+a53IvylC1Wh1DZdBHbkUHGzyeoGpx5VcuI7JKg9fWLMER/CzKaJ7AP4LHC3yK0ukPhmvhwnh0jOeAScnVyzxrfevQeHFEFZz2n4/Ohj5p+C9RmNoh0SgIlUNPHRio0XH3yb/GRzSZE7ga/c19S8DXk1E0HcnhNyat0WStBopOAqNwZz7PwUMFhIUhD0ahmFpe1Oa7W2KOXtXluzlzFNgCea1YAMphGf9Sah8P9m0gniQHK+7ygL0l7a1LIm+8Fe74uhjNWq+5qdYV/uKuIW6XmhxftdHzbr8y1njQBt3KjaK1NVf9Y+tF4oxHoaFjeXZ6R8mWlt9c0jkh3pnh9JPtdXqYCYxCtTacL+DVmxyyFlw3TZwBJ9zJYRdUM41uQmkSL0DE25e5ZcoVHb+BLDIjD4JscLyX5POfqLWpY/bf4PvAAcaeUb7T94/tvbznP/ROWm9cMF53KA+T/QdT87SIYAMAAA=="
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/31SwY7bIBD9lr0TmnWl3hOnXUWK2iiJtsdqjCdeNhgsZoi1Qvx7ZZzY6R56mjfvPeABU8ji6ze5fIKeFqq+LIyuZDwyqIuAnv5EVIWMr50S5dm+7kuxD5XR6hgqizxwMzq4wHiCyuDMz9yKyCkNrJ2dzAP4vt0P5SfwCzD28CH2Xl+Bcd54axm9xckwJrl1K2ZQby1aFkdUwWv+ePEudDnDf4mtbTwSJUGoPDK1YKFBL+Mx9zf/gMZyAt8gP5w3GT4rSfiaZNwAQwWEW0sMVqEYrzSl2awfibt7Pn2zvq9MApWX8YCdI83O5zeYu0EmGUsTiNEP2h3+AN/A8AN02eBZW31//8+Mswzaop+5JIxrSMada6bEd5yEhlbGgxv/Ote9M1rlYCNKAg0Qa2Uc1BUYsErb5lrIuOo6o1UehZ2Dep21Mfc//aNPE6O9eW44iR7Ow37l2f7GalXuxIQepi0JsiTjyXU6D3EGSSjjQt0DqzcZVwZ8O2gZpCQOSC54lS/3K3AXOAnrapTv9OVaLOXzs1w+vZPWCx8s6xblYax/AVa/tfZOAwAA"
    },
    "Metadata": {
     "aws:cdk:path": "SuwappuStack/CDKMetadata/Default"
@@ -1627,20 +1431,16 @@
   }
  },
  "Outputs": {
-  "BackupBucketName": {
-   "Description": "S3 bucket for database backups",
+  "LoadBalancerDns": {
+   "Description": "Load Balancer DNS Name",
    "Value": {
-    "Ref": "SuwappuDbBackups327B34A4"
+    "Fn::GetAtt": [
+     "SuwappuAlbEE402080",
+     "DNSName"
+    ]
    },
    "Export": {
-    "Name": "SuwappuBackupBucket"
-   }
-  },
-  "BackupTaskDefinition": {
-   "Description": "Task definition family for DB backup",
-   "Value": "suwappu-db-backup",
-   "Export": {
-    "Name": "SuwappuBackupTaskFamily"
+    "Name": "SuwappuLoadBalancerDns"
    }
   },
   "EcrRepositoryUri": {
@@ -1734,36 +1534,6 @@
    },
    "Export": {
     "Name": "SuwappuAlertTopicArn"
-   }
-  },
-  "RedisEndpoint": {
-   "Description": "ElastiCache Redis Endpoint",
-   "Value": {
-    "Fn::GetAtt": [
-     "SuwappuRedis",
-     "RedisEndpoint.Address"
-    ]
-   },
-   "Export": {
-    "Name": "SuwappuRedisEndpoint"
-   }
-  },
-  "ShowcaseEcrRepositoryUri": {
-   "Description": "Showcase ECR Repository URI",
-   "Value": {
-    "Fn::Join": [
-     "",
-     [
-      "905418423235.dkr.ecr.us-east-1.",
-      {
-       "Ref": "AWS::URLSuffix"
-      },
-      "/suwappu-showcase"
-     ]
-    ]
-   },
-   "Export": {
-    "Name": "SuwappuShowcaseEcrUri"
    }
   }
  },

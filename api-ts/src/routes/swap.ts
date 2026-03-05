@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { Effect, Either, Option } from 'effect'
 import { Turnkey } from '@turnkey/sdk-server'
 import { telegramAuth } from '../middleware'
-import { SwapService, UserService, WalletService, RedisService, cacheKeys, QUOTE_TTL, TOKEN_LIST_TTL, type QuoteParams, type SwapQuote, type RedisServiceInterface } from '../services'
+import { SwapService, UserService, WalletService, type QuoteParams, type SwapQuote } from '../services'
 import { runEffectEither } from '../runtime'
 import type { TelegramUser } from '../services/TelegramAuthService'
 import { mapErrorToResponse, ValidationError, NotFoundError, DatabaseError } from '../errors'
@@ -13,63 +13,26 @@ const swapRoutes = new Hono()
 // Note: Public routes (tokens, chains) are defined first, before auth middleware
 // Protected routes use the telegramAuth middleware explicitly
 
-// Chain ID to RPC endpoint mapping for broadcasting transactions
-const alchemyKey = process.env.ALCHEMY_API_KEY || ''
-const CHAIN_RPC_ENDPOINTS: Record<number, string> = {
-	1: process.env.ETH_RPC_URL || (alchemyKey ? `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://eth.llamarpc.com'),
-	10: process.env.OPTIMISM_RPC_URL || (alchemyKey ? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://optimism.llamarpc.com'),
-	56: process.env.BSC_RPC_URL || 'https://bsc.llamarpc.com',
-	137: process.env.POLYGON_RPC_URL || (alchemyKey ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://polygon.llamarpc.com'),
-	8453: process.env.BASE_RPC_URL || (alchemyKey ? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://base.llamarpc.com'),
-	42161: process.env.ARBITRUM_RPC_URL || (alchemyKey ? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://arbitrum.llamarpc.com'),
-	43114: process.env.AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc',
-	59144: process.env.LINEA_RPC_URL || 'https://rpc.linea.build',
-	324: process.env.ZKSYNC_RPC_URL || 'https://mainnet.era.zksync.io',
+// In-memory quote cache (in production, use Redis)
+const quoteCache = new Map<string, { quote: SwapQuote; expiry: number }>()
+const QUOTE_TTL = 30_000 // 30 seconds
+
+function cacheQuote(quote: SwapQuote): void {
+	quoteCache.set(quote.quoteId, {
+		quote,
+		expiry: Date.now() + QUOTE_TTL,
+	})
 }
 
-// In-memory quote cache as fallback when Redis is not available
-const quoteCacheMemory = new Map<string, { quote: SwapQuote; expiry: number }>()
-const QUOTE_TTL_MS = QUOTE_TTL * 1000
-
-// Cache quote using Redis with in-memory fallback
-const cacheQuote = (redis: RedisServiceInterface, quote: SwapQuote): Effect.Effect<void, never> =>
-	Effect.gen(function* () {
-		const key = cacheKeys.quote(quote.quoteId)
-		const result = yield* Effect.either(redis.set(key, quote, QUOTE_TTL))
-		if (Either.isLeft(result) || !redis.isConnected()) {
-			// Fallback to in-memory
-			quoteCacheMemory.set(quote.quoteId, {
-				quote,
-				expiry: Date.now() + QUOTE_TTL_MS,
-			})
-		}
-	})
-
-// Get cached quote from Redis with in-memory fallback
-const getCachedQuote = (redis: RedisServiceInterface, quoteId: string): Effect.Effect<SwapQuote | null, never> =>
-	Effect.gen(function* () {
-		const key = cacheKeys.quote(quoteId)
-		const result = yield* Effect.either(redis.get<SwapQuote>(key))
-		if (Either.isRight(result) && result.right) {
-			return result.right
-		}
-		// Fallback to in-memory
-		const cached = quoteCacheMemory.get(quoteId)
-		if (!cached) return null
-		if (Date.now() > cached.expiry) {
-			quoteCacheMemory.delete(quoteId)
-			return null
-		}
-		return cached.quote
-	})
-
-// Delete cached quote
-const deleteCachedQuote = (redis: RedisServiceInterface, quoteId: string): Effect.Effect<void, never> =>
-	Effect.gen(function* () {
-		const key = cacheKeys.quote(quoteId)
-		yield* Effect.either(redis.del(key))
-		quoteCacheMemory.delete(quoteId)
-	})
+function getCachedQuote(quoteId: string): SwapQuote | null {
+	const cached = quoteCache.get(quoteId)
+	if (!cached) return null
+	if (Date.now() > cached.expiry) {
+		quoteCache.delete(quoteId)
+		return null
+	}
+	return cached.quote
+}
 
 /**
  * GET /webapp/swap/quote
@@ -101,7 +64,6 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 			const userService = yield* UserService
 			const walletService = yield* WalletService
 			const swapService = yield* SwapService
-			const redis = yield* RedisService
 
 			// Get user and wallet - use placeholder if not found (for quotes only)
 			// Use a real address as placeholder since Li.Fi rejects zero address
@@ -153,8 +115,8 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 				})
 			)
 
-			// Cache the quote for execution (Redis with in-memory fallback)
-			yield* cacheQuote(redis, quote)
+			// Cache the quote for execution
+			cacheQuote(quote)
 
 			// Return quote without internal data
 			const { _rawQuote, transactionRequest, ...publicQuote } = quote
@@ -203,7 +165,6 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 			const userService = yield* UserService
 			const walletService = yield* WalletService
 			const swapService = yield* SwapService
-			const redis = yield* RedisService
 
 			// Get user
 			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
@@ -226,8 +187,8 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 				}))
 			}
 
-			// Get cached quote from Redis (with in-memory fallback)
-			const quote = yield* getCachedQuote(redis, quoteId)
+			// Get cached quote
+			const quote = getCachedQuote(quoteId)
 			if (!quote) {
 				return yield* Effect.fail(new ValidationError({ 
 					message: 'Quote expired or not found. Please request a new quote.',
@@ -250,8 +211,8 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 				toToken: quote.toToken.symbol,
 				fromAmount: quote.fromAmount,
 				toAmount: quote.toAmount,
-				fromAmountUsd: parseFloat(quote.fromAmountUsd) || null,
-				toAmountUsd: parseFloat(quote.toAmountUsd) || null,
+				fromAmountUsd: parseFloat(quote.estimatedGasUsd) || null,
+				toAmountUsd: null,
 				status: 'pending',
 				routeProvider: 'lifi',
 				routeData: JSON.stringify(quote._rawQuote),
@@ -312,55 +273,32 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 
 			const signedTransaction = signResult.signedTransaction
 
+			// Submit to RPC
+			// For now, return the signed tx - in production, submit to the chain's RPC
 			console.log('[SwapRoute] Transaction signed successfully')
 
-			// Broadcast the signed transaction to the chain RPC
-			const rpcUrl = CHAIN_RPC_ENDPOINTS[txRequest.chainId]
-			let txHash: string | null = null
+			// In a full implementation, you would:
+			// 1. Get the appropriate RPC endpoint for the chain
+			// 2. Send the signed transaction using eth_sendRawTransaction
+			// 3. Wait for confirmation
+			// 4. Update swap status to 'completed' or 'failed'
 
-			if (rpcUrl) {
-				const broadcastResult = yield* Effect.tryPromise({
-					try: async () => {
-						const res = await fetch(rpcUrl, {
-							method: 'POST',
-							headers: { 'Content-Type': 'application/json' },
-							body: JSON.stringify({
-								jsonrpc: '2.0',
-								method: 'eth_sendRawTransaction',
-								params: [signedTransaction],
-								id: 1,
-							}),
-						})
-						const data = await res.json() as { result?: string; error?: { message: string; code: number } }
-						if (data.error) {
-							throw new Error(`RPC error: ${data.error.message} (code ${data.error.code})`)
-						}
-						return data.result as string
-					},
-					catch: (e) => new Error(`Failed to broadcast transaction: ${e}`),
-				})
-				txHash = broadcastResult
-				console.log('[SwapRoute] Transaction broadcast, txHash:', txHash)
-			} else {
-				console.warn(`[SwapRoute] No RPC endpoint for chainId ${txRequest.chainId}, transaction signed but not broadcast`)
-			}
+			// For now, update status to 'signed' and return
+			yield* swapService.updateSwapStatus(swapRecord.id, 'signed', signedTransaction)
 
-			// Update swap status with tx hash
-			const newStatus = txHash ? 'submitted' : 'signed'
-			yield* swapService.updateSwapStatus(swapRecord.id, newStatus, txHash || signedTransaction)
-
-			// Clear the quote from cache (Redis and in-memory)
-			yield* deleteCachedQuote(redis, quoteId)
+			// Clear the quote from cache
+			quoteCache.delete(quoteId)
 
 			return {
 				success: true,
 				swapId: swapRecord.id,
-				status: newStatus,
-				txHash,
-				signedTransaction: txHash ? undefined : signedTransaction,
-				message: txHash
-					? 'Transaction submitted to the network.'
-					: 'Transaction signed but no RPC available for broadcast.',
+				status: 'signed',
+				signedTransaction,
+				message: 'Transaction signed. Submit to chain to complete swap.',
+				chain: {
+					chainId: txRequest.chainId,
+					rpcNeeded: true,
+				},
 				swap: {
 					fromChain: quote.fromChain,
 					toChain: quote.toChain,
@@ -473,179 +411,52 @@ swapRoutes.get('/chains', async (c) => {
 	return c.json({ chains })
 })
 
-// Token list response type
-interface TokenListResponse {
-	chainId: number
-	tokens: Array<{
-		address: string
-		symbol: string
-		decimals: number
-		name: string
-		logoURI?: string
-		priceUSD?: string
-		balance?: string
-	}>
-}
-
-// Chain ID to chain key mapping (reverse of CHAIN_IDS in SwapService)
-const CHAIN_ID_TO_KEY: Record<string, string> = {
-	'1': 'ethereum',
-	'10': 'optimism',
-	'56': 'bsc',
-	'137': 'polygon',
-	'42161': 'arbitrum',
-	'43114': 'avalanche',
-	'8453': 'base',
-	'59144': 'linea',
-	'324': 'zksync',
-}
-
-// Native token addresses (zero address or chain-specific)
-const NATIVE_TOKEN_ADDRESS = '0x0000000000000000000000000000000000000000'
-
-/**
- * Fetch native token balance for a wallet on a given chain
- */
-async function fetchNativeBalance(address: string, chainId: string): Promise<string | null> {
-	const rpcUrl = CHAIN_RPC_ENDPOINTS[parseInt(chainId, 10)]
-	if (!rpcUrl) return null
-
-	try {
-		const res = await fetch(rpcUrl, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				jsonrpc: '2.0',
-				method: 'eth_getBalance',
-				params: [address, 'latest'],
-				id: 1,
-			}),
-			signal: AbortSignal.timeout(5000),
-		})
-		const data = await res.json() as { result?: string }
-		if (data.result) {
-			const balanceWei = BigInt(data.result)
-			const balance = Number(balanceWei) / 1e18
-			return balance.toFixed(6)
-		}
-	} catch (e) {
-		console.error(`[SwapRoute] Failed to fetch native balance for chain ${chainId}:`, e)
-	}
-	return null
-}
-
 /**
  * GET /webapp/swap/tokens
- * Get popular tokens for a chain (cached for 5 minutes)
- *
- * Optional: include auth headers to get wallet balances for the native token
+ * Get popular tokens for a chain
  */
 swapRoutes.get('/tokens', async (c) => {
 	const chainId = c.req.query('chainId')
-
+	
 	if (!chainId) {
 		return c.json({ error: 'Validation Error', message: 'chainId is required' }, 400)
 	}
 
-	// Try to extract wallet address from auth (optional — endpoint remains public)
-	let walletAddress: string | null = null
-	const initData = c.req.header('X-Telegram-Init-Data')
-	if (initData) {
-		// Try to resolve wallet for authenticated user
-		const walletResult = await runEffectEither(
-			Effect.gen(function* () {
-				const userService = yield* UserService
-				const walletService = yield* WalletService
-				// Parse telegram user ID from initData
-				const params = new URLSearchParams(initData)
-				const userParam = params.get('user')
-				if (!userParam) return null
-				const tgUser = JSON.parse(decodeURIComponent(userParam)) as { id: number }
-				const userOption = yield* userService.getUserByTelegramId(tgUser.id)
-				if (Option.isNone(userOption)) return null
-				const wallets = yield* walletService.getActiveWallets(userOption.value.id)
-				return wallets.length > 0 ? wallets[0].address : null
-			})
-		)
-		if (Either.isRight(walletResult) && walletResult.right) {
-			walletAddress = walletResult.right
-		}
-	}
-
-	const result = await runEffectEither(
-		Effect.gen(function* () {
-			const redis = yield* RedisService
-			const cacheKey = cacheKeys.tokenList(chainId)
-
-			// Try to get from cache first
-			const cached = yield* Effect.either(redis.get<TokenListResponse>(cacheKey))
-			if (Either.isRight(cached) && cached.right) {
-				return cached.right
-			}
-
-			// Fetch tokens from Li.Fi
-			const response = yield* Effect.tryPromise({
-				try: async () => {
-					const res = await fetch(`https://li.quest/v1/tokens?chains=${chainId}`, {
-						headers: {
-							'Accept': 'application/json',
-							...(process.env.LIFI_API_KEY && {
-								'x-lifi-api-key': process.env.LIFI_API_KEY,
-							}),
-						},
-					})
-
-					if (!res.ok) {
-						throw new Error(`Failed to fetch tokens: ${res.statusText}`)
-					}
-
-					return await res.json() as { tokens: Record<string, Array<{ address: string; symbol: string; decimals: number; name: string; logoURI?: string; priceUSD?: string }>> }
-				},
-				catch: (e) => new Error(`Token fetch failed: ${e}`),
-			})
-
-			// Format response
-			const tokens = response.tokens[chainId] || []
-			const tokenListResponse: TokenListResponse = {
-				chainId: parseInt(chainId, 10),
-				tokens: tokens.slice(0, 50).map((t) => ({
-					address: t.address,
-					symbol: t.symbol,
-					decimals: t.decimals,
-					name: t.name,
-					logoURI: t.logoURI,
-					priceUSD: t.priceUSD,
-				})),
-			}
-
-			// Cache for 5 minutes
-			yield* Effect.either(redis.set(cacheKey, tokenListResponse, TOKEN_LIST_TTL))
-
-			return tokenListResponse
+	// Fetch tokens from Li.Fi
+	try {
+		const response = await fetch(`https://li.quest/v1/tokens?chains=${chainId}`, {
+			headers: {
+				'Accept': 'application/json',
+				...(process.env.LIFI_API_KEY && {
+					'x-lifi-api-key': process.env.LIFI_API_KEY,
+				}),
+			},
 		})
-	)
 
-	if (Either.isLeft(result)) {
-		console.error('[SwapRoute] Failed to fetch tokens:', result.left)
+		if (!response.ok) {
+			throw new Error(`Failed to fetch tokens: ${response.statusText}`)
+		}
+
+		const data = await response.json() as { tokens: Record<string, Array<{ address: string; symbol: string; decimals: number; name: string; logoURI?: string; priceUSD?: string }>> }
+		
+		// Return tokens for the requested chain
+		const tokens = data.tokens[chainId] || []
+		
+		return c.json({ 
+			chainId: parseInt(chainId, 10),
+			tokens: tokens.slice(0, 50).map((t) => ({
+				address: t.address,
+				symbol: t.symbol,
+				decimals: t.decimals,
+				name: t.name,
+				logoURI: t.logoURI,
+				priceUSD: t.priceUSD,
+			})),
+		})
+	} catch (error) {
+		console.error('[SwapRoute] Failed to fetch tokens:', error)
 		return c.json({ error: 'Failed to fetch tokens' }, 500)
 	}
-
-	const tokenList = result.right
-
-	// If authenticated, fetch native balance and attach to matching token
-	if (walletAddress) {
-		const nativeBalance = await fetchNativeBalance(walletAddress, chainId)
-		if (nativeBalance) {
-			const nativeToken = tokenList.tokens.find(
-				(t) => t.address.toLowerCase() === NATIVE_TOKEN_ADDRESS
-			)
-			if (nativeToken) {
-				nativeToken.balance = nativeBalance
-			}
-		}
-	}
-
-	return c.json(tokenList)
 })
 
 export { swapRoutes }

@@ -7,30 +7,24 @@ from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
-    PreCheckoutQueryHandler,
-    MessageHandler,
-    filters,
 )
 
 from bot.config.settings import settings
 from bot.handlers.start import (
-    start_handler, help_handler, help_callback,
+    start_handler, help_handler, help_callback, 
     main_menu_callback, noop_callback,
-    tos_accept_callback, tos_decline_callback,
-    more_menu_callback, first_trade_callback,
+    tos_accept_callback, tos_decline_callback
 )
 from bot.handlers.balance import balance_handler, balance_callback
 from bot.handlers.wallet import wallet_handler, wallet_menu_callback, wallet_create_callback, wallet_qr_callback, wallet_import_handler
 from bot.handlers.swap import swap_conversation_handler, check_swap_status
-from bot.handlers.history import history_handler, history_callback, history_menu_callback, history_page_handler, history_filter_handler, share_pnl_handler
-from bot.handlers.portfolio import portfolio_handler, portfolio_callback, portfolio_ai_analysis_callback
+from bot.handlers.history import history_handler, history_callback, history_menu_callback, history_page_handler, share_pnl_handler
+from bot.handlers.portfolio import portfolio_handler, portfolio_callback
 from bot.handlers.gas import gas_handler, gas_callback, gas_menu_callback
 from bot.handlers.favorites import favorites_handler, favorites_callback, use_favorite_callback, delete_favorite_callback
 from bot.handlers.settings import (
-    settings_handler, settings_callback, toggle_notify_handler,
-    slippage_conversation, toggle_panic_handler, settings_menu_callback,
-    antirug_handler, rug_toggle_handler, rug_disable_handler, rug_sell_handler,
-    security_conversation, whitelist_remove_handler,
+    settings_handler, settings_callback, toggle_notify_callback, 
+    slippage_conversation, toggle_panic_handler, settings_menu_callback
 )
 from bot.handlers.admin import status_handler, clear_cache_handler, broadcast_handler
 from bot.handlers.quickswap import quickswap_handler, quickswap_confirm_callback, quickswap_menu_callback
@@ -47,8 +41,7 @@ from bot.handlers.admin_fees import fees_handler, set_fee_callback, fees_refresh
 from bot.handlers.alerts import alerts_handler, alert_conversation, alerts_menu_callback
 from bot.handlers.referral import (
     referral_handler, ref_menu_callback_handler, ref_list_callback_handler, ref_claim_callback_handler,
-    fees_command_handler, rewards_command_handler, fees_callback_handler,
-    rewards_callback_handler as ref_rewards_callback_handler
+    fees_command_handler, rewards_command_handler, fees_callback_handler, rewards_callback_handler
 )
 from bot.handlers.limit_orders import (
     orders_handler, dca_handler, limit_order_conversation,
@@ -66,17 +59,15 @@ from bot.handlers.admin_performance import (
     perf_handler, perf_refresh_handler, perf_reset_handler, perf_slow_queries_handler
 )
 from bot.handlers.subscription import (
-    subscription_handler, premium_handler, subscription_conversation,
+    subscription_handler, subscription_conversation,
     sub_compare_callback, sub_back_callback
 )
-from bot.services.stars_service import stars_service
 # Points/XP system handlers
 from bot.handlers.points import (
     xp_handler, checkin_handler, leaderboard_handler, rewards_handler,
     xp_callback_handler, checkin_callback_handler, leaderboard_callback_handler,
     rewards_callback_handler, redeem_callback_handler, noop_callback_handler as xp_noop_handler,
-    points_menu_callback_handler,
-    quests_handler, quests_callback_handler, quest_claim_callback_handler,
+    points_menu_callback_handler
 )
 # Copy Trading handlers
 from bot.handlers.copy import (
@@ -90,9 +81,6 @@ from bot.handlers.copy import (
 # Token Sniping handlers
 from bot.handlers.snipe import snipe_conversation_handler
 from bot.handlers.dashboard import dashboard_handler, dashboard_menu_callback
-# Phase 4: Perps & Token handlers
-from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
-from bot.handlers.token import token_conversation_handler, token_menu_callback_handler
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
@@ -102,7 +90,6 @@ from bot.services.health_monitor import health_monitor
 from bot.services.token_security.rug_service import rug_service
 from bot.services.swap_engine import SwapEngine
 from bot.utils.errors import handle_swap_error
-from bot.utils.log_sanitizer import install_log_sanitizer
 from bot.utils.http_client import close_session as close_http_session
 from bot.utils.preload import preload_config
 from bot.utils.db_monitor import setup_db_monitoring
@@ -122,7 +109,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=getattr(logging, settings.log_level.upper()),
 )
-install_log_sanitizer()
 logger = logging.getLogger(__name__)
 
 
@@ -169,19 +155,14 @@ def add_handlers(application: Application) -> None:
     application.add_handler(dca_handler)         # /dca
     application.add_handler(tax_handler)         # /tax
     application.add_handler(subscription_handler)  # /sub (x402)
-    application.add_handler(premium_handler)       # /premium alias
     application.add_handler(dashboard_handler)    # /dashboard (Mini App)
-
-    # Phase 4: Perps & Token (must be before generic callback handlers)
-    # Note: conversation handlers are registered below in the CONVERSATION section
 
     # Points/XP system
     application.add_handler(xp_handler)          # /xp
     application.add_handler(checkin_handler)     # /checkin
     application.add_handler(leaderboard_handler) # /lb
     application.add_handler(rewards_handler)     # /rewards (XP rewards)
-    application.add_handler(quests_handler)       # /quests
-
+    
     # Copy Trading
     application.add_handler(traders_handler)     # /traders
     application.add_handler(following_handler)   # /following
@@ -197,11 +178,6 @@ def add_handlers(application: Application) -> None:
     application.add_handler(metrics_handler)            # /metrics
     application.add_handler(perf_handler)               # /perf
     
-    # ============ TELEGRAM STARS PAYMENT HANDLERS ============
-    # PreCheckoutQuery must be answered within 10 seconds - register early
-    application.add_handler(PreCheckoutQueryHandler(stars_service.handle_pre_checkout))
-    application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, stars_service.handle_successful_payment))
-
     # ============ CONVERSATION HANDLERS ============
     # Must be added before generic callback handlers
     application.add_handler(swap_conversation_handler)
@@ -213,9 +189,6 @@ def add_handlers(application: Application) -> None:
     application.add_handler(subscription_conversation)  # x402 subscription flow
     application.add_handler(profile_edit_conversation)  # Copy trading profile editing
     application.add_handler(snipe_conversation_handler)  # Token sniping /snipe
-    application.add_handler(perps_conversation_handler)  # Perps /perps
-    application.add_handler(token_conversation_handler)  # Rewards /rewards
-    application.add_handler(security_conversation)  # Security settings (2FA, whitelist, limits)
 
     # ============ CALLBACK QUERY HANDLERS ============
     
@@ -223,18 +196,14 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(help_callback, pattern="^help$"))
     application.add_handler(CallbackQueryHandler(main_menu_callback, pattern="^main_menu$"))
     application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
-    application.add_handler(CallbackQueryHandler(more_menu_callback, pattern="^menu_more$"))
     application.add_handler(CallbackQueryHandler(tos_accept_callback, pattern="^tos_accept$"))
     application.add_handler(CallbackQueryHandler(tos_decline_callback, pattern="^tos_decline$"))
-    application.add_handler(CallbackQueryHandler(first_trade_callback, pattern="^first_trade$"))
-
+    
     # Balance & Portfolio
     application.add_handler(CallbackQueryHandler(balance_callback, pattern="^balance$"))
-    application.add_handler(CallbackQueryHandler(portfolio_ai_analysis_callback, pattern="^portfolio_ai_analysis$"))
     application.add_handler(CallbackQueryHandler(portfolio_callback, pattern="^portfolio"))
     application.add_handler(CallbackQueryHandler(history_menu_callback, pattern="^history_menu$"))
     application.add_handler(history_page_handler)
-    application.add_handler(history_filter_handler)
     
     # Wallet
     application.add_handler(CallbackQueryHandler(wallet_menu_callback, pattern="^wallet_menu$"))
@@ -258,14 +227,9 @@ def add_handlers(application: Application) -> None:
     
     # Settings
     application.add_handler(settings_menu_callback)
-    application.add_handler(toggle_notify_handler)
+    application.add_handler(toggle_notify_callback)
     application.add_handler(toggle_panic_handler)
-    application.add_handler(antirug_handler)
-    application.add_handler(rug_toggle_handler)
-    application.add_handler(rug_disable_handler)
-    application.add_handler(rug_sell_handler)
-    application.add_handler(whitelist_remove_handler)
-
+    
     # Custodial
     application.add_handler(CallbackQueryHandler(custodial_callback, pattern="^custodial_menu$"))
     application.add_handler(CallbackQueryHandler(deposit_callback, pattern="^custodial_deposit$"))
@@ -297,8 +261,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(ref_list_callback_handler)
     application.add_handler(ref_claim_callback_handler)
     application.add_handler(fees_callback_handler)
-    application.add_handler(ref_rewards_callback_handler)
-
+    application.add_handler(rewards_callback_handler)
+    
     # Tax export
     application.add_handler(tax_year_callback_handler)
     application.add_handler(tax_download_callback_handler)
@@ -333,13 +297,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(rewards_callback_handler)
     application.add_handler(redeem_callback_handler)
     application.add_handler(xp_noop_handler)
-    application.add_handler(quests_callback_handler)
-    application.add_handler(quest_claim_callback_handler)
-
-    # Phase 4 callbacks
-    application.add_handler(perps_menu_callback_handler)
-    application.add_handler(token_menu_callback_handler)
-
+    
     # Copy Trading callbacks
     application.add_handler(copy_menu_callback_handler)
     application.add_handler(traders_callback_handler)
@@ -394,8 +352,6 @@ async def post_init(application) -> None:
             BotCommand("xp", "Points & XP"),
             BotCommand("checkin", "Daily check-in"),
             BotCommand("traders", "Copy trading"),
-            BotCommand("perps", "Perpetual trading"),
-            BotCommand("rewards", "Rewards tiers & fee discounts"),
             BotCommand("tax", "Tax export"),
             BotCommand("set", "Settings"),
             BotCommand("h", "Help"),
@@ -518,21 +474,13 @@ def main() -> None:
     
     # Create application with lifecycle hooks
     logger.info("Creating bot application...")
-    builder = (
+    application = (
         Application.builder()
         .token(settings.telegram_bot_token)
         .post_init(post_init)
         .post_shutdown(post_shutdown)
+        .build()
     )
-
-    # Add Redis persistence if available
-    from bot.utils.redis_cache import redis_cache
-    if redis_cache._connected and redis_cache.client:
-        from bot.utils.redis_persistence import RedisPersistence
-        builder = builder.persistence(RedisPersistence(redis_cache.client))
-        logger.info("Using Redis-backed conversation persistence")
-
-    application = builder.build()
     
     # Add all handlers
     add_handlers(application)

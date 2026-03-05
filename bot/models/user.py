@@ -11,8 +11,6 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     telegram_id = Column(Integer, unique=True, nullable=True, index=True)
     whatsapp_id = Column(String(255), unique=True, nullable=True, index=True)
-    discord_id = Column(String(100), unique=True, nullable=True, index=True)
-    discord_username = Column(String(255), nullable=True)
     username = Column(String(255), nullable=True)
     first_name = Column(String(255), nullable=True)
     last_name = Column(String(255), nullable=True)
@@ -38,6 +36,10 @@ class User(Base):
     
     # Push notifications (Expo push token for iOS/Android app)
     push_token = Column(String(255), nullable=True, default=None)
+
+    # Wallet recovery
+    recovery_email = Column(String(255), nullable=True)
+    recovery_setup_at = Column(DateTime, nullable=True)
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)

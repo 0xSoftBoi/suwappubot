@@ -5,16 +5,9 @@ import { Plus, RefreshCw, Loader2 } from 'lucide-react';
 import { WalletList, WalletItem } from './WalletList';
 import { CreateWalletModal } from './CreateWalletModal';
 import { useAuth } from '@/contexts/AuthContext';
-import { useTurnkey } from '@turnkey/react-wallet-kit';
+import { createTurnkeyWallet } from '@/lib/turnkey-embedded';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL;
-
-if (\!API_BASE) {
-  console.error(
-    '[WalletManager] NEXT_PUBLIC_API_URL is not set. ' +
-    'Add it to your .env.local file. API calls will fail.'
-  );
-}
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
 interface WalletManagerProps {
   onWalletSelect?: (wallet: WalletItem) => void;
@@ -22,7 +15,6 @@ interface WalletManagerProps {
 
 export function WalletManager({ onWalletSelect }: WalletManagerProps) {
   const { user, isAuthenticated } = useAuth();
-  const turnkey = useTurnkey();
   const [wallets, setWallets] = useState<WalletItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -111,16 +103,12 @@ export function WalletManager({ onWalletSelect }: WalletManagerProps) {
   };
 
   const handleCreatePasskey = async (chainType: 'evm' | 'solana', name: string) => {
-    const addressFormat =
-      chainType === 'solana'
-        ? 'ADDRESS_FORMAT_SOLANA' as const
-        : 'ADDRESS_FORMAT_ETHEREUM' as const;
+    const result = await createTurnkeyWallet(chainType, name);
 
-    await turnkey.createWallet({
-      walletName: name,
-      accounts: [addressFormat],
-    });
-    await turnkey.refreshWallets();
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to create passkey wallet');
+    }
+
     await fetchWallets();
   };
 

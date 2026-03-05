@@ -75,11 +75,7 @@ class X402Payment(Base):
     
     # x402 specific
     receipt = Column(Text, nullable=True)  # x402 payment receipt
-
-    # Payment method tracking (crypto or telegram_stars)
-    payment_method = Column(String(32), default="crypto")
-    stars_amount = Column(Integer, nullable=True)  # Telegram Stars amount (if paid with Stars)
-
+    
     # Relationship
     user = relationship("User", backref="x402_payments")
 
