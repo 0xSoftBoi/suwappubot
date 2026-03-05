@@ -4,7 +4,7 @@ import { HTTPException } from 'hono/http-exception'
 import { serveStatic } from 'hono/bun'
 
 import { createCorsMiddleware, adminKeyAuth } from './middleware'
-import { healthRoutes, webappRoutes, agentRoutes, a2aRoutes, swapRoutes, publicSwapRoutes, adminRoutes, mcpRoutes } from './routes'
+import { healthRoutes, webappRoutes, agentRoutes, a2aRoutes, swapRoutes, publicSwapRoutes, adminRoutes, mcpRoutes, tokenRoutes } from './routes'
 import agentCard from '../agent-card.json'
 
 export interface AppConfig {
@@ -37,6 +37,9 @@ export function createApp(config: AppConfig) {
 
 	// Swap routes - mounted first so public endpoints (tokens, chains) are accessible
 	app.route('/webapp/swap', swapRoutes)
+
+	// Token search and prices
+	app.route('/webapp/tokens', tokenRoutes)
 
 	// Webapp routes - Telegram auth
 	app.route('/webapp', webappRoutes)
