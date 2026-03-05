@@ -4,21 +4,21 @@ import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cw_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sns from 'aws-cdk-lib/aws-sns';
-import * as s3 from 'aws-cdk-lib/aws-s3';
-import * as kms from 'aws-cdk-lib/aws-kms';
-import * as elasticache from 'aws-cdk-lib/aws-elasticache';
-import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { Construct } from 'constructs';
 
 export class SuwappuStack extends cdk.Stack {
   public readonly vpc: ec2.Vpc;
   public readonly cluster: ecs.Cluster;
   public readonly database: rds.DatabaseInstance;
+  public readonly loadBalancer: elbv2.ApplicationLoadBalancer;
 
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
@@ -46,14 +46,7 @@ export class SuwappuStack extends cdk.Stack {
       ],
     });
 
-    // NOTE: Only an S3 Gateway VPC endpoint is deployed (free, created via CLI:
-    // vpce-0d70a05ed12a18056). Interface endpoints were removed — NAT data
-    // transfer is only ~$1/mo, far less than the ~$29/mo interface endpoint cost.
-
     // ==================== Security Groups ====================
-    // ALB security group — used by consolidated ALB (suwappu-alb) managed
-    // outside CDK. Host-based routing serves app.suwappu.bot,
-    // devfront.suwappu.bot, and www.suwappu.bot from a single ALB.
     const albSecurityGroup = new ec2.SecurityGroup(this, 'AlbSecurityGroup', {
       vpc: this.vpc,
       description: 'Security group for ALB',
@@ -75,6 +68,11 @@ export class SuwappuStack extends cdk.Stack {
       description: 'Security group for ECS tasks',
       allowAllOutbound: true,
     });
+    ecsSecurityGroup.addIngressRule(
+      albSecurityGroup,
+      ec2.Port.tcp(10000),
+      'Allow from ALB'
+    );
 
     const rdsSecurityGroup = new ec2.SecurityGroup(this, 'RdsSecurityGroup', {
       vpc: this.vpc,
@@ -110,16 +108,8 @@ export class SuwappuStack extends cdk.Stack {
     });
 
     // ==================== RDS PostgreSQL ====================
-    const rdsEncryptionKey = new kms.Key(this, 'RdsEncryptionKey', {
-      alias: 'suwappu/rds',
-      description: 'KMS key for Suwappu RDS encryption at rest',
-      enableKeyRotation: true,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-    });
-
     // NOTE: storageEncrypted requires instance replacement — migrate separately
-    // via snapshot-copy-encrypt-restore workflow.
-    // After migration, add: storageEncrypted: true, storageEncryptionKey: rdsEncryptionKey
+    // via snapshot-copy-encrypt-restore workflow
     this.database = new rds.DatabaseInstance(this, 'SuwappuDatabase', {
       engine: rds.DatabaseInstanceEngine.postgres({
         version: rds.PostgresEngineVersion.VER_15,
@@ -140,58 +130,11 @@ export class SuwappuStack extends cdk.Stack {
       allocatedStorage: 20,
       maxAllocatedStorage: 100,
       storageType: rds.StorageType.GP3,
-      multiAz: true, // High availability
+      multiAz: false, // Cost optimization
       deletionProtection: true,
       backupRetention: cdk.Duration.days(14),
       removalPolicy: cdk.RemovalPolicy.SNAPSHOT,
       publiclyAccessible: false,
-    });
-
-    // ==================== ElastiCache Redis ====================
-    const redisSecurityGroup = new ec2.SecurityGroup(this, 'RedisSecurityGroup', {
-      vpc: this.vpc,
-      description: 'Security group for ElastiCache Redis',
-      allowAllOutbound: false,
-    });
-    redisSecurityGroup.addIngressRule(
-      ecsSecurityGroup,
-      ec2.Port.tcp(6379),
-      'Allow Redis from ECS'
-    );
-
-    const redisSubnetGroup = new elasticache.CfnSubnetGroup(this, 'RedisSubnetGroup', {
-      description: 'Subnet group for Suwappu Redis',
-      subnetIds: this.vpc.isolatedSubnets.map(s => s.subnetId),
-      cacheSubnetGroupName: 'suwappu-redis-subnets',
-    });
-
-    const redisCluster = new elasticache.CfnCacheCluster(this, 'SuwappuRedis', {
-      clusterName: 'suwappu-redis',
-      engine: 'redis',
-      cacheNodeType: 'cache.t4g.micro',
-      numCacheNodes: 1,
-      engineVersion: '7.1',
-      vpcSecurityGroupIds: [redisSecurityGroup.securityGroupId],
-      cacheSubnetGroupName: redisSubnetGroup.cacheSubnetGroupName,
-    });
-    redisCluster.addDependency(redisSubnetGroup);
-
-    // ==================== SQS Trade Queue ====================
-    const tradeDLQ = new sqs.Queue(this, 'TradeDLQ', {
-      queueName: 'suwappu-trade-dlq',
-      retentionPeriod: cdk.Duration.days(14),
-      encryption: sqs.QueueEncryption.SQS_MANAGED,
-    });
-
-    const tradeQueue = new sqs.Queue(this, 'TradeQueue', {
-      queueName: 'suwappu-trade-queue',
-      visibilityTimeout: cdk.Duration.seconds(120),
-      retentionPeriod: cdk.Duration.days(4),
-      encryption: sqs.QueueEncryption.SQS_MANAGED,
-      deadLetterQueue: {
-        queue: tradeDLQ,
-        maxReceiveCount: 3,
-      },
     });
 
     // ==================== ECR Repository ====================
@@ -206,13 +149,6 @@ export class SuwappuStack extends cdk.Stack {
         },
       ],
     });
-
-    // ==================== ECR Repository (Showcase) ====================
-    // Showcase repo exists in AWS but is not in CloudFormation state.
-    // Reference it by name to avoid create conflict.
-    const showcaseRepository = ecr.Repository.fromRepositoryName(
-      this, 'SuwappuShowcaseRepository', 'suwappu-showcase'
-    );
 
     // ==================== ECS Cluster ====================
     this.cluster = new ecs.Cluster(this, 'SuwappuCluster', {
@@ -240,19 +176,6 @@ export class SuwappuStack extends cdk.Stack {
     // Grant secrets access to task
     appSecrets.grantRead(taskDefinition.taskRole);
     this.database.secret?.grantRead(taskDefinition.taskRole);
-
-    // Grant SSM permissions for ECS Exec
-    taskDefinition.taskRole.addToPrincipalPolicy(
-      new iam.PolicyStatement({
-        actions: [
-          'ssmmessages:CreateControlChannel',
-          'ssmmessages:CreateDataChannel',
-          'ssmmessages:OpenControlChannel',
-          'ssmmessages:OpenDataChannel',
-        ],
-        resources: ['*'],
-      }),
-    );
 
     // Container definition
     const container = taskDefinition.addContainer('suwappu', {
@@ -303,14 +226,108 @@ export class SuwappuStack extends cdk.Stack {
       protocol: ecs.Protocol.TCP,
     });
 
-    // NOTE: ALB, certificate, listeners, WAF, and WAF-ALB association removed
-    // from CDK. A single consolidated ALB (suwappu-alb) with host-based routing
-    // is managed outside CDK, serving all frontend services.
+    // ==================== Application Load Balancer ====================
+    this.loadBalancer = new elbv2.ApplicationLoadBalancer(this, 'SuwappuAlb', {
+      vpc: this.vpc,
+      internetFacing: true,
+      securityGroup: albSecurityGroup,
+    });
+
+    // ==================== ACM Certificate ====================
+    // Import existing validated certificate (created outside CDK)
+    const certificate = acm.Certificate.fromCertificateArn(
+      this,
+      'SuwappuCert',
+      'arn:aws:acm:us-east-1:905418423235:certificate/74e95aae-e397-44cc-9005-d964c97ebc41',
+    );
+
+    // HTTP listener — redirect all traffic to HTTPS
+    this.loadBalancer.addListener('HttpListener', {
+      port: 80,
+      protocol: elbv2.ApplicationProtocol.HTTP,
+      defaultAction: elbv2.ListenerAction.redirect({
+        protocol: 'HTTPS',
+        port: '443',
+        permanent: true,
+      }),
+    });
+
+    // HTTPS listener with default fixed response (services add their own rules)
+    const httpsListener = this.loadBalancer.addListener('HttpsListener', {
+      port: 443,
+      protocol: elbv2.ApplicationProtocol.HTTPS,
+      certificates: [certificate],
+      defaultAction: elbv2.ListenerAction.fixedResponse(404, {
+        contentType: 'text/plain',
+        messageBody: 'Not Found',
+      }),
+    });
+
+    // ==================== WAF ====================
+    const webAcl = new wafv2.CfnWebACL(this, 'SuwappuWaf', {
+      scope: 'REGIONAL',
+      defaultAction: { allow: {} },
+      visibilityConfig: {
+        cloudWatchMetricsEnabled: true,
+        metricName: 'SuwappuWafMetrics',
+        sampledRequestsEnabled: true,
+      },
+      rules: [
+        {
+          name: 'AWSCommonRules',
+          priority: 1,
+          overrideAction: { none: {} },
+          statement: {
+            managedRuleGroupStatement: {
+              vendorName: 'AWS',
+              name: 'AWSManagedRulesCommonRuleSet',
+            },
+          },
+          visibilityConfig: {
+            cloudWatchMetricsEnabled: true,
+            metricName: 'AWSCommonRules',
+            sampledRequestsEnabled: true,
+          },
+        },
+        {
+          name: 'RateLimit',
+          priority: 2,
+          action: { block: {} },
+          statement: {
+            rateBasedStatement: {
+              limit: 300,
+              aggregateKeyType: 'IP',
+            },
+          },
+          visibilityConfig: {
+            cloudWatchMetricsEnabled: true,
+            metricName: 'RateLimit',
+            sampledRequestsEnabled: true,
+          },
+        },
+      ],
+    });
+
+    new wafv2.CfnWebACLAssociation(this, 'WafAlbAssociation', {
+      resourceArn: this.loadBalancer.loadBalancerArn,
+      webAclArn: webAcl.attrArn,
+    });
 
     // ==================== CloudWatch Alarms + SNS ====================
     const alertTopic = new sns.Topic(this, 'SuwappuAlerts', {
       topicName: 'suwappu-alerts',
     });
+
+    // ALB 5xx alarm
+    new cloudwatch.Alarm(this, 'Alb5xxAlarm', {
+      metric: this.loadBalancer.metrics.httpCodeTarget(
+        elbv2.HttpCodeTarget.TARGET_5XX_COUNT,
+        { period: cdk.Duration.minutes(5) },
+      ),
+      threshold: 10,
+      evaluationPeriods: 1,
+      alarmDescription: 'ALB 5xx errors > 10 in 5 minutes',
+    }).addAlarmAction(new cw_actions.SnsAction(alertTopic));
 
     // RDS CPU alarm
     new cloudwatch.Alarm(this, 'RdsCpuAlarm', {
@@ -329,66 +346,13 @@ export class SuwappuStack extends cdk.Stack {
       alarmDescription: 'RDS free storage < 5 GB',
     }).addAlarmAction(new cw_actions.SnsAction(alertTopic));
 
-    // ==================== DB Backup (pre-deploy) ====================
-    const backupBucket = new s3.Bucket(this, 'SuwappuDbBackups', {
-      bucketName: 'suwappu-db-backups',
-      encryption: s3.BucketEncryption.S3_MANAGED,
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      lifecycleRules: [
-        {
-          expiration: cdk.Duration.days(90),
-        },
-      ],
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-    });
-
-    const backupLogGroup = new logs.LogGroup(this, 'SuwappuBackupLogs', {
-      logGroupName: '/ecs/suwappu-db-backup',
-      retention: logs.RetentionDays.TWO_WEEKS,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-    });
-
-    const backupTaskDef = new ecs.FargateTaskDefinition(this, 'SuwappuDbBackupTask', {
-      memoryLimitMiB: 512,
-      cpu: 256,
-      family: 'suwappu-db-backup',
-    });
-
-    backupTaskDef.addContainer('backup', {
-      image: ecs.ContainerImage.fromAsset('../scripts/db-backup'),
-      logging: ecs.LogDrivers.awsLogs({
-        streamPrefix: 'db-backup',
-        logGroup: backupLogGroup,
-      }),
-      environment: {
-        S3_BUCKET: backupBucket.bucketName,
-        BACKUP_PREFIX: 'pre-deploy',
-      },
-      secrets: {
-        DATABASE_URL: ecs.Secret.fromSecretsManager(
-          this.database.secret!,
-          'DATABASE_URL',
-        ),
-      },
-    });
-
-    backupBucket.grantPut(backupTaskDef.taskRole);
-    this.database.secret?.grantRead(backupTaskDef.taskRole);
-    appSecrets.grantRead(backupTaskDef.taskRole);
-
-    new cdk.CfnOutput(this, 'BackupBucketName', {
-      value: backupBucket.bucketName,
-      description: 'S3 bucket for database backups',
-      exportName: 'SuwappuBackupBucket',
-    });
-
-    new cdk.CfnOutput(this, 'BackupTaskDefinition', {
-      value: backupTaskDef.family!,
-      description: 'Task definition family for DB backup',
-      exportName: 'SuwappuBackupTaskFamily',
-    });
-
     // ==================== Outputs ====================
+    new cdk.CfnOutput(this, 'LoadBalancerDns', {
+      value: this.loadBalancer.loadBalancerDnsName,
+      description: 'Load Balancer DNS Name',
+      exportName: 'SuwappuLoadBalancerDns',
+    });
+
     new cdk.CfnOutput(this, 'EcrRepositoryUri', {
       value: repository.repositoryUri,
       description: 'ECR Repository URI',
@@ -417,28 +381,6 @@ export class SuwappuStack extends cdk.Stack {
       value: alertTopic.topicArn,
       description: 'SNS Topic ARN for alerts (subscribe your email)',
       exportName: 'SuwappuAlertTopicArn',
-    });
-
-    new cdk.CfnOutput(this, 'RedisEndpoint', {
-      value: redisCluster.attrRedisEndpointAddress,
-      description: 'ElastiCache Redis Endpoint',
-      exportName: 'SuwappuRedisEndpoint',
-    });
-
-    new cdk.CfnOutput(this, 'ShowcaseEcrRepositoryUri', {
-      value: showcaseRepository.repositoryUri,
-      description: 'Showcase ECR Repository URI',
-      exportName: 'SuwappuShowcaseEcrUri',
-    });
-
-    new cdk.CfnOutput(this, 'TradeQueueUrl', {
-      value: tradeQueue.queueUrl,
-      description: 'SQS Trade Queue URL',
-    });
-
-    new cdk.CfnOutput(this, 'TradeDLQUrl', {
-      value: tradeDLQ.queueUrl,
-      description: 'SQS Trade Dead Letter Queue URL',
     });
   }
 }

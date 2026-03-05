@@ -258,24 +258,12 @@ class Settings(BaseSettings):
     whatsapp_phone_number_id: Optional[str] = Field(default=None, description="WhatsApp Business Phone Number ID")
     whatsapp_access_token: Optional[str] = Field(default=None, description="WhatsApp Cloud API Access Token")
     whatsapp_verify_token: str = Field(default="suwappu_verify", description="Webhook verification token")
-    whatsapp_app_secret: Optional[str] = Field(default=None, description="WhatsApp App Secret for webhook signature verification")
     
     # Telegram Mini App
     webapp_url: str = Field(
         default="https://app.suwappu.bot",
         description="URL for the Telegram Mini App dashboard"
     )
-
-    # CORS
-    cors_origins: str = Field(
-        default="https://app.suwappu.bot,https://devfront.suwappu.bot,http://localhost:5173,http://localhost:3000",
-        description="Comma-separated list of allowed CORS origins"
-    )
-
-    # AI / Anthropic
-    anthropic_api_key: str = Field(default="", description="Anthropic API key for AI features")
-    ai_model: str = Field(default="claude-haiku-4-5-20251001", description="Fast model for intent parsing")
-    ai_analysis_model: str = Field(default="claude-sonnet-4-6", description="Better model for analysis")
 
     # Agent Interoperability
     agent_api_key: Optional[str] = Field(default=None, description="Secret key for other AI agents to access the API")
@@ -284,9 +272,6 @@ class Settings(BaseSettings):
     admin_api_key: Optional[str] = Field(default=None, description="Secret key for admin dashboard access")
     admin_telegram_ids: str = Field(default="", description="Comma-separated Telegram user IDs for admin access")
     
-    # Redis (for distributed rate limiting and caching)
-    redis_url: Optional[str] = Field(default=None, description="Redis connection URL (e.g., redis://localhost:6379)")
-
     # Application Settings
     log_level: str = Field(default="INFO", description="Logging level")
     max_swap_amount: float = Field(default=100000, description="Maximum swap amount in USD")
@@ -297,40 +282,7 @@ class Settings(BaseSettings):
     referral_reward_percentage: float = Field(default=30, description="Referral reward percentage (30% of fees)")
     fee_collector_address: Optional[str] = Field(default=None, description="EVM address for fee collection")
     fee_collector_solana: Optional[str] = Field(default=None, description="Solana address for fee collection")
-
-    # New Chain RPC URLs (Phase 4)
-    monad_rpc_url: str = Field(
-        default="https://testnet-rpc.monad.xyz",
-        description="Monad mainnet RPC URL(s)"
-    )
-    berachain_rpc_url: str = Field(
-        default="https://rpc.berachain.com,https://berachain.drpc.org",
-        description="Berachain mainnet RPC URL(s)"
-    )
-    sui_rpc_url: str = Field(
-        default="https://fullnode.mainnet.sui.io:443,https://sui-mainnet.public.blastapi.io",
-        description="Sui mainnet RPC URL(s)"
-    )
-
-    # Infrastructure: SQS Trade Queue
-    trade_queue_url: Optional[str] = Field(default=None, description="SQS trade queue URL (None = inline execution)")
-    trade_dlq_url: Optional[str] = Field(default=None, description="SQS trade dead letter queue URL")
-    trade_worker_enabled: bool = Field(default=False, description="Enable SQS trade worker")
-    trade_worker_concurrency: int = Field(default=5, description="Trade worker concurrent processing limit")
-
-    # Perps Trading (HyperLiquid)
-    hyperliquid_enabled: bool = Field(default=False, description="Enable HyperLiquid perps trading")
-    perps_max_leverage: int = Field(default=20, description="Maximum leverage cap (even if exchange allows more)")
-    perps_fee_percentage: float = Field(default=0.02, description="Perps fee percentage (2 bps on top of HL fees)")
-    perps_min_margin_usd: float = Field(default=10.0, description="Minimum margin for perps positions")
-
-    # Discord Bot
-    discord_bot_token: Optional[str] = Field(default=None, description="Discord bot token")
-    discord_enabled: bool = Field(default=False, description="Enable Discord bot")
-    discord_whale_alert_channel_id: Optional[str] = Field(default=None, description="Discord channel ID for whale alerts")
-    discord_trending_channel_id: Optional[str] = Field(default=None, description="Discord channel ID for trending tokens")
-    discord_leaderboard_channel_id: Optional[str] = Field(default=None, description="Discord channel ID for leaderboard")
-
+    
     model_config = ConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

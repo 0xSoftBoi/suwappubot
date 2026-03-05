@@ -29,8 +29,6 @@ from bot.services.token_security.authority_checker import authority_checker
 from bot.services.token_security.blacklist_service import blacklist_service, BlacklistType
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
-from bot.services.goplus_api import goplus_api, GoPlusError
-from bot.services.dexscreener_api import dexscreener_api, DexScreenerError
 
 logger = logging.getLogger(__name__)
 
@@ -55,10 +53,6 @@ class RiskCategory(Enum):
     NEW_TOKEN = "new_token"
     NO_SOCIALS = "no_socials"
     UNLOCKED_LIQUIDITY = "unlocked_liquidity"
-    PROXY_CONTRACT = "proxy_contract"
-    UNVERIFIED_CONTRACT = "unverified_contract"
-    OWNERSHIP_RISK = "ownership_risk"
-    LOW_VOLUME = "low_volume"
 
 
 @dataclass
@@ -118,19 +112,6 @@ class TokenSafetyReport:
     # Blacklist status
     creator_blacklisted: bool = False
     token_blacklisted: bool = False
-
-    # GoPlus data
-    goplus_checked: bool = False
-    is_open_source: bool = False
-    is_proxy: bool = False
-
-    # DexScreener data
-    volume_24h: float = 0
-    price_usd: Optional[float] = None
-    price_change_24h: float = 0
-    liquidity_usd: float = 0
-    pair_age_hours: Optional[float] = None
-    dex_url: Optional[str] = None
 
     @property
     def critical_warnings(self) -> List[str]:
@@ -223,8 +204,6 @@ class TokenAnalyzer:
                 self._check_liquidity(token_mint, report),
                 self._check_holders(token_mint, report),
                 self._check_metadata(token_mint, report),
-                self._check_goplus(token_mint, chain, report),
-                self._check_dexscreener(token_mint, chain, report),
             ]
 
             if not skip_honeypot:
@@ -507,150 +486,6 @@ class TokenAnalyzer:
         except Exception as e:
             logger.debug(f"Metadata check failed: {e}")
 
-    async def _check_goplus(self, token_mint: str, chain: str, report: TokenSafetyReport):
-        """Check token via GoPlus Security API."""
-        try:
-            if chain not in goplus_api.CHAIN_MAP:
-                return
-
-            security = await goplus_api.get_token_security(chain, token_mint)
-            report.goplus_checked = True
-            report.is_open_source = security.is_open_source
-            report.is_proxy = security.is_proxy
-
-            # Override honeypot if GoPlus also flags it
-            if security.is_honeypot and not report.is_honeypot:
-                report.is_honeypot = True
-                report.risk_factors.append(RiskFactor(
-                    category=RiskCategory.HONEYPOT,
-                    severity=RiskLevel.CRITICAL,
-                    description="Honeypot detected by GoPlus",
-                    score_impact=100,
-                ))
-                report.warnings.append("HONEYPOT DETECTED (GoPlus)")
-
-            # Update tax data if not already set
-            if security.buy_tax is not None and report.buy_tax is None:
-                report.buy_tax = security.buy_tax
-            if security.sell_tax is not None and report.sell_tax is None:
-                report.sell_tax = security.sell_tax
-
-            # Holder count
-            if security.holder_count > 0:
-                report.total_holders = security.holder_count
-
-            # Proxy contract risk
-            if security.is_proxy:
-                report.risk_factors.append(RiskFactor(
-                    category=RiskCategory.PROXY_CONTRACT,
-                    severity=RiskLevel.MEDIUM,
-                    description="Contract is upgradeable (proxy pattern)",
-                    score_impact=15,
-                ))
-                report.warnings.append("Upgradeable proxy contract")
-
-            # Unverified / not open source
-            if not security.is_open_source:
-                report.risk_factors.append(RiskFactor(
-                    category=RiskCategory.UNVERIFIED_CONTRACT,
-                    severity=RiskLevel.HIGH,
-                    description="Contract source code is not verified",
-                    score_impact=20,
-                ))
-                report.warnings.append("Contract not verified")
-
-            # Ownership risks
-            ownership_issues = []
-            if security.can_take_back_ownership:
-                ownership_issues.append("can reclaim ownership")
-            if security.owner_change_balance:
-                ownership_issues.append("owner can change balances")
-            if security.hidden_owner:
-                ownership_issues.append("hidden owner")
-
-            if ownership_issues:
-                report.risk_factors.append(RiskFactor(
-                    category=RiskCategory.OWNERSHIP_RISK,
-                    severity=RiskLevel.HIGH,
-                    description=f"Ownership risks: {', '.join(ownership_issues)}",
-                    score_impact=25,
-                ))
-                report.warnings.append(f"Ownership risk: {', '.join(ownership_issues)}")
-
-            # Mintable (supplement authority check for EVM chains)
-            if security.is_mintable and chain != "solana":
-                already_flagged = any(
-                    f.category == RiskCategory.MINT_AUTHORITY
-                    for f in report.risk_factors
-                )
-                if not already_flagged:
-                    report.risk_factors.append(RiskFactor(
-                        category=RiskCategory.MINT_AUTHORITY,
-                        severity=RiskLevel.HIGH,
-                        description="Token is mintable - supply can be inflated",
-                        score_impact=30,
-                    ))
-                    report.warnings.append("Token is mintable")
-
-        except (GoPlusError, Exception) as e:
-            logger.debug(f"GoPlus check failed for {token_mint}: {e}")
-
-    async def _check_dexscreener(self, token_mint: str, chain: str, report: TokenSafetyReport):
-        """Check token via DexScreener API."""
-        try:
-            if chain not in dexscreener_api.CHAIN_MAP:
-                return
-
-            pairs = await dexscreener_api.get_token_pairs(chain, token_mint)
-            if not pairs:
-                return
-
-            # Use the highest-liquidity pair
-            best_pair = pairs[0]
-
-            report.price_usd = best_pair.price_usd
-            report.volume_24h = best_pair.volume_24h
-            report.price_change_24h = best_pair.price_change_24h
-            report.liquidity_usd = best_pair.liquidity_usd
-            report.dex_url = best_pair.url
-
-            # Calculate pair age
-            if best_pair.pair_created_at:
-                from datetime import datetime
-                age_delta = datetime.utcnow() - best_pair.pair_created_at
-                report.pair_age_hours = age_delta.total_seconds() / 3600
-
-                # New token risk (< 24 hours old)
-                if report.pair_age_hours < 24:
-                    already_flagged = any(
-                        f.category == RiskCategory.NEW_TOKEN
-                        for f in report.risk_factors
-                    )
-                    if not already_flagged:
-                        report.risk_factors.append(RiskFactor(
-                            category=RiskCategory.NEW_TOKEN,
-                            severity=RiskLevel.MEDIUM,
-                            description=f"Token pair is only {report.pair_age_hours:.1f} hours old",
-                            score_impact=10,
-                        ))
-
-            # Update liquidity in SOL terms if available
-            if best_pair.price_native and best_pair.liquidity_usd:
-                # Approximate liquidity in native token
-                report.liquidity_sol = best_pair.liquidity_usd / max(best_pair.price_native, 0.01)
-
-            # Low volume warning
-            if best_pair.volume_24h < 1000:
-                report.risk_factors.append(RiskFactor(
-                    category=RiskCategory.LOW_VOLUME,
-                    severity=RiskLevel.MEDIUM,
-                    description=f"Very low 24h volume: ${best_pair.volume_24h:,.0f}",
-                    score_impact=10,
-                ))
-
-        except (DexScreenerError, Exception) as e:
-            logger.debug(f"DexScreener check failed for {token_mint}: {e}")
-
     def _calculate_score(self, report: TokenSafetyReport):
         """Calculate final safety score."""
         # Start at 100
@@ -693,57 +528,32 @@ class TokenAnalyzer:
     def get_safety_summary(self, report: TokenSafetyReport) -> str:
         """Generate a formatted safety summary string for Telegram."""
         shield = self.get_shield_emoji(report.safety_score)
-
+        
         summary = [
             f"{shield} *Security Score: {report.safety_score}/100*",
             f"Risk Level: {report.risk_level.value.upper()}",
             ""
         ]
-
+        
         if report.is_honeypot:
             summary.append("🚫 *HONEYPOT DETECTED*")
-
+        
         # Add key metrics
         summary.append(f"{'✅' if report.mint_authority_revoked else '❌'} Mint Authority Revoked")
         summary.append(f"{'✅' if report.freeze_authority_revoked else '❌'} Freeze Authority Revoked")
-
-        # GoPlus contract verification
-        if report.goplus_checked:
-            summary.append(f"{'✅' if report.is_open_source else '❌'} Contract Verified")
-            if report.is_proxy:
-                summary.append("⚠️ Upgradeable Proxy")
-
+        
         if report.sell_tax is not None:
             summary.append(f"💰 Sell Tax: {report.sell_tax:.1f}%")
-        if report.buy_tax is not None:
-            summary.append(f"💰 Buy Tax: {report.buy_tax:.1f}%")
-
+            
         if report.top_10_percentage > 0:
             summary.append(f"👥 Top 10 Holders: {report.top_10_percentage:.1f}%")
-
-        if report.total_holders > 0:
-            summary.append(f"👥 Holders: {report.total_holders:,}")
-
-        # DexScreener market data
-        if report.liquidity_usd > 0:
-            summary.append(f"💧 Liquidity: ${report.liquidity_usd:,.0f}")
-        if report.volume_24h > 0:
-            summary.append(f"📊 24h Volume: ${report.volume_24h:,.0f}")
-        if report.price_change_24h != 0:
-            emoji = "📈" if report.price_change_24h > 0 else "📉"
-            summary.append(f"{emoji} 24h Change: {report.price_change_24h:+.1f}%")
-        if report.pair_age_hours is not None:
-            if report.pair_age_hours < 24:
-                summary.append(f"🕐 Age: {report.pair_age_hours:.1f}h")
-            else:
-                summary.append(f"🕐 Age: {report.pair_age_hours / 24:.1f}d")
-
+            
         # Add high-level warnings
         if report.warnings:
             summary.append("\n*Warnings:*")
             for warning in report.warnings[:3]:  # Top 3 warnings
                 summary.append(f"• {warning}")
-
+                
         return "\n".join(summary)
 
 

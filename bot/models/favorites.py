@@ -85,32 +85,10 @@ class UserSettings(Base):
     require_2fa_above_usd = Column(Float, default=1000.0)
     panic_sell_enabled = Column(Boolean, default=False)
     
-    # MEV protection
-    mev_protection_enabled = Column(Boolean, default=True)
-
-    # Notification preferences
-    quiet_hours_start = Column(Integer, nullable=True)  # hour (0-23)
-    quiet_hours_end = Column(Integer, nullable=True)  # hour (0-23)
-    quiet_hours_timezone = Column(String(50), default="UTC")
-    notification_batching = Column(Boolean, default=True)
-
-    # Quick trade presets
-    quickbuy_amounts = Column(String(200), default="0.1,0.5,1,5")
-    first_trade_completed = Column(Boolean, default=False)
-
     # Display preferences
     default_chain = Column(String(50), nullable=True)
     show_usd_values = Column(Boolean, default=True)
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    def get_quickbuy_list(self) -> list:
-        """Get quickbuy preset amounts as a list of floats."""
-        if not self.quickbuy_amounts:
-            return [0.1, 0.5, 1.0, 5.0]
-        try:
-            return [float(x.strip()) for x in self.quickbuy_amounts.split(",")]
-        except (ValueError, AttributeError):
-            return [0.1, 0.5, 1.0, 5.0]
 

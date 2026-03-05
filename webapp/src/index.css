@@ -22,6 +22,11 @@
   --tg-theme-secondary-bg-color: #2c2c2e;
 }
 
+html, body, #root {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -29,20 +34,14 @@ body {
     Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: var(--tg-theme-bg-color);
-  color: var(--tg-theme-text-color);
+  /* Fallback to light sakura if CSS vars fail */
+  background-color: #FFFBFC;
+  background-color: var(--tg-theme-bg-color, #FFFBFC);
+  color: var(--tg-theme-text-color, #2C3E50);
 }
 
-/* Restore focus outlines for keyboard users (removed by Tailwind reset) */
-*:focus-visible {
-  outline: 2px solid var(--tg-theme-link-color);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
-/* Hide focus outline for mouse/touch users */
-*:focus:not(:focus-visible) {
-  outline: none;
+#root {
+  background-color: inherit;
 }
 
 /* Hide scrollbar but allow scrolling */

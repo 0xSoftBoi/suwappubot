@@ -1,7 +1,7 @@
 import React from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 
-export type NavItem = 'home' | 'wallet' | 'swap' | 'discover' | 'history' | 'settings'
+export type NavItem = 'home' | 'wallet' | 'swap' | 'history' | 'settings'
 
 export interface BottomNavProps {
   active?: NavItem
@@ -36,16 +36,6 @@ const navItems: { id: NavItem; label: string; path: string; icon: React.ReactNod
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
-      </svg>
-    ),
-  },
-  {
-    id: 'discover',
-    label: 'Discover',
-    path: '/discover',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
       </svg>
     ),
   },
@@ -94,8 +84,6 @@ export function BottomNav({ active, onNavigate }: BottomNavProps) {
           <button
             key={item.id}
             onClick={() => handleNavigate(item)}
-            aria-label={item.label}
-            aria-current={activeItem === item.id ? "page" : undefined}
             className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-colors ${
               activeItem === item.id
                 ? 'text-suwappu-magenta-mid'

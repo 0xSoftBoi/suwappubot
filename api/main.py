@@ -19,7 +19,6 @@ import secrets
 import json
 import jwt
 import hashlib
-import hmac
 
 # Add project root to path to import bot modules
 project_root = str(Path(__file__).parent.parent)
@@ -27,15 +26,12 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 from bot.services.wallet import WalletService
-from bot.services.whatsapp_service import whatsapp_service
 from bot.config.settings import settings
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
 from bot.services.orders import order_service
 from bot.services.tx_poller import tx_poller
 from bot.services.health_monitor import health_monitor
-from bot.services.rug_monitor import rug_monitor_service
-from bot.services.webhook_dispatcher import webhook_dispatcher
 from bot.utils.preload import preload_config
 from database.db import init_db, engine, get_session, DATABASE_AVAILABLE
 from bot.models.user import User, Wallet
@@ -44,7 +40,6 @@ from bot.models.advanced import LimitOrder, DCAOrder
 from bot.models.agent import RegisteredAgent
 from bot.utils.db_monitor import setup_db_monitoring
 from bot.main import add_handlers
-from bot.utils.redis_cache import redis_cache
 from telegram.ext import Application
 from telegram import Update
 from contextlib import asynccontextmanager
@@ -80,22 +75,12 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("⚠️ Database monitoring disabled (no connection)")
 
-    # 2. Connect Redis (shared cache & distributed locks)
-    if settings.redis_url:
-        await redis_cache.connect(settings.redis_url)
-    else:
-        await redis_cache.connect()  # in-memory fallback
-
-    # 3. Build Bot Application
-    persistence = None
-    if redis_cache._connected:
-        from bot.utils.redis_persistence import RedisPersistence
-        persistence = RedisPersistence(redis_cache.client)
-
-    builder = Application.builder().token(settings.telegram_bot_token)
-    if persistence:
-        builder = builder.persistence(persistence)
-    bot_app = builder.build()
+    # 2. Build Bot Application
+    bot_app = (
+        Application.builder()
+        .token(settings.telegram_bot_token)
+        .build()
+    )
     add_handlers(bot_app)
 
     # Store bot_app in app.state for webhook endpoint access
@@ -148,55 +133,8 @@ async def lifespan(app: FastAPI):
         await fee_sweeper.start()
         await alert_service.start(bot=bot_app.bot if bot_initialized else None)
         await order_service.start(bot=bot_app.bot if bot_initialized else None)
-        await webhook_dispatcher.start()
-        tx_poller._webhook_dispatcher = webhook_dispatcher
         await tx_poller.start(bot=bot_app.bot if bot_initialized else None)
         await health_monitor.start(bot=bot_app.bot if bot_initialized else None, admin_ids=admin_ids)
-        await rug_monitor_service.start_monitoring(bot=bot_app.bot if bot_initialized else None)
-        # Gamification scheduled tasks
-        async def _gamification_scheduler():
-            """Run daily quest generation and jackpot drawing."""
-            from bot.services.points_service import points_service
-            while True:
-                try:
-                    points_service.generate_daily_quests()
-                except Exception as e:
-                    logger.error(f"Quest generation error: {e}")
-
-                # Sleep until next check (every hour)
-                await asyncio.sleep(3600)
-
-        gamification_task = asyncio.create_task(_gamification_scheduler())
-
-        # Phase 4: Perps position monitor
-        if getattr(settings, 'hyperliquid_enabled', False):
-            try:
-                from bot.services.perps_monitor import perps_monitor
-                await perps_monitor.start(bot=bot_app.bot if bot_initialized else None)
-                logger.info("✓ Perps monitor started")
-            except Exception as e:
-                logger.warning(f"⚠️ Perps monitor failed to start: {e}")
-
-        # Phase 4: Trade worker (SQS queue consumer)
-        if getattr(settings, 'trade_worker_enabled', False):
-            try:
-                from bot.services.trade_worker import TradeWorker
-                trade_worker = TradeWorker()
-                await trade_worker.start()
-                logger.info("✓ Trade worker started")
-            except Exception as e:
-                logger.warning(f"⚠️ Trade worker failed to start: {e}")
-
-        # Phase 4: Discord bot
-        if getattr(settings, 'discord_enabled', False) and getattr(settings, 'discord_bot_token', None):
-            try:
-                from bot.platforms.discord_bot import SuwappuDiscordBot
-                discord_bot = SuwappuDiscordBot(settings.discord_bot_token)
-                await discord_bot.start()
-                logger.info("✓ Discord bot started")
-            except Exception as e:
-                logger.warning(f"⚠️ Discord bot failed to start: {e}")
-
         logger.info("✓ All background services running")
     else:
         logger.warning("⚠️ Background services NOT started - database unavailable")
@@ -232,17 +170,7 @@ async def lifespan(app: FastAPI):
         await alert_service.stop()
         await order_service.stop()
         await tx_poller.stop()
-        await webhook_dispatcher.stop()
         await health_monitor.stop()
-        from bot.utils.http_client import close_session
-        await close_session()
-        logger.info("✓ HTTP session closed")
-
-    # Close WhatsApp HTTP session
-    await whatsapp_service.close()
-
-    # Close Redis
-    await redis_cache.close()
     logger.info("✓ Cleanup complete")
 
 app = FastAPI(
@@ -327,18 +255,13 @@ async def get_agent_or_admin_key(
     return await get_agent_key(agent_key)
 
 # Setup CORS
-_cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors_origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-from api.middleware.csrf import CSRFMiddleware
-app.add_middleware(CSRFMiddleware)
 
 wallet_service = WalletService()
 
@@ -375,9 +298,24 @@ app.include_router(settings_router)
 from api.routes.mobile import router as mobile_router
 app.include_router(mobile_router)
 
-# --- Import and register internal agent routes (Python-side managed execution) ---
-from api.routes.internal import router as internal_router
-app.include_router(internal_router)
+# --- Import and register new webapp routes (TS API parity) ---
+try:
+    from api.routes.webapp import router as webapp_v2_router
+    app.include_router(webapp_v2_router)
+except ImportError as e:
+    print(f"Warning: Could not load webapp_v2_router: {e}")
+
+try:
+    from api.routes.swap import router as swap_router
+    app.include_router(swap_router)
+except ImportError as e:
+    print(f"Warning: Could not load swap_router: {e}")
+
+try:
+    from api.routes.a2a import router as a2a_router
+    app.include_router(a2a_router)
+except ImportError as e:
+    print(f"Warning: Could not load a2a_router: {e}")
 
 # --- Pydantic Models (Aligned with Mobile/Web) ---
 
@@ -537,25 +475,11 @@ async def health_check():
     }
 
 
-@app.get("/metrics", tags=["Health"], summary="Prometheus metrics")
-async def prometheus_metrics():
-    """Prometheus-compatible metrics endpoint for monitoring."""
-    from bot.utils.prometheus_metrics import metrics
-    return Response(
-        content=metrics.get_metrics(),
-        media_type=metrics.get_content_type(),
-    )
-
-
 # ============ Turnkey Web Authentication ============
-# DEPRECATED: The dashboard now uses @turnkey/react-wallet-kit (EWK) for auth.
-# These endpoints are kept for backward compatibility with non-browser clients
-# (Telegram bot, agent API, etc.). Remove once all clients migrate to EWK.
 
-@app.post("/auth/turnkey/challenge", response_model=AuthChallengeResponse, tags=["Auth"], deprecated=True)
+@app.post("/auth/turnkey/challenge", response_model=AuthChallengeResponse, tags=["Auth"])
 async def auth_challenge(request: AuthChallengeRequest):
     """
-    [DEPRECATED — use EWK handleLogin() on the frontend instead]
     Generate a challenge message for wallet-based authentication.
     The user signs this message with their wallet to prove ownership.
     """
@@ -574,7 +498,7 @@ async def auth_challenge(request: AuthChallengeRequest):
     )
 
 
-@app.post("/auth/turnkey/verify", response_model=AuthVerifyResponse, tags=["Auth"], deprecated=True)
+@app.post("/auth/turnkey/verify", response_model=AuthVerifyResponse, tags=["Auth"])
 async def auth_verify(
     request: AuthVerifyRequest,
     response: Response,
@@ -745,11 +669,8 @@ class PasskeyAuthCompleteResponse(BaseModel):
 # In-memory challenge store for passkeys (use Redis in production)
 _passkey_challenges: Dict[str, Dict[str, Any]] = {}
 
-# DEPRECATED: The dashboard now uses @turnkey/react-wallet-kit (EWK) for passkey auth.
-# These endpoints are kept for backward compatibility with non-browser clients.
-# Remove once all clients migrate to EWK.
 
-@app.post("/auth/passkey/register/init", response_model=PasskeyRegisterInitResponse, tags=["Passkey"], deprecated=True)
+@app.post("/auth/passkey/register/init", response_model=PasskeyRegisterInitResponse, tags=["Passkey"])
 async def passkey_register_init(request: PasskeyRegisterInitRequest):
     """
     Initialize passkey registration.
@@ -785,7 +706,7 @@ async def passkey_register_init(request: PasskeyRegisterInitRequest):
     )
 
 
-@app.post("/auth/passkey/register/complete", response_model=PasskeyRegisterCompleteResponse, tags=["Passkey"], deprecated=True)
+@app.post("/auth/passkey/register/complete", response_model=PasskeyRegisterCompleteResponse, tags=["Passkey"])
 async def passkey_register_complete(
     request: PasskeyRegisterCompleteRequest,
     response: Response,
@@ -879,7 +800,7 @@ async def passkey_register_complete(
     )
 
 
-@app.post("/auth/passkey/authenticate/init", response_model=PasskeyAuthInitResponse, tags=["Passkey"], deprecated=True)
+@app.post("/auth/passkey/authenticate/init", response_model=PasskeyAuthInitResponse, tags=["Passkey"])
 async def passkey_auth_init():
     """
     Initialize passkey authentication.
@@ -905,7 +826,7 @@ async def passkey_auth_init():
     )
 
 
-@app.post("/auth/passkey/authenticate/complete", response_model=PasskeyAuthCompleteResponse, tags=["Passkey"], deprecated=True)
+@app.post("/auth/passkey/authenticate/complete", response_model=PasskeyAuthCompleteResponse, tags=["Passkey"])
 async def passkey_auth_complete(
     request: PasskeyAuthCompleteRequest,
     response: Response,
@@ -1287,89 +1208,10 @@ async def admin_get_swaps(
 
 # ============ WhatsApp Webhook ============
 
+from fastapi import Request
+from fastapi.responses import PlainTextResponse
+from bot.services.whatsapp_service import whatsapp_service
 from bot.services.unified_bot_service import unified_bot_service
-from bot.utils.rate_limiter import UserRateLimiter, RateLimitExceeded
-
-# Module-level rate limiter singleton (Round 3C)
-_whatsapp_rate_limiter = UserRateLimiter(max_requests=30, window_seconds=60)
-
-# Unsupported WhatsApp message types (Round 4B)
-_UNSUPPORTED_MESSAGE_TYPES = {"image", "audio", "video", "location", "sticker", "contacts"}
-
-
-async def _verify_whatsapp_signature(request: Request, body: bytes) -> bool:
-    """Verify X-Hub-Signature-256 header from Meta using the app secret."""
-    app_secret = settings.whatsapp_app_secret
-    if not app_secret:
-        return True  # Skip verification in dev if secret not configured
-
-    signature_header = request.headers.get("X-Hub-Signature-256", "")
-    if not signature_header.startswith("sha256="):
-        return False
-
-    expected_sig = hmac.new(
-        app_secret.encode(), body, hashlib.sha256
-    ).hexdigest()
-    return hmac.compare_digest(signature_header[7:], expected_sig)
-
-
-async def _process_whatsapp_message(message, text: str):
-    """Process a WhatsApp message in the background."""
-    try:
-        response = await unified_bot_service.handle_command(
-            platform="whatsapp",
-            user_id=message.from_number,
-            text=text,
-            button_payload=message.button_payload,
-            list_reply_id=message.list_reply_id,
-        )
-
-        # Send response — choose the richest applicable format
-        try:
-            if response.image:
-                await whatsapp_service.send_image(
-                    message.from_number,
-                    response.image,
-                    caption=response.text,
-                )
-            elif response.document:
-                await whatsapp_service.send_document(
-                    message.from_number,
-                    response.document["url"],
-                    response.document.get("filename", "file"),
-                    caption=response.text,
-                )
-            elif response.list_sections and response.list_button_text:
-                await whatsapp_service.send_interactive_list(
-                    message.from_number,
-                    response.text,
-                    response.list_button_text,
-                    response.list_sections,
-                    header=response.header,
-                    footer=response.footer,
-                )
-            elif response.buttons:
-                await whatsapp_service.send_interactive_buttons(
-                    message.from_number,
-                    response.text,
-                    response.buttons,
-                    header=response.header,
-                    footer=response.footer,
-                )
-            else:
-                await whatsapp_service.send_text_message(
-                    message.from_number,
-                    response.text,
-                )
-        except Exception as send_err:
-            logger.error(f"WhatsApp send error: {send_err}")
-            await whatsapp_service.send_text_message(
-                message.from_number,
-                response.text,
-            )
-    except Exception as e:
-        logger.error(f"WhatsApp background processing error: {e}", exc_info=True)
-
 
 @app.get("/webhook")
 async def verify_whatsapp_webhook(
@@ -1380,7 +1222,7 @@ async def verify_whatsapp_webhook(
     mode = params.get("hub.mode")
     token = params.get("hub.verify_token")
     challenge = params.get("hub.challenge")
-
+    
     result = whatsapp_service.verify_webhook(mode, token, challenge)
     if result:
         return PlainTextResponse(content=result)
@@ -1389,48 +1231,19 @@ async def verify_whatsapp_webhook(
 @app.post("/webhook")
 async def receive_whatsapp_message(request: Request):
     """Handle incoming WhatsApp messages."""
-    # Read raw body for signature verification
-    body = await request.body()
-
-    # 1A: Verify webhook signature
-    if not await _verify_whatsapp_signature(request, body):
-        logger.warning("WhatsApp webhook signature verification failed")
-        raise HTTPException(status_code=403, detail="Invalid signature")
-
-    payload = json.loads(body)
-
-    # 4C: Filter status updates early
-    try:
-        entry = payload.get("entry", [{}])[0]
-        changes = entry.get("changes", [{}])[0]
-        value = changes.get("value", {})
-        if value.get("statuses") and not value.get("messages"):
-            return {"status": "ok"}
-    except (IndexError, AttributeError):
-        pass
+    payload = await request.json()
 
     # Parse the incoming message
     message = whatsapp_service.parse_webhook_message(payload)
     if not message:
         return {"status": "no_message"}
 
-    # 1C: Message deduplication
-    dedup_key = f"wa_dedup:{message.message_id}"
-    if await redis_cache.get(dedup_key):
-        return {"status": "duplicate"}
-    await redis_cache.set(dedup_key, 1, ttl_seconds=300)
-
-    # 4B: Handle unsupported message types
-    if message.message_type in _UNSUPPORTED_MESSAGE_TYPES:
-        await whatsapp_service.send_text_message(
-            message.from_number,
-            "I can only process text messages. Please send a text command or type *help* to see available options.",
-        )
-        return {"status": "unsupported_type"}
-
     # Rate limit WhatsApp ingress (per sender)
+    from bot.utils.rate_limiter import UserRateLimiter, RateLimitExceeded
+    if not hasattr(receive_whatsapp_message, "_limiter"):
+        receive_whatsapp_message._limiter = UserRateLimiter(max_requests=30, window_seconds=60)
     try:
-        await _whatsapp_rate_limiter.check(message.from_number)
+        await receive_whatsapp_message._limiter.check(message.from_number)
     except RateLimitExceeded as e:
         await whatsapp_service.send_text_message(
             message.from_number,
@@ -1441,13 +1254,30 @@ async def receive_whatsapp_message(request: Request):
     # Mark as read
     await whatsapp_service.mark_as_read(message.message_id)
 
-    # Build the text to process
+    # Process command via Unified Service
     text = message.text or ""
     if message.button_payload:
         text = message.button_payload
 
-    # 2A: Fire off processing in background and return 200 immediately
-    asyncio.create_task(_process_whatsapp_message(message, text))
+    response = await unified_bot_service.handle_command(
+        platform="whatsapp",
+        user_id=message.from_number,
+        text=text
+    )
+
+    # Send response
+    if response.buttons:
+        await whatsapp_service.send_interactive_buttons(
+            message.from_number,
+            response.text,
+            response.buttons,
+            header=response.header
+        )
+    else:
+        await whatsapp_service.send_text_message(
+            message.from_number,
+            response.text
+        )
 
     return {"status": "ok"}
 
@@ -1464,7 +1294,7 @@ async def telegram_webhook(request: Request):
     secret_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
     expected_secret = settings.get_webhook_secret()
 
-    if not secret_token or not hmac.compare_digest(secret_token, expected_secret):
+    if secret_token != expected_secret:
         logger.warning("Telegram webhook request with invalid secret token")
         raise HTTPException(status_code=403, detail="Invalid secret token")
 

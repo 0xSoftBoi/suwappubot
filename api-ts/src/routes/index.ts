@@ -1,7 +1,0 @@
-export { healthRoutes } from './health'
-export { webappRoutes } from './webapp'
-export { agentRoutes } from './agent'
-export { a2aRoutes } from './a2a'
-export { swapRoutes } from './swap'
-export { publicSwapRoutes } from './publicSwap'
-export { adminRoutes } from './admin'

@@ -282,68 +282,6 @@ def migrate_to_v2(
             del private_key
 
 
-def rotate_wallet_key(
-    wallet_row,
-    new_kms_key_id: str,
-    session=None,
-    kms_client=None,
-) -> bool:
-    """
-    Rotate a wallet's encryption to a new KMS key.
-
-    1. Decrypts the wallet with the current key (v2 or legacy).
-    2. Re-encrypts with the specified new KMS key ID.
-    3. Updates the wallet row fields in the session.
-
-    Args:
-        wallet_row: SQLAlchemy wallet row with encryption fields.
-        new_kms_key_id: The KMS key ARN/ID to re-encrypt with.
-        session: Active DB session (required to persist changes).
-        kms_client: Optional KMS client override.
-
-    Returns:
-        True on success, False on failure.
-    """
-    if kms_client is None:
-        from bot.services.kms_client import get_kms_client
-        kms_client = get_kms_client()
-
-    try:
-        # Step 1: Decrypt with current key
-        private_key = decrypt_wallet_key(
-            encrypted_private_key=wallet_row.encrypted_private_key,
-            encryption_scheme=getattr(wallet_row, "encryption_scheme", None),
-            kms_wrapped_dek=getattr(wallet_row, "kms_wrapped_dek", None),
-            aesgcm_nonce=getattr(wallet_row, "aesgcm_nonce", None),
-            kms_key_id=getattr(wallet_row, "kms_key_id", None),
-            key_version=getattr(wallet_row, "key_version", None),
-        )
-
-        # Step 2: Re-encrypt with new KMS key
-        encrypted = encrypt_private_key_v2(private_key, kms_client=kms_client)
-        new_fields = encode_for_db(encrypted)
-
-        # Step 3: Update wallet row
-        if session is not None:
-            for field_name, value in new_fields.items():
-                if hasattr(wallet_row, field_name):
-                    setattr(wallet_row, field_name, value)
-            # Bump key_version
-            current_version = getattr(wallet_row, "key_version", None) or 0
-            wallet_row.key_version = current_version + 1
-            session.flush()
-
-        logger.info("Rotated wallet %s to new KMS key", wallet_row.id)
-        return True
-
-    except Exception as e:
-        logger.error("Key rotation failed for wallet %s: %s", wallet_row.id, e)
-        return False
-    finally:
-        # Best-effort clear plaintext
-        private_key = None  # noqa: F841
-
-
 def get_private_key_with_auto_migrate(
     wallet_row,
     session=None,

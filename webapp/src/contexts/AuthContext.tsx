@@ -17,15 +17,13 @@ import type {
   AuthMethod,
   TelegramUser,
   LinkedWallet,
-} from '@suwappu/shared'
+} from '../types/auth'
 import { getTelegramUser, getInitData } from '../lib/telegram'
 import {
   setAuthToken,
   setAuthMethod as storeAuthMethod,
   getAuthMethod as getStoredAuthMethod,
   clearAuthToken,
-  isTokenExpiringSoon,
-  scheduleTokenRefresh,
 } from '../lib/auth'
 import { formatAddress } from '../lib/turnkey'
 import {
@@ -35,12 +33,13 @@ import {
   authenticateWithPasskey,
   createTurnkeyWallet,
 } from '../lib/turnkey-passkey'
+import { authenticateWithOAuth } from '../lib/turnkey-client'
 import { api } from '../lib/api'
 
 // Standalone wallet info for non-Telegram auth
 interface WalletInfo {
   address: string
-  type: 'passkey'
+  type: 'passkey' | 'oauth'
 }
 
 // Auth context state
@@ -68,6 +67,7 @@ interface AuthContextType {
   // Actions
   createPasskeyWallet: (displayName?: string) => Promise<boolean>
   loginWithPasskey: () => Promise<boolean>
+  loginWithOAuth: (provider: string, oauthToken: string) => Promise<boolean>
   createWallet: (chainType: 'evm' | 'solana', name?: string) => Promise<string | null>
   refreshWallets: () => Promise<void>
   clearError: () => void
@@ -140,12 +140,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (storedMethod && !authMethod) {
           setAuthMethod(storedMethod)
         }
-
-        // Schedule token refresh if we have a JWT
-        if (isTokenExpiringSoon()) {
-          // Token is about to expire, re-authenticate
-          console.warn('Auth token expiring soon, will need re-authentication')
-        }
       } catch (err) {
         console.error('Auth init error:', err)
       } finally {
@@ -154,24 +148,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
 
     init()
-
-    // Set up token refresh timer for passkey/JWT sessions
-    const refreshTimer = scheduleTokenRefresh(async () => {
-      // Attempt to re-authenticate with passkey
-      try {
-        const result = await authenticateWithPasskey()
-        if (result.success) {
-          return { token: result.token, expiresAt: result.expiresAt }
-        }
-      } catch {
-        // Silent failure - user will need to re-auth manually
-      }
-      return null
-    })
-
-    return () => {
-      if (refreshTimer) clearTimeout(refreshTimer)
-    }
   }, [])
 
   // Internal wallet refresh
@@ -264,6 +240,39 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [passkeySupported, isTelegramAuth])
 
+  // Login with OAuth provider (Google/Twitter) and create Turnkey wallet
+  const loginWithOAuth = useCallback(async (provider: string, oauthToken: string): Promise<boolean> => {
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      const tgUserId = telegramUser?.id?.toString() || ''
+      if (!tgUserId) {
+        setError('Telegram user not available for OAuth wallet creation')
+        return false
+      }
+
+      const result = await authenticateWithOAuth(provider, oauthToken, tgUserId)
+
+      if (result.address) {
+        login({ address: result.address, type: 'oauth' })
+        if (isTelegramAuth) {
+          await refreshWalletsInternal()
+        }
+        return true
+      } else {
+        setError('OAuth wallet creation returned no address')
+        return false
+      }
+    } catch (err: any) {
+      console.error('OAuth login failed:', err)
+      setError(err.message || 'Failed to create OAuth wallet')
+      return false
+    } finally {
+      setIsLoading(false)
+    }
+  }, [telegramUser, isTelegramAuth])
+
   // Create a new Turnkey wallet (after initial passkey registration)
   const createWallet = useCallback(async (
     chainType: 'evm' | 'solana',
@@ -326,6 +335,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     walletInfo,
     createPasskeyWallet,
     loginWithPasskey,
+    loginWithOAuth,
     createWallet,
     refreshWallets,
     clearError,

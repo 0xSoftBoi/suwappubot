@@ -2,7 +2,8 @@
  * React Query hooks for token sniping.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, type CreateSnipeRequest, type SnipeConfig } from '../lib/api'
+import { api } from '../lib/api'
+import type { CreateSnipeRequest, SnipeConfig } from '../../packages/shared/src/types/sniping'
 
 export function useSnipeOrders() {
   return useQuery({

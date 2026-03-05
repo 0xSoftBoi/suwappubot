@@ -2,7 +2,9 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { Wallet, LogOut, Loader2 } from 'lucide-react';
+import { Wallet, LogOut, Loader2, AlertCircle, CheckCircle, Fingerprint } from 'lucide-react';
+import { OAuthButtons } from './OAuthButtons';
+import { PasskeyAuth } from './PasskeyAuth';
 
 interface TurnkeyAuthProps {
   onSuccess?: () => void;
@@ -10,21 +12,29 @@ interface TurnkeyAuthProps {
   showAllOptions?: boolean;
 }
 
-export function TurnkeyAuth({ onSuccess, compact = false }: TurnkeyAuthProps) {
+export function TurnkeyAuth({ onSuccess, compact = false, showAllOptions = true }: TurnkeyAuthProps) {
   const {
     isAuthenticated,
     isLoading,
+    user,
     address,
+    error,
     login,
+    loginWithPasskey,
     logout,
+    clearError,
+    walletAvailable,
+    passkeySupported,
     authMethod,
   } = useAuth();
 
   const [showDropdown, setShowDropdown] = useState(false);
+  const [activeTab, setActiveTab] = useState<'wallet' | 'passkey' | 'social'>('wallet');
 
   const handleLogin = async () => {
+    clearError();
     await login();
-    onSuccess?.();
+    if (onSuccess) onSuccess();
   };
 
   const handleLogout = async () => {
@@ -33,6 +43,9 @@ export function TurnkeyAuth({ onSuccess, compact = false }: TurnkeyAuthProps) {
   };
 
   const truncateAddress = (addr: string) => {
+    if (addr.startsWith('oauth:') || addr.startsWith('passkey:')) {
+      return addr.split(':').slice(-1)[0].slice(0, 12) + '...';
+    }
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   };
 
@@ -83,7 +96,7 @@ export function TurnkeyAuth({ onSuccess, compact = false }: TurnkeyAuthProps) {
     return (
       <button
         onClick={handleLogin}
-        disabled={isLoading}
+        disabled={isLoading || !walletAvailable}
         className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {isLoading ? (
@@ -92,7 +105,7 @@ export function TurnkeyAuth({ onSuccess, compact = false }: TurnkeyAuthProps) {
           <Wallet size={18} />
         )}
         <span className="text-sm">
-          {isLoading ? 'Connecting...' : 'Connect'}
+          {isLoading ? 'Connecting...' : 'Connect Wallet'}
         </span>
       </button>
     );
@@ -113,46 +126,127 @@ export function TurnkeyAuth({ onSuccess, compact = false }: TurnkeyAuthProps) {
           </p>
         </div>
 
-        {/* Login / Logout */}
-        {!isAuthenticated ? (
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 flex items-start gap-3">
+            <AlertCircle size={20} className="text-red-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm text-red-400">{error}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Success State */}
+        {isAuthenticated && user && (
+          <div className="mb-6 p-4 rounded-xl bg-green-500/10 border border-green-500/20 flex items-start gap-3">
+            <CheckCircle size={20} className="text-green-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm text-green-400 font-medium">Connected successfully!</p>
+              <p className="text-xs text-gray-400 mt-1">{truncateAddress(address || '')}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Auth options when not authenticated */}
+        {!isAuthenticated && showAllOptions && (
+          <>
+            {/* Tab navigation */}
+            <div className="flex gap-1 p-1 mb-6 rounded-xl bg-white/5">
+              <button
+                onClick={() => setActiveTab('wallet')}
+                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                  activeTab === 'wallet'
+                    ? 'bg-white/10 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <Wallet size={16} className="inline mr-2" />
+                Wallet
+              </button>
+              {passkeySupported && (
+                <button
+                  onClick={() => setActiveTab('passkey')}
+                  className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                    activeTab === 'passkey'
+                      ? 'bg-white/10 text-white'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  <Fingerprint size={16} className="inline mr-2" />
+                  Passkey
+                </button>
+              )}
+              <button
+                onClick={() => setActiveTab('social')}
+                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                  activeTab === 'social'
+                    ? 'bg-white/10 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Social
+              </button>
+            </div>
+
+            {/* Tab content */}
+            {activeTab === 'wallet' && (
+              <div className="space-y-4">
+                {!walletAvailable && (
+                  <div className="p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-start gap-3">
+                    <AlertCircle size={20} className="text-yellow-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm text-yellow-400">No wallet detected</p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Install MetaMask or another Ethereum wallet to continue.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={handleLogin}
+                  disabled={isLoading || !walletAvailable}
+                  className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-600/20"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 size={20} className="animate-spin" />
+                      Connecting...
+                    </>
+                  ) : (
+                    <>
+                      <Wallet size={20} />
+                      Connect with MetaMask
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {activeTab === 'passkey' && (
+              <PasskeyAuth onSuccess={() => onSuccess?.()} mode="auto" />
+            )}
+
+            {activeTab === 'social' && (
+              <OAuthButtons showDivider={false} />
+            )}
+          </>
+        )}
+
+        {/* Authenticated actions */}
+        {isAuthenticated && (
           <button
-            onClick={handleLogin}
+            onClick={handleLogout}
             disabled={isLoading}
-            className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-600/20"
+            className="w-full py-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {isLoading ? (
-              <>
-                <Loader2 size={20} className="animate-spin" />
-                Connecting...
-              </>
+              <Loader2 size={20} className="animate-spin" />
             ) : (
-              <>
-                <Wallet size={20} />
-                Connect
-              </>
+              <LogOut size={20} />
             )}
+            Disconnect
           </button>
-        ) : (
-          <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/20 text-center">
-              <p className="text-sm text-green-400 font-medium">Connected</p>
-              {address && (
-                <p className="text-xs text-gray-400 mt-1">{truncateAddress(address)}</p>
-              )}
-            </div>
-            <button
-              onClick={handleLogout}
-              disabled={isLoading}
-              className="w-full py-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              {isLoading ? (
-                <Loader2 size={20} className="animate-spin" />
-              ) : (
-                <LogOut size={20} />
-              )}
-              Disconnect
-            </button>
-          </div>
         )}
 
         {/* Footer Info */}

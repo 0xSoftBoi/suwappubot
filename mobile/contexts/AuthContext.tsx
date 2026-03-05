@@ -9,6 +9,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import * as WebBrowser from 'expo-web-browser'
 import { useRouter, useSegments } from 'expo-router'
 import { createPasskey, getPasskeyCredential } from '../lib/passkey'
+import { createTurnkeyWallet, resetTurnkeyClient } from '../lib/turnkey'
 import {
   saveAuthToken,
   loadAuthToken,
@@ -31,6 +32,7 @@ export interface AuthUser {
   username?: string
   firstName?: string
   lastName?: string
+  turnkeySubOrgId?: string
 }
 
 interface AuthContextType {
@@ -38,6 +40,7 @@ interface AuthContextType {
   isLoading: boolean
   user: AuthUser | null
   walletAddress: string | null
+  turnkeySubOrgId: string | null
   registerWithPasskey: (displayName?: string) => Promise<boolean>
   loginWithPasskey: () => Promise<boolean>
   loginWithOAuth: (provider: 'google' | 'twitter') => Promise<boolean>
@@ -50,6 +53,7 @@ const AuthContext = createContext<AuthContextType>({
   isLoading: true,
   user: null,
   walletAddress: null,
+  turnkeySubOrgId: null,
   registerWithPasskey: async () => false,
   loginWithPasskey: async () => false,
   loginWithOAuth: async () => false,
@@ -61,6 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const [user, setUser] = useState<AuthUser | null>(null)
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
+  const [turnkeySubOrgId, setTurnkeySubOrgId] = useState<string | null>(null)
   const routerRef = useRef<ReturnType<typeof useRouter> | null>(null)
 
   try {
@@ -146,8 +151,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (result.success) {
         await saveAuthToken(result.token, result.expiresAt, 'passkey', result.walletAddress)
-        setUser({ id: result.userId, address: result.walletAddress })
+        setUser({ id: result.userId, address: result.walletAddress, turnkeySubOrgId: result.turnkeySubOrgId })
         setWalletAddress(result.walletAddress)
+        if (result.turnkeySubOrgId) {
+          setTurnkeySubOrgId(result.turnkeySubOrgId)
+        }
 
         // Register for push notifications after successful auth
         await setupNotificationCategories()
@@ -237,8 +245,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // ignore logout API errors
     }
     await clearAuthToken()
+    resetTurnkeyClient()
     setUser(null)
     setWalletAddress(null)
+    setTurnkeySubOrgId(null)
   }, [])
 
   const refreshUser = useCallback(async (): Promise<void> => {
@@ -260,6 +270,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         user,
         walletAddress,
+        turnkeySubOrgId,
         registerWithPasskey,
         loginWithPasskey,
         loginWithOAuth,

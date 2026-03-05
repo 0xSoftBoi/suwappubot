@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { SwapCard } from '../components/SwapCard'
 import { mockSwaps } from './mockData'
-import type { Swap } from '@suwappu/shared'
+import type { Swap } from '../types/api'
 
 // Presentational version for Storybook
 function SwapHistoryPresentation({

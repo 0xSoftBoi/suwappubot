@@ -2,14 +2,11 @@ import { useState, useCallback, useEffect } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { AppLayout, AppHeader } from '../components/layout'
 import { AddressCard, TokenItem } from '../components/cards'
-import { ChainSelector, Toast } from '../components/ui'
-import { useHaptic } from '../hooks/useHaptic'
+import { ChainSelector } from '../components/ui'
 import { useAuth } from '../contexts/AuthContext'
 import { useWallet, chains as walletChains, chainMeta } from '../hooks/useWallet'
 import { usePortfolio } from '../hooks/usePortfolio'
-import type { Token } from '@suwappu/shared'
-import { getTokenIcon } from '../lib/icons'
-import { api } from '../lib/api'
+import type { Token } from '../types/api'
 
 // Chain options for the selector - aligned with useWallet
 const chains = [
@@ -19,6 +16,24 @@ const chains = [
   { id: '137', name: 'Polygon', icon: '⬡' },
   { id: '42161', name: 'Arbitrum', icon: '🔷' },
 ]
+
+// Token icon mapping
+const tokenIcons: Record<string, string> = {
+  ETH: 'Ξ',
+  WETH: 'Ξ',
+  USDC: '💵',
+  USDT: '💵',
+  DAI: '◇',
+  MATIC: '⬡',
+  BNB: '🔶',
+  ARB: '🔷',
+  PEPE: '🐸',
+  SOL: '◎',
+}
+
+function getTokenIcon(symbol: string): string {
+  return tokenIcons[symbol.toUpperCase()] || '●'
+}
 
 function formatTokenBalance(balance: string): string {
   const num = parseFloat(balance)
@@ -184,21 +199,14 @@ function ReceiveView({
   onBack: () => void 
 }) {
   const [copied, setCopied] = useState(false)
-  const [showToast, setShowToast] = useState(false)
-  const haptic = useHaptic()
   const chain = walletChains.find(c => c.id === chainId)
   const meta = chainMeta[chainId]
 
   const copyAddress = async () => {
     try {
       await navigator.clipboard.writeText(address)
-      haptic.success()
       setCopied(true)
-      setShowToast(true)
-      setTimeout(() => {
-        setCopied(false)
-        setShowToast(false)
-      }, 2000)
+      setTimeout(() => setCopied(false), 2000)
     } catch {
       // Fallback for older browsers
       const textArea = document.createElement('textarea')
@@ -207,13 +215,8 @@ function ReceiveView({
       textArea.select()
       document.execCommand('copy')
       document.body.removeChild(textArea)
-      haptic.success()
       setCopied(true)
-      setShowToast(true)
-      setTimeout(() => {
-        setCopied(false)
-        setShowToast(false)
-      }, 2000)
+      setTimeout(() => setCopied(false), 2000)
     }
   }
 
@@ -222,12 +225,6 @@ function ReceiveView({
       header={<AppHeader title="Receive" showBack onBack={onBack} />}
       activeNav="wallet"
     >
-      <Toast 
-        message="Address copied to clipboard!" 
-        isVisible={showToast} 
-        type="success"
-        onClose={() => setShowToast(false)}
-      />
       <div className="p-3 pb-20 space-y-4">
         <div className="bg-white rounded-suwappu-xl p-4 shadow-suwappu-1 text-center">
           {/* Chain indicator */}
@@ -351,22 +348,13 @@ function SendView({
     setIsSending(true)
 
     try {
-      await api.sendTransaction({
-        fromAddress: _fromAddress,
-        toAddress,
-        amount,
-        tokenAddress: selectedToken.address,
-        tokenSymbol: selectedToken.symbol,
-        chainId,
-      })
-
-      // Reset form on success
-      setToAddress('')
-      setAmount('')
-      setError(null)
-      onBack()
+      // TODO: Implement actual send transaction via Turnkey
+      // Will use _fromAddress as the sender, toAddress as recipient
+      // For now, show a coming soon message
+      console.log('Send from:', _fromAddress, 'to:', toAddress, 'amount:', amount, selectedToken?.symbol)
+      alert('Send functionality coming soon! This will use Turnkey to sign and broadcast the transaction.')
     } catch (err: any) {
-      setError(err.detail || err.message || 'Failed to send transaction')
+      setError(err.message || 'Failed to send transaction')
     } finally {
       setIsSending(false)
     }

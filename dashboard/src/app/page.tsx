@@ -48,16 +48,8 @@ export default function Dashboard() {
                     fetch("/api/portfolio"),
                     fetch("/api/swaps?limit=5")
                 ]);
-                if (pRes.ok) {
-                    setPortfolio(await pRes.json());
-                } else {
-                    console.error("Portfolio fetch failed:", pRes.status, pRes.statusText);
-                }
-                if (sRes.ok) {
-                    setSwaps(await sRes.json());
-                } else {
-                    console.error("Swaps fetch failed:", sRes.status, sRes.statusText);
-                }
+                setPortfolio(await pRes.json());
+                setSwaps(await sRes.json());
             } catch (err) {
                 console.error("Failed to fetch dashboard data:", err);
             } finally {

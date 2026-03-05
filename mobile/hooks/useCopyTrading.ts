@@ -2,19 +2,20 @@
  * React Query hooks for copy trading.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, type FollowTraderRequest } from '../lib/api'
+import { api } from '../lib/api'
+import type { FollowTraderRequest } from '../../packages/shared/src/types/copy-trading'
 
 export function useTraderLeaderboard(limit = 50) {
   return useQuery({
     queryKey: ['traderLeaderboard', limit],
-    queryFn: () => api.getTraders('rank_score', limit),
+    queryFn: () => api.getTraderLeaderboard(limit),
   })
 }
 
 export function useTraderProfile(traderId: number) {
   return useQuery({
     queryKey: ['trader', traderId],
-    queryFn: () => api.getTrader(traderId),
+    queryFn: () => api.getTraderProfile(traderId),
     enabled: !!traderId,
   })
 }
@@ -45,13 +46,13 @@ export function useUnfollowTrader() {
 export function useMyFollows() {
   return useQuery({
     queryKey: ['myFollows'],
-    queryFn: () => api.getFollowing(),
+    queryFn: () => api.getMyFollows(),
   })
 }
 
-export function useCopyTrades() {
+export function useCopyTrades(limit = 50) {
   return useQuery({
-    queryKey: ['copyTrades'],
-    queryFn: () => api.getCopyTrades(),
+    queryKey: ['copyTrades', limit],
+    queryFn: () => api.getCopyTrades(limit),
   })
 }

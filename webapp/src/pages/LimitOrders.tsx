@@ -1,19 +1,26 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import { AppLayout, AppHeader } from '../components/layout'
 import { api, type LimitOrder } from '../lib/api'
 
-const statusColors = {
-  active: 'bg-blue-100 text-blue-700',
+const statusColors: Record<string, string> = {
+  pending: 'bg-blue-100 text-blue-700',
+  executing: 'bg-yellow-100 text-yellow-700',
   filled: 'bg-green-100 text-green-700',
   cancelled: 'bg-gray-100 text-gray-500',
-  expired: 'bg-yellow-100 text-yellow-700',
+  expired: 'bg-orange-100 text-orange-700',
   failed: 'bg-red-100 text-red-700',
 }
 
-function formatTime(dateStr: string | null): string {
-  if (!dateStr) return '—'
+const orderTypeLabels: Record<string, string> = {
+  limit_buy: 'Limit Buy',
+  limit_sell: 'Limit Sell',
+  stop_loss: 'Stop Loss',
+  take_profit: 'Take Profit',
+}
+
+function formatTime(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
@@ -22,20 +29,19 @@ function formatTime(dateStr: string | null): string {
   })
 }
 
-function formatPrice(price: number | null): string {
-  if (price === null) return '—'
-  return `$${price.toFixed(4)}`
+function formatAmount(amount: string, decimals = 18): string {
+  const num = parseFloat(amount) / Math.pow(10, decimals)
+  if (num < 0.001) return '<0.001'
+  if (num < 1) return num.toFixed(4)
+  if (num < 1000) return num.toFixed(2)
+  return num.toLocaleString(undefined, { maximumFractionDigits: 2 })
 }
 
-function OrderCard({ order, onCancel, isCancelling }: { 
-  order: LimitOrder
-  onCancel: (id: number) => void
-  isCancelling: boolean 
-}) {
-  const priceDistance = order.currentPrice 
-    ? ((order.currentPrice - order.targetPrice) / order.targetPrice * 100)
-    : null
-  const isClose = priceDistance !== null && Math.abs(priceDistance) < 5
+function OrderCard({ order, onCancel }: { order: LimitOrder; onCancel: (id: number) => void }) {
+  const priceChange = order.currentPrice 
+    ? ((order.currentPrice - order.triggerPrice) / order.triggerPrice * 100)
+    : 0
+  const isClose = Math.abs(priceChange) < 5
   
   return (
     <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-3">
@@ -45,50 +51,37 @@ function OrderCard({ order, onCancel, isCancelling }: {
             {order.fromTokenSymbol} → {order.toTokenSymbol}
           </p>
           <p className="text-xs text-suwappu-text-secondary">
-            {order.fromAmount} {order.fromTokenSymbol}
+            {formatAmount(order.amount)} {order.fromTokenSymbol} • {orderTypeLabels[order.orderType]}
           </p>
         </div>
-        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[order.status]}`}>
+        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[order.status] || 'bg-gray-100'}`}>
           {order.status}
         </span>
       </div>
       
       <div className="grid grid-cols-2 gap-2 mb-3">
         <div className="bg-suwappu-sakura-light/30 rounded-lg p-2">
-          <p className="text-[10px] text-suwappu-text-secondary">
-            Target ({order.triggerType === 'lte' ? '≤' : '≥'})
-          </p>
-          <p className="font-heading font-bold text-suwappu-purple-deep">
-            {formatPrice(order.targetPrice)}
-          </p>
+          <p className="text-[10px] text-suwappu-text-secondary">Target Price</p>
+          <p className="font-heading font-bold text-suwappu-purple-deep">${order.triggerPrice.toFixed(2)}</p>
         </div>
         <div className={`rounded-lg p-2 ${isClose ? 'bg-green-50' : 'bg-suwappu-sakura-light/30'}`}>
           <p className="text-[10px] text-suwappu-text-secondary">Current Price</p>
           <p className={`font-heading font-bold ${isClose ? 'text-green-600' : 'text-suwappu-text'}`}>
-            {formatPrice(order.currentPrice)}
+            ${order.currentPrice?.toFixed(2) || 'N/A'}
           </p>
         </div>
       </div>
-      
-      {order.status === 'filled' && order.executedTxHash && (
-        <div className="mb-3 p-2 bg-green-50 rounded-lg">
-          <p className="text-[10px] text-green-700">
-            ✅ Executed at {formatPrice(order.executedPrice)} on {formatTime(order.executedAt)}
-          </p>
-        </div>
-      )}
       
       <div className="flex items-center justify-between">
         <p className="text-[10px] text-suwappu-text-secondary">
           Created {formatTime(order.createdAt)}
         </p>
-        {order.status === 'active' && (
+        {order.status === 'pending' && (
           <button
             onClick={() => onCancel(order.id)}
-            disabled={isCancelling}
-            className="text-xs text-suwappu-error font-medium disabled:opacity-50"
+            className="text-xs text-suwappu-error font-medium"
           >
-            {isCancelling ? '...' : 'Cancel'}
+            Cancel
           </button>
         )}
       </div>
@@ -98,41 +91,42 @@ function OrderCard({ order, onCancel, isCancelling }: {
 
 export function LimitOrders() {
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
-  const [filter, setFilter] = useState<'all' | 'active' | 'filled'>('all')
-  const [cancellingId, setCancellingId] = useState<number | null>(null)
+  const [orders, setOrders] = useState<LimitOrder[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState<'all' | 'pending' | 'filled'>('all')
 
-  // Fetch limit orders - gracefully handle API not deployed yet
-  const { data: orders = [], isLoading, error } = useQuery({
-    queryKey: ['limitOrders', filter === 'all' ? undefined : filter],
-    queryFn: async () => {
-      try {
-        return await api.getLimitOrders(filter === 'all' ? undefined : filter)
-      } catch (e: any) {
-        // If 404, endpoint doesn't exist yet - return empty
-        if (e?.status === 404) return []
-        throw e
-      }
-    },
-    refetchInterval: 30000, // Refresh every 30s to get current prices
-    retry: 1, // Only retry once for this page
-  })
+  useEffect(() => {
+    loadOrders()
+  }, [])
 
-  // Cancel mutation
-  const cancelMutation = useMutation({
-    mutationFn: (orderId: number) => api.cancelLimitOrder(orderId),
-    onMutate: (orderId) => setCancellingId(orderId),
-    onSettled: () => setCancellingId(null),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['limitOrders'] })
-    },
-  })
-
-  const handleCancel = (id: number) => {
-    if (window.confirm('Cancel this limit order?')) {
-      cancelMutation.mutate(id)
+  const loadOrders = async () => {
+    try {
+      setLoading(true)
+      const data = await api.getOrders()
+      setOrders(data)
+    } catch (err: any) {
+      toast.error(err.detail || 'Failed to load orders')
+    } finally {
+      setLoading(false)
     }
   }
+
+  const handleCancel = async (id: number) => {
+    try {
+      await api.cancelOrder(id)
+      setOrders(orders.map(o => o.id === id ? { ...o, status: 'cancelled' as const } : o))
+      toast.success('Order cancelled')
+    } catch (err: any) {
+      toast.error(err.detail || 'Failed to cancel order')
+    }
+  }
+
+  const filteredOrders = orders.filter(o => {
+    if (filter === 'all') return true
+    if (filter === 'pending') return o.status === 'pending' || o.status === 'executing'
+    if (filter === 'filled') return o.status === 'filled'
+    return true
+  })
 
   return (
     <AppLayout 
@@ -150,7 +144,7 @@ export function LimitOrders() {
 
         {/* Filter tabs */}
         <div className="flex gap-2">
-          {(['all', 'active', 'filled'] as const).map((f) => (
+          {(['all', 'pending', 'filled'] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -165,28 +159,16 @@ export function LimitOrders() {
           ))}
         </div>
 
-        {/* Loading State */}
-        {isLoading && (
-          <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-8 text-center">
-            <div className="animate-pulse text-suwappu-text-secondary">Loading orders...</div>
-          </div>
-        )}
-
-        {/* Error State */}
-        {error && (
-          <div className="bg-red-50 rounded-suwappu-xl p-4 text-center">
-            <p className="text-red-600 text-sm">Failed to load orders</p>
-            <button 
-              onClick={() => queryClient.invalidateQueries({ queryKey: ['limitOrders'] })}
-              className="mt-2 text-xs text-red-700 underline"
-            >
-              Try again
-            </button>
+        {/* Loading state */}
+        {loading && (
+          <div className="text-center py-8">
+            <div className="animate-spin w-8 h-8 border-2 border-suwappu-purple-deep border-t-transparent rounded-full mx-auto mb-2" />
+            <p className="text-suwappu-text-secondary text-sm">Loading orders...</p>
           </div>
         )}
 
         {/* Orders List */}
-        {!isLoading && !error && orders.length === 0 && (
+        {!loading && filteredOrders.length === 0 ? (
           <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-8 text-center">
             <div className="w-16 h-16 mx-auto mb-4 bg-suwappu-sakura-light rounded-full flex items-center justify-center">
               <span className="text-3xl">📈</span>
@@ -198,17 +180,10 @@ export function LimitOrders() {
               Set a target price and we'll execute when it's reached
             </p>
           </div>
-        )}
-
-        {!isLoading && !error && orders.length > 0 && (
+        ) : (
           <div className="space-y-3">
-            {orders.map((order) => (
-              <OrderCard 
-                key={order.id} 
-                order={order} 
-                onCancel={handleCancel}
-                isCancelling={cancellingId === order.id}
-              />
+            {filteredOrders.map((order) => (
+              <OrderCard key={order.id} order={order} onCancel={handleCancel} />
             ))}
           </div>
         )}
