@@ -7,6 +7,7 @@ import { runEffectEither } from '../runtime'
 import type { TelegramUser } from '../services/TelegramAuthService'
 import { mapErrorToResponse, ValidationError, NotFoundError, DatabaseError } from '../errors'
 import { EnvService } from '../config/EnvService'
+import { broadcastEvmTransaction, getExplorerUrl } from '../config/chains'
 
 const swapRoutes = new Hono()
 
@@ -273,32 +274,36 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 
 			const signedTransaction = signResult.signedTransaction
 
-			// Submit to RPC
-			// For now, return the signed tx - in production, submit to the chain's RPC
-			console.log('[SwapRoute] Transaction signed successfully')
+			console.log('[SwapRoute] Transaction signed successfully, broadcasting...')
 
-			// In a full implementation, you would:
-			// 1. Get the appropriate RPC endpoint for the chain
-			// 2. Send the signed transaction using eth_sendRawTransaction
-			// 3. Wait for confirmation
-			// 4. Update swap status to 'completed' or 'failed'
+			// Broadcast to chain
+			let txHash: string
+			try {
+				txHash = await broadcastEvmTransaction(txRequest.chainId, signedTransaction)
+				console.log('[SwapRoute] Transaction broadcast:', txHash)
+			} catch (broadcastError) {
+				console.error('[SwapRoute] Broadcast failed:', broadcastError)
+				yield* swapService.updateSwapStatus(
+					swapRecord.id, 'failed', undefined,
+					`Broadcast failed: ${broadcastError}`
+				)
+				return yield* Effect.fail(new Error(`Failed to broadcast transaction: ${broadcastError}`))
+			}
 
-			// For now, update status to 'signed' and return
-			yield* swapService.updateSwapStatus(swapRecord.id, 'signed', signedTransaction)
+			// Update status to submitted with txHash
+			yield* swapService.updateSwapStatus(swapRecord.id, 'submitted', txHash)
 
 			// Clear the quote from cache
 			quoteCache.delete(quoteId)
 
+			const explorerUrl = getExplorerUrl(txRequest.chainId, txHash)
+
 			return {
 				success: true,
 				swapId: swapRecord.id,
-				status: 'signed',
-				signedTransaction,
-				message: 'Transaction signed. Submit to chain to complete swap.',
-				chain: {
-					chainId: txRequest.chainId,
-					rpcNeeded: true,
-				},
+				status: 'submitted',
+				txHash,
+				explorerUrl,
 				swap: {
 					fromChain: quote.fromChain,
 					toChain: quote.toChain,
@@ -351,8 +356,8 @@ swapRoutes.get('/status/:swapId', telegramAuth(), async (c) => {
 			}
 			const user = userOption.value
 
-			// Get swap
-			const swap = yield* swapService.getSwapById(swapId)
+			// Get swap (lazy confirmation check for submitted txs)
+			const swap = yield* swapService.checkAndUpdateSwapStatus(swapId)
 			if (!swap) {
 				return yield* Effect.fail(new NotFoundError({ message: 'Swap not found', resource: 'swap' }))
 			}
@@ -360,6 +365,15 @@ swapRoutes.get('/status/:swapId', telegramAuth(), async (c) => {
 			// Verify ownership
 			if (swap.userId !== user.id) {
 				return yield* Effect.fail(new NotFoundError({ message: 'Swap not found', resource: 'swap' }))
+			}
+
+			// Build explorer URL if we have a txHash
+			let explorerUrl: string | undefined
+			if (swap.txHash) {
+				const chainId = parseInt(swap.fromChain, 10)
+				if (!isNaN(chainId)) {
+					explorerUrl = getExplorerUrl(chainId, swap.txHash)
+				}
 			}
 
 			return {
@@ -372,6 +386,7 @@ swapRoutes.get('/status/:swapId', telegramAuth(), async (c) => {
 				fromAmount: swap.fromAmount,
 				toAmount: swap.toAmount,
 				txHash: swap.txHash,
+				explorerUrl,
 				bridgeTxHash: swap.bridgeTxHash,
 				destinationTxHash: swap.destinationTxHash,
 				errorMessage: swap.errorMessage,

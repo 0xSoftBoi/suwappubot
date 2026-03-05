@@ -62,6 +62,7 @@ export interface UserPreferences {
   notificationsEnabled: boolean
   twoFaEnabled: boolean
   twoFaThreshold: number
+  gasMode: string
 }
 
 export interface UserProfile {

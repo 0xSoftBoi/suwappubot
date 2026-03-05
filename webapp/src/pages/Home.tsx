@@ -1,8 +1,7 @@
-import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AppLayout, UserHeader } from '../components/layout'
 import { BalanceCard, TokenItem } from '../components/cards'
-import { QuickActions, NotificationBanner, FeatureGrid, QuickSwap } from '../components/ui'
+import { QuickActions, FeatureGrid, QuickSwap } from '../components/ui'
 import { usePortfolio } from '../hooks/usePortfolio'
 import type { Token } from '../types/api'
 
@@ -47,7 +46,6 @@ function formatUsd(value: number): string {
 
 export function Home() {
   const navigate = useNavigate()
-  const [showBanner, setShowBanner] = useState(true)
   const { data: portfolio, isLoading, error, refetch } = usePortfolio()
 
   // Format portfolio data for display - show $0.00 on error (graceful degradation)
@@ -64,14 +62,6 @@ export function Home() {
 
   return (
     <AppLayout header={header} activeNav="home">
-      {showBanner && (
-        <NotificationBanner
-          message="New: Solana swaps are now live!"
-          type="info"
-          onClose={() => setShowBanner(false)}
-        />
-      )}
-
       <div className="p-3 space-y-4">
         <BalanceCard balance={balance} />
 

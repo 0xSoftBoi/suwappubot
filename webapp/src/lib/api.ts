@@ -9,7 +9,7 @@ import { getInitData } from './telegram'
 import { getAuthToken } from './auth'
 import type { Portfolio, Swap, ApiError, HealthStatus, UserPreferencesResponse, UpdatePreferencesResponse, UserPreferences } from '../types/api'
 import type { LinkedWallet, AuthChallenge, LinkWalletResponse } from '../types/auth'
-import type { SwapToken, SwapQuote, SwapQuoteRequest, SwapExecuteRequest, SwapExecuteResult } from '../types/swap'
+import type { SwapToken, SwapQuote, SwapQuoteRequest, SwapExecuteRequest, SwapExecuteResult, SwapStatusResponse } from '../types/swap'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -224,6 +224,46 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify(request),
     })
+  }
+
+  // === Swap Status ===
+
+  /**
+   * Get swap status by ID (polls for confirmation)
+   */
+  async getSwapStatus(swapId: number): Promise<SwapStatusResponse> {
+    return this.fetch<SwapStatusResponse>(`/webapp/swap/status/${swapId}`)
+  }
+
+  // === Token Search ===
+
+  /**
+   * Search tokens across chains via server-side API
+   */
+  async searchTokens(query: string, chains?: string[]): Promise<SwapToken[]> {
+    const params = new URLSearchParams({ q: query })
+    if (chains?.length) params.set('chains', chains.join(','))
+    const data = await this.fetch<{ tokens: Array<{ address: string; symbol: string; decimals: number; name: string; chainId: number; logoURI?: string; priceUSD?: string }> }>(
+      `/webapp/tokens/search?${params}`
+    )
+    return data.tokens.map((t) => ({
+      symbol: t.symbol,
+      name: t.name,
+      address: t.address,
+      chain: String(t.chainId),
+      decimals: t.decimals,
+      logoUrl: t.logoURI,
+    }))
+  }
+
+  /**
+   * Get batch token prices
+   */
+  async getTokenPrices(symbols: string[]): Promise<Record<string, number>> {
+    const data = await this.fetch<{ prices: Record<string, number> }>(
+      `/webapp/tokens/prices?tokens=${symbols.join(',')}`
+    )
+    return data.prices
   }
 
   // === User Preferences ===
