@@ -1,24 +1,50 @@
 /**
- * Token discovery screen — Trending / Gainers / New tabs with search.
+ * Token discovery screen — Trending / Gainers / New tabs with search + chain filter.
  */
 import { useState, useCallback } from 'react'
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native'
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native'
 import { Stack } from 'expo-router'
+import * as Haptics from 'expo-haptics'
 import { TokenSearchBar } from '../../../components/discovery/TokenSearchBar'
 import { TrendingTokenRow } from '../../../components/discovery/TrendingTokenRow'
-import { useTrendingTokens, useGainerTokens, useNewTokens, useTokenSearch } from '../../../hooks/useTokenDiscovery'
+import {
+  useTrendingTokens,
+  useGainerTokens,
+  useNewTokens,
+  useTokenSearch,
+} from '../../../hooks/useTokenDiscovery'
 import { colors, spacing, radius } from '../../../lib/theme'
 
 type Tab = 'trending' | 'gainers' | 'new'
 
+const CHAINS = [
+  { id: 'all', label: 'All Chains' },
+  { id: 'ethereum', label: 'ETH' },
+  { id: 'base', label: 'Base' },
+  { id: 'arbitrum', label: 'ARB' },
+  { id: 'solana', label: 'SOL' },
+  { id: 'bsc', label: 'BSC' },
+  { id: 'polygon', label: 'MATIC' },
+  { id: 'optimism', label: 'OP' },
+] as const
+
 export default function DiscoverScreen() {
   const [activeTab, setActiveTab] = useState<Tab>('trending')
+  const [selectedChain, setSelectedChain] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [refreshing, setRefreshing] = useState(false)
 
-  const trending = useTrendingTokens()
+  const trending = useTrendingTokens(selectedChain)
   const gainers = useGainerTokens()
-  const newTokens = useNewTokens()
+  const newTokens = useNewTokens(selectedChain)
   const searchResults = useTokenSearch(searchQuery)
 
   const isSearching = searchQuery.length >= 2
@@ -58,6 +84,38 @@ export default function DiscoverScreen() {
         {/* Search */}
         <TokenSearchBar onSearch={setSearchQuery} />
 
+        {/* Chain filter */}
+        {!isSearching && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.chainFilter}
+          >
+            {CHAINS.map((c) => (
+              <TouchableOpacity
+                key={c.id}
+                style={[
+                  styles.chainChip,
+                  selectedChain === c.id && styles.chainChipActive,
+                ]}
+                onPress={() => {
+                  setSelectedChain(c.id)
+                  Haptics.selectionAsync()
+                }}
+              >
+                <Text
+                  style={[
+                    styles.chainChipText,
+                    selectedChain === c.id && styles.chainChipTextActive,
+                  ]}
+                >
+                  {c.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
+
         {/* Tab pills */}
         {!isSearching && (
           <View style={styles.tabs}>
@@ -65,10 +123,13 @@ export default function DiscoverScreen() {
               <TouchableOpacity
                 key={tab}
                 style={[styles.tab, activeTab === tab && styles.tabActive]}
-                onPress={() => setActiveTab(tab)}
+                onPress={() => {
+                  setActiveTab(tab)
+                  Haptics.selectionAsync()
+                }}
               >
                 <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                  {tab === 'trending' ? 'Trending' : tab === 'gainers' ? 'Gainers' : 'New'}
+                  {tab === 'trending' ? '🔥 Trending' : tab === 'gainers' ? '📈 Gainers' : '🆕 New'}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -76,7 +137,7 @@ export default function DiscoverScreen() {
         )}
 
         {isSearching && searchQuery.length >= 2 && (
-          <Text style={styles.sectionLabel}>Search results for "{searchQuery}"</Text>
+          <Text style={styles.sectionLabel}>Search results for &quot;{searchQuery}&quot;</Text>
         )}
 
         {/* List */}
@@ -105,6 +166,25 @@ export default function DiscoverScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   content: { paddingTop: spacing.lg, paddingBottom: 40 },
+  chainFilter: {
+    paddingHorizontal: spacing.xxl,
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  chainChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  chainChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryDim,
+  },
+  chainChipText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
+  chainChipTextActive: { color: colors.primary },
   tabs: {
     flexDirection: 'row',
     gap: spacing.sm,
