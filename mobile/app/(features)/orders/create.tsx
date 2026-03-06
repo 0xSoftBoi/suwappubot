@@ -2,8 +2,9 @@
  * Create order — type, tokens, trigger price, expiry.
  */
 import { useState } from 'react'
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator, Alert } from 'react-native'
 import { useRouter } from 'expo-router'
+import * as Haptics from 'expo-haptics'
 import { useCreateOrder } from '../../../hooks/useOrders'
 import { colors, spacing, radius } from '../../../lib/theme'
 import type { OrderType } from '../../../../packages/shared/src/types/orders'
@@ -30,6 +31,7 @@ export default function CreateOrderScreen() {
   const [expiresInHours, setExpiresInHours] = useState('')
 
   const handleCreate = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
     createMutation.mutate(
       {
         orderType,
@@ -41,7 +43,16 @@ export default function CreateOrderScreen() {
         triggerPrice: parseFloat(triggerPrice),
         expiresInHours: expiresInHours ? parseInt(expiresInHours) : undefined,
       },
-      { onSuccess: () => router.back() },
+      {
+        onSuccess: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+          router.back()
+        },
+        onError: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+          Alert.alert('Error', 'Failed to create order. Please try again.')
+        },
+      },
     )
   }
 

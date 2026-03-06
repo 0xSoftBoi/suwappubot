@@ -2,10 +2,11 @@
  * Alerts list with Active / Triggered / All segments.
  */
 import { useState, useMemo } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native'
 import { FlashList } from '@shopify/flash-list'
 import { useRouter } from 'expo-router'
 import FontAwesome from '@expo/vector-icons/FontAwesome'
+import * as Haptics from 'expo-haptics'
 import { useAlerts, useToggleAlert, useDeleteAlert } from '../../../hooks/useAlerts'
 import AlertRow from '../../../components/alerts/AlertRow'
 import EmptyState from '../../../components/ui/EmptyState'
@@ -19,6 +20,25 @@ export default function AlertsScreen() {
   const toggleMutation = useToggleAlert()
   const deleteMutation = useDeleteAlert()
   const [filter, setFilter] = useState<Filter>('active')
+
+  const handleToggle = (id: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    toggleMutation.mutate(id)
+  }
+
+  const handleDelete = (id: number) => {
+    Alert.alert('Delete Alert', 'Are you sure you want to delete this alert?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+          deleteMutation.mutate(id)
+        },
+      },
+    ])
+  }
 
   const filtered = useMemo(() => {
     if (!alerts) return []
@@ -54,7 +74,7 @@ export default function AlertsScreen() {
           <TouchableOpacity
             key={s.key}
             style={[styles.segment, filter === s.key && styles.segmentActive]}
-            onPress={() => setFilter(s.key)}
+            onPress={() => { setFilter(s.key); Haptics.selectionAsync() }}
           >
             <Text style={[styles.segmentText, filter === s.key && styles.segmentTextActive]}>
               {s.label}
@@ -66,7 +86,10 @@ export default function AlertsScreen() {
       {/* Create button */}
       <TouchableOpacity
         style={styles.createButton}
-        onPress={() => router.push('/(features)/alerts/create' as any)}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+          router.push('/(features)/alerts/create' as any)
+        }}
       >
         <FontAwesome name="plus" size={14} color={colors.bg} />
         <Text style={styles.createText}>New Alert</Text>
@@ -88,8 +111,8 @@ export default function AlertsScreen() {
           renderItem={({ item }) => (
             <AlertRow
               alert={item}
-              onToggle={id => toggleMutation.mutate(id)}
-              onDelete={id => deleteMutation.mutate(id)}
+              onToggle={handleToggle}
+              onDelete={handleDelete}
             />
           )}
         />

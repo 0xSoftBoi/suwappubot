@@ -2,10 +2,11 @@
  * Orders list with Pending / Executed / Cancelled segments.
  */
 import { useState, useMemo } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native'
 import { FlashList } from '@shopify/flash-list'
 import { useRouter } from 'expo-router'
 import FontAwesome from '@expo/vector-icons/FontAwesome'
+import * as Haptics from 'expo-haptics'
 import { useOrders, useCancelOrder } from '../../../hooks/useOrders'
 import OrderRow from '../../../components/orders/OrderRow'
 import EmptyState from '../../../components/ui/EmptyState'
@@ -18,6 +19,20 @@ export default function OrdersScreen() {
   const { data: orders, isLoading } = useOrders()
   const cancelMutation = useCancelOrder()
   const [filter, setFilter] = useState<Filter>('pending')
+
+  const handleCancel = (id: number) => {
+    Alert.alert('Cancel Order', 'Are you sure you want to cancel this order?', [
+      { text: 'Keep', style: 'cancel' },
+      {
+        text: 'Cancel Order',
+        style: 'destructive',
+        onPress: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+          cancelMutation.mutate(id)
+        },
+      },
+    ])
+  }
 
   const filtered = useMemo(() => {
     if (!orders) return []
@@ -46,7 +61,7 @@ export default function OrdersScreen() {
           <TouchableOpacity
             key={s.key}
             style={[styles.segment, filter === s.key && styles.segmentActive]}
-            onPress={() => setFilter(s.key)}
+            onPress={() => { setFilter(s.key); Haptics.selectionAsync() }}
           >
             <Text style={[styles.segmentText, filter === s.key && styles.segmentTextActive]}>
               {s.label}
@@ -57,7 +72,10 @@ export default function OrdersScreen() {
 
       <TouchableOpacity
         style={styles.createButton}
-        onPress={() => router.push('/(features)/orders/create' as any)}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+          router.push('/(features)/orders/create' as any)
+        }}
       >
         <FontAwesome name="plus" size={14} color={colors.bg} />
         <Text style={styles.createText}>New Order</Text>
@@ -76,7 +94,7 @@ export default function OrdersScreen() {
           data={filtered}
           contentContainerStyle={{ paddingHorizontal: spacing.xxl, paddingBottom: 40 }}
           renderItem={({ item }) => (
-            <OrderRow order={item} onCancel={id => cancelMutation.mutate(id)} />
+            <OrderRow order={item} onCancel={handleCancel} />
           )}
         />
       )}

@@ -2,8 +2,9 @@
  * Create DCA — tokens, amount, interval, limits.
  */
 import { useState } from 'react'
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator, Alert } from 'react-native'
 import { useRouter } from 'expo-router'
+import * as Haptics from 'expo-haptics'
 import { useCreateDCA } from '../../../hooks/useDCA'
 import { colors, spacing, radius } from '../../../lib/theme'
 
@@ -29,6 +30,7 @@ export default function CreateDCAScreen() {
   const [maxExecutions, setMaxExecutions] = useState('')
 
   const handleCreate = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
     createMutation.mutate(
       {
         fromToken: fromToken.toUpperCase(),
@@ -39,7 +41,16 @@ export default function CreateDCAScreen() {
         intervalHours,
         maxExecutions: maxExecutions ? parseInt(maxExecutions) : undefined,
       },
-      { onSuccess: () => router.back() },
+      {
+        onSuccess: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+          router.back()
+        },
+        onError: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+          Alert.alert('Error', 'Failed to create DCA plan. Please try again.')
+        },
+      },
     )
   }
 

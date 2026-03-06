@@ -2,8 +2,9 @@
  * Create alert screen — token, chain, type, target price.
  */
 import { useState } from 'react'
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator, Alert } from 'react-native'
 import { useRouter } from 'expo-router'
+import * as Haptics from 'expo-haptics'
 import { useCreateAlert } from '../../../hooks/useAlerts'
 import { colors, spacing, radius } from '../../../lib/theme'
 import type { AlertType } from '../../../../packages/shared/src/types/alerts'
@@ -28,6 +29,7 @@ export default function CreateAlertScreen() {
   const [percentChange, setPercentChange] = useState('')
 
   const handleCreate = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
     createMutation.mutate(
       {
         tokenSymbol: tokenSymbol.toUpperCase(),
@@ -37,7 +39,16 @@ export default function CreateAlertScreen() {
         targetPrice: alertType !== 'percent_change' ? parseFloat(targetPrice) : undefined,
         percentChange: alertType === 'percent_change' ? parseFloat(percentChange) : undefined,
       },
-      { onSuccess: () => router.back() },
+      {
+        onSuccess: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+          router.back()
+        },
+        onError: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+          Alert.alert('Error', 'Failed to create alert. Please try again.')
+        },
+      },
     )
   }
 

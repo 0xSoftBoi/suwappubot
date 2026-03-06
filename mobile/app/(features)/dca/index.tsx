@@ -2,10 +2,11 @@
  * DCA plans list with Active / Paused / Completed segments.
  */
 import { useState, useMemo } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native'
 import { FlashList } from '@shopify/flash-list'
 import { useRouter } from 'expo-router'
 import FontAwesome from '@expo/vector-icons/FontAwesome'
+import * as Haptics from 'expo-haptics'
 import { useDCAPlans, usePauseDCA, useResumeDCA, useCancelDCA } from '../../../hooks/useDCA'
 import DCACard from '../../../components/dca/DCACard'
 import EmptyState from '../../../components/ui/EmptyState'
@@ -20,6 +21,30 @@ export default function DCAScreen() {
   const resumeMutation = useResumeDCA()
   const cancelMutation = useCancelDCA()
   const [filter, setFilter] = useState<Filter>('active')
+
+  const handlePause = (id: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    pauseMutation.mutate(id)
+  }
+
+  const handleResume = (id: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    resumeMutation.mutate(id)
+  }
+
+  const handleCancel = (id: number) => {
+    Alert.alert('Cancel DCA Plan', 'This will stop all future executions. Continue?', [
+      { text: 'Keep', style: 'cancel' },
+      {
+        text: 'Cancel Plan',
+        style: 'destructive',
+        onPress: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+          cancelMutation.mutate(id)
+        },
+      },
+    ])
+  }
 
   const filtered = useMemo(() => {
     if (!plans) return []
@@ -48,7 +73,7 @@ export default function DCAScreen() {
           <TouchableOpacity
             key={s.key}
             style={[styles.segment, filter === s.key && styles.segmentActive]}
-            onPress={() => setFilter(s.key)}
+            onPress={() => { setFilter(s.key); Haptics.selectionAsync() }}
           >
             <Text style={[styles.segmentText, filter === s.key && styles.segmentTextActive]}>
               {s.label}
@@ -59,7 +84,10 @@ export default function DCAScreen() {
 
       <TouchableOpacity
         style={styles.createButton}
-        onPress={() => router.push('/(features)/dca/create' as any)}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+          router.push('/(features)/dca/create' as any)
+        }}
       >
         <FontAwesome name="plus" size={14} color={colors.bg} />
         <Text style={styles.createText}>New DCA Plan</Text>
@@ -80,9 +108,9 @@ export default function DCAScreen() {
           renderItem={({ item }) => (
             <DCACard
               plan={item}
-              onPause={id => pauseMutation.mutate(id)}
-              onResume={id => resumeMutation.mutate(id)}
-              onCancel={id => cancelMutation.mutate(id)}
+              onPause={handlePause}
+              onResume={handleResume}
+              onCancel={handleCancel}
             />
           )}
         />

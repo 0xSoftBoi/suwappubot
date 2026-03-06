@@ -2,8 +2,9 @@
  * Create snipe — token, platform, mode, amount.
  */
 import { useState } from 'react'
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Switch, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Switch, StyleSheet, ActivityIndicator, Alert } from 'react-native'
 import { useRouter } from 'expo-router'
+import * as Haptics from 'expo-haptics'
 import { useCreateSnipeOrder, useSnipeConfig } from '../../../hooks/useSniping'
 import { colors, spacing, radius } from '../../../lib/theme'
 import type { SnipePlatform, SnipeMode } from '../../../../packages/shared/src/types/sniping'
@@ -34,6 +35,7 @@ export default function CreateSnipeScreen() {
   const quickAmounts = config?.quickAmounts || [0.1, 0.25, 0.5, 1.0]
 
   const handleCreate = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
     createMutation.mutate(
       {
         tokenAddress: tokenAddress || undefined,
@@ -42,7 +44,16 @@ export default function CreateSnipeScreen() {
         amountSol,
         useMevProtection,
       },
-      { onSuccess: () => router.back() },
+      {
+        onSuccess: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+          router.back()
+        },
+        onError: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+          Alert.alert('Error', 'Failed to create snipe order. Please try again.')
+        },
+      },
     )
   }
 

@@ -2,8 +2,9 @@
  * Follow setup — mode, amount, limits.
  */
 import { useState } from 'react'
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator, Alert } from 'react-native'
 import { useRouter } from 'expo-router'
+import * as Haptics from 'expo-haptics'
 import { useFollowTrader } from '../../../hooks/useCopyTrading'
 import { useUIStore } from '../../../stores/ui'
 import { colors, spacing, radius } from '../../../lib/theme'
@@ -23,6 +24,7 @@ export default function FollowConfigScreen() {
 
   const handleFollow = () => {
     if (!traderId) return
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
     followMutation.mutate(
       {
         traderId,
@@ -35,7 +37,16 @@ export default function FollowConfigScreen() {
           dailyLimit,
         },
       },
-      { onSuccess: () => router.back() },
+      {
+        onSuccess: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+          router.back()
+        },
+        onError: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+          Alert.alert('Error', 'Failed to follow trader. Please try again.')
+        },
+      },
     )
   }
 

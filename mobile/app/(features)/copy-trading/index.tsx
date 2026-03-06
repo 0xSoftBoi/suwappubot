@@ -2,8 +2,9 @@
  * Copy trading hub — Discover / Following / My Trades tabs.
  */
 import { useState } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native'
 import { FlashList } from '@shopify/flash-list'
+import * as Haptics from 'expo-haptics'
 import { useTraderLeaderboard, useMyFollows, useCopyTrades, useUnfollowTrader } from '../../../hooks/useCopyTrading'
 import TraderCard from '../../../components/copy-trading/TraderCard'
 import FollowCard from '../../../components/copy-trading/FollowCard'
@@ -26,6 +27,20 @@ export default function CopyTradingScreen() {
     { key: 'trades', label: 'My Trades' },
   ]
 
+  const handleUnfollow = (id: number, name: string) => {
+    Alert.alert('Unfollow Trader', `Stop copying ${name}?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Unfollow',
+        style: 'destructive',
+        onPress: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+          unfollowMutation.mutate(id)
+        },
+      },
+    ])
+  }
+
   const isLoading =
     (tab === 'discover' && tradersLoading) ||
     (tab === 'following' && followsLoading) ||
@@ -38,7 +53,7 @@ export default function CopyTradingScreen() {
           <TouchableOpacity
             key={t.key}
             style={[styles.tab, tab === t.key && styles.tabActive]}
-            onPress={() => setTab(t.key)}
+            onPress={() => { setTab(t.key); Haptics.selectionAsync() }}
           >
             <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>
               {t.label}
@@ -69,7 +84,7 @@ export default function CopyTradingScreen() {
             data={follows}
             contentContainerStyle={{ paddingHorizontal: spacing.xxl, paddingBottom: 40 }}
             renderItem={({ item }) => (
-              <FollowCard follow={item} onUnfollow={id => unfollowMutation.mutate(id)} />
+              <FollowCard follow={item} onUnfollow={(id) => handleUnfollow(id, item.traderName)} />
             )}
           />
         )

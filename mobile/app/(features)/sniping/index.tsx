@@ -2,10 +2,11 @@
  * Sniping dashboard — active and history.
  */
 import { useState, useMemo } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native'
 import { FlashList } from '@shopify/flash-list'
 import { useRouter } from 'expo-router'
 import FontAwesome from '@expo/vector-icons/FontAwesome'
+import * as Haptics from 'expo-haptics'
 import { useSnipeOrders, useCancelSnipeOrder } from '../../../hooks/useSniping'
 import SnipeOrderCard from '../../../components/sniping/SnipeOrderCard'
 import EmptyState from '../../../components/ui/EmptyState'
@@ -18,6 +19,20 @@ export default function SnipingScreen() {
   const { data: orders, isLoading } = useSnipeOrders()
   const cancelMutation = useCancelSnipeOrder()
   const [filter, setFilter] = useState<Filter>('active')
+
+  const handleCancel = (id: number) => {
+    Alert.alert('Cancel Snipe', 'Are you sure you want to cancel this snipe order?', [
+      { text: 'Keep', style: 'cancel' },
+      {
+        text: 'Cancel Snipe',
+        style: 'destructive',
+        onPress: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+          cancelMutation.mutate(id)
+        },
+      },
+    ])
+  }
 
   const filtered = useMemo(() => {
     if (!orders) return []
@@ -40,13 +55,13 @@ export default function SnipingScreen() {
       <View style={styles.segments}>
         <TouchableOpacity
           style={[styles.segment, filter === 'active' && styles.segmentActive]}
-          onPress={() => setFilter('active')}
+          onPress={() => { setFilter('active'); Haptics.selectionAsync() }}
         >
           <Text style={[styles.segmentText, filter === 'active' && styles.segmentTextActive]}>Active</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.segment, filter === 'history' && styles.segmentActive]}
-          onPress={() => setFilter('history')}
+          onPress={() => { setFilter('history'); Haptics.selectionAsync() }}
         >
           <Text style={[styles.segmentText, filter === 'history' && styles.segmentTextActive]}>History</Text>
         </TouchableOpacity>
@@ -54,7 +69,10 @@ export default function SnipingScreen() {
 
       <TouchableOpacity
         style={styles.createButton}
-        onPress={() => router.push('/(features)/sniping/create' as any)}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+          router.push('/(features)/sniping/create' as any)
+        }}
       >
         <FontAwesome name="plus" size={14} color={colors.bg} />
         <Text style={styles.createText}>New Snipe</Text>
@@ -73,7 +91,7 @@ export default function SnipingScreen() {
           data={filtered}
           contentContainerStyle={{ paddingHorizontal: spacing.xxl, paddingBottom: 40 }}
           renderItem={({ item }) => (
-            <SnipeOrderCard order={item} onCancel={id => cancelMutation.mutate(id)} />
+            <SnipeOrderCard order={item} onCancel={handleCancel} />
           )}
         />
       )}
