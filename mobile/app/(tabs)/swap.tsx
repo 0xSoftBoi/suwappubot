@@ -1,18 +1,29 @@
 /**
  * Swap tab screen.
  *
- * Token swap interface with chain selection, quote fetching, and execution.
+ * Full-featured token swap with chain selection, token selector bottom sheet,
+ * preset amounts, direction toggle, slippage config, haptic feedback,
+ * quote details, and execution.
  */
 import { View, Text, TouchableOpacity, TextInput, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
-import { useState, useCallback, useEffect } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
-import { useLocalSearchParams } from 'expo-router'
+import { useState, useEffect } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useLocalSearchParams, useRouter } from 'expo-router'
+import * as Haptics from 'expo-haptics'
 import { api } from '../../lib/api'
 import { SwapConfirmSheet } from '../../components/swap/SwapConfirmSheet'
+import { TokenSelector } from '../../components/swap/TokenSelector'
+import { ChainSelector } from '../../components/swap/ChainSelector'
+import type { SwapToken } from '../../../packages/shared/src/types/swap'
 import { colors, spacing, radius } from '../../lib/theme'
+
+const PRESET_PERCENTS = [25, 50, 75, 100] as const
 
 export default function SwapScreen() {
   const params = useLocalSearchParams<{ token?: string; chain?: string }>()
+  const router = useRouter()
+  const queryClient = useQueryClient()
+
   const [fromChain, setFromChain] = useState('ethereum')
   const [toChain, setToChain] = useState('ethereum')
   const [fromToken, setFromToken] = useState('')
@@ -20,13 +31,16 @@ export default function SwapScreen() {
   const [amount, setAmount] = useState('')
   const [fromTokenDisplay, setFromTokenDisplay] = useState('ETH')
   const [toTokenDisplay, setToTokenDisplay] = useState('USDC')
+  const [fromDecimals, setFromDecimals] = useState(18)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [showFromTokenSelector, setShowFromTokenSelector] = useState(false)
+  const [showToTokenSelector, setShowToTokenSelector] = useState(false)
+  const [slippage, setSlippage] = useState(0.5)
+  const [showSlippage, setShowSlippage] = useState(false)
 
   // Pre-fill from deep link params
   useEffect(() => {
-    if (params.token) {
-      setToToken(params.token)
-    }
+    if (params.token) setToToken(params.token)
     if (params.chain) {
       setFromChain(params.chain)
       setToChain(params.chain)
@@ -39,23 +53,31 @@ export default function SwapScreen() {
     queryFn: () => api.getChains(),
   })
 
-  // Fetch tokens for selected chain
-  const { data: tokens } = useQuery({
+  // Fetch tokens for from chain
+  const { data: fromTokens, isLoading: isLoadingFromTokens } = useQuery({
     queryKey: ['tokens', fromChain],
     queryFn: () => api.getTokens(fromChain),
     enabled: !!fromChain,
   })
 
-  // Get swap quote
-  const { data: quote, isFetching: isQuoting, refetch: refetchQuote } = useQuery({
-    queryKey: ['quote', fromChain, toChain, fromToken, toToken, amount],
+  // Fetch tokens for to chain (when cross-chain)
+  const { data: toTokens, isLoading: isLoadingToTokens } = useQuery({
+    queryKey: ['tokens', toChain],
+    queryFn: () => api.getTokens(toChain),
+    enabled: !!toChain,
+  })
+
+  // Get swap quote with debounce
+  const { data: quote, isFetching: isQuoting } = useQuery({
+    queryKey: ['quote', fromChain, toChain, fromToken, toToken, amount, slippage],
     queryFn: () => api.getSwapQuote({
       fromChain,
       toChain,
       fromToken,
       toToken,
       amount,
-      fromDecimals: 18,
+      fromDecimals,
+      slippage: slippage * 100, // basis points
     }),
     enabled: !!fromToken && !!toToken && !!amount && parseFloat(amount) > 0,
     staleTime: 15_000,
@@ -64,10 +86,80 @@ export default function SwapScreen() {
   // Execute swap
   const swapMutation = useMutation({
     mutationFn: (quoteId: string) => api.executeSwap({ quoteId }),
+    onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+      queryClient.invalidateQueries({ queryKey: ['portfolio'] })
+      queryClient.invalidateQueries({ queryKey: ['swaps'] })
+    },
+    onError: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+    },
   })
+
+  // Set default tokens when list loads
+  useEffect(() => {
+    if (fromTokens && fromTokens.length > 0) {
+      const eth = fromTokens.find(t => t.symbol === 'ETH')
+      const usdc = fromTokens.find(t => t.symbol === 'USDC')
+      if (eth && !fromToken) {
+        setFromToken(eth.address)
+        setFromTokenDisplay(eth.symbol)
+        setFromDecimals(eth.decimals)
+      }
+      if (usdc && !toToken) {
+        setToToken(usdc.address)
+        setToTokenDisplay(usdc.symbol)
+      }
+    }
+  }, [fromTokens])
+
+  const handleSelectFromToken = (token: SwapToken) => {
+    setFromToken(token.address)
+    setFromTokenDisplay(token.symbol)
+    setFromDecimals(token.decimals)
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+  }
+
+  const handleSelectToToken = (token: SwapToken) => {
+    setToToken(token.address)
+    setToTokenDisplay(token.symbol)
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+  }
+
+  const handleSwapDirection = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+    // Swap everything
+    const tmpChain = fromChain
+    const tmpToken = fromToken
+    const tmpDisplay = fromTokenDisplay
+    const tmpDecimals = fromDecimals
+
+    setFromChain(toChain)
+    setToChain(tmpChain)
+    setFromToken(toToken)
+    setToToken(tmpToken)
+    setFromTokenDisplay(toTokenDisplay)
+    setToTokenDisplay(tmpDisplay)
+    setFromDecimals(18) // reset since we don't track toDecimals
+    setAmount(quote?.toAmount || '')
+  }
+
+  const handlePresetAmount = (percent: number) => {
+    // Find the from token in the list to get balance
+    const token = fromTokens?.find(t => t.address === fromToken)
+    if (token?.balance) {
+      const bal = parseFloat(token.balance)
+      if (!isNaN(bal)) {
+        const val = (bal * percent / 100)
+        setAmount(percent === 100 ? token.balance : val.toString())
+        Haptics.selectionAsync()
+      }
+    }
+  }
 
   const handleSwapPress = () => {
     if (quote) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
       setShowConfirm(true)
     }
   }
@@ -80,30 +172,40 @@ export default function SwapScreen() {
     }
   }
 
-  // Set default tokens when list loads
-  useEffect(() => {
-    if (tokens && tokens.length > 0) {
-      const eth = tokens.find(t => t.symbol === 'ETH')
-      const usdc = tokens.find(t => t.symbol === 'USDC')
-      if (eth && !fromToken) {
-        setFromToken(eth.address)
-        setFromTokenDisplay(eth.symbol)
-      }
-      if (usdc && !toToken) {
-        setToToken(usdc.address)
-        setToTokenDisplay(usdc.symbol)
-      }
-    }
-  }, [tokens])
+  // USD estimate for amount
+  const fromUsdEstimate = quote ? `~$${quote.fromAmountUsd?.toFixed(2) || '--'}` : ''
+  const toUsdEstimate = quote ? `~$${quote.toAmountUsd?.toFixed(2) || '--'}` : ''
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* From */}
+    <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      {/* Chain selector */}
+      {chains && chains.length > 0 && (
+        <ChainSelector
+          chains={chains}
+          selected={fromChain}
+          onSelect={(key) => {
+            setFromChain(key)
+            setToChain(key)
+            setFromToken('')
+            setToToken('')
+            setAmount('')
+          }}
+        />
+      )}
+
+      {/* From card */}
       <View style={styles.tokenCard}>
-        <Text style={styles.cardLabel}>From</Text>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardLabel}>From</Text>
+          {fromUsdEstimate ? <Text style={styles.usdEstimate}>{fromUsdEstimate}</Text> : null}
+        </View>
         <View style={styles.tokenRow}>
-          <TouchableOpacity style={styles.tokenSelector}>
-            <Text style={styles.tokenSymbol}>{fromTokenDisplay}</Text>
+          <TouchableOpacity
+            style={styles.tokenSelector}
+            onPress={() => setShowFromTokenSelector(true)}
+          >
+            <Text style={styles.tokenSymbolText}>{fromTokenDisplay}</Text>
+            <Text style={styles.chevron}>{'>'}</Text>
           </TouchableOpacity>
           <TextInput
             style={styles.amountInput}
@@ -114,31 +216,71 @@ export default function SwapScreen() {
             onChangeText={setAmount}
           />
         </View>
-        <Text style={styles.chainLabel}>{fromChain}</Text>
+
+        {/* Preset amount buttons */}
+        <View style={styles.presets}>
+          {PRESET_PERCENTS.map((pct) => (
+            <TouchableOpacity
+              key={pct}
+              style={styles.presetButton}
+              onPress={() => handlePresetAmount(pct)}
+            >
+              <Text style={styles.presetText}>{pct === 100 ? 'MAX' : `${pct}%`}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
 
-      {/* Swap direction arrow */}
+      {/* Swap direction toggle */}
       <View style={styles.arrowContainer}>
-        <TouchableOpacity style={styles.arrowButton}>
+        <TouchableOpacity style={styles.arrowButton} onPress={handleSwapDirection}>
           <Text style={styles.arrowText}>&#x2195;</Text>
         </TouchableOpacity>
       </View>
 
-      {/* To */}
+      {/* To card */}
       <View style={styles.tokenCard}>
-        <Text style={styles.cardLabel}>To</Text>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardLabel}>To</Text>
+          {toUsdEstimate ? <Text style={styles.usdEstimate}>{toUsdEstimate}</Text> : null}
+        </View>
         <View style={styles.tokenRow}>
-          <TouchableOpacity style={styles.tokenSelector}>
-            <Text style={styles.tokenSymbol}>{toTokenDisplay}</Text>
+          <TouchableOpacity
+            style={styles.tokenSelector}
+            onPress={() => setShowToTokenSelector(true)}
+          >
+            <Text style={styles.tokenSymbolText}>{toTokenDisplay}</Text>
+            <Text style={styles.chevron}>{'>'}</Text>
           </TouchableOpacity>
           <Text style={styles.receiveAmount}>
             {isQuoting ? '...' : quote?.toAmount || '0.00'}
           </Text>
         </View>
-        <Text style={styles.chainLabel}>{toChain}</Text>
       </View>
 
-      {/* Quote Details */}
+      {/* Slippage row */}
+      <TouchableOpacity style={styles.slippageRow} onPress={() => setShowSlippage(!showSlippage)}>
+        <Text style={styles.slippageLabel}>Slippage Tolerance</Text>
+        <Text style={styles.slippageValue}>{slippage}%</Text>
+      </TouchableOpacity>
+
+      {showSlippage && (
+        <View style={styles.slippageOptions}>
+          {[0.1, 0.5, 1.0, 3.0].map((val) => (
+            <TouchableOpacity
+              key={val}
+              style={[styles.slippageChip, slippage === val && styles.slippageChipActive]}
+              onPress={() => { setSlippage(val); Haptics.selectionAsync() }}
+            >
+              <Text style={[styles.slippageChipText, slippage === val && styles.slippageChipTextActive]}>
+                {val}%
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {/* Quote details */}
       {quote && (
         <View style={styles.quoteDetails}>
           <View style={styles.detailRow}>
@@ -168,7 +310,7 @@ export default function SwapScreen() {
         </View>
       )}
 
-      {/* Swap Button */}
+      {/* Swap button */}
       <TouchableOpacity
         style={[
           styles.swapButton,
@@ -181,12 +323,42 @@ export default function SwapScreen() {
           <ActivityIndicator color="#fff" />
         ) : (
           <Text style={styles.swapButtonText}>
-            {!amount ? 'Enter amount' : !quote ? 'Getting quote...' : 'Review Swap'}
+            {!amount ? 'Enter amount' : isQuoting ? 'Getting quote...' : !quote ? 'Enter amount' : 'Review Swap'}
           </Text>
         )}
       </TouchableOpacity>
 
-      {/* Confirmation Sheet */}
+      {/* Success / Error banners */}
+      {swapMutation.isSuccess && (
+        <View style={styles.successBanner}>
+          <Text style={styles.successText}>Swap submitted! Tracking transaction...</Text>
+        </View>
+      )}
+      {swapMutation.isError && (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>
+            {(swapMutation.error as any)?.detail || 'Swap failed'}
+          </Text>
+        </View>
+      )}
+
+      {/* Token selectors */}
+      <TokenSelector
+        visible={showFromTokenSelector}
+        tokens={fromTokens || []}
+        isLoading={isLoadingFromTokens}
+        onSelect={handleSelectFromToken}
+        onClose={() => setShowFromTokenSelector(false)}
+      />
+      <TokenSelector
+        visible={showToTokenSelector}
+        tokens={toTokens || []}
+        isLoading={isLoadingToTokens}
+        onSelect={handleSelectToToken}
+        onClose={() => setShowToTokenSelector(false)}
+      />
+
+      {/* Confirmation sheet */}
       <SwapConfirmSheet
         visible={showConfirm}
         isPending={swapMutation.isPending}
@@ -208,41 +380,38 @@ export default function SwapScreen() {
             : null
         }
       />
-
-      {/* Success / Error */}
-      {swapMutation.isSuccess && (
-        <View style={styles.successBanner}>
-          <Text style={styles.successText}>Swap submitted! Tracking transaction...</Text>
-        </View>
-      )}
-      {swapMutation.isError && (
-        <View style={styles.errorBanner}>
-          <Text style={styles.errorText}>
-            {(swapMutation.error as any)?.detail || 'Swap failed'}
-          </Text>
-        </View>
-      )}
     </ScrollView>
   )
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.xxl, gap: 0 },
+  content: { padding: spacing.xxl, gap: 0, paddingBottom: 40 },
   tokenCard: {
     backgroundColor: colors.card,
     borderRadius: radius.lg,
     padding: spacing.xl,
   },
-  cardLabel: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.md },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  cardLabel: { fontSize: 13, color: colors.textSecondary },
+  usdEstimate: { fontSize: 13, color: colors.textTertiary },
   tokenRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   tokenSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.border,
     borderRadius: radius.md,
     paddingHorizontal: spacing.lg,
     paddingVertical: 10,
+    gap: spacing.sm,
   },
-  tokenSymbol: { fontSize: 18, fontWeight: '600', color: colors.text },
+  tokenSymbolText: { fontSize: 18, fontWeight: '600', color: colors.text },
+  chevron: { fontSize: 12, color: colors.textSecondary },
   amountInput: {
     flex: 1,
     fontSize: 28,
@@ -259,7 +428,19 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     marginLeft: spacing.lg,
   },
-  chainLabel: { fontSize: 12, color: colors.textMuted, marginTop: spacing.sm, textTransform: 'capitalize' },
+  presets: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  presetButton: {
+    flex: 1,
+    backgroundColor: colors.cardAlt,
+    borderRadius: radius.sm,
+    paddingVertical: 6,
+    alignItems: 'center',
+  },
+  presetText: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
   arrowContainer: { alignItems: 'center', marginVertical: -12, zIndex: 1 },
   arrowButton: {
     backgroundColor: colors.border,
@@ -272,6 +453,32 @@ const styles = StyleSheet.create({
     borderColor: colors.bg,
   },
   arrowText: { fontSize: 18, color: colors.text },
+  slippageRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    marginTop: spacing.sm,
+  },
+  slippageLabel: { fontSize: 13, color: colors.textSecondary },
+  slippageValue: { fontSize: 13, color: colors.text, fontWeight: '600' },
+  slippageOptions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  slippageChip: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: radius.sm,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  slippageChipActive: { borderColor: colors.primary, backgroundColor: colors.primaryDim },
+  slippageChipText: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
+  slippageChipTextActive: { color: colors.primary },
   quoteDetails: {
     backgroundColor: colors.card,
     borderRadius: radius.lg,
