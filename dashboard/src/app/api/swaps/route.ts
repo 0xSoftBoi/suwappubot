@@ -6,9 +6,13 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const limit = url.searchParams.get("limit") || "5";
+  const offset = url.searchParams.get("offset");
+  const status = url.searchParams.get("status");
   const userId = url.searchParams.get("userId");
 
   const qp = new URLSearchParams({ limit });
+  if (offset) qp.set("offset", offset);
+  if (status) qp.set("status", status);
   if (userId) qp.set("user_id", userId);
 
   try {
@@ -25,5 +29,3 @@ export async function GET(req: Request) {
     );
   }
 }
-
-
