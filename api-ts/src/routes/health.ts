@@ -1,15 +1,38 @@
 import { Hono } from 'hono'
+import { Effect, Option } from 'effect'
+import { sql } from 'drizzle-orm'
 import packageJson from '../../package.json'
+import { DrizzleService } from '../db'
+import { runEffectEither } from '../runtime'
 
 const healthRoutes = new Hono()
 
-healthRoutes.get('/health', (c) => {
+healthRoutes.get('/health', async (c) => {
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const dbOption = yield* DrizzleService
+			if (Option.isNone(dbOption)) {
+				return { db: 'not_configured' as const }
+			}
+			try {
+				await dbOption.value.execute(sql`SELECT 1`)
+				return { db: 'connected' as const }
+			} catch {
+				return { db: 'unreachable' as const }
+			}
+		})
+	)
+
+	const dbStatus = result._tag === 'Right' ? result.right : { db: 'error' as const }
+	const isHealthy = dbStatus.db !== 'unreachable' && dbStatus.db !== 'error'
+
 	return c.json({
-		status: 'ok',
+		status: isHealthy ? 'ok' : 'degraded',
 		service: 'suwappu-api-ts',
 		version: packageJson.version,
 		timestamp: new Date().toISOString(),
-	})
+		...dbStatus,
+	}, isHealthy ? 200 : 503)
 })
 
 // Known good tokens (verified, no scams)
