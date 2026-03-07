@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@effect/schema": "^0.75.5",
-    "@turnkey/api-key-stamper": "^0.6.0",
+    "@turnkey/api-key-stamper": "^0.6.1",
     "@turnkey/sdk-server": "^5.0.1",
     "@types/jsonwebtoken": "^9.0.10",
     "drizzle-orm": "^0.45.1",
