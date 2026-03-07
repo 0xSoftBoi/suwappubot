@@ -20,7 +20,6 @@ export const users = pgTable('users', {
 	// Settings
 	defaultSlippage: integer('default_slippage').default(50),
 	notificationsEnabled: boolean('notifications_enabled').default(true),
-	gasMode: varchar('gas_mode', { length: 10 }).default('auto'),
 
 	// Terms of Service
 	tosAccepted: boolean('tos_accepted').default(false),

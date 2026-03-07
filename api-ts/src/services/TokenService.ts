@@ -38,7 +38,7 @@ export const CHAINS: Record<string, ChainInfo> = {
 }
 
 // Common token addresses by chain
-export const COMMON_TOKENS: Record<number, Record<string, string>> = {
+const COMMON_TOKENS: Record<number, Record<string, string>> = {
 	// Ethereum
 	1: {
 		ETH: '0x0000000000000000000000000000000000000000',

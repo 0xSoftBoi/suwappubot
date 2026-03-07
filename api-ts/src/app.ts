@@ -4,7 +4,7 @@ import { HTTPException } from 'hono/http-exception'
 import { serveStatic } from 'hono/bun'
 
 import { createCorsMiddleware, adminKeyAuth } from './middleware'
-import { healthRoutes, webappRoutes, agentRoutes, a2aRoutes, swapRoutes, publicSwapRoutes, adminRoutes, tokenRoutes } from './routes'
+import { healthRoutes, webappRoutes, agentRoutes, a2aRoutes, swapRoutes, publicSwapRoutes, adminRoutes, mcpRoutes } from './routes'
 import agentCard from '../agent-card.json'
 
 export interface AppConfig {
@@ -38,9 +38,6 @@ export function createApp(config: AppConfig) {
 	// Swap routes - mounted first so public endpoints (tokens, chains) are accessible
 	app.route('/webapp/swap', swapRoutes)
 
-	// Token search and prices
-	app.route('/webapp/tokens', tokenRoutes)
-
 	// Webapp routes - Telegram auth
 	app.route('/webapp', webappRoutes)
 
@@ -50,6 +47,9 @@ export function createApp(config: AppConfig) {
 
 	// A2A JSON-RPC endpoint - uses Bearer token auth internally
 	app.route('/a2a', a2aRoutes)
+
+	// MCP endpoint for OpenClaw and other MCP-compatible agents
+	app.route('/mcp', mcpRoutes)
 
 	// Agent card for A2A discovery (standard path + legacy)
 	app.get('/.well-known/agent.json', (c) => c.json(agentCard))

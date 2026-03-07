@@ -9,9 +9,4 @@ export { AgentService, AgentServiceLive, type RegisterAgentParams, type UpdateAg
 export { TokenService, TokenServiceLive, CHAINS, type TokenInfo, type ChainInfo } from './TokenService'
 export { JupiterService, JupiterServiceLive, SOLANA_TOKENS, type JupiterQuote, type JupiterSwapResponse } from './JupiterService'
 
-// New services for Python feature parity
-export { DCAService, DCAServiceLive, type CreateDCAParams, type UpdateDCAParams, type DCAStats } from './DCAService'
-export { AlertService, AlertServiceLive, type CreateAlertParams, type UpdateAlertParams, type AlertType, type CheckAlertResult, type AlertStats } from './AlertService'
-export { OrderService, OrderServiceLive, type CreateOrderParams, type UpdateOrderParams, type OrderType, type OrderSide, type OrderStatus, type CheckOrderResult, type OrderStats } from './OrderService'
-export { ReferralService, ReferralServiceLive, type ReferralStats, type ReferredUser, type CreateReferralParams } from './ReferralService'
 export { CopyTradingService, CopyTradingServiceLive, type TraderLeaderboardEntry, type CopySettings, type FollowTraderParams, type UpdateCopySettingsParams } from './CopyTradingService'

@@ -11,11 +11,7 @@ import { TurnkeyServiceLive } from './TurnkeyService'
 import { AgentServiceLive } from './AgentService'
 import { TokenServiceLive } from './TokenService'
 import { JupiterServiceLive } from './JupiterService'
-import { ReferralServiceLive } from './ReferralService'
 import { CopyTradingServiceLive } from './CopyTradingService'
-import { DCAServiceLive } from './DCAService'
-import { AlertServiceLive } from './AlertService'
-import { OrderServiceLive } from './OrderService'
 
 // Base configuration layer
 export const ConfigLayer = EnvServiceLive
@@ -39,10 +35,6 @@ export const ServicesLayer = Layer.mergeAll(
 	AgentServiceLive,
 	TokenServiceLive,
 	JupiterServiceLive,
-	DCAServiceLive,
-	AlertServiceLive,
-	OrderServiceLive,
-	ReferralServiceLive,
 	CopyTradingServiceLive
 )
 

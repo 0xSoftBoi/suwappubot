@@ -15,7 +15,6 @@ export interface UpdateUserPreferencesParams {
 	notificationsEnabled?: boolean
 	twoFaEnabled?: boolean
 	twoFaThreshold?: number
-	gasMode?: string
 }
 
 export interface UserServiceInterface {
@@ -156,9 +155,6 @@ export const UserServiceLive = Layer.succeed(UserService, {
 			}
 			if (params.twoFaThreshold !== undefined) {
 				updateData.twoFaThreshold = params.twoFaThreshold
-			}
-			if (params.gasMode !== undefined) {
-				updateData.gasMode = params.gasMode
 			}
 
 			const result = yield* Effect.tryPromise({
