@@ -4,7 +4,7 @@ import * as schema from './schema'
 
 export function createDbClient(databaseUrl: string) {
 	const queryClient = postgres(databaseUrl, {
-		max: 50,
+		max: 10,
 		idle_timeout: 20,
 		connect_timeout: 10,
 	})

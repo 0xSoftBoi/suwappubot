@@ -4,8 +4,8 @@
   "requiresCompatibilities": [
     "FARGATE"
   ],
-  "cpu": "256",
-  "memory": "512",
+  "cpu": "512",
+  "memory": "1024",
   "executionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/SuwappuStack-SuwappuTaskExecutionRole23EC76C6-U9AyrZNZlcfs",
   "taskRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/SuwappuStack-SuwappuTaskTaskRoleB8E1A138-WPL93Pi0RLpk",
   "containerDefinitions": [
@@ -79,7 +79,7 @@
         "interval": 30,
         "timeout": 5,
         "retries": 3,
-        "startPeriod": 60
+        "startPeriod": 120
       }
     }
   ]
