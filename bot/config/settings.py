@@ -132,35 +132,35 @@ class Settings(BaseSettings):
 
     # EVM RPC Endpoints (Can be comma-separated lists)
     ethereum_rpc_url: str = Field(
-        default="https://eth.llamarpc.com,https://rpc.ankr.com/eth,https://1rpc.io/eth",
+        default="https://eth.llamarpc.com,https://1rpc.io/eth",
         description="Ethereum mainnet RPC URL(s)"
     )
     bsc_rpc_url: str = Field(
-        default="https://bsc-dataseed.binance.org/,https://rpc.ankr.com/bsc,https://binance.llamarpc.com",
+        default="https://bsc-dataseed.binance.org/,https://binance.llamarpc.com",
         description="BSC mainnet RPC URL(s)"
     )
     polygon_rpc_url: str = Field(
-        default="https://polygon-rpc.com/,https://rpc.ankr.com/polygon,https://polygon.llamarpc.com",
+        default="https://polygon-rpc.com/,https://polygon.llamarpc.com",
         description="Polygon mainnet RPC URL(s)"
     )
     arbitrum_rpc_url: str = Field(
-        default="https://arb1.arbitrum.io/rpc,https://rpc.ankr.com/arbitrum,https://arbitrum.llamarpc.com",
+        default="https://arb1.arbitrum.io/rpc,https://arbitrum.llamarpc.com",
         description="Arbitrum mainnet RPC URL(s)"
     )
     optimism_rpc_url: str = Field(
-        default="https://mainnet.optimism.io,https://rpc.ankr.com/optimism,https://optimism.llamarpc.com",
+        default="https://mainnet.optimism.io,https://optimism.llamarpc.com",
         description="Optimism mainnet RPC URL(s)"
     )
     base_rpc_url: str = Field(
-        default="https://mainnet.base.org,https://rpc.ankr.com/base,https://base.llamarpc.com",
+        default="https://mainnet.base.org,https://base.llamarpc.com,https://1rpc.io/base",
         description="Base mainnet RPC URL(s)"
     )
     avalanche_rpc_url: str = Field(
-        default="https://api.avax.network/ext/bc/C/rpc,https://rpc.ankr.com/avalanche,https://avalanche.llamarpc.com",
+        default="https://api.avax.network/ext/bc/C/rpc,https://avalanche.llamarpc.com",
         description="Avalanche C-Chain RPC URL(s)"
     )
     fantom_rpc_url: str = Field(
-        default="https://rpc.ftm.tools,https://rpc.ankr.com/fantom,https://fantom.llamarpc.com",
+        default="https://rpc.ftm.tools,https://fantom.llamarpc.com",
         description="Fantom mainnet RPC URL(s)"
     )
     linea_rpc_url: str = Field(
@@ -172,7 +172,7 @@ class Settings(BaseSettings):
         description="Mantle mainnet RPC URL(s)"
     )
     gnosis_rpc_url: str = Field(
-        default="https://rpc.gnosischain.com,https://rpc.ankr.com/gnosis,https://gnosis.drpc.org",
+        default="https://rpc.gnosischain.com,https://gnosis.drpc.org",
         description="Gnosis Chain RPC URL(s)"
     )
     scroll_rpc_url: str = Field(
