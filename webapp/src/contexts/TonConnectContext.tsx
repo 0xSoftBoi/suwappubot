@@ -58,7 +58,7 @@ export function TonConnectProvider({ children }: { children: ReactNode }) {
       // Check if the module is available (will throw if not installed)
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const tonconnect = require('@tonconnect/ui-react')
-      const { useTonAddress, useTonConnectUI, useTonWallet } = tonconnect
+      const { useTonAddress: _useTonAddress, useTonConnectUI: _useTonConnectUI, useTonWallet: _useTonWallet } = tonconnect
 
       return {
         isAvailable: true,

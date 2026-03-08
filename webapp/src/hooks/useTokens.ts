@@ -21,7 +21,7 @@ export function useTokens(chain = '1', includeBalances = true) {
       if (chainId !== chain) {
         queryClient.prefetchQuery({
           queryKey: ['tokens', chainId, includeBalances],
-          queryFn: () => api.getTokens(chainId, includeBalances),
+          queryFn: () => api.getTokensWithBalances(chainId, includeBalances),
           staleTime: 2 * 60 * 1000, // 2 minutes for prefetched data
         })
       }
@@ -30,7 +30,7 @@ export function useTokens(chain = '1', includeBalances = true) {
 
   return useQuery({
     queryKey: ['tokens', chain, includeBalances],
-    queryFn: () => api.getTokens(chain, includeBalances),
+    queryFn: () => api.getTokensWithBalances(chain, includeBalances),
     staleTime: 30 * 1000, // 30 seconds - refresh often for prices
     gcTime: 5 * 60 * 1000, // Keep in cache 5 minutes
     refetchOnWindowFocus: true,

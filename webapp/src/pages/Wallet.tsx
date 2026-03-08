@@ -240,6 +240,7 @@ function ReceiveView({
 
           {/* QR Code */}
           <div className="w-48 h-48 mx-auto mb-4 bg-white rounded-suwappu-lg p-3 shadow-suwappu-1">
+            {/* @ts-expect-error QRCodeSVG types conflict with React 18 types */}
             <QRCodeSVG
               value={address}
               size={168}

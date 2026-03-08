@@ -27,9 +27,9 @@ function formatPrice(price: number): string {
 }
 
 // Generate sparkline data from a token's price history
-function generateSparkline(token: TrendingToken): LineData<Time>[] {
-  if (token.priceHistory && token.priceHistory.length > 0) {
-    return token.priceHistory.map((p: { time: number; value: number }) => ({
+function generateSparkline(token: { sparkline?: Array<{ time: number; value: number }>; price?: number; priceChange24h?: number }): LineData<Time>[] {
+  if (token.sparkline && token.sparkline.length > 0) {
+    return token.sparkline.map((p) => ({
       time: p.time as Time,
       value: p.value,
     }))
@@ -37,7 +37,7 @@ function generateSparkline(token: TrendingToken): LineData<Time>[] {
   // Fallback: generate simple two-point line from price change
   const now = Math.floor(Date.now() / 1000)
   const dayAgo = now - 86400
-  const currentPrice = token.priceUsd || 1
+  const currentPrice = token.price || 1
   const change = token.priceChange24h || 0
   const prevPrice = currentPrice / (1 + change / 100)
   return [
@@ -46,24 +46,12 @@ function generateSparkline(token: TrendingToken): LineData<Time>[] {
   ]
 }
 
-interface TrendingToken {
-  tokenAddress: string
-  chainId: string
-  name: string
-  symbol: string
-  priceUsd: number
-  priceChange24h: number
-  volume24h?: number
-  logoUrl?: string
-  priceHistory?: { time: number; value: number }[]
-}
-
 export default function Discover() {
   const navigate = useNavigate()
   const [chainFilter, setChainFilter] = useState<string | undefined>(undefined)
   const { data: trendingData, isLoading } = useTrendingTokens(chainFilter)
 
-  const tokens: TrendingToken[] = trendingData?.tokens || []
+  const tokens = trendingData || []
 
   const header = <AppHeader title="Discover" />
 
@@ -109,17 +97,17 @@ export default function Discover() {
                   >
                     {/* Token icon */}
                     <div className="w-10 h-10 rounded-full bg-suwappu-sakura-light flex items-center justify-center text-sm font-bold text-suwappu-magenta-mid flex-shrink-0 overflow-hidden">
-                      {token.logoUrl ? (
-                        <img src={token.logoUrl} alt={token.symbol} className="w-full h-full object-cover" />
+                      {token.icon ? (
+                        <img src={token.icon} alt={token.symbol || ''} className="w-full h-full object-cover" />
                       ) : (
-                        token.symbol.slice(0, 2)
+                        (token.symbol || '??').slice(0, 2)
                       )}
                     </div>
 
                     {/* Token info */}
                     <div className="flex-1 min-w-0">
-                      <p className="font-heading font-semibold text-sm text-suwappu-text truncate">{token.name}</p>
-                      <p className="text-xs text-suwappu-text-secondary">{token.symbol}</p>
+                      <p className="font-heading font-semibold text-sm text-suwappu-text truncate">{token.name || 'Unknown'}</p>
+                      <p className="text-xs text-suwappu-text-secondary">{token.symbol || ''}</p>
                     </div>
 
                     {/* Mini chart */}
@@ -130,12 +118,12 @@ export default function Discover() {
                     {/* Price info */}
                     <div className="text-right flex-shrink-0 ml-2">
                       <p className="font-heading font-semibold text-sm text-suwappu-text">
-                        {formatPrice(token.priceUsd)}
+                        {formatPrice(token.price || 0)}
                       </p>
                       <p className={`text-xs font-semibold ${
-                        token.priceChange24h >= 0 ? 'text-green-500' : 'text-red-500'
+                        (token.priceChange24h || 0) >= 0 ? 'text-green-500' : 'text-red-500'
                       }`}>
-                        {token.priceChange24h >= 0 ? '+' : ''}{token.priceChange24h.toFixed(2)}%
+                        {(token.priceChange24h || 0) >= 0 ? '+' : ''}{(token.priceChange24h || 0).toFixed(2)}%
                       </p>
                     </div>
                   </button>

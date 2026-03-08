@@ -118,20 +118,20 @@ export function useTelegram(): UseTelegramReturn {
   }, [webApp])
 
   const requestFullscreen = useCallback(() => {
-    if ((webApp as Record<string, unknown>)?.requestFullscreen) {
-      ;(webApp as Record<string, CallableFunction>).requestFullscreen()
+    if ((webApp as unknown as Record<string, unknown>)?.requestFullscreen) {
+      ;(webApp as unknown as Record<string, CallableFunction>).requestFullscreen()
     }
   }, [webApp])
 
   const exitFullscreen = useCallback(() => {
-    if ((webApp as Record<string, unknown>)?.exitFullscreen) {
-      ;(webApp as Record<string, CallableFunction>).exitFullscreen()
+    if ((webApp as unknown as Record<string, unknown>)?.exitFullscreen) {
+      ;(webApp as unknown as Record<string, CallableFunction>).exitFullscreen()
     }
   }, [webApp])
 
   const addToHomeScreen = useCallback(() => {
-    if ((webApp as Record<string, unknown>)?.addToHomeScreen) {
-      ;(webApp as Record<string, CallableFunction>).addToHomeScreen()
+    if ((webApp as unknown as Record<string, unknown>)?.addToHomeScreen) {
+      ;(webApp as unknown as Record<string, CallableFunction>).addToHomeScreen()
     }
   }, [webApp])
 

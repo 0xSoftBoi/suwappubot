@@ -28,7 +28,7 @@ export function useTraderProfile(id: number | null) {
 export function useFollowing() {
   return useQuery({
     queryKey: ['copyTrading', 'following'],
-    queryFn: () => api.getFollowing(),
+    queryFn: () => api.getWebappFollowing(),
     staleTime: 30 * 1000,
   })
 }
@@ -36,7 +36,7 @@ export function useFollowing() {
 export function useCopyTrades(limit = 20, offset = 0) {
   return useQuery({
     queryKey: ['copyTrading', 'trades', limit, offset],
-    queryFn: () => api.getCopyTrades(limit, offset),
+    queryFn: () => api.getWebappCopyTrades(limit, offset),
     staleTime: 30 * 1000,
   })
 }
@@ -46,7 +46,7 @@ export function useFollow() {
 
   return useMutation({
     mutationFn: ({ traderId, settings }: { traderId: number; settings: CopyFollowSettings }) =>
-      api.followTrader(traderId, settings),
+      api.webappFollowTrader(traderId, settings),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['copyTrading', 'following'] })
       queryClient.invalidateQueries({ queryKey: ['copyTrading', 'topTraders'] })

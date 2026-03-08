@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AppLayout, AppHeader } from '../components/layout'
-import { api, type LimitOrder } from '../lib/api'
+import { api, type WebappLimitOrder } from '../lib/api'
 
 const statusColors = {
   active: 'bg-blue-100 text-blue-700',
@@ -28,7 +28,7 @@ function formatPrice(price: number | null): string {
 }
 
 function OrderCard({ order, onCancel, isCancelling }: { 
-  order: LimitOrder
+  order: WebappLimitOrder
   onCancel: (id: number) => void
   isCancelling: boolean 
 }) {
@@ -103,11 +103,11 @@ export function LimitOrders() {
   const [cancellingId, setCancellingId] = useState<number | null>(null)
 
   // Fetch limit orders - gracefully handle API not deployed yet
-  const { data: orders = [], isLoading, error } = useQuery({
+  const { data: orders = [] as WebappLimitOrder[], isLoading, error } = useQuery({
     queryKey: ['limitOrders', filter === 'all' ? undefined : filter],
     queryFn: async () => {
       try {
-        return await api.getLimitOrders(filter === 'all' ? undefined : filter)
+        return await api.getWebappLimitOrders(filter === 'all' ? undefined : filter)
       } catch (e: any) {
         // If 404, endpoint doesn't exist yet - return empty
         if (e?.status === 404) return []
@@ -120,7 +120,7 @@ export function LimitOrders() {
 
   // Cancel mutation
   const cancelMutation = useMutation({
-    mutationFn: (orderId: number) => api.cancelLimitOrder(orderId),
+    mutationFn: (orderId: number) => api.cancelWebappLimitOrder(orderId),
     onMutate: (orderId) => setCancellingId(orderId),
     onSettled: () => setCancellingId(null),
     onSuccess: () => {

@@ -281,15 +281,15 @@ class WebappApiClient extends BaseApiClient {
     return this.fetch<CopyTraderProfile>(`/webapp/me/copy/trader/${id}`)
   }
 
-  async getFollowing(): Promise<CopyFollowingEntry[]> {
+  async getWebappFollowing(): Promise<CopyFollowingEntry[]> {
     return this.fetch<CopyFollowingEntry[]>('/webapp/me/copy/following')
   }
 
-  async getCopyTrades(limit = 20, offset = 0): Promise<CopyTradeRecord[]> {
+  async getWebappCopyTrades(limit = 20, offset = 0): Promise<CopyTradeRecord[]> {
     return this.fetch<CopyTradeRecord[]>(`/webapp/me/copy/trades?limit=${limit}&offset=${offset}`)
   }
 
-  async followTrader(traderId: number, settings: CopyFollowSettings): Promise<unknown> {
+  async webappFollowTrader(traderId: number, settings: CopyFollowSettings): Promise<unknown> {
     return this.fetch('/webapp/me/copy/follow/' + traderId, {
       method: 'POST',
       body: JSON.stringify(settings),

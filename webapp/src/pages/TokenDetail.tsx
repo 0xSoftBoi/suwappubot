@@ -41,7 +41,7 @@ export default function TokenDetail() {
   const liquidity = pair?.liquidity?.usd || 0
 
   // Transform chart data to candlestick format
-  const candleData: CandlestickData<Time>[] = chartData?.candles || []
+  const candleData: CandlestickData<Time>[] = (chartData?.candles || []).map(c => ({ ...c, time: c.time as unknown as Time }))
 
   const header = (
     <AppHeader

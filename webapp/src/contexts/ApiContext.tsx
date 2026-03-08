@@ -33,7 +33,9 @@ export interface ApiInterface {
 }
 
 // Context defaults to real API
-const ApiContext = createContext<ApiInterface>(api)
+// WebappApiClient extends BaseApiClient with webapp-specific return types;
+// cast to satisfy context default (runtime types are compatible).
+const ApiContext = createContext<ApiInterface>(api as unknown as ApiInterface)
 
 interface ApiProviderProps {
   children: ReactNode
@@ -62,7 +64,7 @@ interface ApiProviderProps {
 export function ApiProvider({ children, useMock = false }: ApiProviderProps) {
   const apiClient = useMock ? mockApi : api
 
-  return <ApiContext.Provider value={apiClient}>{children}</ApiContext.Provider>
+  return <ApiContext.Provider value={apiClient as unknown as ApiInterface}>{children}</ApiContext.Provider>
 }
 
 /**

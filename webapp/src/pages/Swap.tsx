@@ -58,7 +58,7 @@ export function Swap() {
   if (swap.swapPending || swap.activeSwapId != null) {
     const txStatus: TransactionStatus = swap.swapPending
       ? 'submitting'
-      : swap.swapStatus?.status === 'submitted'
+      : swap.swapStatus?.status === 'signed'
       ? 'pending'
       : swap.swapStatus?.status === 'failed'
       ? 'failed'

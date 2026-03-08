@@ -36,7 +36,7 @@ export function Home() {
   // Map swap status to transaction progress status
   const txStatus: TransactionStatus = swap.swapPending
     ? 'submitting'
-    : swap.swapStatus?.status === 'submitted'
+    : swap.swapStatus?.status === 'signed'
     ? 'pending'
     : swap.swapStatus?.status === 'failed'
     ? 'failed'

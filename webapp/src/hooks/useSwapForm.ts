@@ -145,11 +145,11 @@ export function useSwapForm() {
 
     setIsConfirming(false)
     executeSwap(
-      { quoteId: quote.quoteId },
+      { quoteId: quote.id },
       {
         onSuccess: (result) => {
-          setActiveTxHash(result.txHash)
-          if (result.txHash) {
+          setActiveTxHash(result.signedTransaction)
+          if (result.signedTransaction) {
             setActiveSwapId(result.swapId)
           } else {
             setIsSuccess(true)
@@ -172,12 +172,12 @@ export function useSwapForm() {
   const fromUsdValue = quote?.fromAmountUsd != null ? `~$${Number(quote.fromAmountUsd).toFixed(2)}` : undefined
   const toUsdValue = quote?.toAmountUsd != null ? `~$${Number(quote.toAmountUsd).toFixed(2)}` : undefined
   const exchangeRate = quote && fromToken && toToken
-    ? `1 ${fromToken.symbol} = ${parseFloat(quote.exchangeRate).toFixed(4)} ${toToken.symbol}`
+    ? `1 ${fromToken.symbol} = ${Number(quote.exchangeRate).toFixed(4)} ${toToken.symbol}`
     : undefined
-  const priceImpact = quote ? `${parseFloat(quote.priceImpact).toFixed(2)}%` : undefined
-  const networkFee = quote ? `~$${quote.estimatedGasUsd}` : undefined
+  const priceImpact = quote ? `${Number(quote.priceImpact).toFixed(2)}%` : undefined
+  const networkFee = quote ? `~$${quote.gasUsd}` : undefined
   const minReceived = quote && toToken
-    ? `${(parseFloat(quote.toAmountMin) / Math.pow(10, toToken.decimals)).toFixed(6)} ${toToken.symbol}`
+    ? `${(parseFloat(quote.minReceived) / Math.pow(10, toToken.decimals)).toFixed(6)} ${toToken.symbol}`
     : undefined
 
   // Convert SwapToken to Token for TokenInput
