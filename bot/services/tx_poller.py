@@ -196,7 +196,7 @@ class TransactionPoller:
                 "id": 1,
             }
             
-            async with http_session.post(settings.solana_rpc_url, json=payload) as response:
+            async with http_session.post(settings.get_rpc_url("solana"), json=payload) as response:
                 if response.status != 200:
                     return None
                 

@@ -690,7 +690,7 @@ class SwapEngine:
                         {"encoding": "base64", "skipPreflight": False}
                     ]
                 }
-                async with session.post(settings.solana_rpc_url, json=payload) as resp:
+                async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
                     result = await resp.json()
                     if "error" in result:
                         raise SwapError(f"Transaction failed: {result['error']}")
@@ -743,7 +743,7 @@ class SwapEngine:
                     {"encoding": "base64", "skipPreflight": False}
                 ]
             }
-            async with session.post(settings.solana_rpc_url, json=payload) as resp:
+            async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
                 result = await resp.json()
                 if "error" in result:
                     raise SwapError(f"Transaction failed: {result['error']}")
@@ -970,7 +970,7 @@ class SwapEngine:
                         {"encoding": "base64", "skipPreflight": False}
                     ]
                 }
-                async with session.post(settings.solana_rpc_url, json=payload) as resp:
+                async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
                     result = await resp.json()
                     if "error" in result:
                         raise SwapError(f"Transaction failed: {result['error']}")
@@ -1362,7 +1362,7 @@ class SwapEngine:
                     {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}
                 ]
             }
-            async with session.post(settings.solana_rpc_url, json=payload) as resp:
+            async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
                 result = await resp.json()
                 
                 if "error" in result:

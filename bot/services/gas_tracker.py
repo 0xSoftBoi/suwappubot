@@ -126,7 +126,7 @@ class GasTracker:
                     "params": [],
                     "id": 1
                 }
-                async with session.post(settings.solana_rpc_url, json=payload) as resp:
+                async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
                     result = await resp.json()
                     if "result" in result and result["result"]:
                         # Get median fee
