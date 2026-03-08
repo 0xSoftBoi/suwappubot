@@ -1,0 +1,268 @@
+name: Smart Contract Security Scanning
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - '**/*.sol'
+      - 'contracts/**'
+  push:
+    branches: [main, develop]
+    paths:
+      - '**/*.sol'
+      - 'contracts/**'
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  slither-analysis:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Slither
+        run: |
+          pip install slither-analyzer
+          pip install solc-select
+          solc-select install 0.8.20
+          solc-select use 0.8.20
+
+      - name: Create output directories
+        run: |
+          mkdir -p security-reports/slither
+          mkdir -p sarif-reports
+
+      - name: Run Slither Analysis
+        continue-on-error: true
+        run: |
+          # Find all Solidity files
+          find . -name "*.sol" -not -path "./node_modules/*" | while read file; do
+            echo "Analyzing $file..."
+            slither "$file" \
+              --json security-reports/slither/$(basename "$file" .sol).json \
+              --sarif sarif-reports/slither-$(basename "$file" .sol).sarif \
+              --checklist \
+              --markdown-root security-reports/slither/ \
+              || true
+          done
+
+      - name: Run Slither with High Confidence Only
+        continue-on-error: true
+        run: |
+          find . -name "*.sol" -not -path "./node_modules/*" | while read file; do
+            slither "$file" \
+              --filter-paths "node_modules" \
+              --exclude-low \
+              --exclude-medium \
+              --exclude-informational \
+              >> security-reports/slither/high-confidence-issues.txt || true
+          done
+
+      - name: Generate Slither Summary
+        run: |
+          echo "# Slither Security Analysis Report" > security-reports/slither/SUMMARY.md
+          echo "**Generated:** $(date)" >> security-reports/slither/SUMMARY.md
+          echo "" >> security-reports/slither/SUMMARY.md
+          echo "## High Confidence Issues" >> security-reports/slither/SUMMARY.md
+          cat security-reports/slither/high-confidence-issues.txt >> security-reports/slither/SUMMARY.md || echo "No high confidence issues found" >> security-reports/slither/SUMMARY.md
+
+      - name: Upload Slither Results
+        uses: actions/upload-artifact@v7
+        with:
+          name: slither-analysis
+          path: security-reports/slither/
+          retention-days: 30
+
+      - name: Upload SARIF Results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: sarif-reports/
+          category: slither
+
+  mythril-analysis:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Mythril
+        run: |
+          pip install mythril
+
+      - name: Create output directories
+        run: mkdir -p security-reports/mythril
+
+      - name: Run Mythril Analysis
+        continue-on-error: true
+        run: |
+          find . -name "*.sol" -not -path "./node_modules/*" | while read file; do
+            echo "Analyzing $file with Mythril..."
+            myth analyze "$file" \
+              --solv 0.8.20 \
+              --max-depth 12 \
+              --execution-timeout 300 \
+              -o markdown > "security-reports/mythril/$(basename "$file" .sol).md" \
+              || echo "Analysis completed with warnings" >> "security-reports/mythril/$(basename "$file" .sol).md"
+          done
+
+      - name: Generate Mythril Summary
+        run: |
+          echo "# Mythril Security Analysis Report" > security-reports/mythril/SUMMARY.md
+          echo "**Generated:** $(date)" >> security-reports/mythril/SUMMARY.md
+          echo "" >> security-reports/mythril/SUMMARY.md
+          cat security-reports/mythril/*.md >> security-reports/mythril/SUMMARY.md || echo "No issues found" >> security-reports/mythril/SUMMARY.md
+
+      - name: Upload Mythril Results
+        uses: actions/upload-artifact@v7
+        with:
+          name: mythril-analysis
+          path: security-reports/mythril/
+          retention-days: 30
+
+  securify-analysis:
+    runs-on: ubuntu-latest
+    container:
+      image: eth/securify2:latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Create output directories
+        run: mkdir -p security-reports/securify
+
+      - name: Run Securify Analysis
+        continue-on-error: true
+        run: |
+          find . -name "*.sol" -not -path "./node_modules/*" | while read file; do
+            echo "Analyzing $file with Securify..."
+            securify "$file" > "security-reports/securify/$(basename "$file" .sol).txt" || true
+          done
+
+      - name: Generate Securify Summary
+        run: |
+          echo "# Securify Security Analysis Report" > security-reports/securify/SUMMARY.md
+          echo "**Generated:** $(date)" >> security-reports/securify/SUMMARY.md
+          echo "" >> security-reports/securify/SUMMARY.md
+          cat security-reports/securify/*.txt >> security-reports/securify/SUMMARY.md || echo "No issues found" >> security-reports/securify/SUMMARY.md
+
+      - name: Upload Securify Results
+        uses: actions/upload-artifact@v7
+        with:
+          name: securify-analysis
+          path: security-reports/securify/
+          retention-days: 30
+
+  security-summary:
+    runs-on: ubuntu-latest
+    needs: [slither-analysis, mythril-analysis, securify-analysis]
+    if: always()
+    
+    steps:
+      - name: Download All Security Reports
+        uses: actions/download-artifact@v8
+        with:
+          path: all-security-reports/
+
+      - name: Generate Combined Security Report
+        run: |
+          echo "# 🔒 Combined Security Analysis Report" > SECURITY_REPORT.md
+          echo "" >> SECURITY_REPORT.md
+          echo "**Generated:** $(date)" >> SECURITY_REPORT.md
+          echo "**PR/Commit:** ${{ github.event.pull_request.html_url || github.sha }}" >> SECURITY_REPORT.md
+          echo "" >> SECURITY_REPORT.md
+          echo "---" >> SECURITY_REPORT.md
+          echo "" >> SECURITY_REPORT.md
+          
+          # Add Slither Results
+          echo "## 🐍 Slither Analysis" >> SECURITY_REPORT.md
+          if [ -f "all-security-reports/slither-analysis/SUMMARY.md" ]; then
+            cat all-security-reports/slither-analysis/SUMMARY.md >> SECURITY_REPORT.md
+          else
+            echo "No Slither results available" >> SECURITY_REPORT.md
+          fi
+          echo "" >> SECURITY_REPORT.md
+          
+          # Add Mythril Results
+          echo "## 🔱 Mythril Analysis" >> SECURITY_REPORT.md
+          if [ -f "all-security-reports/mythril-analysis/SUMMARY.md" ]; then
+            cat all-security-reports/mythril-analysis/SUMMARY.md >> SECURITY_REPORT.md
+          else
+            echo "No Mythril results available" >> SECURITY_REPORT.md
+          fi
+          echo "" >> SECURITY_REPORT.md
+          
+          # Add Securify Results
+          echo "## 🛡️ Securify Analysis" >> SECURITY_REPORT.md
+          if [ -f "all-security-reports/securify-analysis/SUMMARY.md" ]; then
+            cat all-security-reports/securify-analysis/SUMMARY.md >> SECURITY_REPORT.md
+          else
+            echo "No Securify results available" >> SECURITY_REPORT.md
+          fi
+          
+          echo "" >> SECURITY_REPORT.md
+          echo "---" >> SECURITY_REPORT.md
+          echo "**Note:** Review all findings carefully. Some may be false positives." >> SECURITY_REPORT.md
+
+      - name: Upload Combined Report
+        uses: actions/upload-artifact@v7
+        with:
+          name: combined-security-report
+          path: SECURITY_REPORT.md
+          retention-days: 90
+
+      - name: Comment PR with Security Summary
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let report = '';
+            
+            try {
+              report = fs.readFileSync('SECURITY_REPORT.md', 'utf8');
+            } catch (error) {
+              report = '⚠️ Security report generation failed. Check workflow logs for details.';
+            }
+            
+            // Truncate if too long (GitHub comment limit)
+            if (report.length > 65000) {
+              report = report.substring(0, 65000) + '\n\n... (truncated, see artifacts for full report)';
+            }
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: report
+            });
+
+      - name: Fail on Critical Issues
+        run: |
+          # Check for critical security issues
+          if grep -r "High\|Critical" all-security-reports/; then
+            echo "⚠️ Critical security issues detected!"
+            echo "Please review the security reports before merging."
+            exit 1
+          fi
+        continue-on-error: true

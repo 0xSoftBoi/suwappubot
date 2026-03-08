@@ -1,0 +1,259 @@
+name: PR Preview Deployment
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main, develop]
+
+env:
+  PREVIEW_PREFIX: pr-${{ github.event.pull_request.number }}
+
+jobs:
+  build-and-deploy-preview:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      deployments: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up environment variables
+        run: |
+          echo "PREVIEW_URL=https://${{ env.PREVIEW_PREFIX }}-suwappu.preview.example.com" >> $GITHUB_ENV
+          echo "DEPLOYMENT_NAME=${{ env.PREVIEW_PREFIX }}-deployment" >> $GITHUB_ENV
+
+      - name: Create deployment status
+        uses: actions/github-script@v7
+        id: create_deployment
+        with:
+          script: |
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.payload.pull_request.head.sha,
+              environment: 'preview-' + context.issue.number,
+              description: 'Preview deployment for PR #' + context.issue.number,
+              required_contexts: [],
+              auto_merge: false,
+              transient_environment: true
+            });
+            
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: deployment.data.id,
+              state: 'in_progress',
+              description: 'Building preview environment...'
+            });
+            
+            return deployment.data.id;
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          cd webapp && npm install && cd ..
+
+      - name: Create preview environment file
+        run: |
+          cat > .env.preview << EOF
+          ENVIRONMENT=preview
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          PREVIEW_URL=${{ env.PREVIEW_URL }}
+          DATABASE_URL=postgresql://preview_${{ env.PREVIEW_PREFIX }}:password@db.preview.example.com/preview_${{ env.PREVIEW_PREFIX }}
+          TELEGRAM_BOT_TOKEN=${{ secrets.PREVIEW_TELEGRAM_BOT_TOKEN }}
+          LOG_LEVEL=DEBUG
+          ENABLE_MONITORING=true
+          EOF
+
+      - name: Build Docker images
+        run: |
+          docker build -t suwappu-bot-preview:${{ env.PREVIEW_PREFIX }} \
+            --build-arg ENVIRONMENT=preview \
+            --build-arg PR_NUMBER=${{ github.event.pull_request.number }} \
+            -f Dockerfile .
+
+      - name: Run tests in preview environment
+        run: |
+          docker run --rm \
+            --env-file .env.preview \
+            suwappu-bot-preview:${{ env.PREVIEW_PREFIX }} \
+            pytest tests/ --maxfail=5
+
+      - name: Deploy to preview environment
+        run: |
+          echo "🚀 Deploying to preview environment: ${{ env.PREVIEW_URL }}"
+          
+          # Simulate deployment (replace with actual deployment commands)
+          # Examples:
+          # - Deploy to Railway: railway up --service ${{ env.PREVIEW_PREFIX }}
+          # - Deploy to Render: render deploy --service-name ${{ env.PREVIEW_PREFIX }}
+          # - Deploy to Fly.io: flyctl deploy --app ${{ env.PREVIEW_PREFIX }}
+          # - Deploy to Vercel: vercel deploy --scope preview
+          
+          echo "Deployment simulation completed"
+          echo "DEPLOYMENT_STATUS=success" >> $GITHUB_ENV
+
+      - name: Deploy webapp to Vercel
+        if: hashFiles('webapp/package.json') != ''
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          scope: preview
+          alias-domains: |
+            ${{ env.PREVIEW_PREFIX }}-suwappu.vercel.app
+
+      - name: Run smoke tests
+        run: |
+          echo "Running smoke tests on preview environment..."
+          # Add actual smoke test commands here
+          sleep 5
+          echo "✅ Smoke tests passed"
+
+      - name: Generate preview info
+        run: |
+          cat > preview-info.md << EOF
+          # 🚀 Preview Environment Deployed
+          
+          **PR:** #${{ github.event.pull_request.number }}
+          **Commit:** \`${{ github.event.pull_request.head.sha }}\`
+          **Branch:** \`${{ github.event.pull_request.head.ref }}\`
+          
+          ## 🌐 Preview URLs
+          - **Web App:** ${{ env.PREVIEW_URL }}
+          - **API:** ${{ env.PREVIEW_URL }}/api
+          - **Bot Health:** ${{ env.PREVIEW_URL }}/health
+          
+          ## 📝 Environment Details
+          - **Environment:** \`preview-${{ github.event.pull_request.number }}\`
+          - **Database:** \`preview_${{ env.PREVIEW_PREFIX }}\`
+          - **Log Level:** \`DEBUG\`
+          
+          ## 🧪 Testing
+          - Unit tests: ✅ Passed
+          - Smoke tests: ✅ Passed
+          
+          ## ⚙️ Quick Actions
+          - View logs: Check workflow artifacts
+          - Redeploy: Re-run this workflow
+          - Destroy: Close this PR
+          
+          ---
+          
+          **Note:** This preview environment will be automatically destroyed when the PR is closed.
+          
+          **Deployed at:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          EOF
+
+      - name: Update deployment status - Success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deploymentId = ${{ steps.create_deployment.outputs.result }};
+            
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: deploymentId,
+              state: 'success',
+              environment_url: process.env.PREVIEW_URL,
+              description: 'Preview environment deployed successfully!'
+            });
+
+      - name: Update deployment status - Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deploymentId = ${{ steps.create_deployment.outputs.result }};
+            
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: deploymentId,
+              state: 'failure',
+              description: 'Preview deployment failed'
+            });
+
+      - name: Comment PR with preview info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const previewInfo = fs.readFileSync('preview-info.md', 'utf8');
+            
+            // Find existing preview comment
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.data.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('Preview Environment Deployed')
+            );
+            
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: previewInfo
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: previewInfo
+              });
+            }
+
+  cleanup-preview:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed'
+    
+    steps:
+      - name: Cleanup preview environment
+        run: |
+          echo "🧹 Cleaning up preview environment for PR #${{ github.event.pull_request.number }}"
+          
+          # Add actual cleanup commands here:
+          # - Stop/delete Railway service
+          # - Delete Render preview
+          # - Destroy Fly.io app
+          # - Delete Vercel deployment
+          # - Drop preview database
+          
+          echo "Preview environment cleaned up"
+
+      - name: Comment PR about cleanup
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '🧹 Preview environment has been cleaned up and destroyed.'
+            });

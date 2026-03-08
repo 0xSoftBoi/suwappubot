@@ -1,0 +1,378 @@
+name: Provision EC2 Bot Instance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  provision:
+    name: Create EC2 Instance
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get VPC and subnet info from CDK stack
+        id: infra
+        run: |
+          echo "=== Getting VPC info from CloudFormation ==="
+          VPC_ID=$(aws ec2 describe-vpcs \
+            --filters "Name=tag:aws:cloudformation:stack-name,Values=SuwappuStack" \
+            --query 'Vpcs[0].VpcId' --output text)
+
+          if [ "$VPC_ID" == "None" ] || [ -z "$VPC_ID" ]; then
+            echo "Trying to find VPC by tag..."
+            VPC_ID=$(aws ec2 describe-vpcs \
+              --filters "Name=tag:Project,Values=Suwappu" \
+              --query 'Vpcs[0].VpcId' --output text)
+          fi
+
+          if [ "$VPC_ID" == "None" ] || [ -z "$VPC_ID" ]; then
+            echo "Finding any VPC with public subnets..."
+            VPC_ID=$(aws ec2 describe-vpcs \
+              --query 'Vpcs[0].VpcId' --output text)
+          fi
+
+          echo "VPC_ID=$VPC_ID"
+          echo "VPC_ID=$VPC_ID" >> $GITHUB_OUTPUT
+
+          # Get a public subnet
+          SUBNET_ID=$(aws ec2 describe-subnets \
+            --filters "Name=vpc-id,Values=$VPC_ID" "Name=map-public-ip-on-launch,Values=true" \
+            --query 'Subnets[0].SubnetId' --output text)
+
+          if [ "$SUBNET_ID" == "None" ] || [ -z "$SUBNET_ID" ]; then
+            echo "No auto-assign public IP subnet found, trying any public subnet..."
+            SUBNET_ID=$(aws ec2 describe-subnets \
+              --filters "Name=vpc-id,Values=$VPC_ID" \
+              --query 'Subnets[0].SubnetId' --output text)
+          fi
+
+          echo "SUBNET_ID=$SUBNET_ID"
+          echo "SUBNET_ID=$SUBNET_ID" >> $GITHUB_OUTPUT
+
+          # Get RDS security group to allow access
+          RDS_SG=$(aws ec2 describe-security-groups \
+            --filters "Name=vpc-id,Values=$VPC_ID" "Name=description,Values=*RDS*" \
+            --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null || echo "None")
+
+          echo "RDS_SG=$RDS_SG"
+          echo "RDS_SG=$RDS_SG" >> $GITHUB_OUTPUT
+
+      - name: Create key pair
+        id: keypair
+        run: |
+          KEY_NAME="suwappu-bot-key"
+
+          # Delete existing if present
+          aws ec2 delete-key-pair --key-name "$KEY_NAME" 2>/dev/null || true
+
+          # Create new key pair
+          aws ec2 create-key-pair \
+            --key-name "$KEY_NAME" \
+            --key-type ed25519 \
+            --query 'KeyMaterial' \
+            --output text > /tmp/suwappu-bot-key.pem
+
+          chmod 600 /tmp/suwappu-bot-key.pem
+          echo "KEY_NAME=$KEY_NAME" >> $GITHUB_OUTPUT
+          echo "Key pair created: $KEY_NAME"
+
+      - name: Create security group
+        id: sg
+        run: |
+          VPC_ID=${{ steps.infra.outputs.VPC_ID }}
+          SG_NAME="suwappu-bot-ec2"
+
+          # Check if SG already exists
+          EXISTING_SG=$(aws ec2 describe-security-groups \
+            --filters "Name=group-name,Values=$SG_NAME" "Name=vpc-id,Values=$VPC_ID" \
+            --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null || echo "None")
+
+          if [ "$EXISTING_SG" != "None" ] && [ -n "$EXISTING_SG" ]; then
+            echo "Security group already exists: $EXISTING_SG"
+            echo "SG_ID=$EXISTING_SG" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          SG_ID=$(aws ec2 create-security-group \
+            --group-name "$SG_NAME" \
+            --description "Suwappu bot EC2 instance" \
+            --vpc-id "$VPC_ID" \
+            --query 'GroupId' --output text)
+
+          echo "Created security group: $SG_ID"
+
+          # Allow SSH from anywhere (for GitHub Actions + debugging)
+          aws ec2 authorize-security-group-ingress \
+            --group-id "$SG_ID" \
+            --protocol tcp --port 22 \
+            --cidr 0.0.0.0/0
+
+          # Allow port 10000 from anywhere (for ALB health checks + API)
+          aws ec2 authorize-security-group-ingress \
+            --group-id "$SG_ID" \
+            --protocol tcp --port 10000 \
+            --cidr 0.0.0.0/0
+
+          echo "SG_ID=$SG_ID" >> $GITHUB_OUTPUT
+
+          # Allow EC2 to reach RDS
+          RDS_SG=${{ steps.infra.outputs.RDS_SG }}
+          if [ "$RDS_SG" != "None" ] && [ -n "$RDS_SG" ]; then
+            aws ec2 authorize-security-group-ingress \
+              --group-id "$RDS_SG" \
+              --protocol tcp --port 5432 \
+              --source-group "$SG_ID" \
+              --description "Allow PostgreSQL from EC2 bot" 2>/dev/null || echo "RDS rule may already exist"
+          fi
+
+      - name: Find or create IAM instance profile
+        id: iam
+        run: |
+          ROLE_NAME="suwappu-bot-ec2-role"
+          PROFILE_NAME="suwappu-bot-ec2-profile"
+
+          # Check if role exists
+          if aws iam get-role --role-name "$ROLE_NAME" 2>/dev/null; then
+            echo "Role already exists"
+          else
+            echo "Creating IAM role..."
+            aws iam create-role \
+              --role-name "$ROLE_NAME" \
+              --assume-role-policy-document '{
+                "Version": "2012-10-17",
+                "Statement": [{
+                  "Effect": "Allow",
+                  "Principal": {"Service": "ec2.amazonaws.com"},
+                  "Action": "sts:AssumeRole"
+                }]
+              }'
+
+            # Attach SSM policy
+            aws iam attach-role-policy \
+              --role-name "$ROLE_NAME" \
+              --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+            # Inline policy for Secrets Manager
+            aws iam put-role-policy \
+              --role-name "$ROLE_NAME" \
+              --policy-name "secrets-access" \
+              --policy-document '{
+                "Version": "2012-10-17",
+                "Statement": [{
+                  "Effect": "Allow",
+                  "Action": [
+                    "secretsmanager:GetSecretValue",
+                    "secretsmanager:DescribeSecret"
+                  ],
+                  "Resource": [
+                    "arn:aws:secretsmanager:us-east-1:*:secret:suwappu/*"
+                  ]
+                }]
+              }'
+          fi
+
+          # Check if instance profile exists
+          if aws iam get-instance-profile --instance-profile-name "$PROFILE_NAME" 2>/dev/null; then
+            echo "Instance profile already exists"
+          else
+            aws iam create-instance-profile --instance-profile-name "$PROFILE_NAME"
+            aws iam add-role-to-instance-profile \
+              --instance-profile-name "$PROFILE_NAME" \
+              --role-name "$ROLE_NAME"
+            echo "Waiting for instance profile to propagate..."
+            sleep 10
+          fi
+
+          echo "PROFILE_NAME=$PROFILE_NAME" >> $GITHUB_OUTPUT
+
+      - name: Launch EC2 instance
+        id: ec2
+        run: |
+          # Get Ubuntu 22.04 AMI
+          AMI_ID=$(aws ssm get-parameter \
+            --name /aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id \
+            --query 'Parameter.Value' --output text)
+
+          echo "Using AMI: $AMI_ID"
+
+          # Check if instance already exists
+          EXISTING=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=suwappu-bot" "Name=instance-state-name,Values=running,pending" \
+            --query 'Reservations[0].Instances[0].InstanceId' --output text 2>/dev/null || echo "None")
+
+          if [ "$EXISTING" != "None" ] && [ -n "$EXISTING" ]; then
+            echo "Instance already exists: $EXISTING"
+            echo "INSTANCE_ID=$EXISTING" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # User data script for initial setup
+          cat > /tmp/userdata.sh << 'USERDATA'
+          #!/bin/bash
+          set -euo pipefail
+          exec > /var/log/suwappu-setup.log 2>&1
+
+          apt-get update
+          apt-get install -y python3.11 python3.11-venv python3.11-dev \
+            gcc g++ libpq-dev libssl-dev git curl jq awscli
+
+          cd /home/ubuntu
+          sudo -u ubuntu git clone https://github.com/0xSoftBoi/suwappubot.git || true
+          cd suwappubot
+
+          sudo -u ubuntu python3.11 -m venv venv
+          sudo -u ubuntu ./venv/bin/pip install --upgrade pip
+          sudo -u ubuntu ./venv/bin/pip install -r requirements.txt
+          sudo -u ubuntu ./venv/bin/pip install psycopg2-binary gunicorn
+          sudo -u ubuntu ./venv/bin/pip install .
+
+          # Pull secrets
+          bash scripts/pull-secrets.sh
+
+          # Install and start service
+          cp suwappubot.service /etc/systemd/system/
+          systemctl daemon-reload
+          systemctl enable suwappubot
+          systemctl start suwappubot
+
+          echo "Setup complete at $(date)" >> /var/log/suwappu-setup.log
+          USERDATA
+
+          INSTANCE_ID=$(aws ec2 run-instances \
+            --image-id "$AMI_ID" \
+            --instance-type t3.small \
+            --key-name "${{ steps.keypair.outputs.KEY_NAME }}" \
+            --security-group-ids "${{ steps.sg.outputs.SG_ID }}" \
+            --subnet-id "${{ steps.infra.outputs.SUBNET_ID }}" \
+            --iam-instance-profile "Name=${{ steps.iam.outputs.PROFILE_NAME }}" \
+            --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":30,"VolumeType":"gp3"}}]' \
+            --user-data file:///tmp/userdata.sh \
+            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=suwappu-bot},{Key=Project,Value=Suwappu}]" \
+            --associate-public-ip-address \
+            --query 'Instances[0].InstanceId' --output text)
+
+          echo "Launched instance: $INSTANCE_ID"
+          echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_OUTPUT
+
+          echo "Waiting for instance to be running..."
+          aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
+          echo "Instance is running!"
+
+      - name: Allocate and associate Elastic IP
+        id: eip
+        run: |
+          INSTANCE_ID=${{ steps.ec2.outputs.INSTANCE_ID }}
+
+          # Check if instance already has an EIP
+          EXISTING_EIP=$(aws ec2 describe-addresses \
+            --filters "Name=instance-id,Values=$INSTANCE_ID" \
+            --query 'Addresses[0].PublicIp' --output text 2>/dev/null || echo "None")
+
+          if [ "$EXISTING_EIP" != "None" ] && [ -n "$EXISTING_EIP" ]; then
+            echo "Instance already has EIP: $EXISTING_EIP"
+            echo "PUBLIC_IP=$EXISTING_EIP" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Allocate new EIP
+          ALLOC_ID=$(aws ec2 allocate-address \
+            --domain vpc \
+            --tag-specifications "ResourceType=elastic-ip,Tags=[{Key=Name,Value=suwappu-bot},{Key=Project,Value=Suwappu}]" \
+            --query 'AllocationId' --output text)
+
+          PUBLIC_IP=$(aws ec2 describe-addresses \
+            --allocation-ids "$ALLOC_ID" \
+            --query 'Addresses[0].PublicIp' --output text)
+
+          aws ec2 associate-address \
+            --instance-id "$INSTANCE_ID" \
+            --allocation-id "$ALLOC_ID"
+
+          echo "Elastic IP: $PUBLIC_IP"
+          echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_OUTPUT
+
+      - name: Wait for instance setup and test SSH
+        run: |
+          PUBLIC_IP=${{ steps.eip.outputs.PUBLIC_IP }}
+          echo "Waiting for SSH to become available on $PUBLIC_IP..."
+
+          for i in $(seq 1 30); do
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+              -i /tmp/suwappu-bot-key.pem ubuntu@$PUBLIC_IP "echo SSH_OK" 2>/dev/null; then
+              echo "SSH is ready!"
+              break
+            fi
+            echo "Attempt $i/30: waiting..."
+            sleep 10
+          done
+
+      - name: Save SSH key as GitHub secret
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Set EC2_HOST_PROD
+          gh secret set EC2_HOST_PROD --body "${{ steps.eip.outputs.PUBLIC_IP }}"
+          echo "Set EC2_HOST_PROD=${{ steps.eip.outputs.PUBLIC_IP }}"
+
+          # Set EC2_SSH_KEY
+          gh secret set EC2_SSH_KEY < /tmp/suwappu-bot-key.pem
+          echo "Set EC2_SSH_KEY"
+
+          # Clean up
+          rm -f /tmp/suwappu-bot-key.pem
+
+      - name: Wait for bot setup to complete
+        run: |
+          PUBLIC_IP=${{ steps.eip.outputs.PUBLIC_IP }}
+          echo "Waiting for bot setup (user-data script) to complete..."
+          echo "This may take 3-5 minutes for pip install..."
+
+          for i in $(seq 1 36); do
+            RESULT=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+              -i /tmp/suwappu-bot-key.pem ubuntu@$PUBLIC_IP \
+              "curl -sf http://localhost:10000/health 2>/dev/null || echo 'NOT_READY'" 2>/dev/null || echo "SSH_FAIL")
+
+            if echo "$RESULT" | grep -q "polling"; then
+              echo "Bot is up and polling!"
+              echo "$RESULT" | python3 -m json.tool
+              break
+            elif echo "$RESULT" | grep -q "healthy\|degraded"; then
+              echo "Service is up but bot may not be polling yet"
+              echo "$RESULT"
+            fi
+
+            echo "Attempt $i/36: setup still in progress..."
+            sleep 10
+          done
+
+      - name: Provisioning summary
+        if: always()
+        run: |
+          echo "## EC2 Provisioning Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Instance ID | ${{ steps.ec2.outputs.INSTANCE_ID }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Elastic IP | ${{ steps.eip.outputs.PUBLIC_IP }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Key Pair | ${{ steps.keypair.outputs.KEY_NAME }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Group | ${{ steps.sg.outputs.SG_ID }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Subnet | ${{ steps.infra.outputs.SUBNET_ID }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**GitHub Secrets automatically set:** EC2_HOST_PROD, EC2_SSH_KEY" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Next:** Push to main to trigger deploy-ec2.yml" >> $GITHUB_STEP_SUMMARY
