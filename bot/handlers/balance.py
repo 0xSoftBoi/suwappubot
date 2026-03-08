@@ -177,25 +177,25 @@ def _format_wallet_balances(wallet_infos, balance_results) -> str:
     for wallet_info, balances in zip(wallet_infos, balance_results):
         wallet_id, address, chain_type, name = wallet_info
 
-        if isinstance(balances, Exception) or not balances:
-            continue
+        if isinstance(balances, Exception):
+            balances = {}
 
         chain_emoji = "🔷" if chain_type == "evm" else "🟢"
         lines.append(f"{chain_emoji} *{name}*")
         lines.append(f"`{address}`")
 
-        for chain, tokens in balances.items():
-            chain_display = format_chain_name(chain)
-            lines.append(f"  *{chain_display}*")
-            for symbol, amount in tokens.items():
-                if amount > 0:
-                    lines.append(f"    • {format_amount(amount, symbol=symbol)}")
-                    has_any = True
+        if balances:
+            for chain, tokens in balances.items():
+                chain_display = format_chain_name(chain)
+                lines.append(f"  *{chain_display}*")
+                for symbol, amount in tokens.items():
+                    if amount > 0:
+                        lines.append(f"    • {format_amount(amount, symbol=symbol)}")
+                        has_any = True
+        else:
+            lines.append("  _No balances found_")
 
         lines.append("")
-
-    if not has_any:
-        return "💰 *Your Balances*\n\nNo token balances found."
 
     return "\n".join(lines)
 
