@@ -45,10 +45,10 @@ echo "=== Restart ==="
 sudo cp suwappubot.service /etc/systemd/system/suwappubot.service
 sudo systemctl daemon-reload
 sudo systemctl restart suwappubot
-sleep 8
+sleep 15
 
 echo "=== Health ==="
-for i in 1 2 3 4 5; do
+for i in 1 2 3 4 5 6 7 8 9 10; do
   H=\$(curl -sf http://localhost:10000/health 2>/dev/null || echo '{}')
   S=\$(echo "\$H" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','?'), d.get('bot','?'), d.get('database','?'))" 2>/dev/null || echo "? ? ?")
   echo "  [\$i] \$S"
