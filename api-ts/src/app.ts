@@ -112,3 +112,4 @@ export function createApp(config: AppConfig) {
 }
 
 export type App = ReturnType<typeof createApp>
+// Deploy trigger: A2A agent-card fix
