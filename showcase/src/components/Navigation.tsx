@@ -72,7 +72,7 @@ export default function Navigation() {
           onClick={() => scrollToPanel(0)}
           className="font-heading font-bold text-xl gradient-text"
         >
-          Suwappu<sup className="ml-1 text-white/[0.08] font-normal text-[9px]">すわっぷ</sup>
+          Suwappu<sup className="ml-1 text-suwappu-dark-text-muted font-normal text-[9px]">すわっぷ</sup>
         </button>
 
         <div className="hidden md:flex items-center gap-8">

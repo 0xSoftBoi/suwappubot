@@ -1,15 +1,21 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import SakuraPetals from '@/components/SakuraPetals';
 import Navigation from '@/components/Navigation';
-import HorizontalScroll from '@/components/HorizontalScroll';
+import HorizontalScroll, { useScrollContext } from '@/components/HorizontalScroll';
 import Hero from '@/components/Hero';
 import PlatformDemosPanel from '@/components/PlatformDemos';
 import Panel5CTA from '@/components/Panel5CTA';
 import Panel from '@/components/Panel';
 import StructuredData from '@/components/StructuredData';
 import Analytics from '@/components/Analytics';
+
+const SakuraPetal3D = dynamic(() => import('@/components/SakuraPetal3D'), {
+  ssr: false,
+  loading: () => null,
+});
 
 /* ===================================================================
    Data
@@ -23,11 +29,11 @@ const CHAINS = [
   { name: 'Blast' }, { name: 'Gnosis' }, { name: 'Aurora' },
 ];
 
-const INTEGRATIONS = [
-  { name: 'SDK', command: 'bun add @suwappu/sdk' },
-  { name: 'OpenClaw', command: 'bun add @suwappu/openclaw' },
-  { name: 'REST', command: 'curl api.suwappu.bot/v1/quote' },
-  { name: 'Skills', command: 'SKILL.md' },
+const COMMANDS = [
+  { text: 'bun add @suwappu/sdk', label: 'SDK' },
+  { text: 'bun add @suwappu/openclaw', label: 'OpenClaw' },
+  { text: 't.me/suwappu_bot', label: 'Bot', href: 'https://t.me/suwappu_bot' },
+  { text: 'api.suwappu.bot/v1/', label: 'REST' },
 ];
 
 const FAQ_ITEMS = [
@@ -50,55 +56,50 @@ const FAQ_ITEMS = [
 ];
 
 /* ===================================================================
-   Infra Panel — integrations + chain marquee
+   Infra Panel — integrations + chain marquee + 3D petals
    =================================================================== */
 
 function InfraPanel() {
-  const doubled = [...CHAINS, ...CHAINS];
+  const { progressRef } = useScrollContext();
 
   return (
-    <Panel id="infra" className="flex items-center bg-suwappu-dark-bg relative">
-      <div className="max-w-6xl mx-auto px-6 w-full">
-        <h2 className="font-heading font-bold text-3xl md:text-4xl text-center mb-10 text-white">
-          Plug in.{' '}
+    <Panel id="infra" className="flex items-center justify-center bg-suwappu-dark-bg relative overflow-hidden">
+      {/* 3D petals scattering behind content */}
+      <div className="absolute inset-0 z-[1] pointer-events-none opacity-40 hidden lg:block">
+        <SakuraPetal3D variant="scatter" progressRef={progressRef} />
+      </div>
+
+      {/* Content floats over the explosion */}
+      <div className="relative z-10 max-w-4xl mx-auto px-6 w-full text-center">
+        <h2 className="font-heading font-bold text-5xl md:text-7xl mb-6 text-white tracking-tight">
+          Plug in.<br />
           <span className="gradient-text">Swap out.</span>
         </h2>
 
-        {/* Integration row */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-3xl mx-auto mb-14">
-          {INTEGRATIONS.map((int) => (
-            <div
-              key={int.name}
-              className="rounded-xl p-4 bg-white/[0.03] border border-white/[0.06] hover:border-suwappu-magenta/20 transition-all"
-            >
-              <span className="text-sm font-heading font-semibold text-white block mb-1.5">{int.name}</span>
-              <code className="text-[11px] text-suwappu-cyan/50 font-mono break-all">
-                {int.command}
-              </code>
-            </div>
-          ))}
-        </div>
-
-        {/* Chain marquee */}
-        <div className="overflow-hidden relative">
-          <div className="absolute left-0 top-0 bottom-0 w-16 bg-gradient-to-r from-suwappu-dark-bg to-transparent z-10" />
-          <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-suwappu-dark-bg to-transparent z-10" />
-
-          <div className="flex gap-8 animate-marquee">
-            {doubled.map((chain, i) => (
-              <div key={`${chain.name}-${i}`} className="flex flex-col items-center gap-2 shrink-0">
-                <div className="w-12 h-12 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center">
-                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-suwappu-magenta/20 to-suwappu-purple/20 flex items-center justify-center text-white/60 text-[10px] font-heading font-bold">
-                    {chain.name.slice(0, 2)}
-                  </div>
-                </div>
-                <span className="text-[10px] text-suwappu-dark-text-muted font-medium whitespace-nowrap">
-                  {chain.name}
-                </span>
+        {/* Raw commands — no cards, just monospace lines stacked */}
+        <div className="space-y-3 mb-8">
+          {COMMANDS.map((cmd) => {
+            const inner = (
+              <span className="inline-flex items-center gap-3">
+                <span className="text-white/20 text-xs font-heading uppercase tracking-widest w-16 text-right shrink-0">{cmd.label}</span>
+                <span className="text-suwappu-cyan/70 font-mono text-sm md:text-base">{cmd.text}</span>
+              </span>
+            );
+            return cmd.href ? (
+              <a key={cmd.label} href={cmd.href} target="_blank" rel="noopener noreferrer" className="block hover:text-white transition-colors">
+                {inner}
+              </a>
+            ) : (
+              <div key={cmd.label} className="block">
+                {inner}
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
+
+        <p className="text-white/20 text-xs font-heading uppercase tracking-[0.2em]">
+          15 chains &middot; bun-native &middot; production-ready
+        </p>
       </div>
     </Panel>
   );
@@ -161,7 +162,7 @@ function Footer() {
   return (
     <footer className="bg-suwappu-dark-bg border-t border-white/5 py-10 px-6">
       <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-        <span className="font-heading font-bold text-sm gradient-text">Suwappu<sup className="text-white/25 font-normal text-[8px] ml-0.5">すわっぷ</sup></span>
+        <span className="font-heading font-bold text-sm gradient-text">Suwappu<sup className="text-suwappu-dark-text-muted font-normal text-[8px] ml-0.5">すわっぷ</sup></span>
         <div className="flex items-center gap-6">
           <a
             href="https://t.me/suwappu_bot"
