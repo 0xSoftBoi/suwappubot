@@ -41,7 +41,7 @@ from bot.models.advanced import LimitOrder, DCAOrder
 from bot.models.agent import RegisteredAgent
 from bot.utils.db_monitor import setup_db_monitoring
 from bot.main import add_handlers
-from telegram.ext import Application
+from telegram.ext import Application, PicklePersistence
 from telegram import Update
 from contextlib import asynccontextmanager
 
@@ -77,9 +77,12 @@ async def lifespan(app: FastAPI):
         logger.warning("⚠️ Database monitoring disabled (no connection)")
 
     # 2. Build Bot Application
+    os.makedirs("data", exist_ok=True)
+    persistence = PicklePersistence(filepath="data/bot_persistence.pickle")
     bot_app = (
         Application.builder()
         .token(settings.telegram_bot_token)
+        .persistence(persistence)
         .build()
     )
     add_handlers(bot_app)
