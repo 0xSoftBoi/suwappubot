@@ -9,9 +9,11 @@ KEY="$HOME/.ssh/suwappu-bot-key"
 if [ "$ENV" = "prod" ]; then
   HOST="23.21.184.77"
   BRANCH="main"
+  SECRETS_SCRIPT="scripts/pull-secrets.sh"
 elif [ "$ENV" = "dev" ]; then
-  HOST="23.21.184.77"
+  HOST="54.224.128.32"
   BRANCH="dev"
+  SECRETS_SCRIPT="scripts/pull-secrets-dev.sh"
 else
   echo "Usage: ./scripts/deploy.sh [prod|dev]"
   exit 1
@@ -37,7 +39,7 @@ echo "=== Deps ==="
 ./venv/bin/pip install -r requirements.txt -q 2>&1 | tail -3
 
 echo "=== Secrets ==="
-sudo bash scripts/pull-secrets.sh
+sudo bash $SECRETS_SCRIPT
 
 echo "=== Restart ==="
 sudo cp suwappubot.service /etc/systemd/system/suwappubot.service
