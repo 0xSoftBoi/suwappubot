@@ -96,14 +96,50 @@ async def start_swap(update: Update, context: ContextTypes.DEFAULT_TYPE, is_call
             return ConversationHandler.END
         
         context.user_data["user_id"] = db_user.id
-    
+        wallet_infos = [(w.address, w.chain_type) for w in wallets]
+
+    # Fetch balances to determine which chains have funds
+    chains_with_balance: set[str] = set()
+    try:
+        import asyncio
+        async def _check_wallet(address, chain_type):
+            bals = await wallet_service.get_balances_by_address(address, chain_type)
+            return set(bals.keys())
+
+        results = await asyncio.gather(
+            *[_check_wallet(addr, ct) for addr, ct in wallet_infos],
+            return_exceptions=True,
+        )
+        for r in results:
+            if isinstance(r, set):
+                chains_with_balance.update(r)
+    except Exception:
+        pass
+
+    # Split chains: ones with balance first
+    chains_with_bal = []
+    chains_without_bal = []
+    for name, chain in CHAINS.items():
+        if name in chains_with_balance:
+            chains_with_bal.append((name, chain))
+        else:
+            chains_without_bal.append((name, chain))
+
     # Show chain selection
     text = "🔄 *New Swap*\n\nSelect the source chain:"
-    
-    # Build chain buttons (2 per row)
+
     chain_buttons = []
+
+    # Chains with balance — one per row, highlighted
+    for name, chain in chains_with_bal:
+        chain_buttons.append([InlineKeyboardButton(
+            f"✅ {chain.logo_emoji} {chain.display_name}",
+            callback_data=f"from_chain_{name}"
+        )])
+
+    # Remaining chains — compact 2 per row
     row = []
-    for name, chain in CHAINS.items():
+    for name, chain in chains_without_bal:
         btn = InlineKeyboardButton(
             f"{chain.logo_emoji} {chain.display_name}",
             callback_data=f"from_chain_{name}"
@@ -114,9 +150,9 @@ async def start_swap(update: Update, context: ContextTypes.DEFAULT_TYPE, is_call
             row = []
     if row:
         chain_buttons.append(row)
-    
+
     chain_buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")])
-    
+
     reply_markup = InlineKeyboardMarkup(chain_buttons)
     
     if is_callback:
