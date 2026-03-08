@@ -15,13 +15,13 @@
       "version": "1.0"
     }
   ],
-  "securitySchemes": [
-    {
+  "securitySchemes": {
+    "bearer": {
       "type": "http",
       "scheme": "bearer",
       "description": "Register at POST /v1/agent/register to get an API key (suwappu_sk_...)"
     }
-  ],
+  },
   "capabilities": {
     "streaming": false,
     "pushNotifications": true,
