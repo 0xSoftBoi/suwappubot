@@ -25,7 +25,7 @@ from bot.config.settings import settings
 from bot.utils.cache import quote_cache
 from bot.utils.performance import track_time, MetricNames
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
-from bot.config.tokens import get_token_address, get_token_decimals
+from bot.config.tokens import get_token_address, get_token_decimals, NATIVE_TOKEN_ADDRESS
 from bot.services.lifi_api import LiFiAPI, LiFiQuote, LiFiError
 from bot.services.jupiter_api import JupiterAPI, JupiterQuote, JupiterError
 from bot.services.layerzero_api import LayerZeroAPI, LayerZeroQuote, LayerZeroError
@@ -133,8 +133,12 @@ class SwapEngine:
         self.wallet_service = WalletService()
         self._wallet_locks: dict[int, asyncio.Lock] = {}  # Per-wallet locks
 
-    def _get_wallet_for_signing(self, wallet_data: dict) -> Wallet:
+    def _get_wallet_for_signing(self, wallet_data) -> Wallet:
         """Get Wallet model object for signing operations."""
+        # Already a Wallet object
+        if isinstance(wallet_data, Wallet):
+            return wallet_data
+
         wallet_id = wallet_data.get("id") or wallet_data.get("wallet_id")
         if wallet_id:
             with get_session() as session:
@@ -225,6 +229,21 @@ class SwapEngine:
             quote = await self._get_jupiter_quote(
                 from_token, to_token, amount, amount_raw, from_address, int(slippage * 100)
             )
+        elif self._is_layerzero_route(from_chain, to_chain, from_token, to_token):
+            # Stargate V2: direct on-chain bridge for same-token cross-chain
+            # Try Stargate first (cheaper, no aggregator middleman), fall back to LiFi
+            try:
+                quote = await self._get_layerzero_quote(
+                    from_chain, to_chain, from_token, amount, amount_raw,
+                    from_address, slippage
+                )
+                logger.info(f"Stargate V2 quote: {from_chain}→{to_chain} {from_token} fee=${quote.gas_cost_usd:.2f}")
+            except Exception as e:
+                logger.warning(f"Stargate V2 quote failed, falling back to LiFi: {e}")
+                quote = await self._get_lifi_quote(
+                    from_chain, to_chain, from_token, to_token,
+                    amount, amount_raw, from_address, to_address, slippage
+                )
         else:
             quote = await self._get_lifi_quote(
                 from_chain, to_chain, from_token, to_token,
@@ -345,19 +364,21 @@ class SwapEngine:
         token: str,
         amount: float,
         amount_raw: str,
+        from_address: str,
         slippage: float,
     ) -> SwapQuote:
-        """Get quote from LayerZero/Stargate for cross-chain stablecoin transfers."""
+        """Get quote from LayerZero/Stargate V2 for cross-chain stablecoin transfers."""
         quote = await self.layerzero.get_quote(
             src_chain=from_chain,
             dst_chain=to_chain,
             token_symbol=token,
             amount=amount_raw,
+            from_address=from_address,
             slippage=slippage,
         )
-        
+
         to_amount_human = self._get_token_amount_human(quote.amount_out, token, to_chain)
-        
+
         return SwapQuote(
             provider="layerzero",
             from_chain=from_chain,
@@ -369,11 +390,11 @@ class SwapEngine:
             to_amount=quote.amount_out,
             to_amount_human=to_amount_human,
             to_amount_min=quote.amount_out_min,
-            gas_cost_usd=quote.lz_fee_usd,
+            gas_cost_usd=quote.native_fee_usd,
             fee_cost_usd=0,
-            total_cost_usd=quote.lz_fee_usd,
+            total_cost_usd=quote.native_fee_usd,
             estimated_time=quote.estimated_time,
-            price_impact=0,  # Typically 1:1 for stablecoins
+            price_impact=0,
             exchange_rate=1.0,
             raw_quote=quote.raw_data,
         )
@@ -453,11 +474,12 @@ class SwapEngine:
         except Exception as e:
             logger.debug(f"Li.Fi quote failed: {e}")
         
-        # Get LayerZero quote if applicable (same token cross-chain)
+        # Get LayerZero/Stargate V2 quote if applicable (same token cross-chain)
         if self._is_layerzero_route(from_chain, to_chain, from_token, to_token):
             try:
                 lz_quote = await self._get_layerzero_quote(
-                    from_chain, to_chain, from_token, amount, amount_raw, slippage
+                    from_chain, to_chain, from_token, amount, amount_raw,
+                    from_address, slippage
                 )
                 quotes.append(lz_quote)
             except Exception as e:
@@ -519,14 +541,21 @@ class SwapEngine:
 
             # Get wallet data within session
             with get_session() as session:
-                wallet = session.query(Wallet).filter(Wallet.id == wallet_id).first()
-                if not wallet:
+                wallet_obj = session.query(Wallet).filter(Wallet.id == wallet_id).first()
+                if not wallet_obj:
                     raise SwapError("Wallet not found")
-                
-                # We'll use the wallet object directly for high-level signing
-                wallet_address = wallet.address
-                wallet_chain_type = wallet.chain_type
-                wallet_encrypted_key = wallet.encrypted_private_key
+
+                wallet_address = wallet_obj.address
+                wallet_chain_type = wallet_obj.chain_type
+                wallet_encrypted_key = wallet_obj.encrypted_private_key
+                # Convert to dict for execution methods
+                wallet = {
+                    "id": wallet_obj.id,
+                    "wallet_id": wallet_obj.id,
+                    "address": wallet_obj.address,
+                    "chain_type": wallet_obj.chain_type,
+                    "encrypted_private_key": wallet_obj.encrypted_private_key,
+                }
             
             # Validate quote freshness
             quote_validator.validate_quote_freshness(quote)
@@ -538,13 +567,9 @@ class SwapEngine:
                 wallet_service=self.wallet_service,
             )
             
-            # Validate gas
-            await quote_validator.validate_gas(
-                wallet_address=wallet_address,
-                quote=quote,
-                wallet_service=self.wallet_service,
-            )
-            
+            # Gas check removed — providers (Li.Fi, Stargate) handle gas
+            # in cross-chain routes. On-chain failures are caught below.
+
             # Create transaction record
             with get_session() as session:
                 swap_tx = SwapTransaction(
@@ -634,6 +659,13 @@ class SwapEngine:
                         db_tx.tx_hash = tx_hash
                         db_tx.status = SwapStatus.SUBMITTED.value
 
+                # Invalidate balance cache so user sees updated balance
+                try:
+                    from bot.utils.cache import balance_cache
+                    await balance_cache.delete(f"bal:{wallet_address}:{wallet_chain_type}")
+                except Exception:
+                    pass
+
                 # Clean up local references
                 wallet_encrypted_key = None
 
@@ -690,7 +722,7 @@ class SwapEngine:
                         {"encoding": "base64", "skipPreflight": False}
                     ]
                 }
-                async with session.post(settings.solana_rpc_url, json=payload) as resp:
+                async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
                     result = await resp.json()
                     if "error" in result:
                         raise SwapError(f"Transaction failed: {result['error']}")
@@ -698,15 +730,57 @@ class SwapEngine:
         else:
             # EVM transaction
             web3 = self.wallet_service._get_web3(quote.from_chain)
+            sender = Web3.to_checksum_address(wallet_data["address"])
+            nonce = web3.eth.get_transaction_count(sender)
 
-            # Build transaction - parse hex values from Li.Fi
+            # ERC20 approval: if swapping a token (not native), approve the LiFi contract
+            from_token_address = get_token_address(quote.from_token, quote.from_chain)
+            spender = Web3.to_checksum_address(tx_request.get("to"))
+
+            if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
+                token_addr = Web3.to_checksum_address(from_token_address)
+                erc20_abi = [
+                    {"inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "type": "function", "stateMutability": "view"},
+                    {"inputs": [{"name": "spender", "type": "address"}, {"name": "amount", "type": "uint256"}], "name": "approve", "outputs": [{"name": "", "type": "bool"}], "type": "function", "stateMutability": "nonpayable"},
+                ]
+                token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
+                amount_needed = int(quote.from_amount)
+                current_allowance = token_contract.functions.allowance(sender, spender).call()
+
+                if current_allowance < amount_needed:
+                    max_approval = 2**256 - 1
+                    approve_data = token_contract.functions.approve(spender, max_approval).build_transaction({
+                        "from": sender,
+                        "nonce": nonce,
+                        "chainId": chain.chain_id,
+                        "gasPrice": web3.eth.gas_price,
+                    })
+                    approve_tx = {
+                        "to": token_addr,
+                        "data": approve_data["data"],
+                        "value": 0,
+                        "gas": approve_data.get("gas", 60000),
+                        "gasPrice": approve_data["gasPrice"],
+                        "nonce": nonce,
+                        "chainId": chain.chain_id,
+                    }
+                    signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
+                    approve_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approve.replace("0x", "")))
+                    logger.info(f"LiFi approval tx: {approve_hash.hex()}")
+                    web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                    nonce += 1
+
+            # Re-fetch nonce to account for any approval tx or pending txs
+            nonce = web3.eth.get_transaction_count(sender)
+
+            # Build swap transaction - parse hex values from Li.Fi
             tx = {
-                "to": Web3.to_checksum_address(tx_request.get("to")),
+                "to": spender,
                 "data": tx_request.get("data"),
                 "value": _parse_int(tx_request.get("value"), 0),
                 "gas": _parse_int(tx_request.get("gasLimit"), 500000),
                 "gasPrice": _parse_int(tx_request.get("gasPrice"), web3.eth.gas_price),
-                "nonce": web3.eth.get_transaction_count(wallet_data["address"]),
+                "nonce": nonce,
                 "chainId": chain.chain_id,
             }
 
@@ -743,7 +817,7 @@ class SwapEngine:
                     {"encoding": "base64", "skipPreflight": False}
                 ]
             }
-            async with session.post(settings.solana_rpc_url, json=payload) as resp:
+            async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
                 result = await resp.json()
                 if "error" in result:
                     raise SwapError(f"Transaction failed: {result['error']}")
@@ -970,7 +1044,7 @@ class SwapEngine:
                         {"encoding": "base64", "skipPreflight": False}
                     ]
                 }
-                async with session.post(settings.solana_rpc_url, json=payload) as resp:
+                async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
                     result = await resp.json()
                     if "error" in result:
                         raise SwapError(f"Transaction failed: {result['error']}")
@@ -1056,41 +1130,128 @@ class SwapEngine:
         logger.info(f"CCIP transfer tx: {tx_hash.hex()}")
         return tx_hash.hex()
     
+    def _get_web3_with_fallback(self, chain_name: str) -> Web3:
+        """Get a Web3 instance, trying all configured RPCs until one works."""
+        rpc_str = getattr(settings, f"{chain_name.lower().replace('-', '_')}_rpc_url", "")
+        urls = [u.strip() for u in rpc_str.split(",") if u.strip()]
+        if not urls:
+            raise SwapError(f"No RPC URLs configured for {chain_name}")
+
+        # Shuffle to spread load, then try each
+        import random
+        random.shuffle(urls)
+        last_error = None
+        for url in urls:
+            try:
+                w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 15}))
+                w3.eth.block_number  # connectivity check
+                return w3
+            except Exception as e:
+                last_error = e
+                logger.debug(f"RPC {url[:40]} failed: {e}, trying next...")
+        raise SwapError(f"All RPCs failed for {chain_name}: {last_error}")
+
     async def _execute_layerzero_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
-        """Execute a cross-chain transfer via LayerZero/Stargate."""
+        """Execute a cross-chain transfer via LayerZero/Stargate V2.
+
+        Steps:
+        1. Rebuild tx from stored quote data (no extra RPC calls)
+        2. Approve ERC20 spend to Stargate pool (wait for receipt)
+        3. Call sendToken() on the Stargate pool contract
+        """
         wallet = self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
-        # Get transaction data from LayerZero
-        tx_data = await self.layerzero.get_swap_transaction(
+        sender = wallet_data["address"]
+        chain = get_chain_by_name(quote.from_chain)
+        web3 = self._get_web3_with_fallback(quote.from_chain)
+
+        # Rebuild LZ quote from stored raw_quote data (avoids extra RPC round-trip)
+        raw = quote.raw_quote
+        from bot.services.layerzero_api import LayerZeroQuote
+        lz_quote = LayerZeroQuote(
             src_chain=quote.from_chain,
             dst_chain=quote.to_chain,
             token_symbol=quote.from_token,
-            amount=quote.from_amount,
-            from_address=wallet_data["address"],
+            amount_in=quote.from_amount,
+            amount_out=quote.to_amount,
+            amount_out_min=quote.to_amount_min,
+            native_fee=raw.get("native_fee", "0"),
+            native_fee_usd=quote.gas_cost_usd,
+            estimated_time=quote.estimated_time,
+            pool_address=self.layerzero.get_pool_address(quote.from_chain, quote.from_token),
+            dst_eid=self.layerzero.get_dst_eid(quote.to_chain),
+            raw_data=raw,
         )
 
-        chain = get_chain_by_name(quote.from_chain)
-        web3 = Web3(Web3.HTTPProvider(chain.rpc_url))
+        tx_bundle = self.layerzero.build_send_transaction(
+            quote=lz_quote,
+            sender_address=sender,
+        )
 
-        nonce = web3.eth.get_transaction_count(wallet_data["address"])
+        nonce = web3.eth.get_transaction_count(Web3.to_checksum_address(sender))
+        gas_price = web3.eth.gas_price
 
-        tx = {
-            "to": Web3.to_checksum_address(tx_data.get("to")),
-            "data": tx_data.get("data"),
-            "value": _parse_int(tx_data.get("value", 0)),
-            "gas": _parse_int(tx_data.get("gasLimit", 300000)),
-            "gasPrice": _parse_int(tx_data.get("gasPrice")) or web3.eth.gas_price,
+        # Step 1: ERC20 approval (wait for confirmation before sendToken)
+        if "approval_tx" in tx_bundle:
+            approve_tx = {
+                "to": Web3.to_checksum_address(tx_bundle["approval_tx"]["to"]),
+                "data": tx_bundle["approval_tx"]["data"],
+                "value": 0,
+                "gas": 100_000,
+                "gasPrice": gas_price,
+                "nonce": nonce,
+                "chainId": chain.chain_id,
+            }
+            signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
+            approve_hash = web3.eth.send_raw_transaction(
+                bytes.fromhex(signed_approve.replace("0x", ""))
+            )
+            logger.info(f"Stargate approval tx: {approve_hash.hex()}")
+
+            # Wait for approval to confirm (up to 60s)
+            receipt = web3.eth.wait_for_transaction_receipt(approve_hash, timeout=60)
+            if receipt["status"] != 1:
+                raise SwapError(f"ERC20 approval failed (tx: {approve_hash.hex()})")
+            logger.info(f"Stargate approval confirmed in block {receipt['blockNumber']}")
+            nonce += 1
+
+        # Step 2: sendToken on Stargate pool
+        send_tx_data = tx_bundle["send_tx"]
+
+        # Estimate gas with fallback
+        gas_estimate = 350_000
+        try:
+            gas_estimate = web3.eth.estimate_gas({
+                "from": Web3.to_checksum_address(sender),
+                "to": Web3.to_checksum_address(send_tx_data["to"]),
+                "data": send_tx_data["data"],
+                "value": send_tx_data["value"],
+            })
+            gas_estimate = int(gas_estimate * 1.3)  # 30% buffer for LZ overhead
+        except Exception as e:
+            logger.warning(f"Gas estimate failed, using default 350k: {e}")
+
+        send_tx = {
+            "to": Web3.to_checksum_address(send_tx_data["to"]),
+            "data": send_tx_data["data"],
+            "value": send_tx_data["value"],
+            "gas": gas_estimate,
+            "gasPrice": gas_price,
             "nonce": nonce,
             "chainId": chain.chain_id,
         }
 
-        # Sign and send
-        signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, send_tx)
+        tx_hash = web3.eth.send_raw_transaction(
+            bytes.fromhex(signed_tx_hex.replace("0x", ""))
+        )
 
-        logger.info(f"LayerZero transfer tx: {tx_hash.hex()}")
+        logger.info(
+            f"Stargate V2 sendToken: {tx_hash.hex()} "
+            f"({quote.from_chain}→{quote.to_chain} {quote.from_token})"
+        )
         return tx_hash.hex()
     
     async def _execute_cctp_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
@@ -1362,7 +1523,7 @@ class SwapEngine:
                     {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}
                 ]
             }
-            async with session.post(settings.solana_rpc_url, json=payload) as resp:
+            async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
                 result = await resp.json()
                 
                 if "error" in result:

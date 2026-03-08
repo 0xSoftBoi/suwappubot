@@ -12,8 +12,10 @@ export interface ChainSelectorProps {
 
 const defaultChains: Chain[] = [
   { id: 'eth', name: 'Ethereum', icon: 'Ξ' },
+  { id: 'base', name: 'Base', icon: '🔵' },
   { id: 'bsc', name: 'BSC', icon: '🔶' },
   { id: 'polygon', name: 'Polygon', icon: '⬡' },
+  { id: 'arb', name: 'Arbitrum', icon: '🔷' },
   { id: 'sol', name: 'Solana', icon: '◎' },
 ]
 

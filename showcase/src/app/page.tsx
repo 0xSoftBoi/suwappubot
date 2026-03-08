@@ -49,6 +49,7 @@ const NAV_LINKS = [
   { label: 'Demos', href: '#demos' },
   { label: 'Compare', href: '#compare' },
   { label: 'FAQ', href: '#faq' },
+  { label: 'Docs', href: 'https://docs.suwappu.bot' },
 ];
 
 function Nav() {
@@ -80,6 +81,7 @@ function Nav() {
             <a
               key={l.label}
               href={l.href}
+              {...(l.href.startsWith('http') ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
               className="font-heading text-sm font-medium text-suwappu-text-secondary hover:text-suwappu-magenta transition-colors"
             >
               {l.label}
@@ -122,6 +124,7 @@ function Nav() {
                   key={l.label}
                   href={l.href}
                   onClick={() => setMobileOpen(false)}
+                  {...(l.href.startsWith('http') ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                   className="block font-heading text-base font-medium py-2 text-suwappu-text hover:text-suwappu-magenta transition-colors"
                 >
                   {l.label}

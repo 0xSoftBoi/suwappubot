@@ -89,6 +89,9 @@ node_modules/
 webapp/bun.lock
 .env*.local
 
-# Next.js build output (showcase)
+# Next.js build output
+.next/
 showcase/.next/
 showcase/tsconfig.tsbuildinfo
+\!api-ts/src/lib/
+\!api-ts/src/lib/

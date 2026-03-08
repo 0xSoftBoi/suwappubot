@@ -4,6 +4,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler
 from datetime import datetime
 
+from bot import __version__
 from bot.models.user import User
 from database.db import get_session
 from bot.services.tos_service import tos_service, TOS_TEXT
@@ -64,7 +65,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     # Create inline keyboard with all features
     keyboard = [
-        [InlineKeyboardButton("━━ 🌸 SUWAPPU MENU ━━", callback_data="noop")],
+        [InlineKeyboardButton(f"━━ 🌸 SUWAPPU v{__version__} ━━", callback_data="noop")],
         # Core Trading
         [
             InlineKeyboardButton("🔄 Swap", callback_data="swap_start"),
@@ -202,7 +203,7 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # Create inline keyboard with all features
     keyboard = [
-        [InlineKeyboardButton("━━ 🌸 SUWAPPU MENU ━━", callback_data="noop")],
+        [InlineKeyboardButton(f"━━ 🌸 SUWAPPU v{__version__} ━━", callback_data="noop")],
         # Core Trading
         [
             InlineKeyboardButton("🔄 Swap", callback_data="swap_start"),

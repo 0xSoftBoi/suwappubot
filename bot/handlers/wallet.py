@@ -16,7 +16,9 @@ from bot.utils.validators import validate_private_key
 from bot.utils.formatters import format_address_link
 from bot.utils.qr_code import generate_wallet_qr
 from database.db import get_session
+import logging
 
+logger = logging.getLogger(__name__)
 
 # Conversation states
 WALLET_TYPE, WALLET_KEY, WALLET_NAME = range(3)
@@ -77,9 +79,8 @@ async def wallet_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 for w in wallets:
                     chain_emoji = "🔷" if w.chain_type == "evm" else "🟢"
                     default_mark = " ⭐" if w.is_default else ""
-                    short_addr = f"{w.address[:6]}...{w.address[-4:]}"
                     lines.append(f"{chain_emoji} *{w.name}*{default_mark}")
-                    lines.append(f"   `{short_addr}`")
+                    lines.append(f"   `{w.address}`")
                     lines.append("")
                     
                     keyboard.append([
@@ -156,9 +157,8 @@ async def show_wallet_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, i
             for w in wallets:
                 chain_emoji = "🔷" if w.chain_type == "evm" else "🟢"
                 default_mark = " ⭐" if w.is_default else ""
-                short_addr = f"{w.address[:6]}...{w.address[-4:]}"
                 lines.append(f"{chain_emoji} *{w.name}*{default_mark}")
-                lines.append(f"   `{short_addr}`")
+                lines.append(f"   `{w.address}`")
                 lines.append("")
                 
                 # Add button for each wallet
@@ -224,44 +224,44 @@ async def wallet_create_callback(update: Update, context: ContextTypes.DEFAULT_T
         ).count()
         is_default = existing == 0
     
-    # Create wallet
-    if chain_type == "evm":
-        address, private_key = wallet_service.create_evm_wallet()
-        chain_emoji = "🔷"
-        chain_name = "EVM"
-    else:
-        address, private_key = wallet_service.create_solana_wallet()
-        chain_emoji = "🟢"
-        chain_name = "SOL"
-    
-    # Save wallet
-    wallet = wallet_service.save_wallet(
-        user_id=user_id,
-        address=address,
-        private_key=private_key,
-        chain_type=chain_type,
-        name=f"{chain_name} Wallet",
-        is_default=is_default,
-    )
-    
+    # Create wallet (routes to Turnkey if configured, otherwise local)
+    chain_emoji = "🔷" if chain_type == "evm" else "🟢"
+    chain_name = "EVM" if chain_type == "evm" else "SOL"
+
+    try:
+        wallet = await wallet_service.create_wallet(
+            user_id=user_id,
+            name=f"{chain_name} Wallet",
+            chain_type=chain_type,
+        )
+        address = wallet.address
+
+        # Set as default if first wallet of this chain type
+        if is_default:
+            with get_session() as session:
+                w = session.query(Wallet).filter(Wallet.id == wallet.id).first()
+                if w:
+                    w.is_default = True
+                    session.flush()
+    except Exception as e:
+        logger.error(f"Wallet creation failed: {e}")
+        await query.edit_message_text(f"❌ Wallet creation failed: {e}")
+        return
+
+    # Show wallet created WITHOUT the private key in chat
+    provider_note = "🔐 Your wallet is secured by Turnkey." if wallet.is_turnkey_wallet else "🔐 Your private key is encrypted and stored securely."
     text = (
         f"✅ *{chain_name} Wallet Created!*\n\n"
         f"{chain_emoji} *Address:*\n"
         f"`{address}`\n\n"
-        f"🔐 *Private Key:*\n"
-        f"`{private_key}`\n\n"
-        f"⚠️ *IMPORTANT:*\n"
-        f"• Save your private key securely\n"
-        f"• Never share it with anyone\n"
-        f"• This message will be deleted soon\n\n"
-        f"The private key is encrypted and stored securely."
+        f"{provider_note}"
     )
-    
+
     keyboard = [
         [InlineKeyboardButton("👛 View Wallets", callback_data="wallet_menu")],
         [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
     ]
-    
+
     await query.edit_message_text(
         text,
         parse_mode="Markdown",
@@ -502,6 +502,8 @@ async def wallet_import_cancel(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # Create conversation handler for wallet import
 wallet_import_handler = ConversationHandler(
+    name="wallet_import",
+    persistent=True,
     entry_points=[
         CallbackQueryHandler(wallet_import_start, pattern="^wallet_import_"),
     ],

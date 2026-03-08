@@ -66,10 +66,12 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, pa
             from_display = f"{swap.from_token}"
             to_display = f"{swap.to_token}"
 
-            # Amount
+            # Amount — use correct decimals for the token
             try:
-                from_amount = float(swap.from_amount) / 1e6 if swap.from_amount else 0
-                amount_str = f"{from_amount:,.2f}"
+                from bot.config.tokens import get_token_decimals
+                decimals = get_token_decimals(swap.from_token, swap.from_chain) or 18
+                from_amount = float(swap.from_amount) / (10 ** decimals) if swap.from_amount else 0
+                amount_str = format_amount(from_amount)
             except Exception:
                 amount_str = "?"
 

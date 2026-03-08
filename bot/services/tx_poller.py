@@ -88,14 +88,18 @@ class TransactionPoller:
                     if new_status and new_status != tx.status:
                         old_status = tx.status
                         tx.status = new_status
-                        
+
                         if new_status == SwapStatus.COMPLETED.value:
                             tx.completed_at = datetime.utcnow()
-                        
+
                         logger.info(
                             f"Transaction {tx.id} status: {old_status} -> {new_status}"
                         )
-                        
+
+                        # Invalidate balance cache on completion/failure
+                        if new_status in (SwapStatus.COMPLETED.value, SwapStatus.FAILED.value):
+                            await self._invalidate_balance_cache(tx)
+
                         # Notify user
                         await self._notify_user(tx, old_status, new_status)
                         
@@ -196,7 +200,7 @@ class TransactionPoller:
                 "id": 1,
             }
             
-            async with http_session.post(settings.solana_rpc_url, json=payload) as response:
+            async with http_session.post(settings.get_rpc_url("solana"), json=payload) as response:
                 if response.status != 200:
                     return None
                 
@@ -242,17 +246,26 @@ class TransactionPoller:
                 telegram_id = user.telegram_id
             
             if new_status == SwapStatus.COMPLETED.value:
+                from bot.config.tokens import get_token_decimals
+                from bot.utils.formatters import format_amount
+                decimals = get_token_decimals(tx.from_token, tx.from_chain) or 18
+                display_amount = format_amount(float(tx.from_amount) / (10 ** decimals)) if tx.from_amount else "?"
                 text = (
                     f"✅ *Swap Completed!*\n\n"
-                    f"Swapped {tx.from_amount} {tx.from_token} → {tx.to_token}\n"
+                    f"Swapped {display_amount} {tx.from_token} → {tx.to_token}\n"
                     f"Chain: {tx.from_chain} → {tx.to_chain}\n\n"
                     f"[View Transaction]({self._get_explorer_link(tx)})"
                 )
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 New Swap", callback_data="swap_start")],
+                    [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
+                ])
                 await self._bot.send_message(
                     chat_id=telegram_id,
                     text=text,
                     parse_mode="Markdown",
                     disable_web_page_preview=True,
+                    reply_markup=keyboard,
                 )
             elif new_status == SwapStatus.FAILED.value:
                 text = (
@@ -278,6 +291,19 @@ class TransactionPoller:
         except Exception as e:
             logger.error(f"Failed to notify user: {e}")
     
+    async def _invalidate_balance_cache(self, tx: SwapTransaction):
+        """Invalidate balance cache for the wallet that executed a swap."""
+        try:
+            from bot.utils.cache import balance_cache
+            from bot.models.user import Wallet
+
+            with get_db_session() as session:
+                wallet = session.query(Wallet).filter(Wallet.user_id == tx.user_id, Wallet.is_active == True).first()
+                if wallet:
+                    await balance_cache.delete(f"bal:{wallet.address}:{wallet.chain_type}")
+        except Exception as e:
+            logger.debug(f"Failed to invalidate balance cache: {e}")
+
     def _get_explorer_link(self, tx: SwapTransaction) -> str:
         """Get block explorer link for transaction."""
         chain = get_chain_by_name(tx.from_chain)

@@ -145,10 +145,8 @@ export async function registerPasskey(
           { type: 'public-key', alg: -257 }, // RS256
         ],
         authenticatorSelection: {
-          authenticatorAttachment: 'platform',
-          userVerification: 'required',
-          residentKey: 'required',
-          requireResidentKey: true,
+          userVerification: 'preferred',
+          residentKey: 'preferred',
         },
         timeout: 60000,
         attestation: initData.attestation,

@@ -55,6 +55,12 @@ export const BSC: Story = {
   },
 }
 
+export const Base: Story = {
+  args: {
+    token: mockTokens[6], // ETH on Base
+  },
+}
+
 export const SmallBalance: Story = {
   args: {
     token: {

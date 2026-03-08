@@ -137,7 +137,7 @@ function ConnectWalletPrompt({
           </div>
         </div>
 
-        {isPasskeySupported && isPlatformAuthAvailable ? (
+        {isPasskeySupported ? (
           <button
             onClick={onCreatePasskey}
             disabled={isLoading}
@@ -163,9 +163,7 @@ function ConnectWalletPrompt({
         ) : (
           <div className="bg-suwappu-warning/10 border border-suwappu-warning/20 rounded-suwappu-lg p-3">
             <p className="text-xs text-suwappu-warning">
-              {!isPasskeySupported 
-                ? 'Passkeys are not supported in this browser.'
-                : 'Face ID / Touch ID not available on this device.'}
+              Passkeys are not supported in this browser.
             </p>
           </div>
         )}
@@ -178,7 +176,7 @@ function ConnectWalletPrompt({
         <ul className="text-xs text-suwappu-text-secondary space-y-1 ml-4 list-disc">
           <li><strong>Telegram</strong> — Your identity & login</li>
           <li><strong>Turnkey</strong> — Secure key management (TEE-backed)</li>
-          <li><strong>Passkey</strong> — Face ID / Touch ID protection</li>
+          <li><strong>Passkey</strong> — Device-level authentication</li>
         </ul>
         <p className="text-xs text-suwappu-text-secondary italic">
           No seed phrases. Your keys never leave secure hardware.

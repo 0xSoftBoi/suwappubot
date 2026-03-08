@@ -395,6 +395,8 @@ def _format_features(features: list) -> str:
 subscription_handler = CommandHandler("sub", subscription_command)
 
 subscription_conversation = ConversationHandler(
+    name="subscription",
+    persistent=True,
     entry_points=[
         CallbackQueryHandler(upgrade_callback, pattern="^sub_upgrade$"),
         CallbackQueryHandler(beta_code_callback, pattern="^sub_beta$"),

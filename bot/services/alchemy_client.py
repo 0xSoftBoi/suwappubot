@@ -632,6 +632,63 @@ class AlchemyClient:
             logger.error(f"Failed to create webhook: {e}")
             return None
 
+    # === Raw Token Balances (no metadata N+1) ===
+
+    async def get_token_balances_raw(
+        self,
+        address: str,
+        chain: str = "ethereum",
+    ) -> Dict[str, int]:
+        """
+        Get all ERC-20 token balances as {contract_address_lower: raw_balance_int}.
+
+        Unlike get_token_balances(), this does NOT call get_token_metadata() per
+        token, avoiding an N+1 API round-trip.  The caller is expected to map
+        contract addresses back to known symbols via its own config (e.g. TOKENS).
+        """
+        base_url = self._get_base_url(chain)
+        if not base_url:
+            return {}
+
+        session = await self._get_session()
+
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "alchemy_getTokenBalances",
+            "params": [address, "erc20"],
+        }
+
+        try:
+            async with session.post(base_url, json=payload) as response:
+                if response.status != 200:
+                    logger.error(f"Alchemy raw token balances failed: {await response.text()}")
+                    return {}
+
+                result = await response.json()
+
+            if "error" in result:
+                logger.error(f"Alchemy error: {result['error']}")
+                return {}
+
+            token_data = result.get("result", {}).get("tokenBalances", [])
+
+            balances: Dict[str, int] = {}
+            for token in token_data:
+                raw_hex = token.get("tokenBalance", "0x0")
+                raw_balance = int(raw_hex, 16)
+                if raw_balance == 0:
+                    continue
+                contract = token.get("contractAddress", "").lower()
+                if contract:
+                    balances[contract] = raw_balance
+
+            return balances
+
+        except Exception as e:
+            logger.error(f"Failed to get raw token balances: {e}")
+            return {}
+
     # === Helpers ===
 
     def _is_spam_token(self, metadata: TokenMetadata) -> bool:
