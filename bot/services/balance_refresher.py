@@ -12,13 +12,16 @@ logger = logging.getLogger(__name__)
 
 
 class BalanceRefresher:
-    """Periodically refreshes balance cache for all active wallets."""
+    """Periodically refreshes balance cache for all active wallets.
 
-    def __init__(self, refresh_interval: int = 45, concurrency: int = 3):
+    Refreshes wallets one at a time with pauses between each to avoid
+    starving the event loop of resources needed for user-facing requests.
+    """
+
+    def __init__(self, refresh_interval: int = 60):
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._refresh_interval = refresh_interval
-        self._concurrency = concurrency
         self._wallet_service = WalletService()
         logger.info(f"Balance refresher initialized (interval: {refresh_interval}s)")
 
@@ -43,8 +46,8 @@ class BalanceRefresher:
 
     async def _refresh_loop(self):
         """Main refresh loop."""
-        # Wait a bit on startup to let other services initialize
-        await asyncio.sleep(15)
+        # Wait for services to fully initialize
+        await asyncio.sleep(30)
 
         while self._running:
             try:
@@ -59,7 +62,7 @@ class BalanceRefresher:
             await asyncio.sleep(self._refresh_interval)
 
     async def _refresh_all(self):
-        """Refresh balances for all active wallets."""
+        """Refresh balances for all active wallets, one at a time."""
         if not self._running:
             return
 
@@ -83,24 +86,20 @@ class BalanceRefresher:
 
         logger.debug(f"Refreshing balances for {len(targets)} unique wallets")
 
-        # Use a semaphore to limit concurrent RPC calls
-        sem = asyncio.Semaphore(self._concurrency)
-
-        async def _refresh_one(address: str, chain_type: str):
+        # Refresh ONE wallet at a time with a pause between each
+        # to avoid starving the event loop for user requests
+        for address, chain_type in targets:
             if not self._running:
                 return
-            async with sem:
-                try:
-                    await self._wallet_service.get_balances_by_address(address, chain_type)
-                except asyncio.CancelledError:
-                    return
-                except Exception as e:
-                    logger.debug(f"Failed to refresh {address} ({chain_type}): {e}")
+            try:
+                await self._wallet_service.get_balances_by_address(address, chain_type)
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                logger.debug(f"Failed to refresh {address} ({chain_type}): {e}")
 
-        await asyncio.gather(
-            *[_refresh_one(addr, ct) for addr, ct in targets],
-            return_exceptions=True,
-        )
+            # Yield control and pause between wallets
+            await asyncio.sleep(2)
 
 
 # Global instance
