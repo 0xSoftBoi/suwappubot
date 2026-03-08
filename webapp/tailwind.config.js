@@ -45,6 +45,53 @@ export default {
           'text': '#2C3E50',
           'text-secondary': '#6C7A89',
         },
+        // Price impact severity scale
+        impact: {
+          negligible: '#4ADE80',
+          low: '#22C55E',
+          medium: '#FACC15',
+          high: '#F97316',
+          severe: '#EF4444',
+        },
+        // Transaction states
+        'tx-state': {
+          pending: '#F59E0B',
+          confirming: '#3B82F6',
+          bridging: '#8B5CF6',
+          success: '#22C55E',
+          failed: '#EF4444',
+          expired: '#6B7280',
+        },
+        // Chain brand colors
+        chain: {
+          ethereum: '#627EEA',
+          bsc: '#F0B90B',
+          polygon: '#8247E5',
+          arbitrum: '#28A0F0',
+          optimism: '#FF0420',
+          base: '#0052FF',
+          avalanche: '#E84142',
+          fantom: '#1969FF',
+          linea: '#121212',
+          mantle: '#000000',
+          gnosis: '#04795B',
+          scroll: '#FFEEDA',
+          solana: '#9945FF',
+          sui: '#6FBCF0',
+          ton: '#0098EA',
+        },
+        // Provider brand colors
+        provider: {
+          cow: '#EC4612',
+          jupiter: '#C7F284',
+          socket: '#7B3FE4',
+          cctp: '#3B6EAE',
+          across: '#6CF9D8',
+          wormhole: '#A45EFF',
+          lifi: '#EF49A0',
+          layerzero: '#1E1E1E',
+          ccip: '#375BD2',
+        },
       },
       fontFamily: {
         'display': ['Pacifico', 'Dancing Script', 'Satisfy', 'cursive'],
@@ -84,6 +131,14 @@ export default {
         'page-enter': 'page-enter 0.3s cubic-bezier(0.22, 1, 0.36, 1) both',
         'toast-enter': 'toast-enter 0.2s ease-out both',
         'toast-exit': 'toast-exit 0.2s ease-out both',
+        // Swap-specific animations
+        'swap-flip': 'suwappu-swap-flip 200ms ease-out',
+        'price-up': 'suwappu-price-tick-up 300ms ease',
+        'price-down': 'suwappu-price-tick-down 300ms ease',
+        'pulse-pending': 'suwappu-pulse-pending 2s ease-in-out infinite',
+        'quote-shimmer': 'suwappu-quote-shimmer 1.5s ease-in-out infinite',
+        'slide-up': 'suwappu-slide-up 300ms cubic-bezier(0.175,0.885,0.32,1.275)',
+        'number-spring': 'suwappu-number-spring 400ms cubic-bezier(0.175,0.885,0.32,1.275)',
       },
       keyframes: {
         'suwappu-petal-float': {

@@ -66,7 +66,7 @@ export function TokenInput({
             <img 
               src={token.logoUrl} 
               alt={token.symbol}
-              className="w-6 h-6 rounded-full object-cover"
+              className="w-6 h-6 rounded-suwappu-pill object-cover"
               onError={(e) => {
                 // Fallback to text on image load error
                 const target = e.target as HTMLImageElement
@@ -75,7 +75,7 @@ export function TokenInput({
               }}
             />
           ) : null}
-          <div className={`w-6 h-6 rounded-full bg-suwappu-gradient flex items-center justify-center text-white text-xs font-bold ${token.logoUrl ? 'hidden' : ''}`}>
+          <div className={`w-6 h-6 rounded-suwappu-pill bg-suwappu-gradient flex items-center justify-center text-white text-xs font-bold ${token.logoUrl ? 'hidden' : ''}`}>
             {token.symbol.slice(0, 2)}
           </div>
           <span className="font-heading font-semibold text-sm">{token.symbol}</span>

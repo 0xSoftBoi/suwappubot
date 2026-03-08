@@ -222,6 +222,87 @@
   }
 }
 
+/* === Swap-Specific Keyframes === */
+@keyframes suwappu-swap-flip {
+  0% { transform: rotateX(0deg); }
+  50% { transform: rotateX(90deg); }
+  100% { transform: rotateX(0deg); }
+}
+
+@keyframes suwappu-price-tick-up {
+  0% { color: inherit; }
+  25% { color: #22C55E; background-color: rgba(34, 197, 94, 0.1); }
+  100% { color: inherit; background-color: transparent; }
+}
+
+@keyframes suwappu-price-tick-down {
+  0% { color: inherit; }
+  25% { color: #EF4444; background-color: rgba(239, 68, 68, 0.1); }
+  100% { color: inherit; background-color: transparent; }
+}
+
+@keyframes suwappu-progress-fill {
+  from { width: 0%; }
+  to { width: var(--progress, 100%); }
+}
+
+@keyframes suwappu-pulse-pending {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes suwappu-quote-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes suwappu-number-spring {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+@keyframes suwappu-slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes suwappu-confetti {
+  0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(-200px) rotate(720deg); opacity: 0; }
+}
+
+/* === Swap Utility Classes === */
+.suwappu-swap-flip {
+  animation: suwappu-swap-flip 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.suwappu-price-up {
+  animation: suwappu-price-tick-up 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.suwappu-price-down {
+  animation: suwappu-price-tick-down 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.suwappu-pulse-pending {
+  animation: suwappu-pulse-pending 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.suwappu-quote-shimmer {
+  background: linear-gradient(90deg, rgba(255,183,197,0.05) 25%, rgba(255,183,197,0.2) 50%, rgba(255,183,197,0.05) 75%);
+  background-size: 200% 100%;
+  animation: suwappu-quote-shimmer 1.5s ease-in-out infinite;
+}
+
+.suwappu-slide-up {
+  animation: suwappu-slide-up 300ms cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.suwappu-number-spring {
+  animation: suwappu-number-spring 400ms cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
 /* === Utility Classes === */
 .suwappu-gradient-text {
   background: var(--suwappu-gradient-primary);

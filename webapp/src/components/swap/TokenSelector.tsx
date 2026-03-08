@@ -88,10 +88,10 @@ export function TokenSelector({
               <img 
                 src={selectedToken.logoUrl} 
                 alt={selectedToken.symbol}
-                className="w-6 h-6 rounded-full"
+                className="w-6 h-6 rounded-suwappu-pill"
               />
             ) : (
-              <div className="w-6 h-6 rounded-full bg-suwappu-gradient flex items-center justify-center text-white text-xs font-bold">
+              <div className="w-6 h-6 rounded-suwappu-pill bg-suwappu-gradient flex items-center justify-center text-white text-xs font-bold">
                 {selectedToken.symbol.slice(0, 2)}
               </div>
             )}
@@ -161,10 +161,10 @@ export function TokenSelector({
                   <img 
                     src={token.logoUrl} 
                     alt={token.symbol}
-                    className="w-8 h-8 rounded-full"
+                    className="w-8 h-8 rounded-suwappu-pill"
                   />
                 ) : (
-                  <div className="w-8 h-8 rounded-full bg-suwappu-gradient flex items-center justify-center text-white text-xs font-bold">
+                  <div className="w-8 h-8 rounded-suwappu-pill bg-suwappu-gradient flex items-center justify-center text-white text-xs font-bold">
                     {token.symbol.slice(0, 2)}
                   </div>
                 )}

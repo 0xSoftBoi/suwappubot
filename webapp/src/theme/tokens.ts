@@ -7,7 +7,7 @@
 
 export const designTokens = {
   name: 'Suwappu UI',
-  version: '1.0.0',
+  version: '2.0.0',
 
   colors: {
     primary: {
@@ -31,6 +31,59 @@ export const designTokens = {
       warning: '#FFE4A0',
       error: '#F8A0A0',
       info: '#90CAF9',
+    },
+
+    // === SWAP-SPECIFIC TOKENS ===
+
+    /** Price impact severity scale (green-to-red) */
+    impact: {
+      negligible: '#4ADE80',  // green-400 — <0.1%
+      low: '#22C55E',         // green-500 — 0.1-0.5%
+      medium: '#FACC15',      // yellow-400 — 0.5-2%
+      high: '#F97316',        // orange-500 — 2-5%
+      severe: '#EF4444',      // red-500 — >5%
+    },
+
+    /** Transaction lifecycle states */
+    txState: {
+      pending: '#F59E0B',     // amber-500
+      confirming: '#3B82F6',  // blue-500
+      bridging: '#8B5CF6',    // violet-500
+      success: '#22C55E',     // green-500
+      failed: '#EF4444',      // red-500
+      expired: '#6B7280',     // gray-500
+    },
+
+    /** Canonical chain brand colors */
+    chain: {
+      ethereum: '#627EEA',
+      bsc: '#F0B90B',
+      polygon: '#8247E5',
+      arbitrum: '#28A0F0',
+      optimism: '#FF0420',
+      base: '#0052FF',
+      avalanche: '#E84142',
+      fantom: '#1969FF',
+      linea: '#121212',
+      mantle: '#000000',
+      gnosis: '#04795B',
+      scroll: '#FFEEDA',
+      solana: '#9945FF',
+      sui: '#6FBCF0',
+      ton: '#0098EA',
+    },
+
+    /** Swap provider brand colors */
+    provider: {
+      cow: '#EC4612',
+      jupiter: '#C7F284',
+      socket: '#7B3FE4',
+      cctp: '#3B6EAE',
+      across: '#6CF9D8',
+      wormhole: '#A45EFF',
+      lifi: '#EF49A0',
+      layerzero: '#1E1E1E',
+      ccip: '#375BD2',
     },
     neutral: {
       white: '#FFFFFF',
@@ -145,6 +198,21 @@ export const designTokens = {
     },
   },
 
+  /** Token icon sizing scale */
+  tokenIcon: {
+    sm: 20,
+    md: 28,
+    lg: 36,
+    xl: 48,
+  },
+
+  /** Chain badge overlay sizing */
+  chainBadge: {
+    sm: 14,
+    md: 18,
+    lg: 22,
+  },
+
   animations: {
     timing: {
       fast: '150ms',
@@ -158,6 +226,13 @@ export const designTokens = {
       easeOut: 'cubic-bezier(0, 0, 0.2, 1)',
       bounce: 'cubic-bezier(0.68, -0.55, 0.265, 1.55)',
       spring: 'cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+    },
+    /** Swap-specific animation presets */
+    swap: {
+      flip: { duration: '200ms', easing: 'cubic-bezier(0, 0, 0.2, 1)' },
+      priceTick: { duration: '300ms', easing: 'cubic-bezier(0.4, 0, 0.2, 1)' },
+      progressFill: { duration: '500ms', easing: 'cubic-bezier(0.4, 0, 0.2, 1)' },
+      numberSpring: { duration: '400ms', easing: 'cubic-bezier(0.175, 0.885, 0.32, 1.275)' },
     },
   },
 
