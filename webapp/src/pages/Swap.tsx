@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { AppLayout, AppHeader } from '../components/layout'
 import { TokenInput, SwapArrow, SwapDetails, TokenSelector } from '../components/swap'
 import { useTokens } from '../hooks/useTokens'
 import { useSwapQuote } from '../hooks/useSwapQuote'
 import { useSwapExecute } from '../hooks/useSwapExecute'
-import type { SwapToken } from '../types/swap'
+import { api } from '../lib/api'
+import type { SwapToken, SwapExecuteResult } from '../types/swap'
 
 export function Swap() {
   const [fromAmount, setFromAmount] = useState('')
@@ -14,6 +16,7 @@ export function Swap() {
   const [showToSelector, setShowToSelector] = useState(false)
   const [isConfirming, setIsConfirming] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
+  const [swapResult, setSwapResult] = useState<SwapExecuteResult | null>(null)
 
   // Fetch available tokens
   const { data: tokens, isLoading: tokensLoading } = useTokens()
@@ -58,6 +61,14 @@ export function Swap() {
     reset: resetSwapState,
   } = useSwapExecute()
 
+  // Poll for swap status after execution
+  const { data: swapStatus } = useQuery({
+    queryKey: ['swapStatus', swapResult?.swapId],
+    queryFn: () => api.getSwapStatus(swapResult!.swapId),
+    enabled: !!swapResult?.swapId && swapResult.status === 'submitted',
+    refetchInterval: 5000,
+  })
+
   const handleSwapTokens = () => {
     const temp = fromToken
     setFromToken(toToken)
@@ -86,7 +97,8 @@ export function Swap() {
     executeSwap(
       { quoteId: quote.id },
       {
-        onSuccess: () => {
+        onSuccess: (result) => {
+          setSwapResult(result as SwapExecuteResult)
           setIsSuccess(true)
         },
       }
@@ -95,6 +107,7 @@ export function Swap() {
 
   const handleReset = () => {
     setIsSuccess(false)
+    setSwapResult(null)
     setFromAmount('')
     resetSwapState()
   }
@@ -125,25 +138,65 @@ export function Swap() {
 
   const header = <AppHeader title="Swap" />
 
+  // Determine current swap status from polling or initial result
+  const currentStatus = swapStatus?.status || swapResult?.status || 'submitted'
+  const txHash = swapResult?.txHash || swapStatus?.txHash
+  const explorerUrl = swapResult?.explorerUrl
+
   // Success state
   if (isSuccess) {
+    const isCompleted = currentStatus === 'completed'
+    const isFailed = currentStatus === 'failed'
+    const isConfirmingTx = currentStatus === 'submitted'
+
     return (
       <AppLayout header={header} activeNav="swap">
         <div className="p-3 pb-20 flex flex-col items-center justify-center min-h-[60vh]">
           <div className="bg-white rounded-suwappu-xxl p-6 shadow-suwappu-2 text-center max-w-xs">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-suwappu-success/20 flex items-center justify-center">
-              <svg className="w-8 h-8 text-suwappu-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
+            <div className={`w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center ${
+              isFailed ? 'bg-suwappu-error/20' : isConfirmingTx ? 'bg-suwappu-gradient' : 'bg-suwappu-success/20'
+            }`}>
+              {isFailed ? (
+                <svg className="w-8 h-8 text-suwappu-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              ) : isConfirmingTx ? (
+                <svg className="w-8 h-8 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+              ) : (
+                <svg className="w-8 h-8 text-suwappu-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
             </div>
-            <h3 className="font-heading font-bold text-lg text-suwappu-purple-deep mb-1">Swap Complete!</h3>
-            <p className="text-xs text-suwappu-text-secondary mb-4">
-              Successfully swapped {fromAmount} {fromToken?.symbol} for {toAmount} {toToken?.symbol}
+            <h3 className="font-heading font-bold text-lg text-suwappu-purple-deep mb-1">
+              {isFailed ? 'Swap Failed' : isConfirmingTx ? 'Confirming...' : 'Swap Complete!'}
+            </h3>
+            <p className="text-xs text-suwappu-text-secondary mb-2">
+              {isFailed
+                ? `Failed to swap ${fromAmount} ${fromToken?.symbol}`
+                : isCompleted
+                ? `Successfully swapped ${fromAmount} ${fromToken?.symbol} for ${toAmount} ${toToken?.symbol}`
+                : `Swapping ${fromAmount} ${fromToken?.symbol} for ${toToken?.symbol}...`}
             </p>
+            {txHash && (
+              <p className="text-xs text-suwappu-text-secondary mb-4 font-mono">
+                Tx: {txHash.slice(0, 10)}...{txHash.slice(-8)}
+              </p>
+            )}
             <div className="space-y-2">
-              <button className="w-full px-4 py-2 bg-suwappu-gradient text-white font-heading font-bold text-sm rounded-suwappu-pill shadow-suwappu-button">
-                View Transaction
-              </button>
+              {explorerUrl && (
+                <a
+                  href={explorerUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block w-full px-4 py-2 bg-suwappu-gradient text-white font-heading font-bold text-sm rounded-suwappu-pill shadow-suwappu-button text-center"
+                >
+                  View Transaction
+                </a>
+              )}
               <button
                 onClick={handleReset}
                 className="w-full px-4 py-2 text-suwappu-magenta-mid font-heading font-semibold text-sm"

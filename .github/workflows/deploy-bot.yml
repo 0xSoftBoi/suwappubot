@@ -125,6 +125,7 @@ jobs:
 
       - name: Run pre-deploy database backup
         if: steps.check-service.outputs.exists == 'true'
+        continue-on-error: true
         run: |
           echo "Starting database backup before deploy..."
           TASK_ARN=$(aws ecs run-task \
@@ -156,15 +157,66 @@ jobs:
       # - API-TS: api-ts/start.sh runs drizzle-kit migrate before server start
       # Migration failures crash the container, triggering ECS circuit breaker rollback.
 
+      - name: Update task definition with new image
+        id: update-task-def
+        if: steps.check-service.outputs.exists == 'true'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Get the current task definition name from the service
+          TASK_DEF_ARN=$(aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ steps.env.outputs.ECS_SERVICE }} \
+            --query 'services[0].taskDefinition' \
+            --output text)
+
+          TASK_DEF_NAME=$(echo "$TASK_DEF_ARN" | awk -F'/' '{print $NF}' | awk -F':' '{print $1}')
+          echo "Current task definition: $TASK_DEF_ARN"
+
+          # Get the current task definition JSON
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition "$TASK_DEF_ARN" \
+            --query 'taskDefinition')
+
+          # Get the container name
+          CONTAINER_NAME=$(echo "$TASK_DEF" | python3 -c "import sys,json; print(json.load(sys.stdin)['containerDefinitions'][0]['name'])")
+          echo "Container name: $CONTAINER_NAME"
+
+          # Update the image in the task definition and register new revision
+          NEW_IMAGE="$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG"
+          echo "New image: $NEW_IMAGE"
+
+          echo "$TASK_DEF" | python3 -c "
+          import sys, json
+          td = json.load(sys.stdin)
+          td['containerDefinitions'][0]['image'] = '$NEW_IMAGE'
+          # Remove fields that can't be in register-task-definition
+          for key in ['taskDefinitionArn', 'revision', 'status', 'requiresAttributes', 'compatibilities', 'registeredAt', 'registeredBy']:
+              td.pop(key, None)
+          with open('/tmp/task-def.json', 'w') as f:
+              json.dump(td, f)
+          "
+
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file:///tmp/task-def.json \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+
+          echo "New task definition: $NEW_TASK_DEF_ARN"
+          echo "task_def_arn=$NEW_TASK_DEF_ARN" >> $GITHUB_OUTPUT
+
       - name: Deploy to ECS
         if: steps.check-service.outputs.exists == 'true'
         run: |
           echo "Deploying to ${{ steps.env.outputs.ENVIRONMENT }} environment..."
           echo "Service: ${{ steps.env.outputs.ECS_SERVICE }}"
+          echo "Task definition: ${{ steps.update-task-def.outputs.task_def_arn }}"
 
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER }} \
             --service ${{ steps.env.outputs.ECS_SERVICE }} \
+            --task-definition ${{ steps.update-task-def.outputs.task_def_arn }} \
             --deployment-configuration "deploymentCircuitBreaker={enable=true,rollback=true}" \
             --enable-execute-command \
             --force-new-deployment
@@ -186,6 +238,41 @@ jobs:
           echo "Checking health endpoint..."
           sleep 10
           curl -sf "${{ steps.env.outputs.BOT_URL }}/health" || echo "Health check pending (service may still be starting)"
+
+      - name: Verify Telegram bot is polling
+        if: steps.check-service.outputs.exists == 'true'
+        continue-on-error: true
+        run: |
+          echo "Checking Telegram bot status..."
+          sleep 20
+
+          # Get bot token from Secrets Manager
+          TOKEN=$(aws secretsmanager get-secret-value \
+            --secret-id "suwappu/app-secrets" \
+            --query 'SecretString' \
+            --output text 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('TELEGRAM_BOT_TOKEN',''))" 2>/dev/null)
+
+          if [ -n "$TOKEN" ]; then
+            echo "=== getWebhookInfo ==="
+            WEBHOOK_INFO=$(curl -sf "https://api.telegram.org/bot${TOKEN}/getWebhookInfo")
+            echo "$WEBHOOK_INFO" | python3 << 'PYEOF'
+          import sys,json
+          d = json.load(sys.stdin)['result']
+          pending = d.get('pending_update_count', 0)
+          url = d.get('url', '')
+          err = d.get('last_synchronization_error_date')
+          print(f'Webhook URL: {url or "(none - polling mode)"}')
+          print(f'Pending updates: {pending}')
+          if err:
+              print(f'Last sync error: {err}')
+          if pending > 0 and not url:
+              print('WARNING: Bot is NOT consuming updates! Polling may have failed.')
+          else:
+              print('OK: Bot appears to be polling normally.')
+          PYEOF
+          else
+            echo "Could not retrieve bot token"
+          fi
 
       - name: Deployment summary
         run: |

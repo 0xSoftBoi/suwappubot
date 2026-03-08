@@ -6,7 +6,7 @@ aiohttp==3.13.3
 alembic==1.16.5
 base58==2.1.1
 cmake>=3.14
-cryptography==46.0.4
+cryptography==46.0.5
 eth-account==0.11.0
 eth-utils==5.3.1
 gunicorn>=23.0.0
@@ -19,8 +19,8 @@ pydantic>=2.7.0
 pyotp==2.9.0
 pytest-asyncio==0.23.6
 pytest-cov==5.0.0
-pytest==8.1.1
-python-dotenv==1.0.1
+pytest==8.4.2
+python-dotenv==1.2.1
 python-telegram-bot==21.3
 pyyaml==6.0.3
 qrcode[pil]==7.4.2

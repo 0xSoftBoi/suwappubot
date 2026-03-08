@@ -204,12 +204,10 @@ export function Settings() {
       { id: 'auto', label: '🤖 Auto', description: 'Automatically adjust based on network', multiplier: 1.0 },
     ]
 
-    // Gas settings stored in localStorage for now (can be moved to API later)
-    const [gasMode, setGasMode] = useState(() => localStorage.getItem('suwappu_gas_mode') || 'auto')
+    const gasMode = preferences?.gasMode || 'auto'
 
-    const handleGasChange = (mode: string) => {
-      setGasMode(mode)
-      localStorage.setItem('suwappu_gas_mode', mode)
+    const handleGasChange = async (mode: string) => {
+      await savePreferences({ gasMode: mode })
     }
 
     return (
@@ -354,7 +352,7 @@ export function Settings() {
         <div className="space-y-1">
           <SettingsItem icon="🔔" label="Notifications" hasArrow onClick={() => setView('notifications')} />
           <SettingsItem icon="📊" label="Slippage" value={`${slippageDisplay}%`} hasArrow onClick={() => setView('slippage')} />
-          <SettingsItem icon="⛽" label="Gas Settings" value="Auto" hasArrow onClick={() => setView('gas')} />
+          <SettingsItem icon="⛽" label="Gas Settings" value={preferences?.gasMode ? preferences.gasMode.charAt(0).toUpperCase() + preferences.gasMode.slice(1) : 'Auto'} hasArrow onClick={() => setView('gas')} />
           <SettingsItem icon="🌐" label="Language" value="English" hasArrow />
         </div>
 
@@ -369,7 +367,6 @@ export function Settings() {
               hasArrow
               onClick={() => setView('wallets')}
             />
-            <SettingsItem icon="📱" label="Active Sessions" value="1" hasArrow />
           </div>
         </div>
 
@@ -377,9 +374,9 @@ export function Settings() {
         <div>
           <p className="text-xs text-suwappu-text-secondary mb-2 px-1">Support</p>
           <div className="space-y-1">
-            <SettingsItem icon="❓" label="Help Center" hasArrow />
-            <SettingsItem icon="💬" label="Contact Support" hasArrow />
-            <SettingsItem icon="📄" label="Terms of Service" hasArrow />
+            <SettingsItem icon="❓" label="Help Center" hasArrow onClick={() => window.open('https://suwappu.bot/help', '_blank')} />
+            <SettingsItem icon="💬" label="Contact Support" hasArrow onClick={() => window.open('https://t.me/suwappubot', '_blank')} />
+            <SettingsItem icon="📄" label="Terms of Service" hasArrow onClick={() => window.open('https://suwappu.bot/terms', '_blank')} />
           </div>
         </div>
 

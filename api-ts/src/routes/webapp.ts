@@ -415,6 +415,7 @@ protectedWebapp.get('/preferences', async (c) => {
 					notificationsEnabled: user.notificationsEnabled ?? true,
 					twoFaEnabled: user.twoFaEnabled ?? false,
 					twoFaThreshold: user.twoFaThreshold ?? 1000,
+					gasMode: user.gasMode ?? 'auto',
 				},
 				wallets: wallets.map((w) => ({
 					address: w.address,
@@ -459,6 +460,7 @@ protectedWebapp.put('/preferences', async (c) => {
 				notificationsEnabled: body.notificationsEnabled,
 				twoFaEnabled: body.twoFaEnabled,
 				twoFaThreshold: body.twoFaThreshold,
+				gasMode: body.gasMode,
 			})
 
 			return {
@@ -468,6 +470,7 @@ protectedWebapp.put('/preferences', async (c) => {
 					notificationsEnabled: updatedUser.notificationsEnabled ?? true,
 					twoFaEnabled: updatedUser.twoFaEnabled ?? false,
 					twoFaThreshold: updatedUser.twoFaThreshold ?? 1000,
+					gasMode: updatedUser.gasMode ?? 'auto',
 				},
 			}
 		}),

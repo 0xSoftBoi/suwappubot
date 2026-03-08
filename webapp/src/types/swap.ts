@@ -51,13 +51,9 @@ export interface SwapExecuteRequest {
 export interface SwapExecuteResult {
   success: boolean
   swapId: number
-  status: 'signed'
-  signedTransaction: string
-  message: string
-  chain: {
-    chainId: number
-    rpcNeeded: boolean
-  }
+  status: 'signed' | 'submitted' | 'completed' | 'failed'
+  txHash?: string
+  explorerUrl?: string
   swap: {
     fromChain: string
     toChain: string
@@ -70,7 +66,7 @@ export interface SwapExecuteResult {
 
 export interface SwapStatusResponse {
   id: number
-  status: 'pending' | 'signed' | 'completed' | 'failed'
+  status: 'pending' | 'signed' | 'submitted' | 'completed' | 'failed'
   fromChain: string
   toChain: string
   fromToken: string

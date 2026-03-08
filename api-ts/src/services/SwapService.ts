@@ -8,6 +8,7 @@ import {
 	swapTransactions,
 } from '../db'
 import { DatabaseError, ValidationError } from '../errors'
+import { getTransactionReceipt } from '../config/chains'
 
 // Li.Fi API base URL
 const LIFI_API_BASE = 'https://li.quest/v1'
@@ -200,6 +201,10 @@ export interface SwapServiceInterface {
 
 	readonly getSwapById: (
 		swapId: number,
+	) => Effect.Effect<SwapTransaction | null, DatabaseError, DrizzleService>
+
+	readonly checkAndUpdateSwapStatus: (
+		swapId: number
 	) => Effect.Effect<SwapTransaction | null, DatabaseError, DrizzleService>
 }
 
@@ -455,5 +460,52 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 			})
 
 			return result[0] || null
+		}),
+
+	checkAndUpdateSwapStatus: (swapId: number) =>
+		Effect.gen(function* () {
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+			)
+
+			// Fetch the swap
+			const swapResult = yield* Effect.tryPromise({
+				try: () =>
+					db.select().from(swapTransactions).where(eq(swapTransactions.id, swapId)).limit(1),
+				catch: (e) => new DatabaseError({ message: `Failed to get swap: ${e}`, cause: e }),
+			})
+
+			const swap = swapResult[0]
+			if (!swap || swap.status !== 'submitted' || !swap.txHash) {
+				return swap || null
+			}
+
+			// Check on-chain receipt
+			const chainId = parseInt(swap.fromChain, 10)
+			const receipt = yield* Effect.tryPromise({
+				try: () => getTransactionReceipt(chainId, swap.txHash!),
+				catch: () => new DatabaseError({ message: 'Failed to check tx receipt' }),
+			})
+
+			if (!receipt.confirmed) return swap // Still pending
+
+			const newStatus = receipt.success ? 'completed' : 'failed'
+			const updateData: Partial<SwapTransaction> = {
+				status: newStatus,
+				updatedAt: new Date(),
+			}
+			if (newStatus === 'completed') updateData.completedAt = new Date()
+
+			const updated = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.update(swapTransactions)
+						.set(updateData)
+						.where(eq(swapTransactions.id, swapId))
+						.returning(),
+				catch: (e) => new DatabaseError({ message: `Failed to update swap: ${e}`, cause: e }),
+			})
+
+			return updated[0] || null
 		}),
 })
