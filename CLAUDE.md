@@ -2,9 +2,38 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Workflow
+- **IMPLEMENT, don't plan.** When asked to fix or build something, DO the work. If you need to explore first, limit exploration to 5 minutes then start building. Only produce a plan document if explicitly asked for one.
+- If blocked, say so explicitly — don't fill the response with exploration as a substitute for implementation.
+
 ## Git Conventions
 
 - **IMPORTANT**: Do NOT add "Co-Authored-By" lines to commit messages.
+
+## Git Operations
+
+**Before any git push, rebase, or merge**, run this mandatory pre-flight sequence. Do NOT skip steps. Only proceed after reporting all findings. If any issue is found, fix it first and re-run.
+
+### Pre-flight checklist (run every time):
+1. **Build artifacts**: Check for `.next/`, `node_modules/`, `dist/` in tracked files. If found, add to `.gitignore` and unstage before proceeding.
+2. **Lock files**: Run `ls .git/*.lock 2>/dev/null` — if stale lock files exist, investigate what holds them (don't just delete).
+3. **Worktree check**: Run `git rev-parse --git-common-dir` — if in a worktree, **NEVER rebase**. Always use `git merge` or `git pull --no-rebase`.
+4. **Divergence check**: Compare `git rev-parse HEAD` vs `git rev-parse @{u}` to detect local/remote divergence. Recommend merge (not force-push) unless user explicitly approves.
+5. **Uncommitted work**: Run `git status` and `git stash list` to surface any uncommitted changes or stashed work. Report before proceeding.
+
+### Additional rules:
+- **NEVER use `git rebase`**. Always use `git merge` or `git pull --no-rebase`.
+- **If any git operation fails twice, STOP and ask the user** — do NOT attempt dozens of recovery steps.
+- Use `HUSKY=0` prefix for all git commits and pushes in worktrees to avoid hook hangs.
+
+## TypeScript & Build Tools
+- **Always use `bun`** instead of `tsc`, `npm`, or `npx`. The `tsc` command times out in this project.
+- Use `bun check` or equivalent bun commands for all TypeScript operations.
+- **postgres.js**: Do NOT assume standard psql connection string formats. postgres.js has its own options (e.g. `ssl: 'require'` must be set in code, not as a URL query param). Check postgres.js docs before configuring database connections.
+
+## CLI Tools
+- **Use `gh`** (GitHub CLI) for all GitHub operations (PRs, issues, etc.) — do not use raw git push or API calls when gh is available.
+- Use `aws` CLI for infrastructure checks but be aware of sandbox permission limitations.
 
 ## Project Overview
 
