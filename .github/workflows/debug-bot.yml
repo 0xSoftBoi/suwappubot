@@ -115,33 +115,56 @@ jobs:
           # List available secrets
           aws secretsmanager list-secrets --query 'SecretList[*].Name' --output json 2>&1 || echo "Cannot list secrets"
 
-          # Try common secret names
-          for SECRET_NAME in "suwappu/app-secrets" "suwappu/prod-secrets" "suwappu/dev-secrets" "suwappu/bot-token" "suwappu-bot-prod"; do
-            echo "Trying $SECRET_NAME..."
-            RESULT=$(aws secretsmanager get-secret-value --secret-id "$SECRET_NAME" --query 'SecretString' --output text 2>&1)
-            if echo "$RESULT" | grep -q "TELEGRAM_BOT_TOKEN"; then
-              TOKEN=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('TELEGRAM_BOT_TOKEN','NOT_FOUND'))")
-              echo "Found token: ${TOKEN:0:10}..."
+          # Get token from Secrets Manager
+          RESULT=$(aws secretsmanager get-secret-value --secret-id "suwappu/app-secrets" --query 'SecretString' --output text 2>&1)
+          TOKEN=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('TELEGRAM_BOT_TOKEN','NOT_FOUND'))")
+          echo "Found token: ${TOKEN:0:10}..."
 
-              echo ""
-              echo "=== Telegram getMe ==="
-              curl -sf "https://api.telegram.org/bot${TOKEN}/getMe" 2>&1
+          echo ""
+          echo "=== Telegram getMe ==="
+          curl -sf "https://api.telegram.org/bot${TOKEN}/getMe"
 
-              echo ""
-              echo "=== Telegram getWebhookInfo ==="
-              curl -sf "https://api.telegram.org/bot${TOKEN}/getWebhookInfo" 2>&1
+          echo ""
+          echo "=== Telegram getWebhookInfo ==="
+          curl -sf "https://api.telegram.org/bot${TOKEN}/getWebhookInfo"
 
-              echo ""
-              echo "=== Sending test /start via getUpdates ==="
-              curl -sf "https://api.telegram.org/bot${TOKEN}/getUpdates?limit=5&timeout=1" 2>&1 | python3 -c "
-              import sys,json
-              data = json.load(sys.stdin)
-              print(f'ok: {data.get(\"ok\")}')
-              print(f'updates: {len(data.get(\"result\",[]))}')
-              for u in data.get('result',[])[:3]:
-                msg = u.get('message',{})
-                print(f'  - {msg.get(\"text\",\"?\")} from {msg.get(\"from\",{}).get(\"username\",\"?\")}')
-              " 2>&1 || echo "Could not parse updates"
-              break
-            fi
-          done
+          echo ""
+          echo "=== Pending updates ==="
+          curl -sf "https://api.telegram.org/bot${TOKEN}/getUpdates?limit=5&timeout=1" | python3 -c "
+import sys,json
+data = json.load(sys.stdin)
+print(f'ok: {data.get(\"ok\")}')
+results = data.get('result',[])
+print(f'updates: {len(results)}')
+for u in results[:5]:
+    msg = u.get('message') or u.get('callback_query',{}).get('message',{})
+    text = u.get('message',{}).get('text') or u.get('callback_query',{}).get('data','?')
+    who = (u.get('message') or u.get('callback_query',{})).get('from',{}).get('username','?')
+    print(f'  [{u.get(\"update_id\")}] {text} from {who}')
+" 2>&1 || echo "Could not parse updates"
+
+      - name: Check container logs via ECS stopped tasks
+        continue-on-error: true
+        run: |
+          echo "=== Recently stopped tasks ==="
+          STOPPED=$(aws ecs list-tasks \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service-name suwappu-bot-prod \
+            --desired-status STOPPED \
+            --query 'taskArns' \
+            --output json 2>/dev/null)
+          echo "$STOPPED"
+
+          echo ""
+          echo "=== Full running task details ==="
+          TASK_ARN=$(aws ecs list-tasks \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service-name suwappu-bot-prod \
+            --query 'taskArns[0]' \
+            --output text)
+
+          aws ecs describe-tasks \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --tasks "$TASK_ARN" \
+            --query 'tasks[0].{lastStatus:lastStatus,healthStatus:healthStatus,startedAt:startedAt,containers:containers[*].{name:name,lastStatus:lastStatus,healthStatus:healthStatus,reason:reason}}' \
+            --output json
