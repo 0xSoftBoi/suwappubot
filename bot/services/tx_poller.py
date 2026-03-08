@@ -246,9 +246,13 @@ class TransactionPoller:
                 telegram_id = user.telegram_id
             
             if new_status == SwapStatus.COMPLETED.value:
+                from bot.config.tokens import get_token_decimals
+                from bot.utils.formatters import format_amount
+                decimals = get_token_decimals(tx.from_token, tx.from_chain) or 18
+                display_amount = format_amount(float(tx.from_amount) / (10 ** decimals)) if tx.from_amount else "?"
                 text = (
                     f"✅ *Swap Completed!*\n\n"
-                    f"Swapped {tx.from_amount} {tx.from_token} → {tx.to_token}\n"
+                    f"Swapped {display_amount} {tx.from_token} → {tx.to_token}\n"
                     f"Chain: {tx.from_chain} → {tx.to_chain}\n\n"
                     f"[View Transaction]({self._get_explorer_link(tx)})"
                 )
