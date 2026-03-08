@@ -98,6 +98,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Run pre-deploy database backup
+        continue-on-error: true
         run: |
           echo "Starting database backup before deploy..."
           TASK_ARN=$(aws ecs run-task \
