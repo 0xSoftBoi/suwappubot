@@ -17,6 +17,9 @@ import { TelegramAuthServiceLive } from './TelegramAuthService'
 import { TokenServiceLive } from './TokenService'
 import { TurnkeyServiceLive } from './TurnkeyService'
 import { UserServiceLive } from './UserService'
+import { HyperliquidServiceLive } from './HyperliquidService'
+import { MorphoServiceLive } from './MorphoService'
+import { PolymarketServiceLive } from './PolymarketService'
 import { WalletServiceLive } from './WalletService'
 
 // Base configuration layer
@@ -50,6 +53,9 @@ export const ServicesLayer = Layer.mergeAll(
 	AlertServiceLive,
 	OrderServiceLive,
 	ReferralServiceLive,
+	HyperliquidServiceLive,
+	PolymarketServiceLive,
+	MorphoServiceLive,
 )
 
 // Full application layer with all services

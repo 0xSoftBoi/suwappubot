@@ -1,0 +1,23 @@
+[Unit]
+Description=Suwappu API-TS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/suwappubot/api-ts
+EnvironmentFile=/home/ubuntu/suwappubot/.env
+ExecStart=/bin/bash -c 'PORT=8000 /home/ubuntu/.bun/bin/bun run src/index.ts'
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=suwappu-api-ts
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

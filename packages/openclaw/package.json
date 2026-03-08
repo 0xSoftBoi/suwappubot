@@ -10,11 +10,15 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "dev": "bun run src/cli.ts"
+    "dev": "bun run src/cli.ts",
+    "test": "bun test"
   },
   "keywords": ["openclaw", "suwappu", "dex", "cross-chain", "agent", "mcp"],
   "dependencies": {},
   "devDependencies": {
     "typescript": "^5.6.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
