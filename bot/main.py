@@ -23,7 +23,7 @@ from bot.handlers.portfolio import portfolio_handler, portfolio_callback
 from bot.handlers.gas import gas_handler, gas_callback, gas_menu_callback
 from bot.handlers.favorites import favorites_handler, favorites_callback, use_favorite_callback, delete_favorite_callback
 from bot.handlers.settings import (
-    settings_handler, settings_callback, toggle_notify_callback, 
+    settings_handler, settings_callback, toggle_notify_handler,
     slippage_conversation, toggle_panic_handler, settings_menu_callback
 )
 from bot.handlers.admin import status_handler, clear_cache_handler, broadcast_handler
@@ -41,7 +41,8 @@ from bot.handlers.admin_fees import fees_handler, set_fee_callback, fees_refresh
 from bot.handlers.alerts import alerts_handler, alert_conversation, alerts_menu_callback
 from bot.handlers.referral import (
     referral_handler, ref_menu_callback_handler, ref_list_callback_handler, ref_claim_callback_handler,
-    fees_command_handler, rewards_command_handler, fees_callback_handler, rewards_callback_handler
+    fees_command_handler, rewards_command_handler, fees_callback_handler,
+    rewards_callback_handler as ref_rewards_callback_handler
 )
 from bot.handlers.limit_orders import (
     orders_handler, dca_handler, limit_order_conversation,
@@ -227,7 +228,7 @@ def add_handlers(application: Application) -> None:
     
     # Settings
     application.add_handler(settings_menu_callback)
-    application.add_handler(toggle_notify_callback)
+    application.add_handler(toggle_notify_handler)
     application.add_handler(toggle_panic_handler)
     
     # Custodial
@@ -261,8 +262,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(ref_list_callback_handler)
     application.add_handler(ref_claim_callback_handler)
     application.add_handler(fees_callback_handler)
-    application.add_handler(rewards_callback_handler)
-    
+    application.add_handler(ref_rewards_callback_handler)
+
     # Tax export
     application.add_handler(tax_year_callback_handler)
     application.add_handler(tax_download_callback_handler)
