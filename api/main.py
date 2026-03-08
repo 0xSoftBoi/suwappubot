@@ -184,7 +184,7 @@ app = FastAPI(
     - Use `/portfolio` to check balances before trading.
     - For swaps, use the Unified Bot logic via the WhatsApp/Telegram integration modules for best results.
     """,
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan
 )
 
