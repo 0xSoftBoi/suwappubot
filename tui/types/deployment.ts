@@ -1,9 +1,18 @@
 export interface DeploymentConfig {
   name: string;
   environment: 'development' | 'staging' | 'production';
-  provider: 'ecs-fargate' | 'render';
+  provider: 'ec2' | 'ecs-fargate' | 'render';
   region: string;
   awsProfile?: string;
+
+  // EC2 config (when provider = 'ec2')
+  ec2?: {
+    host: string;
+    user: string;
+    sshKeyPath: string;
+    serviceName: string;
+    appDir: string;
+  };
 
   // ECS Fargate config
   fargate?: {
@@ -73,6 +82,17 @@ export interface RdsStatus {
   multiAz: boolean;
 }
 
+export interface Ec2ServiceStatus {
+  systemdActive: string;
+  systemdSub: string;
+  uptime: string | null;
+  pid: number | null;
+  memoryUsage: string | null;
+  cpuUsage: string | null;
+  gitBranch: string | null;
+  gitCommit: string | null;
+}
+
 export interface HealthCheckResult {
   status: 'healthy' | 'unhealthy' | 'unreachable' | 'unknown';
   responseTime: number | null;
@@ -80,6 +100,8 @@ export interface HealthCheckResult {
   statusCode?: number;
   version?: string;
   service?: string;
+  bot?: string;
+  database?: string;
 }
 
 export interface CloudWatchLogEvent {
@@ -89,8 +111,9 @@ export interface CloudWatchLogEvent {
 }
 
 export interface EnvironmentStatus {
-  service: EcsServiceStatus | null;
-  tasks: EcsTask[];
+  service?: EcsServiceStatus | null;
+  tasks?: EcsTask[];
+  ec2?: Ec2ServiceStatus | null;
   rds: RdsStatus | null;
   health: HealthCheckResult;
   lastUpdated: Date;
