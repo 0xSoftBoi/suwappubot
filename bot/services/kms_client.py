@@ -106,8 +106,11 @@ class DevMockKmsClient(KmsClientBase):
         self._master_key = master_key
         self._key_id_str = "dev-local-key"
         
-        # Derive a stable Fernet key from the master key for DEK wrapping
-        salt = b"suwappu-dev-kms-salt"  # Fixed salt for dev (ok for local only)
+        # Derive a Fernet key from the master key for DEK wrapping
+        # Use a salt derived from the master key itself to avoid a hardcoded constant
+        salt = hashes.Hash(hashes.SHA256())
+        salt.update(b"suwappu-kms-salt:" + master_key.encode())
+        salt = salt.finalize()[:16]
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,

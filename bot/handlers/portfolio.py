@@ -1,6 +1,7 @@
 """Portfolio and balance overview handlers."""
 
 import asyncio
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
@@ -12,6 +13,8 @@ from bot.config.chains import CHAINS, ChainType
 from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
 
+
+logger = logging.getLogger(__name__)
 
 wallet_service = WalletService()
 price_service = PriceService()
@@ -178,10 +181,9 @@ async def portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup=_portfolio_keyboard(),
         )
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).exception("Portfolio callback failed")
+        logger.error(f"Error in portfolio_callback: {e}", exc_info=True)
         await query.edit_message_text(
-            f"\u274c Error: {str(e)}",
+            "\u274c An unexpected error occurred. Please try again.",
             reply_markup=_error_keyboard(),
         )
 

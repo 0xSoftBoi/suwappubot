@@ -559,8 +559,7 @@ async def confirm_snipe_callback(update: Update, context: ContextTypes.DEFAULT_T
 
         await query.edit_message_text(
             f"*Snipe Failed*\n\n"
-            f"Error: {str(e)[:100]}\n\n"
-            f"Please try again.",
+            f"An unexpected error occurred. Please try again.",
             parse_mode="Markdown",
         )
 

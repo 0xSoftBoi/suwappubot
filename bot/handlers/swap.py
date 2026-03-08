@@ -1,5 +1,6 @@
 """Swap flow handlers."""
 
+import logging
 import secrets
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -32,6 +33,8 @@ from bot.services.token_security.token_analyzer import token_analyzer
 from bot.services.x402_service import x402_service
 from bot.utils.quote_validator import quote_validator
 
+
+logger = logging.getLogger(__name__)
 
 # Conversation states
 SELECT_FROM_CHAIN, SELECT_FROM_TOKEN, SELECT_TO_CHAIN, SELECT_TO_TOKEN, ENTER_AMOUNT, SELECT_WALLETS, CONFIRM_SWAP = range(7)
@@ -785,8 +788,9 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         return CONFIRM_SWAP
         
     except Exception as e:
+        logger.error(f"Error in swap_confirm: {e}", exc_info=True)
         await query.edit_message_text(
-            f"❌ Error: {str(e)}",
+            "❌ An unexpected error occurred. Please try again.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 Try Again", callback_data="swap_start")],
             ]),

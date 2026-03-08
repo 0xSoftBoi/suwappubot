@@ -202,8 +202,9 @@ async def get_agent_key(
     """Verify the agent's API key against global key or registered agent keys."""
     valid_key = getattr(settings, "agent_api_key", None)
     if not valid_key:
-        # In development, allow if no key is set
-        return "dev-key"
+        import logging
+        logging.getLogger(__name__).warning("AGENT_API_KEY not set — all agent endpoints require authentication. Set AGENT_API_KEY env var.")
+        raise HTTPException(status_code=403, detail="Agent API key not configured. Set AGENT_API_KEY environment variable.")
 
     # Fast path: check global key
     if api_key == valid_key:
@@ -236,8 +237,9 @@ async def get_admin_key(
     """Verify the admin API key (for dashboard/ops)."""
     valid_key = getattr(settings, "admin_api_key", None)
     if not valid_key:
-        # In development, allow if no key is set
-        return "dev-admin-key"
+        import logging
+        logging.getLogger(__name__).warning("ADMIN_API_KEY not set — all admin endpoints locked. Set ADMIN_API_KEY env var.")
+        raise HTTPException(status_code=403, detail="Admin API key not configured. Set ADMIN_API_KEY environment variable.")
 
     if api_key == valid_key:
         return api_key
@@ -255,12 +257,13 @@ async def get_agent_or_admin_key(
     return await get_agent_key(agent_key)
 
 # Setup CORS
+_cors_origins = os.environ.get("CORS_ORIGINS", "https://app.suwappu.bot,https://devfront.suwappu.bot").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[o.strip() for o in _cors_origins],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Agent-Key", "X-Admin-Key", "X-Telegram-Init-Data"],
 )
 
 wallet_service = WalletService()
@@ -413,7 +416,11 @@ class AuthMeResponse(BaseModel):
 
 # --- JWT Configuration ---
 
-JWT_SECRET = getattr(settings, "secret_key", None) or os.environ.get("SECRET_KEY") or secrets.token_hex(32)
+JWT_SECRET = getattr(settings, "secret_key", None) or os.environ.get("SECRET_KEY")
+if not JWT_SECRET:
+    import logging as _jwt_log
+    _jwt_log.getLogger(__name__).warning("SECRET_KEY not set — generating ephemeral JWT secret (tokens will not survive restarts)")
+    JWT_SECRET = secrets.token_hex(32)
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24 * 7  # 7 days
 
@@ -856,30 +863,16 @@ async def passkey_auth_complete(
     Complete passkey authentication.
     Verifies the WebAuthn assertion and returns a session.
     """
-    # Note: In production, verify the assertion signature properly
-    # For now, we find the user by credential ID pattern
+    # SECURITY: Passkey authentication is disabled until proper WebAuthn
+    # assertion verification is implemented. The previous code had no signature
+    # verification and would authenticate as any passkey user.
+    raise HTTPException(
+        status_code=501,
+        detail="Passkey authentication is temporarily disabled. Use Telegram authentication instead."
+    )
 
-    # Find user by credential ID or user handle
-    # This is simplified - production should store credential IDs in the database
     user = None
     wallet_address = ""
-
-    if request.userHandle:
-        # Try to find user by ID encoded in userHandle
-        try:
-            user_id = int.from_bytes(
-                bytes.fromhex(request.userHandle.replace("-", "").replace("_", "")[:32]),
-                "big"
-            ) % 1000000
-            user = db.query(User).filter(User.id == user_id).first()
-        except (ValueError, TypeError, IndexError):
-            pass
-
-    if not user:
-        # Find most recent passkey user (simplified for demo)
-        user = db.query(User).filter(
-            User.username.like("passkey_%")
-        ).order_by(User.created_at.desc()).first()
 
     if not user:
         raise HTTPException(status_code=401, detail="No matching passkey found")

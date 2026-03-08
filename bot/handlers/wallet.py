@@ -244,24 +244,20 @@ async def wallet_create_callback(update: Update, context: ContextTypes.DEFAULT_T
         is_default=is_default,
     )
     
+    # Show wallet created WITHOUT the private key in chat
     text = (
         f"✅ *{chain_name} Wallet Created!*\n\n"
         f"{chain_emoji} *Address:*\n"
         f"`{address}`\n\n"
-        f"🔐 *Private Key:*\n"
-        f"`{private_key}`\n\n"
-        f"⚠️ *IMPORTANT:*\n"
-        f"• Save your private key securely\n"
-        f"• Never share it with anyone\n"
-        f"• This message will be deleted soon\n\n"
-        f"The private key is encrypted and stored securely."
+        f"🔐 Your private key is encrypted and stored securely.\n"
+        f"Use /export to view it temporarily when needed."
     )
-    
+
     keyboard = [
         [InlineKeyboardButton("👛 View Wallets", callback_data="wallet_menu")],
         [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
     ]
-    
+
     await query.edit_message_text(
         text,
         parse_mode="Markdown",

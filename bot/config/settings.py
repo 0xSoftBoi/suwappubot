@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     
     # KMS Wallet Encryption (envelope encryption)
     kms_provider: str = Field(
-        default="dev",
-        description="KMS provider: 'dev' (local mock), 'aws', or 'gcp'"
+        default="aws",
+        description="KMS provider: 'aws' (recommended), 'gcp', or 'dev' (local mock — NOT for production)"
     )
     kms_key_id: Optional[str] = Field(
         default=None,
@@ -257,7 +257,7 @@ class Settings(BaseSettings):
     # WhatsApp Business API (Optional)
     whatsapp_phone_number_id: Optional[str] = Field(default=None, description="WhatsApp Business Phone Number ID")
     whatsapp_access_token: Optional[str] = Field(default=None, description="WhatsApp Cloud API Access Token")
-    whatsapp_verify_token: str = Field(default="suwappu_verify", description="Webhook verification token")
+    whatsapp_verify_token: str = Field(default=None, description="Webhook verification token — must be set explicitly")
     
     # Telegram Mini App
     webapp_url: str = Field(
