@@ -50,8 +50,6 @@ async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     loading_msg = await update.message.reply_text(LOADING_BALANCE)
     
     try:
-        all_balances = {}
-        
         # Fetch all wallet balances in parallel for speed
         async def fetch_wallet_balance(wallet_info):
             wallet_id, address, chain_type, name = wallet_info
@@ -60,30 +58,15 @@ async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             except Exception as e:
                 logger.warning(f"Failed to fetch balance for {address} on {chain_type}: {e}")
                 return {}
-        
+
         balance_results = await asyncio.gather(
             *[fetch_wallet_balance(w) for w in wallet_infos],
             return_exceptions=True
         )
-        
-        # Merge results
-        for balances in balance_results:
-            if isinstance(balances, Exception) or not balances:
-                continue
-            for chain, tokens in balances.items():
-                if chain not in all_balances:
-                    all_balances[chain] = {}
-                for token, amount in tokens.items():
-                    if token in all_balances[chain]:
-                        all_balances[chain][token] += amount
-                    else:
-                        all_balances[chain][token] = amount
-        
-        if not all_balances:
-            text = "💰 *Your Balances*\n\nNo token balances found."
-        else:
-            text = format_balance_list(all_balances)
-        
+
+        # Build per-wallet display with full addresses
+        text = _format_wallet_balances(wallet_infos, balance_results)
+
         await loading_msg.edit_text(
             text,
             parse_mode="Markdown",
@@ -156,23 +139,9 @@ async def balance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             return_exceptions=True
         )
 
-        for balances in balance_results:
-            if isinstance(balances, Exception) or not balances:
-                continue
-            for chain, tokens in balances.items():
-                if chain not in all_balances:
-                    all_balances[chain] = {}
-                for token, amount in tokens.items():
-                    if token in all_balances[chain]:
-                        all_balances[chain][token] += amount
-                    else:
-                        all_balances[chain][token] = amount
-        
-        if not all_balances:
-            text = "💰 *Your Balances*\n\nNo token balances found."
-        else:
-            text = format_balance_list(all_balances)
-        
+        # Build per-wallet display with full addresses
+        text = _format_wallet_balances(wallet_infos, balance_results)
+
         keyboard = [
             [
                 InlineKeyboardButton("🔄 Refresh", callback_data="balance"),
@@ -180,7 +149,7 @@ async def balance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             ],
             [InlineKeyboardButton("« Back", callback_data="main_menu")],
         ]
-        
+
         await query.edit_message_text(
             text,
             parse_mode="Markdown",
@@ -198,6 +167,37 @@ async def balance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 [InlineKeyboardButton("« Back", callback_data="main_menu")],
             ]),
         )
+
+
+def _format_wallet_balances(wallet_infos, balance_results) -> str:
+    """Format balance results with full wallet addresses (copiable)."""
+    lines = ["💰 *Your Balances*", ""]
+    has_any = False
+
+    for wallet_info, balances in zip(wallet_infos, balance_results):
+        wallet_id, address, chain_type, name = wallet_info
+
+        if isinstance(balances, Exception) or not balances:
+            continue
+
+        chain_emoji = "🔷" if chain_type == "evm" else "🟢"
+        lines.append(f"{chain_emoji} *{name}*")
+        lines.append(f"`{address}`")
+
+        for chain, tokens in balances.items():
+            chain_display = format_chain_name(chain)
+            lines.append(f"  *{chain_display}*")
+            for symbol, amount in tokens.items():
+                if amount > 0:
+                    lines.append(f"    • {format_amount(amount, symbol=symbol)}")
+                    has_any = True
+
+        lines.append("")
+
+    if not has_any:
+        return "💰 *Your Balances*\n\nNo token balances found."
+
+    return "\n".join(lines)
 
 
 # Create handlers
