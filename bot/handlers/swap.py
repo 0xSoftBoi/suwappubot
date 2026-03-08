@@ -294,12 +294,75 @@ async def select_to_token(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         f"🔄 *New Swap*\n\n"
         f"{from_chain_config.logo_emoji} From: *{from_chain_config.display_name}* ({swap_data['from_token']})\n"
         f"{to_chain_config.logo_emoji} To: *{to_chain_config.display_name}* ({token_symbol})\n\n"
-        f"Enter the amount to swap:"
+        f"Enter the amount to swap or pick a %:"
     )
-    
-    await query.edit_message_text(text, parse_mode="Markdown")
-    
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("25%", callback_data="swap_pct_25"),
+            InlineKeyboardButton("50%", callback_data="swap_pct_50"),
+            InlineKeyboardButton("100%", callback_data="swap_pct_100"),
+        ],
+        [InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")],
+    ])
+
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
+
     return ENTER_AMOUNT
+
+
+async def swap_pct_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle percentage button for swap amount (25%, 50%, 100%)."""
+    query = update.callback_query
+    await query.answer()
+
+    pct = int(query.data.replace("swap_pct_", ""))
+    swap_data = context.user_data.get("swap", {})
+    from_token = swap_data.get("from_token")
+    from_chain = swap_data.get("from_chain")
+
+    if not from_token or not from_chain:
+        await query.edit_message_text("❌ Swap session expired. Please start again.")
+        return ConversationHandler.END
+
+    # Get user's balance for the from_token
+    user_id = context.user_data.get("user_id")
+    from_chain_config = get_chain_by_name(from_chain)
+    chain_type = "solana" if from_chain_config.chain_type == ChainType.SOLANA else "evm"
+
+    default_wallet = wallet_service.get_default_wallet(user_id, chain_type)
+    if not default_wallet:
+        await query.edit_message_text("❌ No wallet found for this chain.")
+        return ConversationHandler.END
+
+    # Fetch balance
+    balances = await wallet_service.get_balances_by_address(default_wallet.address, chain_type)
+    token_balance = 0.0
+    for chain_balances in balances.values():
+        if from_token in chain_balances:
+            token_balance = chain_balances[from_token]
+            break
+
+    if token_balance <= 0:
+        await query.edit_message_text(
+            f"❌ No {from_token} balance found. Please enter an amount manually:",
+        )
+        return ENTER_AMOUNT
+
+    amount = round(token_balance * pct / 100, 6)
+    if amount <= 0:
+        await query.edit_message_text("❌ Amount too small. Please enter an amount manually:")
+        return ENTER_AMOUNT
+
+    context.user_data["swap"]["amount"] = amount
+    context.user_data["swap"]["wallet_id"] = default_wallet.id
+
+    await query.edit_message_text(
+        f"✅ Using {pct}% = *{format_amount(amount, symbol=from_token)}*\n\nFetching quote...",
+        parse_mode="Markdown",
+    )
+
+    return await show_wallet_selection(update, context)
 
 
 async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -948,6 +1011,7 @@ swap_conversation_handler = ConversationHandler(
             CallbackQueryHandler(select_from_token, pattern="^from_token_"),
         ],
         ENTER_AMOUNT: [
+            CallbackQueryHandler(swap_pct_callback, pattern="^swap_pct_"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, enter_amount),
         ],
         SELECT_WALLETS: [
