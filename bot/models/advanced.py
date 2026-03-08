@@ -241,15 +241,31 @@ class UserStats(Base):
 class PortfolioSnapshot(Base):
     """Daily portfolio value snapshots for charts."""
     __tablename__ = "portfolio_snapshots"
-    
+
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    
+
     date = Column(String(10), nullable=False)  # YYYY-MM-DD
     total_value_usd = Column(Float, nullable=False)
-    
+
     # Breakdown by chain (JSON)
     chain_values = Column(Text, nullable=True)  # {"ethereum": 1000, "polygon": 500}
-    
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ============ RUG MONITORS ============
+
+class RugMonitor(Base):
+    """Tracks tokens being monitored for rug pulls."""
+    __tablename__ = "rug_monitors"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    token_address = Column(String(255), nullable=False)
+    chain = Column(String(50), nullable=False)
+    token_symbol = Column(String(20), nullable=True)
+    is_active = Column(Boolean, default=True)
+    auto_sell_enabled = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
