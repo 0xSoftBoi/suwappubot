@@ -11,3 +11,7 @@ export { JupiterService, JupiterServiceLive, SOLANA_TOKENS, type JupiterQuote, t
 export { RedisService, RedisServiceLive, cacheKeys, QUOTE_TTL, TOKEN_LIST_TTL, type RedisServiceInterface } from './RedisService'
 export { LimitOrderService, LimitOrderServiceLive, type CreateLimitOrderParams, type LimitOrderWithPrice, type PriceCheckResult } from './LimitOrderService'
 export { CopyTradingService, CopyTradingServiceLive, type TopTraderEntry, type TraderProfileDetail, type FollowingEntry, type CopyTradeEntry, type FollowSettings } from './CopyTradingService'
+export { DCAService, DCAServiceLive, type CreateDCAOrderParams, type DCAOrder, type DCAExecution, type DCAStats } from './DCAService'
+export { AlertService, AlertServiceLive, type CreateAlertParams, type Alert } from './AlertService'
+export { OrderService, OrderServiceLive, type CreateOrderParams, type Order, type OrderFill } from './OrderService'
+export { ReferralService, ReferralServiceLive, type ReferralCode, type ReferralStats, type ReferredUser } from './ReferralService'
