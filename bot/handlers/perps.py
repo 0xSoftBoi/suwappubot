@@ -459,8 +459,6 @@ perps_conversation_handler = ConversationHandler(
         CommandHandler("perps", perps_command),
         CallbackQueryHandler(perps_menu_callback, pattern="^main_menu$"),
     ],
-    name="perps_conversation",
-    persistent=False,
 )
 
 # Callback handlers for outside conversation
