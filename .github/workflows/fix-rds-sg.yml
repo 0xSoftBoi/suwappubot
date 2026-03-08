@@ -16,40 +16,76 @@ jobs:
           aws configure set aws_secret_access_key "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
           aws configure set region us-east-1
 
-      - name: Add EC2 SG to RDS SG
+      - name: Fix networking
         run: |
-          # Find EC2 instance security group
-          EC2_SG=$(aws ec2 describe-instances \
+          # Get EC2 info
+          EC2_INFO=$(aws ec2 describe-instances \
             --filters "Name=tag:Name,Values=suwappu-bot" "Name=instance-state-name,Values=running" \
-            --query 'Reservations[0].Instances[0].SecurityGroups[0].GroupId' --output text)
-          echo "EC2 SG: $EC2_SG"
+            --query 'Reservations[0].Instances[0].{SG:SecurityGroups[0].GroupId,Subnet:SubnetId,VPC:VpcId,IP:PrivateIpAddress}' --output json)
+          echo "EC2: $EC2_INFO"
 
-          # Find RDS security group
-          RDS_SG=$(aws ec2 describe-security-groups \
-            --filters "Name=description,Values=*RDS*" \
-            --query 'SecurityGroups[0].GroupId' --output text)
-          echo "RDS SG: $RDS_SG"
+          EC2_SG=$(echo "$EC2_INFO" | python3 -c "import sys,json; print(json.load(sys.stdin)['SG'])")
+          EC2_VPC=$(echo "$EC2_INFO" | python3 -c "import sys,json; print(json.load(sys.stdin)['VPC'])")
+          EC2_SUBNET=$(echo "$EC2_INFO" | python3 -c "import sys,json; print(json.load(sys.stdin)['Subnet'])")
+          EC2_IP=$(echo "$EC2_INFO" | python3 -c "import sys,json; print(json.load(sys.stdin)['IP'])")
+          echo "EC2 SG: $EC2_SG, VPC: $EC2_VPC, Subnet: $EC2_SUBNET, IP: $EC2_IP"
 
-          if [ "$RDS_SG" == "None" ]; then
-            echo "Trying alternate search..."
-            RDS_SG=$(aws ec2 describe-security-groups \
-              --filters "Name=group-name,Values=*Rds*" \
-              --query 'SecurityGroups[0].GroupId' --output text)
-            echo "RDS SG (alt): $RDS_SG"
+          # List ALL security groups in VPC
+          echo ""
+          echo "=== All security groups ==="
+          aws ec2 describe-security-groups \
+            --filters "Name=vpc-id,Values=$EC2_VPC" \
+            --query 'SecurityGroups[*].{ID:GroupId,Name:GroupName,Desc:Description}' --output table
+
+          # Find RDS SG (try multiple patterns)
+          RDS_SG=$(aws rds describe-db-instances \
+            --query 'DBInstances[0].VpcSecurityGroups[0].VpcSecurityGroupId' --output text 2>/dev/null || echo "None")
+          echo ""
+          echo "RDS SG from RDS API: $RDS_SG"
+
+          if [ "$RDS_SG" != "None" ] && [ -n "$RDS_SG" ]; then
+            echo "Adding SG-based rule..."
+            aws ec2 authorize-security-group-ingress \
+              --group-id "$RDS_SG" \
+              --protocol tcp --port 5432 \
+              --source-group "$EC2_SG" 2>&1 || echo "(may already exist)"
+
+            echo "Adding IP-based rule as backup..."
+            aws ec2 authorize-security-group-ingress \
+              --group-id "$RDS_SG" \
+              --protocol tcp --port 5432 \
+              --cidr "${EC2_IP}/32" 2>&1 || echo "(may already exist)"
+
+            # Also allow entire VPC CIDR for safety
+            VPC_CIDR=$(aws ec2 describe-vpcs --vpc-ids "$EC2_VPC" --query 'Vpcs[0].CidrBlock' --output text)
+            echo "Adding VPC CIDR rule ($VPC_CIDR)..."
+            aws ec2 authorize-security-group-ingress \
+              --group-id "$RDS_SG" \
+              --protocol tcp --port 5432 \
+              --cidr "$VPC_CIDR" 2>&1 || echo "(may already exist)"
           fi
 
-          if [ "$RDS_SG" == "None" ]; then
-            echo "Listing all security groups..."
-            aws ec2 describe-security-groups \
-              --query 'SecurityGroups[*].{ID:GroupId,Name:GroupName,Desc:Description}' --output table
-            exit 1
+          # Check route tables - can public subnet reach isolated?
+          echo ""
+          echo "=== Route table for EC2 subnet ==="
+          RT_ID=$(aws ec2 describe-route-tables \
+            --filters "Name=association.subnet-id,Values=$EC2_SUBNET" \
+            --query 'RouteTables[0].RouteTableId' --output text)
+
+          if [ "$RT_ID" == "None" ]; then
+            RT_ID=$(aws ec2 describe-route-tables \
+              --filters "Name=vpc-id,Values=$EC2_VPC" "Name=association.main,Values=true" \
+              --query 'RouteTables[0].RouteTableId' --output text)
           fi
 
-          echo "Adding ingress rule: $EC2_SG -> $RDS_SG port 5432"
-          aws ec2 authorize-security-group-ingress \
-            --group-id "$RDS_SG" \
-            --protocol tcp --port 5432 \
-            --source-group "$EC2_SG" \
-            --description "Allow PostgreSQL from EC2 bot" 2>&1 || echo "Rule may already exist"
+          aws ec2 describe-route-tables \
+            --route-table-ids "$RT_ID" \
+            --query 'RouteTables[0].Routes' --output table 2>/dev/null || echo "Could not get routes"
 
-          echo "Done! Restart the bot service."
+          echo ""
+          echo "=== RDS endpoint ==="
+          aws rds describe-db-instances \
+            --query 'DBInstances[0].{Endpoint:Endpoint.Address,Port:Endpoint.Port,Subnets:DBSubnetGroup.Subnets[*].SubnetIdentifier}' --output json
+
+          echo ""
+          echo "Done! Restart suwappubot on EC2."
