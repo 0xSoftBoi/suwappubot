@@ -1,0 +1,100 @@
+name: Debug Bot Status
+
+on:
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECS_CLUSTER: suwappu-cluster
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  debug:
+    name: Check Bot Status
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check ECS service status
+        run: |
+          echo "=== Service Status ==="
+          aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services suwappu-bot-prod \
+            --query 'services[0].{status:status,desiredCount:desiredCount,runningCount:runningCount,taskDefinition:taskDefinition,deployments:deployments}' \
+            --output json
+
+      - name: List recent tasks
+        run: |
+          echo "=== Recent Tasks ==="
+          TASK_ARNS=$(aws ecs list-tasks \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service-name suwappu-bot-prod \
+            --query 'taskArns' \
+            --output json)
+          echo "$TASK_ARNS"
+
+          if [ "$TASK_ARNS" != "[]" ]; then
+            aws ecs describe-tasks \
+              --cluster ${{ env.ECS_CLUSTER }} \
+              --tasks $(echo "$TASK_ARNS" | python3 -c "import sys,json; print(' '.join(json.load(sys.stdin)))") \
+              --query 'tasks[*].{taskArn:taskArn,lastStatus:lastStatus,stoppedReason:stoppedReason,containers:containers[*].{name:name,lastStatus:lastStatus,exitCode:exitCode,reason:reason}}' \
+              --output json
+          fi
+
+      - name: Get task definition details
+        run: |
+          echo "=== Task Definition ==="
+          TASK_DEF=$(aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services suwappu-bot-prod \
+            --query 'services[0].taskDefinition' \
+            --output text)
+
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_DEF" \
+            --query 'taskDefinition.containerDefinitions[*].{name:name,image:image,logConfiguration:logConfiguration}' \
+            --output json
+
+      - name: Check CloudWatch logs
+        run: |
+          echo "=== Recent Bot Logs (last 5 min) ==="
+          # Find the log group from the task definition
+          TASK_DEF=$(aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services suwappu-bot-prod \
+            --query 'services[0].taskDefinition' \
+            --output text)
+
+          LOG_GROUP=$(aws ecs describe-task-definition \
+            --task-definition "$TASK_DEF" \
+            --query 'taskDefinition.containerDefinitions[0].logConfiguration.options."awslogs-group"' \
+            --output text)
+
+          LOG_PREFIX=$(aws ecs describe-task-definition \
+            --task-definition "$TASK_DEF" \
+            --query 'taskDefinition.containerDefinitions[0].logConfiguration.options."awslogs-stream-prefix"' \
+            --output text)
+
+          echo "Log group: $LOG_GROUP"
+          echo "Log prefix: $LOG_PREFIX"
+
+          aws logs tail "$LOG_GROUP" --since 5m --log-stream-name-prefix "$LOG_PREFIX" 2>&1 | tail -100 || echo "No recent logs found"
+
+      - name: Check bot health
+        run: |
+          echo "=== Health Check ==="
+          curl -sf https://bot.suwappu.bot/health && echo "OK" || echo "Health check failed"
+
+          echo ""
+          echo "=== Telegram getWebhookInfo ==="
+          # Check if webhook is set by querying the task's environment
+          echo "(Cannot check without bot token - check logs above for bot startup messages)"
