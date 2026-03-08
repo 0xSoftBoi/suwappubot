@@ -797,6 +797,4 @@ snipe_conversation_handler = ConversationHandler(
         CallbackQueryHandler(cancel_callback, pattern="^snipe_cancel$"),
         CommandHandler("cancel", lambda u, c: cancel_callback(u, c)),
     ],
-    name="snipe_conversation",
-    persistent=False,
 )
