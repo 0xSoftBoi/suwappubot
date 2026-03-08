@@ -378,8 +378,8 @@ class LayerZeroAPI:
         fee = (int(quote.native_fee), 0)  # (nativeFee, lzTokenFee)
 
         # Build sendToken calldata
-        send_data = pool.encodeABI(
-            fn_name="sendToken",
+        send_data = pool.encode_abi(
+            "sendToken",
             args=[send_param, fee, Web3.to_checksum_address(sender_address)],
         )
 
@@ -400,8 +400,8 @@ class LayerZeroAPI:
                     address=Web3.to_checksum_address(token_address),
                     abi=ERC20_APPROVE_ABI,
                 )
-                approve_data = token_contract.encodeABI(
-                    fn_name="approve",
+                approve_data = token_contract.encode_abi(
+                    "approve",
                     args=[pool_address, int(quote.amount_in)],
                 )
                 result["approval_tx"] = {
