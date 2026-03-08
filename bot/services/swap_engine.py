@@ -133,8 +133,12 @@ class SwapEngine:
         self.wallet_service = WalletService()
         self._wallet_locks: dict[int, asyncio.Lock] = {}  # Per-wallet locks
 
-    def _get_wallet_for_signing(self, wallet_data: dict) -> Wallet:
+    def _get_wallet_for_signing(self, wallet_data) -> Wallet:
         """Get Wallet model object for signing operations."""
+        # Already a Wallet object
+        if isinstance(wallet_data, Wallet):
+            return wallet_data
+
         wallet_id = wallet_data.get("id") or wallet_data.get("wallet_id")
         if wallet_id:
             with get_session() as session:
