@@ -17,6 +17,63 @@ logger = logging.getLogger(__name__)
 wallet_service = WalletService()
 
 
+def _build_main_keyboard() -> InlineKeyboardMarkup:
+    """Build the compact main menu keyboard (5 rows)."""
+    keyboard = [
+        [InlineKeyboardButton(f"━━ 🌸 SUWAPPU v{__version__} ━━", callback_data="noop")],
+        [
+            InlineKeyboardButton("🔄 Swap", callback_data="swap_start"),
+            InlineKeyboardButton("⚡ Quick Swap", callback_data="quickswap_menu"),
+        ],
+        [
+            InlineKeyboardButton("👛 Wallets", callback_data="wallet_menu"),
+            InlineKeyboardButton("💰 Balance", callback_data="balance"),
+        ],
+        [
+            InlineKeyboardButton("📊 Portfolio", callback_data="portfolio"),
+            InlineKeyboardButton("📜 History", callback_data="history_menu"),
+        ],
+        [
+            InlineKeyboardButton("📂 More...", callback_data="more_menu"),
+            InlineKeyboardButton("⚙️ Settings", callback_data="settings_menu"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def _build_more_keyboard() -> InlineKeyboardMarkup:
+    """Build the 'More Features' sub-menu keyboard."""
+    keyboard = [
+        [InlineKeyboardButton("━━ 📂 More Features ━━", callback_data="noop")],
+        [
+            InlineKeyboardButton("📈 Limit Orders", callback_data="limit_orders_menu"),
+            InlineKeyboardButton("🎯 Snipe", callback_data="snipe_menu"),
+        ],
+        [
+            InlineKeyboardButton("🔔 Price Alerts", callback_data="alerts_menu"),
+            InlineKeyboardButton("📋 Copy Trading", callback_data="copy_menu"),
+        ],
+        [
+            InlineKeyboardButton("⭐ Favorites", callback_data="favorites_menu"),
+            InlineKeyboardButton("⛽ Gas Tracker", callback_data="gas_menu"),
+        ],
+        [
+            InlineKeyboardButton("🏦 Custodial", callback_data="custodial_menu"),
+            InlineKeyboardButton("🎁 Referrals", callback_data="ref_menu"),
+        ],
+        [
+            InlineKeyboardButton("✨ Points", callback_data="points_menu"),
+            InlineKeyboardButton("📊 Dashboard", callback_data="dashboard_menu"),
+        ],
+        [
+            InlineKeyboardButton("📝 Tax Export", callback_data="tax_menu"),
+            InlineKeyboardButton("📖 Help", callback_data="help"),
+        ],
+        [InlineKeyboardButton("« Back to Main", callback_data="main_menu")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 async def _ensure_wallets(user_id: int) -> dict:
     """Auto-create EVM and Solana wallets if user doesn't have them.
 
@@ -110,55 +167,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # Auto-create wallets (EVM + Solana) if missing
     wallets = await _ensure_wallets(user_id)
 
-    # Create inline keyboard with all features
-    keyboard = [
-        [InlineKeyboardButton(f"━━ 🌸 SUWAPPU v{__version__} ━━", callback_data="noop")],
-        # Core Trading
-        [
-            InlineKeyboardButton("🔄 Swap", callback_data="swap_start"),
-            InlineKeyboardButton("⚡ Quick Swap", callback_data="quickswap_menu"),
-        ],
-        [
-            InlineKeyboardButton("📈 Limit Orders", callback_data="limit_orders_menu"),
-            InlineKeyboardButton("🎯 Snipe", callback_data="snipe_menu"),
-        ],
-        # Wallet & Portfolio
-        [
-            InlineKeyboardButton("👛 Wallets", callback_data="wallet_menu"),
-            InlineKeyboardButton("💰 Balance", callback_data="balance"),
-        ],
-        [
-            InlineKeyboardButton("📊 Portfolio", callback_data="portfolio"),
-            InlineKeyboardButton("📜 History", callback_data="history_menu"),
-        ],
-        # Advanced Features
-        [
-            InlineKeyboardButton("🔔 Price Alerts", callback_data="alerts_menu"),
-            InlineKeyboardButton("📋 Copy Trading", callback_data="copy_menu"),
-        ],
-        [
-            InlineKeyboardButton("⭐ Favorites", callback_data="favorites_menu"),
-            InlineKeyboardButton("⛽ Gas Tracker", callback_data="gas_menu"),
-        ],
-        # Custodial
-        [
-            InlineKeyboardButton("🏦 Custodial", callback_data="custodial_menu"),
-        ],
-        # Rewards & Settings
-        [
-            InlineKeyboardButton("🎁 Referrals", callback_data="ref_menu"),
-            InlineKeyboardButton("✨ Points", callback_data="points_menu"),
-        ],
-        [
-            InlineKeyboardButton("📊 Dashboard", callback_data="dashboard_menu"),
-            InlineKeyboardButton("📝 Tax Export", callback_data="tax_menu"),
-        ],
-        [
-            InlineKeyboardButton("⚙️ Settings", callback_data="settings_menu"),
-            InlineKeyboardButton("📖 Help", callback_data="help"),
-        ],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = _build_main_keyboard()
     
     # Build wallet info line
     wallet_info = ""
@@ -263,55 +272,7 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
-    # Create inline keyboard with all features
-    keyboard = [
-        [InlineKeyboardButton(f"━━ 🌸 SUWAPPU v{__version__} ━━", callback_data="noop")],
-        # Core Trading
-        [
-            InlineKeyboardButton("🔄 Swap", callback_data="swap_start"),
-            InlineKeyboardButton("⚡ Quick Swap", callback_data="quickswap_menu"),
-        ],
-        [
-            InlineKeyboardButton("📈 Limit Orders", callback_data="limit_orders_menu"),
-            InlineKeyboardButton("🎯 Snipe", callback_data="snipe_menu"),
-        ],
-        # Wallet & Portfolio
-        [
-            InlineKeyboardButton("👛 Wallets", callback_data="wallet_menu"),
-            InlineKeyboardButton("💰 Balance", callback_data="balance"),
-        ],
-        [
-            InlineKeyboardButton("📊 Portfolio", callback_data="portfolio"),
-            InlineKeyboardButton("📜 History", callback_data="history_menu"),
-        ],
-        # Advanced Features
-        [
-            InlineKeyboardButton("🔔 Price Alerts", callback_data="alerts_menu"),
-            InlineKeyboardButton("📋 Copy Trading", callback_data="copy_menu"),
-        ],
-        [
-            InlineKeyboardButton("⭐ Favorites", callback_data="favorites_menu"),
-            InlineKeyboardButton("⛽ Gas Tracker", callback_data="gas_menu"),
-        ],
-        # Custodial
-        [
-            InlineKeyboardButton("🏦 Custodial", callback_data="custodial_menu"),
-        ],
-        # Rewards & Settings
-        [
-            InlineKeyboardButton("🎁 Referrals", callback_data="ref_menu"),
-            InlineKeyboardButton("✨ Points", callback_data="points_menu"),
-        ],
-        [
-            InlineKeyboardButton("📊 Dashboard", callback_data="dashboard_menu"),
-            InlineKeyboardButton("📝 Tax Export", callback_data="tax_menu"),
-        ],
-        [
-            InlineKeyboardButton("⚙️ Settings", callback_data="settings_menu"),
-            InlineKeyboardButton("📖 Help", callback_data="help"),
-        ],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = _build_main_keyboard()
     
     # If coming from a photo (QR code), delete and send new message
     if query.message.photo:
@@ -328,6 +289,18 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             parse_mode="Markdown",
             reply_markup=reply_markup,
         )
+
+
+async def more_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle 'More...' button — shows advanced features sub-menu."""
+    query = update.callback_query
+    await query.answer()
+
+    await query.edit_message_text(
+        "📂 *More Features*\n\nTap any option below, or go back to the main menu.",
+        parse_mode="Markdown",
+        reply_markup=_build_more_keyboard(),
+    )
 
 
 async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
