@@ -1,64 +1,33 @@
-import type { Metadata, Viewport } from 'next';
-import StructuredData from '../components/StructuredData';
+import type { Metadata } from 'next';
 import './globals.css';
 
-export const viewport: Viewport = {
-  width: 'device-width',
-  initialScale: 1,
-  themeColor: '#000000',
-};
-
 export const metadata: Metadata = {
-  title: 'Suwappu — Swap tokens across 15+ chains from chat',
+  title: 'Suwappu — Cross-chain DEX infrastructure',
   description:
-    'Cross-chain DEX bot for Telegram, WhatsApp, and Discord. Swap tokens across 15+ chains with the best rates. Non-custodial, no app needed — just type /s 100 USDC ETH.',
+    'SDK, REST API, and Telegram bot for swapping tokens across 15 chains. bun add @suwappu/sdk',
   keywords: [
     'cross-chain swap',
+    'DEX SDK',
     'Telegram bot',
-    'DEX aggregator',
-    'crypto',
+    'agent tooling',
+    'bun',
     'DeFi',
     'non-custodial',
-    'multi-chain',
-    'token swap',
-    'WhatsApp crypto',
-    'Discord bot',
-    'Suwappu',
+    'MCP',
+    'OpenClaw',
   ],
-  metadataBase: new URL('https://suwappu.bot'),
-  alternates: {
-    canonical: '/',
-  },
   openGraph: {
-    title: 'Suwappu — Swap tokens across 15+ chains from chat',
+    title: 'Suwappu — Cross-chain DEX infrastructure',
     description:
-      'Cross-chain DEX bot for Telegram, WhatsApp, and Discord. Swap tokens across 15+ chains with the best rates. Non-custodial, no app needed.',
+      'Six tools. Fifteen chains. bun add @suwappu/sdk and start building.',
     type: 'website',
-    url: 'https://suwappu.bot',
     siteName: 'Suwappu',
-    locale: 'en_US',
-    images: [
-      {
-        url: '/og-image.png',
-        width: 1200,
-        height: 630,
-        alt: 'Suwappu — Cross-chain DEX bot',
-      },
-    ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Suwappu — Swap tokens across 15+ chains from chat',
+    title: 'Suwappu — Cross-chain DEX infrastructure',
     description:
-      'Cross-chain DEX bot for Telegram, WhatsApp, and Discord. Non-custodial, no app needed.',
-    images: ['/og-image.png'],
-  },
-  robots: {
-    index: true,
-    follow: true,
-  },
-  icons: {
-    icon: '/favicon.ico',
+      'Six tools. Fifteen chains. bun add @suwappu/sdk and start building.',
   },
 };
 
@@ -70,15 +39,16 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        <link rel="icon" href="/favicon.ico" />
+        <link rel="author" type="text/plain" href="/llms.txt" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"
           href="https://fonts.gstatic.com"
           crossOrigin="anonymous"
         />
-        <StructuredData />
       </head>
-      <body className="font-body antialiased bg-suwappu-dark-bg text-suwappu-dark-text">{children}</body>
+      <body className="font-body antialiased">{children}</body>
     </html>
   );
 }

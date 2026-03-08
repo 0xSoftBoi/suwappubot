@@ -193,19 +193,19 @@ class ApiClient {
    * Get available tokens for swapping (PUBLIC API - no auth needed)
    */
   async getTokens(chainId = '1', _includeBalances = true): Promise<SwapToken[]> {
-    // Use public /tokens endpoint (no auth required)
-    // Note: _includeBalances reserved for future wallet balance integration
-    const response = await fetch(`${this.baseUrl}/tokens?chainId=${chainId}`)
-    if (!response.ok) throw new Error('Failed to fetch tokens')
-    const data = await response.json()
-    
-    return data.tokens.map((t: any) => ({
+    // Use authenticated fetch so backend can enrich with wallet balances
+    const data = await this.fetch<{ chainId: number; tokens: Array<{ address: string; symbol: string; decimals: number; name: string; logoURI?: string; priceUSD?: string; balance?: string }> }>(
+      `/webapp/swap/tokens?chainId=${chainId}`
+    )
+
+    return data.tokens.map((t) => ({
       symbol: t.symbol,
       name: t.name,
       address: t.address,
       chain: chainId,
       decimals: t.decimals,
-      logoUrl: t.logoURI || t.logoUrl, // Support both Li.Fi (logoURI) and other APIs (logoUrl)
+      logoUrl: t.logoURI || undefined,
+      balance: t.balance,
     }))
   }
 
@@ -213,9 +213,9 @@ class ApiClient {
    * Get chains list (PUBLIC API - no auth needed)
    */
   async getChains(): Promise<{ id: number, key: string, name: string }[]> {
-    const response = await fetch(`${this.baseUrl}/chains`)
-    if (!response.ok) throw new Error('Failed to fetch chains')
-    const data = await response.json()
+    const data = await this.fetch<{ chains: { id: number; key: string; name: string }[] }>(
+      '/webapp/swap/chains'
+    )
     return data.chains
   }
 
@@ -223,15 +223,22 @@ class ApiClient {
    * Get swap quote (REAL API)
    */
   async getSwapQuote(request: SwapQuoteRequest): Promise<SwapQuote> {
+    // Convert human-readable amount to wei (smallest unit)
+    const decimals = request.fromDecimals || 18
+    const amountFloat = parseFloat(request.amount)
+    // Use string math to avoid floating point precision issues
+    const factor = 10 ** decimals
+    const amountWei = BigInt(Math.round(amountFloat * factor)).toString()
+
     const params = new URLSearchParams({
       fromChain: request.fromChain,
       toChain: request.toChain,
       fromToken: request.fromToken,
       toToken: request.toToken,
-      fromAmount: request.amount,
+      fromAmount: amountWei,
     })
     if (request.slippage) params.set('slippage', String(request.slippage / 100))
-    
+
     return this.fetch<SwapQuote>(`/webapp/swap/quote?${params}`)
   }
 
@@ -291,14 +298,14 @@ class ApiClient {
    * Get user preferences (settings page data)
    */
   async getUserPreferences(): Promise<UserPreferencesResponse> {
-    return this.fetch<UserPreferencesResponse>('/webapp/me/preferences')
+    return this.fetch<UserPreferencesResponse>('/webapp/users/me/preferences')
   }
 
   /**
    * Update user preferences
    */
   async updateUserPreferences(preferences: Partial<UserPreferences>): Promise<UpdatePreferencesResponse> {
-    return this.fetch<UpdatePreferencesResponse>('/webapp/me/preferences', {
+    return this.fetch<UpdatePreferencesResponse>('/webapp/users/me/preferences', {
       method: 'PUT',
       body: JSON.stringify(preferences),
     })
@@ -310,42 +317,42 @@ class ApiClient {
    * Get user's points stats
    */
   async getPointsStats(): Promise<PointsStats> {
-    return this.fetch<PointsStats>('/webapp/me/points/stats')
+    return this.fetch<PointsStats>('/webapp/users/me/points/stats')
   }
 
   /**
    * Daily check-in
    */
   async dailyCheckin(): Promise<CheckinResult> {
-    return this.fetch<CheckinResult>('/webapp/me/points/checkin', { method: 'POST' })
+    return this.fetch<CheckinResult>('/webapp/users/me/points/checkin', { method: 'POST' })
   }
 
   /**
    * Get points transaction history
    */
   async getPointsHistory(limit = 20, offset = 0): Promise<PointTransaction[]> {
-    return this.fetch<PointTransaction[]>(`/webapp/me/points/history?limit=${limit}&offset=${offset}`)
+    return this.fetch<PointTransaction[]>(`/webapp/users/me/points/history?limit=${limit}&offset=${offset}`)
   }
 
   /**
    * Get leaderboard
    */
   async getLeaderboard(limit = 10): Promise<LeaderboardEntry[]> {
-    return this.fetch<LeaderboardEntry[]>(`/webapp/me/points/leaderboard?limit=${limit}`)
+    return this.fetch<LeaderboardEntry[]>(`/webapp/users/me/points/leaderboard?limit=${limit}`)
   }
 
   /**
    * Get available rewards
    */
   async getRewards(): Promise<Reward[]> {
-    return this.fetch<Reward[]>('/webapp/me/points/rewards')
+    return this.fetch<Reward[]>('/webapp/users/me/points/rewards')
   }
 
   /**
    * Redeem a reward
    */
   async redeemReward(rewardId: number): Promise<RedemptionResult> {
-    return this.fetch<RedemptionResult>(`/webapp/me/points/redeem/${rewardId}`, { method: 'POST' })
+    return this.fetch<RedemptionResult>(`/webapp/users/me/points/redeem/${rewardId}`, { method: 'POST' })
   }
 
   // === DCA (Dollar Cost Averaging) ===
@@ -418,12 +425,12 @@ class ApiClient {
   // === Limit Orders ===
 
   async getOrders(): Promise<LimitOrder[]> {
-    const response = await this.fetch<{ orders: LimitOrder[] }>('/webapp/orders')
+    const response = await this.fetch<{ orders: LimitOrder[] }>('/webapp/users/me/limit-orders')
     return response.orders
   }
 
   async createOrder(params: CreateOrderParams): Promise<LimitOrder> {
-    const response = await this.fetch<{ order: LimitOrder }>('/webapp/orders', {
+    const response = await this.fetch<{ order: LimitOrder }>('/webapp/users/me/limit-orders', {
       method: 'POST',
       body: JSON.stringify(params),
     })
@@ -431,11 +438,11 @@ class ApiClient {
   }
 
   async cancelOrder(id: number): Promise<void> {
-    await this.fetch(`/webapp/orders/${id}`, { method: 'DELETE' })
+    await this.fetch(`/webapp/users/me/limit-orders/${id}`, { method: 'DELETE' })
   }
 
   async getOrderFills(id: number): Promise<OrderFill[]> {
-    const response = await this.fetch<{ fills: OrderFill[] }>(`/webapp/orders/${id}/fills`)
+    const response = await this.fetch<{ fills: OrderFill[] }>(`/webapp/users/me/limit-orders/${id}/fills`)
     return response.fills
   }
 

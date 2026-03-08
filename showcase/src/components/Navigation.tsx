@@ -8,9 +8,8 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
 gsap.registerPlugin(ScrollToPlugin, ScrollTrigger);
 
 const NAV_LINKS = [
-  { label: 'How It Works', panel: 1 },
-  { label: 'Features', panel: 2 },
-  { label: 'Demos', panel: 3 },
+  { label: 'Infra', panel: 1 },
+  { label: 'Interfaces', panel: 2 },
 ];
 
 export default function Navigation() {
@@ -49,7 +48,7 @@ export default function Navigation() {
         const totalPanels = panels.length;
         const scrollRange = st.end - st.start;
         const targetScroll = st.start + (panelIndex / (totalPanels - 1)) * scrollRange;
-        gsap.to(window, { scrollTo: targetScroll, duration: 1, ease: 'power2.inOut' });
+        gsap.to(window, { scrollTo: targetScroll, duration: 1.2, ease: 'back.inOut(1.2)' });
       } else {
         // Mobile / vertical fallback: scroll to element
         panels[panelIndex].scrollIntoView({ behavior: 'smooth' });
@@ -73,7 +72,7 @@ export default function Navigation() {
           onClick={() => scrollToPanel(0)}
           className="font-heading font-bold text-xl gradient-text"
         >
-          Suwappu
+          Suwappu<sup className="ml-1 text-suwappu-dark-text-muted font-normal text-[9px]">すわっぷ</sup>
         </button>
 
         <div className="hidden md:flex items-center gap-8">
@@ -92,7 +91,15 @@ export default function Navigation() {
             rel="noopener noreferrer"
             className="btn-suwappu bg-suwappu-gradient text-white font-heading font-medium text-sm px-5 py-2 rounded-suwappu-pill shadow-suwappu-button hover:shadow-suwappu-button-hover"
           >
-            Open in Telegram
+            Open @suwappu_bot
+          </a>
+          <a
+            href="https://docs.suwappu.bot"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-heading font-medium text-sm text-suwappu-dark-text-secondary hover:text-suwappu-magenta transition-colors font-mono"
+          >
+            Get SDK
           </a>
         </div>
 
@@ -130,7 +137,7 @@ export default function Navigation() {
             rel="noopener noreferrer"
             className="block text-center btn-suwappu bg-suwappu-gradient text-white font-heading font-medium px-5 py-3 rounded-suwappu-pill mt-4"
           >
-            Open in Telegram
+            Open @suwappu_bot
           </a>
         </div>
       </div>
