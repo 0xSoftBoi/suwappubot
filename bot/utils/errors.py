@@ -155,7 +155,11 @@ def format_error_for_user(error: UserFriendlyError) -> str:
 def detect_error_code(error_message: str) -> str:
     """Try to detect error code from error message string."""
     error_lower = error_message.lower()
-    
+
+    # Database/schema errors should never match swap-specific codes
+    if "column" in error_lower and ("does not exist" in error_lower or "no such column" in error_lower):
+        return "UNKNOWN_ERROR"
+
     if "no route" in error_lower or "no routes" in error_lower:
         return "NO_ROUTES_FOUND"
     elif "insufficient liquidity" in error_lower or "liquidity" in error_lower:

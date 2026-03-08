@@ -125,6 +125,8 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         from bot.models.oauth import OAuthIdentity, OAuthToken, OAuthState
         # Agent registration models
         from bot.models.agent import RegisteredAgent
+        # Subscription models (referenced by User.subscription relationship)
+        from bot.models.subscription import Subscription, X402Payment, APICredit
 
         # Create all tables
         Base.metadata.create_all(bind=engine)
@@ -198,6 +200,7 @@ def _ensure_schema(db_engine) -> None:
 
     # --- users: TOS columns and telegram_id nullability ---
     if "users" in tables:
+        _add_user_core_columns(db_engine, inspector, is_sqlite)
         _add_tos_columns(db_engine, inspector, is_sqlite)
         _fix_user_nullability(db_engine, inspector, is_sqlite)
         _add_referral_columns(db_engine, inspector, is_sqlite)
@@ -219,6 +222,32 @@ def _fix_user_nullability(db_engine, inspector, is_sqlite: bool) -> None:
         except Exception:
             # Column may already be nullable
             pass
+
+
+def _add_user_core_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add core User model columns that may be missing on older deployments."""
+    cols = {c["name"] for c in inspector.get_columns("users")}
+
+    new_columns = [
+        ("whatsapp_id", "VARCHAR(255)", "NULL"),
+        ("default_slippage", "INTEGER", "50"),
+        ("notifications_enabled", "BOOLEAN", "TRUE"),
+        ("panic_sell_enabled", "BOOLEAN", "FALSE"),
+        ("two_fa_enabled", "BOOLEAN", "FALSE"),
+        ("totp_secret", "VARCHAR(64)", "NULL"),
+        ("two_fa_threshold", "INTEGER", "1000"),
+        ("recovery_email", "VARCHAR(255)", "NULL"),
+        ("recovery_setup_at", "DATETIME", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE users ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
 
 
 def _add_tos_columns(db_engine, inspector, is_sqlite: bool) -> None:
