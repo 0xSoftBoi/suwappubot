@@ -25,6 +25,12 @@ const config: Config = {
           cyan: '#b3e5fc',
           success: '#a8e6a3',
           warning: '#ffe4a0',
+          'dark-bg': '#0a0a14',
+          'dark-surface': '#12121e',
+          'dark-surface-elevated': '#1a1a2e',
+          'dark-text': '#e8e8f0',
+          'dark-text-secondary': '#9a9ab0',
+          'dark-text-muted': '#5a5a70',
         },
       },
       fontFamily: {
@@ -46,6 +52,12 @@ const config: Config = {
           '0 4px 20px rgba(108,52,131,0.08), 0 1px 3px rgba(0,0,0,0.04)',
         'suwappu-card-hover':
           '0 12px 40px rgba(108,52,131,0.12), 0 4px 12px rgba(0,0,0,0.06)',
+        'suwappu-glow-magenta':
+          '0 0 20px rgba(233,30,140,0.2), 0 0 40px rgba(233,30,140,0.1)',
+        'suwappu-card-dark':
+          '0 4px 20px rgba(0,0,0,0.3), 0 1px 3px rgba(0,0,0,0.2)',
+        'suwappu-card-dark-hover':
+          '0 12px 40px rgba(0,0,0,0.4), 0 4px 12px rgba(233,30,140,0.1)',
       },
       backgroundImage: {
         'suwappu-gradient':

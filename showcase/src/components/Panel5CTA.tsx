@@ -4,8 +4,14 @@ import { useRef } from 'react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { useGSAP } from '@gsap/react';
+import dynamic from 'next/dynamic';
 import Panel from './Panel';
 import { useScrollContext } from './HorizontalScroll';
+
+const SakuraPetal3D = dynamic(() => import('./SakuraPetal3D'), {
+  ssr: false,
+  loading: () => null,
+});
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -34,6 +40,9 @@ export default function Panel5CTA() {
   return (
     <Panel ref={panelRef} id="cta" className="flex items-center justify-center bg-suwappu-dark-bg relative overflow-hidden">
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] rounded-full bg-suwappu-magenta/5 blur-3xl" />
+      <div className="absolute inset-0 pointer-events-none z-[1] hidden lg:block">
+        <SakuraPetal3D variant="shower" />
+      </div>
 
       <div className="relative max-w-2xl mx-auto text-center px-6 w-full">
         {/* CTA */}

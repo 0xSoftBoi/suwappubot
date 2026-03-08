@@ -215,6 +215,37 @@ body {
   background: linear-gradient(180deg, #f8a5c2, #e91e8c);
 }
 
+/* ---- Three.js Canvas ---- */
+.petal-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.petal-canvas canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* ---- Horizontal scroll panels ---- */
+.gsap-panel {
+  width: 100vw;
+  min-height: 100vh;
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+@media (max-width: 767px) {
+  .gsap-panel {
+    width: 100%;
+    min-height: auto;
+    padding-top: 4rem;
+    padding-bottom: 4rem;
+  }
+}
+
 /* ---- Focus visible ---- */
 *:focus-visible {
   outline: 2px solid rgba(233, 30, 140, 0.5);

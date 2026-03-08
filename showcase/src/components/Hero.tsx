@@ -3,7 +3,13 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
+import dynamic from 'next/dynamic';
 import Panel from './Panel';
+
+const SakuraPetal3D = dynamic(() => import('./SakuraPetal3D'), {
+  ssr: false,
+  loading: () => null,
+});
 
 // ---------------------------------------------------------------------------
 // Chat Demo types & data
@@ -233,6 +239,9 @@ export default function Hero() {
   return (
     <Panel ref={heroRef} id="hero" className="flex items-center bg-suwappu-dark-bg relative overflow-hidden pt-20 md:pt-0">
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(233,30,140,0.08)_0%,_transparent_70%)]" />
+      <div className="absolute inset-0 pointer-events-none z-[1] hidden lg:block">
+        <SakuraPetal3D variant="cluster" />
+      </div>
 
       <div className="relative z-10 max-w-6xl mx-auto px-6 w-full">
         <div className="grid lg:grid-cols-2 gap-12 items-center">
