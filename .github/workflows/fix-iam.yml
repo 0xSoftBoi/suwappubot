@@ -4,42 +4,42 @@ on:
   workflow_dispatch:
 
 permissions:
-  id-token: write
   contents: read
 
 jobs:
   fix:
     runs-on: ubuntu-latest
     steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: us-east-1
-
-      - name: Check current permissions
+      - name: Configure AWS credentials (IAM user keys)
         run: |
-          echo "=== Current role info ==="
+          aws configure set aws_access_key_id "${{ secrets.AWS_ACCESS_KEY_ID }}"
+          aws configure set aws_secret_access_key "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+          aws configure set region us-east-1
+
+      - name: Check who we are
+        run: |
+          echo "=== Identity ==="
           aws sts get-caller-identity
-          echo ""
-          echo "=== Trying to list attached policies ==="
-          ROLE_NAME="github-actions-suwappu"
-          aws iam list-attached-role-policies --role-name "$ROLE_NAME" 2>&1 || echo "Cannot list policies (no IAM permissions)"
-          echo ""
-          echo "=== Trying to list inline policies ==="
-          aws iam list-role-policies --role-name "$ROLE_NAME" 2>&1 || echo "Cannot list inline policies"
 
-      - name: Add EC2 and IAM permissions
-        continue-on-error: true
+      - name: List and fix role permissions
         run: |
           ROLE_NAME="github-actions-suwappu"
 
+          echo "=== Current policies on role ==="
+          aws iam list-attached-role-policies --role-name "$ROLE_NAME" 2>&1 || echo "Cannot list"
+
+          echo ""
           echo "=== Attaching AmazonEC2FullAccess ==="
           aws iam attach-role-policy \
             --role-name "$ROLE_NAME" \
-            --policy-arn arn:aws:iam::aws:policy/AmazonEC2FullAccess 2>&1
+            --policy-arn arn:aws:iam::aws:policy/AmazonEC2FullAccess
 
-          echo "=== Adding inline policy for IAM instance profiles ==="
+          echo "=== Attaching AmazonSSMReadOnlyAccess ==="
+          aws iam attach-role-policy \
+            --role-name "$ROLE_NAME" \
+            --policy-arn arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess
+
+          echo "=== Adding inline policy for IAM + SSM ==="
           aws iam put-role-policy \
             --role-name "$ROLE_NAME" \
             --policy-name "ec2-provisioning" \
@@ -59,12 +59,16 @@ jobs:
                     "iam:PassRole",
                     "iam:ListAttachedRolePolicies",
                     "iam:ListRolePolicies",
-                    "ssm:GetParameter"
+                    "ssm:GetParameter",
+                    "ssm:GetParameters"
                   ],
                   "Resource": "*"
                 }
               ]
-            }' 2>&1
+            }'
 
+          echo ""
           echo "=== Verifying ==="
-          aws iam list-attached-role-policies --role-name "$ROLE_NAME" 2>&1 || echo "Still no IAM access"
+          aws iam list-attached-role-policies --role-name "$ROLE_NAME"
+          echo ""
+          echo "Done! Now run provision-ec2.yml"
