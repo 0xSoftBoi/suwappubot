@@ -116,6 +116,9 @@ async def start_swap(update: Update, context: ContextTypes.DEFAULT_TYPE, is_call
     except Exception:
         pass
 
+    # Cache for reuse in destination chain/token selection
+    context.user_data["chains_with_balance"] = chains_with_balance
+
     # Split chains: ones with balance first
     chains_with_bal = []
     chains_without_bal = []
@@ -261,10 +264,26 @@ async def select_from_token(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         f"Select the destination chain:"
     )
     
-    # Build chain buttons
-    chain_buttons = []
-    row = []
+    # Reuse cached balance info to sort destination chains
+    chains_with_balance = context.user_data.get("chains_with_balance", set())
+
+    chains_with_bal = []
+    chains_without_bal = []
     for name, chain in CHAINS.items():
+        if name in chains_with_balance:
+            chains_with_bal.append((name, chain))
+        else:
+            chains_without_bal.append((name, chain))
+
+    chain_buttons = []
+    for name, chain in chains_with_bal:
+        chain_buttons.append([InlineKeyboardButton(
+            f"✅ {chain.logo_emoji} {chain.display_name}",
+            callback_data=f"to_chain_{name}"
+        )])
+
+    row = []
+    for name, chain in chains_without_bal:
         btn = InlineKeyboardButton(
             f"{chain.logo_emoji} {chain.display_name}",
             callback_data=f"to_chain_{name}"
@@ -275,7 +294,7 @@ async def select_from_token(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             row = []
     if row:
         chain_buttons.append(row)
-    
+
     chain_buttons.append([
         InlineKeyboardButton("« Back", callback_data=f"from_chain_{from_chain}"),
         InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel"),
@@ -304,21 +323,47 @@ async def select_to_chain(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     # Get available tokens
     tokens = get_tokens_for_chain(chain_name)
-    
+
     from_chain = context.user_data["swap"]["from_chain"]
     from_token = context.user_data["swap"]["from_token"]
     from_chain_config = get_chain_by_name(from_chain)
-    
+
+    # Fetch user balances on destination chain to sort tokens
+    user_id = context.user_data.get("user_id")
+    chain_type = "solana" if chain.chain_type == ChainType.SOLANA else "evm"
+    dest_balances: dict[str, float] = {}
+    try:
+        default_wallet = wallet_service.get_default_wallet(user_id, chain_type)
+        if default_wallet:
+            all_balances = await wallet_service.get_balances_by_address(default_wallet.address, chain_type)
+            for chain_bals in all_balances.values():
+                dest_balances.update(chain_bals)
+    except Exception:
+        pass
+
+    tokens_with_bal = [(t, dest_balances.get(t.symbol, 0)) for t in tokens if dest_balances.get(t.symbol, 0) > 0]
+    tokens_without_bal = [t for t in tokens if dest_balances.get(t.symbol, 0) <= 0]
+    tokens_with_bal.sort(key=lambda x: x[1], reverse=True)
+
     text = (
         f"🔄 *New Swap*\n\n"
         f"{from_chain_config.logo_emoji} From: *{from_chain_config.display_name}* ({from_token})\n"
         f"{chain.logo_emoji} To: *{chain.display_name}*\n\n"
         f"Select the token to receive:"
     )
-    
+
     token_buttons = []
+
+    # Tokens user holds — one per row with balance
+    for token, bal in tokens_with_bal:
+        label = f"✅ {token.logo_emoji} {token.symbol} — {format_amount(bal)}"
+        token_buttons.append([InlineKeyboardButton(
+            label, callback_data=f"to_token_{token.symbol}"
+        )])
+
+    # Remaining tokens — compact 3 per row
     row = []
-    for token in tokens:
+    for token in tokens_without_bal:
         btn = InlineKeyboardButton(
             f"{token.logo_emoji} {token.symbol}",
             callback_data=f"to_token_{token.symbol}"
