@@ -799,7 +799,7 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             f"• Success: *{num_success}* wallets\n"
             f"• Failed: *{num_fail}* wallets\n\n"
             f"💰 *+{total_points} XP earned!*\n"
-            f"Total platform fee: 80 bips (0.8%)\n\n"
+            f"Total platform fee: {format_usd(total_fee_usd)} (0.8%)\n\n"
             f"Check individual status in /hx."
         )
 
