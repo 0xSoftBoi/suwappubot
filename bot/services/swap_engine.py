@@ -770,6 +770,9 @@ class SwapEngine:
                     web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
                     nonce += 1
 
+            # Re-fetch nonce to account for any approval tx or pending txs
+            nonce = web3.eth.get_transaction_count(sender)
+
             # Build swap transaction - parse hex values from Li.Fi
             tx = {
                 "to": spender,
