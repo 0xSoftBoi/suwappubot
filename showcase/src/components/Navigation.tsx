@@ -9,8 +9,7 @@ gsap.registerPlugin(ScrollToPlugin, ScrollTrigger);
 
 const NAV_LINKS = [
   { label: 'Infra', panel: 1 },
-  { label: 'Integration', panel: 2 },
-  { label: 'Interfaces', panel: 3 },
+  { label: 'Interfaces', panel: 2 },
 ];
 
 export default function Navigation() {

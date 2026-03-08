@@ -5,8 +5,6 @@ import SakuraPetals from '@/components/SakuraPetals';
 import Navigation from '@/components/Navigation';
 import HorizontalScroll from '@/components/HorizontalScroll';
 import Hero from '@/components/Hero';
-import Panel2HowItWorks from '@/components/Panel2HowItWorks';
-import Panel3Features from '@/components/Panel3Features';
 import PlatformDemosPanel from '@/components/PlatformDemos';
 import Panel5CTA from '@/components/Panel5CTA';
 import Panel from '@/components/Panel';
@@ -25,21 +23,11 @@ const CHAINS = [
   { name: 'Blast' }, { name: 'Gnosis' }, { name: 'Aurora' },
 ];
 
-const TOOLS = [
-  'get_quote', 'execute_swap', 'get_portfolio', 'get_prices', 'list_chains', 'list_tokens',
-];
-
 const INTEGRATIONS = [
-  { name: 'TypeScript SDK', command: 'bun add @suwappu/sdk' },
-  { name: 'OpenClaw Module', command: 'bun add @suwappu/openclaw' },
-  { name: 'REST API', command: 'curl api.suwappu.bot/v1/quote' },
-  { name: 'Skill File', command: 'SKILL.md \u2192 agent reads, acts' },
-];
-
-const WHY_POINTS = [
-  'No browser, no extension, no seed phrase.',
-  'Agents get quotes, execute swaps, check balances \u2014 six tools, one key.',
-  'Tool calls, REST, A2A. Pick your protocol.',
+  { name: 'SDK', command: 'bun add @suwappu/sdk' },
+  { name: 'OpenClaw', command: 'bun add @suwappu/openclaw' },
+  { name: 'REST', command: 'curl api.suwappu.bot/v1/quote' },
+  { name: 'Skills', command: 'SKILL.md' },
 ];
 
 const FAQ_ITEMS = [
@@ -62,38 +50,29 @@ const FAQ_ITEMS = [
 ];
 
 /* ===================================================================
-   Chain Strip Panel — Infra
+   Infra Panel — integrations + chain marquee
    =================================================================== */
 
-function ChainStripPanel() {
+function InfraPanel() {
   const doubled = [...CHAINS, ...CHAINS];
 
   return (
-    <Panel id="chains" className="flex items-center bg-suwappu-dark-bg relative">
+    <Panel id="infra" className="flex items-center bg-suwappu-dark-bg relative">
       <div className="max-w-6xl mx-auto px-6 w-full">
-        <p className="text-center text-xs font-heading font-semibold text-suwappu-magenta uppercase tracking-[0.15em] mb-3">
-          Infrastructure
-        </p>
-        <h2 className="font-heading font-bold text-3xl md:text-4xl text-center mb-4 text-white">
+        <h2 className="font-heading font-bold text-3xl md:text-4xl text-center mb-10 text-white">
           Plug in.{' '}
           <span className="gradient-text">Swap out.</span>
         </h2>
-        <p className="text-center text-suwappu-dark-text-secondary mb-10 max-w-lg mx-auto">
-          Use Suwappu as a module in your agent framework. Li.Fi, Jupiter, CoW, Wormhole — we handle the routing.
-        </p>
 
-        {/* Integration cards */}
-        <div className="grid sm:grid-cols-2 gap-3 max-w-2xl mx-auto mb-12">
+        {/* Integration row */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-3xl mx-auto mb-14">
           {INTEGRATIONS.map((int) => (
             <div
               key={int.name}
-              className="group relative rounded-xl p-4 bg-white/[0.03] border border-white/[0.06] hover:border-suwappu-magenta/20 transition-all"
+              className="rounded-xl p-4 bg-white/[0.03] border border-white/[0.06] hover:border-suwappu-magenta/20 transition-all"
             >
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-heading font-semibold text-white">{int.name}</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-suwappu-success" />
-              </div>
-              <code className="text-[11px] text-suwappu-cyan/50 font-mono leading-relaxed break-all">
+              <span className="text-sm font-heading font-semibold text-white block mb-1.5">{int.name}</span>
+              <code className="text-[11px] text-suwappu-cyan/50 font-mono break-all">
                 {int.command}
               </code>
             </div>
@@ -108,61 +87,17 @@ function ChainStripPanel() {
           <div className="flex gap-8 animate-marquee">
             {doubled.map((chain, i) => (
               <div key={`${chain.name}-${i}`} className="flex flex-col items-center gap-2 shrink-0">
-                <div className="w-14 h-14 rounded-2xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center hover:bg-white/[0.1] transition-colors">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-suwappu-magenta/20 to-suwappu-purple/20 flex items-center justify-center text-white/60 text-xs font-heading font-bold">
+                <div className="w-12 h-12 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center">
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-suwappu-magenta/20 to-suwappu-purple/20 flex items-center justify-center text-white/60 text-[10px] font-heading font-bold">
                     {chain.name.slice(0, 2)}
                   </div>
                 </div>
-                <span className="text-[11px] text-suwappu-dark-text-muted font-medium whitespace-nowrap">
+                <span className="text-[10px] text-suwappu-dark-text-muted font-medium whitespace-nowrap">
                   {chain.name}
                 </span>
               </div>
             ))}
           </div>
-        </div>
-
-        {/* Tool names */}
-        <div className="flex flex-wrap justify-center gap-3 mt-8">
-          {TOOLS.map((t) => (
-            <span key={t} className="px-4 py-2 rounded-full bg-white/[0.04] border border-white/[0.06] text-xs font-mono text-suwappu-cyan/60">
-              {t}
-            </span>
-          ))}
-        </div>
-      </div>
-    </Panel>
-  );
-}
-
-/* ===================================================================
-   Why Suwappu Panel (replaces Compare)
-   =================================================================== */
-
-function WhySuwappuPanel() {
-  return (
-    <Panel id="compare" className="flex items-center bg-suwappu-dark-bg relative">
-      <div className="max-w-3xl mx-auto px-6 w-full">
-        <p className="text-center text-xs font-heading font-semibold text-suwappu-magenta uppercase tracking-[0.15em] mb-3">
-          Why Suwappu
-        </p>
-        <h2 className="font-heading font-bold text-3xl md:text-4xl text-center mb-12 text-white">
-          Built for agents, not browsers.
-        </h2>
-
-        <div className="space-y-6">
-          {WHY_POINTS.map((point, i) => (
-            <div
-              key={i}
-              className="flex items-start gap-4 p-5 rounded-2xl bg-suwappu-dark-surface border border-white/[0.06]"
-            >
-              <div className="shrink-0 w-8 h-8 rounded-full bg-suwappu-gradient flex items-center justify-center text-white text-sm font-heading font-bold">
-                {i + 1}
-              </div>
-              <p className="text-suwappu-dark-text text-base leading-relaxed pt-1">
-                {point}
-              </p>
-            </div>
-          ))}
         </div>
       </div>
     </Panel>
@@ -179,11 +114,8 @@ function FAQSection() {
   return (
     <section className="bg-suwappu-dark-bg py-24 px-6">
       <div className="max-w-2xl mx-auto">
-        <p className="text-center text-xs font-heading font-semibold text-suwappu-magenta uppercase tracking-[0.15em] mb-3">
+        <h2 className="font-heading font-bold text-2xl text-center mb-10 text-suwappu-dark-text">
           FAQ
-        </p>
-        <h2 className="font-heading font-bold text-3xl text-center mb-12 text-suwappu-dark-text">
-          Common questions
         </h2>
 
         <div className="space-y-3">
@@ -268,18 +200,15 @@ export default function Home() {
       <SakuraPetals count={6} />
       <Navigation />
 
-      {/* Horizontal scroll section — 7 panels */}
+      {/* Horizontal scroll — 4 panels */}
       <HorizontalScroll>
         <Hero />
-        <ChainStripPanel />
-        <Panel2HowItWorks />
-        <Panel3Features />
+        <InfraPanel />
         <PlatformDemosPanel />
-        <WhySuwappuPanel />
         <Panel5CTA />
       </HorizontalScroll>
 
-      {/* Vertical sections after horizontal scroll */}
+      {/* Vertical sections */}
       <FAQSection />
       <Footer />
     </>
