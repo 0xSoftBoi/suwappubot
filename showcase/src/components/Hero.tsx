@@ -5,6 +5,7 @@ import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 import dynamic from 'next/dynamic';
 import Panel from './Panel';
+import { useScrollContext } from './HorizontalScroll';
 
 const SakuraPetal3D = dynamic(() => import('./SakuraPetal3D'), {
   ssr: false,
@@ -203,6 +204,7 @@ const STATS = [
 
 export default function Hero() {
   const heroRef = useRef<HTMLElement>(null);
+  const { progressRef } = useScrollContext();
 
   useGSAP(() => {
     if (!heroRef.current) return;
@@ -218,7 +220,7 @@ export default function Hero() {
     <Panel ref={heroRef} id="hero" className="flex items-center bg-suwappu-dark-bg relative overflow-hidden pt-20 md:pt-0">
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(233,30,140,0.08)_0%,_transparent_70%)]" />
       <div className="absolute inset-0 pointer-events-none z-[1] hidden lg:block opacity-40">
-        <SakuraPetal3D variant="cluster" />
+        <SakuraPetal3D variant="cluster" progressRef={progressRef} />
       </div>
 
       <div className="relative z-10 max-w-6xl mx-auto px-6 w-full">

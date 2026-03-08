@@ -10,9 +10,14 @@ gsap.registerPlugin(ScrollTrigger, ScrollToPlugin);
 
 interface ScrollContextValue {
   scrollTween: gsap.core.Tween | null;
+  /** 0–1 normalized scroll progress through the horizontal section */
+  progressRef: React.RefObject<number>;
 }
 
-const ScrollContext = createContext<ScrollContextValue>({ scrollTween: null });
+const ScrollContext = createContext<ScrollContextValue>({
+  scrollTween: null,
+  progressRef: { current: 0 },
+});
 export const useScrollContext = () => useContext(ScrollContext);
 
 interface HorizontalScrollProps {
@@ -22,6 +27,7 @@ interface HorizontalScrollProps {
 export default function HorizontalScroll({ children }: HorizontalScrollProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const panelsRef = useRef<HTMLDivElement>(null);
+  const progressRef = useRef<number>(0);
   const [scrollTween, setScrollTween] = useState<gsap.core.Tween | null>(null);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -45,15 +51,16 @@ export default function HorizontalScroll({ children }: HorizontalScrollProps) {
         trigger: containerRef.current,
         pin: true,
         scrub: 1,
-        // No snap — loose horizontal feel
         end: () => `+=${panelsRef.current!.scrollWidth - window.innerWidth}`,
         invalidateOnRefresh: true,
+        onUpdate: (self) => {
+          progressRef.current = self.progress;
+        },
       },
     });
 
     setScrollTween(tween);
 
-    // Respect prefers-reduced-motion
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     const handleMotion = (e: MediaQueryListEvent | MediaQueryList) => {
       if (e.matches) {
@@ -71,7 +78,7 @@ export default function HorizontalScroll({ children }: HorizontalScrollProps) {
 
   if (isMobile) {
     return (
-      <ScrollContext.Provider value={{ scrollTween: null }}>
+      <ScrollContext.Provider value={{ scrollTween: null, progressRef }}>
         <div className="flex flex-col">
           {children}
         </div>
@@ -80,7 +87,7 @@ export default function HorizontalScroll({ children }: HorizontalScrollProps) {
   }
 
   return (
-    <ScrollContext.Provider value={{ scrollTween }}>
+    <ScrollContext.Provider value={{ scrollTween, progressRef }}>
       <div ref={containerRef} className="overflow-hidden">
         <div ref={panelsRef} className="flex flex-nowrap">
           {children}

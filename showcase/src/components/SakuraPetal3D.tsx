@@ -1,12 +1,18 @@
 'use client';
 
-import { useRef, useMemo } from 'react';
+import { useRef, useMemo, createContext, useContext } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { Float, Environment } from '@react-three/drei';
+import { Environment } from '@react-three/drei';
 import * as THREE from 'three';
 
 /* ---------------------------------------------------------------
-   Petal geometry — teardrop/sakura shape via Shape + ExtrudeGeometry
+   Scroll progress context — passed in from parent
+   --------------------------------------------------------------- */
+
+const ScrollProgressCtx = createContext<React.RefObject<number | null>>({ current: 0 });
+
+/* ---------------------------------------------------------------
+   Petal geometry — teardrop/sakura shape
    --------------------------------------------------------------- */
 
 function createPetalGeometry() {
@@ -15,27 +21,25 @@ function createPetalGeometry() {
   shape.quadraticCurveTo(0.5, 0.8, 0, 1.6);
   shape.quadraticCurveTo(-0.5, 0.8, 0, 0);
 
-  const extrudeSettings: THREE.ExtrudeGeometryOptions = {
+  return new THREE.ExtrudeGeometry(shape, {
     depth: 0.05,
     bevelEnabled: true,
     bevelThickness: 0.02,
     bevelSize: 0.03,
     bevelSegments: 3,
     curveSegments: 12,
-  };
-
-  return new THREE.ExtrudeGeometry(shape, extrudeSettings);
+  });
 }
 
 /* ---------------------------------------------------------------
-   Single petal mesh — time-driven spin + float
+   Single petal mesh — scroll-driven rotation + position
    --------------------------------------------------------------- */
 
 interface PetalMeshProps {
   position: [number, number, number];
   rotation?: [number, number, number];
   scale?: number;
-  speed?: number;
+  scrollMultiplier?: number;
   color?: string;
 }
 
@@ -43,28 +47,26 @@ function PetalMesh({
   position,
   rotation = [0, 0, 0],
   scale = 1,
-  speed = 1,
+  scrollMultiplier = 1,
   color = '#ffb7c5',
 }: PetalMeshProps) {
   const meshRef = useRef<THREE.Mesh>(null!);
   const geometry = useMemo(() => createPetalGeometry(), []);
-  const initialRotation = useMemo(() => rotation, []);
+  const progressRef = useContext(ScrollProgressCtx);
+  const initRot = useMemo(() => rotation, []);
 
-  useFrame((state) => {
-    const t = state.clock.elapsedTime * speed;
-    meshRef.current.rotation.x = initialRotation[0] + Math.sin(t * 0.5) * 0.3;
-    meshRef.current.rotation.y = initialRotation[1] + t * 0.4;
-    meshRef.current.rotation.z = initialRotation[2] + Math.cos(t * 0.3) * 0.2;
-    meshRef.current.position.y = position[1] + Math.sin(t * 0.7) * 0.15;
+  useFrame(() => {
+    const p = (progressRef.current ?? 0) * scrollMultiplier;
+    // Scroll drives rotation — full 360 over the page
+    meshRef.current.rotation.x = initRot[0] + p * Math.PI * 2;
+    meshRef.current.rotation.y = initRot[1] + p * Math.PI * 3;
+    meshRef.current.rotation.z = initRot[2] + Math.sin(p * Math.PI * 4) * 0.4;
+    // Gentle float tied to scroll
+    meshRef.current.position.y = position[1] + Math.sin(p * Math.PI * 6) * 0.15;
   });
 
   return (
-    <mesh
-      ref={meshRef}
-      geometry={geometry}
-      position={position}
-      scale={scale}
-    >
+    <mesh ref={meshRef} geometry={geometry} position={position} scale={scale}>
       <meshPhysicalMaterial
         color={color}
         transmission={0.3}
@@ -79,13 +81,14 @@ function PetalMesh({
 }
 
 /* ---------------------------------------------------------------
-   Floating mini petals (particles)
+   Floating mini petals — scroll-driven instanced mesh
    --------------------------------------------------------------- */
 
 function FloatingPetals({ count = 12 }: { count?: number }) {
   const meshRef = useRef<THREE.InstancedMesh>(null!);
   const geometry = useMemo(() => createPetalGeometry(), []);
   const dummy = useMemo(() => new THREE.Object3D(), []);
+  const progressRef = useContext(ScrollProgressCtx);
 
   const petals = useMemo(() => {
     return Array.from({ length: count }, () => ({
@@ -96,23 +99,25 @@ function FloatingPetals({ count = 12 }: { count?: number }) {
       ry: Math.random() * Math.PI * 2,
       speed: 0.3 + Math.random() * 0.7,
       scale: 0.08 + Math.random() * 0.12,
+      phase: Math.random() * Math.PI * 2,
     }));
   }, [count]);
 
-  useFrame((state) => {
-    const t = state.clock.elapsedTime;
-    petals.forEach((p, i) => {
+  useFrame(() => {
+    const p = progressRef.current ?? 0;
+    petals.forEach((pt, i) => {
+      const t = p * pt.speed * 10 + pt.phase;
       dummy.position.set(
-        p.x + Math.sin(t * p.speed * 0.5) * 0.3,
-        p.y + Math.sin(t * p.speed * 0.7 + i) * 0.4,
-        p.z + Math.cos(t * p.speed * 0.3) * 0.2,
+        pt.x + Math.sin(t * 0.5) * 0.3,
+        pt.y + Math.sin(t * 0.7 + i) * 0.4,
+        pt.z + Math.cos(t * 0.3) * 0.2,
       );
       dummy.rotation.set(
-        p.rx + t * p.speed * 0.3,
-        p.ry + t * p.speed * 0.5,
-        t * p.speed * 0.2,
+        pt.rx + t * 0.3,
+        pt.ry + t * 0.5,
+        t * 0.2,
       );
-      dummy.scale.setScalar(p.scale);
+      dummy.scale.setScalar(pt.scale);
       dummy.updateMatrix();
       meshRef.current.setMatrixAt(i, dummy.matrix);
     });
@@ -135,43 +140,31 @@ function FloatingPetals({ count = 12 }: { count?: number }) {
 }
 
 /* ---------------------------------------------------------------
-   Petal cluster — hero composition
+   Petal cluster — hero composition (scroll-driven)
    --------------------------------------------------------------- */
 
 function PetalCluster() {
   return (
     <group>
-      {/* Main petals */}
-      <Float speed={1.5} rotationIntensity={0.3} floatIntensity={0.5}>
-        <PetalMesh position={[0, 0.3, 0]} scale={0.6} speed={0.8} color="#ffb7c5" />
-      </Float>
-      <Float speed={2} rotationIntensity={0.4} floatIntensity={0.6}>
-        <PetalMesh position={[-0.8, -0.2, 0.3]} scale={0.45} speed={1.1} color="#ffd1dc" rotation={[0.5, 1.2, 0.3]} />
-      </Float>
-      <Float speed={1.2} rotationIntensity={0.2} floatIntensity={0.4}>
-        <PetalMesh position={[0.7, -0.4, -0.2]} scale={0.5} speed={0.9} color="#f8a5c2" rotation={[1, 0.5, 0.8]} />
-      </Float>
-      <Float speed={1.8} rotationIntensity={0.35} floatIntensity={0.45}>
-        <PetalMesh position={[0.3, 0.8, -0.4]} scale={0.35} speed={1.3} color="#ffb7c5" rotation={[0.3, 2, 0.6]} />
-      </Float>
-      <Float speed={1.4} rotationIntensity={0.25} floatIntensity={0.35}>
-        <PetalMesh position={[-0.5, 0.6, 0.5]} scale={0.4} speed={1} color="#ffd1dc" rotation={[1.5, 0.8, 1.2]} />
-      </Float>
-
-      {/* Floating mini petals */}
+      <PetalMesh position={[0, 0.3, 0]} scale={0.6} scrollMultiplier={1} color="#ffb7c5" />
+      <PetalMesh position={[-0.8, -0.2, 0.3]} scale={0.45} scrollMultiplier={1.3} color="#ffd1dc" rotation={[0.5, 1.2, 0.3]} />
+      <PetalMesh position={[0.7, -0.4, -0.2]} scale={0.5} scrollMultiplier={0.8} color="#f8a5c2" rotation={[1, 0.5, 0.8]} />
+      <PetalMesh position={[0.3, 0.8, -0.4]} scale={0.35} scrollMultiplier={1.5} color="#ffb7c5" rotation={[0.3, 2, 0.6]} />
+      <PetalMesh position={[-0.5, 0.6, 0.5]} scale={0.4} scrollMultiplier={1.1} color="#ffd1dc" rotation={[1.5, 0.8, 1.2]} />
       <FloatingPetals count={15} />
     </group>
   );
 }
 
 /* ---------------------------------------------------------------
-   Petal shower — CTA panel composition
+   Petal shower — CTA panel (scroll-driven falling)
    --------------------------------------------------------------- */
 
 function PetalShower({ count = 20 }: { count?: number }) {
   const meshRef = useRef<THREE.InstancedMesh>(null!);
   const geometry = useMemo(() => createPetalGeometry(), []);
   const dummy = useMemo(() => new THREE.Object3D(), []);
+  const progressRef = useContext(ScrollProgressCtx);
 
   const petals = useMemo(() => {
     return Array.from({ length: count }, () => ({
@@ -187,21 +180,24 @@ function PetalShower({ count = 20 }: { count?: number }) {
     }));
   }, [count]);
 
-  useFrame((state) => {
-    const t = state.clock.elapsedTime;
-    petals.forEach((p, i) => {
-      const y = ((p.startY - t * p.fallSpeed) % 8) + 4;
+  useFrame(() => {
+    const p = progressRef.current ?? 0;
+    petals.forEach((pt, i) => {
+      // Scroll drives the fall — as you scroll deeper, petals fall more
+      const fallAmount = p * pt.fallSpeed * 12;
+      const y = ((pt.startY - fallAmount) % 8) + 4;
+      const t = p * pt.wobble * 8 + pt.phase;
       dummy.position.set(
-        p.x + Math.sin(t * p.wobble + p.phase) * 0.5,
+        pt.x + Math.sin(t) * 0.5,
         y - 4,
-        p.z + Math.cos(t * p.wobble * 0.7 + p.phase) * 0.3,
+        pt.z + Math.cos(t * 0.7) * 0.3,
       );
       dummy.rotation.set(
-        p.rx + t * p.fallSpeed * 2,
-        p.ry + t * p.fallSpeed * 1.5,
-        Math.sin(t + p.phase) * 0.5,
+        pt.rx + p * pt.fallSpeed * 8,
+        pt.ry + p * pt.fallSpeed * 6,
+        Math.sin(t) * 0.5,
       );
-      dummy.scale.setScalar(p.scale);
+      dummy.scale.setScalar(pt.scale);
       dummy.updateMatrix();
       meshRef.current.setMatrixAt(i, dummy.matrix);
     });
@@ -224,15 +220,16 @@ function PetalShower({ count = 20 }: { count?: number }) {
 }
 
 /* ---------------------------------------------------------------
-   Exported scene wrappers
+   Exported scene wrapper
    --------------------------------------------------------------- */
 
 interface SakuraPetal3DProps {
   variant: 'cluster' | 'shower';
   className?: string;
+  progressRef: React.RefObject<number | null>;
 }
 
-export default function SakuraPetal3D({ variant, className = '' }: SakuraPetal3DProps) {
+export default function SakuraPetal3D({ variant, className = '', progressRef }: SakuraPetal3DProps) {
   return (
     <div className={`w-full h-full ${className}`}>
       <Canvas
@@ -241,13 +238,15 @@ export default function SakuraPetal3D({ variant, className = '' }: SakuraPetal3D
         gl={{ antialias: true, alpha: true }}
         style={{ background: 'transparent' }}
       >
-        <ambientLight intensity={0.6} />
-        <directionalLight position={[5, 5, 5]} intensity={0.8} />
-        <pointLight position={[-3, 2, 2]} intensity={0.4} color="#ffb7c5" />
+        <ScrollProgressCtx.Provider value={progressRef}>
+          <ambientLight intensity={0.6} />
+          <directionalLight position={[5, 5, 5]} intensity={0.8} />
+          <pointLight position={[-3, 2, 2]} intensity={0.4} color="#ffb7c5" />
 
-        {variant === 'cluster' ? <PetalCluster /> : <PetalShower count={25} />}
+          {variant === 'cluster' ? <PetalCluster /> : <PetalShower count={25} />}
 
-        <Environment preset="city" />
+          <Environment preset="city" />
+        </ScrollProgressCtx.Provider>
       </Canvas>
     </div>
   );

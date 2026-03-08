@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import Panel from './Panel';
+import { useScrollContext } from './HorizontalScroll';
 
 const SakuraPetal3D = dynamic(() => import('./SakuraPetal3D'), {
   ssr: false,
@@ -9,11 +10,12 @@ const SakuraPetal3D = dynamic(() => import('./SakuraPetal3D'), {
 });
 
 export default function Panel5CTA() {
+  const { progressRef } = useScrollContext();
   return (
     <Panel id="cta" className="flex items-center justify-center bg-suwappu-dark-bg relative overflow-hidden">
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] rounded-full bg-suwappu-magenta/5 blur-3xl" />
       <div className="absolute inset-0 pointer-events-none z-[1] hidden lg:block opacity-50">
-        <SakuraPetal3D variant="shower" />
+        <SakuraPetal3D variant="shower" progressRef={progressRef} />
       </div>
 
       <div className="relative z-10 max-w-2xl mx-auto text-center px-6 w-full">
