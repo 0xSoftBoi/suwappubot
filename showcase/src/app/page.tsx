@@ -37,6 +37,68 @@ const TOOLS = [
   { name: 'lend.market', desc: 'Lending market details — oracle, IRM, rates.' },
 ];
 
+const SDK_EXAMPLES: Record<string, { label: string; code: string }> = {
+  swap: {
+    label: 'Swap',
+    code: `import { createClient } from "@suwappu/sdk";
+
+const client = createClient();
+
+// Get best route across 9 DEX aggregators
+const quote = await client.getQuote("ETH", "USDC", 1.0, "base");
+console.log(\`\${quote.fromAmount} ETH → \${quote.toAmount} USDC via \${quote.dex}\`);
+
+// Execute on-chain
+const tx = await client.executeSwap(quote.id);
+console.log(\`TX: \${tx.txHash} — \${tx.status}\`);`,
+  },
+  perps: {
+    label: 'Perps',
+    code: `import { createClient } from "@suwappu/sdk";
+
+const client = createClient();
+
+// Browse Hyperliquid perpetual markets
+const markets = await client.perps.markets();
+const eth = markets.find(m => m.name === "ETH-USD");
+console.log(\`ETH-USD: \$\${eth.markPrice} (up to \${eth.maxLeverage}x)\`);
+
+// Quote a 5x leveraged long
+const quote = await client.perps.quote("ETH-USD", "long", 1, 5);
+console.log(\`Entry: \$\${quote.entryPrice}, Margin: \$\${quote.margin}\`);`,
+  },
+  predict: {
+    label: 'Predict',
+    code: `import { createClient } from "@suwappu/sdk";
+
+const client = createClient();
+
+// Browse Polymarket prediction markets
+const markets = await client.predict.markets("crypto");
+for (const m of markets.slice(0, 3)) {
+  const [yes, no] = m.outcomePrices;
+  console.log(\`\${m.question}\`);
+  console.log(\`  Yes: \${(yes * 100).toFixed(0)}% | No: \${(no * 100).toFixed(0)}%\`);
+}`,
+  },
+  lend: {
+    label: 'Lend',
+    code: `import { createClient } from "@suwappu/sdk";
+
+const client = createClient();
+
+// Find best yield on Morpho (Base)
+const markets = await client.lend.markets(8453);
+const best = markets.sort((a, b) => b.supplyApy - a.supplyApy)[0];
+console.log(\`Best yield: \${best.supplyApy.toFixed(2)}% APY\`);
+console.log(\`Supply \${best.loanToken} against \${best.collateralToken}\`);
+
+// Get full market details
+const detail = await client.lend.market(best.id);
+console.log(\`Oracle: \${detail.oracle}\`);`,
+  },
+};
+
 const FAQ_ITEMS = [
   {
     q: 'Is it custodial?',
@@ -77,8 +139,30 @@ function CopyButton() {
   );
 }
 
+function SDKCodeBlock({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="relative group">
+      <pre className="font-mono text-[13px] leading-[1.6] text-white/80 overflow-x-auto whitespace-pre">
+        {code}
+      </pre>
+      <button
+        onClick={() => {
+          navigator.clipboard.writeText(code);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }}
+        className="absolute top-2 right-2 text-[10px] text-white/30 hover:text-white/60 transition-colors font-mono px-2 py-1 border border-white/10 rounded opacity-0 group-hover:opacity-100"
+      >
+        {copied ? 'Copied!' : 'Copy'}
+      </button>
+    </div>
+  );
+}
+
 function InfraPanel() {
   const { progressRef } = useScrollContext();
+  const [activeTab, setActiveTab] = useState<string>('swap');
 
   return (
     <Panel id="infra" className="flex items-center justify-center bg-suwappu-dark-bg relative overflow-hidden">
@@ -87,54 +171,100 @@ function InfraPanel() {
         <SakuraPetal3D variant="scatter" progressRef={progressRef} />
       </div>
 
-      {/* Two-column layout */}
-      <div className="relative z-10 max-w-5xl mx-auto px-6 w-full">
-        <div className="grid lg:grid-cols-2 gap-16 items-start">
+      {/* Full-width SDK showcase */}
+      <div className="relative z-10 max-w-6xl mx-auto px-6 w-full">
+        {/* Header */}
+        <div className="text-center mb-10">
+          <h2 className="font-heading font-bold text-3xl text-white mb-3">
+            13 Tools. One SDK.
+          </h2>
+          <p className="text-suwappu-dark-text-secondary text-sm max-w-lg mx-auto">
+            Swaps, perpetual futures, prediction markets, and lending — all from a single TypeScript client.
+          </p>
+        </div>
 
-          {/* Left — pitch + terminal */}
+        <div className="grid lg:grid-cols-[1fr_340px] gap-10 items-start">
+          {/* Left — install + tabbed code examples */}
           <div>
-            <p className="text-suwappu-dark-text-secondary text-sm leading-relaxed mb-8 max-w-sm">
-              Give your agent direct access to cross-chain swaps — get quotes, execute trades, and check balances across 15 chains.
-            </p>
-
-            {/* Terminal block */}
-            <div className="rounded-xl border border-white/[0.06] bg-[#1a1b2e] overflow-hidden mb-4">
-              <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.04]">
+            {/* Install bar */}
+            <div className="rounded-xl border border-white/[0.06] bg-[#1a1b2e] overflow-hidden mb-6">
+              <div className="flex items-center gap-2 px-4 py-2.5 border-b border-white/[0.04]">
                 <span className="w-2.5 h-2.5 rounded-full bg-white/10" />
                 <span className="w-2.5 h-2.5 rounded-full bg-white/10" />
                 <span className="w-2.5 h-2.5 rounded-full bg-white/10" />
                 <span className="text-white/20 text-[10px] font-mono ml-2">terminal</span>
               </div>
-              <div className="px-5 py-4">
+              <div className="px-5 py-3 flex items-center justify-between">
                 <p className="font-mono text-sm">
                   <span className="text-white/30">$ </span>
                   <span className="text-white">bun add @suwappu/sdk</span>
                 </p>
+                <CopyButton />
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <span className="text-white/30 text-xs">One line to swap.</span>
-              <CopyButton />
+            {/* Tabs */}
+            <div className="flex gap-1 mb-4">
+              {Object.entries(SDK_EXAMPLES).map(([key, { label }]) => (
+                <button
+                  key={key}
+                  onClick={() => setActiveTab(key)}
+                  className={`px-4 py-2 rounded-lg text-xs font-mono transition-all ${
+                    activeTab === key
+                      ? 'bg-white/10 text-white border border-white/20'
+                      : 'text-white/40 hover:text-white/60 border border-transparent'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
-            <p className="text-white/20 text-xs mt-6 leading-relaxed max-w-xs">
-              Set <code className="text-suwappu-cyan/50 font-mono">SUWAPPU_API_KEY</code> and your agent connects automatically — no manual setup needed.
+            {/* Code block */}
+            <div className="rounded-xl border border-white/[0.06] bg-[#12131f] overflow-hidden">
+              <div className="px-5 py-4">
+                <SDKCodeBlock code={SDK_EXAMPLES[activeTab].code} />
+              </div>
+            </div>
+
+            <p className="text-white/20 text-xs mt-4 leading-relaxed">
+              Set <code className="text-suwappu-cyan/50 font-mono">SUWAPPU_API_KEY</code> and your agent connects automatically. <a href="/llms.txt" className="text-suwappu-cyan/40 hover:text-suwappu-cyan/60 underline">Read llms.txt</a>
             </p>
           </div>
 
-          {/* Right — tools reference */}
-          <div className="space-y-6 lg:pt-2">
-            {TOOLS.map((tool) => (
-              <div key={tool.name}>
-                <h3 className="font-heading font-semibold text-sm text-white mb-1">
-                  {tool.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
-                </h3>
-                <p className="text-suwappu-dark-text-secondary text-sm leading-relaxed">
-                  {tool.desc}
-                </p>
+          {/* Right — compact tools grid */}
+          <div>
+            <h3 className="font-heading font-semibold text-xs text-white/40 uppercase tracking-wider mb-4">
+              All Tools
+            </h3>
+            <div className="space-y-2">
+              {TOOLS.map((tool) => (
+                <div key={tool.name} className="flex items-start gap-3 py-2 border-b border-white/[0.04] last:border-0">
+                  <code className="font-mono text-[11px] text-suwappu-cyan/60 whitespace-nowrap mt-0.5 shrink-0">
+                    {tool.name}
+                  </code>
+                  <p className="text-white/30 text-[11px] leading-snug">
+                    {tool.desc}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {/* Stats */}
+            <div className="grid grid-cols-3 gap-3 mt-6 pt-4 border-t border-white/[0.06]">
+              <div className="text-center">
+                <p className="font-heading font-bold text-lg text-white">15</p>
+                <p className="text-[10px] text-white/30">chains</p>
               </div>
-            ))}
+              <div className="text-center">
+                <p className="font-heading font-bold text-lg text-white">9</p>
+                <p className="text-[10px] text-white/30">DEX routers</p>
+              </div>
+              <div className="text-center">
+                <p className="font-heading font-bold text-lg text-white">13</p>
+                <p className="text-[10px] text-white/30">tools</p>
+              </div>
+            </div>
           </div>
 
         </div>

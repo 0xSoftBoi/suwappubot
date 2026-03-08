@@ -36,7 +36,7 @@ function client() {
 describe("createClient", () => {
   describe("getQuote", () => {
     it("POSTs to /v1/agent/quote with correct body", async () => {
-      mockResponse = { id: "q1", fromToken: "ETH", toToken: "USDC", fromAmount: "1", toAmount: "2847", route: "uniswap", gas: "0.12", fee: "0.01", chain: "arbitrum" };
+      mockResponse = { quote_id: "q1", from_token: { symbol: "ETH" }, to_token: { symbol: "USDC" }, amount_in: "1", amount_out: "2847", route: "uniswap", estimated_gas_usd: "0.12", bridge_fee_usd: "0.01", from_chain: "arbitrum", exchange_rate: "2847", price_impact: "0.1%", slippage: "3%", estimated_time_seconds: 60, dex: "lifi" };
 
       const quote = await client().getQuote("ETH", "USDC", 1.0, "arbitrum");
 
@@ -44,9 +44,9 @@ describe("createClient", () => {
       expect(fetchCalls[0].url).toBe(`${MOCK_BASE}/v1/agent/quote`);
       expect(fetchCalls[0].init.method).toBe("POST");
       expect(JSON.parse(fetchCalls[0].init.body as string)).toEqual({
-        fromToken: "ETH",
-        toToken: "USDC",
-        amount: 1.0,
+        from_token: "ETH",
+        to_token: "USDC",
+        amount: "1",
         chain: "arbitrum",
       });
       expect(quote.id).toBe("q1");
@@ -62,7 +62,7 @@ describe("createClient", () => {
 
       expect(fetchCalls[0].url).toBe(`${MOCK_BASE}/v1/agent/swap`);
       expect(fetchCalls[0].init.method).toBe("POST");
-      expect(JSON.parse(fetchCalls[0].init.body as string)).toEqual({ quoteId: "q1" });
+      expect(JSON.parse(fetchCalls[0].init.body as string)).toEqual({ quote_id: "q1" });
       expect(result.txHash).toBe("0xabc");
       expect(result.status).toBe("confirmed");
     });
@@ -106,7 +106,7 @@ describe("createClient", () => {
 
   describe("listChains", () => {
     it("GETs /v1/agent/chains", async () => {
-      mockResponse = [{ name: "arbitrum", chainId: 42161, status: "active" }];
+      mockResponse = { chains: [{ name: "arbitrum", chainId: 42161, status: "active" }] };
 
       const chains = await client().listChains();
 
@@ -118,7 +118,7 @@ describe("createClient", () => {
 
   describe("listTokens", () => {
     it("GETs /v1/agent/tokens with chain", async () => {
-      mockResponse = [{ symbol: "USDC", address: "0x123", decimals: 6, chain: "arbitrum" }];
+      mockResponse = { tokens: [{ symbol: "USDC", address: "0x123", decimals: 6, chain: "arbitrum" }] };
 
       const tokens = await client().listTokens("arbitrum");
 
@@ -129,7 +129,7 @@ describe("createClient", () => {
 
   describe("auth header", () => {
     it("sets Bearer token from config", async () => {
-      mockResponse = [];
+      mockResponse = { chains: [] };
       await client().listChains();
 
       const headers = fetchCalls[0].init.headers as Record<string, string>;
@@ -137,7 +137,7 @@ describe("createClient", () => {
     });
 
     it("omits auth header when no apiKey", async () => {
-      mockResponse = [];
+      mockResponse = { chains: [] };
       const noAuthClient = createClient({ baseUrl: MOCK_BASE });
       await noAuthClient.listChains();
 

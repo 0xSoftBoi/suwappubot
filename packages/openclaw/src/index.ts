@@ -22,6 +22,11 @@ export interface Quote {
   gas: string;
   fee: string;
   chain: string;
+  exchangeRate: string;
+  priceImpact: string;
+  slippage: string;
+  estimatedTimeSeconds: number;
+  dex: string;
 }
 
 export interface SwapResult {
@@ -171,21 +176,37 @@ export function createClient(config?: SuwappuConfig) {
       amount: number,
       chain: string
     ): Promise<Quote> {
-      return request<Quote>("/v1/agent/quote", config, {
+      const raw = await request<Record<string, unknown>>("/v1/agent/quote", config, {
         method: "POST",
         body: JSON.stringify({
-          fromToken,
-          toToken,
-          amount,
+          from_token: fromToken,
+          to_token: toToken,
+          amount: String(amount),
           chain,
         }),
       });
+      return {
+        id: String(raw.quote_id ?? ""),
+        fromToken: (raw.from_token as Record<string, string>)?.symbol ?? fromToken,
+        toToken: (raw.to_token as Record<string, string>)?.symbol ?? toToken,
+        fromAmount: String(raw.amount_in ?? amount),
+        toAmount: String(raw.amount_out ?? "0"),
+        route: String(raw.route ?? ""),
+        gas: String(raw.estimated_gas_usd ?? "0"),
+        fee: String(raw.bridge_fee_usd ?? "0"),
+        chain: String(raw.from_chain ?? chain),
+        exchangeRate: String(raw.exchange_rate ?? "0"),
+        priceImpact: String(raw.price_impact ?? "0"),
+        slippage: String(raw.slippage ?? "0"),
+        estimatedTimeSeconds: Number(raw.estimated_time_seconds ?? 0),
+        dex: String(raw.dex ?? ""),
+      };
     },
 
     async executeSwap(quoteId: string): Promise<SwapResult> {
       return request<SwapResult>("/v1/agent/swap", config, {
         method: "POST",
-        body: JSON.stringify({ quoteId }),
+        body: JSON.stringify({ quote_id: quoteId }),
       });
     },
 
@@ -203,11 +224,19 @@ export function createClient(config?: SuwappuConfig) {
     },
 
     async listChains(): Promise<Chain[]> {
-      return request<Chain[]>("/v1/agent/chains", config);
+      const res = await request<{ chains: Chain[] }>(
+        "/v1/agent/chains",
+        config
+      );
+      return res.chains;
     },
 
     async listTokens(chain: string): Promise<Token[]> {
-      return request<Token[]>(`/v1/agent/tokens?chain=${chain}`, config);
+      const res = await request<{ tokens: Token[] }>(
+        `/v1/agent/tokens?chain=${chain}`,
+        config
+      );
+      return res.tokens;
     },
 
     // Perps (Hyperliquid)

@@ -1,6 +1,6 @@
 {
   "name": "@suwappu/openclaw",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OpenClaw skill module for cross-chain swaps via Suwappu",
   "type": "module",
   "main": "src/index.ts",
