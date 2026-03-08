@@ -121,6 +121,24 @@ class ApiClient {
     return this.fetch('/webapp/validate', { method: 'POST' })
   }
 
+  /**
+   * Authenticate Telegram user and auto-create Turnkey wallet if needed.
+   * This is the primary auth flow for Telegram Mini App users.
+   */
+  async telegramAuth(initData: string): Promise<{
+    success: boolean
+    jwt?: string
+    user?: { id: number; telegramId: number; username?: string; firstName?: string; lastName?: string }
+    walletAddress?: string | null
+    isNewUser?: boolean
+    error?: string
+  }> {
+    return this.fetch('/webapp/telegram/auth', {
+      method: 'POST',
+      body: JSON.stringify({ initData }),
+    })
+  }
+
   // === Health ===
 
   /**
@@ -156,7 +174,8 @@ class ApiClient {
    * Get all wallets linked to the current user
    */
   async getLinkedWallets(): Promise<LinkedWallet[]> {
-    return this.fetch<LinkedWallet[]>('/webapp/users/me/wallets')
+    const response = await this.fetch<{ wallets: LinkedWallet[] }>('/webapp/users/me/wallets')
+    return response.wallets || []
   }
 
   /**
