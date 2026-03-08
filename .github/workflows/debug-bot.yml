@@ -87,24 +87,43 @@ jobs:
             --output json 2>&1 | python3 -c "import sys,json; [print(m) for m in json.load(sys.stdin)]" 2>&1 || echo "Could not read logs"
 
       - name: Check target group health
+        continue-on-error: true
         run: |
           echo "=== Target Group Health ==="
-          # Find the target group for the bot service
           TG_ARN=$(aws ecs describe-services \
             --cluster ${{ env.ECS_CLUSTER }} \
             --services suwappu-bot-prod \
             --query 'services[0].loadBalancers[0].targetGroupArn' \
             --output text 2>/dev/null)
-
           echo "Target group: $TG_ARN"
+          aws elbv2 describe-target-health --target-group-arn "$TG_ARN" --output json 2>&1 || echo "No access to ELB"
 
-          if [ "$TG_ARN" != "None" ] && [ -n "$TG_ARN" ]; then
-            aws elbv2 describe-target-health \
-              --target-group-arn "$TG_ARN" \
-              --output json 2>&1
-          else
-            echo "No target group found"
-          fi
+      - name: ECS Exec into container
+        continue-on-error: true
+        run: |
+          echo "=== ECS Exec - Check process and curl health ==="
+          TASK_ARN=$(aws ecs list-tasks \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service-name suwappu-bot-prod \
+            --query 'taskArns[0]' \
+            --output text)
+
+          # Try running a health check from inside the container
+          aws ecs execute-command \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --task "$TASK_ARN" \
+            --container suwappu-bot \
+            --interactive \
+            --command "curl -sf http://localhost:10000/health" 2>&1 || echo "ECS Exec failed (may need session manager plugin)"
+
+      - name: Check service events
+        run: |
+          echo "=== Service Events (last 10) ==="
+          aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services suwappu-bot-prod \
+            --query 'services[0].events[:10]' \
+            --output json
 
       - name: Check bot health endpoint directly
         run: |
