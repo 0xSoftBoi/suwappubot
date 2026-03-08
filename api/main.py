@@ -468,11 +468,31 @@ def get_db():
 async def health_check():
     """Health check endpoint for load balancers, monitoring, and orchestration."""
     from database.db import DATABASE_AVAILABLE
-    return {
-        "status": "healthy",
-        "service": "suwappu-api",
-        "database": "connected" if DATABASE_AVAILABLE else "degraded"
-    }
+
+    # Check if bot is actually polling
+    bot_status = "unknown"
+    try:
+        bot_app = getattr(app.state, "bot_app", None)
+        if bot_app and bot_app.updater and bot_app.updater.running:
+            bot_status = "polling"
+        elif bot_app:
+            bot_status = "not_polling"
+        else:
+            bot_status = "no_bot_app"
+    except Exception:
+        bot_status = "error"
+
+    is_healthy = DATABASE_AVAILABLE and bot_status == "polling"
+
+    return JSONResponse(
+        status_code=200 if is_healthy else 503,
+        content={
+            "status": "healthy" if is_healthy else "degraded",
+            "service": "suwappu-bot",
+            "database": "connected" if DATABASE_AVAILABLE else "disconnected",
+            "bot": bot_status,
+        },
+    )
 
 
 # ============ Turnkey Web Authentication ============
