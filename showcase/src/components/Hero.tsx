@@ -67,9 +67,9 @@ export default function Hero() {
             </h1>
 
             <p className="hero-stagger text-lg text-suwappu-dark-text-secondary max-w-md mb-8 leading-relaxed">
-              Stables, gas tokens, bridges, MEV — agentic swaps are a mess.{' '}
+              Cross-chain routing, gas abstraction, MEV protection — handled.{' '}
               <code className="text-suwappu-cyan/70 text-base">bun&nbsp;add&nbsp;@suwappu/sdk</code>{' '}
-              and it&apos;s handled.
+              and start building.
             </p>
 
             <div className="hero-stagger flex items-center gap-6 mb-8">
