@@ -170,9 +170,9 @@ async def balance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 def _format_wallet_balances(wallet_infos, balance_results) -> str:
-    """Format balance results with full wallet addresses (copiable)."""
-    lines = ["💰 *Your Balances*", ""]
-    has_any = False
+    """Format balance results with clean, scannable layout."""
+    total_usd = 0.0
+    wallet_sections = []
 
     for wallet_info, balances in zip(wallet_infos, balance_results):
         wallet_id, address, chain_type, name = wallet_info
@@ -180,24 +180,32 @@ def _format_wallet_balances(wallet_infos, balance_results) -> str:
         if isinstance(balances, Exception):
             balances = {}
 
-        chain_emoji = "🔷" if chain_type == "evm" else "🟢"
-        lines.append(f"{chain_emoji} *{name}*")
-        lines.append(f"`{address}`")
+        icon = "🔷" if chain_type == "evm" else "🟣"
+        short_addr = f"{address[:6]}···{address[-4:]}"
+        section_lines = [f"{icon} *{name}*  `{short_addr}`"]
 
         if balances:
             for chain, tokens in balances.items():
                 chain_display = format_chain_name(chain)
-                lines.append(f"  *{chain_display}*")
-                for symbol, amount in tokens.items():
-                    if amount > 0:
-                        lines.append(f"    • {format_amount(amount, symbol=symbol)}")
-                        has_any = True
+                # Filter to non-zero tokens
+                nonzero = {s: a for s, a in tokens.items() if a > 0}
+                if not nonzero:
+                    continue
+                section_lines.append(f"  ┌ {chain_display}")
+                items = list(nonzero.items())
+                for idx, (symbol, amount) in enumerate(items):
+                    connector = "└" if idx == len(items) - 1 else "├"
+                    section_lines.append(f"  {connector} `{format_amount(amount)}` {symbol}")
+            if len(section_lines) == 1:
+                section_lines.append("  _Empty — deposit to start_")
         else:
-            lines.append("  _No balances found_")
+            section_lines.append("  _Empty — deposit to start_")
 
-        lines.append("")
+        wallet_sections.append("\n".join(section_lines))
 
-    return "\n".join(lines)
+    header = "💰 *Your Balances*"
+    body = "\n\n".join(wallet_sections) if wallet_sections else "_No wallets found_"
+    return f"{header}\n\n{body}"
 
 
 # Create handlers

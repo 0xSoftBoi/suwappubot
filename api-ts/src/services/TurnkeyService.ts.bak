@@ -1,0 +1,235 @@
+import { Context, Effect, Layer } from 'effect'
+import { Turnkey, server, DEFAULT_ETHEREUM_ACCOUNTS } from '@turnkey/sdk-server'
+import { EnvService } from '../config/EnvService'
+
+export interface CreateWalletResult {
+	address: string
+	walletId: string
+	accountId?: string
+}
+
+export interface SubOrganization {
+	subOrgId: string
+	name: string
+}
+
+export interface PasskeyAttestation {
+	credentialId: string
+	attestationObject: string
+	clientDataJson: string
+	transports?: string[]
+}
+
+export interface CreateSubOrgWithPasskeyResult {
+	subOrgId: string
+	userId: string
+	walletAddress: string
+	walletId: string
+}
+
+export interface TurnkeyServiceInterface {
+	readonly isConfigured: () => boolean
+	readonly createSubOrganization: (name: string) => Effect.Effect<SubOrganization, Error>
+	readonly createSubOrgWithPasskey: (
+		userName: string,
+		passkey: PasskeyAttestation,
+		challenge: string
+	) => Effect.Effect<CreateSubOrgWithPasskeyResult, Error>
+	readonly createWallet: (
+		subOrgId: string,
+		walletName: string,
+		chainType: 'evm' | 'solana'
+	) => Effect.Effect<CreateWalletResult, Error>
+	readonly getWallets: (subOrgId: string) => Effect.Effect<CreateWalletResult[], Error>
+}
+
+export class TurnkeyService extends Context.Tag('TurnkeyService')<
+	TurnkeyService,
+	TurnkeyServiceInterface
+>() {}
+
+export const TurnkeyServiceLive = Layer.effect(
+	TurnkeyService,
+	Effect.gen(function* () {
+		const env = yield* EnvService
+
+		const isConfigured =
+			!!env.TURNKEY_ORGANIZATION_ID &&
+			!!env.TURNKEY_API_PUBLIC_KEY &&
+			!!env.TURNKEY_API_PRIVATE_KEY
+
+		// Initialize Turnkey client if configured
+		let turnkeyClient: Turnkey | null = null
+		let organizationId = ''
+
+		if (isConfigured) {
+			organizationId = env.TURNKEY_ORGANIZATION_ID!
+
+			turnkeyClient = new Turnkey({
+				apiBaseUrl: env.TURNKEY_BASE_URL || 'https://api.turnkey.com',
+				defaultOrganizationId: organizationId,
+				apiPublicKey: env.TURNKEY_API_PUBLIC_KEY!,
+				apiPrivateKey: env.TURNKEY_API_PRIVATE_KEY!,
+			})
+		}
+
+		return {
+			isConfigured: () => isConfigured,
+
+			createSubOrganization: (name: string) =>
+				Effect.gen(function* () {
+					if (!turnkeyClient) {
+						yield* Effect.fail(new Error('Turnkey is not configured'))
+					}
+
+					try {
+						const response = yield* Effect.tryPromise({
+							try: () =>
+								turnkeyClient!.apiClient().createSubOrganization({
+									organizationId,
+									subOrganizationName: name,
+									rootUsers: [],
+									rootQuorumThreshold: 1,
+								}),
+							catch: (e) => new Error(`Failed to create sub-organization: ${e}`),
+						})
+
+						return {
+							subOrgId: response.subOrganizationId,
+							name,
+						}
+					} catch (error) {
+						yield* Effect.fail(new Error(`Turnkey sub-organization creation failed: ${error}`))
+						// TypeScript needs this even though Effect.fail diverges
+						return { subOrgId: '', name: '' }
+					}
+				}),
+
+			createSubOrgWithPasskey: (userName: string, passkey: PasskeyAttestation, challenge: string) =>
+				Effect.gen(function* () {
+					if (!turnkeyClient) {
+						return yield* Effect.fail(new Error('Turnkey is not configured'))
+					}
+
+					// Create sub-org with passkey authenticator and wallet using direct API
+					const createResult = yield* Effect.tryPromise({
+						try: () =>
+							turnkeyClient!.apiClient().createSubOrganization({
+								organizationId,
+								subOrganizationName: `suborg-${Date.now()}`,
+								rootQuorumThreshold: 1,
+								rootUsers: [
+									{
+										userName: userName,
+										apiKeys: [],
+										authenticators: [
+											{
+												authenticatorName: `${userName}'s Passkey`,
+												challenge,
+												attestation: {
+													credentialId: passkey.credentialId,
+													attestationObject: passkey.attestationObject,
+													clientDataJson: passkey.clientDataJson,
+													transports: (passkey.transports || ['AUTHENTICATOR_TRANSPORT_INTERNAL']) as any[],
+												},
+											},
+										],
+										oauthProviders: [],
+									},
+								],
+								wallet: {
+									walletName: 'Default Wallet',
+									accounts: DEFAULT_ETHEREUM_ACCOUNTS,
+								},
+							}),
+						catch: (e) => new Error(`Failed to create sub-org with passkey: ${e}`),
+					})
+
+					if (!createResult.subOrganizationId) {
+						return yield* Effect.fail(new Error('Failed to create sub-org: no subOrganizationId returned'))
+					}
+
+					// The wallet was created with the sub-org, now we need to get the wallet address
+					// The response includes wallet info
+					const walletId = createResult.wallet?.walletId || ''
+					const walletAddress = createResult.wallet?.addresses?.[0] || ''
+					const userId = createResult.rootUserIds?.[0] || ''
+
+					return {
+						subOrgId: createResult.subOrganizationId,
+						userId,
+						walletAddress,
+						walletId,
+					}
+				}),
+
+			createWallet: (subOrgId: string, walletName: string, chainType: 'evm' | 'solana') =>
+				Effect.gen(function* () {
+					if (!turnkeyClient) {
+						yield* Effect.fail(new Error('Turnkey is not configured'))
+					}
+
+					try {
+						// Determine address format based on chain type
+						const addressFormat = chainType === 'solana' ? 'ADDRESS_FORMAT_SOLANA' : 'ADDRESS_FORMAT_ETHEREUM'
+						const curve = chainType === 'solana' ? 'CURVE_ED25519' : 'CURVE_SECP256K1'
+
+						const response = yield* Effect.tryPromise({
+							try: () =>
+								turnkeyClient!.apiClient().createWallet({
+									organizationId: subOrgId,
+									walletName,
+									accounts: [
+										{
+											curve: curve as 'CURVE_ED25519' | 'CURVE_SECP256K1',
+											pathFormat: 'PATH_FORMAT_BIP32' as const,
+											path: chainType === 'solana' ? "m/44'/501'/0'/0'" : "m/44'/60'/0'/0/0",
+											addressFormat: addressFormat as 'ADDRESS_FORMAT_ETHEREUM' | 'ADDRESS_FORMAT_SOLANA',
+										},
+									],
+								}),
+							catch: (e) => new Error(`Failed to create wallet: ${e}`),
+						})
+
+						const walletId = response.walletId
+						const address = response.addresses?.[0] || ''
+
+						return {
+							walletId,
+							address,
+							accountId: response.walletId,
+						}
+					} catch (error) {
+						yield* Effect.fail(new Error(`Turnkey wallet creation failed: ${error}`))
+						return { address: '', walletId: '' }
+					}
+				}),
+
+			getWallets: (subOrgId: string) =>
+				Effect.gen(function* () {
+					if (!turnkeyClient) {
+						yield* Effect.fail(new Error('Turnkey is not configured'))
+					}
+
+					try {
+						const response = yield* Effect.tryPromise({
+							try: () =>
+								turnkeyClient!.apiClient().getWallets({
+									organizationId: subOrgId,
+								}),
+							catch: (e) => new Error(`Failed to get wallets: ${e}`),
+						})
+
+						return (response.wallets || []).map((w) => ({
+							walletId: w.walletId,
+							address: w.walletName || '', // Would need to fetch accounts for addresses
+							accountId: w.walletId,
+						}))
+					} catch (error) {
+						yield* Effect.fail(new Error(`Turnkey get wallets failed: ${error}`))
+						return []
+					}
+				}),
+		}
+	})
+)

@@ -12,8 +12,8 @@ from telegram.ext import (
 
 from bot.config.settings import settings
 from bot.handlers.start import (
-    start_handler, help_handler, help_callback, 
-    main_menu_callback, noop_callback,
+    start_handler, help_handler, help_callback,
+    main_menu_callback, more_menu_callback, noop_callback,
     tos_accept_callback, tos_decline_callback
 )
 from bot.handlers.balance import balance_handler, balance_callback
@@ -202,6 +202,7 @@ def add_handlers(application: Application) -> None:
     # Navigation
     application.add_handler(CallbackQueryHandler(help_callback, pattern="^help$"))
     application.add_handler(CallbackQueryHandler(main_menu_callback, pattern="^main_menu$"))
+    application.add_handler(CallbackQueryHandler(more_menu_callback, pattern="^more_menu$"))
     application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
     application.add_handler(CallbackQueryHandler(tos_accept_callback, pattern="^tos_accept$"))
     application.add_handler(CallbackQueryHandler(tos_decline_callback, pattern="^tos_decline$"))
