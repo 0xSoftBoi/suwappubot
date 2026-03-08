@@ -6,7 +6,7 @@ aiohttp==3.13.3
 alembic==1.16.5
 base58==2.1.1
 cmake>=3.14
-cryptography==46.0.4
+cryptography==46.0.5
 eth-account==0.11.0
 eth-utils==5.3.1
 gunicorn>=23.0.0
