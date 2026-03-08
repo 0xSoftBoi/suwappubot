@@ -93,3 +93,4 @@ webapp/bun.lock
 .next/
 showcase/.next/
 showcase/tsconfig.tsbuildinfo
+\!api-ts/src/lib/
