@@ -57,19 +57,40 @@ class WalletService:
         self._solana_client: Optional[SolanaClient] = None
     
     def _get_web3(self, chain_name: str) -> Web3:
-        """Get or create a Web3 instance for a chain."""
+        """Get or create a Web3 instance for a chain, with RPC fallback."""
         if chain_name not in self._web3_instances:
             chain = get_chain_by_name(chain_name)
             if not chain or chain.chain_type != ChainType.EVM:
                 raise ValueError(f"Invalid EVM chain: {chain_name}")
-            
-            rpc_url = settings.get_rpc_url(chain_name)
-            if not rpc_url:
+
+            rpc_attr = f"{chain_name.lower().replace('-', '_')}_rpc_url"
+            rpc_str = getattr(settings, rpc_attr, "") or ""
+            urls = [u.strip() for u in rpc_str.split(",") if u.strip()]
+            if not urls:
                 raise ValueError(f"RPC URL not configured for {chain_name}")
-            
-            self._web3_instances[chain_name] = Web3(Web3.HTTPProvider(rpc_url))
-        
+
+            import random
+            random.shuffle(urls)
+            for url in urls:
+                try:
+                    w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 10}))
+                    w3.eth.block_number  # verify connectivity
+                    self._web3_instances[chain_name] = w3
+                    break
+                except Exception:
+                    continue
+
+            if chain_name not in self._web3_instances:
+                # Last resort: use first URL without connectivity check
+                self._web3_instances[chain_name] = Web3(
+                    Web3.HTTPProvider(urls[0], request_kwargs={"timeout": 10})
+                )
+
         return self._web3_instances[chain_name]
+
+    def _invalidate_web3(self, chain_name: str):
+        """Remove cached Web3 instance so next call picks a fresh RPC."""
+        self._web3_instances.pop(chain_name, None)
     
     async def _get_solana_client(self) -> SolanaClient:
         """Get or create a Solana RPC client."""
@@ -433,17 +454,30 @@ class WalletService:
             abi=ERC20_ABI
         )
 
-        try:
-            loop = asyncio.get_event_loop()
-            balance_raw = await loop.run_in_executor(
-                None,
-                contract.functions.balanceOf(Web3.to_checksum_address(address)).call,
-            )
+        for attempt in range(2):
+            try:
+                loop = asyncio.get_event_loop()
+                balance_raw = await loop.run_in_executor(
+                    None,
+                    contract.functions.balanceOf(Web3.to_checksum_address(address)).call,
+                )
 
-            decimals = get_token_decimals(token_symbol, chain_name)
-            return balance_raw / (10 ** decimals)
-        except Exception:
-            return 0.0
+                decimals = get_token_decimals(token_symbol, chain_name)
+                return balance_raw / (10 ** decimals)
+            except Exception as e:
+                if attempt == 0:
+                    # Retry with a fresh RPC
+                    logger.warning(f"Balance check failed on {chain_name}, retrying with new RPC: {e}")
+                    self._invalidate_web3(chain_name)
+                    web3 = self._get_web3(chain_name)
+                    contract = web3.eth.contract(
+                        address=Web3.to_checksum_address(token_address),
+                        abi=ERC20_ABI,
+                    )
+                else:
+                    logger.error(f"Balance check failed on {chain_name} after retry: {e}")
+                    return 0.0
+        return 0.0
 
     async def get_evm_native_balance(self, chain_name: str, address: str) -> float:
         """Get native token balance (ETH, BNB, etc.) for an address."""
@@ -451,18 +485,24 @@ class WalletService:
         if not chain:
             return 0.0
 
-        web3 = self._get_web3(chain_name)
-
-        try:
-            loop = asyncio.get_event_loop()
-            balance_wei = await loop.run_in_executor(
-                None,
-                web3.eth.get_balance,
-                Web3.to_checksum_address(address),
-            )
-            return balance_wei / (10 ** chain.native_decimals)
-        except Exception:
-            return 0.0
+        for attempt in range(2):
+            web3 = self._get_web3(chain_name)
+            try:
+                loop = asyncio.get_event_loop()
+                balance_wei = await loop.run_in_executor(
+                    None,
+                    web3.eth.get_balance,
+                    Web3.to_checksum_address(address),
+                )
+                return balance_wei / (10 ** chain.native_decimals)
+            except Exception as e:
+                if attempt == 0:
+                    logger.warning(f"Native balance check failed on {chain_name}, retrying: {e}")
+                    self._invalidate_web3(chain_name)
+                else:
+                    logger.error(f"Native balance check failed on {chain_name} after retry: {e}")
+                    return 0.0
+        return 0.0
     
     async def get_solana_token_balance(
         self,
