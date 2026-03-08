@@ -210,7 +210,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(balance_callback, pattern="^balance$"))
     application.add_handler(CallbackQueryHandler(portfolio_callback, pattern="^portfolio"))
     application.add_handler(history_callback)
-    application.add_handler(CallbackQueryHandler(history_menu_callback, pattern="^history_menu$"))
+    application.add_handler(history_menu_callback)
     application.add_handler(history_page_handler)
     
     # Wallet
