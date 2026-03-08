@@ -13,7 +13,7 @@ fi
 
 echo "Deploying to $HOST..."
 
-ssh -i "$KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@"$HOST" << 'DEPLOY'
+ssh -T -i "$KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@"$HOST" << 'DEPLOY'
 set -euo pipefail
 cd /home/ubuntu/suwappubot
 
