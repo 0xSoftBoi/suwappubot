@@ -523,14 +523,21 @@ class SwapEngine:
 
             # Get wallet data within session
             with get_session() as session:
-                wallet = session.query(Wallet).filter(Wallet.id == wallet_id).first()
-                if not wallet:
+                wallet_obj = session.query(Wallet).filter(Wallet.id == wallet_id).first()
+                if not wallet_obj:
                     raise SwapError("Wallet not found")
-                
-                # We'll use the wallet object directly for high-level signing
-                wallet_address = wallet.address
-                wallet_chain_type = wallet.chain_type
-                wallet_encrypted_key = wallet.encrypted_private_key
+
+                wallet_address = wallet_obj.address
+                wallet_chain_type = wallet_obj.chain_type
+                wallet_encrypted_key = wallet_obj.encrypted_private_key
+                # Convert to dict for execution methods
+                wallet = {
+                    "id": wallet_obj.id,
+                    "wallet_id": wallet_obj.id,
+                    "address": wallet_obj.address,
+                    "chain_type": wallet_obj.chain_type,
+                    "encrypted_private_key": wallet_obj.encrypted_private_key,
+                }
             
             # Validate quote freshness
             quote_validator.validate_quote_freshness(quote)
