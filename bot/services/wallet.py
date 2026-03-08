@@ -667,7 +667,7 @@ class WalletService:
                             chain_balances[symbol] = balance
 
             except Exception as e:
-                logger.warning(f"Alchemy fetch failed for {chain_name}, falling back to RPC: {e}")
+                logger.debug(f"Alchemy fetch failed for {chain_name}, falling back to RPC: {e}")
                 # Fall back to per-token RPC
                 return await _fetch_evm_chain_rpc(chain_name, chain)
 
