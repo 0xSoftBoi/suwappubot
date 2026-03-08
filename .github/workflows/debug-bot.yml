@@ -86,91 +86,62 @@ jobs:
             --query 'events[*].message' \
             --output json 2>&1 | python3 -c "import sys,json; [print(m) for m in json.load(sys.stdin)]" 2>&1 || echo "Could not read logs"
 
-      - name: Check target group health
-        continue-on-error: true
+      - name: Get bot token and test Telegram API
         run: |
-          echo "=== Target Group Health ==="
-          TG_ARN=$(aws ecs describe-services \
+          echo "=== Extracting bot token from task definition ==="
+          TASK_DEF=$(aws ecs describe-services \
             --cluster ${{ env.ECS_CLUSTER }} \
             --services suwappu-bot-prod \
-            --query 'services[0].loadBalancers[0].targetGroupArn' \
-            --output text 2>/dev/null)
-          echo "Target group: $TG_ARN"
-          aws elbv2 describe-target-health --target-group-arn "$TG_ARN" --output json 2>&1 || echo "No access to ELB"
-
-      - name: ECS Exec into container
-        continue-on-error: true
-        run: |
-          echo "=== ECS Exec - Check process and curl health ==="
-          TASK_ARN=$(aws ecs list-tasks \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --service-name suwappu-bot-prod \
-            --query 'taskArns[0]' \
+            --query 'services[0].taskDefinition' \
             --output text)
 
-          # Try running a health check from inside the container
-          aws ecs execute-command \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --task "$TASK_ARN" \
-            --container suwappu-bot \
-            --interactive \
-            --command "curl -sf http://localhost:10000/health" 2>&1 || echo "ECS Exec failed (may need session manager plugin)"
-
-      - name: Check service events
-        run: |
-          echo "=== Service Events (last 10) ==="
-          aws ecs describe-services \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --services suwappu-bot-prod \
-            --query 'services[0].events[:10]' \
-            --output json
-
-      - name: Check bot health endpoint directly
-        run: |
-          echo "=== Direct Health Check ==="
-          # Get the task's ENI/IP
-          TASK_ARN=$(aws ecs list-tasks \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --service-name suwappu-bot-prod \
-            --query 'taskArns[0]' \
-            --output text)
-
-          TASK_DETAILS=$(aws ecs describe-tasks \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --tasks "$TASK_ARN" \
-            --query 'tasks[0]' \
-            --output json)
-
-          ENI_ID=$(echo "$TASK_DETAILS" | python3 -c "
-          import sys,json
-          t = json.load(sys.stdin)
-          for a in t.get('attachments', []):
-            for d in a.get('details', []):
-              if d.get('name') == 'networkInterfaceId':
-                print(d['value'])
-                break
-          " 2>/dev/null)
-
-          if [ -n "$ENI_ID" ]; then
-            PUBLIC_IP=$(aws ec2 describe-network-interfaces \
-              --network-interface-ids "$ENI_ID" \
-              --query 'NetworkInterfaces[0].Association.PublicIp' \
-              --output text 2>/dev/null)
-            PRIVATE_IP=$(aws ec2 describe-network-interfaces \
-              --network-interface-ids "$ENI_ID" \
-              --query 'NetworkInterfaces[0].PrivateIpAddress' \
-              --output text 2>/dev/null)
-            echo "Public IP: $PUBLIC_IP"
-            echo "Private IP: $PRIVATE_IP"
-            echo ""
-            echo "Checking http://$PUBLIC_IP:10000/health ..."
-            curl -sf --connect-timeout 5 "http://$PUBLIC_IP:10000/health" 2>&1 && echo "OK" || echo "Failed"
-          fi
+          # Get all env vars and secrets references
+          echo "--- Environment variables ---"
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_DEF" \
+            --query 'taskDefinition.containerDefinitions[0].environment' \
+            --output json 2>&1
 
           echo ""
-          echo "=== DNS check ==="
-          nslookup bot.suwappu.bot 2>&1 || echo "DNS lookup failed"
+          echo "--- Secrets references ---"
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_DEF" \
+            --query 'taskDefinition.containerDefinitions[0].secrets' \
+            --output json 2>&1
 
+          # Try to get the actual token from Secrets Manager
           echo ""
-          echo "=== curl https://bot.suwappu.bot/health ==="
-          curl -v --connect-timeout 10 "https://bot.suwappu.bot/health" 2>&1 || echo "Failed"
+          echo "--- Attempting to read secrets ---"
+          # List available secrets
+          aws secretsmanager list-secrets --query 'SecretList[*].Name' --output json 2>&1 || echo "Cannot list secrets"
+
+          # Try common secret names
+          for SECRET_NAME in "suwappu/app-secrets" "suwappu/prod-secrets" "suwappu/dev-secrets" "suwappu/bot-token" "suwappu-bot-prod"; do
+            echo "Trying $SECRET_NAME..."
+            RESULT=$(aws secretsmanager get-secret-value --secret-id "$SECRET_NAME" --query 'SecretString' --output text 2>&1)
+            if echo "$RESULT" | grep -q "TELEGRAM_BOT_TOKEN"; then
+              TOKEN=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('TELEGRAM_BOT_TOKEN','NOT_FOUND'))")
+              echo "Found token: ${TOKEN:0:10}..."
+
+              echo ""
+              echo "=== Telegram getMe ==="
+              curl -sf "https://api.telegram.org/bot${TOKEN}/getMe" 2>&1
+
+              echo ""
+              echo "=== Telegram getWebhookInfo ==="
+              curl -sf "https://api.telegram.org/bot${TOKEN}/getWebhookInfo" 2>&1
+
+              echo ""
+              echo "=== Sending test /start via getUpdates ==="
+              curl -sf "https://api.telegram.org/bot${TOKEN}/getUpdates?limit=5&timeout=1" 2>&1 | python3 -c "
+              import sys,json
+              data = json.load(sys.stdin)
+              print(f'ok: {data.get(\"ok\")}')
+              print(f'updates: {len(data.get(\"result\",[]))}')
+              for u in data.get('result',[])[:3]:
+                msg = u.get('message',{})
+                print(f'  - {msg.get(\"text\",\"?\")} from {msg.get(\"from\",{}).get(\"username\",\"?\")}')
+              " 2>&1 || echo "Could not parse updates"
+              break
+            fi
+          done
