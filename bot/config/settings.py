@@ -136,56 +136,57 @@ class Settings(BaseSettings):
         description="JWT token expiry in hours (default: 7 days)"
     )
 
-    # EVM RPC Endpoints (Can be comma-separated lists)
+    # EVM RPC Endpoints — sourced from chainlist.org, no API keys needed
+    # Infura/Alchemy are prepended automatically when keys are set
     ethereum_rpc_url: str = Field(
-        default="https://eth.llamarpc.com,https://1rpc.io/eth",
+        default="https://ethereum-rpc.publicnode.com,https://1rpc.io/eth,https://eth.drpc.org,https://eth.llamarpc.com",
         description="Ethereum mainnet RPC URL(s)"
     )
     bsc_rpc_url: str = Field(
-        default="https://bsc-dataseed.binance.org/,https://binance.llamarpc.com",
+        default="https://bsc-dataseed.binance.org,https://bsc-rpc.publicnode.com,https://1rpc.io/bnb,https://bsc.drpc.org",
         description="BSC mainnet RPC URL(s)"
     )
     polygon_rpc_url: str = Field(
-        default="https://polygon.drpc.org,https://1rpc.io/matic,https://polygon.llamarpc.com",
+        default="https://polygon-bor-rpc.publicnode.com,https://1rpc.io/matic,https://polygon.drpc.org",
         description="Polygon mainnet RPC URL(s)"
     )
     arbitrum_rpc_url: str = Field(
-        default="https://arb1.arbitrum.io/rpc,https://arbitrum.llamarpc.com",
+        default="https://arb1.arbitrum.io/rpc,https://arbitrum-one-rpc.publicnode.com,https://1rpc.io/arb,https://arbitrum.drpc.org",
         description="Arbitrum mainnet RPC URL(s)"
     )
     optimism_rpc_url: str = Field(
-        default="https://mainnet.optimism.io,https://optimism.llamarpc.com",
+        default="https://mainnet.optimism.io,https://optimism-rpc.publicnode.com,https://1rpc.io/op,https://optimism.drpc.org",
         description="Optimism mainnet RPC URL(s)"
     )
     base_rpc_url: str = Field(
-        default="https://mainnet.base.org,https://base.llamarpc.com,https://1rpc.io/base",
+        default="https://mainnet.base.org,https://base-rpc.publicnode.com,https://1rpc.io/base,https://base.drpc.org",
         description="Base mainnet RPC URL(s)"
     )
     avalanche_rpc_url: str = Field(
-        default="https://api.avax.network/ext/bc/C/rpc,https://avalanche.llamarpc.com",
+        default="https://api.avax.network/ext/bc/C/rpc,https://avalanche-c-chain-rpc.publicnode.com,https://1rpc.io/avax/c,https://avalanche.drpc.org",
         description="Avalanche C-Chain RPC URL(s)"
     )
     fantom_rpc_url: str = Field(
-        default="https://rpcapi.fantom.network,https://fantom.drpc.org,https://1rpc.io/ftm",
+        default="https://rpcapi.fantom.network,https://1rpc.io/ftm,https://fantom.drpc.org",
         description="Fantom mainnet RPC URL(s)"
     )
     linea_rpc_url: str = Field(
-        default="https://rpc.linea.build,https://linea.drpc.org",
+        default="https://rpc.linea.build,https://linea-rpc.publicnode.com,https://1rpc.io/linea,https://linea.drpc.org",
         description="Linea mainnet RPC URL(s)"
     )
     mantle_rpc_url: str = Field(
-        default="https://rpc.mantle.xyz,https://mantle.drpc.org",
+        default="https://rpc.mantle.xyz,https://mantle-rpc.publicnode.com,https://1rpc.io/mantle,https://mantle.drpc.org",
         description="Mantle mainnet RPC URL(s)"
     )
     gnosis_rpc_url: str = Field(
-        default="https://rpc.gnosischain.com,https://gnosis.drpc.org",
+        default="https://rpc.gnosischain.com,https://gnosis-rpc.publicnode.com,https://1rpc.io/gnosis,https://gnosis.drpc.org",
         description="Gnosis Chain RPC URL(s)"
     )
     scroll_rpc_url: str = Field(
-        default="https://rpc.scroll.io,https://scroll.drpc.org",
+        default="https://rpc.scroll.io,https://scroll-rpc.publicnode.com,https://1rpc.io/scroll,https://scroll.drpc.org",
         description="Scroll mainnet RPC URL(s)"
     )
-    
+
     # Solana RPC
     solana_rpc_url: str = Field(
         default="https://api.mainnet-beta.solana.com,https://solana-mainnet.rpc.extrnode.com",

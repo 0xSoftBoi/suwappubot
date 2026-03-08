@@ -1,3 +1,3 @@
 # Cross-Chain Stablecoin Swap Telegram Bot
-__version__ = "1.5.5"
+__version__ = "1.5.6"
 
