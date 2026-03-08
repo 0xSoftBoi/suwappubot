@@ -31,7 +31,7 @@ class SimulationService:
 
     async def _get_client(self) -> SolanaClient:
         if self._solana_client is None:
-            self._solana_client = SolanaClient(settings.get_rpc_url("solana"))
+            self._solana_client = SolanaClient(settings.solana_rpc_url)
         return self._solana_client
 
     async def simulate_swap_cycle(

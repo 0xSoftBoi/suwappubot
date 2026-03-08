@@ -620,8 +620,6 @@ async def limits_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 # Conversation handler for slippage
 slippage_conversation = ConversationHandler(
-    name="slippage",
-    persistent=True,
     entry_points=[
         CallbackQueryHandler(slippage_start, pattern="^settings_slippage$"),
     ],
@@ -640,8 +638,6 @@ slippage_conversation = ConversationHandler(
 
 # Conversation handler for recovery email
 recovery_conversation = ConversationHandler(
-    name="recovery",
-    persistent=True,
     entry_points=[
         CallbackQueryHandler(recovery_setup_start, pattern="^recovery_setup$"),
     ],
@@ -660,8 +656,6 @@ recovery_conversation = ConversationHandler(
 
 # Conversation handler for limits
 limits_conversation = ConversationHandler(
-    name="limits",
-    persistent=True,
     entry_points=[
         CallbackQueryHandler(limits_start, pattern="^settings_limits$"),
     ],

@@ -7,9 +7,7 @@
   "url": "https://api.suwappu.bot",
   "logo": "https://suwappu.bot/logo.png",
   "openApiUrl": "https://api.suwappu.bot/v1/agent/openapi",
-  "protocolVersions": [
-    "0.3"
-  ],
+  "protocolVersions": ["0.3"],
   "interfaces": [
     {
       "type": "JSON-RPC",
@@ -17,168 +15,93 @@
       "version": "1.0"
     }
   ],
-  "securitySchemes": {
-    "bearer": {
+  "securitySchemes": [
+    {
       "type": "http",
       "scheme": "bearer",
       "description": "Register at POST /v1/agent/register to get an API key (suwappu_sk_...)"
     }
-  },
+  ],
   "capabilities": {
     "streaming": false,
     "pushNotifications": true,
     "stateTransitionHistory": false
   },
   "authentication": {
-    "schemes": [
-      "bearer"
-    ],
+    "schemes": ["bearer"],
     "credentials": null
   },
-  "defaultInputModes": [
-    "text"
-  ],
-  "defaultOutputModes": [
-    "text"
-  ],
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
   "skills": [
     {
       "id": "swap",
       "name": "Token Swap",
       "description": "Swap tokens across 7 chains (ETH, BSC, Polygon, Arbitrum, Optimism, Base, Solana)",
-      "tags": [
-        "defi",
-        "swap",
-        "trading",
-        "cross-chain"
-      ],
+      "tags": ["defi", "swap", "trading", "cross-chain"],
       "examples": [
         "swap 0.5 ETH to USDC on Base",
         "swap 100 USDC to SOL on Solana",
         "bridge 500 USDC from Ethereum to Arbitrum"
-      ],
-      "inputModes": [
-        "text"
-      ],
-      "outputModes": [
-        "text"
       ]
     },
     {
       "id": "quote",
       "name": "Get Quote",
       "description": "Get a swap quote without executing",
-      "tags": [
-        "defi",
-        "quote",
-        "price"
-      ],
+      "tags": ["defi", "quote", "price"],
       "examples": [
         "quote 1 ETH to USDC",
         "price of 100 USDC in ETH"
-      ],
-      "inputModes": [
-        "text"
-      ],
-      "outputModes": [
-        "text"
       ]
     },
     {
       "id": "portfolio",
       "name": "Portfolio Check",
       "description": "Check token balances across all chains",
-      "tags": [
-        "balance",
-        "portfolio",
-        "wallet"
-      ],
+      "tags": ["balance", "portfolio", "wallet"],
       "examples": [
         "check balance",
         "show portfolio"
-      ],
-      "inputModes": [
-        "text"
-      ],
-      "outputModes": [
-        "text"
       ]
     },
     {
       "id": "prices",
       "name": "Token Prices",
       "description": "Get real-time token prices with 24h change",
-      "tags": [
-        "defi",
-        "price",
-        "market-data"
-      ],
+      "tags": ["defi", "price", "market-data"],
       "examples": [
         "get ETH price",
         "check SOL and USDC prices"
-      ],
-      "inputModes": [
-        "text"
-      ],
-      "outputModes": [
-        "text"
       ]
     },
     {
       "id": "tokens",
       "name": "Token Discovery",
       "description": "List available tokens per chain for quoting and swapping",
-      "tags": [
-        "defi",
-        "tokens",
-        "discovery"
-      ],
+      "tags": ["defi", "tokens", "discovery"],
       "examples": [
         "list tokens on Base",
         "search for USD tokens"
-      ],
-      "inputModes": [
-        "text"
-      ],
-      "outputModes": [
-        "text"
       ]
     },
     {
       "id": "key-management",
       "name": "API Key Management",
       "description": "Rotate API keys for security",
-      "tags": [
-        "security",
-        "keys"
-      ],
+      "tags": ["security", "keys"],
       "examples": [
         "rotate my API key"
-      ],
-      "inputModes": [
-        "text"
-      ],
-      "outputModes": [
-        "text"
       ]
     },
     {
       "id": "webhook-management",
       "name": "Webhook Management",
       "description": "List webhook delivery events and test webhook endpoints",
-      "tags": [
-        "webhooks",
-        "notifications"
-      ],
+      "tags": ["webhooks", "notifications"],
       "examples": [
         "list webhook events",
         "test my webhook"
-      ],
-      "inputModes": [
-        "text"
-      ],
-      "outputModes": [
-        "text"
       ]
     }
   ],
@@ -187,40 +110,12 @@
     "url": "https://suwappu.bot"
   },
   "supportedChains": [
-    {
-      "id": 1,
-      "name": "Ethereum",
-      "native": "ETH"
-    },
-    {
-      "id": 56,
-      "name": "BSC",
-      "native": "BNB"
-    },
-    {
-      "id": 137,
-      "name": "Polygon",
-      "native": "MATIC"
-    },
-    {
-      "id": 42161,
-      "name": "Arbitrum",
-      "native": "ETH"
-    },
-    {
-      "id": 10,
-      "name": "Optimism",
-      "native": "ETH"
-    },
-    {
-      "id": 8453,
-      "name": "Base",
-      "native": "ETH"
-    },
-    {
-      "id": "solana",
-      "name": "Solana",
-      "native": "SOL"
-    }
+    {"id": 1, "name": "Ethereum", "native": "ETH"},
+    {"id": 56, "name": "BSC", "native": "BNB"},
+    {"id": 137, "name": "Polygon", "native": "MATIC"},
+    {"id": 42161, "name": "Arbitrum", "native": "ETH"},
+    {"id": 10, "name": "Optimism", "native": "ETH"},
+    {"id": 8453, "name": "Base", "native": "ETH"},
+    {"id": "solana", "name": "Solana", "native": "SOL"}
   ]
 }

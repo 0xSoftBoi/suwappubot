@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: suwappubot
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://suwappubot:${DB_PASSWORD:-changeme}@db:5432/suwappubot?sslmode=disable
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./data:/app/data
+    networks:
+      - suwappu-network
+
+  db:
+    image: postgres:15-alpine
+    container_name: suwappubot-db
+    restart: always
+    environment:
+      POSTGRES_USER: suwappubot
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: suwappubot
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U suwappubot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - suwappu-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: suwappubot-redis
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - suwappu-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  suwappu-network:
+    driver: bridge
+

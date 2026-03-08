@@ -47,6 +47,16 @@ export function PasskeyRegister({
     )
   }
 
+  if (!isPlatformAuthAvailable) {
+    return (
+      <div className={`px-4 py-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg ${className}`}>
+        <p className="text-sm text-yellow-600">
+          Biometric authentication (Face ID/Touch ID) is not available on this device.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-2">
       <button
@@ -73,7 +83,7 @@ export function PasskeyRegister({
       </button>
 
       <p className="text-xs text-tg-hint text-center">
-        Creates a TEE-backed wallet secured by your device
+        Uses Face ID or Touch ID to create a TEE-backed wallet
       </p>
 
       {error && (

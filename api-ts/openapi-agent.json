@@ -1,0 +1,706 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Suwappu Agent API",
+    "description": "Cross-chain DEX API for AI agents. Swap tokens across 7+ chains via structured endpoints.",
+    "version": "0.4.0",
+    "contact": {
+      "name": "Suwappu",
+      "url": "https://suwappu.bot"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.suwappu.bot/v1/agent",
+      "description": "Production"
+    }
+  ],
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "paths": {
+    "/register": {
+      "post": {
+        "summary": "Register a new agent",
+        "operationId": "registerAgent",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string", "minLength": 3, "maxLength": 50, "pattern": "^[a-zA-Z0-9_-]+$" },
+                  "description": { "type": "string", "maxLength": 500 },
+                  "callback_url": { "type": "string", "format": "uri" },
+                  "metadata": { "type": "object" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Agent registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "agent": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "string", "format": "uuid" },
+                        "name": { "type": "string" },
+                        "api_key": { "type": "string" },
+                        "created_at": { "type": "string", "format": "date-time" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chains": {
+      "get": {
+        "summary": "List supported chains",
+        "operationId": "listChains",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Supported chains",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "chains": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {},
+                          "key": { "type": "string" },
+                          "name": { "type": "string" },
+                          "native_token": { "type": "string" },
+                          "type": { "type": "string", "enum": ["evm", "solana"] }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/openapi": {
+      "get": {
+        "summary": "Get OpenAPI spec",
+        "operationId": "getOpenApiSpec",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3.1 specification"
+          }
+        }
+      }
+    },
+    "/me": {
+      "get": {
+        "summary": "Get current agent profile",
+        "operationId": "getAgentProfile",
+        "responses": {
+          "200": {
+            "description": "Agent profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "agent": { "$ref": "#/components/schemas/AgentProfile" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update agent profile",
+        "operationId": "updateAgentProfile",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "description": { "type": "string", "maxLength": 500 },
+                  "callback_url": { "type": "string", "format": "uri", "nullable": true },
+                  "metadata": { "type": "object" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated agent profile" }
+        }
+      },
+      "delete": {
+        "summary": "Permanently delete agent",
+        "operationId": "deleteAgent",
+        "responses": {
+          "204": { "description": "Agent deleted" }
+        }
+      }
+    },
+    "/me/deactivate": {
+      "post": {
+        "summary": "Deactivate agent",
+        "operationId": "deactivateAgent",
+        "responses": {
+          "200": {
+            "description": "Agent deactivated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reactivate": {
+      "post": {
+        "summary": "Reactivate a deactivated agent",
+        "operationId": "reactivateAgent",
+        "responses": {
+          "200": {
+            "description": "Agent reactivated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/keys/rotate": {
+      "post": {
+        "summary": "Rotate API key",
+        "operationId": "rotateApiKey",
+        "responses": {
+          "200": {
+            "description": "New API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "api_key": { "type": "string" },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quote": {
+      "post": {
+        "summary": "Get a swap quote",
+        "operationId": "getQuote",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["from_token", "to_token", "amount"],
+                "properties": {
+                  "from_token": { "type": "string", "description": "Source token symbol (e.g. ETH, SOL, USDC)" },
+                  "to_token": { "type": "string", "description": "Destination token symbol" },
+                  "amount": { "type": "string", "description": "Amount in human-readable format (e.g. \"0.5\")" },
+                  "chain": { "type": "string", "description": "Chain key (e.g. base, solana)" },
+                  "from_chain": { "type": "string" },
+                  "to_chain": { "type": "string" },
+                  "wallet_address": { "type": "string" },
+                  "slippage": { "type": "number", "minimum": 0, "maximum": 1 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Swap quote with quote_id for execution",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "quote_id": { "type": "string" },
+                    "from_token": { "type": "object" },
+                    "to_token": { "type": "object" },
+                    "amount_in": { "type": "string" },
+                    "amount_out": { "type": "string" },
+                    "exchange_rate": { "type": "string" },
+                    "expires_in_seconds": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/swap": {
+      "post": {
+        "summary": "Get unsigned swap transaction",
+        "operationId": "getSwapTransaction",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["wallet_address"],
+                "properties": {
+                  "quote_id": { "type": "string" },
+                  "wallet_address": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Unsigned transaction for signing" }
+        }
+      }
+    },
+    "/swap/execute": {
+      "post": {
+        "summary": "Execute managed swap via server-side signing",
+        "operationId": "executeSwap",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["quote_id"],
+                "properties": {
+                  "quote_id": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Swap submitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "swap_id": { "type": "integer" },
+                    "status": { "type": "string" },
+                    "tx_hash": { "type": "string", "nullable": true }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/swap/status/{swapId}": {
+      "get": {
+        "summary": "Get swap status",
+        "operationId": "getSwapStatus",
+        "parameters": [
+          {
+            "name": "swapId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Swap status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "swap_id": { "type": "integer" },
+                    "status": { "type": "string" },
+                    "tx_hash": { "type": "string", "nullable": true },
+                    "from_token": { "type": "string" },
+                    "to_token": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/swaps": {
+      "get": {
+        "summary": "Get swap history",
+        "operationId": "listSwaps",
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "Paginated swap history" }
+        }
+      }
+    },
+    "/execute": {
+      "post": {
+        "summary": "Execute natural language command",
+        "operationId": "executeCommand",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["command"],
+                "properties": {
+                  "command": { "type": "string", "maxLength": 500, "description": "Natural language command (e.g. \"swap 0.5 ETH to USDC on Base\")" },
+                  "wallet_address": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Command result" }
+        }
+      }
+    },
+    "/portfolio": {
+      "get": {
+        "summary": "Get wallet balances",
+        "operationId": "getPortfolio",
+        "parameters": [
+          { "name": "wallet_address", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "chain", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Wallet balances",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "wallet_address": { "type": "string" },
+                    "total_usd": { "type": "string" },
+                    "balances": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "symbol": { "type": "string" },
+                          "chain": { "type": "string" },
+                          "balance": { "type": "string" },
+                          "usd_value": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/prices": {
+      "get": {
+        "summary": "Get token prices",
+        "operationId": "getTokenPrices",
+        "parameters": [
+          {
+            "name": "symbols",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Comma-separated token symbols (max 20). E.g. ETH,SOL,USDC"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token prices",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "prices": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "usd": { "type": "number" },
+                          "change_24h": { "type": "number", "nullable": true }
+                        }
+                      }
+                    },
+                    "unknown_symbols": { "type": "array", "items": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tokens": {
+      "get": {
+        "summary": "List available tokens",
+        "operationId": "listTokens",
+        "parameters": [
+          { "name": "chain", "in": "query", "schema": { "type": "string" }, "description": "Filter by chain (e.g. base, solana). Omit for all chains." },
+          { "name": "search", "in": "query", "schema": { "type": "string" }, "description": "Filter by symbol substring (e.g. USD)" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "chain": { "type": "string" },
+                    "chain_id": {},
+                    "tokens": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "symbol": { "type": "string" },
+                          "address": { "type": "string" },
+                          "decimals": { "type": "integer" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wallets": {
+      "get": {
+        "summary": "List agent wallets",
+        "operationId": "listWallets",
+        "responses": {
+          "200": {
+            "description": "Agent wallets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "wallets": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "address": { "type": "string" },
+                          "chain_type": { "type": "string" },
+                          "supported_chains": { "type": "array", "items": { "type": "string" } }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create agent wallet",
+        "operationId": "createWallet",
+        "responses": {
+          "201": {
+            "description": "Wallet created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "wallet": {
+                      "type": "object",
+                      "properties": {
+                        "address": { "type": "string" },
+                        "chain_type": { "type": "string" },
+                        "supported_chains": { "type": "array", "items": { "type": "string" } }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/webhooks": {
+      "get": {
+        "summary": "List webhook events",
+        "operationId": "listWebhookEvents",
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["pending", "delivered", "failed"] } },
+          { "name": "event_type", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated webhook events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "events": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/WebhookEvent" }
+                    },
+                    "pagination": { "$ref": "#/components/schemas/Pagination" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/webhooks/test": {
+      "post": {
+        "summary": "Send test webhook",
+        "operationId": "testWebhook",
+        "responses": {
+          "200": {
+            "description": "Test result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "callback_url": { "type": "string" },
+                    "status_code": { "type": "integer" },
+                    "response_time_ms": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "API key from POST /register (suwappu_sk_...)"
+      }
+    },
+    "schemas": {
+      "AgentProfile": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "description": { "type": "string", "nullable": true },
+          "rate_limit_tier": { "type": "string" },
+          "stats": {
+            "type": "object",
+            "properties": {
+              "total_requests": { "type": "integer" },
+              "total_swaps": { "type": "integer" }
+            }
+          },
+          "created_at": { "type": "string", "format": "date-time" },
+          "last_active_at": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "WebhookEvent": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "event_type": { "type": "string" },
+          "status": { "type": "string" },
+          "attempts": { "type": "integer" },
+          "last_error": { "type": "string", "nullable": true },
+          "response_status": { "type": "integer", "nullable": true },
+          "callback_url": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "delivered_at": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "Pagination": {
+        "type": "object",
+        "properties": {
+          "total": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" },
+          "has_more": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

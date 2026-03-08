@@ -517,7 +517,7 @@ class HotWalletService:
                     "method": "getBalance",
                     "params": [wallet.address]
                 }
-                async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
+                async with session.post(settings.solana_rpc_url, json=payload) as resp:
                     result = await resp.json()
                     if "result" in result:
                         lamports = result["result"]["value"]

@@ -59,8 +59,7 @@ export function createApp(config: AppConfig) {
 	// MCP endpoint for OpenClaw and other MCP-compatible agents
 	app.route('/mcp', mcpRoutes)
 
-	// Agent card for A2A discovery (spec-compliant + legacy paths)
-	app.get('/.well-known/agent-card.json', (c) => c.json(agentCard))
+	// Agent card for A2A discovery (standard path + legacy)
 	app.get('/.well-known/agent.json', (c) => c.json(agentCard))
 	app.get('/agent-card.json', (c) => c.json(agentCard))
 
@@ -112,4 +111,3 @@ export function createApp(config: AppConfig) {
 }
 
 export type App = ReturnType<typeof createApp>
-// Deploy trigger: A2A agent-card fix

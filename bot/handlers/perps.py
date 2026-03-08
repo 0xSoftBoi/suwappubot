@@ -307,8 +307,7 @@ async def perps_execute_callback(update: Update, context: ContextTypes.DEFAULT_T
         else:
             await query.edit_message_text("\u274c Failed to open position. Please try again.")
     except Exception as e:
-        logger.error(f"Error in perps_confirm_position: {e}", exc_info=True)
-        await query.edit_message_text("\u274c An unexpected error occurred. Please try again.")
+        await query.edit_message_text(f"\u274c Error: {str(e)}")
 
     return ConversationHandler.END
 
@@ -426,8 +425,6 @@ async def perps_close_amount_callback(update: Update, context: ContextTypes.DEFA
 
 # Conversation handler
 perps_conversation_handler = ConversationHandler(
-    name="perps",
-    persistent=True,
     entry_points=[CommandHandler("perps", perps_command)],
     states={
         PERPS_MENU: [
@@ -459,6 +456,8 @@ perps_conversation_handler = ConversationHandler(
         CommandHandler("perps", perps_command),
         CallbackQueryHandler(perps_menu_callback, pattern="^main_menu$"),
     ],
+    name="perps_conversation",
+    persistent=False,
 )
 
 # Callback handlers for outside conversation

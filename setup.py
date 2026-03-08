@@ -95,7 +95,7 @@ def read_requirements():
 
 # Version logic
 def get_version():
-    return "1.2.1"
+    return "1.0.0"
 
 
 setup(

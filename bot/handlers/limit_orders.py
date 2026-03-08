@@ -480,8 +480,6 @@ async def lo_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 # Conversation handlers
 limit_order_conversation = ConversationHandler(
-    name="limit_order",
-    persistent=True,
     entry_points=[
         CallbackQueryHandler(lo_start, pattern="^lo_(buy|sell|stop)$"),
         CallbackQueryHandler(dca_start, pattern="^dca_create$")

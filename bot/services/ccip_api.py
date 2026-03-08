@@ -427,8 +427,8 @@ class ChainlinkCCIPAPI:
         )
         
         # Encode ccipSend call
-        tx_data = router.encode_abi(
-            "ccipSend",
+        tx_data = router.encodeABI(
+            fn_name="ccipSend",
             args=[int(quote.destination_chain_selector), message]
         )
         
@@ -482,8 +482,8 @@ class ChainlinkCCIPAPI:
             return None  # Already approved
         
         # Build approval tx
-        approve_data = token_contract.encode_abi(
-            "approve",
+        approve_data = token_contract.encodeABI(
+            fn_name="approve",
             args=[
                 Web3.to_checksum_address(router_address),
                 2**256 - 1  # Max approval

@@ -31,7 +31,7 @@ class RugService:
         self._ws_task = None
         self._swap_engine = None
         self._wallet_service = WalletService()
-        self._ws_url = settings.get_rpc_url("solana").replace("https://", "wss://").replace("http://", "ws://")
+        self._ws_url = settings.solana_rpc_url.replace("https://", "wss://").replace("http://", "ws://")
 
     async def start(self, swap_engine: SwapEngine):
         """Start the rug monitoring service."""

@@ -54,15 +54,6 @@ export const mockTokens: Token[] = [
     usdValue: 975.00,
     logoUrl: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/binance/info/logo.png',
   },
-  {
-    symbol: 'ETH',
-    name: 'Ethereum (Base)',
-    address: '0x0000000000000000000000000000000000000000',
-    chain: 'base',
-    balance: '0.85',
-    usdValue: 1512.75,
-    logoUrl: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
-  },
 ]
 
 export const mockSwaps: Swap[] = [

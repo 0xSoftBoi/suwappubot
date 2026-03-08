@@ -58,7 +58,7 @@ class GasTracker:
             return None
         
         try:
-            rpc_url = settings.get_rpc_url(chain_name)
+            rpc_url = getattr(settings, chain.rpc_url_env.lower(), None)
             if not rpc_url:
                 return None
             
@@ -126,7 +126,7 @@ class GasTracker:
                     "params": [],
                     "id": 1
                 }
-                async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
+                async with session.post(settings.solana_rpc_url, json=payload) as resp:
                     result = await resp.json()
                     if "result" in result and result["result"]:
                         # Get median fee

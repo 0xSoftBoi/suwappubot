@@ -68,7 +68,6 @@ htmlcov/
 # User data backups
 backups/
 data/
-!showcase/src/data/
 
 # C++ Build artifacts
 *.dylib
@@ -90,8 +89,6 @@ node_modules/
 webapp/bun.lock
 .env*.local
 
-# Next.js build output
-.next/
+# Next.js build output (showcase)
 showcase/.next/
 showcase/tsconfig.tsbuildinfo
-\!api-ts/src/lib/

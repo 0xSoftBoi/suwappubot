@@ -7,7 +7,7 @@ services:
     env_file:
       - .env.prod
     environment:
-      - DATABASE_URL=postgresql://suwappubot:${DB_PASSWORD}@db:5432/suwappubot
+      - DATABASE_URL=postgresql://suwappubot:safe_password_prod@db:5432/suwappubot
       - REDIS_URL=redis://redis:6379/0
     depends_on:
       - db
@@ -22,7 +22,7 @@ services:
     env_file:
       - .env.prod
     environment:
-      - DATABASE_URL=postgresql://suwappubot:${DB_PASSWORD}@db:5432/suwappubot
+      - DATABASE_URL=postgresql://suwappubot:safe_password_prod@db:5432/suwappubot
       - REDIS_URL=redis://redis:6379/0
     ports:
       - "8000:8000"
@@ -49,7 +49,7 @@ services:
     restart: always
     environment:
       - POSTGRES_USER=suwappubot
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_PASSWORD=safe_password_prod
       - POSTGRES_DB=suwappubot
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -59,7 +59,6 @@ services:
   redis:
     image: redis:7-alpine
     restart: always
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-changeme}
     volumes:
       - redis_data:/data
     networks:

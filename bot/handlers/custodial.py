@@ -588,8 +588,6 @@ async def withdraw_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 # Withdrawal conversation handler
 withdrawal_conversation = ConversationHandler(
-    name="withdrawal",
-    persistent=True,
     entry_points=[
         CallbackQueryHandler(withdraw_start, pattern="^custodial_withdraw$"),
     ],

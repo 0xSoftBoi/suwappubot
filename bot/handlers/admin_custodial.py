@@ -1,7 +1,5 @@
 """Admin handlers for custodial wallet management."""
 
-import logging
-
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
@@ -18,8 +16,6 @@ from bot.models.custodial import HotWallet, GasSponsorshipConfig
 from bot.config.chains import CHAINS
 from bot.utils.formatters import format_amount, format_usd
 from database.db import get_session
-
-logger = logging.getLogger(__name__)
 
 # Admin IDs (set your Telegram ID here)
 ADMIN_IDS = []  # e.g., [123456789]
@@ -102,7 +98,7 @@ async def create_evm_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     
     try:
-        wallet = await hot_wallet_service.create_hot_wallet(
+        wallet = hot_wallet_service.create_hot_wallet(
             name="EVM Hot Wallet",
             chain_type="evm",
             is_deposit_wallet=True,
@@ -119,7 +115,6 @@ async def create_evm_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             ])
         )
     except Exception as e:
-        logger.error(f"Error in create_evm_wallet: {e}", exc_info=True)
         await query.edit_message_text(f"❌ Error: {str(e)}")
 
 
@@ -134,7 +129,7 @@ async def create_sol_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     
     try:
-        wallet = await hot_wallet_service.create_hot_wallet(
+        wallet = hot_wallet_service.create_hot_wallet(
             name="SOL Hot Wallet",
             chain_type="solana",
             is_deposit_wallet=True,
@@ -151,7 +146,6 @@ async def create_sol_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             ])
         )
     except Exception as e:
-        logger.error(f"Error in create_sol_wallet: {e}", exc_info=True)
         await query.edit_message_text(f"❌ Error: {str(e)}")
 
 

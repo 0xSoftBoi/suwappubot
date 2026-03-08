@@ -75,7 +75,7 @@ export const AsOverlay: Story = {
   args: {} as any,
   render: () => (
     <div className="flex items-center gap-6">
-      {['ethereum', 'base', 'solana', 'polygon', 'bsc'].map((chain) => (
+      {['ethereum', 'solana', 'polygon', 'bsc'].map((chain) => (
         <div key={chain} className="relative inline-block">
           <div className="w-10 h-10 rounded-full bg-suwappu-sakura-200 flex items-center justify-center text-sm font-bold text-suwappu-text">
             TK

@@ -1,6 +1,5 @@
 """Wallet management service for EVM and Solana chains."""
 
-import asyncio
 import json
 import logging
 from typing import Optional
@@ -57,40 +56,19 @@ class WalletService:
         self._solana_client: Optional[SolanaClient] = None
     
     def _get_web3(self, chain_name: str) -> Web3:
-        """Get or create a Web3 instance for a chain, with RPC fallback."""
+        """Get or create a Web3 instance for a chain."""
         if chain_name not in self._web3_instances:
             chain = get_chain_by_name(chain_name)
             if not chain or chain.chain_type != ChainType.EVM:
                 raise ValueError(f"Invalid EVM chain: {chain_name}")
-
-            rpc_attr = f"{chain_name.lower().replace('-', '_')}_rpc_url"
-            rpc_str = getattr(settings, rpc_attr, "") or ""
-            urls = [u.strip() for u in rpc_str.split(",") if u.strip()]
-            if not urls:
+            
+            rpc_url = settings.get_rpc_url(chain_name)
+            if not rpc_url:
                 raise ValueError(f"RPC URL not configured for {chain_name}")
-
-            import random
-            random.shuffle(urls)
-            for url in urls:
-                try:
-                    w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 10}))
-                    w3.eth.block_number  # verify connectivity
-                    self._web3_instances[chain_name] = w3
-                    break
-                except Exception:
-                    continue
-
-            if chain_name not in self._web3_instances:
-                # Last resort: use first URL without connectivity check
-                self._web3_instances[chain_name] = Web3(
-                    Web3.HTTPProvider(urls[0], request_kwargs={"timeout": 10})
-                )
-
+            
+            self._web3_instances[chain_name] = Web3(Web3.HTTPProvider(rpc_url))
+        
         return self._web3_instances[chain_name]
-
-    def _invalidate_web3(self, chain_name: str):
-        """Remove cached Web3 instance so next call picks a fresh RPC."""
-        self._web3_instances.pop(chain_name, None)
     
     async def _get_solana_client(self) -> SolanaClient:
         """Get or create a Solana RPC client."""
@@ -440,73 +418,43 @@ class WalletService:
     ) -> float:
         """
         Get ERC20 token balance for an address.
-
+        
         Returns:
             Token balance as float
         """
         token_address = get_token_address(token_symbol, chain_name)
         if not token_address:
             return 0.0
-
-        # Skip zero/null addresses (native tokens like BNB listed with 0x000...0)
-        if token_address.replace("0x", "").strip("0") == "":
-            return await self.get_evm_native_balance(chain_name, address)
-
+        
         web3 = self._get_web3(chain_name)
         contract = web3.eth.contract(
             address=Web3.to_checksum_address(token_address),
             abi=ERC20_ABI
         )
-
-        for attempt in range(2):
-            try:
-                loop = asyncio.get_event_loop()
-                balance_raw = await loop.run_in_executor(
-                    None,
-                    contract.functions.balanceOf(Web3.to_checksum_address(address)).call,
-                )
-
-                decimals = get_token_decimals(token_symbol, chain_name)
-                return balance_raw / (10 ** decimals)
-            except Exception as e:
-                if attempt == 0:
-                    # Retry with a fresh RPC
-                    logger.warning(f"Balance check failed on {chain_name}, retrying with new RPC: {e}")
-                    self._invalidate_web3(chain_name)
-                    web3 = self._get_web3(chain_name)
-                    contract = web3.eth.contract(
-                        address=Web3.to_checksum_address(token_address),
-                        abi=ERC20_ABI,
-                    )
-                else:
-                    logger.error(f"Balance check failed on {chain_name} after retry: {e}")
-                    return 0.0
-        return 0.0
-
+        
+        try:
+            balance_raw = contract.functions.balanceOf(
+                Web3.to_checksum_address(address)
+            ).call()
+            
+            decimals = get_token_decimals(token_symbol, chain_name)
+            return balance_raw / (10 ** decimals)
+        except Exception:
+            return 0.0
+    
     async def get_evm_native_balance(self, chain_name: str, address: str) -> float:
         """Get native token balance (ETH, BNB, etc.) for an address."""
         chain = get_chain_by_name(chain_name)
         if not chain:
             return 0.0
-
-        for attempt in range(2):
-            web3 = self._get_web3(chain_name)
-            try:
-                loop = asyncio.get_event_loop()
-                balance_wei = await loop.run_in_executor(
-                    None,
-                    web3.eth.get_balance,
-                    Web3.to_checksum_address(address),
-                )
-                return balance_wei / (10 ** chain.native_decimals)
-            except Exception as e:
-                if attempt == 0:
-                    logger.warning(f"Native balance check failed on {chain_name}, retrying: {e}")
-                    self._invalidate_web3(chain_name)
-                else:
-                    logger.error(f"Native balance check failed on {chain_name} after retry: {e}")
-                    return 0.0
-        return 0.0
+        
+        web3 = self._get_web3(chain_name)
+        
+        try:
+            balance_wei = web3.eth.get_balance(Web3.to_checksum_address(address))
+            return balance_wei / (10 ** chain.native_decimals)
+        except Exception:
+            return 0.0
     
     async def get_solana_token_balance(
         self,
@@ -542,7 +490,7 @@ class WalletService:
                         {"encoding": "jsonParsed"}
                     ]
                 }
-                async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
+                async with session.post(settings.solana_rpc_url, json=payload) as resp:
                     result = await resp.json()
                     
                     if "result" in result and result["result"]["value"]:
@@ -569,7 +517,7 @@ class WalletService:
                     "method": "getBalance",
                     "params": [address]
                 }
-                async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
+                async with session.post(settings.solana_rpc_url, json=payload) as resp:
                     result = await resp.json()
                     
                     if "result" in result:
@@ -639,172 +587,61 @@ class WalletService:
     async def get_balances_by_address(self, address: str, chain_type: str) -> dict[str, dict[str, float]]:
         """
         Get all token balances for an address without needing a Wallet object.
-
-        Uses a cache-first strategy (60s TTL).  On cache miss, uses Alchemy
-        batch API for supported EVM chains and falls back to per-token RPC
-        for unsupported chains and Solana.
+        
+        Args:
+            address: Wallet address
+            chain_type: "evm" or "solana"
+            
+        Returns:
+            Dict of chain_name -> {token_symbol: balance}
         """
-        from bot.utils.cache import balance_cache
-
-        cache_key = f"bal:{address}:{chain_type}"
-
-        # --- Layer 2: cache-first read ---
-        cached = await balance_cache.get(cache_key)
-        if cached is not None:
-            return cached
-
-        # --- Cache miss → live fetch ---
-        balances = await self._fetch_balances_live(address, chain_type)
-
-        # Store in cache (60s TTL via default)
-        await balance_cache.set(cache_key, balances)
-        return balances
-
-    async def _fetch_balances_live(self, address: str, chain_type: str) -> dict[str, dict[str, float]]:
-        """Fetch balances from RPCs / Alchemy (no caching)."""
         from bot.config.tokens import TOKENS
-
-        CALL_TIMEOUT = 5  # seconds per RPC call
-        GLOBAL_TIMEOUT = 20  # seconds for entire balance fetch
-
+        
         balances: dict[str, dict[str, float]] = {}
-
-        async def _safe_call(coro, default=0.0):
-            """Wrap an RPC call with a timeout."""
-            try:
-                return await asyncio.wait_for(coro, timeout=CALL_TIMEOUT)
-            except (asyncio.TimeoutError, Exception):
-                return default
-
-        async def _fetch_evm_chain_alchemy(chain_name, chain):
-            """Fetch all balances for a single EVM chain via Alchemy batch API."""
-            from bot.services.alchemy_client import get_alchemy_client
-            from bot.config.tokens import get_token_decimals
-
-            client = get_alchemy_client()
-            chain_balances: dict[str, float] = {}
-
-            try:
-                # 1. Native balance via Alchemy
-                native = await asyncio.wait_for(
-                    client.get_native_balance(address, chain_name),
-                    timeout=CALL_TIMEOUT,
-                )
-                if native and native > 0:
-                    chain_balances[chain.native_token] = native
-
-                # 2. All ERC-20 balances in ONE call
-                raw_balances = await asyncio.wait_for(
-                    client.get_token_balances_raw(address, chain_name),
-                    timeout=CALL_TIMEOUT,
-                )
-
-                # Build reverse lookup: lowercase contract address → (symbol, decimals)
-                addr_to_token: dict[str, tuple[str, int]] = {}
+        
+        if chain_type == "evm":
+            # Check balances on all EVM chains
+            for chain_name, chain in CHAINS.items():
+                if chain.chain_type != ChainType.EVM:
+                    continue
+                
+                chain_balances: dict[str, float] = {}
+                
+                # Native balance
+                native_balance = await self.get_evm_native_balance(chain_name, address)
+                if native_balance > 0:
+                    chain_balances[chain.native_token] = native_balance
+                
+                # Token balances
                 for token_symbol, token in TOKENS.items():
-                    token_addr = token.addresses.get(chain_name)
-                    if token_addr:
-                        addr_to_token[token_addr.lower()] = (
-                            token_symbol,
-                            get_token_decimals(token_symbol, chain_name),
+                    if chain_name in token.addresses:
+                        balance = await self.get_evm_token_balance(
+                            chain_name, token_symbol, address
                         )
-
-                for contract_lower, raw_balance in raw_balances.items():
-                    entry = addr_to_token.get(contract_lower)
-                    if entry:
-                        symbol, decimals = entry
-                        balance = raw_balance / (10 ** decimals)
                         if balance > 0:
-                            chain_balances[symbol] = balance
-
-            except Exception as e:
-                logger.debug(f"Alchemy fetch failed for {chain_name}, falling back to RPC: {e}")
-                # Fall back to per-token RPC
-                return await _fetch_evm_chain_rpc(chain_name, chain)
-
-            return chain_name, chain_balances
-
-        async def _fetch_evm_chain_rpc(chain_name, chain):
-            """Fetch all balances for a single EVM chain via individual RPC calls."""
+                            chain_balances[token_symbol] = balance
+                
+                if chain_balances:
+                    balances[chain_name] = chain_balances
+        
+        elif chain_type == "solana":
             chain_balances: dict[str, float] = {}
-
-            tasks = []
-            task_keys = []
-
-            # Native balance
-            tasks.append(_safe_call(self.get_evm_native_balance(chain_name, address)))
-            task_keys.append(chain.native_token)
-
+            
+            # SOL balance
+            sol_balance = await self.get_solana_native_balance(address)
+            if sol_balance > 0:
+                chain_balances["SOL"] = sol_balance
+            
             # Token balances
             for token_symbol, token in TOKENS.items():
-                if chain_name in token.addresses:
-                    tasks.append(_safe_call(
-                        self.get_evm_token_balance(chain_name, token_symbol, address)
-                    ))
-                    task_keys.append(token_symbol)
-
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            for key, result in zip(task_keys, results):
-                if isinstance(result, (int, float)) and result > 0:
-                    chain_balances[key] = result
-
-            return chain_name, chain_balances
-
-        try:
-            async with asyncio.timeout(GLOBAL_TIMEOUT):
-                if chain_type == "evm":
-                    from bot.services.alchemy_client import get_alchemy_client
-                    alchemy = get_alchemy_client()
-
-                    # Fetch ALL chains in parallel
-                    chain_tasks = []
-                    for chain_name, chain in CHAINS.items():
-                        if chain.chain_type != ChainType.EVM:
-                            continue
-                        # Use Alchemy for supported chains, RPC for the rest
-                        if alchemy.is_configured and alchemy.supports_chain(chain_name):
-                            chain_tasks.append(_fetch_evm_chain_alchemy(chain_name, chain))
-                        else:
-                            chain_tasks.append(_fetch_evm_chain_rpc(chain_name, chain))
-
-                    results = await asyncio.gather(*chain_tasks, return_exceptions=True)
-
-                    for result in results:
-                        if isinstance(result, tuple):
-                            chain_name, chain_balances = result
-                            if chain_balances:
-                                balances[chain_name] = chain_balances
-
-                elif chain_type == "solana":
-                    chain_balances: dict[str, float] = {}
-
-                    # Build all Solana tasks in parallel
-                    tasks = []
-                    task_keys = []
-
-                    tasks.append(_safe_call(self.get_solana_native_balance(address)))
-                    task_keys.append("SOL")
-
-                    for token_symbol, token in TOKENS.items():
-                        if "solana" in token.addresses:
-                            tasks.append(_safe_call(
-                                self.get_solana_token_balance(token_symbol, address)
-                            ))
-                            task_keys.append(token_symbol)
-
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                    for key, result in zip(task_keys, results):
-                        if isinstance(result, (int, float)) and result > 0:
-                            chain_balances[key] = result
-
-                    if chain_balances:
-                        balances["solana"] = chain_balances
-
-        except asyncio.TimeoutError:
-            logger.warning(f"Global timeout fetching balances for {address}")
-
+                if "solana" in token.addresses:
+                    balance = await self.get_solana_token_balance(token_symbol, address)
+                    if balance > 0:
+                        chain_balances[token_symbol] = balance
+            
+            if chain_balances:
+                balances["solana"] = chain_balances
+        
         return balances
     
     # === Transaction Signing ===

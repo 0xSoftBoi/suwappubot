@@ -7,7 +7,6 @@ from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
-    PicklePersistence,
 )
 
 from bot.config.settings import settings
@@ -82,7 +81,6 @@ from bot.handlers.copy import (
 )
 # Token Sniping handlers
 from bot.handlers.snipe import snipe_conversation_handler
-from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
 from bot.handlers.dashboard import dashboard_handler, dashboard_menu_callback
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
@@ -160,9 +158,6 @@ def add_handlers(application: Application) -> None:
     application.add_handler(subscription_handler)  # /sub (x402)
     application.add_handler(dashboard_handler)    # /dashboard (Mini App)
 
-    # Perps Trading
-    # Note: perps_conversation_handler added below with other conversation handlers
-
     # Points/XP system
     application.add_handler(xp_handler)          # /xp
     application.add_handler(checkin_handler)     # /checkin
@@ -195,7 +190,6 @@ def add_handlers(application: Application) -> None:
     application.add_handler(subscription_conversation)  # x402 subscription flow
     application.add_handler(profile_edit_conversation)  # Copy trading profile editing
     application.add_handler(snipe_conversation_handler)  # Token sniping /snipe
-    application.add_handler(perps_conversation_handler)  # Perps trading /perps
 
     # ============ CALLBACK QUERY HANDLERS ============
     
@@ -209,8 +203,7 @@ def add_handlers(application: Application) -> None:
     # Balance & Portfolio
     application.add_handler(CallbackQueryHandler(balance_callback, pattern="^balance$"))
     application.add_handler(CallbackQueryHandler(portfolio_callback, pattern="^portfolio"))
-    application.add_handler(history_callback)
-    application.add_handler(history_menu_callback)
+    application.add_handler(CallbackQueryHandler(history_menu_callback, pattern="^history_menu$"))
     application.add_handler(history_page_handler)
     
     # Wallet
@@ -306,9 +299,6 @@ def add_handlers(application: Application) -> None:
     application.add_handler(redeem_callback_handler)
     application.add_handler(xp_noop_handler)
     
-    # Perps Trading callbacks
-    application.add_handler(perps_menu_callback_handler)
-
     # Copy Trading callbacks
     application.add_handler(copy_menu_callback_handler)
     application.add_handler(traders_callback_handler)
@@ -363,11 +353,6 @@ async def post_init(application) -> None:
             BotCommand("xp", "Points & XP"),
             BotCommand("checkin", "Daily check-in"),
             BotCommand("traders", "Copy trading"),
-            BotCommand("perps", "Perpetual trading"),
-            BotCommand("following", "Copy trading follows"),
-            BotCommand("profile", "Your trader profile"),
-            BotCommand("c", "Custodial wallet"),
-            BotCommand("dashboard", "Open Mini App"),
             BotCommand("tax", "Tax export"),
             BotCommand("set", "Settings"),
             BotCommand("h", "Help"),
@@ -488,19 +473,11 @@ def main() -> None:
     else:
         logger.warning("⚠️ Database monitoring disabled (no connection)")
     
-    # Ensure data directory exists for persistence
-    import os
-    os.makedirs("data", exist_ok=True)
-
-    # Create persistence to survive bot restarts
-    persistence = PicklePersistence(filepath="data/bot_persistence.pickle")
-
     # Create application with lifecycle hooks
     logger.info("Creating bot application...")
     application = (
         Application.builder()
         .token(settings.telegram_bot_token)
-        .persistence(persistence)
         .post_init(post_init)
         .post_shutdown(post_shutdown)
         .build()
@@ -511,7 +488,7 @@ def main() -> None:
     
     # Log available commands
     logger.info("User commands: /start, /h, /w, /b, /s, /hx, /p, /g, /f, /set, /c")
-    logger.info("Trading commands: /a, /o, /dca, /ref, /tax, /sub, /snipe, /perps, /dashboard")
+    logger.info("Trading commands: /a, /o, /dca, /ref, /tax, /sub, /snipe, /dashboard")
     logger.info("Growth commands: /xp, /checkin, /lb, /traders, /following, /profile")
     logger.info("Admin commands: /st, /hw, /fee, /m")
     logger.info("Background services: Fee sweeper, Price alerts, Limit orders/DCA, Tx poller, Health monitor, Launch detector")

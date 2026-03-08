@@ -1,0 +1,82 @@
+/**
+ * Swap-related types for Suwappu
+ */
+
+export interface SwapToken {
+  symbol: string
+  name: string
+  address: string
+  chain: string
+  decimals: number
+  logoUrl?: string
+  /** User's balance (may be undefined if not fetched) */
+  balance?: string
+  /** USD value of user's balance */
+  balanceUsd?: number
+}
+
+export interface SwapQuoteRequest {
+  fromToken: string  // address
+  toToken: string    // address
+  fromChain: string
+  toChain: string
+  amount: string     // human-readable amount (e.g. "1.5")
+  fromDecimals: number  // decimals of fromToken, used to convert to wei
+  slippage?: number  // percentage, e.g. 0.5 for 0.5%
+}
+
+export interface SwapQuote {
+  id: string
+  fromToken: SwapToken
+  toToken: SwapToken
+  fromAmount: string
+  toAmount: string
+  fromAmountUsd: number
+  toAmountUsd: number
+  exchangeRate: number
+  priceImpact: number  // percentage
+  estimatedGas: string
+  gasUsd: number
+  route: string
+  expiresAt: string
+  minReceived: string
+  slippage: number
+  estimatedDuration?: number  // seconds
+}
+
+export interface SwapExecuteRequest {
+  quoteId: string
+}
+
+export interface SwapExecuteResult {
+  success: boolean
+  swapId: number
+  status: 'signed' | 'submitted' | 'completed' | 'failed'
+  txHash?: string
+  explorerUrl?: string
+  swap: {
+    fromChain: string
+    toChain: string
+    fromToken: string
+    toToken: string
+    fromAmount: string
+    expectedToAmount: string
+  }
+}
+
+export interface SwapStatusResponse {
+  id: number
+  status: 'pending' | 'signed' | 'submitted' | 'completed' | 'failed'
+  fromChain: string
+  toChain: string
+  fromToken: string
+  toToken: string
+  fromAmount: string
+  toAmount: string | null
+  txHash: string | null
+  bridgeTxHash: string | null
+  destinationTxHash: string | null
+  errorMessage: string | null
+  createdAt: string
+  completedAt: string | null
+}

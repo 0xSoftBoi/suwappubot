@@ -110,8 +110,7 @@ class LiFiAPI:
         from_address: str,
         to_address: Optional[str] = None,
         slippage: float = 0.5,
-        integrator: Optional[str] = None,
-        fee: float = 0.008,  # 0.8% integrator fee (80 bips)
+        integrator: str = "suwappubot",
     ) -> LiFiQuote:
         """
         Get a quote for a cross-chain swap.
@@ -145,8 +144,7 @@ class LiFiAPI:
             "fromAddress": from_address,
             "toAddress": to_address or from_address,
             "slippage": slippage / 100,  # Convert percentage to decimal
-            "integrator": integrator or settings.lifi_integrator_id,
-            "fee": fee,  # Integrator fee collected by LiFi FeeCollection contract
+            "integrator": integrator,
         }
         
         data = await self._request("GET", "/quote", params=params)

@@ -1,8 +1,8 @@
-name: Deploy to EC2
+name: Deploy Bot to EC2
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - 'bot/**'
       - 'api/**'
@@ -12,6 +12,15 @@ on:
       - 'suwappubot.service'
       - '.github/workflows/deploy-ec2.yml'
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - production
+          - development
 
 permissions:
   contents: read
@@ -20,12 +29,26 @@ jobs:
   deploy:
     name: Deploy to EC2
     runs-on: ubuntu-latest
+    environment: ${{ (github.ref == 'refs/heads/main' || inputs.environment == 'production') && 'production' || 'development' }}
 
     steps:
+      - name: Set environment
+        id: env
+        run: |
+          if [ "${{ github.ref }}" == "refs/heads/main" ] || [ "${{ inputs.environment }}" == "production" ]; then
+            echo "ENVIRONMENT=production" >> $GITHUB_OUTPUT
+            echo "EC2_HOST=${{ secrets.EC2_HOST_PROD }}" >> $GITHUB_OUTPUT
+            echo "BRANCH=main" >> $GITHUB_OUTPUT
+          else
+            echo "ENVIRONMENT=development" >> $GITHUB_OUTPUT
+            echo "EC2_HOST=${{ secrets.EC2_HOST_DEV }}" >> $GITHUB_OUTPUT
+            echo "BRANCH=dev" >> $GITHUB_OUTPUT
+          fi
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.EC2_HOST_PROD }}
+          host: ${{ steps.env.outputs.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script_stop: true
@@ -36,10 +59,12 @@ jobs:
 
             echo "=== Pulling latest code ==="
             git fetch origin
-            git reset --hard origin/main
+            git checkout ${{ steps.env.outputs.BRANCH }}
+            git pull origin ${{ steps.env.outputs.BRANCH }}
 
             echo "=== Installing dependencies ==="
-            ./venv/bin/pip install -r requirements.txt -q 2>&1 | tail -5
+            ./venv/bin/pip install -r requirements.txt -q
+            ./venv/bin/pip install . -q
 
             echo "=== Refreshing secrets ==="
             sudo bash scripts/pull-secrets.sh
@@ -52,31 +77,49 @@ jobs:
             sudo systemctl restart suwappubot
 
             echo "=== Waiting for startup ==="
-            sleep 8
+            sleep 5
 
             echo "=== Health check ==="
             for i in 1 2 3 4 5; do
-              HEALTH=$(curl -sf http://localhost:10000/health 2>/dev/null || echo '{}')
-              STATUS=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null || echo "unknown")
-              BOT=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('bot','unknown'))" 2>/dev/null || echo "unknown")
-              DB=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('database','unknown'))" 2>/dev/null || echo "unknown")
-              echo "Attempt $i: status=$STATUS bot=$BOT db=$DB"
-              if [ "$STATUS" = "healthy" ] && [ "$BOT" = "polling" ]; then
+              if curl -sf http://localhost:10000/health; then
+                echo ""
                 echo "Deploy successful!"
                 exit 0
               fi
+              echo "Attempt $i: waiting..."
               sleep 5
             done
 
-            echo "Deploy FAILED — dumping logs:"
-            sudo journalctl -u suwappubot --no-pager -n 40
+            echo "Health check failed — checking logs:"
+            journalctl -u suwappubot --no-pager -n 30
             exit 1
 
-      - name: Summary
+      - name: Verify Telegram polling
+        if: success()
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ steps.env.outputs.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            HEALTH=$(curl -sf http://localhost:10000/health)
+            BOT_STATUS=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('bot','unknown'))")
+            echo "Bot status: $BOT_STATUS"
+            if [ "$BOT_STATUS" != "polling" ]; then
+              echo "WARNING: Bot is NOT polling!"
+              journalctl -u suwappubot --no-pager -n 50
+              exit 1
+            fi
+            echo "Bot is polling successfully."
+
+      - name: Deployment summary
         if: always()
         run: |
-          echo "## EC2 Deployment" >> $GITHUB_STEP_SUMMARY
-          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "## EC2 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ steps.env.outputs.ENVIRONMENT }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Host | ${{ steps.env.outputs.EC2_HOST }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | ${{ steps.env.outputs.BRANCH }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY

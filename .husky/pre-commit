@@ -1,0 +1,22 @@
+#!/bin/sh
+
+# Pre-commit hook for Suwappubot
+# Validates database migrations when relevant files change
+
+# Check if migration-related files are staged
+if git diff --cached --name-only | grep -qE '^(migrations/|bot/models/|database/)'; then
+    echo "🔍 Migration-related files changed, validating..."
+
+    # Run migration validation script if it exists
+    if [ -f "scripts/validate-migrations.py" ]; then
+        python3 scripts/validate-migrations.py
+        if [ $? -ne 0 ]; then
+            echo "❌ Migration validation failed. Please fix the issues before committing."
+            exit 1
+        fi
+    else
+        echo "⚠️  Migration validation script not found, skipping validation."
+    fi
+fi
+
+echo "✅ Pre-commit checks passed"

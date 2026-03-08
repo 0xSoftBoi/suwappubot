@@ -153,7 +153,6 @@ class TaxExportService:
                 "tokens_traded": [],
                 "first_trade": None,
                 "last_trade": None,
-                "year": year or datetime.now().year,
             }
         
         # Calculate stats

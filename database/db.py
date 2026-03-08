@@ -118,7 +118,7 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         # Referral system models
         from bot.models.referral import Referral, ReferralCode, ReferralReward, ReferralPayout
         # Points/XP and Copy Trading models
-        from bot.models.points import UserPoints, PointTransaction, PointRedemption, Milestone, UserMilestone, Reward
+        from bot.models.points import UserPoints, PointTransaction, PointRedemption, Milestone, UserMilestone, Reward, DailyQuest, UserQuest, JackpotPool
         from bot.models.copy_trading import TraderProfile, CopyFollow, CopyTrade, CopyNotification, TraderTrade
         # Token Sniping models
         from bot.models.snipe import SnipeOrder, SnipeConfig, SnipeHistory, WatchedToken, AutoSnipeRule

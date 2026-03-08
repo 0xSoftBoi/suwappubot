@@ -143,16 +143,6 @@ Use `/deploy` skill for manual deployments.
 
 **Python API routes**: `GET /health`, `POST /telegram/webhook`, `POST /webhook` (WhatsApp).
 
-## Verification
-
-**RULE: Do NOT claim a deployment or change is done without running `scripts/verify.sh` first.** If you make a claim, you must have verified it.
-
-```bash
-bash scripts/verify.sh        # Run all checks
-bash scripts/verify.sh api    # Run only api-ts checks
-bash scripts/verify.sh agent  # Run only agent card/registry checks
-```
-
 ## Custom Skills
 
 - `/deploy` — Deploy services to AWS ECS

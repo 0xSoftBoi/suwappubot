@@ -1,7 +1,5 @@
 """Gas tracker handlers."""
 
-import logging
-
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
@@ -10,8 +8,6 @@ from bot.services.price_service import PriceService
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
 from bot.utils.formatters import format_usd
 
-
-logger = logging.getLogger(__name__)
 
 price_service = PriceService()
 
@@ -158,9 +154,8 @@ async def gas_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         
     except Exception as e:
-        logger.error(f"Error in gas_callback: {e}", exc_info=True)
         await query.edit_message_text(
-            "❌ An unexpected error occurred. Please try again.",
+            f"❌ Error: {str(e)}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 Retry", callback_data="gas_refresh")]
             ])

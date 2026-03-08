@@ -1,6 +1,5 @@
 """Quick swap command for power users."""
 
-import logging
 import re
 import secrets
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -17,8 +16,6 @@ from bot.utils.rate_limiter import swap_limiter, enforce_rate_limit_for_update
 from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
 
-
-logger = logging.getLogger(__name__)
 
 wallet_service = WalletService()
 swap_engine = SwapEngine()
@@ -244,8 +241,7 @@ async def quickswap_confirm_callback(update: Update, context: ContextTypes.DEFAU
                 ])
             )
     except Exception as e:
-        logger.error(f"Error in quickswap_confirm: {e}", exc_info=True)
-        await query.edit_message_text("❌ An unexpected error occurred. Please try again.")
+        await query.edit_message_text(f"❌ Error: {str(e)}")
     finally:
         context.user_data.pop("quickswap", None)
 

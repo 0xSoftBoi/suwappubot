@@ -1,15 +1,16 @@
 {
   "name": "suwappu-production",
   "environment": "production",
-  "provider": "ec2",
+  "provider": "ecs-fargate",
   "region": "us-east-1",
   "awsProfile": "Swappu",
-  "ec2": {
-    "host": "23.21.184.77",
-    "user": "ubuntu",
-    "sshKeyPath": "~/.ssh/suwappu-bot-key",
-    "serviceName": "suwappubot",
-    "appDir": "/home/ubuntu/suwappubot"
+  "fargate": {
+    "clusterName": "suwappu-cluster",
+    "serviceName": "SuwappuStack-SuwappuService3F99BDF9-gqorD1QDcEXk",
+    "taskDefinitionFamily": "SuwappuStackSuwappuTask0C015F92",
+    "logGroup": "/ecs/suwappu",
+    "logStreamPrefix": "suwappu",
+    "targetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:905418423235:targetgroup/Suwapp-Suwap-P09CWWHCHRZN/58d6c7bc304e4e17"
   },
   "rds": {
     "instanceId": "suwappustack-suwappudatabase7fc7bcd8-nlylumxmlxo6",
@@ -21,8 +22,8 @@
     "health": "https://api.suwappu.bot/health"
   },
   "github": {
-    "repo": "0xSoftBoi/suwappubot",
+    "repo": "superposition/suwappubot",
     "branch": "main",
-    "workflowFile": "deploy-ec2.yml"
+    "workflowFile": "deploy.yml"
   }
 }

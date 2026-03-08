@@ -207,13 +207,9 @@ class FeeService:
         swap_id: int,
         user_id: int,
         fee_amount_usd: float,
+        fee_token: str,
+        fee_amount_token: float,
         chain: str,
-        fee_token: Optional[str] = None,
-        token_symbol: Optional[str] = None,
-        fee_amount_token: float = 0,
-        fee_amount: float = 0,
-        swap_amount: float = 0,
-        fee_percentage: float = 0,
         referrer_id: Optional[int] = None,
         referral_reward_usd: float = 0,
     ) -> FeeTransaction:
@@ -233,31 +229,26 @@ class FeeService:
         Returns:
             Created FeeTransaction
         """
-        # Accept both fee_token and token_symbol (caller uses token_symbol)
-        resolved_token = fee_token or token_symbol or "UNKNOWN"
-        resolved_fee_amount = fee_amount_token or fee_amount
-        resolved_fee_pct = fee_percentage or float(SWAP_FEE_PERCENTAGE)
-
         with get_session() as session:
             fee_tx = FeeTransaction(
                 swap_id=swap_id,
                 user_id=user_id,
                 fee_amount=fee_amount_usd,
                 fee_amount_usd=fee_amount_usd,
-                token_symbol=resolved_token,
-                swap_amount=swap_amount,
-                fee_percentage=resolved_fee_pct,
+                token_symbol=fee_token,
+                swap_amount=0,  # Will be set by caller if needed
+                fee_percentage=float(SWAP_FEE_PERCENTAGE),
                 chain=chain,
                 collected=False,
                 created_at=datetime.utcnow(),
             )
             session.add(fee_tx)
             session.flush()
-
+            
             fee_id = fee_tx.id
-
+        
         logger.info(
-            f"Recorded fee: ${fee_amount_usd:.2f} ({resolved_fee_amount} {resolved_token}) "
+            f"Recorded fee: ${fee_amount_usd:.2f} ({fee_amount_token} {fee_token}) "
             f"for swap {swap_id}, user {user_id}"
         )
         

@@ -682,7 +682,6 @@ class SmartRouter:
                 dst_chain=to_chain,
                 token_symbol=from_token,
                 amount=from_amount,
-                from_address=from_address,
             )
             
             prices = await price_service.get_prices([to_token])
@@ -694,7 +693,7 @@ class SmartRouter:
             from_amount_human = int(from_amount) / (10 ** decimals)
             
             output_usd = to_amount_human * to_price
-            total_cost = quote.native_fee_usd
+            total_cost = quote.lz_fee_usd
             
             return RouteOption(
                 provider="layerzero",
@@ -707,7 +706,7 @@ class SmartRouter:
                 to_token=to_token,
                 to_amount=quote.amount_out,
                 to_amount_human=to_amount_human,
-                gas_cost_usd=quote.native_fee_usd,
+                gas_cost_usd=quote.lz_fee_usd,
                 bridge_fee_usd=0,
                 total_cost_usd=total_cost,
                 output_usd=output_usd,
@@ -720,8 +719,15 @@ class SmartRouter:
             return None
     
     def _is_stargate_supported(self, from_chain: str, to_chain: str, token: str) -> bool:
-        """Check if route is supported by Stargate V2."""
-        return self.layerzero.is_supported_route(from_chain, to_chain, token)
+        """Check if route is supported by Stargate."""
+        supported_chains = {"ethereum", "polygon", "bsc", "arbitrum", "optimism", "base", "avalanche"}
+        supported_tokens = {"USDC", "USDT", "DAI", "FRAX", "ETH"}
+        
+        return (
+            from_chain.lower() in supported_chains and
+            to_chain.lower() in supported_chains and
+            token.upper() in supported_tokens
+        )
     
     def _score_routes(self, routes: List[RouteOption]) -> List[RouteOption]:
         """Score routes based on multiple factors."""

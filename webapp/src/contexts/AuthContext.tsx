@@ -121,26 +121,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setIsTelegramAuth(true)
           setAuthMethod('telegram')
           storeAuthMethod('telegram')
-
-          // Authenticate with backend — this creates user + Turnkey wallet if needed
-          try {
-            const authResult = await api.telegramAuth(initData)
-            if (authResult.success) {
-              // Store JWT for subsequent API calls (7-day expiry)
-              if (authResult.jwt) {
-                const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-                setAuthToken(authResult.jwt, expiresAt)
-              }
-              // If wallet was auto-created, store it
-              if (authResult.walletAddress) {
-                login({ address: authResult.walletAddress, type: 'passkey' })
-              }
-            } else {
-              console.error('Telegram auth failed:', authResult.error)
-            }
-          } catch (err) {
-            console.error('Telegram auth request failed:', err)
-          }
         }
 
         // Check passkey support
