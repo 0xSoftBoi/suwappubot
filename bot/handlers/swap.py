@@ -144,39 +144,77 @@ async def select_from_chain(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return ConversationHandler.END
     
     context.user_data["swap"] = {"from_chain": chain_name}
-    
+
     # Get available tokens for this chain
     tokens = get_tokens_for_chain(chain_name)
-    
+
     if not tokens:
         await query.edit_message_text(f"❌ No supported tokens on {chain.display_name}")
         return ConversationHandler.END
-    
-    text = f"🔄 *New Swap*\n\n{chain.logo_emoji} From: *{chain.display_name}*\n\nSelect the token to swap:"
-    
-    token_buttons = []
-    row = []
+
+    # Fetch user's balances to show tokens they hold first
+    user_id = context.user_data.get("user_id")
+    chain_type = "solana" if chain.chain_type == ChainType.SOLANA else "evm"
+    user_balances: dict[str, float] = {}
+
+    try:
+        default_wallet = wallet_service.get_default_wallet(user_id, chain_type)
+        if default_wallet:
+            all_balances = await wallet_service.get_balances_by_address(default_wallet.address, chain_type)
+            for chain_bals in all_balances.values():
+                user_balances.update(chain_bals)
+    except Exception:
+        pass  # Show all tokens without balance info on failure
+
+    # Split tokens: ones with balance first, then the rest
+    tokens_with_bal = []
+    tokens_without_bal = []
     for token in tokens:
-        btn = InlineKeyboardButton(
-            f"{token.logo_emoji} {token.symbol}",
-            callback_data=f"from_token_{token.symbol}"
-        )
-        row.append(btn)
-        if len(row) == 2:
+        bal = user_balances.get(token.symbol, 0)
+        if bal > 0:
+            tokens_with_bal.append((token, bal))
+        else:
+            tokens_without_bal.append(token)
+
+    # Sort tokens with balance by amount descending
+    tokens_with_bal.sort(key=lambda x: x[1], reverse=True)
+
+    text = f"🔄 *New Swap*\n\n{chain.logo_emoji} From: *{chain.display_name}*\n\nSelect the token to swap:"
+
+    token_buttons = []
+
+    # Tokens with balance — show balance amount, one per row for clarity
+    if tokens_with_bal:
+        for token, bal in tokens_with_bal:
+            label = f"✅ {token.logo_emoji} {token.symbol} — {format_amount(bal)}"
+            token_buttons.append([InlineKeyboardButton(
+                label, callback_data=f"from_token_{token.symbol}"
+            )])
+
+    # Remaining tokens — compact 2 per row
+    if tokens_without_bal:
+        row = []
+        for token in tokens_without_bal:
+            btn = InlineKeyboardButton(
+                f"{token.logo_emoji} {token.symbol}",
+                callback_data=f"from_token_{token.symbol}"
+            )
+            row.append(btn)
+            if len(row) == 2:
+                token_buttons.append(row)
+                row = []
+        if row:
             token_buttons.append(row)
-            row = []
-    if row:
-        token_buttons.append(row)
-    
+
     token_buttons.append([
         InlineKeyboardButton("« Back", callback_data="swap_start"),
         InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel"),
     ])
-    
+
     await query.edit_message_text(
         text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(token_buttons)
     )
-    
+
     return SELECT_FROM_TOKEN
 
 
