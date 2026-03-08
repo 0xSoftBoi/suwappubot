@@ -878,20 +878,16 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 
 async def swap_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancel the swap flow."""
+    """Cancel the swap flow and return to main menu."""
     query = update.callback_query
-    await query.answer()
-    
+    await query.answer("Swap cancelled")
+
     context.user_data.pop("swap", None)
-    
-    await query.edit_message_text(
-        "❌ Swap cancelled.",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 New Swap", callback_data="swap_start")],
-            [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
-        ]),
-    )
-    
+
+    # Go straight to main menu
+    from bot.handlers.start import main_menu_callback
+    await main_menu_callback(update, context)
+
     return ConversationHandler.END
 
 
