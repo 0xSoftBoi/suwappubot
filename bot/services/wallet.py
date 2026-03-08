@@ -419,40 +419,47 @@ class WalletService:
     ) -> float:
         """
         Get ERC20 token balance for an address.
-        
+
         Returns:
             Token balance as float
         """
         token_address = get_token_address(token_symbol, chain_name)
         if not token_address:
             return 0.0
-        
+
         web3 = self._get_web3(chain_name)
         contract = web3.eth.contract(
             address=Web3.to_checksum_address(token_address),
             abi=ERC20_ABI
         )
-        
+
         try:
-            balance_raw = contract.functions.balanceOf(
-                Web3.to_checksum_address(address)
-            ).call()
-            
+            loop = asyncio.get_event_loop()
+            balance_raw = await loop.run_in_executor(
+                None,
+                contract.functions.balanceOf(Web3.to_checksum_address(address)).call,
+            )
+
             decimals = get_token_decimals(token_symbol, chain_name)
             return balance_raw / (10 ** decimals)
         except Exception:
             return 0.0
-    
+
     async def get_evm_native_balance(self, chain_name: str, address: str) -> float:
         """Get native token balance (ETH, BNB, etc.) for an address."""
         chain = get_chain_by_name(chain_name)
         if not chain:
             return 0.0
-        
+
         web3 = self._get_web3(chain_name)
-        
+
         try:
-            balance_wei = web3.eth.get_balance(Web3.to_checksum_address(address))
+            loop = asyncio.get_event_loop()
+            balance_wei = await loop.run_in_executor(
+                None,
+                web3.eth.get_balance,
+                Web3.to_checksum_address(address),
+            )
             return balance_wei / (10 ** chain.native_decimals)
         except Exception:
             return 0.0
