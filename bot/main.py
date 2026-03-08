@@ -7,6 +7,7 @@ from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
+    PicklePersistence,
 )
 
 from bot.config.settings import settings
@@ -487,11 +488,19 @@ def main() -> None:
     else:
         logger.warning("⚠️ Database monitoring disabled (no connection)")
     
+    # Ensure data directory exists for persistence
+    import os
+    os.makedirs("data", exist_ok=True)
+
+    # Create persistence to survive bot restarts
+    persistence = PicklePersistence(filepath="data/bot_persistence.pickle")
+
     # Create application with lifecycle hooks
     logger.info("Creating bot application...")
     application = (
         Application.builder()
         .token(settings.telegram_bot_token)
+        .persistence(persistence)
         .post_init(post_init)
         .post_shutdown(post_shutdown)
         .build()

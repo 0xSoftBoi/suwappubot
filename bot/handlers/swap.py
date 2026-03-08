@@ -1064,6 +1064,8 @@ async def _notify_followers(bot, followers_to_notify, swap_data, swap_tx):
 
 # Create conversation handler
 swap_conversation_handler = ConversationHandler(
+    name="swap",
+    persistent=True,
     entry_points=[
         CommandHandler("s", swap_command),
         CallbackQueryHandler(swap_start_callback, pattern="^swap_start$"),

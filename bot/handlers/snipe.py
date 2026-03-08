@@ -764,6 +764,8 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 # ============ CONVERSATION HANDLER ============
 
 snipe_conversation_handler = ConversationHandler(
+    name="snipe",
+    persistent=True,
     entry_points=[
         CommandHandler("snipe", snipe_command),
     ],
