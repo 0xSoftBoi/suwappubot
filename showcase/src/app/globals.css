@@ -131,11 +131,27 @@ body {
   background: #000;
 }
 
+/* ---- Squishy timing for hovers ---- */
+.hover\:-translate-y-1:hover,
+.group-hover\:scale-105:hover,
+.group-hover\:scale-110:hover {
+  transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
 /* ---- Button shine ---- */
 .btn-suwappu {
   position: relative;
   overflow: hidden;
-  transition: all 0.3s ease;
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.btn-suwappu:hover {
+  transform: translateY(-1px) scale(1.02);
+}
+
+.btn-suwappu:active {
+  transform: translateY(0px) scale(0.98);
+  transition-duration: 0.1s;
 }
 
 .btn-suwappu::before {

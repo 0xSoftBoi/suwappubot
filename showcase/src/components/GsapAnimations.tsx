@@ -32,9 +32,9 @@ export function FadeUpStagger({
       y: 40,
       opacity: 0,
       stagger: staggerAmount,
-      duration: 0.6,
+      duration: 0.9,
       delay,
-      ease: 'expo.out',
+      ease: 'elastic.out(1, 0.5)',
     });
   }, { scope: containerRef });
 
@@ -146,9 +146,9 @@ export function GradientReveal({
       { clipPath: 'inset(0 100% 0 0)' },
       {
         clipPath: 'inset(0 0% 0 0)',
-        duration,
+        duration: duration * 1.2,
         delay,
-        ease: 'power3.inOut',
+        ease: 'back.inOut(1.4)',
       },
     );
   }, { scope: ref });

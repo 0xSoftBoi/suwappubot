@@ -57,7 +57,7 @@ export default function PlatformDemosPanel() {
       duration: 0.15,
       onComplete: () => {
         setActive(i);
-        gsap.to(contentRef.current!, { opacity: 1, duration: 0.25, ease: 'expo.out' });
+        gsap.to(contentRef.current!, { opacity: 1, duration: 0.4, ease: 'back.out(1.7)' });
       },
     });
   };

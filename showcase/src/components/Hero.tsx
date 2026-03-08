@@ -37,7 +37,7 @@ export default function Hero() {
     // Gentle slide up — starts slightly offset, always visible
     gsap.fromTo(items,
       { y: 16, opacity: 0.7 },
-      { y: 0, opacity: 1, stagger: 0.08, duration: 0.5, ease: 'expo.out' }
+      { y: 0, opacity: 1, stagger: 0.1, duration: 0.8, ease: 'back.out(1.4)' }
     );
   }, { scope: heroRef });
 

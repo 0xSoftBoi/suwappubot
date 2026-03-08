@@ -48,7 +48,7 @@ export default function Navigation() {
         const totalPanels = panels.length;
         const scrollRange = st.end - st.start;
         const targetScroll = st.start + (panelIndex / (totalPanels - 1)) * scrollRange;
-        gsap.to(window, { scrollTo: targetScroll, duration: 1, ease: 'power2.inOut' });
+        gsap.to(window, { scrollTo: targetScroll, duration: 1.2, ease: 'back.inOut(1.2)' });
       } else {
         // Mobile / vertical fallback: scroll to element
         panels[panelIndex].scrollIntoView({ behavior: 'smooth' });
