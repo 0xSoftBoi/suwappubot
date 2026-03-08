@@ -63,6 +63,42 @@ Authorization: Bearer suwappu_sk_YOUR_KEY
 | A2A | `POST /a2a` with `{"method":"message/send","params":{"message":{"role":"user","parts":[{"type":"text","text":"quote 0.5 ETH to USDC on base"}]}}}` |
 | MCP | `POST /mcp` with `{"method":"initialize","params":{}}`, then `tools/list`, then `tools/call` |
 
+## npm Packages
+
+| Package | Description |
+|---------|-------------|
+| [`@suwappu/mcp-server`](https://www.npmjs.com/package/@suwappu/mcp-server) | MCP server for Claude Desktop, Claude Code, Cursor (stdio transport) |
+| [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) | TypeScript SDK wrapping the REST API |
+| [`@suwappu/langchain-suwappu`](https://www.npmjs.com/package/@suwappu/langchain-suwappu) | LangChain toolkit for building agents with Suwappu tools |
+
+## Registry Listings
+
+Suwappu is listed on the following agent/tool registries:
+
+| Registry | Protocol | Status |
+|----------|----------|--------|
+| [awesome-a2a](https://github.com/ai-boost/awesome-a2a) | A2A | Listed ([PR #36](https://github.com/ai-boost/awesome-a2a/pull/36)) |
+| [Smithery.ai](https://smithery.ai) | MCP | Pending submission |
+| [mcpservers.org](https://mcpservers.org) | MCP | Planned |
+| [StackA2A](https://stacka2a.dev) | A2A | Planned |
+| [a2aregistry.org](https://a2aregistry.org) | A2A | Pending registration |
+
+### Future Registry Submissions
+
+The following registries require manual web form submission:
+
+- **Smithery.ai** — Submit at [smithery.ai/new](https://smithery.ai/new). The `smithery.yaml` config is already in the repo at `packages/mcp-server/smithery.yaml`.
+- **mcpservers.org** — Submit at [mcpservers.org/submit](https://mcpservers.org/submit). Also covers the awesome-mcp-servers GitHub list.
+- **mcpserverdirectory.org** — Submit at [mcpserverdirectory.org/submit](https://mcpserverdirectory.org/submit).
+- **StackA2A** — Submit at [stacka2a.dev/submit-agent](https://stacka2a.dev/submit-agent).
+- **a2aagentlist.com** — Email gal6111@gmail.com with agent details.
+- **a2aregistry.org** — API registration:
+  ```bash
+  curl -X POST "https://a2aregistry.org/api/agents/register" \
+    -H "Content-Type: application/json" \
+    -d '{"wellKnownURI": "https://api.suwappu.bot/.well-known/agent.json"}'
+  ```
+
 See the individual protocol guides for full details:
 
 - [A2A Protocol](a2a.md)

@@ -252,6 +252,22 @@ All `tools/call` responses return content as an array of parts:
 
 The `text` field contains a JSON string. Parse it to access the structured data.
 
+## npm Package (Local stdio Server)
+
+For local MCP setups, install the `@suwappu/mcp-server` npm package:
+
+```bash
+npm install -g @suwappu/mcp-server
+```
+
+Run directly:
+
+```bash
+SUWAPPU_API_KEY=suwappu_sk_YOUR_KEY npx @suwappu/mcp-server
+```
+
+The stdio server connects to the Suwappu API and exposes the same six tools as the remote endpoint. Use this when your MCP client requires a local process (e.g., Claude Desktop with stdio transport).
+
 ## Claude Desktop Configuration
 
 Add Suwappu as an MCP server in your Claude Desktop config file:
@@ -266,6 +282,22 @@ Add Suwappu as an MCP server in your Claude Desktop config file:
       "url": "https://api.suwappu.bot/mcp",
       "headers": {
         "Authorization": "Bearer suwappu_sk_YOUR_KEY"
+      }
+    }
+  }
+}
+```
+
+Alternatively, use the local stdio server:
+
+```json
+{
+  "mcpServers": {
+    "suwappu": {
+      "command": "npx",
+      "args": ["-y", "@suwappu/mcp-server"],
+      "env": {
+        "SUWAPPU_API_KEY": "suwappu_sk_YOUR_KEY"
       }
     }
   }
