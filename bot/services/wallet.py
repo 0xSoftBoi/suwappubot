@@ -1,5 +1,6 @@
 """Wallet management service for EVM and Solana chains."""
 
+import asyncio
 import json
 import logging
 from typing import Optional
@@ -587,61 +588,98 @@ class WalletService:
     async def get_balances_by_address(self, address: str, chain_type: str) -> dict[str, dict[str, float]]:
         """
         Get all token balances for an address without needing a Wallet object.
-        
-        Args:
-            address: Wallet address
-            chain_type: "evm" or "solana"
-            
-        Returns:
-            Dict of chain_name -> {token_symbol: balance}
+
+        Fetches all chains and tokens in parallel with per-call timeouts.
         """
         from bot.config.tokens import TOKENS
-        
+
+        CALL_TIMEOUT = 5  # seconds per RPC call
+        GLOBAL_TIMEOUT = 20  # seconds for entire balance fetch
+
         balances: dict[str, dict[str, float]] = {}
-        
-        if chain_type == "evm":
-            # Check balances on all EVM chains
-            for chain_name, chain in CHAINS.items():
-                if chain.chain_type != ChainType.EVM:
-                    continue
-                
-                chain_balances: dict[str, float] = {}
-                
-                # Native balance
-                native_balance = await self.get_evm_native_balance(chain_name, address)
-                if native_balance > 0:
-                    chain_balances[chain.native_token] = native_balance
-                
-                # Token balances
-                for token_symbol, token in TOKENS.items():
-                    if chain_name in token.addresses:
-                        balance = await self.get_evm_token_balance(
-                            chain_name, token_symbol, address
-                        )
-                        if balance > 0:
-                            chain_balances[token_symbol] = balance
-                
-                if chain_balances:
-                    balances[chain_name] = chain_balances
-        
-        elif chain_type == "solana":
+
+        async def _safe_call(coro, default=0.0):
+            """Wrap an RPC call with a timeout."""
+            try:
+                return await asyncio.wait_for(coro, timeout=CALL_TIMEOUT)
+            except (asyncio.TimeoutError, Exception):
+                return default
+
+        async def _fetch_evm_chain(chain_name, chain):
+            """Fetch all balances for a single EVM chain in parallel."""
             chain_balances: dict[str, float] = {}
-            
-            # SOL balance
-            sol_balance = await self.get_solana_native_balance(address)
-            if sol_balance > 0:
-                chain_balances["SOL"] = sol_balance
-            
+
+            # Build all tasks for this chain
+            tasks = []
+            task_keys = []
+
+            # Native balance
+            tasks.append(_safe_call(self.get_evm_native_balance(chain_name, address)))
+            task_keys.append(chain.native_token)
+
             # Token balances
             for token_symbol, token in TOKENS.items():
-                if "solana" in token.addresses:
-                    balance = await self.get_solana_token_balance(token_symbol, address)
-                    if balance > 0:
-                        chain_balances[token_symbol] = balance
-            
-            if chain_balances:
-                balances["solana"] = chain_balances
-        
+                if chain_name in token.addresses:
+                    tasks.append(_safe_call(
+                        self.get_evm_token_balance(chain_name, token_symbol, address)
+                    ))
+                    task_keys.append(token_symbol)
+
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for key, result in zip(task_keys, results):
+                if isinstance(result, (int, float)) and result > 0:
+                    chain_balances[key] = result
+
+            return chain_name, chain_balances
+
+        try:
+            async with asyncio.timeout(GLOBAL_TIMEOUT):
+                if chain_type == "evm":
+                    # Fetch ALL chains in parallel
+                    chain_tasks = []
+                    for chain_name, chain in CHAINS.items():
+                        if chain.chain_type != ChainType.EVM:
+                            continue
+                        chain_tasks.append(_fetch_evm_chain(chain_name, chain))
+
+                    results = await asyncio.gather(*chain_tasks, return_exceptions=True)
+
+                    for result in results:
+                        if isinstance(result, tuple):
+                            chain_name, chain_balances = result
+                            if chain_balances:
+                                balances[chain_name] = chain_balances
+
+                elif chain_type == "solana":
+                    chain_balances: dict[str, float] = {}
+
+                    # Build all Solana tasks in parallel
+                    tasks = []
+                    task_keys = []
+
+                    tasks.append(_safe_call(self.get_solana_native_balance(address)))
+                    task_keys.append("SOL")
+
+                    for token_symbol, token in TOKENS.items():
+                        if "solana" in token.addresses:
+                            tasks.append(_safe_call(
+                                self.get_solana_token_balance(token_symbol, address)
+                            ))
+                            task_keys.append(token_symbol)
+
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                    for key, result in zip(task_keys, results):
+                        if isinstance(result, (int, float)) and result > 0:
+                            chain_balances[key] = result
+
+                    if chain_balances:
+                        balances["solana"] = chain_balances
+
+        except asyncio.TimeoutError:
+            logger.warning(f"Global timeout fetching balances for {address}")
+
         return balances
     
     # === Transaction Signing ===
