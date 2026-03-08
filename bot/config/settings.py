@@ -292,6 +292,7 @@ class Settings(BaseSettings):
     
     # API Keys (optional for higher rate limits)
     lifi_api_key: Optional[str] = Field(default=None, description="Li.Fi API key")
+    lifi_integrator_id: str = Field(default="SuwappuProduction", description="Li.Fi integrator ID for fee collection")
     jupiter_api_key: Optional[str] = Field(default=None, description="Jupiter API key")
     socket_api_key: Optional[str] = Field(default=None, description="Socket/Bungee API key for super-aggregation")
     

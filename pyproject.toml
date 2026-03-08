@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "suwappubot"
-version = "1.2.0"
+version = "1.2.1"
 description = "Cross-chain swap Telegram bot with C++ high-performance core"
 readme = "README.md"
 requires-python = ">=3.9"
