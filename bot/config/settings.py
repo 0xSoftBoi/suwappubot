@@ -257,7 +257,7 @@ class Settings(BaseSettings):
     # WhatsApp Business API (Optional)
     whatsapp_phone_number_id: Optional[str] = Field(default=None, description="WhatsApp Business Phone Number ID")
     whatsapp_access_token: Optional[str] = Field(default=None, description="WhatsApp Cloud API Access Token")
-    whatsapp_verify_token: str = Field(default=None, description="Webhook verification token — must be set explicitly")
+    whatsapp_verify_token: Optional[str] = Field(default=None, description="Webhook verification token — must be set explicitly")
     
     # Telegram Mini App
     webapp_url: str = Field(
