@@ -1,0 +1,64 @@
+name: Recreate SSH Key and Save
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Recreate key pair and store in SSM
+        run: |
+          # Delete old key pair
+          aws ec2 delete-key-pair --key-name suwappu-bot-key 2>/dev/null || true
+
+          # Create new one
+          aws ec2 create-key-pair \
+            --key-name suwappu-bot-key \
+            --key-type ed25519 \
+            --query 'KeyMaterial' \
+            --output text > /tmp/key.pem
+
+          chmod 600 /tmp/key.pem
+
+          # Store in SSM Parameter Store so we can retrieve it
+          aws ssm put-parameter \
+            --name "/suwappu/ec2-ssh-key" \
+            --type SecureString \
+            --value "$(cat /tmp/key.pem)" \
+            --overwrite
+
+          echo "Key saved to SSM Parameter Store: /suwappu/ec2-ssh-key"
+
+          # Get instance ID and replace the key
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=suwappu-bot" "Name=instance-state-name,Values=running" \
+            --query 'Reservations[0].Instances[0].InstanceId' --output text)
+
+          echo "Instance: $INSTANCE_ID"
+          echo "IP: 23.21.184.77"
+
+          # Push public key to instance via SSM send-command
+          PUB_KEY=$(ssh-keygen -y -f /tmp/key.pem)
+          aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[\"echo '$PUB_KEY' > /home/ubuntu/.ssh/authorized_keys\",\"chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys\",\"chmod 600 /home/ubuntu/.ssh/authorized_keys\"]" \
+            --comment "Update SSH key" 2>&1 || echo "SSM send-command failed - instance may not have SSM agent yet"
+
+          # Test SSH
+          sleep 5
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+            -i /tmp/key.pem ubuntu@23.21.184.77 "echo SSH_OK" 2>&1 || echo "SSH test failed"
+
+          rm -f /tmp/key.pem
