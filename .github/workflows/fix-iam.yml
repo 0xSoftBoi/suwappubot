@@ -1,0 +1,74 @@
+name: Add EC2 Permissions to Deploy Role
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials (IAM user keys)
+        run: |
+          aws configure set aws_access_key_id "${{ secrets.AWS_ACCESS_KEY_ID }}"
+          aws configure set aws_secret_access_key "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+          aws configure set region us-east-1
+
+      - name: Check who we are
+        run: |
+          echo "=== Identity ==="
+          aws sts get-caller-identity
+
+      - name: List and fix role permissions
+        run: |
+          ROLE_NAME="github-actions-suwappu"
+
+          echo "=== Current policies on role ==="
+          aws iam list-attached-role-policies --role-name "$ROLE_NAME" 2>&1 || echo "Cannot list"
+
+          echo ""
+          echo "=== Attaching AmazonEC2FullAccess ==="
+          aws iam attach-role-policy \
+            --role-name "$ROLE_NAME" \
+            --policy-arn arn:aws:iam::aws:policy/AmazonEC2FullAccess
+
+          echo "=== Attaching AmazonSSMReadOnlyAccess ==="
+          aws iam attach-role-policy \
+            --role-name "$ROLE_NAME" \
+            --policy-arn arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess
+
+          echo "=== Adding inline policy for IAM + SSM ==="
+          aws iam put-role-policy \
+            --role-name "$ROLE_NAME" \
+            --policy-name "ec2-provisioning" \
+            --policy-document '{
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:CreateRole",
+                    "iam:GetRole",
+                    "iam:AttachRolePolicy",
+                    "iam:PutRolePolicy",
+                    "iam:CreateInstanceProfile",
+                    "iam:GetInstanceProfile",
+                    "iam:AddRoleToInstanceProfile",
+                    "iam:PassRole",
+                    "iam:ListAttachedRolePolicies",
+                    "iam:ListRolePolicies",
+                    "ssm:GetParameter",
+                    "ssm:GetParameters"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }'
+
+          echo ""
+          echo "=== Verifying ==="
+          aws iam list-attached-role-policies --role-name "$ROLE_NAME"
+          echo ""
+          echo "Done! Now run provision-ec2.yml"
