@@ -5,7 +5,7 @@ import { SettingsItem, ToggleItem } from '../components/ui'
 import { WalletCard } from '../components/cards'
 import { useAuth, formatAddress } from '../contexts/AuthContext'
 import { api } from '../lib/api'
-import type { UserPreferences, LinkedWalletInfo, UserProfile } from '@suwappu/shared'
+import type { UserPreferences, LinkedWalletInfo, UserProfile } from '../types/api'
 
 type SettingsView = 'main' | 'slippage' | 'notifications' | 'wallets' | 'gas'
 
@@ -395,7 +395,7 @@ export function Settings() {
         {/* Version Info */}
         <div className="pt-4 space-y-1">
           <p className="text-xs text-suwappu-text-secondary text-center font-mono bg-suwappu-sakura-light/50 py-2 px-4 rounded-lg inline-block mx-auto">
-            Webapp v1.3.4 • API {import.meta.env.VITE_API_URL?.includes('devapi') ? 'DEV' : 'PROD'}
+            Webapp v1.4.0 • API {import.meta.env.VITE_API_URL?.includes('devapi') ? 'DEV' : 'PROD'}
           </p>
         </div>
       </div>

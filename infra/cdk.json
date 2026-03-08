@@ -32,7 +32,6 @@
     "@aws-cdk/aws-iam:importedRoleStackSafeDefaultPolicyName": true,
     "@aws-cdk/aws-s3:serverAccessLogsUseBucketPolicy": true,
     "@aws-cdk/aws-route53-patters:useCertificate": true,
-    "@aws-cdk/customresources:installLatestAwsSdkDefault": false,
-    "certificateArn": "arn:aws:acm:us-east-1:905418423235:certificate/74e95aae-e397-44cc-9005-d964c97ebc41"
+    "@aws-cdk/customresources:installLatestAwsSdkDefault": false
   }
 }

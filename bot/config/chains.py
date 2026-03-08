@@ -7,8 +7,6 @@ class ChainType(Enum):
     """Blockchain type."""
     EVM = "evm"
     SOLANA = "solana"
-    TON = "ton"
-    SUI = "sui"
 
 
 @dataclass
@@ -184,52 +182,6 @@ CHAINS: dict[str, ChainConfig] = {
         logo_emoji="🟢",
         lifi_chain_id=1151111081099710,  # Li.Fi Solana chain ID
     ),
-    "ton": ChainConfig(
-        chain_id="ton",
-        name="ton",
-        display_name="TON",
-        chain_type=ChainType.TON,
-        native_token="TON",
-        native_decimals=9,
-        rpc_url_env="TON_RPC_URL",
-        explorer_url="https://tonscan.org",
-        logo_emoji="💎",
-    ),
-    "monad": ChainConfig(
-        chain_id=41454,
-        name="monad",
-        display_name="MON",
-        chain_type=ChainType.EVM,
-        native_token="MON",
-        native_decimals=18,
-        rpc_url_env="MONAD_RPC_URL",
-        explorer_url="https://explorer.monad.xyz",
-        logo_emoji="🟪",
-        lifi_chain_id=41454,
-    ),
-    "berachain": ChainConfig(
-        chain_id=80094,
-        name="berachain",
-        display_name="BERA",
-        chain_type=ChainType.EVM,
-        native_token="BERA",
-        native_decimals=18,
-        rpc_url_env="BERACHAIN_RPC_URL",
-        explorer_url="https://berascan.com",
-        logo_emoji="🐻",
-        lifi_chain_id=80094,
-    ),
-    "sui": ChainConfig(
-        chain_id="sui-mainnet",
-        name="sui",
-        display_name="SUI",
-        chain_type=ChainType.SUI,
-        native_token="SUI",
-        native_decimals=9,
-        rpc_url_env="SUI_RPC_URL",
-        explorer_url="https://suiscan.xyz",
-        logo_emoji="🌊",
-    ),
 }
 
 
@@ -254,14 +206,4 @@ def get_evm_chains() -> list[ChainConfig]:
 def get_solana_chain() -> ChainConfig:
     """Get Solana chain configuration."""
     return CHAINS["solana"]
-
-
-def get_ton_chain() -> ChainConfig:
-    """Get TON chain configuration."""
-    return CHAINS["ton"]
-
-
-def get_sui_chain() -> ChainConfig:
-    """Get Sui chain configuration."""
-    return CHAINS["sui"]
 

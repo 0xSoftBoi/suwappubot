@@ -26,11 +26,10 @@ class TestEVMAddressValidation:
         checksummed = "0x742D35cc6634c0532925a3B844Bc9E7595F5Ba12"
         assert validate_evm_address(checksummed) is True
     
-    def test_address_no_prefix(self):
-        """Test address without 0x prefix - eth_utils considers valid hex addresses valid."""
+    def test_invalid_address_no_prefix(self):
+        """Test invalid address without 0x prefix."""
         address = "742d35Cc6634C0532925a3b844Bc9e7595f5bA12"
-        # eth_utils.is_address accepts 40-char hex strings without 0x prefix
-        assert validate_evm_address(address) is True
+        assert validate_evm_address(address) is False
     
     def test_invalid_address_wrong_length(self):
         """Test invalid address with wrong length."""
@@ -132,12 +131,10 @@ class TestInputSanitizer:
             InputSanitizer.sanitize_amount("100.50.25")
     
     def test_sanitize_address_valid_evm(self):
-        """Test sanitizing valid EVM address returns checksum form."""
+        """Test sanitizing valid EVM address."""
         address = "0x742d35Cc6634C0532925a3b844Bc9e7595f5bA12"
         result = InputSanitizer.sanitize_address(address, "evm")
-        # sanitize_address normalises to EIP-55 checksum
-        from web3 import Web3
-        assert result == Web3.to_checksum_address(address)
+        assert result == address
     
     def test_sanitize_address_invalid_evm(self):
         """Test sanitizing invalid EVM address."""

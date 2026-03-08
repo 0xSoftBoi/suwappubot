@@ -22,8 +22,8 @@ interface NavItem {
 }
 
 interface SidebarProps {
-  activeTab: string;
-  onTabChange: (tab: string) => void;
+  activeTab?: string;
+  onTabChange?: (tab: string) => void;
 }
 
 const mainNavItems: NavItem[] = [
@@ -39,13 +39,13 @@ const bottomNavItems: NavItem[] = [
   { id: 'help', label: 'Help', icon: <HelpCircle size={20} /> },
 ];
 
-function NavButton({ 
-  item, 
-  active, 
-  onClick 
-}: { 
-  item: NavItem; 
-  active: boolean; 
+function NavButton({
+  item,
+  active,
+  onClick
+}: {
+  item: NavItem;
+  active: boolean;
   onClick: () => void;
 }) {
   return (
@@ -75,7 +75,7 @@ function NavButton({
   );
 }
 
-export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
+export function Sidebar({ activeTab = 'overview', onTabChange = () => {} }: SidebarProps) {
   const { isAuthenticated, address, logout } = useAuth();
 
   const truncateAddress = (addr: string) => {
@@ -117,7 +117,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
             onClick={() => onTabChange(item.id)}
           />
         ))}
-        
+
         {isAuthenticated && (
           <button
             onClick={logout}

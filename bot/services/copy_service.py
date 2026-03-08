@@ -489,98 +489,20 @@ class CopyService:
         
         return False
     
-    # ==================== Auto-Sell Mirroring ====================
-
-    async def mirror_sell_trade(
-        self,
-        trader_id: int,
-        swap: SwapTransaction,
-        amount_usd: float,
-    ) -> List[int]:
-        """
-        When a trader sells a token, mirror the sell for all auto-copy followers
-        who have auto_sell_enabled and hold that token.
-
-        Returns list of follower user IDs that received sell copy trades.
-        """
-        mirrored_users = []
-
-        with get_session() as session:
-            # Find active followers with auto copy mode and auto-sell enabled
-            followers = session.query(CopyFollow).filter(
-                CopyFollow.trader_id == trader_id,
-                CopyFollow.is_active == True,
-                CopyFollow.copy_mode == "auto",
-                CopyFollow.auto_sell_enabled == True,
-            ).all()
-
-            for follow in followers:
-                # Check chains filter
-                if follow.chains_filter:
-                    allowed_chains = [c.strip().lower() for c in follow.chains_filter.split(",")]
-                    if swap.from_chain.lower() not in allowed_chains:
-                        continue
-
-                copy_amount = follow.get_copy_amount(amount_usd)
-
-                if not follow.check_daily_limit(copy_amount):
-                    continue
-
-                copy_trade = CopyTrade(
-                    original_swap_id=swap.id,
-                    trader_id=trader_id,
-                    copier_id=follow.follower_id,
-                    follow_id=follow.id,
-                    from_token=swap.from_token,
-                    to_token=swap.to_token,
-                    from_chain=swap.from_chain,
-                    to_chain=swap.to_chain,
-                    trader_amount_usd=amount_usd,
-                    copy_amount_usd=copy_amount,
-                    status="pending",
-                )
-                session.add(copy_trade)
-                session.flush()
-
-                mirrored_users.append(follow.follower_id)
-
-        return mirrored_users
-
     # ==================== Discovery & Leaderboard ====================
-
-    def get_top_traders(
-        self,
-        limit: int = 10,
-        min_trades: Optional[int] = None,
-        min_win_rate: Optional[float] = None,
-        chain: Optional[str] = None,
-    ) -> List[dict]:
-        """Get top public traders by rank score with optional filters."""
+    
+    def get_top_traders(self, limit: int = 10) -> List[dict]:
+        """Get top public traders by rank score."""
         with get_session() as session:
-            query = session.query(TraderProfile, User).join(
+            profiles = session.query(TraderProfile, User).join(
                 User, TraderProfile.user_id == User.id
             ).filter(
                 TraderProfile.is_public == True,
-                TraderProfile.total_trades >= (min_trades or 5),
-            )
-
-            if min_win_rate is not None:
-                query = query.filter(TraderProfile.win_rate >= min_win_rate)
-
-            if chain:
-                # Filter traders who have recent trades on this chain
-                query = query.filter(
-                    TraderProfile.user_id.in_(
-                        session.query(TraderTrade.trader_id).filter(
-                            TraderTrade.from_chain == chain
-                        ).distinct()
-                    )
-                )
-
-            profiles = query.order_by(
+                TraderProfile.total_trades >= 5  # Minimum trades to appear
+            ).order_by(
                 desc(TraderProfile.rank_score)
             ).limit(limit).all()
-
+            
             return [
                 {
                     "rank": i + 1,

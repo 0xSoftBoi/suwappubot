@@ -2,19 +2,20 @@
  * React Query hooks for DCA orders.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, type CreateDCARequest } from '../lib/api'
+import { api } from '../lib/api'
+import type { CreateDCARequest } from '../../packages/shared/src/types/orders'
 
 export function useDCAPlans() {
   return useQuery({
     queryKey: ['dca'],
-    queryFn: () => api.getDCAOrders(),
+    queryFn: () => api.getDCAPlans(),
   })
 }
 
 export function useCreateDCA() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: CreateDCARequest) => api.createDCAOrder(data),
+    mutationFn: (data: CreateDCARequest) => api.createDCA(data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['dca'] }),
   })
 }

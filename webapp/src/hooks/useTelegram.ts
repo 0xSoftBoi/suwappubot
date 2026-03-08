@@ -23,9 +23,6 @@ interface UseTelegramReturn {
   showAlert: (message: string) => Promise<void>
   showConfirm: (message: string) => Promise<boolean>
   close: () => void
-  requestFullscreen: () => void
-  exitFullscreen: () => void
-  addToHomeScreen: () => void
 }
 
 export function useTelegram(): UseTelegramReturn {
@@ -149,8 +146,5 @@ export function useTelegram(): UseTelegramReturn {
     showAlert,
     showConfirm,
     close,
-    requestFullscreen,
-    exitFullscreen,
-    addToHomeScreen,
   }
 }

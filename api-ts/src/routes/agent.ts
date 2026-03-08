@@ -24,6 +24,7 @@ import {
 	TurnkeyService,
 } from '../services'
 import {
+	CreatePolicySchema,
 	ExecuteCommandSchema,
 	ExecuteSwapSchema,
 	formatZodErrors,
@@ -286,6 +287,9 @@ agentRoutes.use('/tokens', agentBearerAuth())
 agentRoutes.use('/webhooks', agentBearerAuth())
 agentRoutes.use('/webhooks/*', agentBearerAuth())
 agentRoutes.use('/keys/*', agentBearerAuth())
+agentRoutes.use('/wallet/policy', agentBearerAuth())
+agentRoutes.use('/wallet/policy/*', agentBearerAuth())
+agentRoutes.use('/wallet/policies', agentBearerAuth())
 agentRoutes.use('/reactivate', agentBearerAuthAllowInactive())
 
 // Apply rate limiting to all authenticated endpoints
@@ -304,6 +308,9 @@ agentRoutes.use('/tokens', rateLimit())
 agentRoutes.use('/webhooks', rateLimit())
 agentRoutes.use('/webhooks/*', rateLimit())
 agentRoutes.use('/keys/*', rateLimit())
+agentRoutes.use('/wallet/policy', rateLimit())
+agentRoutes.use('/wallet/policy/*', rateLimit())
+agentRoutes.use('/wallet/policies', rateLimit())
 agentRoutes.use('/reactivate', rateLimit())
 
 // GET /v1/agent/me - Get current agent profile
@@ -1731,6 +1738,108 @@ agentRoutes.get('/wallets', async (c) => {
 			},
 		],
 	})
+})
+
+// ===========================================
+// WALLET POLICIES (Turnkey)
+// ===========================================
+
+// POST /v1/agent/wallet/policy - Create a Turnkey policy for agent wallet
+agentRoutes.post('/wallet/policy', async (c) => {
+	const agent = c.get('agent')
+	const body = await c.req.json()
+	const parsed = CreatePolicySchema.safeParse(body)
+	if (!parsed.success) {
+		return c.json({ error: 'Invalid request', details: formatZodErrors(parsed.error) }, 400)
+	}
+
+	const metadata = (agent.metadata || {}) as Record<string, unknown>
+	const subOrgId = metadata.wallet_sub_org_id as string
+	if (!subOrgId) {
+		return c.json({ error: 'No managed wallet found', hint: 'Create a wallet first' }, 400)
+	}
+
+	const { type, params } = parsed.data
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const turnkeyService = yield* TurnkeyService
+
+			if (type === 'spending_limit') {
+				const condition = `eth.value <= ${params.maxAmountWei}`
+				const policyId = yield* turnkeyService.createPolicy(
+					subOrgId,
+					`agent-spending-limit-${params.timeWindowSeconds}s`,
+					'EFFECT_DENY',
+					condition,
+				)
+				return { policyId, type, condition }
+			} else {
+				const addresses = params.allowedAddresses!.map(a => `"${a.toLowerCase()}"`).join(', ')
+				const condition = `eth.tx.to in [${addresses}]`
+				const policyId = yield* turnkeyService.createPolicy(
+					subOrgId,
+					`agent-whitelist-${params.allowedAddresses!.length}`,
+					'EFFECT_ALLOW',
+					condition,
+				)
+				return { policyId, type, condition }
+			}
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+
+	return c.json({ success: true, policy: result.right })
+})
+
+// GET /v1/agent/wallet/policies - List policies for agent wallet
+agentRoutes.get('/wallet/policies', async (c) => {
+	const agent = c.get('agent')
+	const metadata = (agent.metadata || {}) as Record<string, unknown>
+	const subOrgId = metadata.wallet_sub_org_id as string
+	if (!subOrgId) {
+		return c.json({ error: 'No managed wallet found', hint: 'Create a wallet first' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const turnkeyService = yield* TurnkeyService
+			return yield* turnkeyService.listPolicies(subOrgId)
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+
+	return c.json({ success: true, policies: result.right })
+})
+
+// DELETE /v1/agent/wallet/policy/:policyId - Delete a policy
+agentRoutes.delete('/wallet/policy/:policyId', async (c) => {
+	const agent = c.get('agent')
+	const policyId = c.req.param('policyId')
+	const metadata = (agent.metadata || {}) as Record<string, unknown>
+	const subOrgId = metadata.wallet_sub_org_id as string
+	if (!subOrgId) {
+		return c.json({ error: 'No managed wallet found', hint: 'Create a wallet first' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const turnkeyService = yield* TurnkeyService
+			return yield* turnkeyService.deletePolicy(subOrgId, policyId)
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+
+	return c.json({ success: true, deleted: true })
 })
 
 // ===========================================

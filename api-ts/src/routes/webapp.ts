@@ -151,6 +151,58 @@ webappRoutes.post('/telegram/auth', async (c) => {
 	return c.json(result.right)
 })
 
+// POST /webapp/turnkey/oauth-wallet - Create wallet via OAuth provider
+webappRoutes.post('/turnkey/oauth-wallet', async (c) => {
+	const body = await c.req.json().catch(() => ({}))
+	const { provider, oauthToken, telegramUserId } = body
+
+	if (!provider || !oauthToken || !telegramUserId) {
+		return c.json({ error: 'Missing required fields: provider, oauthToken, telegramUserId' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const turnkeyService = yield* TurnkeyService
+			const userService = yield* UserService
+			const walletService = yield* WalletService
+
+			// Create sub-org with OAuth authenticator + wallet
+			const turnkeyWallet = yield* turnkeyService.createSubOrgWithOAuth(
+				provider,
+				oauthToken,
+				String(telegramUserId)
+			)
+
+			// Find user by telegram ID and save wallet
+			const userOption = yield* userService.getUserByTelegramId(Number(telegramUserId))
+
+			if (Option.isSome(userOption)) {
+				const user = userOption.value
+				yield* walletService.createTurnkeyWallet({
+					userId: user.id,
+					address: turnkeyWallet.address,
+					turnkeySubOrgId: turnkeyWallet.subOrgId,
+					turnkeyWalletId: turnkeyWallet.walletId,
+					turnkeyAccountId: turnkeyWallet.accountId,
+				})
+			}
+
+			return {
+				subOrgId: turnkeyWallet.subOrgId,
+				walletId: turnkeyWallet.walletId,
+				address: turnkeyWallet.address,
+			}
+		})
+	)
+
+	if (Either.isLeft(result)) {
+		console.error('OAuth wallet creation error:', result.left)
+		return c.json({ error: result.left.message || 'Failed to create OAuth wallet' }, 500)
+	}
+
+	return c.json(result.right)
+})
+
 // Protected webapp routes
 const protectedWebapp = new Hono()
 protectedWebapp.use('*', telegramAuth())

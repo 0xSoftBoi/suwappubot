@@ -9,6 +9,7 @@ import {
 	adminRoutes,
 	agentRoutes,
 	healthRoutes,
+	mcpRoutes,
 	publicSwapRoutes,
 	swapRoutes,
 	webappRoutes,
@@ -54,6 +55,9 @@ export function createApp(config: AppConfig) {
 
 	// A2A JSON-RPC endpoint - uses Bearer token auth internally
 	app.route('/a2a', a2aRoutes)
+
+	// MCP endpoint for OpenClaw and other MCP-compatible agents
+	app.route('/mcp', mcpRoutes)
 
 	// Agent card for A2A discovery (standard path + legacy)
 	app.get('/.well-known/agent.json', (c) => c.json(agentCard))

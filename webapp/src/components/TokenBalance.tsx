@@ -1,4 +1,4 @@
-import type { Token } from '@suwappu/shared'
+import type { Token } from '../types/api'
 
 interface TokenBalanceProps {
   token: Token

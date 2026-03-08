@@ -27,7 +27,7 @@ except ImportError:
 class QuoteValidator:
     """Validates swap quotes before execution."""
     
-    DEFAULT_EXPIRY_SECONDS = 90  # Quotes expire in 90 seconds
+    DEFAULT_EXPIRY_SECONDS = 30  # Quotes expire in 30 seconds
     
     @staticmethod
     def validate_quote_freshness(quote: "SwapQuote", max_age_seconds: int = None) -> bool:

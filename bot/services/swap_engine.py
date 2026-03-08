@@ -14,7 +14,6 @@ Provider Priority:
 
 import asyncio
 import logging
-import time
 from typing import Optional, List
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -46,7 +45,6 @@ from bot.models.user import Wallet
 from bot.models.swap import SwapTransaction, SwapStatus
 from bot.utils.quote_validator import quote_validator
 from bot.utils.exceptions import SwapError
-from bot.utils.circuit_breaker import provider_circuit_breaker
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -134,18 +132,25 @@ class SwapEngine:
         self.wormhole = WormholeAPI()
         self.wallet_service = WalletService()
         self._wallet_locks: dict[int, asyncio.Lock] = {}  # Per-wallet locks
-    
+
+    def _get_wallet_for_signing(self, wallet_data: dict) -> Wallet:
+        """Get Wallet model object for signing operations."""
+        wallet_id = wallet_data.get("id") or wallet_data.get("wallet_id")
+        if wallet_id:
+            with get_session() as session:
+                wallet = session.query(Wallet).filter(Wallet.id == wallet_id).first()
+                if wallet:
+                    return wallet
+        # Fallback: lookup by address
+        address = wallet_data.get("address")
+        if address:
+            with get_session() as session:
+                return session.query(Wallet).filter(Wallet.address == address).first()
+        return None
+
     def _is_solana_only_swap(self, from_chain: str, to_chain: str) -> bool:
         """Check if this is a Solana-to-Solana swap (use Jupiter)."""
         return from_chain == "solana" and to_chain == "solana"
-
-    def _is_ton_only_swap(self, from_chain: str, to_chain: str) -> bool:
-        """Check if this is a TON-to-TON swap (use STON.fi)."""
-        return from_chain == "ton" and to_chain == "ton"
-
-    def _is_sui_only_swap(self, from_chain: str, to_chain: str) -> bool:
-        """Check if this is a Sui-to-Sui swap (use Aftermath/Cetus)."""
-        return from_chain == "sui" and to_chain == "sui"
     
     def _is_ccip_route(self, from_chain: str, to_chain: str, from_token: str, to_token: str) -> bool:
         """Check if this route can use Chainlink CCIP (same token cross-chain EVM)."""
@@ -216,29 +221,16 @@ class SwapEngine:
 
         amount_raw = self._get_token_amount_raw(amount, from_token, from_chain)
 
-        if self._is_ton_only_swap(from_chain, to_chain):
-            logger.info("get_quote routing=stonfi (ton-only) pair=%s->%s amount=%s", from_token, to_token, amount)
-            quote = await self._get_stonfi_quote(
-                from_token, to_token, amount, amount_raw, slippage
-            )
-        elif self._is_solana_only_swap(from_chain, to_chain):
-            logger.info("get_quote routing=jupiter (solana-only) pair=%s->%s amount=%s", from_token, to_token, amount)
+        if self._is_solana_only_swap(from_chain, to_chain):
             quote = await self._get_jupiter_quote(
                 from_token, to_token, amount, amount_raw, from_address, int(slippage * 100)
             )
-        elif self._is_sui_only_swap(from_chain, to_chain):
-            logger.info("get_quote routing=aftermath (sui-only) pair=%s->%s amount=%s", from_token, to_token, amount)
-            quote = await self._get_sui_quote(
-                from_token, to_token, amount, amount_raw, slippage
-            )
         else:
-            logger.info("get_quote routing=lifi (evm) pair=%s/%s->%s/%s amount=%s", from_chain, from_token, to_chain, to_token, amount)
             quote = await self._get_lifi_quote(
                 from_chain, to_chain, from_token, to_token,
                 amount, amount_raw, from_address, to_address, slippage
             )
 
-        logger.info("get_quote result provider=%s rate=%.6f to_amount=%.6f", quote.provider, quote.exchange_rate, quote.to_amount_human)
         await quote_cache.set(cache_key, quote)
         return quote
     
@@ -431,29 +423,6 @@ class SwapEngine:
             raw_quote=raw_data,
         )
     
-    async def _fetch_quote_with_circuit_breaker(
-        self,
-        provider_name: str,
-        coro,
-    ) -> Optional[SwapQuote]:
-        """Fetch a quote with circuit breaker protection and per-provider timeout."""
-        if not provider_circuit_breaker.is_available(provider_name):
-            logger.debug(f"Skipping {provider_name} (circuit open)")
-            return None
-
-        try:
-            quote = await asyncio.wait_for(coro, timeout=10.0)
-            provider_circuit_breaker.record_success(provider_name)
-            return quote
-        except asyncio.TimeoutError:
-            logger.debug(f"{provider_name} quote timed out")
-            provider_circuit_breaker.record_failure(provider_name)
-            return None
-        except Exception as e:
-            logger.debug(f"{provider_name} quote failed: {e}")
-            provider_circuit_breaker.record_failure(provider_name)
-            return None
-
     async def get_all_quotes(
         self,
         from_chain: str,
@@ -466,66 +435,47 @@ class SwapEngine:
         slippage: float = 0.5,
     ) -> List[SwapQuote]:
         """
-        Get quotes from all available providers in parallel.
-
-        Uses asyncio.gather with per-provider timeouts and circuit breaker
-        to skip known-down providers.
-
+        Get quotes from all available providers for comparison.
+        
         Returns:
             List of SwapQuotes sorted by best output amount
         """
+        quotes = []
         amount_raw = self._get_token_amount_raw(amount, from_token, from_chain)
-
-        # Build list of (provider_name, coroutine) tasks
-        tasks = []
-
-        # Li.Fi (always applicable for EVM)
-        tasks.append(("lifi", self._get_lifi_quote(
-            from_chain, to_chain, from_token, to_token,
-            amount, amount_raw, from_address, to_address, slippage
-        )))
-
-        # LayerZero (same token cross-chain)
+        
+        # Get Li.Fi quote
+        try:
+            lifi_quote = await self._get_lifi_quote(
+                from_chain, to_chain, from_token, to_token,
+                amount, amount_raw, from_address, to_address, slippage
+            )
+            quotes.append(lifi_quote)
+        except Exception as e:
+            logger.debug(f"Li.Fi quote failed: {e}")
+        
+        # Get LayerZero quote if applicable (same token cross-chain)
         if self._is_layerzero_route(from_chain, to_chain, from_token, to_token):
-            tasks.append(("layerzero", self._get_layerzero_quote(
-                from_chain, to_chain, from_token, amount, amount_raw, slippage
-            )))
-
-        # Chainlink CCIP (same token cross-chain EVM)
+            try:
+                lz_quote = await self._get_layerzero_quote(
+                    from_chain, to_chain, from_token, amount, amount_raw, slippage
+                )
+                quotes.append(lz_quote)
+            except Exception as e:
+                logger.debug(f"LayerZero quote failed: {e}")
+        
+        # Get Chainlink CCIP quote if applicable (same token cross-chain EVM)
         if self._is_ccip_route(from_chain, to_chain, from_token, to_token):
-            tasks.append(("ccip", self._get_ccip_quote(
-                from_chain, to_chain, from_token, amount, from_address, to_address
-            )))
-
-        # Fetch all quotes in parallel with circuit breaker
-        results = await asyncio.gather(
-            *[
-                self._fetch_quote_with_circuit_breaker(name, coro)
-                for name, coro in tasks
-            ],
-            return_exceptions=False,
-        )
-
-        quotes = [q for q in results if q is not None]
-
+            try:
+                ccip_quote = await self._get_ccip_quote(
+                    from_chain, to_chain, from_token, amount, from_address, to_address
+                )
+                quotes.append(ccip_quote)
+            except Exception as e:
+                logger.debug(f"CCIP quote failed: {e}")
+        
         # Sort by best output (highest to_amount_human)
         quotes.sort(key=lambda q: q.to_amount_human, reverse=True)
-
-        if quotes:
-            logger.info(
-                "get_all_quotes results=%d best=%s best_output=%.6f pair=%s->%s (%s->%s)",
-                len(quotes), quotes[0].provider, quotes[0].to_amount_human,
-                from_token, to_token, from_chain, to_chain,
-            )
-            for q in quotes:
-                logger.debug("get_all_quotes provider=%s output=%.6f gas=%.4f", q.provider, q.to_amount_human, q.gas_cost_usd)
-
-        if not quotes:
-            logger.warning(
-                f"All quote providers failed for {from_token} -> {to_token} "
-                f"({from_chain} -> {to_chain}), amount={amount}"
-            )
-
+        
         return quotes
     
     @track_time(MetricNames.SWAP_EXECUTE)
@@ -553,22 +503,8 @@ class SwapEngine:
         # Prevent concurrent swaps from same wallet
         if wallet_id not in self._wallet_locks:
             self._wallet_locks[wallet_id] = asyncio.Lock()
-
-        lock = self._wallet_locks[wallet_id]
-
-        if lock.locked():
-            logger.warning("execute_swap lock_contention wallet_id=%d user_id=%d (another swap in progress)", wallet_id, user_id)
-
-        # Acquire with timeout to avoid indefinite blocking
-        try:
-            await asyncio.wait_for(lock.acquire(), timeout=30.0)
-        except asyncio.TimeoutError:
-            logger.error("execute_swap lock_timeout wallet_id=%d user_id=%d", wallet_id, user_id)
-            raise SwapError("Wallet is busy with another swap. Please wait.", error_code="WALLET_LOCKED")
-
-        try:
-            logger.info("execute_swap lock_acquired wallet_id=%d user_id=%d", wallet_id, user_id)
-
+        
+        async with self._wallet_locks[wallet_id]:
             # Idempotency: if we already created/submitted this attempt, return it
             if idempotency_key:
                 with get_session() as session:
@@ -593,75 +529,22 @@ class SwapEngine:
                 wallet_encrypted_key = wallet.encrypted_private_key
             
             # Validate quote freshness
-            logger.info("execute_swap validating_quote_freshness wallet_id=%d user_id=%d provider=%s", wallet_id, user_id, quote.provider)
             quote_validator.validate_quote_freshness(quote)
-
+            
             # Validate balance
-            logger.info("execute_swap validating_balance wallet_id=%d user_id=%d", wallet_id, user_id)
             await quote_validator.validate_balance(
                 wallet_id=wallet_id,
                 quote=quote,
                 wallet_service=self.wallet_service,
             )
-
+            
             # Validate gas
-            logger.info("execute_swap validating_gas wallet_id=%d user_id=%d", wallet_id, user_id)
             await quote_validator.validate_gas(
                 wallet_address=wallet_address,
                 quote=quote,
                 wallet_service=self.wallet_service,
             )
-            # Phase 4: Check spending limits
-            try:
-                from bot.services.security import spending_tracker, SpendingLimits
-                from bot.models.favorites import UserSettings
-                with get_session() as session:
-                    user_settings = session.query(UserSettings).filter(
-                        UserSettings.user_id == user_id
-                    ).first()
-                    if user_settings:
-                        limits = SpendingLimits(
-                            per_swap_limit=user_settings.per_swap_limit_usd,
-                            daily_limit=user_settings.daily_limit_usd,
-                            require_2fa_above=user_settings.require_2fa_above_usd,
-                        )
-                    else:
-                        limits = SpendingLimits()
-                allowed, limit_msg = await spending_tracker.check_limits(
-                    user_id, quote.from_amount_human, limits
-                )
-                if not allowed:
-                    raise SwapError(f"🚫 {limit_msg}")
-            except SwapError:
-                raise
-            except Exception as e:
-                logger.warning(f"Spending limit check failed (non-blocking): {e}")
-
-            # Phase 4: Apply fee discount from points tier
-            try:
-                from bot.services.token_service import token_service
-                discount_pct = token_service.get_fee_discount(user_id)
-                if discount_pct > 0 and quote.fee_cost_usd > 0:
-                    discount_multiplier = 1.0 - (discount_pct / 100.0)
-                    quote.fee_cost_usd = quote.fee_cost_usd * discount_multiplier
-                    quote.total_cost_usd = quote.gas_cost_usd + quote.fee_cost_usd
-                    logger.info("execute_swap fee_discount=%s%% user_id=%d", discount_pct, user_id)
-            except Exception as e:
-                logger.warning(f"Fee discount check failed (non-blocking): {e}")
-
-            logger.info("execute_swap all_validations_passed wallet_id=%d user_id=%d", wallet_id, user_id)
-
-            # Capture per-token prices for PnL tracking
-            from_token_price = None
-            to_token_price = None
-            try:
-                from bot.services.price_service import price_service as _price_svc
-                _prices = await _price_svc.get_prices([quote.from_token, quote.to_token])
-                from_token_price = _prices.get(quote.from_token)
-                to_token_price = _prices.get(quote.to_token)
-            except Exception:
-                pass  # Non-critical — PnL will use fallback
-
+            
             # Create transaction record
             with get_session() as session:
                 swap_tx = SwapTransaction(
@@ -670,12 +553,10 @@ class SwapEngine:
                     from_token=quote.from_token,
                     from_amount=quote.from_amount,
                     from_amount_usd=quote.from_amount_human,  # Assuming stablecoin
-                    from_token_price_usd=from_token_price,
                     to_chain=quote.to_chain,
                     to_token=quote.to_token,
                     to_amount=quote.to_amount,
                     to_amount_usd=quote.to_amount_human,
-                    to_token_price_usd=to_token_price,
                     status=SwapStatus.EXECUTING.value,
                     route_provider=quote.provider,
                     gas_fee=quote.gas_cost_usd,
@@ -725,33 +606,27 @@ class SwapEngine:
 
             try:
                 # Route to appropriate execution method based on provider
-                logger.info("execute_swap routing provider=%s wallet_id=%d user_id=%d swap_id=%d", quote.provider, wallet_id, user_id, swap_id)
-                if quote.provider == "stonfi":
-                    tx_hash = await self._execute_stonfi_swap(quote, wallet_data)
-                elif quote.provider == "cow":
-                    tx_hash = await self._execute_cow_swap(quote, wallet_data)
+                if quote.provider == "cow":
+                    tx_hash = await self._execute_cow_swap(quote, wallet)
                 elif quote.provider == "socket":
-                    tx_hash = await self._execute_socket_swap(quote, wallet_data)
+                    tx_hash = await self._execute_socket_swap(quote, wallet)
                 elif quote.provider == "jito":
-                    tx_hash = await self._execute_jito_swap(quote, wallet_data)
+                    tx_hash = await self._execute_jito_swap(quote, wallet)
                 elif quote.provider == "jupiter":
-                    tx_hash = await self._execute_jupiter_swap(quote, wallet_data)
+                    tx_hash = await self._execute_jupiter_swap(quote, wallet)
                 elif quote.provider == "ccip":
-                    tx_hash = await self._execute_ccip_swap(quote, wallet_data)
+                    tx_hash = await self._execute_ccip_swap(quote, wallet)
                 elif quote.provider == "layerzero":
-                    tx_hash = await self._execute_layerzero_swap(quote, wallet_data)
+                    tx_hash = await self._execute_layerzero_swap(quote, wallet)
                 elif quote.provider == "cctp":
-                    tx_hash = await self._execute_cctp_swap(quote, wallet_data)
+                    tx_hash = await self._execute_cctp_swap(quote, wallet)
                 elif quote.provider == "across":
-                    tx_hash = await self._execute_across_swap(quote, wallet_data)
+                    tx_hash = await self._execute_across_swap(quote, wallet)
                 elif quote.provider == "wormhole":
-                    tx_hash = await self._execute_wormhole_swap(quote, wallet_data)
-                elif quote.provider == "aftermath":
-                    tx_hash = await self._execute_sui_swap(quote, wallet_data)
+                    tx_hash = await self._execute_wormhole_swap(quote, wallet)
                 else:
-                    tx_hash = await self._execute_lifi_swap(quote, wallet_data)
+                    tx_hash = await self._execute_lifi_swap(quote, wallet)
                 
-                logger.info("execute_swap submitted tx_hash=%s provider=%s wallet_id=%d user_id=%d swap_id=%d", tx_hash, quote.provider, wallet_id, user_id, swap_id)
                 # Persist tx_hash to the database record
                 with get_session() as session:
                     db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
@@ -759,40 +634,12 @@ class SwapEngine:
                         db_tx.tx_hash = tx_hash
                         db_tx.status = SwapStatus.SUBMITTED.value
 
-                # Phase 4: Record spending for limit tracking
-                try:
-                    await spending_tracker.record_spending(user_id, quote.from_amount_human)
-                except Exception:
-                    pass  # Non-critical
-
                 # Clean up local references
                 wallet_encrypted_key = None
 
                 # Re-fetch the updated record to return
                 with get_session() as session:
                     swap_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
-
-                # Record PnL position update (non-blocking)
-                try:
-                    from bot.services.pnl import pnl_service
-                    pnl_service.record_swap_pnl(user_id, swap_tx)
-                except Exception as pnl_err:
-                    logger.warning("PnL recording failed for swap %d: %s", swap_id, pnl_err)
-
-                # Auto-monitor for rug pulls on buy swaps (non-blocking)
-                try:
-                    from bot.services.rug_monitor import rug_monitor_service
-                    # Detect buy swap: from_token is a native/stable, to_token is the purchased token
-                    _native_symbols = {"SOL", "ETH", "MATIC", "BNB", "AVAX", "USDC", "USDT", "DAI"}
-                    _is_buy = quote.from_token.upper() in _native_symbols
-                    if _is_buy:
-                        asyncio.create_task(
-                            rug_monitor_service.auto_monitor(
-                                user_id, quote.to_token, quote.to_chain, wallet_id
-                            )
-                        )
-                except Exception as _rug_err:
-                    logger.warning("Rug monitor hook failed: %s", _rug_err)
 
                 return swap_tx
 
@@ -809,186 +656,29 @@ class SwapEngine:
                 wallet_encrypted_key = None
 
                 raise SwapError(f"Swap execution failed: {repr(e)}")
-        finally:
-            lock.release()
-            logger.info("execute_swap lock_released wallet_id=%d user_id=%d", wallet_id, user_id)
-
-    async def _get_sui_quote(
-        self,
-        from_token: str,
-        to_token: str,
-        amount: float,
-        amount_raw: int,
-        slippage: float,
-    ) -> SwapQuote:
-        """Get a quote for a Sui-to-Sui swap via Aftermath/Cetus."""
-        from bot.services.sui_swap import sui_swap_service
-        result = await sui_swap_service.get_quote(from_token, to_token, amount)
-        return SwapQuote(
-            from_chain="sui",
-            to_chain="sui",
-            from_token=from_token,
-            to_token=to_token,
-            from_amount=str(amount_raw),
-            from_amount_human=amount,
-            to_amount=str(result.get("to_amount_raw", 0)),
-            to_amount_human=result.get("to_amount", 0.0),
-            exchange_rate=result.get("exchange_rate", 0.0),
-            gas_cost_usd=result.get("gas_cost_usd", 0.01),
-            fee_cost_usd=result.get("fee_cost_usd", 0.0),
-            total_cost_usd=result.get("total_cost_usd", 0.0),
-            provider="aftermath",
-            route_data=result.get("route_data"),
-            expires_at=time.time() + 60,
-        )
-
-    async def _execute_sui_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
-        """Execute a Sui swap via Aftermath/Cetus."""
-        from bot.services.sui_swap import sui_swap_service
-        result = await sui_swap_service.execute_swap(quote.route_data, wallet_data)
-        return result.get("tx_hash", "")
-
-    async def _get_stonfi_quote(
-        self,
-        from_token: str,
-        to_token: str,
-        amount: float,
-        amount_raw: str,
-        slippage: float,
-    ) -> SwapQuote:
-        """Get quote from STON.fi for TON swaps."""
-        from bot.services.ton.ton_swap import get_quote as stonfi_get_quote
-        from bot.services.ton.ton_tokens import get_jetton_decimals
-
-        quote = await stonfi_get_quote(
-            offer_token=from_token,
-            ask_token=to_token,
-            offer_amount=int(amount_raw),
-            slippage=slippage,
-        )
-
-        if not quote:
-            raise SwapError(f"No STON.fi quote available for {from_token} -> {to_token}")
-
-        to_decimals = get_jetton_decimals(to_token)
-        to_amount_human = int(quote.ask_amount) / (10 ** to_decimals)
-        exchange_rate = to_amount_human / amount if amount > 0 else 0
-
-        return SwapQuote(
-            provider="stonfi",
-            from_chain="ton",
-            to_chain="ton",
-            from_token=from_token,
-            to_token=to_token,
-            from_amount=amount_raw,
-            from_amount_human=amount,
-            to_amount=quote.ask_amount,
-            to_amount_human=to_amount_human,
-            to_amount_min=quote.min_ask_amount,
-            gas_cost_usd=0.05,  # TON gas is very cheap (~0.05 USD)
-            fee_cost_usd=0,
-            total_cost_usd=0.05,
-            estimated_time=15,  # ~15 seconds on TON
-            price_impact=quote.price_impact,
-            exchange_rate=exchange_rate,
-            raw_quote={
-                "offer_address": quote.offer_address,
-                "ask_address": quote.ask_address,
-                "offer_amount": quote.offer_amount,
-                "ask_amount": quote.ask_amount,
-                "min_ask_amount": quote.min_ask_amount,
-                "router_address": quote.router_address,
-            },
-        )
-
-    async def _execute_stonfi_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
-        """Execute a swap on STON.fi (TON)."""
-        from bot.services.ton.ton_swap import build_swap_transaction, StonfiQuote
-
-        stonfi_quote = StonfiQuote(
-            offer_address=quote.raw_quote["offer_address"],
-            ask_address=quote.raw_quote["ask_address"],
-            offer_amount=quote.raw_quote["offer_amount"],
-            ask_amount=quote.raw_quote["ask_amount"],
-            min_ask_amount=quote.raw_quote["min_ask_amount"],
-            price_impact=quote.price_impact,
-            fee_amount="0",
-            router_address=quote.raw_quote["router_address"],
-            swap_rate=quote.exchange_rate,
-        )
-
-        tx_params = await build_swap_transaction(stonfi_quote, wallet_data["address"])
-        if not tx_params:
-            raise SwapError("Failed to build STON.fi swap transaction")
-
-        # Sign and send the transaction
-        # TON transaction signing requires tonsdk
-        try:
-            from bot.utils.encryption import decrypt_private_key
-            private_key = decrypt_private_key(wallet_data["encrypted_private_key"])
-
-            # Build and sign the external message
-            from tonsdk.contract.wallet import WalletVersionEnum, Wallets
-            from tonsdk.utils import to_nano, bytes_to_b64str
-
-            import base64
-
-            # Create wallet instance for signing
-            wallet_cls = Wallets.ALL[WalletVersionEnum.v4r2]
-            wallet = wallet_cls(
-                public_key=b"",  # Will be derived from private key
-                private_key=base64.b64decode(private_key) if isinstance(private_key, str) else private_key,
-                wc=0,
-            )
-
-            # Create the internal message
-            body_boc = base64.b64decode(tx_params["body"]) if tx_params.get("body") else b""
-
-            query = wallet.create_transfer_message(
-                to_addr=tx_params["to"],
-                amount=int(tx_params["value"]),
-                payload=body_boc,
-                seqno=0,  # Will be fetched
-            )
-
-            boc = bytes_to_b64str(query["message"].to_boc())
-
-            # Send via TON Center API
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://toncenter.com/api/v2/sendBoc",
-                    json={"boc": boc},
-                ) as resp:
-                    data = await resp.json()
-                    if not data.get("ok"):
-                        raise SwapError(f"TON transaction failed: {data.get('error', 'unknown')}")
-
-                    return data.get("result", {}).get("hash", "pending")
-
-        except ImportError:
-            raise SwapError("TON SDK not installed. Install tonsdk to enable TON swaps.")
-
+    
     async def _execute_lifi_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via Li.Fi."""
         tx_request = quote.raw_quote.get("transactionRequest", {})
-        
+
         if not tx_request:
             raise SwapError("No transaction request in quote")
-        
+
+        wallet = self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
         chain = get_chain_by_name(quote.from_chain)
-        
+
         if chain.chain_type == ChainType.SOLANA:
             # Solana transaction via Li.Fi
             tx_data = tx_request.get("data")
             if not tx_data:
                 raise SwapError("No transaction data")
-            
+
             tx_bytes = base64.b64decode(tx_data)
-            signed_tx = self.wallet_service.sign_solana_transaction_raw(
-                wallet_data["encrypted_private_key"], tx_bytes
-            )
-            
+            signed_tx = await self.wallet_service.sign_solana_transaction(wallet, tx_bytes)
+
             # Submit to Solana
             async with aiohttp.ClientSession() as session:
                 payload = {
@@ -1008,7 +698,7 @@ class SwapEngine:
         else:
             # EVM transaction
             web3 = self.wallet_service._get_web3(quote.from_chain)
-            
+
             # Build transaction - parse hex values from Li.Fi
             tx = {
                 "to": Web3.to_checksum_address(tx_request.get("to")),
@@ -1019,29 +709,29 @@ class SwapEngine:
                 "nonce": web3.eth.get_transaction_count(wallet_data["address"]),
                 "chainId": chain.chain_id,
             }
-            
+
             # Sign and send
-            signed_tx = self.wallet_service.sign_evm_transaction_raw(
-                wallet_data["encrypted_private_key"], tx
-            )
-            tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx.replace("0x", "")))
-            
+            signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
+            tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+
             return tx_hash.hex()
     
     async def _execute_jupiter_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via Jupiter."""
+        wallet = self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
         # Get swap transaction from Jupiter
         swap_tx = await self.jupiter.get_swap_transaction(
             quote_response=quote.raw_quote,
             user_public_key=wallet_data["address"],
         )
-        
+
         # Decode and sign transaction
         tx_bytes = base64.b64decode(swap_tx.swap_transaction)
-        signed_tx = self.wallet_service.sign_solana_transaction_raw(
-            wallet_data["encrypted_private_key"], tx_bytes
-        )
-        
+        signed_tx = await self.wallet_service.sign_solana_transaction(wallet, tx_bytes)
+
         # Submit to Solana
         async with aiohttp.ClientSession() as session:
             payload = {
@@ -1061,20 +751,20 @@ class SwapEngine:
     
     async def _execute_cow_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via CoW Protocol (MEV-protected batch auction).
-        
+
         CoW swaps are gasless for the user - they sign an order and CoW submits it.
         Orders may be matched P2P (zero fees) or via solvers (protocol fee from output).
         """
-        from bot.utils.encryption import decrypt_private_key
-        from eth_account import Account
-        from eth_account.messages import encode_typed_data
-        
+        wallet = self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
         chain = quote.from_chain
-        
+
         # Get the order data from the raw quote
         raw_quote = quote.raw_quote
         cow_quote_data = raw_quote.get("quote", {})
-        
+
         # Build order data for signing
         order_data = self.cow.build_order_data(
             cow_api.CoWQuote(
@@ -1096,68 +786,56 @@ class SwapEngine:
                 raw_quote=raw_quote,
             )
         )
-        
+
         # Get typed data for EIP-712 signing
         typed_data = self.cow.get_order_typed_data(chain, order_data)
-        
-        # Decrypt private key
-        private_key = decrypt_private_key(
-            wallet_data["encrypted_private_key"],
-            settings.encryption_key
+
+        # Sign the order using EIP-712 via wallet service
+        signature = await self.wallet_service.sign_typed_data(wallet, typed_data)
+
+        # Submit the order to CoW
+        cow_order = await self.cow.submit_order(
+            chain=chain,
+            quote=cow_api.CoWQuote(
+                quote_id=raw_quote.get("id", ""),
+                from_token=get_token_address(quote.from_token, chain),
+                to_token=get_token_address(quote.to_token, chain),
+                from_amount=cow_quote_data.get("sellAmount", quote.from_amount),
+                to_amount=cow_quote_data.get("buyAmount", quote.to_amount),
+                to_amount_human=quote.to_amount_human,
+                fee_amount=cow_quote_data.get("feeAmount", "0"),
+                fee_amount_human=0,
+                valid_to=cow_quote_data.get("validTo", 0),
+                kind=cow_quote_data.get("kind", "sell"),
+                sell_token_balance=cow_quote_data.get("sellTokenBalance", "erc20"),
+                buy_token_balance=cow_quote_data.get("buyTokenBalance", "erc20"),
+                partially_fillable=cow_quote_data.get("partiallyFillable", False),
+                receiver=wallet_data["address"],
+                app_data=self.cow.app_data,
+                raw_quote=raw_quote,
+            ),
+            signature=signature,
+            from_address=wallet_data["address"],
         )
-        
-        try:
-            # Sign the order using EIP-712
-            account = Account.from_key(private_key)
-            
-            # Encode and sign the typed data
-            encoded_message = encode_typed_data(full_message=typed_data)
-            signed = account.sign_message(encoded_message)
-            signature = signed.signature.hex()
-            
-            # Submit the order to CoW
-            cow_order = await self.cow.submit_order(
-                chain=chain,
-                quote=cow_api.CoWQuote(
-                    quote_id=raw_quote.get("id", ""),
-                    from_token=get_token_address(quote.from_token, chain),
-                    to_token=get_token_address(quote.to_token, chain),
-                    from_amount=cow_quote_data.get("sellAmount", quote.from_amount),
-                    to_amount=cow_quote_data.get("buyAmount", quote.to_amount),
-                    to_amount_human=quote.to_amount_human,
-                    fee_amount=cow_quote_data.get("feeAmount", "0"),
-                    fee_amount_human=0,
-                    valid_to=cow_quote_data.get("validTo", 0),
-                    kind=cow_quote_data.get("kind", "sell"),
-                    sell_token_balance=cow_quote_data.get("sellTokenBalance", "erc20"),
-                    buy_token_balance=cow_quote_data.get("buyTokenBalance", "erc20"),
-                    partially_fillable=cow_quote_data.get("partiallyFillable", False),
-                    receiver=wallet_data["address"],
-                    app_data=self.cow.app_data,
-                    raw_quote=raw_quote,
-                ),
-                signature=signature,
-                from_address=wallet_data["address"],
-            )
-            
-            logger.info(f"CoW order submitted: {cow_order.order_uid}")
-            
-            # Return the order UID as the "tx_hash" - it can be tracked via CoW API
-            return cow_order.order_uid
-            
-        finally:
-            private_key = None
+
+        logger.info(f"CoW order submitted: {cow_order.order_uid}")
+
+        # Return the order UID as the "tx_hash" - it can be tracked via CoW API
+        return cow_order.order_uid
     
     async def _execute_socket_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via Socket super-aggregator.
-        
+
         Socket finds the absolute best route by comparing all bridges and DEXes.
         """
-        from bot.utils.encryption import decrypt_private_key
         from bot.services.socket_api import SocketRoute
-        
+
+        wallet = self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
         raw_route = quote.raw_quote
-        
+
         # Create a SocketRoute from the raw data
         route = SocketRoute(
             route_id=raw_route.get("routeId", ""),
@@ -1178,146 +856,110 @@ class SwapEngine:
             user_tx_count=1,
             raw_route=raw_route,
         )
-        
+
         # Build the transaction
         socket_tx = await self.socket.build_tx(route)
-        
+
         chain = get_chain_by_name(quote.from_chain)
         web3 = Web3(Web3.HTTPProvider(chain.rpc_url))
-        
-        # Decrypt private key
-        private_key = decrypt_private_key(
-            wallet_data["encrypted_private_key"],
-            settings.encryption_key
-        )
-        
-        try:
-            # Check if approval is needed
-            if socket_tx.approval_data:
-                approval_target = socket_tx.approval_data.get("allowanceTarget", "")
-                token_address = socket_tx.approval_data.get("approvalTokenAddress", "")
-                
-                if approval_target and token_address:
-                    # Build approval tx
-                    approval_tx_data = await self.socket.build_approval_tx(
-                        chain=quote.from_chain,
-                        token_address=token_address,
-                        owner=wallet_data["address"],
-                        spender=approval_target,
-                        amount=quote.from_amount,
-                    )
-                    
-                    nonce = web3.eth.get_transaction_count(wallet_data["address"])
-                    approval_tx = {
-                        "to": Web3.to_checksum_address(approval_tx_data.get("to", token_address)),
-                        "data": approval_tx_data.get("data", ""),
-                        "value": 0,
-                        "gas": 60000,
-                        "gasPrice": web3.eth.gas_price,
-                        "nonce": nonce,
-                        "chainId": chain.chain_id,
-                    }
-                    
-                    signed_approval = web3.eth.account.sign_transaction(approval_tx, private_key)
-                    approval_hash = web3.eth.send_raw_transaction(signed_approval.rawTransaction)
-                    logger.info(f"Socket approval tx: {approval_hash.hex()}")
-                    
-                    # Wait for approval
-                    web3.eth.wait_for_transaction_receipt(approval_hash, timeout=120)
-            
-            # Execute the main transaction
-            nonce = web3.eth.get_transaction_count(wallet_data["address"])
-            tx = {
-                "to": Web3.to_checksum_address(socket_tx.to),
-                "data": socket_tx.data,
-                "value": int(socket_tx.value) if socket_tx.value else 0,
-                "gas": int(socket_tx.gas_limit),
-                "gasPrice": web3.eth.gas_price,
-                "nonce": nonce,
-                "chainId": chain.chain_id,
-            }
-            
-            signed_tx = web3.eth.account.sign_transaction(tx, private_key)
-            tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
-            
-            logger.info(f"Socket swap tx: {tx_hash.hex()}")
-            return tx_hash.hex()
-            
-        finally:
-            private_key = None
+
+        # Check if approval is needed
+        if socket_tx.approval_data:
+            approval_target = socket_tx.approval_data.get("allowanceTarget", "")
+            token_address = socket_tx.approval_data.get("approvalTokenAddress", "")
+
+            if approval_target and token_address:
+                # Build approval tx
+                approval_tx_data = await self.socket.build_approval_tx(
+                    chain=quote.from_chain,
+                    token_address=token_address,
+                    owner=wallet_data["address"],
+                    spender=approval_target,
+                    amount=quote.from_amount,
+                )
+
+                nonce = web3.eth.get_transaction_count(wallet_data["address"])
+                approval_tx = {
+                    "to": Web3.to_checksum_address(approval_tx_data.get("to", token_address)),
+                    "data": approval_tx_data.get("data", ""),
+                    "value": 0,
+                    "gas": 60000,
+                    "gasPrice": web3.eth.gas_price,
+                    "nonce": nonce,
+                    "chainId": chain.chain_id,
+                }
+
+                signed_approval_hex = await self.wallet_service.sign_evm_transaction(wallet, approval_tx)
+                approval_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approval_hex.replace("0x", "")))
+                logger.info(f"Socket approval tx: {approval_hash.hex()}")
+
+                # Wait for approval
+                web3.eth.wait_for_transaction_receipt(approval_hash, timeout=120)
+
+        # Execute the main transaction
+        nonce = web3.eth.get_transaction_count(wallet_data["address"])
+        tx = {
+            "to": Web3.to_checksum_address(socket_tx.to),
+            "data": socket_tx.data,
+            "value": int(socket_tx.value) if socket_tx.value else 0,
+            "gas": int(socket_tx.gas_limit),
+            "gasPrice": web3.eth.gas_price,
+            "nonce": nonce,
+            "chainId": chain.chain_id,
+        }
+
+        signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
+        tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+
+        logger.info(f"Socket swap tx: {tx_hash.hex()}")
+        return tx_hash.hex()
     
     async def _execute_jito_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a Solana swap via Jupiter with Jito MEV protection.
-        
+
         Jito protects swaps from sandwich attacks by:
         1. Building a Jupiter swap transaction
         2. Adding a Jito tip instruction
         3. Submitting as a bundle to Jito block engine
         """
-        from bot.utils.encryption import decrypt_private_key
-        from solders.transaction import VersionedTransaction
-        from solders.keypair import Keypair
-        from solders.pubkey import Pubkey
-        
+        wallet = self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
         raw_quote = quote.raw_quote
         jupiter_quote = raw_quote.get("jupiter_quote", {})
         jito_tip = raw_quote.get("jito_tip", TipPriority.MEDIUM.value)
-        
+
         # Get swap transaction from Jupiter
         swap_tx = await self.jupiter.get_swap_transaction(
             quote_response=jupiter_quote,
             user_public_key=wallet_data["address"],
         )
-        
-        # Decrypt private key
-        private_key = decrypt_private_key(
-            wallet_data["encrypted_private_key"],
-            settings.encryption_key
-        )
-        
+
         try:
-            # Decode the transaction
+            # Decode and sign the transaction
             tx_bytes = base64.b64decode(swap_tx.swap_transaction)
-            
-            # Create keypair from private key (for Solana)
-            # Note: This assumes the encrypted key is the raw 32-byte seed
-            keypair = Keypair.from_seed(bytes.fromhex(private_key) if len(private_key) == 64 else bytes(private_key))
-            
-            # Parse the transaction
-            versioned_tx = VersionedTransaction.from_bytes(tx_bytes)
-            
-            # For Jito, we need to add a tip instruction and re-sign
-            # The tip should be in the transaction already if using Jupiter's Jito integration
-            # Otherwise, we need to reconstruct the transaction (complex)
-            
-            # For now, sign the existing transaction
-            # In production, we'd want to add the tip instruction
-            signed_bytes = bytes(keypair.sign_message(bytes(versioned_tx.message)))
-            
-            # Create signed transaction
-            signed_tx_bytes = bytes(versioned_tx)
+            signed_tx_bytes = await self.wallet_service.sign_solana_transaction(wallet, tx_bytes)
             signed_tx_b64 = base64.b64encode(signed_tx_bytes).decode()
-            
+
             # Submit to Jito
             bundle_id, tx_sig = await self.jito.submit_swap_bundle(
                 swap_transaction=signed_tx_b64,
                 tip_amount=jito_tip,
             )
-            
+
             logger.info(f"Jito bundle submitted: {bundle_id}, signature: {tx_sig}")
-            
+
             # Return the transaction signature
             return tx_sig if tx_sig else bundle_id
-            
+
         except Exception as e:
             logger.warning(f"Jito submission failed, falling back to standard RPC: {e}")
-            
+
             # Fallback to standard Jupiter execution
             tx_bytes = base64.b64decode(swap_tx.swap_transaction)
-            signed_tx = self.wallet_service.sign_solana_transaction_raw(
-                wallet_data["encrypted_private_key"], tx_bytes
-            )
-            
+            signed_tx = await self.wallet_service.sign_solana_transaction(wallet, tx_bytes)
+
             async with aiohttp.ClientSession() as session:
                 payload = {
                     "jsonrpc": "2.0",
@@ -1333,14 +975,15 @@ class SwapEngine:
                     if "error" in result:
                         raise SwapError(f"Transaction failed: {result['error']}")
                     return result["result"]
-        
-        finally:
-            private_key = None
     
     async def _execute_ccip_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a cross-chain transfer via Chainlink CCIP."""
-        from bot.utils.encryption import decrypt_private_key
-        
+        from bot.services.ccip_api import CCIPQuote
+
+        wallet = self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
         # Reconstruct CCIPQuote from raw_quote data
         ccip_quote = CCIPQuote(
             from_chain=quote.from_chain,
@@ -1360,76 +1003,65 @@ class SwapEngine:
             destination_chain_selector=quote.raw_quote.get("destination_chain_selector", ""),
             raw_data=quote.raw_quote,
         )
-        
+
         # Build transfer transaction
         transfer_data = await self.ccip.build_transfer_tx(
             quote=ccip_quote,
             from_address=wallet_data["address"],
         )
-        
+
         chain = get_chain_by_name(quote.from_chain)
         web3 = Web3(Web3.HTTPProvider(chain.rpc_url))
-        
-        # Decrypt private key
-        private_key = decrypt_private_key(
-            wallet_data["encrypted_private_key"],
-            settings.encryption_key
+
+        # First, check if we need to approve the token
+        token_address = transfer_data.token_address
+        approval_tx = await self.ccip.get_approval_tx(
+            chain=quote.from_chain,
+            token=quote.from_token,
+            owner=wallet_data["address"],
+            amount=int(quote.from_amount),
         )
-        
-        try:
-            # First, check if we need to approve the token
-            token_address = transfer_data.token_address
-            approval_tx = await self.ccip.get_approval_tx(
-                chain=quote.from_chain,
-                token=quote.from_token,
-                owner=wallet_data["address"],
-                amount=int(quote.from_amount),
-            )
-            
-            if approval_tx:
-                # Send approval transaction
-                nonce = web3.eth.get_transaction_count(wallet_data["address"])
-                approval_tx["nonce"] = nonce
-                approval_tx["chainId"] = chain.chain_id
-                approval_tx["gasPrice"] = web3.eth.gas_price
-                
-                signed_approval = web3.eth.account.sign_transaction(
-                    approval_tx, private_key
-                )
-                approval_hash = web3.eth.send_raw_transaction(signed_approval.rawTransaction)
-                
-                # Wait for approval
-                logger.info(f"CCIP approval tx: {approval_hash.hex()}")
-                web3.eth.wait_for_transaction_receipt(approval_hash, timeout=120)
-            
-            # Build CCIP transfer transaction
+
+        if approval_tx:
+            # Send approval transaction
             nonce = web3.eth.get_transaction_count(wallet_data["address"])
-            
-            tx = {
-                "to": Web3.to_checksum_address(transfer_data.router_address),
-                "data": transfer_data.data,
-                "value": int(transfer_data.value),
-                "gas": transfer_data.gas_limit,
-                "gasPrice": web3.eth.gas_price,
-                "nonce": nonce,
-                "chainId": chain.chain_id,
-            }
-            
-            # Sign and send
-            signed_tx = web3.eth.account.sign_transaction(tx, private_key)
-            tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
-            
-            logger.info(f"CCIP transfer tx: {tx_hash.hex()}")
-            return tx_hash.hex()
-            
-        finally:
-            # Clear private key from memory
-            private_key = None
+            approval_tx["nonce"] = nonce
+            approval_tx["chainId"] = chain.chain_id
+            approval_tx["gasPrice"] = web3.eth.gas_price
+
+            signed_approval_hex = await self.wallet_service.sign_evm_transaction(wallet, approval_tx)
+            approval_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approval_hex.replace("0x", "")))
+
+            # Wait for approval
+            logger.info(f"CCIP approval tx: {approval_hash.hex()}")
+            web3.eth.wait_for_transaction_receipt(approval_hash, timeout=120)
+
+        # Build CCIP transfer transaction
+        nonce = web3.eth.get_transaction_count(wallet_data["address"])
+
+        tx = {
+            "to": Web3.to_checksum_address(transfer_data.router_address),
+            "data": transfer_data.data,
+            "value": int(transfer_data.value),
+            "gas": transfer_data.gas_limit,
+            "gasPrice": web3.eth.gas_price,
+            "nonce": nonce,
+            "chainId": chain.chain_id,
+        }
+
+        # Sign and send
+        signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
+        tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+
+        logger.info(f"CCIP transfer tx: {tx_hash.hex()}")
+        return tx_hash.hex()
     
     async def _execute_layerzero_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a cross-chain transfer via LayerZero/Stargate."""
-        from bot.utils.encryption import decrypt_private_key
-        
+        wallet = self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
         # Get transaction data from LayerZero
         tx_data = await self.layerzero.get_swap_transaction(
             src_chain=quote.from_chain,
@@ -1438,228 +1070,102 @@ class SwapEngine:
             amount=quote.from_amount,
             from_address=wallet_data["address"],
         )
-        
+
         chain = get_chain_by_name(quote.from_chain)
         web3 = Web3(Web3.HTTPProvider(chain.rpc_url))
-        
-        # Decrypt private key
-        private_key = decrypt_private_key(
-            wallet_data["encrypted_private_key"],
-            settings.encryption_key
-        )
-        
-        try:
-            nonce = web3.eth.get_transaction_count(wallet_data["address"])
-            
-            tx = {
-                "to": Web3.to_checksum_address(tx_data.get("to")),
-                "data": tx_data.get("data"),
-                "value": _parse_int(tx_data.get("value", 0)),
-                "gas": _parse_int(tx_data.get("gasLimit", 300000)),
-                "gasPrice": _parse_int(tx_data.get("gasPrice")) or web3.eth.gas_price,
-                "nonce": nonce,
-                "chainId": chain.chain_id,
-            }
-            
-            # Sign and send
-            signed_tx = web3.eth.account.sign_transaction(tx, private_key)
-            tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
-            
-            logger.info(f"LayerZero transfer tx: {tx_hash.hex()}")
-            return tx_hash.hex()
-            
-        finally:
-            # Clear private key from memory
-            private_key = None
+
+        nonce = web3.eth.get_transaction_count(wallet_data["address"])
+
+        tx = {
+            "to": Web3.to_checksum_address(tx_data.get("to")),
+            "data": tx_data.get("data"),
+            "value": _parse_int(tx_data.get("value", 0)),
+            "gas": _parse_int(tx_data.get("gasLimit", 300000)),
+            "gasPrice": _parse_int(tx_data.get("gasPrice")) or web3.eth.gas_price,
+            "nonce": nonce,
+            "chainId": chain.chain_id,
+        }
+
+        # Sign and send
+        signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
+        tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+
+        logger.info(f"LayerZero transfer tx: {tx_hash.hex()}")
+        return tx_hash.hex()
     
     async def _execute_cctp_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a USDC transfer via Circle CCTP (cheapest for USDC)."""
-        from bot.utils.encryption import decrypt_private_key
-        
-        # Get CCTP quote data
-        raw_data = quote.raw_quote
-        
+        wallet = self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
         chain = get_chain_by_name(quote.from_chain)
         web3 = Web3(Web3.HTTPProvider(chain.rpc_url))
-        
-        # Decrypt private key
-        private_key = decrypt_private_key(
-            wallet_data["encrypted_private_key"],
-            settings.encryption_key
+
+        # Step 1: Approve USDC for TokenMessenger
+        cctp_quote = await self.cctp.get_quote(
+            from_chain=quote.from_chain,
+            to_chain=quote.to_chain,
+            amount=quote.from_amount,
         )
-        
-        try:
-            # Step 1: Approve USDC for TokenMessenger
-            cctp_quote = await self.cctp.get_quote(
-                from_chain=quote.from_chain,
-                to_chain=quote.to_chain,
-                amount=quote.from_amount,
-            )
-            
-            approve_tx = self.cctp.build_approve_transaction(cctp_quote, wallet_data["address"])
-            
-            nonce = web3.eth.get_transaction_count(wallet_data["address"])
-            approve_tx["gas"] = 60000
-            approve_tx["gasPrice"] = web3.eth.gas_price
-            approve_tx["nonce"] = nonce
-            approve_tx["chainId"] = chain.chain_id
-            
-            signed_approve = web3.eth.account.sign_transaction(approve_tx, private_key)
-            approve_hash = web3.eth.send_raw_transaction(signed_approve.rawTransaction)
-            logger.info(f"CCTP approval tx: {approve_hash.hex()}")
-            
-            # Wait for approval confirmation
-            web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
-            
-            # Step 2: Execute depositForBurn
-            burn_tx = self.cctp.build_burn_transaction(
-                cctp_quote, 
-                wallet_data["address"],
-                wallet_data["address"]  # Same recipient
-            )
-            
-            nonce = web3.eth.get_transaction_count(wallet_data["address"])
-            burn_tx["gas"] = 200000
-            burn_tx["gasPrice"] = web3.eth.gas_price
-            burn_tx["nonce"] = nonce
-            burn_tx["chainId"] = chain.chain_id
-            
-            signed_burn = web3.eth.account.sign_transaction(burn_tx, private_key)
-            burn_hash = web3.eth.send_raw_transaction(signed_burn.rawTransaction)
-            
-            logger.info(f"CCTP burn tx: {burn_hash.hex()}")
-            return burn_hash.hex()
-            
-        finally:
-            private_key = None
+
+        approve_tx = self.cctp.build_approve_transaction(cctp_quote, wallet_data["address"])
+
+        nonce = web3.eth.get_transaction_count(wallet_data["address"])
+        approve_tx["gas"] = 60000
+        approve_tx["gasPrice"] = web3.eth.gas_price
+        approve_tx["nonce"] = nonce
+        approve_tx["chainId"] = chain.chain_id
+
+        signed_approve_hex = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
+        approve_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approve_hex.replace("0x", "")))
+        logger.info(f"CCTP approval tx: {approve_hash.hex()}")
+
+        # Wait for approval confirmation
+        web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+
+        # Step 2: Execute depositForBurn
+        burn_tx = self.cctp.build_burn_transaction(
+            cctp_quote,
+            wallet_data["address"],
+            wallet_data["address"]  # Same recipient
+        )
+
+        nonce = web3.eth.get_transaction_count(wallet_data["address"])
+        burn_tx["gas"] = 200000
+        burn_tx["gasPrice"] = web3.eth.gas_price
+        burn_tx["nonce"] = nonce
+        burn_tx["chainId"] = chain.chain_id
+
+        signed_burn_hex = await self.wallet_service.sign_evm_transaction(wallet, burn_tx)
+        burn_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_burn_hex.replace("0x", "")))
+
+        logger.info(f"CCTP burn tx: {burn_hash.hex()}")
+        return burn_hash.hex()
     
     async def _execute_across_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a bridge via Across Protocol (cheap EVM bridges)."""
-        from bot.utils.encryption import decrypt_private_key
-        
+        wallet = self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
         chain = get_chain_by_name(quote.from_chain)
         web3 = Web3(Web3.HTTPProvider(chain.rpc_url))
-        
-        # Decrypt private key
-        private_key = decrypt_private_key(
-            wallet_data["encrypted_private_key"],
-            settings.encryption_key
+
+        # Get fresh quote with deposit data
+        across_quote = await self.across.get_quote(
+            from_chain=quote.from_chain,
+            to_chain=quote.to_chain,
+            token=quote.from_token,
+            amount=quote.from_amount,
+            from_address=wallet_data["address"],
         )
-        
-        try:
-            # Get fresh quote with deposit data
-            across_quote = await self.across.get_quote(
-                from_chain=quote.from_chain,
-                to_chain=quote.to_chain,
-                token=quote.from_token,
-                amount=quote.from_amount,
-                from_address=wallet_data["address"],
-            )
-            
-            # Check if token needs approval (not ETH)
-            if quote.from_token.upper() not in ["ETH", "WETH"] or self.across.get_token_address(quote.from_token, quote.from_chain) != "0x0000000000000000000000000000000000000000":
-                # Approve token for SpokePool
-                token_address = self.across.get_token_address(quote.from_token, quote.from_chain)
-                
-                erc20_approve_abi = [{
-                    "inputs": [
-                        {"name": "spender", "type": "address"},
-                        {"name": "amount", "type": "uint256"}
-                    ],
-                    "name": "approve",
-                    "outputs": [{"name": "", "type": "bool"}],
-                    "stateMutability": "nonpayable",
-                    "type": "function"
-                }]
-                
-                token_contract = web3.eth.contract(
-                    address=Web3.to_checksum_address(token_address),
-                    abi=erc20_approve_abi
-                )
-                
-                approve_data = token_contract.encode_abi(
-                    fn_name="approve",
-                    args=[
-                        Web3.to_checksum_address(across_quote.spoke_pool),
-                        int(quote.from_amount)
-                    ]
-                )
-                
-                nonce = web3.eth.get_transaction_count(wallet_data["address"])
-                approve_tx = {
-                    "to": Web3.to_checksum_address(token_address),
-                    "data": approve_data,
-                    "value": 0,
-                    "gas": 60000,
-                    "gasPrice": web3.eth.gas_price,
-                    "nonce": nonce,
-                    "chainId": chain.chain_id,
-                }
-                
-                signed_approve = web3.eth.account.sign_transaction(approve_tx, private_key)
-                approve_hash = web3.eth.send_raw_transaction(signed_approve.rawTransaction)
-                logger.info(f"Across approval tx: {approve_hash.hex()}")
-                
-                # Wait for approval
-                web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
-            
-            # Build deposit transaction
-            deposit_tx = self.across.build_deposit_calldata(
-                across_quote,
-                wallet_data["address"],
-            )
-            
-            nonce = web3.eth.get_transaction_count(wallet_data["address"])
-            deposit_tx["gas"] = 300000
-            deposit_tx["gasPrice"] = web3.eth.gas_price
-            deposit_tx["nonce"] = nonce
-            deposit_tx["chainId"] = chain.chain_id
-            
-            signed_deposit = web3.eth.account.sign_transaction(deposit_tx, private_key)
-            deposit_hash = web3.eth.send_raw_transaction(signed_deposit.rawTransaction)
-            
-            logger.info(f"Across deposit tx: {deposit_hash.hex()}")
-            return deposit_hash.hex()
-            
-        finally:
-            private_key = None
-    
-    async def _execute_wormhole_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
-        """Execute a bridge via Wormhole (Solana <-> EVM)."""
-        from bot.utils.encryption import decrypt_private_key
-        
-        is_solana_source = quote.from_chain.lower() == "solana"
-        
-        if is_solana_source:
-            # Solana -> EVM: Not implemented yet (requires Solana signing)
-            raise SwapError(
-                "Solana to EVM bridging via Wormhole is not yet supported. "
-                "Please bridge manually at portal.wormhole.com"
-            )
-        
-        # EVM -> Solana or EVM -> EVM
-        chain = get_chain_by_name(quote.from_chain)
-        web3 = Web3(Web3.HTTPProvider(chain.rpc_url))
-        
-        # Decrypt private key
-        private_key = decrypt_private_key(
-            wallet_data["encrypted_private_key"],
-            settings.encryption_key
-        )
-        
-        try:
-            # Get Wormhole quote
-            wormhole_quote = await self.wormhole.get_quote(
-                from_chain=quote.from_chain,
-                to_chain=quote.to_chain,
-                token=quote.from_token,
-                amount=quote.from_amount,
-            )
-            
-            # Step 1: Approve token for Token Bridge
-            token_address = self.wormhole.get_token_address(quote.from_token, quote.from_chain)
-            token_bridge = self.wormhole.get_token_bridge(quote.from_chain)
-            
+
+        # Check if token needs approval (not ETH)
+        if quote.from_token.upper() not in ["ETH", "WETH"] or self.across.get_token_address(quote.from_token, quote.from_chain) != "0x0000000000000000000000000000000000000000":
+            # Approve token for SpokePool
+            token_address = self.across.get_token_address(quote.from_token, quote.from_chain)
+
             erc20_approve_abi = [{
                 "inputs": [
                     {"name": "spender", "type": "address"},
@@ -1670,20 +1176,20 @@ class SwapEngine:
                 "stateMutability": "nonpayable",
                 "type": "function"
             }]
-            
+
             token_contract = web3.eth.contract(
                 address=Web3.to_checksum_address(token_address),
                 abi=erc20_approve_abi
             )
-            
+
             approve_data = token_contract.encode_abi(
                 fn_name="approve",
                 args=[
-                    Web3.to_checksum_address(token_bridge),
+                    Web3.to_checksum_address(across_quote.spoke_pool),
                     int(quote.from_amount)
                 ]
             )
-            
+
             nonce = web3.eth.get_transaction_count(wallet_data["address"])
             approve_tx = {
                 "to": Web3.to_checksum_address(token_address),
@@ -1694,34 +1200,122 @@ class SwapEngine:
                 "nonce": nonce,
                 "chainId": chain.chain_id,
             }
-            
-            signed_approve = web3.eth.account.sign_transaction(approve_tx, private_key)
-            approve_hash = web3.eth.send_raw_transaction(signed_approve.rawTransaction)
-            logger.info(f"Wormhole approval tx: {approve_hash.hex()}")
-            
+
+            signed_approve_hex = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
+            approve_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approve_hex.replace("0x", "")))
+            logger.info(f"Across approval tx: {approve_hash.hex()}")
+
             # Wait for approval
             web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
-            
-            # Step 2: Transfer tokens via Token Bridge
-            transfer_tx = self.wormhole.build_transfer_calldata_evm(
-                wormhole_quote,
-                wallet_data["address"],
+
+        # Build deposit transaction
+        deposit_tx = self.across.build_deposit_calldata(
+            across_quote,
+            wallet_data["address"],
+        )
+
+        nonce = web3.eth.get_transaction_count(wallet_data["address"])
+        deposit_tx["gas"] = 300000
+        deposit_tx["gasPrice"] = web3.eth.gas_price
+        deposit_tx["nonce"] = nonce
+        deposit_tx["chainId"] = chain.chain_id
+
+        signed_deposit_hex = await self.wallet_service.sign_evm_transaction(wallet, deposit_tx)
+        deposit_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_deposit_hex.replace("0x", "")))
+
+        logger.info(f"Across deposit tx: {deposit_hash.hex()}")
+        return deposit_hash.hex()
+    
+    async def _execute_wormhole_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a bridge via Wormhole (Solana <-> EVM)."""
+        is_solana_source = quote.from_chain.lower() == "solana"
+
+        if is_solana_source:
+            # Solana -> EVM: Not implemented yet (requires Solana signing)
+            raise SwapError(
+                "Solana to EVM bridging via Wormhole is not yet supported. "
+                "Please bridge manually at portal.wormhole.com"
             )
-            
-            nonce = web3.eth.get_transaction_count(wallet_data["address"])
-            transfer_tx["gas"] = 300000
-            transfer_tx["gasPrice"] = web3.eth.gas_price
-            transfer_tx["nonce"] = nonce
-            transfer_tx["chainId"] = chain.chain_id
-            
-            signed_transfer = web3.eth.account.sign_transaction(transfer_tx, private_key)
-            transfer_hash = web3.eth.send_raw_transaction(signed_transfer.rawTransaction)
-            
-            logger.info(f"Wormhole transfer tx: {transfer_hash.hex()}")
-            return transfer_hash.hex()
-            
-        finally:
-            private_key = None
+
+        wallet = self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
+        # EVM -> Solana or EVM -> EVM
+        chain = get_chain_by_name(quote.from_chain)
+        web3 = Web3(Web3.HTTPProvider(chain.rpc_url))
+
+        # Get Wormhole quote
+        wormhole_quote = await self.wormhole.get_quote(
+            from_chain=quote.from_chain,
+            to_chain=quote.to_chain,
+            token=quote.from_token,
+            amount=quote.from_amount,
+        )
+
+        # Step 1: Approve token for Token Bridge
+        token_address = self.wormhole.get_token_address(quote.from_token, quote.from_chain)
+        token_bridge = self.wormhole.get_token_bridge(quote.from_chain)
+
+        erc20_approve_abi = [{
+            "inputs": [
+                {"name": "spender", "type": "address"},
+                {"name": "amount", "type": "uint256"}
+            ],
+            "name": "approve",
+            "outputs": [{"name": "", "type": "bool"}],
+            "stateMutability": "nonpayable",
+            "type": "function"
+        }]
+
+        token_contract = web3.eth.contract(
+            address=Web3.to_checksum_address(token_address),
+            abi=erc20_approve_abi
+        )
+
+        approve_data = token_contract.encode_abi(
+            fn_name="approve",
+            args=[
+                Web3.to_checksum_address(token_bridge),
+                int(quote.from_amount)
+            ]
+        )
+
+        nonce = web3.eth.get_transaction_count(wallet_data["address"])
+        approve_tx = {
+            "to": Web3.to_checksum_address(token_address),
+            "data": approve_data,
+            "value": 0,
+            "gas": 60000,
+            "gasPrice": web3.eth.gas_price,
+            "nonce": nonce,
+            "chainId": chain.chain_id,
+        }
+
+        signed_approve_hex = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
+        approve_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approve_hex.replace("0x", "")))
+        logger.info(f"Wormhole approval tx: {approve_hash.hex()}")
+
+        # Wait for approval
+        web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+
+        # Step 2: Transfer tokens via Token Bridge
+        transfer_tx = self.wormhole.build_transfer_calldata_evm(
+            wormhole_quote,
+            wallet_data["address"],
+        )
+
+        nonce = web3.eth.get_transaction_count(wallet_data["address"])
+        transfer_tx["gas"] = 300000
+        transfer_tx["gasPrice"] = web3.eth.gas_price
+        transfer_tx["nonce"] = nonce
+        transfer_tx["chainId"] = chain.chain_id
+
+        signed_transfer_hex = await self.wallet_service.sign_evm_transaction(wallet, transfer_tx)
+        transfer_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_transfer_hex.replace("0x", "")))
+
+        logger.info(f"Wormhole transfer tx: {transfer_hash.hex()}")
+        return transfer_hash.hex()
     
     async def check_status(self, swap_tx: SwapTransaction) -> SwapTransaction:
         """

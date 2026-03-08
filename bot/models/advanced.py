@@ -12,7 +12,6 @@ class AlertType(enum.Enum):
     PRICE_ABOVE = "price_above"
     PRICE_BELOW = "price_below"
     PERCENT_CHANGE = "percent_change"
-    PNL_CHANGE = "pnl_change"
 
 
 class OrderType(enum.Enum):
@@ -20,8 +19,6 @@ class OrderType(enum.Enum):
     LIMIT_SELL = "limit_sell"
     STOP_LOSS = "stop_loss"
     TAKE_PROFIT = "take_profit"
-    TRAILING_STOP = "trailing_stop"
-    BUY_DIP = "buy_dip"
 
 
 class OrderStatus(enum.Enum):
@@ -56,11 +53,7 @@ class AdvancedPriceAlert(Base):
     target_price = Column(Float, nullable=True)  # For price alerts
     percent_threshold = Column(Float, nullable=True)  # For percent change alerts
     base_price = Column(Float, nullable=True)  # Reference price for percent change
-
-    # PnL alert fields
-    pnl_threshold_percent = Column(Float, nullable=True)  # e.g., 50.0 = alert at +50%
-    token_address = Column(String(100), nullable=True)  # for position-based alerts
-
+    
     is_active = Column(Boolean, default=True)
     is_triggered = Column(Boolean, default=False)
     triggered_at = Column(DateTime, nullable=True)
@@ -98,13 +91,7 @@ class LimitOrder(Base):
     amount = Column(String(78), nullable=False)  # Amount to swap
     trigger_price = Column(Float, nullable=False)  # Price to trigger at
     slippage = Column(Float, default=0.5)
-
-    # Advanced order fields
-    trailing_percent = Column(Float, nullable=True)
-    highest_price_seen = Column(Float, nullable=True)
-    parent_order_id = Column(Integer, ForeignKey("limit_orders.id"), nullable=True)
-    portion_percent = Column(Float, nullable=True)
-
+    
     # Expiration
     expires_at = Column(DateTime, nullable=True)
     
@@ -254,43 +241,15 @@ class UserStats(Base):
 class PortfolioSnapshot(Base):
     """Daily portfolio value snapshots for charts."""
     __tablename__ = "portfolio_snapshots"
-
+    
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-
+    
     date = Column(String(10), nullable=False)  # YYYY-MM-DD
     total_value_usd = Column(Float, nullable=False)
-
+    
     # Breakdown by chain (JSON)
     chain_values = Column(Text, nullable=True)  # {"ethereum": 1000, "polygon": 500}
-
+    
     created_at = Column(DateTime, default=datetime.utcnow)
-
-
-# ============ RUG MONITOR ============
-
-class RugMonitor(Base):
-    """Post-purchase token monitoring for rug pull detection."""
-    __tablename__ = "rug_monitors"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    token_address = Column(String(100), nullable=False)
-    chain = Column(String(20), nullable=False)
-    wallet_id = Column(Integer, ForeignKey("wallets.id"), nullable=True)
-    initial_liquidity_usd = Column(Float, nullable=True)
-    current_liquidity_usd = Column(Float, nullable=True)
-    initial_holders = Column(Integer, nullable=True)
-    current_holders = Column(Integer, nullable=True)
-    initial_tax_buy = Column(Float, nullable=True)
-    initial_tax_sell = Column(Float, nullable=True)
-    auto_sell_enabled = Column(Boolean, default=True)
-    trigger_reason = Column(String(100), nullable=True)
-    triggered_at = Column(DateTime, nullable=True)
-    sell_tx_id = Column(Integer, nullable=True)
-    is_active = Column(Boolean, default=True, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    user = relationship("User", backref="rug_monitors")
 

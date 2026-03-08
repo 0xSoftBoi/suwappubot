@@ -1,4 +1,4 @@
-import type { Swap } from '@suwappu/shared'
+import type { Swap } from '../types/api'
 
 interface SwapCardProps {
   swap: Swap

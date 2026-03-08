@@ -1,8 +1,8 @@
-from .start import start_handler, help_handler, help_callback, main_menu_callback, more_menu_callback
+from .start import start_handler, help_handler, help_callback, main_menu_callback
 from .swap import swap_conversation_handler, check_swap_status
 from .balance import balance_handler, balance_callback
 from .wallet import wallet_handler, wallet_menu_callback, wallet_create_callback, wallet_import_handler
-from .history import history_handler, history_filter_callback, history_filter_handler
+from .history import history_handler
 from .portfolio import portfolio_handler, portfolio_callback
 from .gas import gas_handler, gas_callback
 from .favorites import favorites_handler, favorites_callback
@@ -16,7 +16,6 @@ __all__ = [
     "help_handler",
     "help_callback",
     "main_menu_callback",
-    "more_menu_callback",
     # Swap
     "swap_conversation_handler",
     "check_swap_status",
@@ -34,8 +33,6 @@ __all__ = [
     "wallet_import_handler",
     # History
     "history_handler",
-    "history_filter_callback",
-    "history_filter_handler",
     # Gas
     "gas_handler",
     "gas_callback",

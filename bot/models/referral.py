@@ -83,8 +83,7 @@ class ReferralReward(Base):
     # Reward details
     fee_amount_usd = Column(Float, nullable=False)  # Total fee paid by referee
     reward_amount_usd = Column(Float, nullable=False)  # 30% of fee (referrer's reward)
-    referral_tier = Column(Integer, default=1)  # 1=direct, 2=referrer's referrer, 3=level 3
-
+    
     # Status
     is_paid = Column(Boolean, default=False)  # Whether reward has been paid out
     paid_at = Column(DateTime, nullable=True)

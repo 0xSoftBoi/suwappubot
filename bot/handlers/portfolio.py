@@ -7,19 +7,17 @@ from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from bot.models.user import User, Wallet
 from bot.services.wallet import WalletService
 from bot.services.price_service import PriceService
-from bot.services.pnl import pnl_service
 from bot.utils.formatters import format_amount, format_usd, format_chain_name
 from bot.config.chains import CHAINS, ChainType
 from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
-from bot.services.ai_service import ai_service
 
 
 wallet_service = WalletService()
 price_service = PriceService()
 
 
-async def _build_portfolio_text(wallet_infos, user_id=None):
+async def _build_portfolio_text(wallet_infos):
     """Fetch balances and build portfolio display text and total USD value."""
     all_balances = {}
     total_usd = 0.0
@@ -71,45 +69,18 @@ async def _build_portfolio_text(wallet_infos, user_id=None):
 
     lines.append(f"\n\U0001f4b0 *Total Value:* {format_usd(total_usd)}")
 
-    # PnL summary
-    if user_id:
-        try:
-            summary = pnl_service.get_pnl_summary(user_id)
-            if summary["positions_count"] > 0:
-                realized = summary["total_realized_pnl"]
-                r_emoji = "\U0001f7e2" if realized >= 0 else "\U0001f534"
-                lines.append(f"\n\U0001f4c8 *P&L Summary*")
-                lines.append(f"  {r_emoji} Realized: {format_usd(realized)}")
-
-                unrealized_data = await pnl_service.get_unrealized_pnl(user_id)
-                unrealized = unrealized_data["total_unrealized_pnl"]
-                u_emoji = "\U0001f7e2" if unrealized >= 0 else "\U0001f534"
-                lines.append(f"  {u_emoji} Unrealized: {format_usd(unrealized)}")
-
-                total_pnl = realized + unrealized
-                t_emoji = "\U0001f7e2" if total_pnl >= 0 else "\U0001f534"
-                lines.append(f"  {t_emoji} *Total: {format_usd(total_pnl)}*")
-
-                if summary["win_rate"] > 0:
-                    lines.append(f"  Win rate: {summary['win_rate']:.0f}%")
-        except Exception:
-            pass  # PnL is supplementary, don't break portfolio view
-
     return "\n".join(lines)
 
 
 def _portfolio_keyboard():
     """Return standard portfolio keyboard."""
-    buttons = [
+    return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("\U0001f504 Refresh", callback_data="portfolio_refresh"),
             InlineKeyboardButton("\U0001f504 Swap", callback_data="swap_start"),
         ],
-    ]
-    if ai_service.is_available:
-        buttons.append([InlineKeyboardButton("\U0001f916 AI Analysis", callback_data="portfolio_ai_analysis")])
-    buttons.append([InlineKeyboardButton("\u00ab Back", callback_data="main_menu")])
-    return InlineKeyboardMarkup(buttons)
+        [InlineKeyboardButton("\u00ab Back", callback_data="main_menu")],
+    ])
 
 
 def _error_keyboard():
@@ -148,12 +119,11 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return
 
         wallet_infos = [(w.id, w.address, w.chain_type, w.name) for w in wallets]
-        db_user_id = db_user.id
 
     loading_msg = await update.message.reply_text("\U0001f4ca Loading portfolio...")
 
     try:
-        text = await _build_portfolio_text(wallet_infos, user_id=db_user_id)
+        text = await _build_portfolio_text(wallet_infos)
         await loading_msg.edit_text(
             text,
             parse_mode="Markdown",
@@ -195,12 +165,11 @@ async def portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
 
         wallet_infos = [(w.id, w.address, w.chain_type, w.name) for w in wallets]
-        db_user_id = db_user.id
 
     await query.edit_message_text("\U0001f4ca Loading portfolio...")
 
     try:
-        text = await _build_portfolio_text(wallet_infos, user_id=db_user_id)
+        text = await _build_portfolio_text(wallet_infos)
         await query.edit_message_text(
             text,
             parse_mode="Markdown",
@@ -209,89 +178,6 @@ async def portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         await query.edit_message_text(
             f"\u274c Error: {str(e)}",
-            reply_markup=_error_keyboard(),
-        )
-
-
-async def portfolio_ai_analysis_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle AI Analysis button on portfolio view."""
-    query = update.callback_query
-    await query.answer()
-
-    user = update.effective_user
-
-    with get_session() as session:
-        db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        if not db_user:
-            await query.edit_message_text("\u274c Please use /start first.")
-            return
-        user_id = db_user.id
-
-    # Rate limit check
-    if not ai_service.can_analyze(user_id):
-        await query.answer(
-            "AI analysis is available once per hour. Please try again later.",
-            show_alert=True,
-        )
-        return
-
-    await query.edit_message_text("\U0001f916 Generating AI analysis...")
-
-    try:
-        # Gather position data
-        positions = []
-        try:
-            summary = pnl_service.get_pnl_summary(user_id)
-            if summary.get("positions"):
-                positions = summary["positions"]
-            elif summary.get("positions_count", 0) > 0:
-                positions = [{"total_positions": summary["positions_count"],
-                              "realized_pnl": summary.get("total_realized_pnl", 0),
-                              "win_rate": summary.get("win_rate", 0)}]
-        except Exception:
-            pass
-
-        # Get recent trades
-        trades_7d = []
-        try:
-            from bot.models.swap import SwapTransaction
-            from datetime import datetime, timedelta
-            with get_session() as session:
-                recent = session.query(SwapTransaction).filter(
-                    SwapTransaction.user_id == user_id,
-                    SwapTransaction.created_at >= datetime.utcnow() - timedelta(days=7),
-                ).order_by(SwapTransaction.created_at.desc()).limit(20).all()
-                trades_7d = [
-                    {
-                        "from": f"{t.from_token} ({t.from_chain})",
-                        "to": f"{t.to_token} ({t.to_chain})",
-                        "amount": str(t.from_amount),
-                        "status": t.status,
-                    }
-                    for t in recent
-                ]
-        except Exception:
-            pass
-
-        analysis = await ai_service.generate_portfolio_summary(positions, trades_7d)
-        ai_service.record_analysis(user_id)
-
-        if analysis:
-            text = f"\U0001f916 *AI Portfolio Analysis*\n\n{analysis}"
-        else:
-            text = "\U0001f916 AI analysis is not available right now. Please try again later."
-
-        await query.edit_message_text(
-            text,
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("\U0001f504 Back to Portfolio", callback_data="portfolio_refresh")],
-                [InlineKeyboardButton("\u00ab Main Menu", callback_data="main_menu")],
-            ]),
-        )
-    except Exception as e:
-        await query.edit_message_text(
-            f"\u274c AI analysis failed: {str(e)}",
             reply_markup=_error_keyboard(),
         )
 

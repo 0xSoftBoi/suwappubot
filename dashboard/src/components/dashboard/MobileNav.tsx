@@ -21,8 +21,8 @@ interface NavItem {
 }
 
 interface MobileNavProps {
-  activeTab: string;
-  onTabChange: (tab: string) => void;
+  activeTab?: string;
+  onTabChange?: (tab: string) => void;
 }
 
 const navItems: NavItem[] = [
@@ -32,7 +32,7 @@ const navItems: NavItem[] = [
   { id: 'history', label: 'History', icon: <History size={20} /> },
 ];
 
-export function MobileNav({ activeTab, onTabChange }: MobileNavProps) {
+export function MobileNav({ activeTab = 'overview', onTabChange = () => {} }: MobileNavProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { isAuthenticated, address, logout } = useAuth();
 
@@ -73,11 +73,11 @@ export function MobileNav({ activeTab, onTabChange }: MobileNavProps) {
         )}
       >
         {/* Backdrop */}
-        <div 
+        <div
           className="absolute inset-0 bg-black/60 backdrop-blur-sm"
           onClick={() => setIsMenuOpen(false)}
         />
-        
+
         {/* Menu content */}
         <div className={clsx(
           'absolute top-[56px] left-0 right-0 bottom-[72px] overflow-y-auto glass',

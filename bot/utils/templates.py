@@ -56,11 +56,32 @@ TOS_KEYBOARD = InlineKeyboardMarkup([
 
 
 WELCOME_MESSAGE = """
-🌸 *suwappu* — cross-chain swaps made simple
+🌸 *suwappu* — fast cross-chain swaps with a native C\+\+ core\!
 
-🔷 ETH • 🟣 POL • 🟡 BSC • 🔵 ARB • 🔴 OP • 🔵 Base • 🟢 SOL
+🔄 *Welcome to Suwappu Bot*
 
-_Tip: /s 100 USDC ETH for instant swaps_
+Cross-chain swaps made simple.
+
+🎁 *Referral Blitz*: earn 50% of fees from friends + instant bonuses.
+Use /ref to grab your link.
+
+*Choose Your Mode:*
+
+🔐 *Self\-Custody* \(Your Keys\)
+You control your private keys
+Pay your own gas fees
+
+🏦 *Custodial* \(We Manage\)
+No gas fees \- we pay for you
+Instant deposits & withdrawals
+
+━━━━━━━━━━━━━━━━━━━━
+
+*Supported Chains:*
+🔷 ETH • 🟣 POL • 🟡 BSC
+🔵 ARB • 🔴 OP • 🔵 Base • 🟢 SOL
+
+Powered by Li\.Fi, Jupiter & LayerZero
 """
 
 HELP_MESSAGE = r"""

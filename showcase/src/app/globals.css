@@ -1,28 +1,21 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&family=Quicksand:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Google Fonts */
-@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&family=Quicksand:wght@300;400;500;600;700&display=swap');
-
 :root {
-  /* Suwappu Design Tokens */
-  --suwappu-sakura-light: #FFD1DC;
-  --suwappu-sakura-mid: #FFB7C5;
-  --suwappu-magenta: #E91E8C;
-  --suwappu-rose: #F8A5C2;
-  --suwappu-magenta-mid: #C44569;
-  --suwappu-purple: #6C3483;
-  --suwappu-purple-deep: #4A235A;
-  --suwappu-bg: #FFFBFC;
-  --suwappu-text: #2C3E50;
-  --suwappu-text-secondary: #6C7A89;
-}
-
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
+  --suwappu-sakura-light: #ffd1dc;
+  --suwappu-sakura-mid: #ffb7c5;
+  --suwappu-magenta: #e91e8c;
+  --suwappu-rose: #f8a5c2;
+  --suwappu-magenta-mid: #c44569;
+  --suwappu-purple: #6c3483;
+  --suwappu-purple-deep: #4a235a;
+  --suwappu-bg: #fffbfc;
+  --suwappu-text: #2c3e50;
+  --suwappu-text-secondary: #6c7a89;
 }
 
 html {
@@ -36,68 +29,36 @@ body {
   overflow-x: hidden;
 }
 
-/* Glassmorphism utility classes */
+/* ---- Glass effects ---- */
 .glass {
-  background: linear-gradient(135deg, rgba(255,255,255,0.75) 0%, rgba(255,215,220,0.4) 50%, rgba(232,244,253,0.6) 100%);
-  backdrop-filter: blur(12px) saturate(180%);
-  -webkit-backdrop-filter: blur(12px) saturate(180%);
-  border: 1px solid rgba(255,183,197,0.3);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.8),
+    rgba(255, 215, 220, 0.35) 50%,
+    rgba(232, 244, 253, 0.5)
+  );
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(255, 183, 197, 0.25);
 }
 
 .glass-card {
-  background: rgba(255,255,255,0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255,183,197,0.15);
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 183, 197, 0.12);
 }
 
-/* Sakura petal styling */
-.sakura-petal {
-  position: fixed;
-  width: 10px;
-  height: 10px;
-  background: linear-gradient(135deg, #FFD1DC 0%, #FFB7C5 50%, #F8A5C2 100%);
-  border-radius: 150% 0 150% 0;
-  pointer-events: none;
-  z-index: 1;
-  opacity: 0.8;
-}
-
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: rgba(255, 209, 220, 0.2);
-}
-
-::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #FFB7C5, #C44569);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #F8A5C2, #E91E8C);
-}
-
-/* Selection styling */
-::selection {
-  background: rgba(233, 30, 140, 0.3);
-  color: inherit;
-}
-
-/* Gradient text utility */
+/* ---- Gradient text ---- */
 .gradient-text {
-  background: linear-gradient(135deg, #E91E8C 0%, #6C3483 50%, #4A235A 100%);
+  background: linear-gradient(135deg, #e91e8c, #6c3483 50%, #4a235a);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-/* Animated gradient background */
 .animated-gradient {
-  background: linear-gradient(-45deg, #FFD1DC, #FFB7C5, #E91E8C, #6C3483);
+  background: linear-gradient(-45deg, #ffd1dc, #ffb7c5, #e91e8c, #6c3483);
   background-size: 400% 400%;
   animation: gradient-shift 15s ease infinite;
 }
@@ -108,7 +69,20 @@ body {
   100% { background-position: 0% 50%; }
 }
 
-/* Video container styling */
+/* ---- Terminal block ---- */
+.terminal {
+  background: #1a1b2e;
+  border: 1px solid rgba(255, 183, 197, 0.15);
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+}
+
+.terminal-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+/* ---- Video container ---- */
 .video-container {
   position: relative;
   overflow: hidden;
@@ -126,11 +100,11 @@ body {
   z-index: 10;
 }
 
-/* Phone frame styling */
+/* ---- Phone frame ---- */
 .phone-frame {
   position: relative;
   padding: 12px;
-  background: linear-gradient(145deg, #1a1a1a 0%, #2d2d2d 100%);
+  background: linear-gradient(145deg, #1a1a1a, #2d2d2d);
   border-radius: 40px;
   box-shadow:
     0 25px 50px rgba(0, 0, 0, 0.25),
@@ -157,7 +131,7 @@ body {
   background: #000;
 }
 
-/* Button hover effect */
+/* ---- Button shine ---- */
 .btn-suwappu {
   position: relative;
   overflow: hidden;
@@ -171,7 +145,12 @@ body {
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.2),
+    transparent
+  );
   transition: left 0.5s ease;
 }
 
@@ -179,3 +158,66 @@ body {
   left: 100%;
 }
 
+/* ---- Section divider ---- */
+.section-divider {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 183, 197, 0.4) 20%,
+    rgba(233, 30, 140, 0.2) 50%,
+    rgba(255, 183, 197, 0.4) 80%,
+    transparent
+  );
+}
+
+/* ---- Sakura petal shape ---- */
+.sakura-petal {
+  width: 12px;
+  height: 12px;
+  background: linear-gradient(135deg, #ffd1dc, #ffb7c5 50%, #f8a5c2);
+  border-radius: 150% 0 150% 0;
+  pointer-events: none;
+}
+
+/* ---- Shimmer skeleton ---- */
+.shimmer-bg {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 183, 197, 0.08) 25%,
+    rgba(255, 183, 197, 0.18) 50%,
+    rgba(255, 183, 197, 0.08) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 3s ease-in-out infinite;
+}
+
+/* ---- Selection / scrollbar ---- */
+::selection {
+  background: rgba(233, 30, 140, 0.3);
+  color: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #ffb7c5, #c44569);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #f8a5c2, #e91e8c);
+}
+
+/* ---- Focus visible ---- */
+*:focus-visible {
+  outline: 2px solid rgba(233, 30, 140, 0.5);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

@@ -2,7 +2,48 @@ import { useMemo } from 'react'
 import { AppLayout, AppHeader } from '../components/layout'
 import { BalanceCard, TokenItem } from '../components/cards'
 import { usePortfolio } from '../hooks/usePortfolio'
-import { getTokenIcon, chainColors } from '../lib/icons'
+import type { Token } from '../types/api'
+
+// Chain icons mapping
+const chainIcons: Record<string, string> = {
+  ethereum: 'Ξ',
+  eth: 'Ξ',
+  solana: '◎',
+  sol: '◎',
+  polygon: '⬡',
+  matic: '⬡',
+  arbitrum: '🔵',
+  optimism: '🔴',
+  base: '🔷',
+  bsc: '🟡',
+}
+
+// Chain colors for allocation chart
+const chainColors: Record<string, string> = {
+  ethereum: 'bg-blue-500',
+  eth: 'bg-blue-500',
+  solana: 'bg-purple-500',
+  sol: 'bg-purple-500',
+  polygon: 'bg-indigo-500',
+  matic: 'bg-indigo-500',
+  arbitrum: 'bg-sky-500',
+  optimism: 'bg-red-500',
+  base: 'bg-blue-400',
+  bsc: 'bg-yellow-500',
+}
+
+// Get icon for token based on symbol or chain
+function getTokenIcon(token: Token): string {
+  const symbolLower = token.symbol.toLowerCase()
+  const chainLower = token.chain.toLowerCase()
+
+  if (symbolLower === 'eth') return 'Ξ'
+  if (symbolLower === 'sol') return '◎'
+  if (symbolLower === 'usdc' || symbolLower === 'usdt') return '$'
+  if (symbolLower === 'matic') return '⬡'
+
+  return chainIcons[chainLower] || token.symbol.charAt(0).toUpperCase()
+}
 
 // Format USD value
 function formatUsd(value: number): string {
@@ -43,7 +84,7 @@ export function Portfolio() {
   // Loading state
   if (isLoading) {
     return (
-      <AppLayout header={<AppHeader title="Portfolio" />} activeNav="home">
+      <AppLayout header={<AppHeader title="Portfolio" />} activeNav="portfolio">
         <div className="p-3 pb-20 space-y-4">
           <div className="animate-pulse">
             <div className="bg-suwappu-sakura-light rounded-suwappu-xl h-32 mb-4" />
@@ -58,7 +99,7 @@ export function Portfolio() {
   // Error state
   if (error) {
     return (
-      <AppLayout header={<AppHeader title="Portfolio" />} activeNav="home">
+      <AppLayout header={<AppHeader title="Portfolio" />} activeNav="portfolio">
         <div className="p-3 pb-20">
           <div className="bg-white rounded-suwappu-xl p-6 text-center shadow-suwappu-1">
             <div className="w-12 h-12 mx-auto mb-2 bg-suwappu-error/10 rounded-full flex items-center justify-center">
@@ -73,7 +114,7 @@ export function Portfolio() {
   }
 
   return (
-    <AppLayout header={<AppHeader title="Portfolio" />} activeNav="home">
+    <AppLayout header={<AppHeader title="Portfolio" />} activeNav="portfolio">
       <div className="p-3 pb-20 space-y-4">
         <BalanceCard balance={totalBalance} />
 

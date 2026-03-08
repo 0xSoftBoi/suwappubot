@@ -26,42 +26,22 @@ export interface SwapQuoteRequest {
 }
 
 export interface SwapQuote {
-  /** Quote identifier */
-  quoteId: string
-  fromToken: {
-    address: string
-    symbol: string
-    decimals: number
-    logoURI?: string
-  }
-  toToken: {
-    address: string
-    symbol: string
-    decimals: number
-    logoURI?: string
-  }
-  fromChain: string
-  toChain: string
+  id: string
+  fromToken: SwapToken
+  toToken: SwapToken
   fromAmount: string
   toAmount: string
-  toAmountMin: string
-  fromAmountUsd?: number
-  toAmountUsd?: number
-  exchangeRate: string
-  priceImpact: string  // percentage as string
+  fromAmountUsd: number
+  toAmountUsd: number
+  exchangeRate: number
+  priceImpact: number  // percentage
   estimatedGas: string
-  estimatedGasUsd: string
-  bridgeFee?: string
-  bridgeFeeUsd?: string
+  gasUsd: number
   route: string
+  expiresAt: string
+  minReceived: string
   slippage: number
   estimatedDuration?: number  // seconds
-  txData?: {
-    to: string
-    value: string
-    chainId: number
-    gasLimit: string
-  }
 }
 
 export interface SwapExecuteRequest {
@@ -71,10 +51,13 @@ export interface SwapExecuteRequest {
 export interface SwapExecuteResult {
   success: boolean
   swapId: number
-  status: 'signed' | 'submitted'
-  txHash: string | null
-  signedTransaction?: string
+  status: 'signed'
+  signedTransaction: string
   message: string
+  chain: {
+    chainId: number
+    rpcNeeded: boolean
+  }
   swap: {
     fromChain: string
     toChain: string
@@ -87,7 +70,7 @@ export interface SwapExecuteResult {
 
 export interface SwapStatusResponse {
   id: number
-  status: 'pending' | 'signed' | 'submitted' | 'completed' | 'failed'
+  status: 'pending' | 'signed' | 'completed' | 'failed'
   fromChain: string
   toChain: string
   fromToken: string

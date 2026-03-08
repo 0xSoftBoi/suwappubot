@@ -1,26 +1,31 @@
 /**
- * API client for Suwappu webapp
+ * API client for Suwappu backend
  *
- * Extends the shared BaseApiClient with webapp-specific auth:
+ * Supports dual authentication:
  * - Telegram initData (primary for Mini App)
  * - JWT token (for Turnkey wallet auth)
- * - CSRF token for state-changing requests
- * - Dev mode support
  */
-import { BaseApiClient } from '@suwappu/shared'
 import { getInitData } from './telegram'
-import { getAuthToken, clearAuthToken } from './auth'
-import type { SwapStatusResponse } from '@suwappu/shared'
+import { getAuthToken } from './auth'
+import type { Portfolio, Swap, ApiError, HealthStatus, UserPreferencesResponse, UpdatePreferencesResponse, UserPreferences } from '../types/api'
+import type { LinkedWallet, AuthChallenge, LinkWalletResponse } from '../types/auth'
+import type { SwapToken, SwapQuote, SwapQuoteRequest, SwapExecuteRequest, SwapExecuteResult } from '../types/swap'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
-class WebappApiClient extends BaseApiClient {
+class ApiClient {
+  private baseUrl: string
+
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl
+  }
+
   /**
    * Build auth headers for requests.
    * Includes both Telegram initData and JWT if available.
    * Falls back to dev mode for browser testing.
    */
-  protected getAuthHeaders(): Record<string, string> {
+  private getAuthHeaders(): Record<string, string> {
     const headers: Record<string, string> = {}
 
     // Add Telegram auth header if available (primary for Mini App)
@@ -35,39 +40,20 @@ class WebappApiClient extends BaseApiClient {
       headers['Authorization'] = `Bearer ${token}`
     }
 
-    // Dev mode: Only add dev header in actual development builds, never in production
-    if (import.meta.env.DEV) {
-      const isDev = this.baseUrl.includes('localhost') || this.baseUrl.includes('127.0.0.1')
-      if (isDev) {
-        headers['X-Dev-User-Id'] = '12345'
-      }
+    // Dev mode: ALWAYS add dev user header on dev API (as fallback for invalid/expired auth)
+    const isDev = this.baseUrl.includes('devapi') || this.baseUrl.includes('localhost')
+    if (isDev) {
+      headers['X-Dev-User-Id'] = '12345'
     }
 
     return headers
   }
 
-  private getCsrfToken(): string | null {
-    const match = document.cookie.match(/(^|;\s*)suwappu_csrf=([^;]+)/)
-    return match ? decodeURIComponent(match[2]) : null
-  }
-
-  /**
-   * Override fetch to add CSRF token and handle 401 errors
-   */
-  protected async fetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const method = (options.method || 'GET').toUpperCase()
+  private async fetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...this.getAuthHeaders(),
       ...(options.headers as Record<string, string>),
-    }
-
-    // Add CSRF token for state-changing requests
-    if (method !== 'GET' && method !== 'HEAD') {
-      const csrf = this.getCsrfToken()
-      if (csrf) {
-        headers['X-CSRF-Token'] = csrf
-      }
     }
 
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
@@ -76,12 +62,7 @@ class WebappApiClient extends BaseApiClient {
     })
 
     if (!response.ok) {
-      // Handle expired/invalid auth tokens
-      if (response.status === 401) {
-        clearAuthToken()
-      }
-
-      const error = {
+      const error: ApiError = {
         detail: 'Request failed',
         status: response.status,
       }
@@ -99,7 +80,39 @@ class WebappApiClient extends BaseApiClient {
     return response.json()
   }
 
-  // === Webapp-specific endpoints ===
+  // === Wallet ===
+
+  /**
+   * Get or create wallet for authenticated user
+   */
+  async getOrCreateWallet(): Promise<{ address: string; chain: string }> {
+    return this.fetch('/webapp/wallets/default', { method: 'POST' })
+  }
+
+  // === Portfolio & Swaps ===
+
+  /**
+   * Get current user's portfolio
+   */
+  async getPortfolio(): Promise<Portfolio> {
+    return this.fetch<Portfolio>('/webapp/users/me/portfolio')
+  }
+
+  /**
+   * Get current user's swap history
+   */
+  async getSwaps(limit = 20, offset = 0): Promise<Swap[]> {
+    return this.fetch<Swap[]>(`/webapp/users/me/swaps?limit=${limit}&offset=${offset}`)
+  }
+
+  /**
+   * Get a specific swap by ID
+   */
+  async getSwap(id: string): Promise<Swap> {
+    return this.fetch<Swap>(`/swaps/${id}`)
+  }
+
+  // === Auth ===
 
   /**
    * Validate Telegram init data (for testing auth)
@@ -108,57 +121,131 @@ class WebappApiClient extends BaseApiClient {
     return this.fetch('/webapp/validate', { method: 'POST' })
   }
 
+  // === Health ===
+
   /**
-   * Get a specific swap by ID
+   * Check API health status
    */
-  async getSwap(id: string): Promise<SwapStatusResponse> {
-    return this.fetch<SwapStatusResponse>(`/webapp/swap/status/${id}`)
+  async getHealth(): Promise<HealthStatus> {
+    return this.fetch<HealthStatus>('/health')
+  }
+
+  // === Wallet Linking ===
+
+  /**
+   * Request a challenge for wallet linking
+   */
+  async requestWalletChallenge(address: string): Promise<AuthChallenge> {
+    return this.fetch<AuthChallenge>('/webapp/challenge', {
+      method: 'POST',
+      body: JSON.stringify({ address }),
+    })
   }
 
   /**
-   * Get swap status (typed for polling)
+   * Link a wallet to the current Telegram user
    */
-  async getSwapStatus(swapId: string): Promise<SwapStatusResponse> {
-    return this.fetch<SwapStatusResponse>(`/webapp/swap/status/${swapId}`)
+  async linkWallet(address: string, signature: string, nonce: string): Promise<LinkWalletResponse> {
+    return this.fetch<LinkWalletResponse>('/webapp/link-wallet', {
+      method: 'POST',
+      body: JSON.stringify({ address, signature, nonce }),
+    })
   }
 
   /**
-   * Get available tokens for swapping with optional balance info
+   * Get all wallets linked to the current user
    */
-  async getTokensWithBalances(chainId = '1', includeBalances = true): Promise<SwapToken[]> {
-    const headers: Record<string, string> = {
-      'Accept': 'application/json',
-    }
-    if (includeBalances) {
-      Object.assign(headers, this.getAuthHeaders())
-    }
+  async getLinkedWallets(): Promise<LinkedWallet[]> {
+    return this.fetch<LinkedWallet[]>('/webapp/users/me/wallets')
+  }
 
-    const response = await fetch(`${this.baseUrl}/webapp/swap/tokens?chainId=${chainId}`, { headers })
+  /**
+   * Unlink a wallet from the current user
+   */
+  async unlinkWallet(address: string): Promise<{ success: boolean; message: string }> {
+    return this.fetch(`/webapp/wallets/${encodeURIComponent(address)}`, {
+      method: 'DELETE',
+    })
+  }
+
+  // === Tokens & Swap ===
+
+  /**
+   * Get available tokens for swapping (PUBLIC API - no auth needed)
+   */
+  async getTokens(chainId = '1', _includeBalances = true): Promise<SwapToken[]> {
+    // Use public /tokens endpoint (no auth required)
+    // Note: _includeBalances reserved for future wallet balance integration
+    const response = await fetch(`${this.baseUrl}/tokens?chainId=${chainId}`)
     if (!response.ok) throw new Error('Failed to fetch tokens')
     const data = await response.json()
-
-    return data.tokens.map((t: TokenResponse) => ({
+    
+    return data.tokens.map((t: any) => ({
       symbol: t.symbol,
       name: t.name,
       address: t.address,
       chain: chainId,
       decimals: t.decimals,
-      logoUrl: t.logoURI || t.logoUrl,
-      balance: t.balance || undefined,
+      logoUrl: t.logoURI || t.logoUrl, // Support both Li.Fi (logoURI) and other APIs (logoUrl)
     }))
   }
 
   /**
-   * Get chains list from webapp endpoint
+   * Get chains list (PUBLIC API - no auth needed)
    */
-  async getChainsForSwap(): Promise<{ id: number; key: string; name: string }[]> {
-    const response = await fetch(`${this.baseUrl}/webapp/swap/chains`)
+  async getChains(): Promise<{ id: number, key: string, name: string }[]> {
+    const response = await fetch(`${this.baseUrl}/chains`)
     if (!response.ok) throw new Error('Failed to fetch chains')
     const data = await response.json()
     return data.chains
   }
 
-  // === Points & Rewards (webapp-specific endpoints) ===
+  /**
+   * Get swap quote (REAL API)
+   */
+  async getSwapQuote(request: SwapQuoteRequest): Promise<SwapQuote> {
+    const params = new URLSearchParams({
+      fromChain: request.fromChain,
+      toChain: request.toChain,
+      fromToken: request.fromToken,
+      toToken: request.toToken,
+      fromAmount: request.amount,
+    })
+    if (request.slippage) params.set('slippage', String(request.slippage / 100))
+    
+    return this.fetch<SwapQuote>(`/webapp/swap/quote?${params}`)
+  }
+
+  /**
+   * Execute a swap (REAL API)
+   */
+  async executeSwap(request: SwapExecuteRequest): Promise<SwapExecuteResult> {
+    return this.fetch<SwapExecuteResult>('/webapp/swap/execute', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    })
+  }
+
+  // === User Preferences ===
+
+  /**
+   * Get user preferences (settings page data)
+   */
+  async getUserPreferences(): Promise<UserPreferencesResponse> {
+    return this.fetch<UserPreferencesResponse>('/webapp/me/preferences')
+  }
+
+  /**
+   * Update user preferences
+   */
+  async updateUserPreferences(preferences: Partial<UserPreferences>): Promise<UpdatePreferencesResponse> {
+    return this.fetch<UpdatePreferencesResponse>('/webapp/me/preferences', {
+      method: 'PUT',
+      body: JSON.stringify(preferences),
+    })
+  }
+
+  // === Points & Rewards ===
 
   /**
    * Get user's points stats
@@ -168,113 +255,151 @@ class WebappApiClient extends BaseApiClient {
   }
 
   /**
-   * Daily check-in (webapp endpoint)
+   * Daily check-in
    */
-  async webappCheckin(): Promise<CheckinResult> {
+  async dailyCheckin(): Promise<CheckinResult> {
     return this.fetch<CheckinResult>('/webapp/me/points/checkin', { method: 'POST' })
   }
 
   /**
    * Get points transaction history
    */
-  async getPointsHistory(limit = 20, offset = 0): Promise<WebappPointTransaction[]> {
-    return this.fetch<WebappPointTransaction[]>(`/webapp/me/points/history?limit=${limit}&offset=${offset}`)
+  async getPointsHistory(limit = 20, offset = 0): Promise<PointTransaction[]> {
+    return this.fetch<PointTransaction[]>(`/webapp/me/points/history?limit=${limit}&offset=${offset}`)
   }
 
   /**
-   * Get leaderboard (webapp endpoint)
+   * Get leaderboard
    */
-  async getWebappLeaderboard(limit = 10): Promise<WebappLeaderboardEntry[]> {
-    return this.fetch<WebappLeaderboardEntry[]>(`/webapp/me/points/leaderboard?limit=${limit}`)
+  async getLeaderboard(limit = 10): Promise<LeaderboardEntry[]> {
+    return this.fetch<LeaderboardEntry[]>(`/webapp/me/points/leaderboard?limit=${limit}`)
   }
 
   /**
    * Get available rewards
    */
-  async getWebappRewards(): Promise<WebappReward[]> {
-    return this.fetch<WebappReward[]>('/webapp/me/points/rewards')
+  async getRewards(): Promise<Reward[]> {
+    return this.fetch<Reward[]>('/webapp/me/points/rewards')
   }
 
   /**
    * Redeem a reward
    */
-  async redeemWebappReward(rewardId: number): Promise<RedemptionResult> {
+  async redeemReward(rewardId: number): Promise<RedemptionResult> {
     return this.fetch<RedemptionResult>(`/webapp/me/points/redeem/${rewardId}`, { method: 'POST' })
   }
 
-  // === Wallet Send ===
+  // === DCA (Dollar Cost Averaging) ===
 
-  /**
-   * Send tokens from a wallet to another address
-   */
-  async sendTransaction(request: SendTransactionRequest): Promise<{ txHash: string; status: string }> {
-    return this.fetch('/webapp/wallets/send', {
+  async getDCAOrders(): Promise<DCAOrder[]> {
+    const response = await this.fetch<{ orders: DCAOrder[] }>('/webapp/dca')
+    return response.orders
+  }
+
+  async getDCAOrder(id: number): Promise<DCAOrder> {
+    const response = await this.fetch<{ order: DCAOrder }>(`/webapp/dca/${id}`)
+    return response.order
+  }
+
+  async createDCAOrder(params: CreateDCAParams): Promise<DCAOrder> {
+    const response = await this.fetch<{ order: DCAOrder }>('/webapp/dca', {
       method: 'POST',
-      body: JSON.stringify(request),
+      body: JSON.stringify(params),
     })
+    return response.order
   }
 
-  // === Limit Orders (webapp-specific endpoints) ===
-
-  /**
-   * Get user's limit orders
-   */
-  async getWebappLimitOrders(status?: string, limit = 20, offset = 0): Promise<WebappLimitOrder[]> {
-    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
-    if (status) params.set('status', status)
-    return this.fetch<WebappLimitOrder[]>(`/webapp/me/limit-orders?${params}`)
+  async pauseDCAOrder(id: number): Promise<DCAOrder> {
+    const response = await this.fetch<{ order: DCAOrder }>(`/webapp/dca/${id}/pause`, { method: 'POST' })
+    return response.order
   }
 
-  /**
-   * Create a new limit order
-   */
-  async createWebappLimitOrder(request: CreateLimitOrderRequest): Promise<CreateLimitOrderResult> {
-    return this.fetch<CreateLimitOrderResult>('/webapp/me/limit-orders', {
+  async resumeDCAOrder(id: number): Promise<DCAOrder> {
+    const response = await this.fetch<{ order: DCAOrder }>(`/webapp/dca/${id}/resume`, { method: 'POST' })
+    return response.order
+  }
+
+  async cancelDCAOrder(id: number): Promise<void> {
+    await this.fetch(`/webapp/dca/${id}`, { method: 'DELETE' })
+  }
+
+  async getDCAExecutions(id: number): Promise<DCAExecution[]> {
+    const response = await this.fetch<{ executions: DCAExecution[] }>(`/webapp/dca/${id}/executions`)
+    return response.executions
+  }
+
+  async getDCAStats(): Promise<DCAStats> {
+    return this.fetch<DCAStats>('/webapp/dca/stats')
+  }
+
+  // === Price Alerts ===
+
+  async getAlerts(): Promise<PriceAlert[]> {
+    const response = await this.fetch<{ alerts: PriceAlert[] }>('/webapp/alerts')
+    return response.alerts
+  }
+
+  async createAlert(params: CreateAlertParams): Promise<PriceAlert> {
+    const response = await this.fetch<{ alert: PriceAlert }>('/webapp/alerts', {
       method: 'POST',
-      body: JSON.stringify(request),
+      body: JSON.stringify(params),
     })
+    return response.alert
   }
 
-  /**
-   * Cancel a limit order
-   */
-  async cancelWebappLimitOrder(orderId: number): Promise<{ id: number; status: string; message: string }> {
-    return this.fetch(`/webapp/me/limit-orders/${orderId}`, { method: 'DELETE' })
+  async toggleAlert(id: number): Promise<PriceAlert> {
+    const response = await this.fetch<{ alert: PriceAlert }>(`/webapp/alerts/${id}/toggle`, { method: 'POST' })
+    return response.alert
   }
 
-  // === Token Discovery ===
-
-  /**
-   * Get trending tokens, optionally filtered by chain
-   */
-  async getTrendingTokens(chain?: string): Promise<TrendingToken[]> {
-    const params = chain ? `?chain=${chain}` : ''
-    return this.fetch<TrendingToken[]>(`/webapp/tokens/trending${params}`)
+  async deleteAlert(id: number): Promise<void> {
+    await this.fetch(`/webapp/alerts/${id}`, { method: 'DELETE' })
   }
 
-  /**
-   * Get token info (pairs data from DexScreener)
-   */
-  async getTokenInfo(chain: string, address: string): Promise<TokenInfoResponse> {
-    return this.fetch<TokenInfoResponse>(`/webapp/tokens/${chain}/${address}/info`)
+  // === Limit Orders ===
+
+  async getOrders(): Promise<LimitOrder[]> {
+    const response = await this.fetch<{ orders: LimitOrder[] }>('/webapp/orders')
+    return response.orders
   }
 
-  /**
-   * Get token chart data (OHLCV candles)
-   */
-  async getTokenChart(chain: string, address: string, timeframe: string = '1h'): Promise<TokenChartResponse> {
-    return this.fetch<TokenChartResponse>(`/webapp/tokens/${chain}/${address}/chart?timeframe=${timeframe}`)
+  async createOrder(params: CreateOrderParams): Promise<LimitOrder> {
+    const response = await this.fetch<{ order: LimitOrder }>('/webapp/orders', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+    return response.order
+  }
+
+  async cancelOrder(id: number): Promise<void> {
+    await this.fetch(`/webapp/orders/${id}`, { method: 'DELETE' })
+  }
+
+  async getOrderFills(id: number): Promise<OrderFill[]> {
+    const response = await this.fetch<{ fills: OrderFill[] }>(`/webapp/orders/${id}/fills`)
+    return response.fills
+  }
+
+  // === Referrals ===
+
+  async getReferralCode(): Promise<{ referralCode: string; referralLink: string }> {
+    return this.fetch('/webapp/referrals/code')
+  }
+
+  async getReferralStats(): Promise<ReferralStats> {
+    return this.fetch('/webapp/referrals/stats')
+  }
+
+  async getReferredUsers(): Promise<ReferredUser[]> {
+    const response = await this.fetch<{ referrals: ReferredUser[] }>('/webapp/referrals')
+    return response.referrals
   }
 
   // === Copy Trading ===
 
-  async getTopTraders(filters?: { minTrades?: number; minWinRate?: number; chain?: string; sortBy?: string }): Promise<CopyTraderEntry[]> {
-    const params = new URLSearchParams()
-    if (filters?.minTrades) params.set('minTrades', String(filters.minTrades))
-    if (filters?.minWinRate) params.set('minWinRate', String(filters.minWinRate))
-    if (filters?.chain) params.set('chain', filters.chain)
-    if (filters?.sortBy) params.set('sortBy', filters.sortBy)
-    return this.fetch<CopyTraderEntry[]>(`/webapp/me/copy/top-traders?${params}`)
+  async getTraderLeaderboard(sortBy = 'pnl7d', limit = 50): Promise<TraderEntry[]> {
+    const response = await this.fetch<{ traders: TraderEntry[] }>(`/webapp/copy/traders?sortBy=${sortBy}&limit=${limit}`)
+    return response.traders
   }
 
   async getTraderProfile(id: number): Promise<CopyTraderProfile> {
@@ -296,59 +421,49 @@ class WebappApiClient extends BaseApiClient {
     })
   }
 
-  async unfollowTrader(traderId: number): Promise<{ success: boolean; message: string }> {
-    return this.fetch(`/webapp/me/copy/follow/${traderId}`, { method: 'DELETE' })
+  async followTrader(traderId: number, params: FollowTraderParams): Promise<void> {
+    await this.fetch(`/webapp/copy/${traderId}`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
   }
 
-  async updateCopySettings(traderId: number, settings: CopyFollowSettings): Promise<unknown> {
-    return this.fetch(`/webapp/me/copy/follow/${traderId}`, {
+  async unfollowTrader(traderId: number): Promise<void> {
+    await this.fetch(`/webapp/copy/${traderId}`, { method: 'DELETE' })
+  }
+
+  async getFollowing(): Promise<CopyFollow[]> {
+    const response = await this.fetch<{ following: CopyFollow[] }>('/webapp/copy/following')
+    return response.following
+  }
+
+  async getCopySettings(traderId: number): Promise<CopySettings> {
+    const response = await this.fetch<{ settings: CopySettings }>(`/webapp/copy/settings/${traderId}`)
+    return response.settings
+  }
+
+  async updateCopySettings(traderId: number, settings: Partial<CopySettings>): Promise<void> {
+    await this.fetch(`/webapp/copy/settings/${traderId}`, {
       method: 'PUT',
       body: JSON.stringify(settings),
     })
   }
 
-  // === User Preferences (webapp-specific endpoints) ===
-
-  /**
-   * Get user preferences (webapp endpoint)
-   */
-  async getWebappPreferences(): Promise<WebappUserPreferencesResponse> {
-    return this.fetch<WebappUserPreferencesResponse>('/webapp/me/preferences')
+  async getMyTraderStats(): Promise<TraderStats | null> {
+    const response = await this.fetch<{ stats: TraderStats | null }>('/webapp/copy/my-stats')
+    return response.stats
   }
 
-  /**
-   * Update user preferences (webapp endpoint)
-   */
-  async updateWebappPreferences(preferences: Partial<WebappUserPreferences>): Promise<WebappUpdatePreferencesResponse> {
-    return this.fetch<WebappUpdatePreferencesResponse>('/webapp/me/preferences', {
-      method: 'PUT',
-      body: JSON.stringify(preferences),
+  async setTraderVisibility(isPublic: boolean, displayName?: string): Promise<void> {
+    await this.fetch('/webapp/copy/visibility', {
+      method: 'POST',
+      body: JSON.stringify({ isPublic, displayName }),
     })
   }
 }
 
-// Webapp-specific types for endpoints that differ from shared types
-interface TokenResponse {
-  symbol: string
-  name: string
-  address: string
-  decimals: number
-  logoURI?: string
-  logoUrl?: string
-  balance?: string
-}
-
-interface SwapToken {
-  symbol: string
-  name: string
-  address: string
-  chain: string
-  decimals: number
-  logoUrl?: string
-  balance?: string
-}
-
-interface PointsStats {
+// Points types
+export interface PointsStats {
   totalPoints: number
   currentStreak: number
   longestStreak: number
@@ -357,7 +472,7 @@ interface PointsStats {
   rank?: number
 }
 
-interface CheckinResult {
+export interface CheckinResult {
   success: boolean
   pointsAwarded: number
   newTotal: number
@@ -365,7 +480,7 @@ interface CheckinResult {
   bonusPoints?: number
 }
 
-interface WebappPointTransaction {
+export interface PointTransaction {
   id: number
   amount: number
   action: string
@@ -373,7 +488,7 @@ interface WebappPointTransaction {
   createdAt: string
 }
 
-interface WebappLeaderboardEntry {
+export interface LeaderboardEntry {
   rank: number
   userId: number
   username: string | null
@@ -382,7 +497,7 @@ interface WebappLeaderboardEntry {
   currentStreak: number
 }
 
-interface WebappReward {
+export interface Reward {
   id: number
   name: string
   description: string
@@ -393,7 +508,7 @@ interface WebappReward {
   stock: number | null
 }
 
-interface RedemptionResult {
+export interface RedemptionResult {
   id: number
   pointsSpent: number
   rewardType: string
@@ -402,233 +517,251 @@ interface RedemptionResult {
   expiresAt: string | null
 }
 
-interface WebappLimitOrder {
+
+// DCA types
+export interface DCAOrder {
   id: number
+  walletId: number
   fromChain: string
   fromToken: string
   fromTokenSymbol: string
-  fromAmount: string
   toChain: string
   toToken: string
   toTokenSymbol: string
-  targetPrice: number
-  currentPrice: number | null
-  triggerType: 'lte' | 'gte'
-  status: 'active' | 'filled' | 'cancelled' | 'expired' | 'failed'
-  createdAt: string | null
-  expiresAt: string | null
-  executedAt: string | null
-  executedPrice: number | null
-  executedTxHash: string | null
+  amountPerExecution: string
+  amountPerExecutionUsd?: number
+  intervalMinutes: number
+  totalExecutions?: number
+  executedCount: number
+  status: 'active' | 'paused' | 'completed' | 'cancelled'
+  nextExecutionAt?: string
+  createdAt: string
 }
 
-interface CreateLimitOrderRequest {
+export interface DCAExecution {
+  id: number
+  fromAmount: string
+  toAmount?: string
+  executionPrice?: number
+  status: 'pending' | 'success' | 'failed'
+  txHash?: string
+  executedAt: string
+}
+
+export interface DCAStats {
+  totalOrders: number
+  activeOrders: number
+  totalExecutions: number
+  totalAmountSpent: string
+}
+
+export interface CreateDCAParams {
+  walletId: number
   fromChain: string
   fromToken: string
   fromTokenSymbol: string
-  fromAmount: string
   toChain: string
   toToken: string
   toTokenSymbol: string
-  targetPrice: number
-  triggerType?: 'lte' | 'gte'
-  slippage?: number
-  walletAddress: string
-  expiresInHours?: number
+  amountPerExecution: string
+  intervalMinutes: number
+  totalExecutions?: number
+  maxSlippage?: number
 }
 
-interface CreateLimitOrderResult {
+// Alert types
+export interface PriceAlert {
   id: number
-  status: string
-  targetPrice: number
-  createdAt: string | null
-}
-
-interface SendTransactionRequest {
-  fromAddress: string
-  toAddress: string
-  amount: string
+  chain: string
   tokenAddress: string
   tokenSymbol: string
-  chainId: number
+  alertType: 'above' | 'below' | 'change_pct'
+  targetPrice?: number
+  changePercent?: number
+  currentPrice?: number
+  isActive: boolean
+  isTriggered: boolean
+  createdAt: string
 }
 
-interface WebappUserPreferences {
-  defaultSlippage: number
-  notificationsEnabled: boolean
-  twoFaEnabled: boolean
-  twoFaThreshold: number
+export interface CreateAlertParams {
+  chain: string
+  tokenAddress: string
+  tokenSymbol: string
+  alertType: 'above' | 'below' | 'change_pct'
+  targetPrice?: number
+  changePercent?: number
 }
 
-interface WebappUserPreferencesResponse {
-  user: {
-    id: number
-    telegramId?: number
-    username?: string
-    firstName?: string
-    lastName?: string
-  }
-  preferences: WebappUserPreferences
-  wallets: {
-    address: string
-    name: string
-    chainType: 'evm' | 'solana'
-    provider: 'local' | 'turnkey' | 'external'
-    isDefault: boolean
-    linkedAt: string
-  }[]
+// Order types
+export interface LimitOrder {
+  id: number
+  walletId: number
+  fromChain: string
+  fromToken: string
+  fromTokenSymbol: string
+  toChain: string
+  toToken: string
+  toTokenSymbol: string
+  orderType: 'limit_buy' | 'limit_sell' | 'stop_loss' | 'take_profit'
+  side: 'buy' | 'sell'
+  amount: string
+  triggerPrice: number
+  currentPrice?: number
+  status: 'pending' | 'executing' | 'filled' | 'cancelled' | 'expired' | 'failed'
+  createdAt: string
+  expiresAt?: string
 }
 
-interface WebappUpdatePreferencesResponse {
-  success: boolean
-  preferences: WebappUserPreferences
+export interface CreateOrderParams {
+  walletId: number
+  fromChain: string
+  fromToken: string
+  fromTokenSymbol: string
+  toChain: string
+  toToken: string
+  toTokenSymbol: string
+  orderType: 'limit_buy' | 'limit_sell' | 'stop_loss' | 'take_profit'
+  side: 'buy' | 'sell'
+  amount: string
+  triggerPrice: number
+  maxSlippage?: number
+  expiresAt?: string
+}
+
+export interface OrderFill {
+  id: number
+  filledAmount: string
+  receivedAmount?: string
+  fillPrice?: number
+  txHash?: string
+  status: string
+  filledAt: string
+}
+
+// Referral types
+export interface ReferralStats {
+  referralCode: string
+  referralLink: string | null
+  totalReferrals: number
+  activeReferrals: number
+  totalEarned: number
+  pendingRewards: number
+}
+
+export interface ReferredUser {
+  id: number
+  username?: string
+  joinedAt: string
+  totalVolume: number
+  rewardsGenerated: number
 }
 
 // Copy Trading types
-interface CopyTraderEntry {
-  rank: number
+export interface TraderEntry {
   userId: number
   displayName: string
-  avatarEmoji: string
   totalTrades: number
   winRate: number
-  totalPnlUsd: number
-  totalVolumeUsd: number
+  pnl7d: number
+  pnl7dPercent: number
+  pnl30d: number
+  pnl30dPercent: number
   followerCount: number
-  timesCopied: number
-  rankScore: number
+  copierCount: number
+  lastTradeAt?: string
 }
 
-interface CopyTraderProfile {
-  profile: {
-    userId: number
-    displayName: string | null
-    avatarEmoji: string | null
-    bio: string | null
-    isPublic: boolean | null
-  }
-  stats: {
-    totalTrades: number | null
-    winningTrades: number | null
-    winRate: number | null
-    totalPnlUsd: number | null
-    totalVolumeUsd: number | null
-    avgTradeSizeUsd: number | null
-    bestTradePnlUsd: number | null
-    worstTradePnlUsd: number | null
-  }
-  social: {
-    followerCount: number | null
-    timesCopied: number | null
-    totalCopyVolumeUsd: number | null
-  }
-  recentTrades: {
-    fromToken: string
-    toToken: string
-    fromChain: string
-    amountUsd: number
-    pnlUsd: number | null
-    createdAt: string | null
-  }[]
+export interface TraderStats {
+  totalTrades: number
+  winRate: number
+  totalPnl: number
+  pnl7d: number
+  pnl30d: number
+  followerCount: number
+  isPublic: boolean
+  displayName?: string
 }
 
-interface CopyFollowingEntry {
-  traderId: number
-  displayName: string | null
-  avatarEmoji: string | null
-  copyMode: string | null
-  copyAmountUsd: number | null
-  autoSellEnabled: boolean | null
-  chainsFilter: string | null
-  totalCopiedTrades: number | null
-  totalCopyPnl: number | null
-  winRate: number | null
-  isActive: boolean | null
-}
-
-interface CopyTradeRecord {
+export interface CopyFollow {
   id: number
   traderId: number
+  walletId: number
+  isActive: boolean
+  maxAmountPerTrade?: number
+  totalBudget?: number
+  usedBudget: number
+  totalCopiedTrades: number
+  totalPnl: number
+}
+
+export interface CopySettings {
+  traderId: number
+  walletId: number
+  isActive: boolean
+  maxAmountPerTrade?: number
+  totalBudget?: number
+  stopLossPercent?: number
+  takeProfitPercent?: number
+}
+
+export interface FollowTraderParams {
+  walletId: number
+  maxAmountPerTrade?: number
+  totalBudget?: number
+  stopLossPercent?: number
+  takeProfitPercent?: number
+}
+
+// Copy Trading extended types (used by dev branch hooks)
+export interface CopyTraderProfile {
+  userId: number
+  displayName: string
+  totalTrades: number
+  winRate: number
+  pnl7d: number
+  pnl30d: number
+  followerCount: number
+  isFollowing: boolean
+}
+
+export interface CopyFollowingEntry {
+  traderId: number
+  displayName: string
+  isActive: boolean
+  totalCopiedTrades: number
+  totalPnl: number
+  maxAmountPerTrade?: number
+}
+
+export interface CopyTradeRecord {
+  id: number
+  traderId: number
+  traderDisplayName: string
   fromToken: string
   toToken: string
-  fromChain: string
-  toChain: string
-  traderAmountUsd: number
-  copyAmountUsd: number
-  status: string | null
-  pnlUsd: number | null
-  createdAt: string | null
+  amount: string
+  status: string
+  executedAt: string
+  pnl?: number
 }
 
-// Token Discovery types
-interface DexScreenerPair {
-  chainId: string
-  dexId: string
-  pairAddress: string
-  baseToken: { address: string; name: string; symbol: string }
-  quoteToken: { address: string; name: string; symbol: string }
-  priceUsd: string
-  priceChange: { h24: number; h6?: number; h1?: number }
-  volume: { h24: number; h6?: number; h1?: number }
-  liquidity: { usd: number }
-  marketCap?: number
-  fdv?: number
+export interface CopyFollowSettings {
+  maxAmountPerTrade?: number
+  totalBudget?: number
+  stopLossPercent?: number
+  takeProfitPercent?: number
+  isActive?: boolean
 }
 
-interface TokenInfoResponse {
-  pairs: DexScreenerPair[]
-}
-
-interface TokenChartResponse {
-  candles: Array<{ time: number; open: number; high: number; low: number; close: number }>
-}
-
-interface TrendingToken {
-  url: string
-  chainId: string
-  tokenAddress: string
-  icon?: string
-  name?: string
-  symbol?: string
-  price?: number
-  priceChange24h?: number
-  sparkline?: Array<{ time: number; value: number }>
-}
-
-interface CopyFollowSettings {
-  copyMode?: string
-  copyAmountUsd?: number
-  maxTradeUsd?: number
-  dailyLimitUsd?: number
-  autoSellEnabled?: boolean
-  chainsFilter?: string | null
+// Limit Order webapp types (used by dev branch)
+export interface WebappLimitOrder extends LimitOrder {
+  targetPrice: number
 }
 
 // Export singleton instance
-export const api = new WebappApiClient(API_BASE)
+export const api = new ApiClient(API_BASE)
 
 // Export for testing with different base URLs
-export { WebappApiClient }
+export { ApiClient }
 
-// Export types for components
-export type {
-  PointsStats,
-  CheckinResult,
-  WebappPointTransaction,
-  WebappLeaderboardEntry,
-  WebappReward,
-  RedemptionResult,
-  WebappLimitOrder,
-  CreateLimitOrderRequest,
-  CreateLimitOrderResult,
-  SwapToken,
-  CopyTraderEntry,
-  CopyTraderProfile,
-  CopyFollowingEntry,
-  CopyTradeRecord,
-  CopyFollowSettings,
-  DexScreenerPair,
-  TokenInfoResponse,
-  TokenChartResponse,
-  TrendingToken,
-}

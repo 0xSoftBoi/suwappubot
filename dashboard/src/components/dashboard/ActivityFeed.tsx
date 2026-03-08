@@ -13,9 +13,24 @@ interface Swap {
   toAmount?: string;
   fromChain: string;
   toChain: string;
-  status: 'pending' | 'executing' | 'completed' | 'failed';
+  status: string;
   timestamp: string;
   txHash?: string;
+}
+
+type NormalizedStatus = 'pending' | 'executing' | 'completed' | 'failed';
+
+function normalizeStatus(status: string): NormalizedStatus {
+  const map: Record<string, NormalizedStatus> = {
+    pending: 'pending',
+    signed: 'executing',
+    executing: 'executing',
+    completed: 'completed',
+    failed: 'failed',
+    cancelled: 'failed',
+    canceled: 'failed',
+  };
+  return map[status.toLowerCase()] || 'pending';
 }
 
 interface ActivityFeedProps {
@@ -30,6 +45,7 @@ const statusConfig = {
     color: 'text-system-orange',
     bgColor: 'bg-system-orange/10',
     label: 'Pending',
+    animate: false,
   },
   executing: {
     icon: Loader2,
@@ -43,12 +59,14 @@ const statusConfig = {
     color: 'text-system-green',
     bgColor: 'bg-system-green/10',
     label: 'Completed',
+    animate: false,
   },
   failed: {
     icon: XCircle,
     color: 'text-system-red',
     bgColor: 'bg-system-red/10',
     label: 'Failed',
+    animate: false,
   },
 };
 
@@ -63,17 +81,17 @@ const chainColors: Record<string, string> = {
 };
 
 function SwapItem({ swap }: { swap: Swap }) {
-  const status = statusConfig[swap.status];
+  const status = statusConfig[normalizeStatus(swap.status)];
   const StatusIcon = status.icon;
-  
+
   const fromChainColor = chainColors[swap.fromChain.toLowerCase()] || 'from-gray-3 to-gray-2';
   const toChainColor = chainColors[swap.toChain.toLowerCase()] || 'from-gray-3 to-gray-2';
-  
+
   const formatTime = (timestamp: string) => {
     const date = new Date(timestamp);
     const now = new Date();
     const diff = now.getTime() - date.getTime();
-    
+
     if (diff < 60000) return 'Just now';
     if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
     if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
@@ -109,7 +127,7 @@ function SwapItem({ swap }: { swap: Swap }) {
           <span>{swap.fromAmount} {swap.fromToken}</span>
           {swap.toAmount && (
             <>
-              <span className="text-gray-3">→</span>
+              <span className="text-gray-3">&rarr;</span>
               <span>{swap.toAmount} {swap.toToken}</span>
             </>
           )}
@@ -123,7 +141,7 @@ function SwapItem({ swap }: { swap: Swap }) {
           status.bgColor,
           status.color
         )}>
-          <StatusIcon className={clsx('w-3 h-3', (status as any).animate && 'animate-spin')} />
+          <StatusIcon className={clsx('w-3 h-3', status.animate && 'animate-spin')} />
           <span>{status.label}</span>
         </div>
         <span className="text-xs text-gray-2">{formatTime(swap.timestamp)}</span>

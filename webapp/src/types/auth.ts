@@ -3,7 +3,7 @@
  */
 
 // Auth methods supported
-export type AuthMethod = 'telegram' | 'wallet' | 'passkey' | null
+export type AuthMethod = 'telegram' | 'wallet' | 'passkey' | 'oauth' | null
 
 // Telegram user from initData
 export interface TelegramUser {

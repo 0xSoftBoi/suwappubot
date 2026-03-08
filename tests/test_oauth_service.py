@@ -117,14 +117,16 @@ class TestOAuthService:
                     mock_resp.status = 200
                     mock_resp.json = AsyncMock(return_value=mock_response)
 
-                    # Create a proper async context manager for session.post()
-                    mock_post_cm = AsyncMock()
-                    mock_post_cm.__aenter__ = AsyncMock(return_value=mock_resp)
-                    mock_post_cm.__aexit__ = AsyncMock(return_value=None)
-
                     mock_client = AsyncMock()
-                    mock_client.post = MagicMock(return_value=mock_post_cm)
+                    mock_client.post = AsyncMock(return_value=mock_resp.__aenter__.return_value)
+                    mock_client.__aenter__.return_value = mock_client
+                    mock_client.__aexit__.return_value = None
+
                     mock_session.return_value = mock_client
+
+                    # Mock the context manager
+                    mock_client.post.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
+                    mock_client.post.return_value.__aexit__ = AsyncMock(return_value=None)
 
                     tokens = await oauth_service.exchange_code(
                         provider="google",
@@ -150,13 +152,9 @@ class TestOAuthService:
                     mock_resp.status = 400
                     mock_resp.text = AsyncMock(return_value="Invalid code")
 
-                    # Create a proper async context manager for session.post()
-                    mock_post_cm = AsyncMock()
-                    mock_post_cm.__aenter__ = AsyncMock(return_value=mock_resp)
-                    mock_post_cm.__aexit__ = AsyncMock(return_value=None)
-
                     mock_client = AsyncMock()
-                    mock_client.post = MagicMock(return_value=mock_post_cm)
+                    mock_client.post.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
+                    mock_client.post.return_value.__aexit__ = AsyncMock(return_value=None)
                     mock_session.return_value = mock_client
 
                     with pytest.raises(OAuthError):

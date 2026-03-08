@@ -143,7 +143,6 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 			const userService = yield* UserService
 			const walletService = yield* WalletService
 			const swapService = yield* SwapService
-			const redis = yield* RedisService
 
 			// Get user and wallet - use placeholder if not found (for quotes only)
 			// Use a real address as placeholder since Li.Fi rejects zero address
@@ -197,8 +196,8 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 				}),
 			)
 
-			// Cache the quote for execution (Redis with in-memory fallback)
-			yield* cacheQuote(redis, quote)
+			// Cache the quote for execution
+			cacheQuote(quote)
 
 			// Return quote without internal data
 			const { _rawQuote, transactionRequest, ...publicQuote } = quote
@@ -247,7 +246,6 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 			const userService = yield* UserService
 			const walletService = yield* WalletService
 			const swapService = yield* SwapService
-			const redis = yield* RedisService
 
 			// Get user
 			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
@@ -277,8 +275,8 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 				)
 			}
 
-			// Get cached quote from Redis (with in-memory fallback)
-			const quote = yield* getCachedQuote(redis, quoteId)
+			// Get cached quote
+			const quote = getCachedQuote(quoteId)
 			if (!quote) {
 				return yield* Effect.fail(
 					new ValidationError({
@@ -305,8 +303,8 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 				toToken: quote.toToken.symbol,
 				fromAmount: quote.fromAmount,
 				toAmount: quote.toAmount,
-				fromAmountUsd: parseFloat(quote.fromAmountUsd) || null,
-				toAmountUsd: parseFloat(quote.toAmountUsd) || null,
+				fromAmountUsd: parseFloat(quote.estimatedGasUsd) || null,
+				toAmountUsd: null,
 				status: 'pending',
 				routeProvider: 'lifi',
 				routeData: JSON.stringify(quote._rawQuote),
@@ -378,9 +376,16 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 
 			const signedTransaction = signResult.signedTransaction
 
+			// Submit to RPC
+			// For now, return the signed tx - in production, submit to the chain's RPC
 			console.log('[SwapRoute] Transaction signed successfully')
 
-			// Broadcast the signed transaction to the chain RPC
+			// In a full implementation, you would:
+			// 1. Get the appropriate RPC endpoint for the chain
+			// 2. Send the signed transaction using eth_sendRawTransaction
+			// 3. Wait for confirmation
+			// 4. Update swap status to 'completed' or 'failed'
+
 			const rpcUrl = CHAIN_RPC_ENDPOINTS[txRequest.chainId]
 			let txHash: string | null = null
 
@@ -416,22 +421,19 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 				)
 			}
 
-			// Update swap status with tx hash
 			const newStatus = txHash ? 'submitted' : 'signed'
 			yield* swapService.updateSwapStatus(swapRecord.id, newStatus, txHash || signedTransaction)
-
-			// Clear the quote from cache (Redis and in-memory)
-			yield* deleteCachedQuote(redis, quoteId)
 
 			return {
 				success: true,
 				swapId: swapRecord.id,
-				status: newStatus,
-				txHash,
-				signedTransaction: txHash ? undefined : signedTransaction,
-				message: txHash
-					? 'Transaction submitted to the network.'
-					: 'Transaction signed but no RPC available for broadcast.',
+				status: 'signed',
+				signedTransaction,
+				message: 'Transaction signed. Submit to chain to complete swap.',
+				chain: {
+					chainId: txRequest.chainId,
+					rpcNeeded: true,
+				},
 				swap: {
 					fromChain: quote.fromChain,
 					toChain: quote.toChain,
@@ -668,20 +670,19 @@ async function fetchNativeBalance(address: string, chainId: string): Promise<str
 	return null
 }
 
+
 /**
  * GET /webapp/swap/tokens
- * Get popular tokens for a chain (cached for 5 minutes)
- *
- * Optional: include auth headers to get wallet balances for the native token
+ * Get popular tokens for a chain
  */
 swapRoutes.get('/tokens', async (c) => {
 	const chainId = c.req.query('chainId')
-
+	
 	if (!chainId) {
 		return c.json({ error: 'Validation Error', message: 'chainId is required' }, 400)
 	}
 
-	// Try to extract wallet address from auth (optional — endpoint remains public)
+	// Try to extract wallet address from auth (optional -- endpoint remains public)
 	let walletAddress: string | null = null
 	const initData = c.req.header('X-Telegram-Init-Data')
 	if (initData) {

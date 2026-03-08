@@ -139,8 +139,6 @@ export interface SwapQuote {
 	priceImpact: string
 	estimatedGas: string
 	estimatedGasUsd: string
-	fromAmountUsd: string
-	toAmountUsd: string
 	bridgeFee: string
 	bridgeFeeUsd: string
 	slippage: number
@@ -303,7 +301,7 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				order: params.order || 'RECOMMENDED',
 				integrator: params.integrator || 'suwappu',
 				referrer: process.env.FEE_WALLET_EVM || '0x6456f69215C470e1545Ed6eea4621C136B30D85d',
-				// fee: '0.003', // 0.3% integrator fee - Disabled until configured in Li.Fi dashboard
+				fee: '0.003', // 0.3% integrator fee
 			})
 
 			const url = `${LIFI_API_BASE}/quote?${queryParams.toString()}`
@@ -384,8 +382,6 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				fromAmount: response.action.fromAmount,
 				toAmount: response.estimate.toAmount,
 				toAmountMin: response.estimate.toAmountMin,
-				fromAmountUsd: fromUsd.toFixed(2),
-				toAmountUsd: toUsd.toFixed(2),
 				exchangeRate: exchangeRate.toFixed(6),
 				priceImpact: priceImpact.toFixed(2),
 				estimatedGas: response.estimate.gasCosts[0]?.amount || '0',

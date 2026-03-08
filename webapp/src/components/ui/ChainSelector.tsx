@@ -5,18 +5,16 @@ export interface Chain {
 }
 
 export interface ChainSelectorProps {
-  chains?: Chain[]
+  chains: Chain[]
   selected: string
   onSelect?: (chainId: string) => void
 }
 
-// Default chains matching SUPPORTED_CHAINS in useTokens
-export const defaultChains: Chain[] = [
-  { id: '1', name: 'Ethereum', icon: 'Ξ' },
-  { id: '137', name: 'Polygon', icon: '⬡' },
-  { id: '42161', name: 'Arbitrum', icon: '🔵' },
-  { id: '10', name: 'Optimism', icon: '🔴' },
-  { id: '8453', name: 'Base', icon: '🔷' },
+const defaultChains: Chain[] = [
+  { id: 'eth', name: 'Ethereum', icon: 'Ξ' },
+  { id: 'bsc', name: 'BSC', icon: '🔶' },
+  { id: 'polygon', name: 'Polygon', icon: '⬡' },
+  { id: 'sol', name: 'Solana', icon: '◎' },
 ]
 
 export function ChainSelector({ chains = defaultChains, selected, onSelect }: ChainSelectorProps) {

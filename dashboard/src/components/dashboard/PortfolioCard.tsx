@@ -17,7 +17,7 @@ interface PortfolioCardProps {
 function useAnimatedCounter(end: number, duration: number = 1000) {
   const [value, setValue] = useState(0);
   const startTime = useRef<number | null>(null);
-  const animationRef = useRef<number>(0);
+  const animationRef = useRef<number>();
 
   useEffect(() => {
     startTime.current = null;

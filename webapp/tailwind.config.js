@@ -21,9 +21,21 @@ export default {
         },
         // Suwappu UI Design System
         suwappu: {
-          // Primary palette
+          // Sakura palette (expanded)
+          'sakura-50': '#FFF5F7',
+          'sakura-100': '#FFEBEF',
+          'sakura-200': '#FFD1DC',
+          'sakura-300': '#FFB7C5',
+          'sakura-400': '#FF9DB0',
+          'sakura-500': '#FF839B',
+          'sakura-600': '#E66D85',
+          'sakura-700': '#CC576F',
+          'sakura-800': '#B34159',
+          'sakura-900': '#992B43',
+          // Legacy aliases
           'sakura-light': '#FFD1DC',
           'sakura-mid': '#FFB7C5',
+          // Primary palette
           'magenta': '#E91E8C',
           'rose': '#F8A5C2',
           'magenta-mid': '#C44569',
@@ -165,18 +177,6 @@ export default {
           '50%': { transform: 'scale(0.9)' },
           '75%': { transform: 'scale(1.1)' },
           '100%': { transform: 'scale(1)' },
-        },
-        'page-enter': {
-          '0%': { opacity: '0', transform: 'scale(0.98) translateY(8px)' },
-          '100%': { opacity: '1', transform: 'scale(1) translateY(0)' },
-        },
-        'toast-enter': {
-          '0%': { opacity: '0', transform: 'translateY(50px) scale(0.9)' },
-          '100%': { opacity: '1', transform: 'translateY(0) scale(1)' },
-        },
-        'toast-exit': {
-          '0%': { opacity: '1', transform: 'translateY(0) scale(1)' },
-          '100%': { opacity: '0', transform: 'translateY(20px) scale(0.9)' },
         },
       },
     },

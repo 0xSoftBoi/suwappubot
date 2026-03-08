@@ -76,3 +76,28 @@ export async function logoutTurnkey(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Create a Turnkey wallet via OAuth provider (Google/Twitter).
+ * Calls the api-ts endpoint that creates a sub-org with OAuth authenticator + wallet.
+ */
+export async function authenticateWithOAuth(
+  provider: string,
+  oauthToken: string,
+  telegramUserId: string,
+): Promise<{ subOrgId: string; walletId: string; address: string }> {
+  const apiBase = import.meta.env.VITE_API_URL || "";
+
+  const response = await fetch(`${apiBase}/webapp/turnkey/oauth-wallet`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider, oauthToken, telegramUserId }),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || "Failed to create OAuth wallet");
+  }
+
+  return response.json();
+}

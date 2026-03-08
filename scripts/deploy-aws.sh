@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 AWS_REGION="${AWS_REGION:-us-east-1}"
 ECR_REPOSITORY="suwappu"
 ECS_CLUSTER="suwappu-cluster"
-ECS_SERVICE="suwappu-bot-prod"
+ECS_SERVICE="SuwappuStack-SuwappuService"
 
 # Get AWS account ID
 get_account_id() {

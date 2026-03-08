@@ -4,7 +4,7 @@ import asyncio
 import aiohttp
 from typing import Optional
 
-from bot.utils.cache import price_cache, cached as cached_decorator
+from bot.utils.cache import price_cache, cached
 from bot.utils.retry import async_retry
 from bot.utils.rate_limiter import api_limiter
 from bot.utils.performance import track_time, MetricNames

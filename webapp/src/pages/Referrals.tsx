@@ -1,51 +1,54 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import toast from 'react-hot-toast'
 import { AppLayout, AppHeader } from '../components/layout'
-import { useAuth } from '../contexts/AuthContext'
+import { api, type ReferralStats, type ReferredUser } from '../lib/api'
 
-interface ReferralStats {
-  totalReferrals: number
-  activeReferrals: number
-  totalEarned: number
-  pendingRewards: number
-}
-
-interface Referral {
-  id: string
-  username: string
-  joinedAt: string
-  volumeGenerated: number
-  rewardEarned: number
-}
-
-// Mock data - will connect to API
-const mockStats: ReferralStats = {
-  totalReferrals: 0,
-  activeReferrals: 0,
-  totalEarned: 0,
-  pendingRewards: 0,
+function formatTime(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
 }
 
 export function Referrals() {
   const navigate = useNavigate()
-  const { telegramUser } = useAuth()
-  const [stats] = useState<ReferralStats>(mockStats)
-  const [referrals] = useState<Referral[]>([])
+  const [stats, setStats] = useState<ReferralStats | null>(null)
+  const [referrals, setReferrals] = useState<ReferredUser[]>([])
+  const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
 
-  // Generate referral link
-  const referralCode = telegramUser?.id?.toString() || 'SUWAPPU'
-  const referralLink = `https://t.me/SuwappuBot?start=ref_${referralCode}`
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  const loadData = async () => {
+    try {
+      setLoading(true)
+      const [statsData, referralsData] = await Promise.all([
+        api.getReferralStats(),
+        api.getReferredUsers(),
+      ])
+      setStats(statsData)
+      setReferrals(referralsData)
+    } catch (err: any) {
+      toast.error(err.detail || 'Failed to load referral data')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleCopy = async () => {
+    if (!stats?.referralLink) return
     try {
-      await navigator.clipboard.writeText(referralLink)
+      await navigator.clipboard.writeText(stats.referralLink)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
       // Fallback for older browsers
       const input = document.createElement('input')
-      input.value = referralLink
+      input.value = stats.referralLink
       document.body.appendChild(input)
       input.select()
       document.execCommand('copy')
@@ -55,13 +58,16 @@ export function Referrals() {
     }
   }
 
-  const handleShare = () => {
+  const handleShare = async () => {
+    if (!stats?.referralLink) return
+    const text = `Join me on Suwappu and get bonus rewards! 🎁\n\n${stats.referralLink}`
+    
     if (navigator.share) {
-      navigator.share({
-        title: 'Join Suwappu!',
-        text: 'Swap tokens across 7 chains with me on Suwappu!',
-        url: referralLink,
-      })
+      try {
+        await navigator.share({ text })
+      } catch {
+        // User cancelled or not supported
+      }
     } else {
       handleCopy()
     }
@@ -70,139 +76,131 @@ export function Referrals() {
   return (
     <AppLayout 
       header={<AppHeader title="Referrals" showBack onBack={() => navigate(-1)} />} 
-      activeNav="home"
+      activeNav="earn"
     >
       <div className="p-3 pb-20 space-y-4">
-        {/* Referral Link Card */}
-        <div className="bg-gradient-to-br from-suwappu-magenta-mid to-suwappu-purple-deep rounded-suwappu-xl p-4 text-white">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-2xl">🎁</span>
-            <div>
-              <p className="font-heading font-bold">Invite Friends, Earn Rewards!</p>
-              <p className="text-xs text-white/70">Earn 10% of your referrals' trading fees</p>
-            </div>
+        {/* Loading state */}
+        {loading && (
+          <div className="text-center py-8">
+            <div className="animate-spin w-8 h-8 border-2 border-suwappu-purple-deep border-t-transparent rounded-full mx-auto mb-2" />
+            <p className="text-suwappu-text-secondary text-sm">Loading...</p>
           </div>
-          
-          <div className="bg-white/10 rounded-lg p-3 mb-3">
-            <p className="text-xs text-white/70 mb-1">Your Referral Link</p>
-            <p className="font-mono text-sm break-all">{referralLink}</p>
-          </div>
-          
-          <div className="flex gap-2">
-            <button
-              onClick={handleCopy}
-              className="flex-1 py-2 bg-white/20 rounded-suwappu-lg font-medium text-sm hover:bg-white/30 transition-colors"
-            >
-              {copied ? '✓ Copied!' : '📋 Copy Link'}
-            </button>
-            <button
-              onClick={handleShare}
-              className="flex-1 py-2 bg-white rounded-suwappu-lg text-suwappu-magenta-mid font-medium text-sm hover:bg-white/90 transition-colors"
-            >
-              📤 Share
-            </button>
-          </div>
-        </div>
+        )}
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-3">
-            <p className="text-xs text-suwappu-text-secondary mb-1">Total Referrals</p>
-            <p className="font-heading font-bold text-2xl text-suwappu-purple-deep">
-              {stats.totalReferrals}
-            </p>
-          </div>
-          <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-3">
-            <p className="text-xs text-suwappu-text-secondary mb-1">Active</p>
-            <p className="font-heading font-bold text-2xl text-suwappu-success">
-              {stats.activeReferrals}
-            </p>
-          </div>
-          <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-3">
-            <p className="text-xs text-suwappu-text-secondary mb-1">Total Earned</p>
-            <p className="font-heading font-bold text-2xl text-suwappu-purple-deep">
-              ${stats.totalEarned.toFixed(2)}
-            </p>
-          </div>
-          <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-3">
-            <p className="text-xs text-suwappu-text-secondary mb-1">Pending</p>
-            <p className="font-heading font-bold text-2xl text-suwappu-warning">
-              ${stats.pendingRewards.toFixed(2)}
-            </p>
-          </div>
-        </div>
-
-        {/* Referrals List */}
-        <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 overflow-hidden">
-          <div className="px-3 py-2 border-b border-suwappu-sakura-mid/10">
-            <span className="font-heading font-semibold text-sm text-suwappu-purple-deep">
-              Your Referrals
-            </span>
-          </div>
-          
-          {referrals.length === 0 ? (
-            <div className="p-8 text-center">
-              <div className="w-16 h-16 mx-auto mb-4 bg-suwappu-sakura-light rounded-full flex items-center justify-center">
-                <span className="text-3xl">👥</span>
+        {!loading && stats && (
+          <>
+            {/* Referral Link Card */}
+            <div className="bg-gradient-to-br from-suwappu-magenta-mid to-suwappu-purple-deep rounded-suwappu-xl p-4 text-white">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-3xl">🎁</span>
+                <span className="text-xs bg-white/20 px-2 py-1 rounded-full">
+                  {stats.referralCode || 'Loading...'}
+                </span>
               </div>
-              <p className="font-heading font-semibold text-suwappu-purple-deep mb-1">
-                No referrals yet
+              
+              <p className="font-heading font-semibold text-lg mb-1">
+                Invite Friends, Earn Rewards
               </p>
-              <p className="text-xs text-suwappu-text-secondary">
-                Share your link to start earning!
+              <p className="text-sm text-white/80 mb-4">
+                Earn 10% of your friends' swap fees forever!
               </p>
+              
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCopy}
+                  className="flex-1 py-2.5 bg-white text-suwappu-purple-deep font-medium rounded-lg text-sm active:scale-[0.98] transition-transform"
+                >
+                  {copied ? '✓ Copied!' : 'Copy Link'}
+                </button>
+                <button
+                  onClick={handleShare}
+                  className="flex-1 py-2.5 bg-white/20 text-white font-medium rounded-lg text-sm active:scale-[0.98] transition-transform"
+                >
+                  Share
+                </button>
+              </div>
             </div>
-          ) : (
-            <div className="divide-y divide-suwappu-sakura-mid/10">
-              {referrals.map((ref) => (
-                <div key={ref.id} className="px-3 py-2 flex items-center justify-between">
-                  <div>
-                    <p className="font-medium text-sm text-suwappu-text">@{ref.username}</p>
-                    <p className="text-[10px] text-suwappu-text-secondary">
-                      Joined {new Date(ref.joinedAt).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-heading font-bold text-suwappu-success">
-                      +${ref.rewardEarned.toFixed(2)}
-                    </p>
-                    <p className="text-[10px] text-suwappu-text-secondary">
-                      ${ref.volumeGenerated.toFixed(0)} volume
-                    </p>
-                  </div>
+
+            {/* Stats Grid */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-3">
+                <p className="text-[10px] text-suwappu-text-secondary mb-1">Total Referrals</p>
+                <p className="font-heading font-bold text-2xl text-suwappu-purple-deep">
+                  {stats.totalReferrals}
+                </p>
+              </div>
+              <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-3">
+                <p className="text-[10px] text-suwappu-text-secondary mb-1">Active</p>
+                <p className="font-heading font-bold text-2xl text-green-600">
+                  {stats.activeReferrals}
+                </p>
+              </div>
+              <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-3">
+                <p className="text-[10px] text-suwappu-text-secondary mb-1">Total Earned</p>
+                <p className="font-heading font-bold text-2xl text-suwappu-text">
+                  ${stats.totalEarned.toFixed(2)}
+                </p>
+              </div>
+              <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-3">
+                <p className="text-[10px] text-suwappu-text-secondary mb-1">Pending</p>
+                <p className="font-heading font-bold text-2xl text-yellow-600">
+                  ${stats.pendingRewards.toFixed(2)}
+                </p>
+              </div>
+            </div>
+
+            {/* Referrals List */}
+            {referrals.length > 0 ? (
+              <div>
+                <h3 className="text-xs font-medium text-suwappu-text-secondary mb-2">
+                  Your Referrals
+                </h3>
+                <div className="space-y-2">
+                  {referrals.map((referral) => (
+                    <div key={referral.id} className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-3 flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-sm text-suwappu-text">
+                          {referral.username || `User #${referral.id}`}
+                        </p>
+                        <p className="text-[10px] text-suwappu-text-secondary">
+                          Joined {formatTime(referral.joinedAt)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-heading font-bold text-sm text-green-600">
+                          +${referral.rewardsGenerated.toFixed(2)}
+                        </p>
+                        <p className="text-[10px] text-suwappu-text-secondary">
+                          earned
+                        </p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+              </div>
+            ) : (
+              <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-6 text-center">
+                <span className="text-4xl block mb-2">👋</span>
+                <p className="font-heading font-semibold text-suwappu-text mb-1">
+                  No referrals yet
+                </p>
+                <p className="text-xs text-suwappu-text-secondary">
+                  Share your link to start earning rewards!
+                </p>
+              </div>
+            )}
 
-        {/* How it works */}
-        <div className="bg-suwappu-sakura-light/30 rounded-suwappu-xl p-4">
-          <p className="font-heading font-semibold text-sm text-suwappu-purple-deep mb-3">
-            How Referrals Work
-          </p>
-          <div className="space-y-3">
-            <div className="flex gap-3">
-              <span className="w-6 h-6 rounded-full bg-suwappu-magenta-mid text-white text-xs flex items-center justify-center font-bold">1</span>
-              <p className="flex-1 text-xs text-suwappu-text">Share your unique referral link with friends</p>
+            {/* How it works */}
+            <div className="bg-suwappu-sakura-light/30 rounded-suwappu-lg p-3">
+              <p className="text-xs font-medium text-suwappu-text mb-2">How it works:</p>
+              <ul className="text-xs text-suwappu-text-secondary space-y-1">
+                <li>1. Share your unique referral link</li>
+                <li>2. Friends sign up and start swapping</li>
+                <li>3. You earn 10% of their swap fees forever!</li>
+              </ul>
             </div>
-            <div className="flex gap-3">
-              <span className="w-6 h-6 rounded-full bg-suwappu-magenta-mid text-white text-xs flex items-center justify-center font-bold">2</span>
-              <p className="flex-1 text-xs text-suwappu-text">They sign up and start trading on Suwappu</p>
-            </div>
-            <div className="flex gap-3">
-              <span className="w-6 h-6 rounded-full bg-suwappu-magenta-mid text-white text-xs flex items-center justify-center font-bold">3</span>
-              <p className="flex-1 text-xs text-suwappu-text">You earn 10% of their trading fees forever!</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Coming Soon */}
-        <div className="text-center">
-          <span className="inline-flex items-center gap-1 px-3 py-1 bg-yellow-100 text-yellow-700 text-xs font-medium rounded-full">
-            🚧 Rewards tracking coming soon
-          </span>
-        </div>
+          </>
+        )}
       </div>
     </AppLayout>
   )

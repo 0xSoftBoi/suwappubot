@@ -103,137 +103,6 @@ class OrderService:
                 return True
             return False
     
-    def create_trailing_stop(
-        self,
-        user_id: int,
-        wallet_id: int,
-        from_chain: str,
-        from_token: str,
-        to_chain: str,
-        to_token: str,
-        amount: str,
-        trailing_percent: float,
-        current_price: float,
-        slippage: float = 0.5,
-        expires_in_hours: int = None,
-    ) -> LimitOrder:
-        """Create a trailing stop order."""
-        trigger_price = current_price * (1 - trailing_percent / 100)
-
-        with get_session() as session:
-            order = LimitOrder(
-                user_id=user_id,
-                wallet_id=wallet_id,
-                order_type=OrderType.TRAILING_STOP.value,
-                from_chain=from_chain,
-                from_token=from_token,
-                to_chain=to_chain,
-                to_token=to_token,
-                amount=amount,
-                trigger_price=trigger_price,
-                slippage=slippage,
-                trailing_percent=trailing_percent,
-                highest_price_seen=current_price,
-            )
-
-            if expires_in_hours:
-                order.expires_at = datetime.utcnow() + timedelta(hours=expires_in_hours)
-
-            session.add(order)
-            session.flush()
-            order_id = order.id
-
-        with get_session() as session:
-            return session.query(LimitOrder).filter(LimitOrder.id == order_id).first()
-
-    def create_buy_dip(
-        self,
-        user_id: int,
-        wallet_id: int,
-        from_chain: str,
-        from_token: str,
-        to_chain: str,
-        to_token: str,
-        amount: str,
-        dip_percent: float,
-        current_price: float,
-        slippage: float = 0.5,
-        expires_in_hours: int = None,
-    ) -> LimitOrder:
-        """Create a buy-the-dip order."""
-        trigger_price = current_price * (1 - dip_percent / 100)
-
-        with get_session() as session:
-            order = LimitOrder(
-                user_id=user_id,
-                wallet_id=wallet_id,
-                order_type=OrderType.BUY_DIP.value,
-                from_chain=from_chain,
-                from_token=from_token,
-                to_chain=to_chain,
-                to_token=to_token,
-                amount=amount,
-                trigger_price=trigger_price,
-                slippage=slippage,
-            )
-
-            if expires_in_hours:
-                order.expires_at = datetime.utcnow() + timedelta(hours=expires_in_hours)
-
-            session.add(order)
-            session.flush()
-            order_id = order.id
-
-        with get_session() as session:
-            return session.query(LimitOrder).filter(LimitOrder.id == order_id).first()
-
-    def create_multi_tp(
-        self,
-        user_id: int,
-        wallet_id: int,
-        from_chain: str,
-        from_token: str,
-        to_chain: str,
-        to_token: str,
-        amount: str,
-        levels: list,
-    ) -> List[LimitOrder]:
-        """Create multi take-profit orders.
-
-        levels: list of dicts [{"price": 2.0, "percent": 25}, ...]
-        """
-        created_orders = []
-        parent_id = None
-
-        for i, level in enumerate(levels):
-            with get_session() as session:
-                order = LimitOrder(
-                    user_id=user_id,
-                    wallet_id=wallet_id,
-                    order_type=OrderType.TAKE_PROFIT.value,
-                    from_chain=from_chain,
-                    from_token=from_token,
-                    to_chain=to_chain,
-                    to_token=to_token,
-                    amount=amount,
-                    trigger_price=level["price"],
-                    portion_percent=level["percent"],
-                    parent_order_id=parent_id,
-                )
-                session.add(order)
-                session.flush()
-                order_id = order.id
-
-                if i == 0:
-                    parent_id = order_id
-
-            with get_session() as session:
-                created_orders.append(
-                    session.query(LimitOrder).filter(LimitOrder.id == order_id).first()
-                )
-
-        return created_orders
-
     async def check_limit_orders(self) -> List[LimitOrder]:
         """Check all pending limit orders and return triggered ones."""
         triggered = []
@@ -259,8 +128,6 @@ class OrderService:
             for order in orders:
                 if order.order_type in [OrderType.LIMIT_BUY.value, OrderType.STOP_LOSS.value]:
                     tokens.add(order.to_token)  # Buying to_token
-                elif order.order_type == OrderType.BUY_DIP.value:
-                    tokens.add(order.to_token)  # Watching to_token price
                 else:
                     tokens.add(order.from_token)  # Selling from_token
             
@@ -295,21 +162,6 @@ class OrderService:
                     check_token = order.from_token
                     current_price = prices.get(check_token, 0)
                     should_trigger = current_price >= order.trigger_price
-
-                elif order.order_type == OrderType.TRAILING_STOP.value:
-                    check_token = order.from_token
-                    current_price = prices.get(check_token, 0)
-                    # Update highest price seen
-                    if current_price > (order.highest_price_seen or 0):
-                        order.highest_price_seen = current_price
-                        # Update trigger price based on new high
-                        order.trigger_price = current_price * (1 - order.trailing_percent / 100)
-                    should_trigger = current_price <= order.trigger_price
-
-                elif order.order_type == OrderType.BUY_DIP.value:
-                    check_token = order.to_token
-                    current_price = prices.get(check_token, 0)
-                    should_trigger = current_price <= order.trigger_price
                 else:
                     continue
                 
@@ -535,44 +387,21 @@ class OrderService:
     
     async def _order_loop(self):
         """Main order checking loop."""
-        from bot.utils.distributed_lock import RedisLock
-        from bot.utils.redis_cache import redis_cache
-
         while self._running:
             try:
-                # Distributed lock: only one instance checks orders at a time
-                loop_lock = RedisLock(redis_cache.client, "order_check", ttl=30)
-                if not await loop_lock.acquire():
-                    await asyncio.sleep(self._check_interval)
-                    continue
-
-                try:
-                    # Check limit orders
-                    triggered_limits = await self.check_limit_orders()
-                    for order in triggered_limits:
-                        # Per-order lock to prevent double execution
-                        order_lock = RedisLock(redis_cache.client, f"order:{order.id}", ttl=120)
-                        if await order_lock.acquire():
-                            try:
-                                await self._execute_limit_order(order)
-                            finally:
-                                await order_lock.release()
-
-                    # Check DCA orders
-                    due_dca = await self.check_dca_orders()
-                    for order in due_dca:
-                        order_lock = RedisLock(redis_cache.client, f"dca:{order.id}", ttl=120)
-                        if await order_lock.acquire():
-                            try:
-                                await self._execute_dca_order(order)
-                            finally:
-                                await order_lock.release()
-                finally:
-                    await loop_lock.release()
-
+                # Check limit orders
+                triggered_limits = await self.check_limit_orders()
+                for order in triggered_limits:
+                    await self._execute_limit_order(order)
+                
+                # Check DCA orders
+                due_dca = await self.check_dca_orders()
+                for order in due_dca:
+                    await self._execute_dca_order(order)
+                    
             except Exception as e:
                 logger.error(f"Order check error: {e}")
-
+            
             await asyncio.sleep(self._check_interval)
     
     async def _execute_limit_order(self, order: LimitOrder):
@@ -598,13 +427,7 @@ class OrderService:
             # We need to convert it to human-readable for SwapEngine.get_quote
             from bot.config.tokens import get_token_decimals
             decimals = get_token_decimals(order.from_token, order.from_chain)
-            amount_raw = float(order.amount)
-
-            # If portion_percent is set, use that percentage of the full amount
-            if order.portion_percent is not None:
-                amount_raw = amount_raw * (order.portion_percent / 100)
-
-            amount_human = amount_raw / (10 ** decimals)
+            amount_human = float(order.amount) / (10 ** decimals)
             
             quote = await self._swap_engine.get_quote(
                 from_chain=order.from_chain,
@@ -617,7 +440,7 @@ class OrderService:
             )
             
             # 3. Execute Swap
-            idempotency_key = f"lo:{order.id}"
+            idempotency_key = f"lo:{order.id}:{datetime.utcnow().strftime('%Y%m%d%H')}"
             
             swap_tx = await self._swap_engine.execute_swap(
                 quote=quote,
@@ -679,7 +502,7 @@ class OrderService:
             )
             
             # 2. Execute Swap
-            idempotency_key = f"dca:{order.id}:{order.executions_completed}"
+            idempotency_key = f"dca:{order.id}:{order.executions_completed}:{datetime.utcnow().strftime('%Y%m%d%H')}"
             
             swap_tx = await self._swap_engine.execute_swap(
                 quote=quote,
@@ -718,94 +541,58 @@ class OrderService:
             # For now, just log and wait for next interval
     
     async def _notify_order_executed(self, order: LimitOrder, swap_tx=None):
-        """Notify user of executed limit order via Telegram and/or WhatsApp."""
+        """Notify user of executed limit order."""
         try:
             from bot.models.user import User
             with get_session() as session:
                 user = session.query(User).filter(User.id == order.user_id).first()
-                if not user:
-                    return
+                if user:
+                    tx_info = ""
+                    if swap_tx and swap_tx.tx_hash:
+                        from bot.utils.formatters import format_tx_link
+                        tx_info = f"\n🔗 [View Transaction]({format_tx_link(swap_tx.tx_hash, order.from_chain)})"
 
-                tx_info = ""
-                if swap_tx and swap_tx.tx_hash:
-                    from bot.utils.formatters import format_tx_link
-                    tx_info = f"\n🔗 [View Transaction]({format_tx_link(swap_tx.tx_hash, order.from_chain)})"
-
-                text = (
-                    f"✅ *Limit Order Executed!*\n\n"
-                    f"Type: {order.order_type.upper()}\n"
-                    f"Swap: {order.from_token} → {order.to_token}\n"
-                    f"Trigger price: ${order.trigger_price:.4f}"
-                    f"{tx_info}"
-                )
-
-                # Telegram
-                if self._bot and user.telegram_id:
-                    try:
-                        await self._bot.send_message(
-                            chat_id=user.telegram_id,
-                            text=text,
-                            parse_mode="Markdown",
-                            disable_web_page_preview=True,
-                        )
-                    except Exception as e:
-                        logger.error(f"Telegram order notification failed: {e}")
-
-                # WhatsApp
-                if user.whatsapp_id:
-                    try:
-                        from bot.services.whatsapp_service import whatsapp_service
-                        if whatsapp_service.is_configured:
-                            await whatsapp_service.send_text_message(user.whatsapp_id, text)
-                    except Exception as e:
-                        logger.error(f"WhatsApp order notification failed: {e}")
-
+                    text = (
+                        f"✅ *Limit Order Executed!*\n\n"
+                        f"Type: {order.order_type.upper()}\n"
+                        f"Swap: {order.from_token} → {order.to_token}\n"
+                        f"Trigger price: ${order.trigger_price:.4f}"
+                        f"{tx_info}"
+                    )
+                    await self._bot.send_message(
+                        chat_id=user.telegram_id,
+                        text=text,
+                        parse_mode="Markdown",
+                        disable_web_page_preview=True
+                    )
         except Exception as e:
             logger.error(f"Order notification failed: {e}")
-
+    
     async def _notify_dca_executed(self, order: DCAOrder, swap_tx=None):
-        """Notify user of executed DCA via Telegram and/or WhatsApp."""
+        """Notify user of executed DCA."""
         try:
             from bot.models.user import User
             with get_session() as session:
                 user = session.query(User).filter(User.id == order.user_id).first()
-                if not user:
-                    return
-
-                tx_info = ""
-                if swap_tx and swap_tx.tx_hash:
-                    from bot.utils.formatters import format_tx_link
-                    tx_info = f"\n🔗 [View Transaction]({format_tx_link(swap_tx.tx_hash, order.from_chain)})"
-
-                text = (
-                    f"📊 *DCA Trade Executed!*\n\n"
-                    f"Order: {order.from_token} → {order.to_token}\n"
-                    f"Progress: {order.executions_completed}/{order.max_executions or '∞'}\n"
-                    f"Next execution: {order.next_execution_at.strftime('%Y-%m-%d %H:%M')}UTC"
-                    f"{tx_info}"
-                )
-
-                # Telegram
-                if self._bot and user.telegram_id:
-                    try:
-                        await self._bot.send_message(
-                            chat_id=user.telegram_id,
-                            text=text,
-                            parse_mode="Markdown",
-                            disable_web_page_preview=True,
-                        )
-                    except Exception as e:
-                        logger.error(f"Telegram DCA notification failed: {e}")
-
-                # WhatsApp
-                if user.whatsapp_id:
-                    try:
-                        from bot.services.whatsapp_service import whatsapp_service
-                        if whatsapp_service.is_configured:
-                            await whatsapp_service.send_text_message(user.whatsapp_id, text)
-                    except Exception as e:
-                        logger.error(f"WhatsApp DCA notification failed: {e}")
-
+                if user:
+                    tx_info = ""
+                    if swap_tx and swap_tx.tx_hash:
+                        from bot.utils.formatters import format_tx_link
+                        tx_info = f"\n🔗 [View Transaction]({format_tx_link(swap_tx.tx_hash, order.from_chain)})"
+                        
+                    text = (
+                        f"📊 *DCA Trade Executed!*\n\n"
+                        f"Order: {order.from_token} → {order.to_token}\n"
+                        f"Progress: {order.executions_completed}/{order.max_executions or '∞'}\n"
+                        f"Next execution: {order.next_execution_at.strftime('%Y-%m-%d %H:%M')}UTC"
+                        f"{tx_info}"
+                    )
+                    await self._bot.send_message(
+                        chat_id=user.telegram_id,
+                        text=text,
+                        parse_mode="Markdown",
+                        disable_web_page_preview=True
+                    )
         except Exception as e:
             logger.error(f"DCA notification failed: {e}")
 

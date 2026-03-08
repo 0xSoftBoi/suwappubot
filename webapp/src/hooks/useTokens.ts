@@ -1,27 +1,25 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { SwapToken } from '@suwappu/shared'
-
-// Supported chains for prefetching
-const SUPPORTED_CHAINS = ['1', '137', '42161', '10', '8453']
+import type { SwapToken } from '../types/swap'
 
 /**
  * Hook to fetch available tokens for swapping
  * 
- * @param chain - Optional chain filter (defaults to Ethereum)
+ * @param chain - Optional chain filter
  * @param includeBalances - Whether to include user balances (requires auth)
  */
 export function useTokens(chain = '1', includeBalances = true) {
   const queryClient = useQueryClient()
 
-  // Prefetch other chains in background
+  // Prefetch other common chains in background
+  const PREFETCH_CHAINS = ['1', '137', '42161', '8453', '10']
   useEffect(() => {
-    SUPPORTED_CHAINS.forEach((chainId) => {
+    PREFETCH_CHAINS.forEach((chainId) => {
       if (chainId !== chain) {
         queryClient.prefetchQuery({
           queryKey: ['tokens', chainId, includeBalances],
-          queryFn: () => api.getTokensWithBalances(chainId, includeBalances),
+          queryFn: () => api.getTokens(chainId, includeBalances),
           staleTime: 2 * 60 * 1000, // 2 minutes for prefetched data
         })
       }
@@ -30,7 +28,7 @@ export function useTokens(chain = '1', includeBalances = true) {
 
   return useQuery({
     queryKey: ['tokens', chain, includeBalances],
-    queryFn: () => api.getTokensWithBalances(chain, includeBalances),
+    queryFn: () => api.getTokens(chain, includeBalances),
     staleTime: 30 * 1000, // 30 seconds - refresh often for prices
     gcTime: 5 * 60 * 1000, // Keep in cache 5 minutes
     refetchOnWindowFocus: true,

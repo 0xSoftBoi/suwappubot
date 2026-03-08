@@ -1,6 +1,6 @@
 {
   "name": "suwappu-showcase",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -9,21 +9,18 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@turnkey/react-wallet-kit": "^1.8.1",
     "framer-motion": "^11.15.0",
-    "next": "^16.1.6",
+    "next": "14.2.21",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
+    "@types/node": "^22.10.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
-    "autoprefixer": "^10.4.0",
-    "eslint": "^8.56.0",
-    "eslint-config-next": "^16.1.6",
-    "postcss": "^8.4.0",
-    "tailwindcss": "^3.4.0",
-    "typescript": "^5.9.0"
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "typescript": "^5.7.0"
   }
 }

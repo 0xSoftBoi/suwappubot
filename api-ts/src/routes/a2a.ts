@@ -3,6 +3,8 @@ import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import type { Agent } from '../db'
 import { ValidationError } from '../errors'
+import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
+import { cacheAgentQuote } from '../lib/quoteCache'
 import { agentBearerAuth } from '../middleware'
 import { runEffectEither } from '../runtime'
 import {
@@ -63,7 +65,7 @@ interface JsonRpcRequest {
 // -------------------------------------------------------------------
 
 const tasks = new Map<string, A2ATask>()
-const TASK_TTL = 60 * 60 * 1000 // 1 hour
+const TASK_TTL = 60 * 60 * 1000
 
 function cleanupTasks() {
 	const now = Date.now()
@@ -74,12 +76,7 @@ function cleanupTasks() {
 	}
 }
 
-// Periodic cleanup every 10 minutes
 setInterval(cleanupTasks, 10 * 60 * 1000)
-
-function newTaskId(): string {
-	return crypto.randomUUID()
-}
 
 function isoNow(): string {
 	return new Date().toISOString()
@@ -101,7 +98,6 @@ function jsonRpcError(id: string | number | null, code: number, message: string,
 	}
 }
 
-// A2A-specific error codes
 const PARSE_ERROR = -32700
 const INVALID_REQUEST = -32600
 const METHOD_NOT_FOUND = -32601
@@ -109,7 +105,7 @@ const TASK_NOT_FOUND = -32001
 const UNSUPPORTED_OPERATION = -32002
 
 // -------------------------------------------------------------------
-// Command parser (reused from agent execute logic)
+// Helpers
 // -------------------------------------------------------------------
 
 function parseUserMessage(parts: Part[]): string {
@@ -125,8 +121,15 @@ function isSolanaChain(chain: string): boolean {
 	return n === 'solana' || n === 'sol'
 }
 
+function getChainList(): string[] {
+	const evmChains = Object.values(CHAINS)
+		.filter((c, i, self) => i === self.findIndex((ch) => ch.id === c.id))
+		.map((c) => c.name)
+	return [...evmChains, 'Solana']
+}
+
 // -------------------------------------------------------------------
-// Message processing — routes to swap/quote/portfolio
+// Message processing
 // -------------------------------------------------------------------
 
 async function processMessage(
@@ -135,56 +138,119 @@ async function processMessage(
 ): Promise<{ parts: Part[]; metadata?: Record<string, unknown> }> {
 	const lower = text.toLowerCase()
 
-	// --- Swap command ---
-	const swapMatch = lower.match(/swap\s+([\d.]+)\s+(\w+)\s+(?:to|for)\s+(\w+)(?:\s+on\s+(\w+))?/)
+	// --- Swap / quote command ---
+	const swapMatch = lower.match(
+		/(?:swap|quote|convert|exchange)\s+([\d.]+)\s+(\w+)\s+(?:to|for|into)\s+(\w+)(?:\s+on\s+(\w+))?/,
+	)
 	if (swapMatch) {
 		const [, amount, fromToken, toToken, chain] = swapMatch
 		const chainKey = chain || 'ethereum'
-
 		if (isSolanaChain(chainKey)) {
 			return processSolanaQuote(amount, fromToken, toToken, agent)
 		}
 		return processEvmQuote(amount, fromToken, toToken, chainKey, agent)
 	}
 
-	// --- Quote / price command ---
-	const quoteMatch = lower.match(
-		/(?:quote|price)\s+(?:of\s+)?([\d.]+)\s+(\w+)\s+(?:to|in|for)\s+(\w+)(?:\s+on\s+(\w+))?/,
-	)
-	if (quoteMatch) {
-		const [, amount, fromToken, toToken, chain] = quoteMatch
-		const chainKey = chain || 'ethereum'
-
-		if (isSolanaChain(chainKey)) {
-			return processSolanaQuote(amount, fromToken, toToken, agent)
+	// --- Price check: "price of ETH" or "price ETH SOL USDC" ---
+	const priceMatch = lower.match(/(?:price|prices?)(?:\s+of)?\s+(.+)/)
+	if (priceMatch) {
+		const symbols = priceMatch[1].split(/[\s,]+/).map((s) => s.toUpperCase()).filter(Boolean)
+		if (symbols.length > 0 && symbols.length <= 20) {
+			const prices = await fetchTokenPrices(symbols)
+			const lines = Object.entries(prices).map(
+				([sym, p]: [string, any]) => `${sym}: $${p.usd.toFixed(2)} (${p.usd_24h_change >= 0 ? '+' : ''}${p.usd_24h_change.toFixed(2)}%)`,
+			)
+			return {
+				parts: [
+					{ type: 'text', text: lines.length > 0 ? lines.join('\n') : 'No price data found for those symbols.' },
+					{ type: 'data', data: { prices, symbols } },
+				],
+				metadata: { action: 'prices' },
+			}
 		}
-		return processEvmQuote(amount, fromToken, toToken, chainKey, agent)
 	}
 
 	// --- Balance / portfolio ---
+	const portfolioMatch = lower.match(/(?:balance|portfolio|wallet)\s+(?:of\s+|for\s+)?(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})/)
+	if (portfolioMatch) {
+		const walletAddress = portfolioMatch[1]
+		return {
+			parts: [
+				{ type: 'text', text: `To check balances for ${walletAddress}, use the MCP endpoint at /mcp with the get_portfolio tool, or call GET /v1/agent/portfolio?wallet_address=${walletAddress}` },
+				{ type: 'data', data: { action: 'portfolio_hint', wallet_address: walletAddress, endpoints: ['/mcp', '/v1/agent/portfolio'] } },
+			],
+			metadata: { action: 'portfolio_hint' },
+		}
+	}
 	if (lower.includes('balance') || lower.includes('portfolio')) {
 		return {
 			parts: [
-				{
-					type: 'text',
-					text: 'Portfolio check requires a wallet address. Use POST /v1/agent/portfolio?wallet_address=0x... for balance details.',
-				},
+				{ type: 'text', text: 'Portfolio check requires a wallet address. Example: "balance 0x1234..." or use GET /v1/agent/portfolio?wallet_address=0x...' },
 			],
+		}
+	}
+
+	// --- Token list ---
+	const tokenMatch = lower.match(/(?:tokens?|list tokens?)(?:\s+on\s+(\w+))?/)
+	if (tokenMatch) {
+		const chain = tokenMatch[1]
+		if (chain && isSolanaChain(chain)) {
+			const tokens = Object.entries(SOLANA_TOKENS).map(([s, i]) => ({ symbol: s, address: i.address, decimals: i.decimals }))
+			return {
+				parts: [
+					{ type: 'text', text: `Solana tokens: ${tokens.map((t) => t.symbol).join(', ')}` },
+					{ type: 'data', data: { chain: 'Solana', tokens } },
+				],
+				metadata: { action: 'list_tokens', chain: 'Solana' },
+			}
+		}
+		return {
+			parts: [
+				{ type: 'text', text: `Use GET /v1/agent/tokens?chain=${chain || 'base'} for the full token list, or the MCP endpoint with list_tokens tool.` },
+				{ type: 'data', data: { action: 'list_tokens_hint', available_chains: getChainList() } },
+			],
+			metadata: { action: 'list_tokens' },
 		}
 	}
 
 	// --- Chains list ---
-	if (lower.includes('chains') || lower.includes('supported')) {
-		const uniqueChains = Object.values(CHAINS)
-			.filter((chain, index, self) => index === self.findIndex((c) => c.id === chain.id))
-			.map((c) => c.name)
-
-		const chainList = [...uniqueChains, 'Solana']
+	if (lower.includes('chain') || lower.includes('supported') || lower.includes('networks')) {
+		const chainList = getChainList()
 		return {
 			parts: [
 				{ type: 'text', text: `Supported chains: ${chainList.join(', ')}` },
-				{ type: 'data', data: { chains: chainList } },
+				{ type: 'data', data: { chains: chainList, count: chainList.length } },
 			],
+			metadata: { action: 'list_chains' },
+		}
+	}
+
+	// --- Help ---
+	if (lower.includes('help') || lower.includes('commands') || lower === 'hi' || lower === 'hello') {
+		return {
+			parts: [
+				{
+					type: 'text',
+					text: [
+						'Suwappu DEX Agent — available commands:',
+						'• "swap 0.5 ETH to USDC on base" — get a swap quote',
+						'• "price ETH SOL BTC" — check token prices',
+						'• "balance 0x1234..." — portfolio hint',
+						'• "chains" — list supported chains',
+						'• "tokens on solana" — list tokens',
+						'',
+						'For programmatic access, use the MCP endpoint at /mcp or REST API at /v1/agent/*',
+					].join('\n'),
+				},
+				{
+					type: 'data',
+					data: {
+						capabilities: ['swap', 'quote', 'prices', 'portfolio', 'chains', 'tokens'],
+						endpoints: { mcp: '/mcp', rest: '/v1/agent', a2a: '/a2a' },
+					},
+				},
+			],
+			metadata: { action: 'help' },
 		}
 	}
 
@@ -193,7 +259,11 @@ async function processMessage(
 		parts: [
 			{
 				type: 'text',
-				text: `Could not understand: "${text}". Try commands like "swap 0.5 ETH to USDC on base" or "quote 1 ETH to USDC".`,
+				text: `Could not understand: "${text}". Try "swap 0.5 ETH to USDC on base", "price ETH", or "help".`,
+			},
+			{
+				type: 'data',
+				data: { error: 'unrecognized_command', input: text, hint: 'Send "help" for available commands' },
 			},
 		],
 	}
@@ -245,39 +315,45 @@ async function processEvmQuote(
 					fromAmount: fromAmountWei,
 					fromAddress: '0x0000000000000000000000000000000000000001',
 					slippage: 0.03,
-					integrator: 'suwappu-agent',
+					integrator: 'suwappu-a2a',
 				} as QuoteParams)
 				.pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 			const toAmountHuman = parseFloat(quote.toAmount) / 10 ** toTokenInfo.decimals
+			const quoteId = quote.quoteId
+			cacheAgentQuote(quoteId, quote, agent.id, false)
 
 			return {
-				fromSymbol: fromTokenInfo.symbol,
-				toSymbol: toTokenInfo.symbol,
-				amountIn: amount,
-				amountOut: toAmountHuman.toFixed(6),
+				quote_id: quoteId,
+				from_token: fromTokenInfo.symbol,
+				to_token: toTokenInfo.symbol,
+				amount_in: amount,
+				amount_out: toAmountHuman.toFixed(6),
 				chain: chainInfo.name,
-				exchangeRate: quote.exchangeRate,
-				gasUsd: quote.estimatedGasUsd,
+				exchange_rate: quote.exchangeRate,
+				gas_usd: quote.estimatedGasUsd,
 				route: quote.route,
+				expires_in_seconds: 60,
 			}
 		}),
 	)
 
 	if (Either.isLeft(result)) {
-		return { parts: [{ type: 'text', text: `Quote failed: ${result.left.message}` }] }
+		return {
+			parts: [
+				{ type: 'text', text: `Quote failed: ${result.left.message}` },
+				{ type: 'data', data: { error: 'quote_failed', message: result.left.message } },
+			],
+		}
 	}
 
 	const q = result.right
 	return {
 		parts: [
-			{
-				type: 'text',
-				text: `Quote: ${q.amountIn} ${q.fromSymbol} -> ${q.amountOut} ${q.toSymbol} on ${q.chain} (rate: ${q.exchangeRate}, gas: $${q.gasUsd})`,
-			},
+			{ type: 'text', text: `Quote: ${q.amount_in} ${q.from_token} → ${q.amount_out} ${q.to_token} on ${q.chain} (rate: ${q.exchange_rate}, gas: $${q.gas_usd})` },
 			{ type: 'data', data: q as unknown as Record<string, unknown> },
 		],
-		metadata: { action: 'quote', chain: q.chain },
+		metadata: { action: 'quote', chain: q.chain, quote_id: q.quote_id },
 	}
 }
 
@@ -335,32 +411,39 @@ async function processSolanaQuote(
 			const toAmountHuman = parseFloat(quote.outAmount) / 10 ** toTokenInfo.decimals
 			const route = quote.routePlan.map((r: any) => r.swapInfo.label).join(' -> ')
 
+			const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+			cacheAgentQuote(quoteId, quote, agent.id, true)
+
 			return {
-				fromSymbol: fromTokenInfo.name,
-				toSymbol: toTokenInfo.name,
-				amountIn: fromAmountHuman.toString(),
-				amountOut: toAmountHuman.toFixed(6),
+				quote_id: quoteId,
+				from_token: fromTokenInfo.name,
+				to_token: toTokenInfo.name,
+				amount_in: fromAmountHuman.toString(),
+				amount_out: toAmountHuman.toFixed(6),
 				chain: 'Solana',
-				priceImpact: quote.priceImpactPct,
+				price_impact: quote.priceImpactPct,
 				route,
+				expires_in_seconds: 60,
 			}
 		}),
 	)
 
 	if (Either.isLeft(result)) {
-		return { parts: [{ type: 'text', text: `Solana quote failed: ${result.left.message}` }] }
+		return {
+			parts: [
+				{ type: 'text', text: `Solana quote failed: ${result.left.message}` },
+				{ type: 'data', data: { error: 'quote_failed', message: result.left.message } },
+			],
+		}
 	}
 
 	const q = result.right
 	return {
 		parts: [
-			{
-				type: 'text',
-				text: `Quote: ${q.amountIn} ${q.fromSymbol} -> ${q.amountOut} ${q.toSymbol} on Solana (impact: ${q.priceImpact}%, route: ${q.route})`,
-			},
+			{ type: 'text', text: `Quote: ${q.amount_in} ${q.from_token} → ${q.amount_out} ${q.to_token} on Solana (impact: ${q.price_impact}%, route: ${q.route})` },
 			{ type: 'data', data: q as unknown as Record<string, unknown> },
 		],
-		metadata: { action: 'quote', chain: 'Solana' },
+		metadata: { action: 'quote', chain: 'Solana', quote_id: q.quote_id },
 	}
 }
 
@@ -376,7 +459,6 @@ type AgentContext = {
 
 const a2aRoutes = new Hono<AgentContext>()
 
-// Bearer auth for the A2A endpoint
 a2aRoutes.use('*', agentBearerAuth())
 
 a2aRoutes.post('/', async (c) => {
@@ -449,8 +531,7 @@ async function handleMessageSend(c: any, req: JsonRpcRequest, agent: Agent) {
 		)
 	}
 
-	// Create task
-	const taskId = newTaskId()
+	const taskId = crypto.randomUUID()
 	const now = isoNow()
 	const userMessage: A2AMessage = {
 		id: crypto.randomUUID(),
@@ -469,23 +550,20 @@ async function handleMessageSend(c: any, req: JsonRpcRequest, agent: Agent) {
 	}
 	tasks.set(taskId, task)
 
-	// Process
 	try {
 		const result = await processMessage(userText, agent)
 
-		const artifactId = crypto.randomUUID()
 		task.artifacts.push({
-			id: artifactId,
+			id: crypto.randomUUID(),
 			parts: result.parts,
 			metadata: result.metadata,
 		})
 
-		const agentMessage: A2AMessage = {
+		task.messages.push({
 			id: crypto.randomUUID(),
 			role: 'agent',
 			parts: result.parts,
-		}
-		task.messages.push(agentMessage)
+		})
 
 		task.status = { state: 'completed', timestamp: isoNow() }
 		task.updatedAt = isoNow()

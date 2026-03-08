@@ -1,34 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import toast from 'react-hot-toast'
 import { AppLayout, AppHeader } from '../components/layout'
-
-interface PriceAlert {
-  id: string
-  token: string
-  chain: string
-  targetPrice: string
-  currentPrice: string
-  condition: 'above' | 'below'
-  isActive: boolean
-  createdAt: string
-  triggeredAt?: string
-}
-
-// Stored in localStorage
-const ALERTS_KEY = 'suwappu_price_alerts'
-
-function getStoredAlerts(): PriceAlert[] {
-  try {
-    const stored = localStorage.getItem(ALERTS_KEY)
-    return stored ? JSON.parse(stored) : []
-  } catch {
-    return []
-  }
-}
-
-function saveAlerts(alerts: PriceAlert[]) {
-  localStorage.setItem(ALERTS_KEY, JSON.stringify(alerts))
-}
+import { api, type PriceAlert, type CreateAlertParams } from '../lib/api'
 
 const tokenIcons: Record<string, string> = {
   ETH: 'Ξ',
@@ -37,16 +11,21 @@ const tokenIcons: Record<string, string> = {
   USDC: '$',
 }
 
+const alertTypeLabels: Record<string, string> = {
+  above: 'Price above',
+  below: 'Price below',
+  change_pct: 'Change %',
+}
+
 function AlertCard({ alert, onToggle, onDelete }: { 
   alert: PriceAlert
-  onToggle: (id: string) => void
-  onDelete: (id: string) => void 
+  onToggle: (id: number) => void
+  onDelete: (id: number) => void 
 }) {
-  const isTriggered = alert.triggeredAt !== undefined
-  const icon = tokenIcons[alert.token] || alert.token[0]
+  const icon = tokenIcons[alert.tokenSymbol] || alert.tokenSymbol[0]
   
   return (
-    <div className={`bg-white rounded-suwappu-xl shadow-suwappu-1 p-3 ${!alert.isActive && !isTriggered ? 'opacity-50' : ''}`}>
+    <div className={`bg-white rounded-suwappu-xl shadow-suwappu-1 p-3 ${!alert.isActive && !alert.isTriggered ? 'opacity-50' : ''}`}>
       <div className="flex items-start gap-3">
         <div className="w-10 h-10 rounded-full bg-suwappu-purple-deep text-white flex items-center justify-center text-lg font-bold">
           {icon}
@@ -54,8 +33,8 @@ function AlertCard({ alert, onToggle, onDelete }: {
         
         <div className="flex-1">
           <div className="flex items-center justify-between mb-1">
-            <p className="font-heading font-semibold text-sm text-suwappu-text">{alert.token}</p>
-            {isTriggered ? (
+            <p className="font-heading font-semibold text-sm text-suwappu-text">{alert.tokenSymbol}</p>
+            {alert.isTriggered ? (
               <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
                 ✓ Triggered
               </span>
@@ -74,12 +53,16 @@ function AlertCard({ alert, onToggle, onDelete }: {
           </div>
           
           <p className="text-xs text-suwappu-text-secondary mb-2">
-            Alert when price goes <strong>{alert.condition}</strong> ${alert.targetPrice}
+            {alertTypeLabels[alert.alertType]}{' '}
+            {alert.alertType === 'change_pct' 
+              ? `${alert.changePercent}%`
+              : `$${alert.targetPrice?.toFixed(2)}`
+            }
           </p>
           
           <div className="flex items-center justify-between">
             <p className="text-[10px] text-suwappu-text-secondary">
-              Current: ${alert.currentPrice}
+              Current: ${alert.currentPrice?.toFixed(2) || 'N/A'}
             </p>
             <button
               onClick={() => onDelete(alert.id)}
@@ -97,98 +80,124 @@ function AlertCard({ alert, onToggle, onDelete }: {
 function CreateAlertModal({ isOpen, onClose, onSave }: {
   isOpen: boolean
   onClose: () => void
-  onSave: (alert: Omit<PriceAlert, 'id' | 'createdAt' | 'triggeredAt' | 'currentPrice'>) => void
+  onSave: (params: CreateAlertParams) => void
 }) {
   const [token, setToken] = useState('ETH')
+  const [alertType, setAlertType] = useState<'above' | 'below' | 'change_pct'>('above')
   const [targetPrice, setTargetPrice] = useState('')
-  const [condition, setCondition] = useState<'above' | 'below'>('above')
+  const [changePercent, setChangePercent] = useState('')
+
+  const tokens = [
+    { symbol: 'ETH', address: '0x0000000000000000000000000000000000000000' },
+    { symbol: 'BTC', address: '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599' },
+    { symbol: 'SOL', address: '0x0000000000000000000000000000000000000000' },
+  ]
+
+  const handleSave = () => {
+    const selectedToken = tokens.find(t => t.symbol === token)
+    if (!selectedToken) return
+
+    onSave({
+      chain: 'ethereum',
+      tokenAddress: selectedToken.address,
+      tokenSymbol: token,
+      alertType,
+      targetPrice: alertType !== 'change_pct' ? parseFloat(targetPrice) : undefined,
+      changePercent: alertType === 'change_pct' ? parseFloat(changePercent) : undefined,
+    })
+    onClose()
+    setTargetPrice('')
+    setChangePercent('')
+  }
 
   if (!isOpen) return null
 
-  const handleSave = () => {
-    if (!targetPrice) return
-    onSave({
-      token,
-      chain: 'ethereum',
-      targetPrice,
-      condition,
-      isActive: true,
-    })
-    setTargetPrice('')
-    onClose()
-  }
-
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={onClose}>
-      <div 
-        className="bg-white w-full max-w-md rounded-t-3xl p-4 pb-8 animate-slide-up"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="w-12 h-1 bg-gray-200 rounded-full mx-auto mb-4" />
-        
-        <h3 className="font-heading font-bold text-lg text-suwappu-purple-deep mb-4">
-          Create Price Alert
-        </h3>
-
-        <div className="space-y-4">
-          <div>
-            <label className="text-xs text-suwappu-text-secondary block mb-1">Token</label>
-            <select
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              className="w-full p-3 rounded-suwappu-lg border border-suwappu-sakura-mid/30 text-sm"
-            >
-              <option value="ETH">ETH - Ethereum</option>
-              <option value="SOL">SOL - Solana</option>
-              <option value="BTC">BTC - Bitcoin</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="text-xs text-suwappu-text-secondary block mb-1">Condition</label>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setCondition('above')}
-                className={`flex-1 py-2 rounded-suwappu-lg text-sm font-medium ${
-                  condition === 'above' 
-                    ? 'bg-suwappu-magenta-mid text-white' 
-                    : 'bg-suwappu-sakura-light text-suwappu-text'
-                }`}
-              >
-                📈 Goes Above
-              </button>
-              <button
-                onClick={() => setCondition('below')}
-                className={`flex-1 py-2 rounded-suwappu-lg text-sm font-medium ${
-                  condition === 'below' 
-                    ? 'bg-suwappu-magenta-mid text-white' 
-                    : 'bg-suwappu-sakura-light text-suwappu-text'
-                }`}
-              >
-                📉 Goes Below
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs text-suwappu-text-secondary block mb-1">Target Price (USD)</label>
-            <input
-              type="number"
-              value={targetPrice}
-              onChange={(e) => setTargetPrice(e.target.value)}
-              placeholder="0.00"
-              className="w-full p-3 rounded-suwappu-lg border border-suwappu-sakura-mid/30 text-sm"
-            />
-          </div>
-
-          <button
-            onClick={handleSave}
-            disabled={!targetPrice}
-            className="w-full py-3 bg-gradient-to-r from-suwappu-magenta-mid to-suwappu-purple-deep text-white font-heading font-semibold rounded-suwappu-xl disabled:opacity-50"
-          >
-            Create Alert
-          </button>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md p-4 pb-8">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-heading font-semibold text-lg">Create Alert</h3>
+          <button onClick={onClose} className="text-2xl text-suwappu-text-secondary">×</button>
         </div>
+
+        {/* Token selection */}
+        <div className="mb-4">
+          <label className="block text-xs text-suwappu-text-secondary mb-2">Token</label>
+          <div className="flex gap-2">
+            {tokens.map((t) => (
+              <button
+                key={t.symbol}
+                onClick={() => setToken(t.symbol)}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  token === t.symbol
+                    ? 'bg-suwappu-purple-deep text-white'
+                    : 'bg-suwappu-sakura-light/50 text-suwappu-text'
+                }`}
+              >
+                {t.symbol}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Alert type */}
+        <div className="mb-4">
+          <label className="block text-xs text-suwappu-text-secondary mb-2">Alert Type</label>
+          <div className="flex gap-2">
+            {(['above', 'below', 'change_pct'] as const).map((type) => (
+              <button
+                key={type}
+                onClick={() => setAlertType(type)}
+                className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${
+                  alertType === type
+                    ? 'bg-suwappu-purple-deep text-white'
+                    : 'bg-suwappu-sakura-light/50 text-suwappu-text'
+                }`}
+              >
+                {alertTypeLabels[type]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Price/Percent input */}
+        <div className="mb-6">
+          <label className="block text-xs text-suwappu-text-secondary mb-2">
+            {alertType === 'change_pct' ? 'Change Percentage' : 'Target Price'}
+          </label>
+          {alertType === 'change_pct' ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                value={changePercent}
+                onChange={(e) => setChangePercent(e.target.value)}
+                placeholder="5"
+                className="flex-1 p-3 rounded-lg border border-gray-200 text-lg"
+              />
+              <span className="text-lg font-medium">%</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-lg font-medium">$</span>
+              <input
+                type="number"
+                value={targetPrice}
+                onChange={(e) => setTargetPrice(e.target.value)}
+                placeholder="2000"
+                className="flex-1 p-3 rounded-lg border border-gray-200 text-lg"
+              />
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={handleSave}
+          disabled={alertType === 'change_pct' ? !changePercent : !targetPrice}
+          className="w-full py-3 bg-gradient-suwappu text-white font-heading font-semibold rounded-xl disabled:opacity-50"
+        >
+          Create Alert
+        </button>
       </div>
     </div>
   )
@@ -196,90 +205,139 @@ function CreateAlertModal({ isOpen, onClose, onSave }: {
 
 export function PriceAlerts() {
   const navigate = useNavigate()
-  const [alerts, setAlerts] = useState<PriceAlert[]>(getStoredAlerts)
+  const [alerts, setAlerts] = useState<PriceAlert[]>([])
+  const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
 
-  const handleToggle = (id: string) => {
-    const updated = alerts.map(a => a.id === id ? { ...a, isActive: !a.isActive } : a)
-    setAlerts(updated)
-    saveAlerts(updated)
-  }
+  useEffect(() => {
+    loadAlerts()
+  }, [])
 
-  const handleDelete = (id: string) => {
-    const updated = alerts.filter(a => a.id !== id)
-    setAlerts(updated)
-    saveAlerts(updated)
-  }
-
-  const handleCreate = (alertData: Omit<PriceAlert, 'id' | 'createdAt' | 'triggeredAt' | 'currentPrice'>) => {
-    const newAlert: PriceAlert = {
-      ...alertData,
-      id: Date.now().toString(),
-      currentPrice: alertData.token === 'ETH' ? '3200' : alertData.token === 'SOL' ? '180' : '95000',
-      createdAt: new Date().toISOString(),
+  const loadAlerts = async () => {
+    try {
+      setLoading(true)
+      const data = await api.getAlerts()
+      setAlerts(data)
+    } catch (err: any) {
+      toast.error(err.detail || 'Failed to load alerts')
+    } finally {
+      setLoading(false)
     }
-    const updated = [...alerts, newAlert]
-    setAlerts(updated)
-    saveAlerts(updated)
   }
 
-  const activeAlerts = alerts.filter(a => a.isActive && !a.triggeredAt)
+  const handleToggle = async (id: number) => {
+    try {
+      const updated = await api.toggleAlert(id)
+      setAlerts(alerts.map(a => a.id === id ? updated : a))
+    } catch (err: any) {
+      toast.error(err.detail || 'Failed to toggle alert')
+    }
+  }
+
+  const handleDelete = async (id: number) => {
+    try {
+      await api.deleteAlert(id)
+      setAlerts(alerts.filter(a => a.id !== id))
+      toast.success('Alert deleted')
+    } catch (err: any) {
+      toast.error(err.detail || 'Failed to delete alert')
+    }
+  }
+
+  const handleCreate = async (params: CreateAlertParams) => {
+    try {
+      const newAlert = await api.createAlert(params)
+      setAlerts([newAlert, ...alerts])
+      toast.success('Alert created!')
+    } catch (err: any) {
+      toast.error(err.detail || 'Failed to create alert')
+    }
+  }
+
+  const activeAlerts = alerts.filter(a => a.isActive && !a.isTriggered)
+  const triggeredAlerts = alerts.filter(a => a.isTriggered)
 
   return (
     <AppLayout 
       header={<AppHeader title="Price Alerts" showBack onBack={() => navigate(-1)} />} 
-      activeNav="home"
+      activeNav="swap"
     >
       <div className="p-3 pb-20 space-y-4">
-        {/* Create Button */}
+        {/* Create Alert Button */}
         <button
           onClick={() => setShowCreate(true)}
           className="w-full py-3 bg-gradient-to-r from-suwappu-magenta-mid to-suwappu-purple-deep text-white font-heading font-semibold rounded-suwappu-xl shadow-suwappu-2 active:scale-[0.98] transition-transform"
         >
-          🔔 Create Price Alert
+          + Create Alert
         </button>
 
-        {/* Active Alerts Count */}
-        <div className="bg-suwappu-sakura-light/50 rounded-suwappu-lg p-3 flex items-center justify-between">
-          <span className="text-sm text-suwappu-text">Active Alerts</span>
-          <span className="font-heading font-bold text-suwappu-purple-deep">{activeAlerts.length}</span>
-        </div>
+        {/* Loading state */}
+        {loading && (
+          <div className="text-center py-8">
+            <div className="animate-spin w-8 h-8 border-2 border-suwappu-purple-deep border-t-transparent rounded-full mx-auto mb-2" />
+            <p className="text-suwappu-text-secondary text-sm">Loading alerts...</p>
+          </div>
+        )}
 
-        {/* Alerts List */}
-        {alerts.length === 0 ? (
+        {/* Active Alerts */}
+        {!loading && activeAlerts.length > 0 && (
+          <div>
+            <h3 className="text-xs font-medium text-suwappu-text-secondary mb-2">Active Alerts</h3>
+            <div className="space-y-3">
+              {activeAlerts.map((alert) => (
+                <AlertCard 
+                  key={alert.id} 
+                  alert={alert} 
+                  onToggle={handleToggle}
+                  onDelete={handleDelete}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Triggered Alerts */}
+        {!loading && triggeredAlerts.length > 0 && (
+          <div>
+            <h3 className="text-xs font-medium text-suwappu-text-secondary mb-2">Triggered</h3>
+            <div className="space-y-3">
+              {triggeredAlerts.map((alert) => (
+                <AlertCard 
+                  key={alert.id} 
+                  alert={alert} 
+                  onToggle={handleToggle}
+                  onDelete={handleDelete}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!loading && alerts.length === 0 && (
           <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-8 text-center">
             <div className="w-16 h-16 mx-auto mb-4 bg-suwappu-sakura-light rounded-full flex items-center justify-center">
               <span className="text-3xl">🔔</span>
             </div>
             <p className="font-heading font-semibold text-suwappu-purple-deep mb-1">
-              No alerts set
+              No alerts yet
             </p>
             <p className="text-xs text-suwappu-text-secondary">
-              Get notified when tokens hit your target price
+              Create an alert to get notified when prices move
             </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {alerts.map((alert) => (
-              <AlertCard 
-                key={alert.id} 
-                alert={alert} 
-                onToggle={handleToggle}
-                onDelete={handleDelete}
-              />
-            ))}
           </div>
         )}
 
-        {/* Coming Soon Badge */}
-        <div className="text-center">
-          <span className="inline-flex items-center gap-1 px-3 py-1 bg-yellow-100 text-yellow-700 text-xs font-medium rounded-full">
-            🚧 Push notifications coming soon
-          </span>
+        {/* Info Card */}
+        <div className="bg-suwappu-sakura-light/30 rounded-suwappu-lg p-3">
+          <p className="text-xs text-suwappu-text-secondary">
+            💡 <strong>Price Alerts</strong> notify you via Telegram when your target 
+            price is reached. Never miss a buying or selling opportunity!
+          </p>
         </div>
       </div>
 
-      <CreateAlertModal 
+      <CreateAlertModal
         isOpen={showCreate}
         onClose={() => setShowCreate(false)}
         onSave={handleCreate}

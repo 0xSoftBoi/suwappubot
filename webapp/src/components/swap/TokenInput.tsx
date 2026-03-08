@@ -44,22 +44,14 @@ export function TokenInput({
         ) : (
           <input
             type="text"
-            inputMode="decimal"
-            aria-label={`${label} amount`}
             value={amount}
-            onChange={(e) => {
-              const raw = e.target.value;
-              if (raw === '' || /^\d*\.?\d*$/.test(raw)) {
-                onAmountChange?.(raw);
-              }
-            }}
+            onChange={(e) => onAmountChange?.(e.target.value)}
             placeholder="0.0"
             className="flex-1 text-xl font-heading font-bold text-suwappu-text bg-transparent focus:outline-none min-w-0"
           />
         )}
         <button
           onClick={onTokenClick}
-          aria-label={`Select ${label} token`}
           className="flex items-center gap-2 px-3 py-2 bg-suwappu-sakura-light rounded-suwappu-lg hover:bg-suwappu-sakura-mid/30 transition-colors"
         >
           {token.logoUrl ? (
@@ -90,7 +82,6 @@ export function TokenInput({
           {balance && !readOnly && (
             <button
               onClick={() => onAmountChange?.(balance)}
-              aria-label="Use maximum balance"
               className="text-xs text-suwappu-magenta-mid font-medium"
             >
               Max
