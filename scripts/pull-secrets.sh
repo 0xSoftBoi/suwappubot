@@ -39,8 +39,14 @@ LOG_LEVEL=INFO
 WALLET_PROVIDER=local
 ENVEOF
 
-# Append each key from app-secrets
-echo "$APP_SECRETS" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$ENV_FILE"
+# Append each key from app-secrets (skip DATABASE_URL to avoid duplicate)
+echo "$APP_SECRETS" | jq -r 'to_entries[] | select(.key != "DATABASE_URL") | "\(.key)=\(.value)"' >> "$ENV_FILE"
+
+# EC2-specific settings
+echo "" >> "$ENV_FILE"
+echo "# EC2 runtime settings" >> "$ENV_FILE"
+echo "USE_WEBHOOK=false" >> "$ENV_FILE"
+echo "PYTHONPATH=/home/ubuntu/suwappubot" >> "$ENV_FILE"
 
 chmod 600 "$ENV_FILE"
 chown ubuntu:ubuntu "$ENV_FILE"
