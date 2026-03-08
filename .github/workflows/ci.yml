@@ -111,13 +111,13 @@ jobs:
         run: cd webapp && bun install
 
       - name: Lint
-        run: cd webapp && npm run lint
+        run: cd webapp && bun run lint
 
       - name: Build
-        run: cd webapp && npm run build
+        run: cd webapp && bun run build
 
       - name: Test
-        run: cd webapp && bun test src/hooks src/lib --preload ./src/test/happy-dom-setup.ts
+        run: cd webapp && bun test src/hooks src/lib src/components/ErrorBoundary.test.tsx --preload ./src/test/happy-dom-setup.ts
 
   showcase-checks:
     name: Showcase lint & build
