@@ -20,12 +20,15 @@ curl https://api.suwappu.bot/.well-known/agent.json
 
 ```json
 {
+  "$schema": "https://specs.a2aprotocol.ai/agent-card.json",
   "id": "suwappu-dex",
   "name": "Suwappu",
   "description": "Cross-chain DEX for AI agents. Swap tokens across 7 chains via natural language.",
   "version": "0.4.0",
   "url": "https://api.suwappu.bot",
+  "logo": "https://suwappu.bot/logo.png",
   "openApiUrl": "https://api.suwappu.bot/v1/agent/openapi",
+  "protocolVersions": ["0.3"],
   "interfaces": [
     {
       "type": "JSON-RPC",
@@ -33,48 +36,101 @@ curl https://api.suwappu.bot/.well-known/agent.json
       "version": "1.0"
     }
   ],
-  "securitySchemes": [
-    {
+  "securitySchemes": {
+    "bearer": {
       "type": "http",
       "scheme": "bearer",
-      "description": "Register at POST /v1/agent/register"
+      "description": "Register at POST /v1/agent/register to get an API key (suwappu_sk_...)"
     }
-  ],
+  },
+  "authentication": {
+    "schemes": ["bearer"],
+    "credentials": null
+  },
   "capabilities": {
     "streaming": false,
     "pushNotifications": true,
     "stateTransitionHistory": false
   },
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
   "skills": [
     {
       "id": "swap",
       "name": "Token Swap",
-      "description": "Swap tokens across 7 chains"
+      "description": "Swap tokens across 7 chains (ETH, BSC, Polygon, Arbitrum, Optimism, Base, Solana)",
+      "tags": ["defi", "swap", "trading", "cross-chain"],
+      "examples": ["swap 0.5 ETH to USDC on Base", "swap 100 USDC to SOL on Solana"],
+      "inputModes": ["text"],
+      "outputModes": ["text"]
     },
     {
       "id": "quote",
-      "name": "Get Quote"
+      "name": "Get Quote",
+      "description": "Get a swap quote without executing",
+      "tags": ["defi", "quote", "price"],
+      "examples": ["quote 1 ETH to USDC", "price of 100 USDC in ETH"],
+      "inputModes": ["text"],
+      "outputModes": ["text"]
     },
     {
       "id": "portfolio",
-      "name": "Portfolio Check"
+      "name": "Portfolio Check",
+      "description": "Check token balances across all chains",
+      "tags": ["balance", "portfolio", "wallet"],
+      "examples": ["check balance", "show portfolio"],
+      "inputModes": ["text"],
+      "outputModes": ["text"]
     },
     {
       "id": "prices",
-      "name": "Token Prices"
+      "name": "Token Prices",
+      "description": "Get real-time token prices with 24h change",
+      "tags": ["defi", "price", "market-data"],
+      "examples": ["get ETH price", "check SOL and USDC prices"],
+      "inputModes": ["text"],
+      "outputModes": ["text"]
     },
     {
       "id": "tokens",
-      "name": "Token Discovery"
+      "name": "Token Discovery",
+      "description": "List available tokens per chain for quoting and swapping",
+      "tags": ["defi", "tokens", "discovery"],
+      "examples": ["list tokens on Base", "search for USD tokens"],
+      "inputModes": ["text"],
+      "outputModes": ["text"]
     },
     {
       "id": "key-management",
-      "name": "API Key Management"
+      "name": "API Key Management",
+      "description": "Rotate API keys for security",
+      "tags": ["security", "keys"],
+      "examples": ["rotate my API key"],
+      "inputModes": ["text"],
+      "outputModes": ["text"]
     },
     {
       "id": "webhook-management",
-      "name": "Webhook Management"
+      "name": "Webhook Management",
+      "description": "List webhook delivery events and test webhook endpoints",
+      "tags": ["webhooks", "notifications"],
+      "examples": ["list webhook events", "test my webhook"],
+      "inputModes": ["text"],
+      "outputModes": ["text"]
     }
+  ],
+  "provider": {
+    "organization": "Suwappu",
+    "url": "https://suwappu.bot"
+  },
+  "supportedChains": [
+    {"id": 1, "name": "Ethereum", "native": "ETH"},
+    {"id": 56, "name": "BSC", "native": "BNB"},
+    {"id": 137, "name": "Polygon", "native": "MATIC"},
+    {"id": 42161, "name": "Arbitrum", "native": "ETH"},
+    {"id": 10, "name": "Optimism", "native": "ETH"},
+    {"id": 8453, "name": "Base", "native": "ETH"},
+    {"id": "solana", "name": "Solana", "native": "SOL"}
   ]
 }
 ```
@@ -104,13 +160,22 @@ Describes the communication protocols the agent supports.
 
 ### securitySchemes
 
-Describes how to authenticate with the agent.
+A dictionary of named security schemes. Each key is the scheme name (e.g., `"bearer"`).
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `type` | string | Authentication transport (`"http"`). |
 | `scheme` | string | Authentication scheme (`"bearer"`). |
 | `description` | string | Instructions for obtaining credentials. |
+
+### authentication
+
+Declares which security schemes the agent requires.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `schemes` | array | List of scheme names from `securitySchemes` that the agent accepts. |
+| `credentials` | null | No default credentials; agents must register to obtain a token. |
 
 ### capabilities
 
@@ -131,6 +196,10 @@ An array of capabilities the agent can perform. Each skill has:
 | `id` | string | Unique skill identifier. |
 | `name` | string | Human-readable skill name. |
 | `description` | string (optional) | What the skill does. |
+| `tags` | array (optional) | Categorization tags for discovery and filtering. |
+| `examples` | array (optional) | Example natural language messages that trigger this skill. |
+| `inputModes` | array | Accepted input types (e.g., `["text"]`). |
+| `outputModes` | array | Output types the skill produces (e.g., `["text"]`). |
 
 ## How Agents Discover Suwappu
 

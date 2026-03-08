@@ -464,21 +464,65 @@ suwappubot/
 
 ## Agent Integration
 
-Suwappu is designed for the **agentic economy**. AI agents can:
+Suwappu supports three protocols for AI agent integration. All share the same authentication and capabilities.
 
-```mermaid
-flowchart LR
-    Agent["AI Agent"] --> Discover["GET /tools"]
-    Discover --> Quote["POST /v1/agent/quote"]
-    Quote --> Execute["POST /v1/agent/swap"]
-    Execute --> Result["Swap Complete"]
+| Protocol | Endpoint | Best For |
+|----------|----------|----------|
+| **REST API** | `/v1/agent/*` | Direct integration, backends, scripts |
+| **MCP** | `/mcp` | Claude Desktop, Claude Code, Cursor |
+| **A2A** | `/a2a` | Agent-to-agent communication, orchestration |
+
+### Quick Start: MCP (Claude Desktop)
+
+Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "suwappu": {
+      "url": "https://api.suwappu.bot/mcp",
+      "headers": {
+        "Authorization": "Bearer suwappu_sk_YOUR_KEY"
+      }
+    }
+  }
+}
 ```
 
-- **Tool Discovery:** `GET /tools`
-- **MCP Manifest:** `GET /.well-known/ai-plugin.json`
-- **Agent Skill:** [docs/features/agent_skill.md](docs/features/agent_skill.md)
+Or use the local stdio server:
 
-See [docs/features/agent_integration.md](docs/features/agent_integration.md) for integration guide.
+```bash
+npm install -g @suwappu/mcp-server
+SUWAPPU_API_KEY=suwappu_sk_YOUR_KEY npx @suwappu/mcp-server
+```
+
+### Quick Start: A2A
+
+```bash
+# Discover agent capabilities
+curl https://api.suwappu.bot/.well-known/agent.json
+
+# Send a natural language message
+curl -X POST https://api.suwappu.bot/a2a \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","parts":[{"type":"text","text":"swap 0.5 ETH to USDC on base"}]}}}'
+```
+
+### npm Packages
+
+| Package | Description |
+|---------|-------------|
+| [`@suwappu/mcp-server`](https://www.npmjs.com/package/@suwappu/mcp-server) | MCP server (stdio transport) |
+| [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) | TypeScript SDK for REST API |
+| [`@suwappu/langchain-suwappu`](https://www.npmjs.com/package/@suwappu/langchain-suwappu) | LangChain toolkit integration |
+
+### Registry Listings
+
+- [Smithery.ai](https://smithery.ai) — MCP server registry
+- [awesome-a2a](https://github.com/ai-boost/awesome-a2a) — A2A protocol directory ([PR #36](https://github.com/ai-boost/awesome-a2a/pull/36))
+
+See [gitbook/protocols/](gitbook/protocols/README.md) for full protocol documentation.
 
 ---
 

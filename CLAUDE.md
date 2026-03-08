@@ -24,8 +24,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Additional rules:
 - **NEVER use `git rebase`**. Always use `git merge` or `git pull --no-rebase`.
 - **If any git operation fails twice, STOP and ask the user** — do NOT attempt dozens of recovery steps.
-- Use `HUSKY=0` prefix for **git commits only** (not pushes) to avoid pre-commit hook hangs. Do NOT use `HUSKY=0` on `git push` — the pre-push hook auto-deploys to prod.
-- In worktrees, use `HUSKY=0` for both commits and pushes to avoid hook hangs.
+- Use `HUSKY=0` prefix for all git commits and pushes in worktrees to avoid hook hangs.
 
 ## TypeScript & Build Tools
 - **Always use `bun`** instead of `tsc`, `npm`, or `npx`. The `tsc` command times out in this project.
@@ -143,6 +142,16 @@ Use `/deploy` skill for manual deployments.
 **TypeScript API routes**: See `api-ts/src/routes/` — agent routes (`/v1/agent/*`), webapp routes (`/webapp/*`), swap routes, A2A protocol.
 
 **Python API routes**: `GET /health`, `POST /telegram/webhook`, `POST /webhook` (WhatsApp).
+
+## Verification
+
+**RULE: Do NOT claim a deployment or change is done without running `scripts/verify.sh` first.** If you make a claim, you must have verified it.
+
+```bash
+bash scripts/verify.sh        # Run all checks
+bash scripts/verify.sh api    # Run only api-ts checks
+bash scripts/verify.sh agent  # Run only agent card/registry checks
+```
 
 ## Custom Skills
 
