@@ -6,6 +6,7 @@ All private keys stay in Turnkey's secure enclaves - they never touch our server
 """
 
 import json
+import re
 import time
 import hashlib
 import logging
@@ -197,8 +198,12 @@ class TurnkeyClient:
             "timestampMs": str(int(time.time() * 1000)),
         }
         
-        # Convert activity type to endpoint path (e.g., ACTIVITY_TYPE_CREATE_WALLET -> create_wallet)
-        endpoint_name = activity_type.replace("ACTIVITY_TYPE_", "").lower()
+        # Convert activity type to endpoint path
+        # Strip ACTIVITY_TYPE_ prefix and version suffixes (e.g., _V2, _V7)
+        # ACTIVITY_TYPE_CREATE_SUB_ORGANIZATION_V7 -> create_sub_organization
+        # ACTIVITY_TYPE_SIGN_TRANSACTION_V2 -> sign_transaction
+        endpoint_name = activity_type.replace("ACTIVITY_TYPE_", "")
+        endpoint_name = re.sub(r"_V\d+$", "", endpoint_name).lower()
         endpoint = f"/public/v1/submit/{endpoint_name}"
         
         result = await self._request("POST", endpoint, body)
@@ -267,25 +272,32 @@ class TurnkeyClient:
         Returns:
             TurnkeySubOrganization with the new sub-org details
         """
+        # V7 requires at least one root user with our API key for signing
+        root_user = {
+            "userName": name,
+            "apiKeys": [{
+                "apiKeyName": f"{name}_api_key",
+                "publicKey": self._api_public_key,
+                "curveType": "API_KEY_CURVE_P256",
+            }],
+            "authenticators": [],
+            "oauthProviders": [],
+        }
+        if root_user_email:
+            root_user["userEmail"] = root_user_email
+
         params = {
             "subOrganizationName": name,
-            "rootUsers": [],  # API-only sub-org, no interactive users
+            "rootUsers": [root_user],
+            "rootQuorumThreshold": 1,
         }
-        
-        if root_user_email:
-            params["rootUsers"] = [{
-                "userName": name,
-                "userEmail": root_user_email,
-                "apiKeys": [],
-                "authenticators": [],
-            }]
-        
+
         result = await self._submit_activity(
-            "ACTIVITY_TYPE_CREATE_SUB_ORGANIZATION_V4",
+            "ACTIVITY_TYPE_CREATE_SUB_ORGANIZATION_V7",
             params,
         )
-        
-        sub_org = result.get("createSubOrganizationResultV4", {})
+
+        sub_org = result.get("createSubOrganizationResultV7", {})
         
         return TurnkeySubOrganization(
             sub_org_id=sub_org.get("subOrganizationId", ""),
