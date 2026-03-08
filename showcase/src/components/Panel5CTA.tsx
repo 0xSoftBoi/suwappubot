@@ -20,7 +20,7 @@ export default function Panel5CTA() {
 
       <div className="relative z-10 max-w-2xl mx-auto text-center px-6 w-full">
         <h2 className="font-heading font-bold text-3xl md:text-4xl mb-6 text-white">
-          Ship something.
+          Your next swap is one line away.
         </h2>
         <div className="inline-block bg-white/[0.04] border border-white/[0.08] rounded-xl px-6 py-3 mb-8">
           <code className="text-suwappu-cyan/80 text-sm font-mono">
