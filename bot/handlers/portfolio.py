@@ -130,6 +130,8 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             reply_markup=_portfolio_keyboard(),
         )
     except Exception as e:
+        import logging
+        logging.getLogger(__name__).exception("Portfolio load failed")
         await loading_msg.edit_text(
             f"\u274c Error loading portfolio: {str(e)}",
             reply_markup=_error_keyboard(),
@@ -176,6 +178,8 @@ async def portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup=_portfolio_keyboard(),
         )
     except Exception as e:
+        import logging
+        logging.getLogger(__name__).exception("Portfolio callback failed")
         await query.edit_message_text(
             f"\u274c Error: {str(e)}",
             reply_markup=_error_keyboard(),
