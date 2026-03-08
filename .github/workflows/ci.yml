@@ -89,7 +89,7 @@ jobs:
         run: cd api-ts && bun run check
 
       - name: Lint with Biome
-        run: cd api-ts && bunx @biomejs/biome check src/
+        run: cd api-ts && ./node_modules/.bin/biome check src/
 
   webapp-checks:
     name: Webapp lint, build & test
@@ -111,7 +111,7 @@ jobs:
         run: cd webapp && bun install
 
       - name: Lint
-        run: cd webapp && bun run lint
+        run: cd webapp && bunx eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0
 
       - name: Build
         run: cd webapp && bun run build
