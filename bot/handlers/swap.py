@@ -601,7 +601,7 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
             f"on {to_chain_config.display_name}\n\n"
             f"*Fees (Combined):*\n"
             f"• Platform fee: {fee_percentage}% ({format_usd(total_fee_usd)})\n"
-            f"• Provider: {quote.provider.upper()}"
+            f"• Provider: {{'layerzero': 'Stargate V2', 'lifi': 'LI.FI', 'jupiter': 'Jupiter', 'cow': 'CoW Protocol', 'cctp': 'Circle CCTP', 'ccip': 'Chainlink CCIP'}.get(quote.provider, quote.provider.upper())}"
             f"{security_text}\n\n"
             f"⚠️ *Confirmation will execute swaps on {num_wallets} wallets simultaneously.*"
         )
@@ -903,7 +903,7 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             f"• Gas: {format_usd(quote.gas_cost_usd)}\n"
             f"• Bridge fee: {format_usd(quote.fee_cost_usd)}\n"
             f"• Time: {format_time_estimate(quote.estimated_time)}\n"
-            f"• Provider: {quote.provider.upper()}"
+            f"• Provider: {{'layerzero': 'Stargate V2', 'lifi': 'LI.FI', 'jupiter': 'Jupiter', 'cow': 'CoW Protocol', 'cctp': 'Circle CCTP', 'ccip': 'Chainlink CCIP'}.get(quote.provider, quote.provider.upper())}"
         )
         
         keyboard = [
