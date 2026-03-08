@@ -111,6 +111,7 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
     try:
         from bot.models.user import User, Wallet
         from bot.models.swap import SwapTransaction
+        from bot.models.subscription import Subscription, X402Payment, APICredit
         # Common operational tables used by services/background tasks
         from bot.models.fees import FeeConfig, FeeTransaction, FeeSummary
         from bot.models.advanced import LimitOrder, DCAOrder, DCAExecution, SwapTemplate, RugMonitor
@@ -223,8 +224,9 @@ def _ensure_schema(db_engine) -> None:
     if "limit_orders" in tables:
         _add_advanced_order_columns(db_engine, inspector, is_sqlite)
 
-    # --- users: TOS columns and telegram_id nullability ---
+    # --- users: core columns, TOS, and telegram_id nullability ---
     if "users" in tables:
+        _add_user_core_columns(db_engine, inspector, is_sqlite)
         _add_tos_columns(db_engine, inspector, is_sqlite)
         _fix_user_nullability(db_engine, inspector, is_sqlite)
         _add_referral_columns(db_engine, inspector, is_sqlite)
@@ -324,6 +326,26 @@ def _fix_user_nullability(db_engine, inspector, is_sqlite: bool) -> None:
         except Exception:
             # Column may already be nullable
             pass
+
+
+def _add_user_core_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add core User model columns that may be missing on older deployments."""
+    cols = {c["name"] for c in inspector.get_columns("users")}
+
+    new_columns = [
+        ("whatsapp_id", "VARCHAR(255)", "NULL"),
+        ("default_slippage", "INTEGER", "50"),
+        ("notifications_enabled", "BOOLEAN", "TRUE"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE users ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
 
 
 def _add_tos_columns(db_engine, inspector, is_sqlite: bool) -> None:
