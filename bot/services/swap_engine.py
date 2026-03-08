@@ -538,13 +538,9 @@ class SwapEngine:
                 wallet_service=self.wallet_service,
             )
             
-            # Validate gas
-            await quote_validator.validate_gas(
-                wallet_address=wallet_address,
-                quote=quote,
-                wallet_service=self.wallet_service,
-            )
-            
+            # Gas check removed — providers (Li.Fi, Stargate) handle gas
+            # in cross-chain routes. On-chain failures are caught below.
+
             # Create transaction record
             with get_session() as session:
                 swap_tx = SwapTransaction(
