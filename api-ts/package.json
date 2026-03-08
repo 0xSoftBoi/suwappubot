@@ -1,0 +1,35 @@
+{
+  "name": "@suwappu/api-ts",
+  "version": "0.4.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot run src/index.ts",
+    "start": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outdir ./dist --target bun",
+    "check": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@effect/schema": "^0.75.5",
+    "@turnkey/api-key-stamper": "^0.6.1",
+    "@turnkey/sdk-server": "^5.0.1",
+    "@types/jsonwebtoken": "^9.0.10",
+    "drizzle-orm": "^0.45.1",
+    "effect": "^3.10.0",
+    "esbuild": "^0.27.2",
+    "hono": "^4.6.0",
+    "ioredis": "^5.9.3",
+    "jsonwebtoken": "^9.0.3",
+    "postgres": "^3.4.5",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.3",
+    "@types/bun": "^1.1.14",
+    "drizzle-kit": "^0.31.8",
+    "typescript": "^5.6.3"
+  }
+}
