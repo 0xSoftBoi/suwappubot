@@ -31,6 +31,7 @@ COPY --from=builder /app/drizzle.config.ts ./
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/start.sh ./
 COPY --from=builder /app/agent-card.json ./
+COPY --from=builder /app/openapi-agent.json ./
 RUN chmod +x start.sh
 
 # Use existing bun user
