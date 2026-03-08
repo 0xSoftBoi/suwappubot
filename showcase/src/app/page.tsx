@@ -71,18 +71,23 @@ function InfraPanel() {
 
       {/* Content floats over the explosion */}
       <div className="relative z-10 max-w-4xl mx-auto px-6 w-full text-center">
-        <h2 className="font-heading font-bold text-5xl md:text-7xl mb-6 text-white tracking-tight">
-          Plug in.<br />
-          <span className="gradient-text">Swap out.</span>
+        <p className="text-white/30 text-xs font-heading uppercase tracking-[0.2em] mb-4">
+          Integration
+        </p>
+        <h2 className="font-heading font-bold text-3xl md:text-5xl mb-3 text-white tracking-tight">
+          Four ways to connect.
         </h2>
+        <p className="text-suwappu-dark-text-secondary text-sm mb-10 max-w-md mx-auto">
+          Pick the interface that fits your stack. Same routing engine behind all of them.
+        </p>
 
-        {/* Raw commands — no cards, just monospace lines stacked */}
-        <div className="space-y-3 mb-8">
+        {/* Commands */}
+        <div className="space-y-3 mb-8 inline-block text-left">
           {COMMANDS.map((cmd) => {
             const inner = (
-              <span className="inline-flex items-center gap-3">
-                <span className="text-white/20 text-xs font-heading uppercase tracking-widest w-16 text-right shrink-0">{cmd.label}</span>
-                <span className="text-suwappu-cyan/70 font-mono text-sm md:text-base">{cmd.text}</span>
+              <span className="inline-flex items-center gap-4">
+                <span className="text-white/20 text-[10px] font-heading uppercase tracking-widest w-20 text-right shrink-0">{cmd.label}</span>
+                <span className="text-suwappu-cyan/70 font-mono text-sm">{cmd.text}</span>
               </span>
             );
             return cmd.href ? (
@@ -97,8 +102,8 @@ function InfraPanel() {
           })}
         </div>
 
-        <p className="text-white/20 text-xs font-heading uppercase tracking-[0.2em]">
-          15 chains &middot; bun-native &middot; production-ready
+        <p className="text-white/15 text-xs font-heading uppercase tracking-[0.2em]">
+          15 chains &middot; non-custodial &middot; bun-native
         </p>
       </div>
     </Panel>
