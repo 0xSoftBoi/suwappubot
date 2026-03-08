@@ -1,0 +1,70 @@
+name: Add EC2 Permissions to Deploy Role
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Check current permissions
+        run: |
+          echo "=== Current role info ==="
+          aws sts get-caller-identity
+          echo ""
+          echo "=== Trying to list attached policies ==="
+          ROLE_NAME="github-actions-suwappu"
+          aws iam list-attached-role-policies --role-name "$ROLE_NAME" 2>&1 || echo "Cannot list policies (no IAM permissions)"
+          echo ""
+          echo "=== Trying to list inline policies ==="
+          aws iam list-role-policies --role-name "$ROLE_NAME" 2>&1 || echo "Cannot list inline policies"
+
+      - name: Add EC2 and IAM permissions
+        continue-on-error: true
+        run: |
+          ROLE_NAME="github-actions-suwappu"
+
+          echo "=== Attaching AmazonEC2FullAccess ==="
+          aws iam attach-role-policy \
+            --role-name "$ROLE_NAME" \
+            --policy-arn arn:aws:iam::aws:policy/AmazonEC2FullAccess 2>&1
+
+          echo "=== Adding inline policy for IAM instance profiles ==="
+          aws iam put-role-policy \
+            --role-name "$ROLE_NAME" \
+            --policy-name "ec2-provisioning" \
+            --policy-document '{
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:CreateRole",
+                    "iam:GetRole",
+                    "iam:AttachRolePolicy",
+                    "iam:PutRolePolicy",
+                    "iam:CreateInstanceProfile",
+                    "iam:GetInstanceProfile",
+                    "iam:AddRoleToInstanceProfile",
+                    "iam:PassRole",
+                    "iam:ListAttachedRolePolicies",
+                    "iam:ListRolePolicies",
+                    "ssm:GetParameter"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }' 2>&1
+
+          echo "=== Verifying ==="
+          aws iam list-attached-role-policies --role-name "$ROLE_NAME" 2>&1 || echo "Still no IAM access"
