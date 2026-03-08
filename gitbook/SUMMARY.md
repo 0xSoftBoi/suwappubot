@@ -54,3 +54,6 @@
 * [Managed Wallets](guides/managed-wallets.md)
 * [Webhook Setup](guides/webhook-setup.md)
 * [Building a Trading Bot](guides/building-a-trading-bot.md)
+* [Portfolio Rebalancer](guides/portfolio-rebalancer.md)
+* [Natural Language Trade CLI](guides/natural-language-cli.md)
+* [MCP Portfolio Advisor](guides/mcp-portfolio-advisor.md)
