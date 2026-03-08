@@ -21,19 +21,13 @@ const SakuraPetal3D = dynamic(() => import('@/components/SakuraPetal3D'), {
    Data
    =================================================================== */
 
-const CHAINS = [
-  { name: 'Ethereum' }, { name: 'Arbitrum' }, { name: 'Optimism' },
-  { name: 'Polygon' }, { name: 'Base' }, { name: 'Avalanche' },
-  { name: 'BNB Chain' }, { name: 'Solana' }, { name: 'Fantom' },
-  { name: 'zkSync' }, { name: 'Linea' }, { name: 'Scroll' },
-  { name: 'Blast' }, { name: 'Gnosis' }, { name: 'Aurora' },
-];
-
-const COMMANDS = [
-  { text: 'bun add @suwappu/sdk', label: 'SDK' },
-  { text: 'bun add @suwappu/openclaw', label: 'OpenClaw' },
-  { text: 't.me/suwappu_bot', label: 'Bot', href: 'https://t.me/suwappu_bot' },
-  { text: 'api.suwappu.bot/v1/', label: 'REST' },
+const TOOLS = [
+  { name: 'get_quote', desc: 'Best swap route for a token pair on any chain.' },
+  { name: 'execute_swap', desc: 'Execute a previously quoted swap on-chain.' },
+  { name: 'get_portfolio', desc: 'Wallet balances across all connected chains.' },
+  { name: 'get_prices', desc: 'Current token prices in USD.' },
+  { name: 'list_chains', desc: 'All supported chains and their status.' },
+  { name: 'list_tokens', desc: 'Popular tokens available on a chain.' },
 ];
 
 const FAQ_ITEMS = [
@@ -59,6 +53,23 @@ const FAQ_ITEMS = [
    Infra Panel — integrations + chain marquee + 3D petals
    =================================================================== */
 
+function CopyButton() {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <button
+      onClick={() => {
+        navigator.clipboard.writeText('bun add @suwappu/sdk');
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }}
+      className="text-xs text-white/40 hover:text-white/70 transition-colors font-mono px-3 py-1 border border-white/10 rounded hover:border-white/20"
+    >
+      {copied ? 'Copied!' : 'Copy'}
+    </button>
+  );
+}
+
 function InfraPanel() {
   const { progressRef } = useScrollContext();
 
@@ -69,42 +80,57 @@ function InfraPanel() {
         <SakuraPetal3D variant="scatter" progressRef={progressRef} />
       </div>
 
-      {/* Content floats over the explosion */}
-      <div className="relative z-10 max-w-4xl mx-auto px-6 w-full text-center">
-        <p className="text-white/30 text-xs font-heading uppercase tracking-[0.2em] mb-4">
-          Integration
-        </p>
-        <h2 className="font-heading font-bold text-3xl md:text-5xl mb-3 text-white tracking-tight">
-          Your agent swaps here.
-        </h2>
-        <p className="text-suwappu-dark-text-secondary text-sm mb-10 max-w-md mx-auto">
-          SDK, module, bot, or REST — same routing engine. Pick what fits your stack.
-        </p>
+      {/* Two-column layout */}
+      <div className="relative z-10 max-w-5xl mx-auto px-6 w-full">
+        <div className="grid lg:grid-cols-2 gap-16 items-start">
 
-        {/* Commands */}
-        <div className="space-y-3 mb-8 inline-block text-left">
-          {COMMANDS.map((cmd) => {
-            const inner = (
-              <span className="inline-flex items-center gap-4">
-                <span className="text-white/20 text-[10px] font-heading uppercase tracking-widest w-20 text-right shrink-0">{cmd.label}</span>
-                <span className="text-suwappu-cyan/70 font-mono text-sm">{cmd.text}</span>
-              </span>
-            );
-            return cmd.href ? (
-              <a key={cmd.label} href={cmd.href} target="_blank" rel="noopener noreferrer" className="block hover:text-white transition-colors">
-                {inner}
-              </a>
-            ) : (
-              <div key={cmd.label} className="block">
-                {inner}
+          {/* Left — pitch + terminal */}
+          <div>
+            <p className="text-suwappu-dark-text-secondary text-sm leading-relaxed mb-8 max-w-sm">
+              Give your agent direct access to cross-chain swaps — get quotes, execute trades, and check balances across 15 chains.
+            </p>
+
+            {/* Terminal block */}
+            <div className="rounded-xl border border-white/[0.06] bg-[#1a1b2e] overflow-hidden mb-4">
+              <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.04]">
+                <span className="w-2.5 h-2.5 rounded-full bg-white/10" />
+                <span className="w-2.5 h-2.5 rounded-full bg-white/10" />
+                <span className="w-2.5 h-2.5 rounded-full bg-white/10" />
+                <span className="text-white/20 text-[10px] font-mono ml-2">terminal</span>
               </div>
-            );
-          })}
-        </div>
+              <div className="px-5 py-4">
+                <p className="font-mono text-sm">
+                  <span className="text-white/30">$ </span>
+                  <span className="text-white">bun add @suwappu/sdk</span>
+                </p>
+              </div>
+            </div>
 
-        <p className="text-white/15 text-xs font-heading uppercase tracking-[0.2em]">
-          15 chains &middot; non-custodial &middot; bun-native
-        </p>
+            <div className="flex items-center gap-3">
+              <span className="text-white/30 text-xs">One line to swap.</span>
+              <CopyButton />
+            </div>
+
+            <p className="text-white/20 text-xs mt-6 leading-relaxed max-w-xs">
+              Set <code className="text-suwappu-cyan/50 font-mono">SUWAPPU_API_KEY</code> and your agent connects automatically — no manual setup needed.
+            </p>
+          </div>
+
+          {/* Right — tools reference */}
+          <div className="space-y-6 lg:pt-2">
+            {TOOLS.map((tool) => (
+              <div key={tool.name}>
+                <h3 className="font-heading font-semibold text-sm text-white mb-1">
+                  {tool.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                </h3>
+                <p className="text-suwappu-dark-text-secondary text-sm leading-relaxed">
+                  {tool.desc}
+                </p>
+              </div>
+            ))}
+          </div>
+
+        </div>
       </div>
     </Panel>
   );
