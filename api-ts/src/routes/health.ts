@@ -14,12 +14,11 @@ healthRoutes.get('/health', async (c) => {
 			if (Option.isNone(dbOption)) {
 				return { db: 'not_configured' as const }
 			}
-			try {
-				await dbOption.value.execute(sql`SELECT 1`)
-				return { db: 'connected' as const }
-			} catch {
-				return { db: 'unreachable' as const }
-			}
+			const pingResult = yield* Effect.tryPromise({
+				try: () => dbOption.value.execute(sql`SELECT 1`),
+				catch: () => 'unreachable' as const,
+			}).pipe(Effect.map(() => 'connected' as const), Effect.catchAll((err) => Effect.succeed(err)))
+			return { db: pingResult }
 		})
 	)
 
