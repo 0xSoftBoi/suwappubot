@@ -25,40 +25,44 @@ const CHAINS = [
   { name: 'Blast' }, { name: 'Gnosis' }, { name: 'Aurora' },
 ];
 
-const COMPARE_ROWS = [
-  { feature: 'Setup time', suwappu: '10 seconds', cex: '5-10 min (KYC)', dex: '2-3 min' },
-  { feature: 'Custody', suwappu: 'Non-custodial (TEE)', cex: 'Custodial', dex: 'Non-custodial' },
-  { feature: 'Cross-chain', suwappu: '15 chains native', cex: 'Withdraw/deposit', dex: '1-2 chains' },
-  { feature: 'MEV protection', suwappu: 'Default (CoW + Jito)', cex: 'N/A', dex: 'Optional' },
-  { feature: 'Interface', suwappu: 'Chat / Mini App / iOS', cex: 'Web / Mobile', dex: 'Web only' },
-  { feature: 'Order types', suwappu: 'Limit, DCA, SL, TP', cex: 'Full suite', dex: 'Swap only' },
+const TOOLS = [
+  'get_quote', 'execute_swap', 'get_portfolio', 'get_prices', 'list_chains', 'list_tokens',
+];
+
+const INTEGRATIONS = [
+  { name: 'TypeScript SDK', command: 'bun add @suwappu/sdk' },
+  { name: 'OpenClaw Module', command: 'bun add @suwappu/openclaw' },
+  { name: 'REST API', command: 'curl api.suwappu.bot/v1/quote' },
+  { name: 'Skill File', command: 'SKILL.md \u2192 agent reads, acts' },
+];
+
+const WHY_POINTS = [
+  'No browser, no extension, no seed phrase.',
+  'Agents get quotes, execute swaps, check balances \u2014 six tools, one key.',
+  'Tool calls, REST, A2A. Pick your protocol.',
 ];
 
 const FAQ_ITEMS = [
   {
-    q: 'Is it safe?',
-    a: 'Yes. Wallets use Turnkey TEE hardware — private keys never leave the secure enclave. You can export your keys anytime.',
+    q: 'Is it custodial?',
+    a: 'No. Turnkey TEE hardware. Keys never leave the enclave. Users can export anytime.',
   },
   {
-    q: 'What are the fees?',
-    a: '0.3% per swap. No hidden fees, no subscription. Gas is paid from your wallet balance.',
+    q: 'How do I authenticate?',
+    a: 'Register via /v1/agent/register. You get an API key. Pass it as SUWAPPU_API_KEY.',
   },
   {
-    q: 'Which chains are supported?',
-    a: 'Ethereum, Arbitrum, Optimism, Polygon, Base, Avalanche, BNB Chain, Solana, Fantom, zkSync, Linea, Scroll, Blast, Gnosis, and Aurora.',
+    q: 'What chains?',
+    a: 'Ethereum, Arbitrum, Base, Optimism, Polygon, Avalanche, BNB, Solana, and 7 more.',
   },
   {
-    q: 'Can I use it outside Telegram?',
-    a: 'Yes — WhatsApp, Discord, and iOS are all supported. Same wallet, same funds across all platforms.',
-  },
-  {
-    q: 'Do I need to install anything?',
-    a: 'No. Just open @suwappu_bot in Telegram and send /start. A wallet is created for you automatically.',
+    q: 'Can I use it in production?',
+    a: 'Yes. Same infrastructure that powers @suwappu_bot. bun add, set your API key, ship.',
   },
 ];
 
 /* ===================================================================
-   Chain Strip Panel — content always visible
+   Chain Strip Panel — Infra
    =================================================================== */
 
 function ChainStripPanel() {
@@ -68,17 +72,35 @@ function ChainStripPanel() {
     <Panel id="chains" className="flex items-center bg-suwappu-dark-bg relative">
       <div className="max-w-6xl mx-auto px-6 w-full">
         <p className="text-center text-xs font-heading font-semibold text-suwappu-magenta uppercase tracking-[0.15em] mb-3">
-          Multi-chain
+          Infrastructure
         </p>
         <h2 className="font-heading font-bold text-3xl md:text-4xl text-center mb-4 text-white">
-          Routing across{' '}
-          <span className="gradient-text">15 chains</span>
+          Plug in.{' '}
+          <span className="gradient-text">Swap out.</span>
         </h2>
-        <p className="text-center text-suwappu-dark-text-secondary mb-12 max-w-lg mx-auto">
-          One command. The bot finds the best rate across every connected chain and DEX.
+        <p className="text-center text-suwappu-dark-text-secondary mb-10 max-w-lg mx-auto">
+          Use Suwappu as a module in your agent framework. Li.Fi, Jupiter, CoW, Wormhole — we handle the routing.
         </p>
 
-        {/* Marquee */}
+        {/* Integration cards */}
+        <div className="grid sm:grid-cols-2 gap-3 max-w-2xl mx-auto mb-12">
+          {INTEGRATIONS.map((int) => (
+            <div
+              key={int.name}
+              className="group relative rounded-xl p-4 bg-white/[0.03] border border-white/[0.06] hover:border-suwappu-magenta/20 transition-all"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-heading font-semibold text-white">{int.name}</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-suwappu-success" />
+              </div>
+              <code className="text-[11px] text-suwappu-cyan/50 font-mono leading-relaxed break-all">
+                {int.command}
+              </code>
+            </div>
+          ))}
+        </div>
+
+        {/* Chain marquee */}
         <div className="overflow-hidden relative">
           <div className="absolute left-0 top-0 bottom-0 w-16 bg-gradient-to-r from-suwappu-dark-bg to-transparent z-10" />
           <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-suwappu-dark-bg to-transparent z-10" />
@@ -99,11 +121,11 @@ function ChainStripPanel() {
           </div>
         </div>
 
-        {/* Provider badges */}
-        <div className="flex flex-wrap justify-center gap-3 mt-12">
-          {['Li.Fi', 'Jupiter', 'CoW Protocol', 'Socket', '1inch', 'Wormhole', 'CCTP', 'Jito', 'Uniswap'].map((p) => (
-            <span key={p} className="px-4 py-2 rounded-full bg-white/[0.04] border border-white/[0.06] text-xs font-heading font-medium text-suwappu-dark-text-secondary">
-              {p}
+        {/* Tool names */}
+        <div className="flex flex-wrap justify-center gap-3 mt-8">
+          {TOOLS.map((t) => (
+            <span key={t} className="px-4 py-2 rounded-full bg-white/[0.04] border border-white/[0.06] text-xs font-mono text-suwappu-cyan/60">
+              {t}
             </span>
           ))}
         </div>
@@ -113,47 +135,34 @@ function ChainStripPanel() {
 }
 
 /* ===================================================================
-   Compare Panel — content always visible
+   Why Suwappu Panel (replaces Compare)
    =================================================================== */
 
-function ComparePanel() {
+function WhySuwappuPanel() {
   return (
     <Panel id="compare" className="flex items-center bg-suwappu-dark-bg relative">
-      <div className="max-w-5xl mx-auto px-6 w-full">
+      <div className="max-w-3xl mx-auto px-6 w-full">
         <p className="text-center text-xs font-heading font-semibold text-suwappu-magenta uppercase tracking-[0.15em] mb-3">
-          Compare
+          Why Suwappu
         </p>
         <h2 className="font-heading font-bold text-3xl md:text-4xl text-center mb-12 text-white">
-          How Suwappu stacks up
+          Built for agents, not browsers.
         </h2>
 
-        <div className="overflow-x-auto -mx-6 px-6">
-          <table className="w-full min-w-[600px]">
-            <thead>
-              <tr className="border-b border-white/10">
-                <th className="text-left py-4 px-4 text-sm font-heading font-medium text-suwappu-dark-text-muted" />
-                <th className="text-center py-4 px-4">
-                  <span className="text-sm font-heading font-bold gradient-text">Suwappu</span>
-                </th>
-                <th className="text-center py-4 px-4 text-sm font-heading font-medium text-suwappu-dark-text-secondary">CEX</th>
-                <th className="text-center py-4 px-4 text-sm font-heading font-medium text-suwappu-dark-text-secondary">DEX Aggregator</th>
-              </tr>
-            </thead>
-            <tbody>
-              {COMPARE_ROWS.map((row) => (
-                <tr key={row.feature} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
-                  <td className="py-4 px-4 text-sm font-medium text-suwappu-dark-text">{row.feature}</td>
-                  <td className="py-4 px-4 text-center">
-                    <span className="inline-block text-xs font-heading font-semibold text-suwappu-magenta bg-suwappu-magenta/10 px-3 py-1.5 rounded-full">
-                      {row.suwappu}
-                    </span>
-                  </td>
-                  <td className="py-4 px-4 text-center text-sm text-suwappu-dark-text-secondary">{row.cex}</td>
-                  <td className="py-4 px-4 text-center text-sm text-suwappu-dark-text-secondary">{row.dex}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-6">
+          {WHY_POINTS.map((point, i) => (
+            <div
+              key={i}
+              className="flex items-start gap-4 p-5 rounded-2xl bg-suwappu-dark-surface border border-white/[0.06]"
+            >
+              <div className="shrink-0 w-8 h-8 rounded-full bg-suwappu-gradient flex items-center justify-center text-white text-sm font-heading font-bold">
+                {i + 1}
+              </div>
+              <p className="text-suwappu-dark-text text-base leading-relaxed pt-1">
+                {point}
+              </p>
+            </div>
+          ))}
         </div>
       </div>
     </Panel>
@@ -220,7 +229,7 @@ function Footer() {
   return (
     <footer className="bg-suwappu-dark-bg border-t border-white/5 py-10 px-6">
       <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-        <span className="font-heading font-bold text-sm gradient-text">Suwappu</span>
+        <span className="font-heading font-bold text-sm gradient-text">Suwappu<sup className="text-white/25 font-normal text-[8px] ml-0.5">すわっぷ</sup></span>
         <div className="flex items-center gap-6">
           <a
             href="https://t.me/suwappu_bot"
@@ -266,7 +275,7 @@ export default function Home() {
         <Panel2HowItWorks />
         <Panel3Features />
         <PlatformDemosPanel />
-        <ComparePanel />
+        <WhySuwappuPanel />
         <Panel5CTA />
       </HorizontalScroll>
 

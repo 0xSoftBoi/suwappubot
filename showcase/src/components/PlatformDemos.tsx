@@ -66,13 +66,13 @@ export default function PlatformDemosPanel() {
     <Panel id="demos" className="flex items-center bg-suwappu-dark-bg relative">
       <div className="max-w-5xl mx-auto px-6 w-full">
         <p className="text-center text-xs font-heading font-semibold text-suwappu-magenta uppercase tracking-[0.15em] mb-3">
-          Demos
+          Interfaces
         </p>
         <h2 className="font-heading font-bold text-3xl md:text-4xl text-center mb-4 text-white">
-          Pick your interface
+          Agents talk. Humans tap.
         </h2>
         <p className="text-center text-suwappu-dark-text-secondary text-sm mb-12">
-          Same wallet and funds everywhere.
+          Same wallet everywhere. Telegram, WhatsApp, Discord, iOS — and your agent.
         </p>
 
         <div className="flex flex-wrap justify-center gap-2 mb-14" role="tablist">

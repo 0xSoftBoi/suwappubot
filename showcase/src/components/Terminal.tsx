@@ -9,16 +9,15 @@ interface Line {
 }
 
 const DEMO_LINES: Line[] = [
-  { type: 'input', text: '/s 100 USDC ETH' },
-  { type: 'muted', text: 'Fetching quotes from Li.Fi...' },
+  { type: 'input', text: 'bun add @suwappu/sdk' },
+  { type: 'success', text: '\u2713 installed @suwappu/sdk@0.1.0' },
   { type: 'output', text: '' },
-  { type: 'output', text: 'Swap 100 USDC  →  0.0287 ETH' },
-  { type: 'output', text: 'Rate     $3,484.32/ETH' },
-  { type: 'output', text: 'Fee      0.3% (0.30 USDC)' },
-  { type: 'output', text: 'Route    USDC → WETH via Uniswap V3' },
+  { type: 'input', text: 'suwappu get_quote ETH USDC 1.0 arbitrum' },
+  { type: 'output', text: '1 ETH \u2192 2,847.32 USDC via Uniswap V3' },
+  { type: 'output', text: 'Gas ~$0.12 | Route: Uniswap V3' },
   { type: 'output', text: '' },
-  { type: 'input', text: 'confirm' },
-  { type: 'success', text: 'Tx submitted  ✓  0x3f8a...c291' },
+  { type: 'input', text: 'suwappu execute_swap quote_abc123' },
+  { type: 'success', text: '\u2713 Tx 0x3f8a...c291 confirmed' },
 ];
 
 export default function Terminal() {
@@ -92,7 +91,7 @@ export default function Terminal() {
         <span className="terminal-dot bg-[#febc2e]" />
         <span className="terminal-dot bg-[#28c840]" />
         <span className="ml-3 text-[11px] text-white/30 font-medium">
-          @suwappu_bot
+          @suwappu/sdk
         </span>
       </div>
 
