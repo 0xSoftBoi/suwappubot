@@ -11,7 +11,7 @@
     "debug:dev": "bun --hot run index.tsx --debug"
   },
   "dependencies": {
-    "ink": "^6.6.0",
+    "ink": "^6.8.0",
     "ink-spinner": "^5.0.0",
     "react": "^19.2.4"
   },
