@@ -63,7 +63,7 @@ WELCOME_MESSAGE = """
 _Tip: /s 100 USDC ETH for instant swaps_
 """
 
-HELP_MESSAGE = """
+HELP_MESSAGE = r"""
 🌸 *suwappu help*
 
 📖 *Help Guide*
