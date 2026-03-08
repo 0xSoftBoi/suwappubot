@@ -671,7 +671,7 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         return ConversationHandler.END
     
-    # Pre-validate balance and gas for all selected wallets
+    # Pre-validate balance for all selected wallets
     selected_wallet_ids = swap_data.get("selected_wallets", [swap_data.get("wallet_id")])
 
     with get_session() as session:
@@ -689,11 +689,6 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                     quote=quote,
                     wallet_service=wallet_service,
                 )
-                await quote_validator.validate_gas(
-                    wallet_address=wallet.address,
-                    quote=quote,
-                    wallet_service=wallet_service,
-                )
             except SwapError as e:
                 await query.edit_message_text(
                     f"❌ Insufficient funds on wallet {wallet.name[:20]}\n\n{str(e)}",
@@ -703,6 +698,17 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                     ])
                 )
                 return ConversationHandler.END
+
+            # Gas check is a warning, not a blocker — providers like Li.Fi
+            # and Stargate can handle gas in cross-chain routes
+            try:
+                await quote_validator.validate_gas(
+                    wallet_address=wallet.address,
+                    quote=quote,
+                    wallet_service=wallet_service,
+                )
+            except SwapError:
+                pass  # Let the provider attempt the swap
 
     # Show safety simulation message for Solana Pro users
     status_text = "⏳ Executing multi-swap..."
