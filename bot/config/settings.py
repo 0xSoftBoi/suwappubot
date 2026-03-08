@@ -106,6 +106,12 @@ class Settings(BaseSettings):
         description="Base URL for OAuth redirect URIs (e.g., https://app.suwappu.com)"
     )
 
+    # Infura RPC (primary, reliable RPCs for all major chains)
+    infura_api_key: Optional[str] = Field(
+        default=None,
+        description="Infura API key — used as primary RPC for supported chains"
+    )
+
     # Alchemy Configuration (Full Suite)
     alchemy_api_key: Optional[str] = Field(
         default=None,
@@ -186,16 +192,50 @@ class Settings(BaseSettings):
         description="Solana mainnet RPC URL(s)"
     )
 
+    # Infura network name mappings
+    INFURA_NETWORKS = {
+        "ethereum": "mainnet",
+        "polygon": "polygon-mainnet",
+        "arbitrum": "arbitrum-mainnet",
+        "optimism": "optimism-mainnet",
+        "base": "base-mainnet",
+        "avalanche": "avalanche-mainnet",
+        "linea": "linea-mainnet",
+        "bsc": "bsc-mainnet",
+    }
+
     def get_rpc_url(self, chain_name: str) -> str:
-        """Get a random RPC URL for a given chain to avoid rate limits."""
+        """Get a random RPC URL for a given chain.
+
+        Priority: Infura (if key set) → Alchemy (if key set) → public RPCs.
+        """
+        urls = []
+
+        # Infura first (most reliable)
+        if self.infura_api_key:
+            infura_net = self.INFURA_NETWORKS.get(chain_name.lower())
+            if infura_net:
+                urls.append(f"https://{infura_net}.infura.io/v3/{self.infura_api_key}")
+
+        # Alchemy second
+        alchemy_url = self.get_alchemy_rpc_url(chain_name)
+        if alchemy_url:
+            urls.append(alchemy_url)
+
+        # Public RPCs as fallback
         attr_name = f"{chain_name.lower().replace('-', '_')}_rpc_url"
         urls_str = getattr(self, attr_name, "")
-        if not urls_str:
-            # Fallback for chains that might not have a direct setting
+        if urls_str:
+            urls.extend(u.strip() for u in urls_str.split(",") if u.strip())
+
+        if not urls:
             return ""
 
-        urls = [u.strip() for u in urls_str.split(",") if u.strip()]
-        return random.choice(urls) if urls else ""
+        # If we have Infura/Alchemy, prefer them (first 70% of the time)
+        if len(urls) > 1 and (self.infura_api_key or self.alchemy_api_key):
+            return urls[0] if random.random() < 0.7 else random.choice(urls)
+
+        return random.choice(urls)
 
     def get_alchemy_network(self, chain_name: str) -> Optional[str]:
         """
