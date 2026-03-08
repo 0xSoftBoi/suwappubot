@@ -1,18 +1,77 @@
 ---
-description: "Deploy Suwappu webapp and api-ts to AWS ECS"
+description: "Deploy Suwappu services (bot via EC2 SSH, webapp/api-ts via ECS)"
 ---
 
 # Suwappu Deployment Skill
 
-Deploy the Suwappu webapp and/or api-ts services to AWS ECS.
+## Python Bot (EC2 SSH Deploy)
 
-## Prerequisites
+The primary deployment method for the Python bot (`api/` + `bot/`). Uses `scripts/deploy.sh` to SSH into EC2, pull code, install deps, refresh secrets, and restart the systemd service.
 
-- AWS CLI configured (default profile, account `905418423235`)
+### Prerequisites
+
+- SSH key at `~/.ssh/suwappu-bot-key`
+- EC2 instance running with systemd service `suwappubot`
+- AWS Secrets Manager configured (`suwappu/app-secrets`, `suwappu/db-credentials`)
+
+### Deploy
+
+```bash
+# Production (main branch)
+./scripts/deploy.sh prod
+
+# Development (dev branch)
+./scripts/deploy.sh dev
+```
+
+### What the script does
+
+1. SSH into EC2 host (`23.21.184.77`)
+2. `git fetch` + `git reset --hard origin/<branch>`
+3. `pip install -r requirements.txt`
+4. `sudo bash scripts/pull-secrets.sh` (pulls from AWS Secrets Manager → `.env`)
+5. Copies `suwappubot.service` → systemd, daemon-reload, restart
+6. Health checks on `http://localhost:10000/health` (retries 5x)
+7. Reports status: `healthy polling connected` = success
+
+### Verify manually
+
+```bash
+# SSH in and check
+ssh -i ~/.ssh/suwappu-bot-key ubuntu@23.21.184.77
+
+# On the server:
+sudo systemctl status suwappubot
+sudo journalctl -u suwappubot --no-pager -n 50
+curl -s http://localhost:10000/health | python3 -m json.tool
+```
+
+### Troubleshooting
+
+```bash
+# Check service logs
+ssh -i ~/.ssh/suwappu-bot-key ubuntu@23.21.184.77 \
+  "sudo journalctl -u suwappubot --no-pager -n 100"
+
+# Restart without full deploy
+ssh -i ~/.ssh/suwappu-bot-key ubuntu@23.21.184.77 \
+  "sudo systemctl restart suwappubot && sleep 8 && curl -s http://localhost:10000/health"
+
+# Re-pull secrets only
+ssh -i ~/.ssh/suwappu-bot-key ubuntu@23.21.184.77 \
+  "cd /home/ubuntu/suwappubot && sudo bash scripts/pull-secrets.sh && sudo systemctl restart suwappubot"
+```
+
+---
+
+## Webapp & API-TS (ECS Fargate Deploy)
+
+These services still deploy via Docker → ECR → ECS.
+
+### Prerequisites
+
+- AWS CLI configured (account `905418423235`)
 - Docker installed and running
-- Access to AWS account `905418423235`
-
-## Deployment Steps
 
 ### Step 1: Login to ECR
 
@@ -25,101 +84,54 @@ aws ecr get-login-password --region us-east-1 | \
 
 **Webapp (from webapp/ directory):**
 ```bash
-# Build prod
 docker build -t 905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu-webapp:prod .
 docker push 905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu-webapp:prod
-
-# Build dev
-docker build -t 905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu-webapp:dev .
-docker push 905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu-webapp:dev
 ```
 
 **API-TS (from api-ts/ directory):**
 ```bash
-# Build prod (latest tag)
 docker build -t 905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu-api-ts:latest .
 docker push 905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu-api-ts:latest
-
-# Build dev (development tag)
-docker build -t 905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu-api-ts:development .
-docker push 905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu-api-ts:development
 ```
 
 ### Step 3: Force Redeploy ECS Services
 
 ```bash
-# Webapp services
 aws ecs update-service --cluster suwappu-cluster --service suwappu-webapp-prod --force-new-deployment --region us-east-1
-aws ecs update-service --cluster suwappu-cluster --service suwappu-webapp-dev --force-new-deployment --region us-east-1
-
-# API services
 aws ecs update-service --cluster suwappu-cluster --service suwappu-api-ts-prod --force-new-deployment --region us-east-1
-aws ecs update-service --cluster suwappu-cluster --service suwappu-api-ts-dev --force-new-deployment --region us-east-1
 ```
 
 ### Step 4: Verify Health
 
-Wait 60-90 seconds for deployment, then check:
-
 ```bash
-# Check ECS service status
 aws ecs describe-services \
   --cluster suwappu-cluster \
-  --services suwappu-webapp-prod suwappu-webapp-dev suwappu-api-ts-prod suwappu-api-ts-dev \
+  --services suwappu-webapp-prod suwappu-api-ts-prod \
   --region us-east-1 \
   --query 'services[].{Service:serviceName,Running:runningCount,Desired:desiredCount}'
 
-# Check endpoints
 curl -s -o /dev/null -w "%{http_code}" https://app.suwappu.bot/
-curl -s -o /dev/null -w "%{http_code}" https://devfront.suwappu.bot/
-curl -s http://devapi.suwappu.dev/health
 ```
 
-## Service Mapping
+---
 
-| Service | Image Tag | Endpoint |
-|---------|-----------|----------|
-| suwappu-webapp-prod | `prod` | https://app.suwappu.bot |
-| suwappu-webapp-dev | `dev` | https://devfront.suwappu.bot |
-| suwappu-api-ts-prod | `latest` | (internal) |
-| suwappu-api-ts-dev | `development` | http://devapi.suwappu.dev |
+## Service Map
 
-## Troubleshooting
-
-### Check Target Health
-```bash
-# Get target group ARNs
-aws elbv2 describe-target-groups --region us-east-1 \
-  --query 'TargetGroups[?contains(TargetGroupName, `suwappu`)].{Name:TargetGroupName,ARN:TargetGroupArn}'
-
-# Check specific target health
-aws elbv2 describe-target-health \
-  --target-group-arn <TARGET_GROUP_ARN> --region us-east-1
-```
-
-### Check ECS Task Logs
-```bash
-# List recent tasks
-aws ecs list-tasks --cluster suwappu-cluster --service-name <SERVICE_NAME> --region us-east-1
-
-# Describe task for container details
-aws ecs describe-tasks --cluster suwappu-cluster --tasks <TASK_ARN> --region us-east-1
-```
-
-### Service Events
-```bash
-aws ecs describe-services \
-  --cluster suwappu-cluster \
-  --services <SERVICE_NAME> \
-  --region us-east-1 \
-  --query 'services[0].events[:5]'
-```
+| Service | Deploy Method | Command | Endpoint |
+|---------|--------------|---------|----------|
+| Python bot (prod) | EC2 SSH | `./scripts/deploy.sh prod` | http://23.21.184.77:10000 |
+| Python bot (dev) | EC2 SSH | `./scripts/deploy.sh dev` | http://23.21.184.77:10000 |
+| Webapp (prod) | ECS Fargate | Docker → ECR → ECS | https://app.suwappu.bot |
+| Webapp (dev) | ECS Fargate | Docker → ECR → ECS | https://devfront.suwappu.bot |
+| API-TS (prod) | ECS Fargate | Docker → ECR → ECS | (internal) |
+| API-TS (dev) | ECS Fargate | Docker → ECR → ECS | http://devapi.suwappu.dev |
 
 ## Infrastructure Reference
 
-- **AWS Account:** 905418423235 (default profile)
+- **AWS Account:** 905418423235
+- **EC2 Host:** 23.21.184.77 (Elastic IP)
 - **ECS Cluster:** suwappu-cluster
 - **ECR Repos:** suwappu-webapp, suwappu-api-ts
 - **Region:** us-east-1
-
-Execute each step and verify before proceeding to the next.
+- **Systemd Service:** suwappubot
+- **Secrets:** `suwappu/app-secrets`, `suwappu/db-credentials` (AWS Secrets Manager)
