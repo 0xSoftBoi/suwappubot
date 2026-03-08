@@ -1,13 +1,7 @@
 'use client';
 
 import { useRef } from 'react';
-import gsap from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { useGSAP } from '@gsap/react';
 import Panel from './Panel';
-import { useScrollContext } from './HorizontalScroll';
-
-gsap.registerPlugin(ScrollTrigger);
 
 const STEPS = [
   {
@@ -42,51 +36,16 @@ const TRADITIONAL_STEPS = [
 const SUWAPPU_STEPS = ['Type swap command', 'Tap confirm'];
 
 export default function Panel2HowItWorks() {
-  const panelRef = useRef<HTMLElement>(null);
-  const { scrollTween } = useScrollContext();
-
-  useGSAP(() => {
-    if (!panelRef.current) return;
-
-    const staggerItems = panelRef.current.querySelectorAll('.hiw-stagger');
-    const compareItems = panelRef.current.querySelectorAll('.hiw-compare');
-
-    const triggerConfig = scrollTween
-      ? { containerAnimation: scrollTween, trigger: panelRef.current, start: 'left 60%' }
-      : { trigger: panelRef.current, start: 'top 70%' };
-
-    gsap.from(staggerItems, {
-      y: 30,
-      opacity: 0,
-      stagger: 0.1,
-      duration: 0.6,
-      ease: 'expo.out',
-      scrollTrigger: triggerConfig,
-    });
-
-    gsap.from(compareItems, {
-      x: 40,
-      opacity: 0,
-      stagger: 0.06,
-      duration: 0.5,
-      ease: 'expo.out',
-      scrollTrigger: {
-        ...triggerConfig,
-        start: scrollTween ? 'left 50%' : 'top 60%',
-      },
-    });
-  }, { scope: panelRef, dependencies: [scrollTween] });
-
   return (
-    <Panel ref={panelRef} id="how-it-works" className="flex items-center bg-suwappu-dark-bg relative">
+    <Panel id="how-it-works" className="flex items-center bg-suwappu-dark-bg relative">
       <div className="max-w-6xl mx-auto px-6 w-full">
-        <p className="hiw-stagger text-center text-xs font-heading font-semibold text-suwappu-magenta uppercase tracking-[0.15em] mb-3">
+        <p className="text-center text-xs font-heading font-semibold text-suwappu-magenta uppercase tracking-[0.15em] mb-3">
           How it works
         </p>
-        <h2 className="hiw-stagger font-heading font-bold text-3xl md:text-4xl text-center mb-4">
+        <h2 className="font-heading font-bold text-3xl md:text-4xl text-center mb-4 text-white">
           Three messages. That&apos;s it.
         </h2>
-        <p className="hiw-stagger text-center text-suwappu-dark-text-secondary mb-12 max-w-md mx-auto">
+        <p className="text-center text-suwappu-dark-text-secondary mb-12 max-w-md mx-auto">
           No wallet setup, no app store, no seed phrases.
         </p>
 
@@ -94,7 +53,7 @@ export default function Panel2HowItWorks() {
           {/* Left — Steps */}
           <div className="space-y-5">
             {STEPS.map((step, i) => (
-              <div key={step.number} className="hiw-stagger group flex gap-4 p-5 rounded-2xl hover:bg-white/5 transition-colors duration-200">
+              <div key={step.number} className="group flex gap-4 p-5 rounded-2xl hover:bg-white/5 transition-colors duration-200">
                 <div className="shrink-0 relative">
                   <div className="w-11 h-11 rounded-xl bg-suwappu-gradient flex items-center justify-center text-white shadow-suwappu-button">
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -109,7 +68,7 @@ export default function Panel2HowItWorks() {
                   <span className="text-[10px] font-heading font-bold text-suwappu-magenta/50 uppercase tracking-wider">
                     Step {step.number}
                   </span>
-                  <h3 className="font-heading font-semibold text-lg mb-1">{step.title}</h3>
+                  <h3 className="font-heading font-semibold text-lg mb-1 text-white">{step.title}</h3>
                   <p className="text-suwappu-dark-text-secondary text-sm leading-relaxed">{step.description}</p>
                 </div>
               </div>
@@ -126,7 +85,7 @@ export default function Panel2HowItWorks() {
                 {TRADITIONAL_STEPS.map((step, i) => (
                   <div
                     key={step}
-                    className="hiw-compare flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.04]"
+                    className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.04]"
                   >
                     <span className="shrink-0 w-6 h-6 rounded-full bg-white/[0.06] text-suwappu-dark-text-muted flex items-center justify-center text-[11px] font-heading font-bold">
                       {i + 1}
@@ -145,7 +104,7 @@ export default function Panel2HowItWorks() {
                 {SUWAPPU_STEPS.map((step, i) => (
                   <div
                     key={step}
-                    className="hiw-compare flex items-center gap-3 px-4 py-3 rounded-xl border border-suwappu-magenta/20 bg-gradient-to-r from-suwappu-magenta/[0.08] to-suwappu-purple/[0.06] shadow-suwappu-glow-magenta"
+                    className="flex items-center gap-3 px-4 py-3 rounded-xl border border-suwappu-magenta/20 bg-gradient-to-r from-suwappu-magenta/[0.08] to-suwappu-purple/[0.06] shadow-suwappu-glow-magenta"
                   >
                     <span className="shrink-0 w-6 h-6 rounded-full bg-suwappu-gradient text-white flex items-center justify-center text-[11px] font-heading font-bold">
                       {i + 1}

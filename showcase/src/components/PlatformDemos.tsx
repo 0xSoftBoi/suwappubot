@@ -2,13 +2,8 @@
 
 import { useRef, useState } from 'react';
 import gsap from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { useGSAP } from '@gsap/react';
 import { PLATFORMS } from '@/data/platformsData';
 import Panel from './Panel';
-import { useScrollContext } from './HorizontalScroll';
-
-gsap.registerPlugin(ScrollTrigger);
 
 function VideoPlayer({ src }: { src: string }) {
   const ref = useRef<HTMLVideoElement>(null);
@@ -50,60 +45,37 @@ function VideoPlayer({ src }: { src: string }) {
 }
 
 export default function PlatformDemosPanel() {
-  const panelRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const { scrollTween } = useScrollContext();
   const [active, setActive] = useState(0);
   const plat = PLATFORMS[active];
-
-  useGSAP(() => {
-    if (!panelRef.current) return;
-
-    const items = panelRef.current.querySelectorAll('.demo-stagger');
-    const triggerConfig = scrollTween
-      ? { containerAnimation: scrollTween, trigger: panelRef.current, start: 'left 60%' }
-      : { trigger: panelRef.current, start: 'top 70%' };
-
-    gsap.from(items, {
-      y: 24,
-      opacity: 0,
-      stagger: 0.1,
-      duration: 0.55,
-      ease: 'expo.out',
-      scrollTrigger: triggerConfig,
-    });
-  }, { scope: panelRef, dependencies: [scrollTween] });
 
   const handleTabChange = (i: number) => {
     if (i === active || !contentRef.current) return;
 
     gsap.to(contentRef.current, {
-      opacity: 0,
+      opacity: 0.3,
       duration: 0.15,
       onComplete: () => {
         setActive(i);
-        gsap.fromTo(contentRef.current!,
-          { opacity: 0, y: 12 },
-          { opacity: 1, y: 0, duration: 0.3, ease: 'expo.out' }
-        );
+        gsap.to(contentRef.current!, { opacity: 1, duration: 0.25, ease: 'expo.out' });
       },
     });
   };
 
   return (
-    <Panel ref={panelRef} id="demos" className="flex items-center bg-suwappu-dark-bg relative">
+    <Panel id="demos" className="flex items-center bg-suwappu-dark-bg relative">
       <div className="max-w-5xl mx-auto px-6 w-full">
-        <p className="demo-stagger text-center text-xs font-heading font-semibold text-suwappu-magenta uppercase tracking-[0.15em] mb-3">
+        <p className="text-center text-xs font-heading font-semibold text-suwappu-magenta uppercase tracking-[0.15em] mb-3">
           Demos
         </p>
-        <h2 className="demo-stagger font-heading font-bold text-3xl md:text-4xl text-center mb-4">
+        <h2 className="font-heading font-bold text-3xl md:text-4xl text-center mb-4 text-white">
           Pick your interface
         </h2>
-        <p className="demo-stagger text-center text-suwappu-dark-text-secondary text-sm mb-12">
+        <p className="text-center text-suwappu-dark-text-secondary text-sm mb-12">
           Same wallet and funds everywhere.
         </p>
 
-        <div className="demo-stagger flex flex-wrap justify-center gap-2 mb-14" role="tablist">
+        <div className="flex flex-wrap justify-center gap-2 mb-14" role="tablist">
           {PLATFORMS.map((p, i) => (
             <button
               key={p.id}
@@ -121,7 +93,7 @@ export default function PlatformDemosPanel() {
           ))}
         </div>
 
-        <div ref={contentRef} className="demo-stagger">
+        <div ref={contentRef}>
           <div className="grid md:grid-cols-2 gap-10 items-center">
             <div className="max-w-[280px] mx-auto">
               <div className="phone-frame">
@@ -131,11 +103,11 @@ export default function PlatformDemosPanel() {
               </div>
             </div>
             <div>
-              <h3 className="font-heading font-bold text-2xl mb-2">{plat.name}</h3>
+              <h3 className="font-heading font-bold text-2xl mb-2 text-white">{plat.name}</h3>
               <p className="text-suwappu-dark-text-secondary mb-6 text-sm">{plat.description}</p>
               <ul className="space-y-3">
                 {plat.features.map((f) => (
-                  <li key={f} className="flex items-center gap-3 text-sm">
+                  <li key={f} className="flex items-center gap-3 text-sm text-suwappu-dark-text">
                     <span className="w-5 h-5 rounded-full bg-suwappu-magenta/10 flex items-center justify-center shrink-0">
                       <span className="w-1.5 h-1.5 rounded-full bg-suwappu-magenta" />
                     </span>

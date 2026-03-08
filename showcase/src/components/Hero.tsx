@@ -40,7 +40,7 @@ const LOOP_DELAY = 3000;
 const TOTAL_CYCLE = 5000 + LOOP_DELAY;
 
 // ---------------------------------------------------------------------------
-// TypingIndicator — GSAP-driven dots
+// TypingIndicator
 // ---------------------------------------------------------------------------
 
 function TypingIndicator() {
@@ -67,7 +67,7 @@ function TypingIndicator() {
 }
 
 // ---------------------------------------------------------------------------
-// ChatDemo — loops with GSAP timeline for message entrance
+// ChatDemo
 // ---------------------------------------------------------------------------
 
 function ChatDemo() {
@@ -78,10 +78,6 @@ function ChatDemo() {
   const runSequence = useCallback(() => {
     setVisibleMessages([]);
     const timers: NodeJS.Timeout[] = [];
-
-    CHAT_SEQUENCE.forEach(({ msg }) => {
-      // We handle animation in useEffect below
-    });
 
     CHAT_SEQUENCE.forEach(({ msg, showAt }) => {
       const timer = setTimeout(() => {
@@ -108,15 +104,14 @@ function ChatDemo() {
     return cleanup;
   }, [cycleKey, runSequence]);
 
-  // Animate new messages in with GSAP
   useEffect(() => {
     if (!chatAreaRef.current) return;
     const children = chatAreaRef.current.children;
     if (children.length === 0) return;
     const last = children[children.length - 1] as HTMLElement;
     gsap.fromTo(last,
-      { opacity: 0, y: 20, scale: 0.95 },
-      { opacity: 1, y: 0, scale: 1, duration: 0.4, ease: 'expo.out' }
+      { opacity: 0, y: 12, scale: 0.97 },
+      { opacity: 1, y: 0, scale: 1, duration: 0.35, ease: 'expo.out' }
     );
   }, [visibleMessages]);
 
@@ -125,7 +120,6 @@ function ChatDemo() {
       <div className="absolute inset-0 -m-8 bg-[radial-gradient(ellipse_at_center,_rgba(233,30,140,0.1)_0%,_transparent_70%)]" />
 
       <div className="relative w-full max-w-[360px] mx-auto rounded-3xl border border-white/10 bg-suwappu-dark-surface overflow-hidden shadow-suwappu-card-dark">
-        {/* Header bar */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-white/5 bg-suwappu-dark-surface-elevated">
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-suwappu-magenta to-suwappu-purple flex items-center justify-center">
             <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor">
@@ -138,7 +132,6 @@ function ChatDemo() {
           </div>
         </div>
 
-        {/* Chat area */}
         <div ref={chatAreaRef} className="px-4 py-5 min-h-[340px] flex flex-col gap-3">
           {visibleMessages.map((msg, i) => {
             if (msg.type === 'user') {
@@ -150,7 +143,6 @@ function ChatDemo() {
                 </div>
               );
             }
-
             if (msg.type === 'typing') {
               return (
                 <div key={`${cycleKey}-typing`} className="flex justify-start">
@@ -160,7 +152,6 @@ function ChatDemo() {
                 </div>
               );
             }
-
             if (msg.type === 'bot') {
               return (
                 <div key={`${cycleKey}-bot-${i}`} className="flex justify-start">
@@ -170,7 +161,6 @@ function ChatDemo() {
                 </div>
               );
             }
-
             if (msg.type === 'button') {
               return (
                 <div key={`${cycleKey}-btn-${i}`} className="flex justify-center pt-1">
@@ -180,7 +170,6 @@ function ChatDemo() {
                 </div>
               );
             }
-
             if (msg.type === 'success') {
               return (
                 <div key={`${cycleKey}-success-${i}`} className="flex justify-start">
@@ -190,7 +179,6 @@ function ChatDemo() {
                 </div>
               );
             }
-
             return null;
           })}
         </div>
@@ -210,43 +198,32 @@ const STATS = [
 ];
 
 // ---------------------------------------------------------------------------
-// Hero Panel
+// Hero Panel — content always visible, gentle entrance only
 // ---------------------------------------------------------------------------
 
 export default function Hero() {
   const heroRef = useRef<HTMLElement>(null);
-  const textRef = useRef<HTMLDivElement>(null);
-  const demoRef = useRef<HTMLDivElement>(null);
 
   useGSAP(() => {
-    if (!textRef.current || !demoRef.current) return;
-
-    const tl = gsap.timeline({ defaults: { ease: 'expo.out', duration: 0.6 } });
-
-    tl.from(textRef.current.querySelectorAll('.hero-stagger'), {
-      y: 24,
-      opacity: 0,
-      stagger: 0.12,
-    })
-    .from(demoRef.current, {
-      y: 30,
-      opacity: 0,
-      scale: 0.97,
-      duration: 0.7,
-    }, '-=0.3');
+    if (!heroRef.current) return;
+    const items = heroRef.current.querySelectorAll('.hero-stagger');
+    // Gentle slide up — starts slightly offset, always visible
+    gsap.fromTo(items,
+      { y: 16, opacity: 0.7 },
+      { y: 0, opacity: 1, stagger: 0.08, duration: 0.5, ease: 'expo.out' }
+    );
   }, { scope: heroRef });
 
   return (
     <Panel ref={heroRef} id="hero" className="flex items-center bg-suwappu-dark-bg relative overflow-hidden pt-20 md:pt-0">
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(233,30,140,0.08)_0%,_transparent_70%)]" />
-      <div className="absolute inset-0 pointer-events-none z-[1] hidden lg:block">
+      <div className="absolute inset-0 pointer-events-none z-[1] hidden lg:block opacity-40">
         <SakuraPetal3D variant="cluster" />
       </div>
 
       <div className="relative z-10 max-w-6xl mx-auto px-6 w-full">
         <div className="grid lg:grid-cols-2 gap-12 items-center">
-          {/* Left side */}
-          <div ref={textRef}>
+          <div>
             <div className="hero-stagger mb-5">
               <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-suwappu-magenta/30 bg-suwappu-magenta/5 text-xs font-heading font-semibold text-suwappu-magenta tracking-wider uppercase">
                 <span className="w-1.5 h-1.5 rounded-full bg-suwappu-success animate-pulse" />
@@ -306,8 +283,7 @@ export default function Hero() {
             </div>
           </div>
 
-          {/* Right side */}
-          <div ref={demoRef}>
+          <div className="hero-stagger">
             <ChatDemo />
           </div>
         </div>

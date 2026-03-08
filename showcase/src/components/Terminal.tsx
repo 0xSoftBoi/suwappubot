@@ -92,7 +92,7 @@ export default function Terminal() {
         <span className="terminal-dot bg-[#febc2e]" />
         <span className="terminal-dot bg-[#28c840]" />
         <span className="ml-3 text-[11px] text-white/30 font-medium">
-          @SuwappuBot
+          @suwappu_bot
         </span>
       </div>
 

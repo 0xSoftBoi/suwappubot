@@ -44,12 +44,8 @@ export default function HorizontalScroll({ children }: HorizontalScrollProps) {
       scrollTrigger: {
         trigger: containerRef.current,
         pin: true,
-        scrub: 2,
-        snap: {
-          snapTo: 1 / (panels.length - 1),
-          duration: { min: 0.2, max: 0.6 },
-          ease: 'power1.inOut',
-        },
+        scrub: 1,
+        // No snap — loose horizontal feel
         end: () => `+=${panelsRef.current!.scrollWidth - window.innerWidth}`,
         invalidateOnRefresh: true,
       },

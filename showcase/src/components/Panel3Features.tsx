@@ -1,13 +1,6 @@
 'use client';
 
-import { useRef } from 'react';
-import gsap from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { useGSAP } from '@gsap/react';
 import Panel from './Panel';
-import { useScrollContext } from './HorizontalScroll';
-
-gsap.registerPlugin(ScrollTrigger);
 
 const FEATURES = [
   {
@@ -41,49 +34,13 @@ const FEATURES = [
 ];
 
 export default function Panel3Features() {
-  const panelRef = useRef<HTMLElement>(null);
-  const { scrollTween } = useScrollContext();
-
-  useGSAP(() => {
-    if (!panelRef.current) return;
-
-    const headers = panelRef.current.querySelectorAll('.feat-header');
-    const cards = panelRef.current.querySelectorAll('.feat-card');
-
-    const triggerConfig = scrollTween
-      ? { containerAnimation: scrollTween, trigger: panelRef.current, start: 'left 60%' }
-      : { trigger: panelRef.current, start: 'top 70%' };
-
-    gsap.from(headers, {
-      y: 24,
-      opacity: 0,
-      stagger: 0.1,
-      duration: 0.55,
-      ease: 'expo.out',
-      scrollTrigger: triggerConfig,
-    });
-
-    gsap.from(cards, {
-      y: 40,
-      opacity: 0,
-      scale: 0.95,
-      stagger: 0.12,
-      duration: 0.6,
-      ease: 'expo.out',
-      scrollTrigger: {
-        ...triggerConfig,
-        start: scrollTween ? 'left 50%' : 'top 60%',
-      },
-    });
-  }, { scope: panelRef, dependencies: [scrollTween] });
-
   return (
-    <Panel ref={panelRef} id="features" className="flex items-center bg-suwappu-dark-bg relative">
+    <Panel id="features" className="flex items-center bg-suwappu-dark-bg relative">
       <div className="max-w-5xl mx-auto px-6 w-full">
-        <p className="feat-header text-center text-xs font-heading font-semibold text-suwappu-magenta uppercase tracking-[0.15em] mb-3">
+        <p className="text-center text-xs font-heading font-semibold text-suwappu-magenta uppercase tracking-[0.15em] mb-3">
           Features
         </p>
-        <h2 className="feat-header font-heading font-bold text-3xl md:text-4xl text-center mb-16">
+        <h2 className="font-heading font-bold text-3xl md:text-4xl text-center mb-16 text-white">
           What you get
         </h2>
 
@@ -91,7 +48,7 @@ export default function Panel3Features() {
           {FEATURES.map((f) => (
             <div
               key={f.title}
-              className="feat-card group glass-card rounded-2xl p-7 shadow-suwappu-card-dark hover:shadow-suwappu-card-dark-hover hover:border-suwappu-magenta/20 border border-transparent transition-all duration-300 hover:-translate-y-1"
+              className="group rounded-2xl p-7 bg-suwappu-dark-surface border border-white/[0.06] shadow-suwappu-card-dark hover:shadow-suwappu-card-dark-hover hover:border-suwappu-magenta/20 transition-all duration-300 hover:-translate-y-1"
             >
               <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${f.color} flex items-center justify-center text-white mb-5 shadow-sm group-hover:scale-105 transition-transform duration-200`}>
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

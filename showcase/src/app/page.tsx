@@ -1,10 +1,6 @@
 'use client';
 
-import { useRef, useState, useEffect, useCallback } from 'react';
-import dynamic from 'next/dynamic';
-import gsap from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { useGSAP } from '@gsap/react';
+import { useState } from 'react';
 import SakuraPetals from '@/components/SakuraPetals';
 import Navigation from '@/components/Navigation';
 import HorizontalScroll from '@/components/HorizontalScroll';
@@ -14,37 +10,19 @@ import Panel3Features from '@/components/Panel3Features';
 import PlatformDemosPanel from '@/components/PlatformDemos';
 import Panel5CTA from '@/components/Panel5CTA';
 import Panel from '@/components/Panel';
-import { useScrollContext } from '@/components/HorizontalScroll';
 import StructuredData from '@/components/StructuredData';
 import Analytics from '@/components/Analytics';
-
-gsap.registerPlugin(ScrollTrigger);
-
-const SakuraPetal3D = dynamic(() => import('@/components/SakuraPetal3D'), {
-  ssr: false,
-  loading: () => null,
-});
 
 /* ===================================================================
    Data
    =================================================================== */
 
 const CHAINS = [
-  { name: 'Ethereum', icon: '/chains/ethereum.svg' },
-  { name: 'Arbitrum', icon: '/chains/arbitrum.svg' },
-  { name: 'Optimism', icon: '/chains/optimism.svg' },
-  { name: 'Polygon', icon: '/chains/polygon.svg' },
-  { name: 'Base', icon: '/chains/base.svg' },
-  { name: 'Avalanche', icon: '/chains/avalanche.svg' },
-  { name: 'BNB Chain', icon: '/chains/bnb.svg' },
-  { name: 'Solana', icon: '/chains/solana.svg' },
-  { name: 'Fantom', icon: '/chains/fantom.svg' },
-  { name: 'zkSync', icon: '/chains/zksync.svg' },
-  { name: 'Linea', icon: '/chains/linea.svg' },
-  { name: 'Scroll', icon: '/chains/scroll.svg' },
-  { name: 'Blast', icon: '/chains/blast.svg' },
-  { name: 'Gnosis', icon: '/chains/gnosis.svg' },
-  { name: 'Aurora', icon: '/chains/aurora.svg' },
+  { name: 'Ethereum' }, { name: 'Arbitrum' }, { name: 'Optimism' },
+  { name: 'Polygon' }, { name: 'Base' }, { name: 'Avalanche' },
+  { name: 'BNB Chain' }, { name: 'Solana' }, { name: 'Fantom' },
+  { name: 'zkSync' }, { name: 'Linea' }, { name: 'Scroll' },
+  { name: 'Blast' }, { name: 'Gnosis' }, { name: 'Aurora' },
 ];
 
 const COMPARE_ROWS = [
@@ -80,49 +58,28 @@ const FAQ_ITEMS = [
 ];
 
 /* ===================================================================
-   Chain Strip Panel
+   Chain Strip Panel — content always visible
    =================================================================== */
 
 function ChainStripPanel() {
-  const panelRef = useRef<HTMLElement>(null);
-  const { scrollTween } = useScrollContext();
-
-  useGSAP(() => {
-    if (!panelRef.current) return;
-
-    const items = panelRef.current.querySelectorAll('.chain-stagger');
-    const triggerConfig = scrollTween
-      ? { containerAnimation: scrollTween, trigger: panelRef.current, start: 'left 60%' }
-      : { trigger: panelRef.current, start: 'top 70%' };
-
-    gsap.from(items, {
-      y: 24,
-      opacity: 0,
-      stagger: 0.1,
-      duration: 0.55,
-      ease: 'expo.out',
-      scrollTrigger: triggerConfig,
-    });
-  }, { scope: panelRef, dependencies: [scrollTween] });
-
   const doubled = [...CHAINS, ...CHAINS];
 
   return (
-    <Panel ref={panelRef} id="chains" className="flex items-center bg-suwappu-dark-bg relative">
+    <Panel id="chains" className="flex items-center bg-suwappu-dark-bg relative">
       <div className="max-w-6xl mx-auto px-6 w-full">
-        <p className="chain-stagger text-center text-xs font-heading font-semibold text-suwappu-magenta uppercase tracking-[0.15em] mb-3">
+        <p className="text-center text-xs font-heading font-semibold text-suwappu-magenta uppercase tracking-[0.15em] mb-3">
           Multi-chain
         </p>
-        <h2 className="chain-stagger font-heading font-bold text-3xl md:text-4xl text-center mb-4">
+        <h2 className="font-heading font-bold text-3xl md:text-4xl text-center mb-4 text-white">
           Routing across{' '}
           <span className="gradient-text">15 chains</span>
         </h2>
-        <p className="chain-stagger text-center text-suwappu-dark-text-secondary mb-12 max-w-lg mx-auto">
+        <p className="text-center text-suwappu-dark-text-secondary mb-12 max-w-lg mx-auto">
           One command. The bot finds the best rate across every connected chain and DEX.
         </p>
 
         {/* Marquee */}
-        <div className="chain-stagger overflow-hidden relative">
+        <div className="overflow-hidden relative">
           <div className="absolute left-0 top-0 bottom-0 w-16 bg-gradient-to-r from-suwappu-dark-bg to-transparent z-10" />
           <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-suwappu-dark-bg to-transparent z-10" />
 
@@ -143,7 +100,7 @@ function ChainStripPanel() {
         </div>
 
         {/* Provider badges */}
-        <div className="chain-stagger flex flex-wrap justify-center gap-3 mt-12">
+        <div className="flex flex-wrap justify-center gap-3 mt-12">
           {['Li.Fi', 'Jupiter', 'CoW Protocol', 'Socket', '1inch', 'Wormhole', 'CCTP', 'Jito', 'Uniswap'].map((p) => (
             <span key={p} className="px-4 py-2 rounded-full bg-white/[0.04] border border-white/[0.06] text-xs font-heading font-medium text-suwappu-dark-text-secondary">
               {p}
@@ -156,59 +113,24 @@ function ChainStripPanel() {
 }
 
 /* ===================================================================
-   Compare Panel
+   Compare Panel — content always visible
    =================================================================== */
 
 function ComparePanel() {
-  const panelRef = useRef<HTMLElement>(null);
-  const { scrollTween } = useScrollContext();
-
-  useGSAP(() => {
-    if (!panelRef.current) return;
-
-    const headers = panelRef.current.querySelectorAll('.cmp-header');
-    const rows = panelRef.current.querySelectorAll('.cmp-row');
-
-    const triggerConfig = scrollTween
-      ? { containerAnimation: scrollTween, trigger: panelRef.current, start: 'left 60%' }
-      : { trigger: panelRef.current, start: 'top 70%' };
-
-    gsap.from(headers, {
-      y: 24,
-      opacity: 0,
-      stagger: 0.1,
-      duration: 0.55,
-      ease: 'expo.out',
-      scrollTrigger: triggerConfig,
-    });
-
-    gsap.from(rows, {
-      y: 20,
-      opacity: 0,
-      stagger: 0.08,
-      duration: 0.5,
-      ease: 'expo.out',
-      scrollTrigger: {
-        ...triggerConfig,
-        start: scrollTween ? 'left 50%' : 'top 60%',
-      },
-    });
-  }, { scope: panelRef, dependencies: [scrollTween] });
-
   return (
-    <Panel ref={panelRef} id="compare" className="flex items-center bg-suwappu-dark-bg relative">
+    <Panel id="compare" className="flex items-center bg-suwappu-dark-bg relative">
       <div className="max-w-5xl mx-auto px-6 w-full">
-        <p className="cmp-header text-center text-xs font-heading font-semibold text-suwappu-magenta uppercase tracking-[0.15em] mb-3">
+        <p className="text-center text-xs font-heading font-semibold text-suwappu-magenta uppercase tracking-[0.15em] mb-3">
           Compare
         </p>
-        <h2 className="cmp-header font-heading font-bold text-3xl md:text-4xl text-center mb-12">
+        <h2 className="font-heading font-bold text-3xl md:text-4xl text-center mb-12 text-white">
           How Suwappu stacks up
         </h2>
 
         <div className="overflow-x-auto -mx-6 px-6">
           <table className="w-full min-w-[600px]">
             <thead>
-              <tr className="cmp-row border-b border-white/10">
+              <tr className="border-b border-white/10">
                 <th className="text-left py-4 px-4 text-sm font-heading font-medium text-suwappu-dark-text-muted" />
                 <th className="text-center py-4 px-4">
                   <span className="text-sm font-heading font-bold gradient-text">Suwappu</span>
@@ -219,7 +141,7 @@ function ComparePanel() {
             </thead>
             <tbody>
               {COMPARE_ROWS.map((row) => (
-                <tr key={row.feature} className="cmp-row border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+                <tr key={row.feature} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
                   <td className="py-4 px-4 text-sm font-medium text-suwappu-dark-text">{row.feature}</td>
                   <td className="py-4 px-4 text-center">
                     <span className="inline-block text-xs font-heading font-semibold text-suwappu-magenta bg-suwappu-magenta/10 px-3 py-1.5 rounded-full">
@@ -244,26 +166,9 @@ function ComparePanel() {
 
 function FAQSection() {
   const [openIdx, setOpenIdx] = useState<number | null>(null);
-  const sectionRef = useRef<HTMLElement>(null);
-
-  useGSAP(() => {
-    if (!sectionRef.current) return;
-    const items = sectionRef.current.querySelectorAll('.faq-item');
-    gsap.from(items, {
-      y: 20,
-      opacity: 0,
-      stagger: 0.08,
-      duration: 0.5,
-      ease: 'expo.out',
-      scrollTrigger: {
-        trigger: sectionRef.current,
-        start: 'top 75%',
-      },
-    });
-  }, { scope: sectionRef });
 
   return (
-    <section ref={sectionRef} className="bg-suwappu-dark-bg py-24 px-6">
+    <section className="bg-suwappu-dark-bg py-24 px-6">
       <div className="max-w-2xl mx-auto">
         <p className="text-center text-xs font-heading font-semibold text-suwappu-magenta uppercase tracking-[0.15em] mb-3">
           FAQ
@@ -274,7 +179,7 @@ function FAQSection() {
 
         <div className="space-y-3">
           {FAQ_ITEMS.map((item, i) => (
-            <div key={i} className="faq-item border border-white/5 rounded-2xl overflow-hidden">
+            <div key={i} className="border border-white/5 rounded-2xl overflow-hidden">
               <button
                 onClick={() => setOpenIdx(openIdx === i ? null : i)}
                 className="w-full flex items-center justify-between px-6 py-5 text-left hover:bg-white/[0.02] transition-colors"
