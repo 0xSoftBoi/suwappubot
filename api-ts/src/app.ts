@@ -9,7 +9,10 @@ import {
 	adminRoutes,
 	agentRoutes,
 	healthRoutes,
+	lendRoutes,
 	mcpRoutes,
+	perpsRoutes,
+	predictRoutes,
 	publicSwapRoutes,
 	swapRoutes,
 	webappRoutes,
@@ -52,6 +55,11 @@ export function createApp(config: AppConfig) {
 	// Agent A2A API routes (v1/agent/*) - uses Bearer token auth internally
 	// Registration is public, other endpoints require Bearer token
 	app.route('/v1/agent', agentRoutes)
+
+	// Protocol-specific agent routes
+	app.route('/v1/agent/perps', perpsRoutes)
+	app.route('/v1/agent/predict', predictRoutes)
+	app.route('/v1/agent/lend', lendRoutes)
 
 	// A2A JSON-RPC endpoint - uses Bearer token auth internally
 	app.route('/a2a', a2aRoutes)

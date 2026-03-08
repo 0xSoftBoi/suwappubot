@@ -28,6 +28,13 @@ const TOOLS = [
   { name: 'get_prices', desc: 'Current token prices in USD.' },
   { name: 'list_chains', desc: 'All supported chains and their status.' },
   { name: 'list_tokens', desc: 'Popular tokens available on a chain.' },
+  { name: 'perps.markets', desc: 'Hyperliquid perpetual futures markets and prices.' },
+  { name: 'perps.quote', desc: 'Quote a leveraged long or short position.' },
+  { name: 'perps.positions', desc: 'Open positions with unrealized PnL.' },
+  { name: 'predict.markets', desc: 'Polymarket prediction markets with live odds.' },
+  { name: 'predict.market', desc: 'Deep dive into a specific prediction market.' },
+  { name: 'lend.markets', desc: 'Morpho lending markets with APY on Base.' },
+  { name: 'lend.market', desc: 'Lending market details — oracle, IRM, rates.' },
 ];
 
 const FAQ_ITEMS = [

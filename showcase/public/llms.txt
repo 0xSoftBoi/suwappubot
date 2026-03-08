@@ -1,16 +1,18 @@
 # Suwappu
 
-> Cross-chain DEX infrastructure. SDK, REST API, Telegram bot, and agent tooling for swapping tokens across 15 chains.
+> Cross-chain DEX infrastructure. SDK, REST API, Telegram bot, and agent tooling for swaps, perps, predictions, and lending across 15 chains.
 
 ## Install
 
+TypeScript:
 ```bash
 bun add @suwappu/sdk
 ```
 
-Or for OpenClaw agents:
+Python:
 ```bash
-bun add @suwappu/openclaw
+uv add suwappu
+# or: pip install suwappu
 ```
 
 ## Authentication
@@ -25,39 +27,55 @@ Set the key in your environment:
 SUWAPPU_API_KEY=your_key_here
 ```
 
-## SDK Usage
+## SDK Usage (TypeScript)
 
 ```typescript
 import { createClient } from "@suwappu/sdk";
 
-const suwappu = createClient({ apiKey: process.env.SUWAPPU_API_KEY });
+const client = createClient({ apiKey: process.env.SUWAPPU_API_KEY });
 
-// Get a quote
-const quote = await suwappu.getQuote("ETH", "USDC", 1.0, "arbitrum");
-// → { id, fromAmount, toAmount, route, gas, chain }
+// Swaps
+const quote = await client.getQuote("ETH", "USDC", 1.0, "arbitrum");
+const tx = await client.executeSwap(quote.id);
+const balances = await client.getPortfolio();
 
-// Execute the swap
-const tx = await suwappu.executeSwap(quote.id);
-// → { txHash, status, chain }
+// Perps (Hyperliquid)
+const markets = await client.perps.markets();
+const perpQuote = await client.perps.quote("ETH-USD", "long", 1, 5);
+const positions = await client.perps.positions("0x...");
 
-// Check portfolio
-const balances = await suwappu.getPortfolio();
-// → [{ token, balance, usdValue, chain }]
+// Predictions (Polymarket)
+const predMarkets = await client.predict.markets("crypto");
+const detail = await client.predict.market(predMarkets[0].id);
 
-// Get prices
-const price = await suwappu.getPrices("ETH", "arbitrum");
-// → { token, priceUsd, change24h }
-
-// List supported chains
-const chains = await suwappu.listChains();
-// → [{ name, chainId, status }]
-
-// List tokens on a chain
-const tokens = await suwappu.listTokens("arbitrum");
-// → [{ symbol, address, decimals, chain }]
+// Lending (Morpho on Base)
+const lendMarkets = await client.lend.markets(8453);
+const market = await client.lend.market(lendMarkets[0].id);
 ```
 
-## Tools (6 total)
+## SDK Usage (Python)
+
+```python
+from suwappu import create_client
+
+client = create_client(api_key="your_key")
+
+# Swaps
+quote = await client.get_quote("ETH", "USDC", 1.0, "arbitrum")
+tx = await client.execute_swap(quote.id)
+
+# Perps
+markets = await client.perps.markets()
+perp_quote = await client.perps.quote("ETH-USD", "long", 1, 5)
+
+# Predictions
+pred_markets = await client.predict.markets("crypto")
+
+# Lending
+lend_markets = await client.lend.markets(chain_id=8453)
+```
+
+## Tools (13 total)
 
 | Tool | Purpose | Parameters |
 |------|---------|------------|
@@ -67,23 +85,49 @@ const tokens = await suwappu.listTokens("arbitrum");
 | `get_prices` | Current token prices | `token, chain` (optional) |
 | `list_chains` | All supported chains and status | none |
 | `list_tokens` | Popular tokens on a chain | `chain` |
+| `perps.markets` | Hyperliquid perp markets and prices | none |
+| `perps.quote` | Quote a leveraged position | `market, side, size, leverage` |
+| `perps.positions` | Open positions with PnL | `address` |
+| `predict.markets` | Polymarket prediction markets | `query` (optional), `limit` (optional) |
+| `predict.market` | Prediction market details | `id` |
+| `lend.markets` | Morpho lending markets with APY | `chainId` (optional, default: Base) |
+| `lend.market` | Lending market details | `id` |
 
 ## REST API
 
 Base URL: `https://api.suwappu.bot`
 
+### Swaps
 ```
-GET  /v1/quote?from=ETH&to=USDC&amount=1.0&chain=arbitrum
-POST /v1/swap                  { "quoteId": "..." }
-GET  /v1/portfolio             ?chain=arbitrum (optional)
-GET  /v1/prices/{token}        ?chain=arbitrum (optional)
-GET  /v1/chains
-GET  /v1/tokens?chain=arbitrum
+POST /v1/agent/quote           { "fromToken", "toToken", "amount", "chain" }
+POST /v1/agent/swap            { "quoteId": "..." }
+GET  /v1/agent/portfolio       ?chain=arbitrum (optional)
+GET  /v1/agent/prices          ?token=ETH&chain=arbitrum (optional)
+GET  /v1/agent/chains
+GET  /v1/agent/tokens          ?chain=arbitrum
 POST /v1/agent/register
-GET  /health
 ```
 
-All endpoints require `Authorization: Bearer <SUWAPPU_API_KEY>` except `/health`.
+### Perps (Hyperliquid)
+```
+GET  /v1/agent/perps/markets
+POST /v1/agent/perps/quote     { "market", "side", "size", "leverage" }
+GET  /v1/agent/perps/positions ?address=0x...
+```
+
+### Predictions (Polymarket)
+```
+GET  /v1/agent/predict/markets ?query=crypto&limit=20
+GET  /v1/agent/predict/market/:id
+```
+
+### Lending (Morpho)
+```
+GET  /v1/agent/lend/markets    ?chainId=8453
+GET  /v1/agent/lend/market/:id
+```
+
+All endpoints require `Authorization: Bearer <SUWAPPU_API_KEY>` except `/health` and `/v1/agent/register`.
 
 ## Supported Chains
 
@@ -114,6 +158,7 @@ Non-custodial. Powered by Turnkey TEE hardware. Private keys never leave the sec
 The same routing engine powers:
 - **Telegram bot**: [@suwappu_bot](https://t.me/suwappu_bot)
 - **TypeScript SDK**: `bun add @suwappu/sdk`
+- **Python SDK**: `uv add suwappu`
 - **OpenClaw module**: `bun add @suwappu/openclaw`
 - **REST API**: `api.suwappu.bot/v1/`
 - **WhatsApp, Discord, iOS**: same wallet everywhere

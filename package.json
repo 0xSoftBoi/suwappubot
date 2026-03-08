@@ -9,6 +9,9 @@
   "devDependencies": {
     "husky": "^9.0.0"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "engines": {
     "node": ">=18"
   }

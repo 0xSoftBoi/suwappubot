@@ -1,20 +1,21 @@
 {
-  "name": "@suwappu/openclaw",
+  "name": "@suwappu/sdk",
   "version": "0.1.0",
-  "description": "OpenClaw skill module for cross-chain swaps via Suwappu",
+  "description": "Cross-chain DEX SDK — swaps, perps, predictions, and lending for AI agents",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "bin": {
-    "suwappu-openclaw": "src/cli.ts"
+    "suwappu": "src/cli.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "dev": "bun run src/cli.ts",
     "test": "bun test"
   },
-  "keywords": ["openclaw", "suwappu", "dex", "cross-chain", "agent", "mcp"],
-  "dependencies": {},
+  "keywords": ["suwappu", "dex", "cross-chain", "agent", "sdk", "swap"],
+  "dependencies": {
+    "@suwappu/openclaw": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.6.0"
   },

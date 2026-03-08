@@ -92,3 +92,22 @@ export {
 export { TurnkeyService, TurnkeyServiceLive, type TurnkeyWallet } from './TurnkeyService'
 export { UserService, UserServiceLive } from './UserService'
 export { WalletService, WalletServiceLive } from './WalletService'
+export {
+	type HLMarket,
+	type HLPosition,
+	type HLPositionQuote,
+	HyperliquidService,
+	HyperliquidServiceLive,
+} from './HyperliquidService'
+export {
+	type PredictionMarket,
+	type PredictionMarketDetail,
+	PolymarketService,
+	PolymarketServiceLive,
+} from './PolymarketService'
+export {
+	type LendingMarket,
+	type LendingMarketDetail,
+	MorphoService,
+	MorphoServiceLive,
+} from './MorphoService'
