@@ -12,6 +12,7 @@ import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cw_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sns from 'aws-cdk-lib/aws-sns';
+import * as elbv2_targets from 'aws-cdk-lib/aws-elasticloadbalancingv2-targets';
 import { Construct } from 'constructs';
 
 export class SuwappuStack extends cdk.Stack {
@@ -311,6 +312,90 @@ export class SuwappuStack extends cdk.Stack {
     new wafv2.CfnWebACLAssociation(this, 'WafAlbAssociation', {
       resourceArn: this.loadBalancer.loadBalancerArn,
       webAclArn: webAcl.attrArn,
+    });
+
+    // ==================== EC2 Bot Instance ====================
+    const botSecurityGroup = new ec2.SecurityGroup(this, 'BotSecurityGroup', {
+      vpc: this.vpc,
+      description: 'Security group for EC2 bot instance',
+      allowAllOutbound: true,
+    });
+    botSecurityGroup.addIngressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(22),
+      'SSH access'
+    );
+    botSecurityGroup.addIngressRule(
+      albSecurityGroup,
+      ec2.Port.tcp(10000),
+      'Allow from ALB on port 10000'
+    );
+
+    // Allow EC2 to reach RDS
+    rdsSecurityGroup.addIngressRule(
+      botSecurityGroup,
+      ec2.Port.tcp(5432),
+      'Allow PostgreSQL from EC2 bot'
+    );
+
+    // IAM role for EC2 (Secrets Manager + SSM)
+    const botRole = new iam.Role(this, 'BotInstanceRole', {
+      assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
+      ],
+    });
+    appSecrets.grantRead(botRole);
+    this.database.secret?.grantRead(botRole);
+
+    const botInstance = new ec2.Instance(this, 'BotInstance', {
+      vpc: this.vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.SMALL),
+      machineImage: ec2.MachineImage.fromSsmParameter(
+        '/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id'
+      ),
+      securityGroup: botSecurityGroup,
+      role: botRole,
+      keyPair: ec2.KeyPair.fromKeyPairName(this, 'BotKeyPair', 'suwappu-bot-key'),
+      blockDevices: [{
+        deviceName: '/dev/sda1',
+        volume: ec2.BlockDeviceVolume.ebs(30, { volumeType: ec2.EbsDeviceVolumeType.GP3 }),
+      }],
+    });
+
+    // Elastic IP for stable SSH target
+    const eip = new ec2.CfnEIP(this, 'BotEip');
+    new ec2.CfnEIPAssociation(this, 'BotEipAssoc', {
+      instanceId: botInstance.instanceId,
+      allocationId: eip.attrAllocationId,
+    });
+
+    // Register with ALB
+    const botTargetGroup = new elbv2.ApplicationTargetGroup(this, 'BotTargetGroup', {
+      vpc: this.vpc,
+      port: 10000,
+      protocol: elbv2.ApplicationProtocol.HTTP,
+      targets: [new elbv2_targets.InstanceTarget(botInstance, 10000)],
+      healthCheck: {
+        path: '/health',
+        interval: cdk.Duration.seconds(30),
+        healthyThresholdCount: 2,
+        unhealthyThresholdCount: 3,
+      },
+    });
+
+    // Add to HTTPS listener with host-based routing
+    httpsListener.addTargetGroups('BotTarget', {
+      targetGroups: [botTargetGroup],
+      conditions: [elbv2.ListenerCondition.hostHeaders(['bot.suwappu.bot'])],
+      priority: 10,
+    });
+
+    new cdk.CfnOutput(this, 'BotInstancePublicIp', {
+      value: eip.ref,
+      description: 'Bot EC2 Elastic IP (add to GitHub Secrets as EC2_HOST_PROD)',
+      exportName: 'SuwappuBotIp',
     });
 
     // ==================== CloudWatch Alarms + SNS ====================
