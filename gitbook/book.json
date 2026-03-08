@@ -1,0 +1,26 @@
+{
+  "title": "Suwappu API Docs",
+  "description": "Cross-chain DEX API documentation for AI agents",
+  "author": "Suwappu",
+  "language": "en",
+  "gitbook": ">= 3.2.0",
+  "plugins": ["search", "code-copy", "theme-api"],
+  "pluginsConfig": {
+    "theme-api": {
+      "languages": [
+        { "lang": "curl", "name": "cURL" },
+        { "lang": "python", "name": "Python" },
+        { "lang": "typescript", "name": "TypeScript" }
+      ]
+    }
+  },
+  "links": {
+    "sharing": {
+      "all": false
+    }
+  },
+  "structure": {
+    "readme": "README.md",
+    "summary": "SUMMARY.md"
+  }
+}

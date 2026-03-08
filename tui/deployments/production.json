@@ -1,0 +1,28 @@
+{
+  "name": "suwappu-production",
+  "environment": "production",
+  "provider": "ec2",
+  "region": "us-east-1",
+  "awsProfile": "Swappu",
+  "ec2": {
+    "host": "23.21.184.77",
+    "user": "ubuntu",
+    "sshKeyPath": "~/.ssh/suwappu-bot-key",
+    "serviceName": "suwappubot",
+    "appDir": "/home/ubuntu/suwappubot"
+  },
+  "rds": {
+    "instanceId": "suwappustack-suwappudatabase7fc7bcd8-nlylumxmlxo6",
+    "engine": "postgres",
+    "endpoint": "suwappustack-suwappudatabase7fc7bcd8-nlylumxmlxo6.cgpw024wqms5.us-east-1.rds.amazonaws.com"
+  },
+  "endpoints": {
+    "api": "https://api.suwappu.bot",
+    "health": "https://api.suwappu.bot/health"
+  },
+  "github": {
+    "repo": "0xSoftBoi/suwappubot",
+    "branch": "main",
+    "workflowFile": "deploy-ec2.yml"
+  }
+}

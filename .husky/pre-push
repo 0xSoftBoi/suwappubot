@@ -1,0 +1,20 @@
+#!/bin/sh
+
+# Auto-deploy to prod EC2 when pushing to main
+
+while read local_ref local_sha remote_ref remote_sha; do
+    if echo "$remote_ref" | grep -q "refs/heads/main"; then
+        (
+            sleep 2
+            echo ""
+            echo "🚀 Auto-deploying to prod..."
+            ssh -T -i ~/.ssh/suwappu-bot-key -o StrictHostKeyChecking=no ubuntu@23.21.184.77 \
+                "cd /home/ubuntu/suwappubot && git fetch origin main && git reset --hard origin/main && sudo systemctl restart suwappubot" \
+                && echo "✅ Prod deployed" \
+                || echo "❌ Deploy failed"
+        ) &
+        disown
+    fi
+done
+
+exit 0
