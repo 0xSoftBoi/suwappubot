@@ -140,6 +140,7 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
+			const redis = yield* RedisService
 			const userService = yield* UserService
 			const walletService = yield* WalletService
 			const swapService = yield* SwapService
@@ -197,12 +198,31 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 			)
 
 			// Cache the quote for execution
-			cacheQuote(quote)
+			yield* cacheQuote(redis, quote)
 
 			// Return quote without internal data
 			const { _rawQuote, transactionRequest, ...publicQuote } = quote
+
+			// Calculate USD amounts from Li.Fi price data
+			const fromDecimals = quote.fromToken.decimals
+			const toDecimals = quote.toToken.decimals
+			const fromAmountHuman = parseFloat(quote.fromAmount) / 10 ** fromDecimals
+			const toAmountHuman = parseFloat(quote.toAmount) / 10 ** toDecimals
+			const fromPriceUsd = parseFloat(_rawQuote.action.fromToken.priceUSD || '0')
+			const toPriceUsd = parseFloat(_rawQuote.action.toToken.priceUSD || '0')
+
 			return {
 				...publicQuote,
+				// Aliases expected by webapp
+				id: quote.quoteId,
+				gasUsd: parseFloat(quote.estimatedGasUsd),
+				minReceived: quote.toAmountMin,
+				exchangeRate: parseFloat(quote.exchangeRate),
+				priceImpact: parseFloat(quote.priceImpact),
+				fromAmountUsd: fromAmountHuman * fromPriceUsd,
+				toAmountUsd: toAmountHuman * toPriceUsd,
+				expiresAt: new Date(Date.now() + QUOTE_TTL * 1000).toISOString(),
+				route: quote.route || 'lifi',
 				// Include transaction data for client-side signing if needed
 				txData: {
 					to: transactionRequest.to,
@@ -243,6 +263,7 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const env = yield* EnvService
+			const redis = yield* RedisService
 			const userService = yield* UserService
 			const walletService = yield* WalletService
 			const swapService = yield* SwapService
@@ -276,7 +297,7 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 			}
 
 			// Get cached quote
-			const quote = getCachedQuote(quoteId)
+			const quote = yield* getCachedQuote(redis, quoteId)
 			if (!quote) {
 				return yield* Effect.fail(
 					new ValidationError({
@@ -350,7 +371,131 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 				value: txRequest.value,
 			})
 
-			// Sign the transaction with Turnkey
+			// Get RPC URL for this chain
+			const rpcUrlForChain = CHAIN_RPC_ENDPOINTS[txRequest.chainId]
+			if (!rpcUrlForChain) {
+				return yield* Effect.fail(
+					new ValidationError({ message: `Unsupported chain ID: ${txRequest.chainId}` }),
+				)
+			}
+
+			// Fetch current nonce from RPC
+			const fetchNonce = async (addr: string): Promise<string> => {
+				const res = await fetch(rpcUrlForChain, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						jsonrpc: '2.0',
+						method: 'eth_getTransactionCount',
+						params: [addr, 'latest'],
+						id: 1,
+					}),
+				})
+				const data = (await res.json()) as { result?: string; error?: { message: string } }
+				if (data.error) throw new Error(`Nonce RPC error: ${data.error.message}`)
+				return data.result || '0x0'
+			}
+
+			// ERC20 approval if fromToken is not native
+			const NATIVE_ZERO = '0x0000000000000000000000000000000000000000'
+			const fromTokenAddr = quote.fromToken.address.toLowerCase()
+			const isNativeToken = fromTokenAddr === NATIVE_ZERO || fromTokenAddr === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+
+			if (!isNativeToken) {
+				// Check ERC20 allowance: allowance(owner, spender)
+				const approvalAddress = quote._rawQuote.estimate.approvalAddress
+				if (approvalAddress) {
+					const allowanceData = '0xdd62ed3e' +
+						wallet.address.slice(2).padStart(64, '0') +
+						approvalAddress.slice(2).padStart(64, '0')
+
+					const allowanceResult = yield* Effect.tryPromise({
+						try: async () => {
+							const res = await fetch(rpcUrlForChain, {
+								method: 'POST',
+								headers: { 'Content-Type': 'application/json' },
+								body: JSON.stringify({
+									jsonrpc: '2.0',
+									method: 'eth_call',
+									params: [{ to: quote.fromToken.address, data: allowanceData }, 'latest'],
+									id: 1,
+								}),
+							})
+							const data = (await res.json()) as { result?: string }
+							return BigInt(data.result || '0x0')
+						},
+						catch: (e) => new Error(`Failed to check allowance: ${e}`),
+					})
+
+					const requiredAmount = BigInt(quote.fromAmount)
+					if (allowanceResult < requiredAmount) {
+						console.log('[SwapRoute] Insufficient ERC20 allowance, sending approval tx')
+						// Build approve(spender, uint256.max) calldata
+						const maxUint256 = '0x' + 'f'.repeat(64)
+						const approveData = '0x095ea7b3' +
+							approvalAddress.slice(2).padStart(64, '0') +
+							maxUint256.slice(2)
+
+						const approvalNonce = yield* Effect.tryPromise({
+							try: () => fetchNonce(wallet.address),
+							catch: (e) => new Error(`Failed to get nonce for approval: ${e}`),
+						})
+
+						const approvalSignResult = yield* Effect.tryPromise({
+							try: async () => {
+								return await turnkeyClient.apiClient().signTransaction({
+									organizationId: wallet.turnkeySubOrgId!,
+									signWith: wallet.address,
+									type: 'TRANSACTION_TYPE_ETHEREUM',
+									unsignedTransaction: JSON.stringify({
+										type: '0x2',
+										chainId: `0x${txRequest.chainId.toString(16)}`,
+										nonce: approvalNonce,
+										to: quote.fromToken.address,
+										value: '0x0',
+										data: approveData,
+										maxFeePerGas: txRequest.gasPrice || '0x0',
+										maxPriorityFeePerGas: '0x0',
+										gas: '0x20000', // 131072 — enough for approval
+									}),
+								})
+							},
+							catch: (e) => new Error(`Failed to sign approval tx: ${e}`),
+						})
+
+						// Broadcast approval tx
+						yield* Effect.tryPromise({
+							try: async () => {
+								const res = await fetch(rpcUrlForChain, {
+									method: 'POST',
+									headers: { 'Content-Type': 'application/json' },
+									body: JSON.stringify({
+										jsonrpc: '2.0',
+										method: 'eth_sendRawTransaction',
+										params: [approvalSignResult.signedTransaction],
+										id: 1,
+									}),
+								})
+								const data = (await res.json()) as { result?: string; error?: { message: string; code: number } }
+								if (data.error) throw new Error(`Approval RPC error: ${data.error.message}`)
+								console.log('[SwapRoute] Approval tx broadcast:', data.result)
+								// Wait a bit for the approval to be included
+								await new Promise((r) => setTimeout(r, 3000))
+								return data.result
+							},
+							catch: (e) => new Error(`Failed to broadcast approval: ${e}`),
+						})
+					}
+				}
+			}
+
+			// Fetch nonce for the swap tx (after potential approval)
+			const swapNonce = yield* Effect.tryPromise({
+				try: () => fetchNonce(wallet.address),
+				catch: (e) => new Error(`Failed to get nonce: ${e}`),
+			})
+
+			// Sign the swap transaction with Turnkey
 			const signResult = yield* Effect.tryPromise({
 				try: async () => {
 					const signedTx = await turnkeyClient.apiClient().signTransaction({
@@ -360,7 +505,7 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 						unsignedTransaction: JSON.stringify({
 							type: '0x2', // EIP-1559
 							chainId: `0x${txRequest.chainId.toString(16)}`,
-							nonce: '0x0', // Will be filled by RPC
+							nonce: swapNonce,
 							to: txRequest.to,
 							value: txRequest.value,
 							data: txRequest.data,
@@ -386,13 +531,12 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 			// 3. Wait for confirmation
 			// 4. Update swap status to 'completed' or 'failed'
 
-			const rpcUrl = CHAIN_RPC_ENDPOINTS[txRequest.chainId]
 			let txHash: string | null = null
 
-			if (rpcUrl) {
+			if (rpcUrlForChain) {
 				const broadcastResult = yield* Effect.tryPromise({
 					try: async () => {
-						const res = await fetch(rpcUrl, {
+						const res = await fetch(rpcUrlForChain, {
 							method: 'POST',
 							headers: { 'Content-Type': 'application/json' },
 							body: JSON.stringify({
@@ -424,15 +568,19 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 			const newStatus = txHash ? 'submitted' : 'signed'
 			yield* swapService.updateSwapStatus(swapRecord.id, newStatus, txHash || signedTransaction)
 
+			// Clean up cached quote
+			yield* deleteCachedQuote(redis, quoteId)
+
 			return {
 				success: true,
 				swapId: swapRecord.id,
-				status: 'signed',
+				status: newStatus,
+				txHash: txHash || undefined,
 				signedTransaction,
-				message: 'Transaction signed. Submit to chain to complete swap.',
+				message: txHash ? 'Transaction submitted.' : 'Transaction signed. Submit to chain to complete swap.',
 				chain: {
 					chainId: txRequest.chainId,
-					rpcNeeded: true,
+					rpcNeeded: !txHash,
 				},
 				swap: {
 					fromChain: quote.fromChain,

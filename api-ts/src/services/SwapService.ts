@@ -144,6 +144,8 @@ export interface SwapQuote {
 	bridgeFeeUsd: string
 	slippage: number
 	estimatedDuration: number
+	fromAmountUsd: string
+	toAmountUsd: string
 	route: string
 	transactionRequest: TransactionRequest
 	// Store full quote data for execution
@@ -304,9 +306,9 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				toAddress: params.toAddress || params.fromAddress,
 				slippage: String(params.slippage || 0.03),
 				order: params.order || 'RECOMMENDED',
-				integrator: params.integrator || 'suwappu',
+				integrator: process.env.LIFI_INTEGRATOR_ID || 'SuwappuProduction',
 				referrer: process.env.FEE_WALLET_EVM || '0x6456f69215C470e1545Ed6eea4621C136B30D85d',
-				fee: '0.003', // 0.3% integrator fee
+				fee: '0.008', // 0.8% integrator fee (matches bot)
 			})
 
 			const url = `${LIFI_API_BASE}/quote?${queryParams.toString()}`
@@ -395,6 +397,8 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				bridgeFeeUsd: bridgeFeeUsd.toFixed(2),
 				slippage: response.action.slippage,
 				estimatedDuration: response.estimate.executionDuration || 60,
+				fromAmountUsd: fromUsd.toFixed(2),
+				toAmountUsd: toUsd.toFixed(2),
 				route,
 				transactionRequest: response.transactionRequest,
 				_rawQuote: response,
