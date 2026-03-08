@@ -32,6 +32,7 @@ from bot.services.alerts import alert_service
 from bot.services.orders import order_service
 from bot.services.tx_poller import tx_poller
 from bot.services.health_monitor import health_monitor
+from bot.services.balance_refresher import balance_refresher
 from bot.utils.preload import preload_config
 from database.db import init_db, engine, get_session, DATABASE_AVAILABLE
 from bot.models.user import User, Wallet
@@ -135,6 +136,7 @@ async def lifespan(app: FastAPI):
         await order_service.start(bot=bot_app.bot if bot_initialized else None)
         await tx_poller.start(bot=bot_app.bot if bot_initialized else None)
         await health_monitor.start(bot=bot_app.bot if bot_initialized else None, admin_ids=admin_ids)
+        await balance_refresher.start()
         logger.info("✓ All background services running")
     else:
         logger.warning("⚠️ Background services NOT started - database unavailable")
@@ -171,6 +173,7 @@ async def lifespan(app: FastAPI):
         await order_service.stop()
         await tx_poller.stop()
         await health_monitor.stop()
+        await balance_refresher.stop()
     logger.info("✓ Cleanup complete")
 
 app = FastAPI(

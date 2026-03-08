@@ -589,8 +589,28 @@ class WalletService:
         """
         Get all token balances for an address without needing a Wallet object.
 
-        Fetches all chains and tokens in parallel with per-call timeouts.
+        Uses a cache-first strategy (60s TTL).  On cache miss, uses Alchemy
+        batch API for supported EVM chains and falls back to per-token RPC
+        for unsupported chains and Solana.
         """
+        from bot.utils.cache import balance_cache
+
+        cache_key = f"bal:{address}:{chain_type}"
+
+        # --- Layer 2: cache-first read ---
+        cached = await balance_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        # --- Cache miss → live fetch ---
+        balances = await self._fetch_balances_live(address, chain_type)
+
+        # Store in cache (60s TTL via default)
+        await balance_cache.set(cache_key, balances)
+        return balances
+
+    async def _fetch_balances_live(self, address: str, chain_type: str) -> dict[str, dict[str, float]]:
+        """Fetch balances from RPCs / Alchemy (no caching)."""
         from bot.config.tokens import TOKENS
 
         CALL_TIMEOUT = 5  # seconds per RPC call
@@ -605,11 +625,58 @@ class WalletService:
             except (asyncio.TimeoutError, Exception):
                 return default
 
-        async def _fetch_evm_chain(chain_name, chain):
-            """Fetch all balances for a single EVM chain in parallel."""
+        async def _fetch_evm_chain_alchemy(chain_name, chain):
+            """Fetch all balances for a single EVM chain via Alchemy batch API."""
+            from bot.services.alchemy_client import get_alchemy_client
+            from bot.config.tokens import get_token_decimals
+
+            client = get_alchemy_client()
             chain_balances: dict[str, float] = {}
 
-            # Build all tasks for this chain
+            try:
+                # 1. Native balance via Alchemy
+                native = await asyncio.wait_for(
+                    client.get_native_balance(address, chain_name),
+                    timeout=CALL_TIMEOUT,
+                )
+                if native and native > 0:
+                    chain_balances[chain.native_token] = native
+
+                # 2. All ERC-20 balances in ONE call
+                raw_balances = await asyncio.wait_for(
+                    client.get_token_balances_raw(address, chain_name),
+                    timeout=CALL_TIMEOUT,
+                )
+
+                # Build reverse lookup: lowercase contract address → (symbol, decimals)
+                addr_to_token: dict[str, tuple[str, int]] = {}
+                for token_symbol, token in TOKENS.items():
+                    token_addr = token.addresses.get(chain_name)
+                    if token_addr:
+                        addr_to_token[token_addr.lower()] = (
+                            token_symbol,
+                            get_token_decimals(token_symbol, chain_name),
+                        )
+
+                for contract_lower, raw_balance in raw_balances.items():
+                    entry = addr_to_token.get(contract_lower)
+                    if entry:
+                        symbol, decimals = entry
+                        balance = raw_balance / (10 ** decimals)
+                        if balance > 0:
+                            chain_balances[symbol] = balance
+
+            except Exception as e:
+                logger.warning(f"Alchemy fetch failed for {chain_name}, falling back to RPC: {e}")
+                # Fall back to per-token RPC
+                return await _fetch_evm_chain_rpc(chain_name, chain)
+
+            return chain_name, chain_balances
+
+        async def _fetch_evm_chain_rpc(chain_name, chain):
+            """Fetch all balances for a single EVM chain via individual RPC calls."""
+            chain_balances: dict[str, float] = {}
+
             tasks = []
             task_keys = []
 
@@ -636,12 +703,19 @@ class WalletService:
         try:
             async with asyncio.timeout(GLOBAL_TIMEOUT):
                 if chain_type == "evm":
+                    from bot.services.alchemy_client import get_alchemy_client
+                    alchemy = get_alchemy_client()
+
                     # Fetch ALL chains in parallel
                     chain_tasks = []
                     for chain_name, chain in CHAINS.items():
                         if chain.chain_type != ChainType.EVM:
                             continue
-                        chain_tasks.append(_fetch_evm_chain(chain_name, chain))
+                        # Use Alchemy for supported chains, RPC for the rest
+                        if alchemy.is_configured and alchemy.supports_chain(chain_name):
+                            chain_tasks.append(_fetch_evm_chain_alchemy(chain_name, chain))
+                        else:
+                            chain_tasks.append(_fetch_evm_chain_rpc(chain_name, chain))
 
                     results = await asyncio.gather(*chain_tasks, return_exceptions=True)
 

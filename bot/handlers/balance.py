@@ -141,11 +141,24 @@ async def balance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     try:
         all_balances = {}
-        
-        for wallet_id, address, chain_type, name in wallet_infos:
-            # Get balances using address and chain_type directly
-            balances = await wallet_service.get_balances_by_address(address, chain_type)
-            
+
+        # Fetch all wallet balances in parallel (same as balance_command)
+        async def fetch_wallet_balance(wallet_info):
+            wallet_id, address, chain_type, name = wallet_info
+            try:
+                return await wallet_service.get_balances_by_address(address, chain_type)
+            except Exception as e:
+                logger.warning(f"Failed to fetch balance for {address} on {chain_type}: {e}")
+                return {}
+
+        balance_results = await asyncio.gather(
+            *[fetch_wallet_balance(w) for w in wallet_infos],
+            return_exceptions=True
+        )
+
+        for balances in balance_results:
+            if isinstance(balances, Exception) or not balances:
+                continue
             for chain, tokens in balances.items():
                 if chain not in all_balances:
                     all_balances[chain] = {}

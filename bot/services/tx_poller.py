@@ -88,14 +88,18 @@ class TransactionPoller:
                     if new_status and new_status != tx.status:
                         old_status = tx.status
                         tx.status = new_status
-                        
+
                         if new_status == SwapStatus.COMPLETED.value:
                             tx.completed_at = datetime.utcnow()
-                        
+
                         logger.info(
                             f"Transaction {tx.id} status: {old_status} -> {new_status}"
                         )
-                        
+
+                        # Invalidate balance cache on completion/failure
+                        if new_status in (SwapStatus.COMPLETED.value, SwapStatus.FAILED.value):
+                            await self._invalidate_balance_cache(tx)
+
                         # Notify user
                         await self._notify_user(tx, old_status, new_status)
                         
@@ -278,6 +282,19 @@ class TransactionPoller:
         except Exception as e:
             logger.error(f"Failed to notify user: {e}")
     
+    async def _invalidate_balance_cache(self, tx: SwapTransaction):
+        """Invalidate balance cache for the wallet that executed a swap."""
+        try:
+            from bot.utils.cache import balance_cache
+            from bot.models.user import Wallet
+
+            with get_db_session() as session:
+                wallet = session.query(Wallet).filter(Wallet.user_id == tx.user_id, Wallet.is_active == True).first()
+                if wallet:
+                    await balance_cache.delete(f"bal:{wallet.address}:{wallet.chain_type}")
+        except Exception as e:
+            logger.debug(f"Failed to invalidate balance cache: {e}")
+
     def _get_explorer_link(self, tx: SwapTransaction) -> str:
         """Get block explorer link for transaction."""
         chain = get_chain_by_name(tx.from_chain)

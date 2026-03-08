@@ -634,6 +634,13 @@ class SwapEngine:
                         db_tx.tx_hash = tx_hash
                         db_tx.status = SwapStatus.SUBMITTED.value
 
+                # Invalidate balance cache so user sees updated balance
+                try:
+                    from bot.utils.cache import balance_cache
+                    await balance_cache.delete(f"bal:{wallet_address}:{wallet_chain_type}")
+                except Exception:
+                    pass
+
                 # Clean up local references
                 wallet_encrypted_key = None
 
