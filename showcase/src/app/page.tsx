@@ -75,10 +75,10 @@ function InfraPanel() {
           Integration
         </p>
         <h2 className="font-heading font-bold text-3xl md:text-5xl mb-3 text-white tracking-tight">
-          Four ways to connect.
+          Your agent swaps here.
         </h2>
         <p className="text-suwappu-dark-text-secondary text-sm mb-10 max-w-md mx-auto">
-          Pick the interface that fits your stack. Same routing engine behind all of them.
+          SDK, module, bot, or REST — same routing engine. Pick what fits your stack.
         </p>
 
         {/* Commands */}
