@@ -140,7 +140,7 @@ class Settings(BaseSettings):
         description="BSC mainnet RPC URL(s)"
     )
     polygon_rpc_url: str = Field(
-        default="https://polygon-rpc.com/,https://polygon.llamarpc.com",
+        default="https://polygon.drpc.org,https://1rpc.io/matic,https://polygon.llamarpc.com",
         description="Polygon mainnet RPC URL(s)"
     )
     arbitrum_rpc_url: str = Field(
