@@ -239,6 +239,41 @@ jobs:
           sleep 10
           curl -sf "${{ steps.env.outputs.BOT_URL }}/health" || echo "Health check pending (service may still be starting)"
 
+      - name: Verify Telegram bot is polling
+        if: steps.check-service.outputs.exists == 'true'
+        continue-on-error: true
+        run: |
+          echo "Checking Telegram bot status..."
+          sleep 20
+
+          # Get bot token from Secrets Manager
+          TOKEN=$(aws secretsmanager get-secret-value \
+            --secret-id "suwappu/app-secrets" \
+            --query 'SecretString' \
+            --output text 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('TELEGRAM_BOT_TOKEN',''))" 2>/dev/null)
+
+          if [ -n "$TOKEN" ]; then
+            echo "=== getWebhookInfo ==="
+            WEBHOOK_INFO=$(curl -sf "https://api.telegram.org/bot${TOKEN}/getWebhookInfo")
+            echo "$WEBHOOK_INFO" | python3 -c "
+import sys,json
+d = json.load(sys.stdin)['result']
+pending = d.get('pending_update_count', 0)
+url = d.get('url', '')
+err = d.get('last_synchronization_error_date')
+print(f'Webhook URL: {url or \"(none - polling mode)\"}')
+print(f'Pending updates: {pending}')
+if err:
+    print(f'Last sync error: {err}')
+if pending > 0 and not url:
+    print('WARNING: Bot is NOT consuming updates! Polling may have failed.')
+else:
+    print('OK: Bot appears to be polling normally.')
+"
+          else
+            echo "Could not retrieve bot token"
+          fi
+
       - name: Deployment summary
         run: |
           echo "## Bot Deployment Summary" >> $GITHUB_STEP_SUMMARY
