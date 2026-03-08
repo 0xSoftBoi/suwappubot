@@ -41,7 +41,12 @@ jobs:
       - name: Set environment variables
         id: env
         run: |
-          if [ "${{ github.ref }}" == "refs/heads/main" ] || [ "${{ inputs.environment }}" == "production" ]; then
+          if [ "${{ inputs.environment }}" == "development" ]; then
+            echo "ENVIRONMENT=development" >> $GITHUB_OUTPUT
+            echo "ECS_SERVICE=suwappu-api-ts-dev" >> $GITHUB_OUTPUT
+            echo "API_URL=https://devapi.suwappu.bot" >> $GITHUB_OUTPUT
+            echo "IMAGE_TAG=development" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" == "refs/heads/main" ] || [ "${{ inputs.environment }}" == "production" ]; then
             echo "ENVIRONMENT=production" >> $GITHUB_OUTPUT
             echo "ECS_SERVICE=suwappu-api-ts-prod" >> $GITHUB_OUTPUT
             echo "API_URL=https://api.suwappu.bot" >> $GITHUB_OUTPUT
