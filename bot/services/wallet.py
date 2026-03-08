@@ -448,6 +448,10 @@ class WalletService:
         if not token_address:
             return 0.0
 
+        # Skip zero/null addresses (native tokens like BNB listed with 0x000...0)
+        if token_address.replace("0x", "").strip("0") == "":
+            return await self.get_evm_native_balance(chain_name, address)
+
         web3 = self._get_web3(chain_name)
         contract = web3.eth.contract(
             address=Web3.to_checksum_address(token_address),

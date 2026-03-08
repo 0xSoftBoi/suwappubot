@@ -160,7 +160,7 @@ class Settings(BaseSettings):
         description="Avalanche C-Chain RPC URL(s)"
     )
     fantom_rpc_url: str = Field(
-        default="https://rpc.ftm.tools,https://fantom.llamarpc.com",
+        default="https://rpcapi.fantom.network,https://fantom.drpc.org,https://1rpc.io/ftm",
         description="Fantom mainnet RPC URL(s)"
     )
     linea_rpc_url: str = Field(
