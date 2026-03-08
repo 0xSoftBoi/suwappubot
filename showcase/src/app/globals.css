@@ -251,14 +251,29 @@ body {
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
+  touch-action: pan-y;
 }
 
 @media (max-width: 767px) {
   .gsap-panel {
     width: 100%;
     min-height: auto;
-    padding-top: 4rem;
-    padding-bottom: 4rem;
+    padding-top: 3rem;
+    padding-bottom: 3rem;
+    overflow: visible;
+  }
+
+  /* Kill 3D canvases on mobile — saves GPU + fixes touch scroll */
+  .petal-canvas,
+  .gsap-panel canvas {
+    display: none !important;
+  }
+}
+
+/* Ensure touch scrolling works on mobile */
+@supports (-webkit-touch-callout: none) {
+  body {
+    -webkit-overflow-scrolling: touch;
   }
 }
 
