@@ -1,0 +1,55 @@
+name: Fix RDS Security Group for EC2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS
+        run: |
+          aws configure set aws_access_key_id "${{ secrets.AWS_ACCESS_KEY_ID }}"
+          aws configure set aws_secret_access_key "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+          aws configure set region us-east-1
+
+      - name: Add EC2 SG to RDS SG
+        run: |
+          # Find EC2 instance security group
+          EC2_SG=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=suwappu-bot" "Name=instance-state-name,Values=running" \
+            --query 'Reservations[0].Instances[0].SecurityGroups[0].GroupId' --output text)
+          echo "EC2 SG: $EC2_SG"
+
+          # Find RDS security group
+          RDS_SG=$(aws ec2 describe-security-groups \
+            --filters "Name=description,Values=*RDS*" \
+            --query 'SecurityGroups[0].GroupId' --output text)
+          echo "RDS SG: $RDS_SG"
+
+          if [ "$RDS_SG" == "None" ]; then
+            echo "Trying alternate search..."
+            RDS_SG=$(aws ec2 describe-security-groups \
+              --filters "Name=group-name,Values=*Rds*" \
+              --query 'SecurityGroups[0].GroupId' --output text)
+            echo "RDS SG (alt): $RDS_SG"
+          fi
+
+          if [ "$RDS_SG" == "None" ]; then
+            echo "Listing all security groups..."
+            aws ec2 describe-security-groups \
+              --query 'SecurityGroups[*].{ID:GroupId,Name:GroupName,Desc:Description}' --output table
+            exit 1
+          fi
+
+          echo "Adding ingress rule: $EC2_SG -> $RDS_SG port 5432"
+          aws ec2 authorize-security-group-ingress \
+            --group-id "$RDS_SG" \
+            --protocol tcp --port 5432 \
+            --source-group "$EC2_SG" \
+            --description "Allow PostgreSQL from EC2 bot" 2>&1 || echo "Rule may already exist"
+
+          echo "Done! Restart the bot service."
