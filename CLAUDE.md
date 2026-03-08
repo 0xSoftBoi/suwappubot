@@ -24,7 +24,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Additional rules:
 - **NEVER use `git rebase`**. Always use `git merge` or `git pull --no-rebase`.
 - **If any git operation fails twice, STOP and ask the user** — do NOT attempt dozens of recovery steps.
-- Use `HUSKY=0` prefix for all git commits and pushes in worktrees to avoid hook hangs.
+- Use `HUSKY=0` prefix for **git commits only** (not pushes) to avoid pre-commit hook hangs. Do NOT use `HUSKY=0` on `git push` — the pre-push hook auto-deploys to prod.
+- In worktrees, use `HUSKY=0` for both commits and pushes to avoid hook hangs.
 
 ## TypeScript & Build Tools
 - **Always use `bun`** instead of `tsc`, `npm`, or `npx`. The `tsc` command times out in this project.
