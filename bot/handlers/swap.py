@@ -578,7 +578,9 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         num_wallets = len(selected_wallet_ids)
         total_fee_usd = fee_usd * num_wallets
         total_from_human = quote.from_amount_human * num_wallets
-        
+        _provider_names = {"layerzero": "Stargate V2", "lifi": "LI.FI", "jupiter": "Jupiter", "cow": "CoW Protocol", "cctp": "Circle CCTP", "ccip": "Chainlink CCIP"}
+        provider_display = _provider_names.get(quote.provider, quote.provider.upper())
+
         # NEW: Token Security Analysis
         security_text = ""
         if swap_data["to_chain"] == "solana":
@@ -601,7 +603,7 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
             f"on {to_chain_config.display_name}\n\n"
             f"*Fees (Combined):*\n"
             f"• Platform fee: {fee_percentage}% ({format_usd(total_fee_usd)})\n"
-            f"• Provider: {{'layerzero': 'Stargate V2', 'lifi': 'LI.FI', 'jupiter': 'Jupiter', 'cow': 'CoW Protocol', 'cctp': 'Circle CCTP', 'ccip': 'Chainlink CCIP'}.get(quote.provider, quote.provider.upper())}"
+            f"• Provider: {provider_display}"
             f"{security_text}\n\n"
             f"⚠️ *Confirmation will execute swaps on {num_wallets} wallets simultaneously.*"
         )
@@ -886,10 +888,12 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         
         context.user_data["swap"]["quote"] = quote
         context.user_data["swap"]["attempt_id"] = secrets.token_urlsafe(16)
-        
+
         from_chain_config = get_chain_by_name(swap_data["from_chain"])
         to_chain_config = get_chain_by_name(swap_data["to_chain"])
-        
+        _pn = {"layerzero": "Stargate V2", "lifi": "LI.FI", "jupiter": "Jupiter", "cow": "CoW Protocol", "cctp": "Circle CCTP", "ccip": "Chainlink CCIP"}
+        provider_display2 = _pn.get(quote.provider, quote.provider.upper())
+
         text = (
             f"📊 *Updated Swap Quote*\n\n"
             f"*From:*\n"
@@ -903,7 +907,7 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             f"• Gas: {format_usd(quote.gas_cost_usd)}\n"
             f"• Bridge fee: {format_usd(quote.fee_cost_usd)}\n"
             f"• Time: {format_time_estimate(quote.estimated_time)}\n"
-            f"• Provider: {{'layerzero': 'Stargate V2', 'lifi': 'LI.FI', 'jupiter': 'Jupiter', 'cow': 'CoW Protocol', 'cctp': 'Circle CCTP', 'ccip': 'Chainlink CCIP'}.get(quote.provider, quote.provider.upper())}"
+            f"• Provider: {provider_display2}"
         )
         
         keyboard = [
