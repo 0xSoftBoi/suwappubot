@@ -187,18 +187,19 @@ jobs:
           NEW_IMAGE="$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG"
           echo "New image: $NEW_IMAGE"
 
-          NEW_TASK_DEF=$(echo "$TASK_DEF" | python3 -c "
+          echo "$TASK_DEF" | python3 -c "
           import sys, json
           td = json.load(sys.stdin)
           td['containerDefinitions'][0]['image'] = '$NEW_IMAGE'
           # Remove fields that can't be in register-task-definition
           for key in ['taskDefinitionArn', 'revision', 'status', 'requiresAttributes', 'compatibilities', 'registeredAt', 'registeredBy']:
               td.pop(key, None)
-          print(json.dumps(td))
-          ")
+          with open('/tmp/task-def.json', 'w') as f:
+              json.dump(td, f)
+          "
 
-          NEW_TASK_DEF_ARN=$(echo "$NEW_TASK_DEF" | aws ecs register-task-definition \
-            --cli-input-json file:///dev/stdin \
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file:///tmp/task-def.json \
             --query 'taskDefinition.taskDefinitionArn' \
             --output text)
 
