@@ -27,6 +27,8 @@ body {
   background: var(--suwappu-bg);
   color: var(--suwappu-text);
   overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ---- Glass effects ---- */
@@ -270,12 +272,6 @@ body {
   }
 }
 
-/* Ensure touch scrolling works on mobile */
-@supports (-webkit-touch-callout: none) {
-  body {
-    -webkit-overflow-scrolling: touch;
-  }
-}
 
 /* ---- Particle float ---- */
 @keyframes particle-float {

@@ -29,7 +29,8 @@ export default function HorizontalScroll({ children }: HorizontalScrollProps) {
   const panelsRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<number>(0);
   const [scrollTween, setScrollTween] = useState<gsap.core.Tween | null>(null);
-  const [isMobile, setIsMobile] = useState(false);
+  // null = unknown yet, avoids SSR flash
+  const [isMobile, setIsMobile] = useState<boolean | null>(null);
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -39,7 +40,7 @@ export default function HorizontalScroll({ children }: HorizontalScrollProps) {
   }, []);
 
   useGSAP(() => {
-    if (isMobile || !panelsRef.current || !containerRef.current) return;
+    if (isMobile !== false || !panelsRef.current || !containerRef.current) return;
 
     const panels = gsap.utils.toArray<HTMLElement>('.gsap-panel', panelsRef.current);
     if (panels.length === 0) return;
@@ -75,6 +76,17 @@ export default function HorizontalScroll({ children }: HorizontalScrollProps) {
       mq.removeEventListener('change', handleMotion);
     };
   }, { scope: containerRef, dependencies: [isMobile] });
+
+  // Don't render until we know mobile vs desktop
+  if (isMobile === null) {
+    return (
+      <ScrollContext.Provider value={{ scrollTween: null, progressRef }}>
+        <div className="flex flex-col">
+          {children}
+        </div>
+      </ScrollContext.Provider>
+    );
+  }
 
   if (isMobile) {
     return (
