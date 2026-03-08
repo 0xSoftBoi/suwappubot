@@ -330,6 +330,11 @@ def detect_error_code(error_message: str) -> str:
     Checks exception's error_code attribute first (if present), then falls
     back to pattern matching on the message text.
     """
+    # Database/schema errors should never match swap-specific codes
+    error_lower = error_message.lower()
+    if "column" in error_lower and ("does not exist" in error_lower or "no such column" in error_lower):
+        return "UNKNOWN_ERROR"
+
     for pattern, code in _ERROR_PATTERNS:
         if pattern.search(error_message):
             return code
