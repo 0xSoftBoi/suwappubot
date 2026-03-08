@@ -65,14 +65,14 @@ async def start_swap(update: Update, context: ContextTypes.DEFAULT_TYPE, is_call
     allowed = await enforce_rate_limit_for_update(update, swap_limiter)
     if not allowed:
         return ConversationHandler.END
-    
+
     # Clear previous swap data
     context.user_data.pop("swap", None)
-    
+
     # Check if user has wallets
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        
+
         if not db_user:
             text = "❌ Please use /start first to set up your account."
             if is_callback:
@@ -80,12 +80,12 @@ async def start_swap(update: Update, context: ContextTypes.DEFAULT_TYPE, is_call
             else:
                 await update.message.reply_text(text)
             return ConversationHandler.END
-        
+
         wallets = session.query(Wallet).filter(
             Wallet.user_id == db_user.id,
             Wallet.is_active == True,
         ).all()
-        
+
         if not wallets:
             keyboard = [[InlineKeyboardButton("👛 Add Wallet", callback_data="wallet_menu")]]
             text = "👛 You need to add a wallet first before swapping!"
@@ -94,9 +94,35 @@ async def start_swap(update: Update, context: ContextTypes.DEFAULT_TYPE, is_call
             else:
                 await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
             return ConversationHandler.END
-        
+
         context.user_data["user_id"] = db_user.id
         wallet_infos = [(w.address, w.chain_type) for w in wallets]
+
+        # Fetch recent swap pairs for quick swap buttons
+        recent_swaps = session.query(
+            SwapTransaction.from_chain,
+            SwapTransaction.from_token,
+            SwapTransaction.to_chain,
+            SwapTransaction.to_token,
+        ).filter(
+            SwapTransaction.user_id == db_user.id,
+            SwapTransaction.status.in_([
+                SwapStatus.COMPLETED.value,
+                SwapStatus.SUBMITTED.value,
+                SwapStatus.CONFIRMING.value,
+            ]),
+        ).order_by(SwapTransaction.created_at.desc()).limit(20).all()
+
+        # Deduplicate by pair, keep order (most recent first)
+        seen_pairs = set()
+        quick_swaps = []
+        for from_chain, from_token, to_chain, to_token in recent_swaps:
+            pair_key = (from_chain, from_token, to_chain, to_token)
+            if pair_key not in seen_pairs:
+                seen_pairs.add(pair_key)
+                quick_swaps.append(pair_key)
+            if len(quick_swaps) >= 3:
+                break
 
     # Fetch balances to determine which chains have funds
     chains_with_balance: set[str] = set()
@@ -128,10 +154,27 @@ async def start_swap(update: Update, context: ContextTypes.DEFAULT_TYPE, is_call
         else:
             chains_without_bal.append((name, chain))
 
-    # Show chain selection
-    text = "🔄 *New Swap*\n\nSelect the source chain:"
-
+    # Build buttons
     chain_buttons = []
+
+    # Quick swap buttons from recent history
+    if quick_swaps:
+        for i, (fc, ft, tc, tt) in enumerate(quick_swaps):
+            fc_cfg = get_chain_by_name(fc)
+            tc_cfg = get_chain_by_name(tc)
+            if fc_cfg and tc_cfg:
+                label = f"⚡ {ft} {fc_cfg.logo_emoji} → {tt} {tc_cfg.logo_emoji}"
+                chain_buttons.append([InlineKeyboardButton(
+                    label, callback_data=f"quick_swap_{i}"
+                )])
+        # Store quick swap data for callback lookup
+        context.user_data["quick_swaps"] = quick_swaps
+
+    # Show chain selection
+    text = "🔄 *New Swap*\n\n"
+    if quick_swaps:
+        text += "⚡ *Quick Swap* — repeat a recent swap:\n\n"
+    text += "Or select the source chain:"
 
     # Chains with balance — one per row, highlighted
     for name, chain in chains_with_bal:
@@ -157,7 +200,7 @@ async def start_swap(update: Update, context: ContextTypes.DEFAULT_TYPE, is_call
     chain_buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")])
 
     reply_markup = InlineKeyboardMarkup(chain_buttons)
-    
+
     if is_callback:
         await update.callback_query.edit_message_text(
             text, parse_mode="Markdown", reply_markup=reply_markup
@@ -166,8 +209,57 @@ async def start_swap(update: Update, context: ContextTypes.DEFAULT_TYPE, is_call
         await update.message.reply_text(
             text, parse_mode="Markdown", reply_markup=reply_markup
         )
-    
+
     return SELECT_FROM_CHAIN
+
+
+async def quick_swap_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle quick swap selection — pre-fill chain/token and jump to amount entry."""
+    query = update.callback_query
+    await query.answer()
+
+    idx = int(query.data.replace("quick_swap_", ""))
+    quick_swaps = context.user_data.get("quick_swaps", [])
+
+    if idx >= len(quick_swaps):
+        await query.edit_message_text("❌ Quick swap expired. Please start again.")
+        return ConversationHandler.END
+
+    from_chain, from_token, to_chain, to_token = quick_swaps[idx]
+
+    # Pre-fill swap data
+    context.user_data["swap"] = {
+        "from_chain": from_chain,
+        "from_token": from_token,
+        "to_chain": to_chain,
+        "to_token": to_token,
+    }
+
+    from_chain_config = get_chain_by_name(from_chain)
+    to_chain_config = get_chain_by_name(to_chain)
+
+    text = (
+        f"⚡ *Quick Swap*\n\n"
+        f"{from_chain_config.logo_emoji} From: *{from_chain_config.display_name}* ({from_token})\n"
+        f"{to_chain_config.logo_emoji} To: *{to_chain_config.display_name}* ({to_token})\n\n"
+        f"Enter the amount to swap or pick a %:"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("25%", callback_data="swap_pct_25"),
+            InlineKeyboardButton("50%", callback_data="swap_pct_50"),
+            InlineKeyboardButton("100%", callback_data="swap_pct_100"),
+        ],
+        [
+            InlineKeyboardButton("« Back", callback_data="swap_start"),
+            InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel"),
+        ],
+    ])
+
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
+
+    return ENTER_AMOUNT
 
 
 async def select_from_chain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1118,6 +1210,7 @@ swap_conversation_handler = ConversationHandler(
     ],
     states={
         SELECT_FROM_CHAIN: [
+            CallbackQueryHandler(quick_swap_callback, pattern="^quick_swap_"),
             CallbackQueryHandler(select_from_chain, pattern="^from_chain_"),
         ],
         SELECT_FROM_TOKEN: [
