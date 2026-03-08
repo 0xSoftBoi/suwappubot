@@ -77,9 +77,8 @@ async def wallet_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 for w in wallets:
                     chain_emoji = "🔷" if w.chain_type == "evm" else "🟢"
                     default_mark = " ⭐" if w.is_default else ""
-                    short_addr = f"{w.address[:6]}...{w.address[-4:]}"
                     lines.append(f"{chain_emoji} *{w.name}*{default_mark}")
-                    lines.append(f"   `{short_addr}`")
+                    lines.append(f"   `{w.address}`")
                     lines.append("")
                     
                     keyboard.append([
@@ -156,9 +155,8 @@ async def show_wallet_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, i
             for w in wallets:
                 chain_emoji = "🔷" if w.chain_type == "evm" else "🟢"
                 default_mark = " ⭐" if w.is_default else ""
-                short_addr = f"{w.address[:6]}...{w.address[-4:]}"
                 lines.append(f"{chain_emoji} *{w.name}*{default_mark}")
-                lines.append(f"   `{short_addr}`")
+                lines.append(f"   `{w.address}`")
                 lines.append("")
                 
                 # Add button for each wallet

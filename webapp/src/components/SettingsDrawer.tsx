@@ -169,7 +169,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
 
             <div className="space-y-3">
               {/* Passkey option */}
-              {isPasskeySupported && isPlatformAuthAvailable && (
+              {isPasskeySupported && (
                 <PasskeyRegister
                   displayName={telegramUser?.first_name}
                   onSuccess={handlePasskeySuccess}
@@ -177,7 +177,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
               )}
 
               {/* No options available */}
-              {!(isPasskeySupported && isPlatformAuthAvailable) && (
+              {!isPasskeySupported && (
                 <div className="text-sm text-tg-hint text-center py-4">
                   <p>No wallet options available</p>
                   <p className="text-xs mt-1">
