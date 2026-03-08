@@ -81,7 +81,7 @@ Suwappu is listed on the following agent/tool registries:
 | [Smithery.ai](https://smithery.ai) | MCP | Pending submission |
 | [mcpservers.org](https://mcpservers.org) | MCP | Planned |
 | [StackA2A](https://stacka2a.dev) | A2A | Planned |
-| [a2aregistry.org](https://a2aregistry.org) | A2A | Pending registration |
+| [a2aregistry.org](https://a2aregistry.org) | A2A | Registered |
 
 ### Future Registry Submissions
 
