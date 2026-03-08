@@ -102,7 +102,7 @@ async def create_evm_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     
     try:
-        wallet = hot_wallet_service.create_hot_wallet(
+        wallet = await hot_wallet_service.create_hot_wallet(
             name="EVM Hot Wallet",
             chain_type="evm",
             is_deposit_wallet=True,
@@ -134,7 +134,7 @@ async def create_sol_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     
     try:
-        wallet = hot_wallet_service.create_hot_wallet(
+        wallet = await hot_wallet_service.create_hot_wallet(
             name="SOL Hot Wallet",
             chain_type="solana",
             is_deposit_wallet=True,
