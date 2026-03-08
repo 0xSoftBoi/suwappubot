@@ -1,0 +1,126 @@
+# Suwappu
+
+> Cross-chain DEX infrastructure. SDK, REST API, Telegram bot, and agent tooling for swapping tokens across 15 chains.
+
+## Install
+
+```bash
+bun add @suwappu/sdk
+```
+
+Or for OpenClaw agents:
+```bash
+bun add @suwappu/openclaw
+```
+
+## Authentication
+
+Register for an API key:
+```
+POST https://api.suwappu.bot/v1/agent/register
+```
+
+Set the key in your environment:
+```
+SUWAPPU_API_KEY=your_key_here
+```
+
+## SDK Usage
+
+```typescript
+import { createClient } from "@suwappu/sdk";
+
+const suwappu = createClient({ apiKey: process.env.SUWAPPU_API_KEY });
+
+// Get a quote
+const quote = await suwappu.getQuote("ETH", "USDC", 1.0, "arbitrum");
+// → { id, fromAmount, toAmount, route, gas, chain }
+
+// Execute the swap
+const tx = await suwappu.executeSwap(quote.id);
+// → { txHash, status, chain }
+
+// Check portfolio
+const balances = await suwappu.getPortfolio();
+// → [{ token, balance, usdValue, chain }]
+
+// Get prices
+const price = await suwappu.getPrices("ETH", "arbitrum");
+// → { token, priceUsd, change24h }
+
+// List supported chains
+const chains = await suwappu.listChains();
+// → [{ name, chainId, status }]
+
+// List tokens on a chain
+const tokens = await suwappu.listTokens("arbitrum");
+// → [{ symbol, address, decimals, chain }]
+```
+
+## Tools (6 total)
+
+| Tool | Purpose | Parameters |
+|------|---------|------------|
+| `get_quote` | Best swap route for a token pair | `from_token, to_token, amount, chain` |
+| `execute_swap` | Execute a previously quoted swap | `quote_id` |
+| `get_portfolio` | Wallet balances across chains | `chain` (optional) |
+| `get_prices` | Current token prices | `token, chain` (optional) |
+| `list_chains` | All supported chains and status | none |
+| `list_tokens` | Popular tokens on a chain | `chain` |
+
+## REST API
+
+Base URL: `https://api.suwappu.bot`
+
+```
+GET  /v1/quote?from=ETH&to=USDC&amount=1.0&chain=arbitrum
+POST /v1/swap                  { "quoteId": "..." }
+GET  /v1/portfolio             ?chain=arbitrum (optional)
+GET  /v1/prices/{token}        ?chain=arbitrum (optional)
+GET  /v1/chains
+GET  /v1/tokens?chain=arbitrum
+POST /v1/agent/register
+GET  /health
+```
+
+All endpoints require `Authorization: Bearer <SUWAPPU_API_KEY>` except `/health`.
+
+## Supported Chains
+
+Ethereum, Arbitrum, Base, Optimism, Polygon, Avalanche, BNB Chain, Solana, Fantom, zkSync, Linea, Scroll, Blast, Gnosis, Aurora.
+
+## Routing Providers
+
+Li.Fi, Jupiter, CoW Protocol, Socket, 1inch, Wormhole, CCTP, Jito, Uniswap.
+
+- EVM chains: Li.Fi, CoW Protocol, Socket, 1inch, Uniswap
+- Solana: Jupiter, Jito
+- Cross-chain bridges: Wormhole, CCTP
+- MEV protection: CoW Protocol (EVM), Jito bundles (Solana) — enabled by default
+
+## Wallets
+
+Non-custodial. Powered by Turnkey TEE hardware. Private keys never leave the secure enclave. Users can export keys anytime.
+
+## Typical Agent Flow
+
+1. `list_chains` — discover available chains
+2. `get_quote ETH USDC 1.0 arbitrum` — find best route and price
+3. `execute_swap <quote_id>` — confirm and execute on-chain
+4. `get_portfolio` — verify the swap landed
+
+## Interfaces
+
+The same routing engine powers:
+- **Telegram bot**: [@suwappu_bot](https://t.me/suwappu_bot)
+- **TypeScript SDK**: `bun add @suwappu/sdk`
+- **OpenClaw module**: `bun add @suwappu/openclaw`
+- **REST API**: `api.suwappu.bot/v1/`
+- **WhatsApp, Discord, iOS**: same wallet everywhere
+
+## Links
+
+- Bot: https://t.me/suwappu_bot
+- API: https://api.suwappu.bot
+- Docs: https://docs.suwappu.bot
+- Homepage: https://suwappu.bot

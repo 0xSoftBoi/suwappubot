@@ -185,6 +185,12 @@ function Footer() {
           >
             Docs
           </a>
+          <a
+            href="/llms.txt"
+            className="text-xs text-suwappu-dark-text-muted hover:text-suwappu-dark-text-secondary transition-colors font-mono"
+          >
+            llms.txt
+          </a>
         </div>
         <p className="text-xs text-white/25">
           &copy; {new Date().getFullYear()} Suwappu
