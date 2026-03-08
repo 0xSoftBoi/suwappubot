@@ -255,21 +255,21 @@ jobs:
           if [ -n "$TOKEN" ]; then
             echo "=== getWebhookInfo ==="
             WEBHOOK_INFO=$(curl -sf "https://api.telegram.org/bot${TOKEN}/getWebhookInfo")
-            echo "$WEBHOOK_INFO" | python3 -c "
-import sys,json
-d = json.load(sys.stdin)['result']
-pending = d.get('pending_update_count', 0)
-url = d.get('url', '')
-err = d.get('last_synchronization_error_date')
-print(f'Webhook URL: {url or \"(none - polling mode)\"}')
-print(f'Pending updates: {pending}')
-if err:
-    print(f'Last sync error: {err}')
-if pending > 0 and not url:
-    print('WARNING: Bot is NOT consuming updates! Polling may have failed.')
-else:
-    print('OK: Bot appears to be polling normally.')
-"
+            echo "$WEBHOOK_INFO" | python3 << 'PYEOF'
+          import sys,json
+          d = json.load(sys.stdin)['result']
+          pending = d.get('pending_update_count', 0)
+          url = d.get('url', '')
+          err = d.get('last_synchronization_error_date')
+          print(f'Webhook URL: {url or "(none - polling mode)"}')
+          print(f'Pending updates: {pending}')
+          if err:
+              print(f'Last sync error: {err}')
+          if pending > 0 and not url:
+              print('WARNING: Bot is NOT consuming updates! Polling may have failed.')
+          else:
+              print('OK: Bot appears to be polling normally.')
+          PYEOF
           else
             echo "Could not retrieve bot token"
           fi
