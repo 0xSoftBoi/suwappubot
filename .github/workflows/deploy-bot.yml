@@ -1,0 +1,289 @@
+name: Deploy Bot to AWS ECS
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - 'bot/**'
+      - 'api/**'
+      - 'database/**'
+      - 'scripts/**'
+      - 'Dockerfile'
+      - 'requirements.txt'
+      - '.github/workflows/deploy-bot.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - production
+          - development
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: suwappu
+  ECS_CLUSTER: suwappu-cluster
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and Deploy Bot
+    runs-on: ubuntu-latest
+    environment: ${{ (github.ref == 'refs/heads/main' || inputs.environment == 'production') && 'production' || 'development' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set environment variables
+        id: env
+        run: |
+          if [ "${{ github.ref }}" == "refs/heads/main" ] || [ "${{ inputs.environment }}" == "production" ]; then
+            echo "ENVIRONMENT=production" >> $GITHUB_OUTPUT
+            echo "ECS_SERVICE=suwappu-bot-prod" >> $GITHUB_OUTPUT
+            echo "IMAGE_ENV_TAG=production" >> $GITHUB_OUTPUT
+            echo "BOT_URL=https://bot.suwappu.bot" >> $GITHUB_OUTPUT
+          else
+            echo "ENVIRONMENT=development" >> $GITHUB_OUTPUT
+            echo "ECS_SERVICE=suwappu-bot-dev" >> $GITHUB_OUTPUT
+            echo "IMAGE_ENV_TAG=development" >> $GITHUB_OUTPUT
+            echo "BOT_URL=https://devbot.suwappu.bot" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Create ECR repository if not exists
+        run: |
+          aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} || \
+          aws ecr create-repository --repository-name ${{ env.ECR_REPOSITORY }}
+
+      - name: Build, tag, and push Docker image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Build from root Dockerfile
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+
+          # Tag with environment
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:${{ steps.env.outputs.IMAGE_ENV_TAG }}
+
+          # Push SHA and environment tags
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:${{ steps.env.outputs.IMAGE_ENV_TAG }}
+
+          # Only push latest for development (production should use SHA for traceability)
+          if [ "${{ steps.env.outputs.ENVIRONMENT }}" != "production" ]; then
+            docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+            docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          fi
+
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        continue-on-error: true
+        with:
+          image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}'
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+
+      - name: Check if ECS service exists
+        id: check-service
+        run: |
+          SERVICE_EXISTS=$(aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ steps.env.outputs.ECS_SERVICE }} \
+            --query 'services[0].status' \
+            --output text 2>/dev/null || echo "MISSING")
+
+          if [ "$SERVICE_EXISTS" == "ACTIVE" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "::warning::ECS service ${{ steps.env.outputs.ECS_SERVICE }} does not exist. Please create it first."
+          fi
+
+      - name: Run pre-deploy database backup
+        if: steps.check-service.outputs.exists == 'true'
+        continue-on-error: true
+        run: |
+          echo "Starting database backup before deploy..."
+          TASK_ARN=$(aws ecs run-task \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --task-definition suwappu-db-backup \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ vars.PRIVATE_SUBNET_IDS || 'subnet-053c24a62515265c8,subnet-028201d90d1e42146' }}],securityGroups=[${{ vars.ECS_SECURITY_GROUP_ID || 'sg-0cc9f4d21fa8a5175' }}]}" \
+            --overrides '{"containerOverrides":[{"name":"backup","environment":[{"name":"BACKUP_PREFIX","value":"pre-deploy/bot"}]}]}' \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          echo "Backup task started: ${TASK_ARN}"
+          aws ecs wait tasks-stopped --cluster ${{ env.ECS_CLUSTER }} --tasks "${TASK_ARN}"
+
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --tasks "${TASK_ARN}" \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+
+          if [ "${EXIT_CODE}" != "0" ]; then
+            echo "::error::Database backup failed with exit code ${EXIT_CODE}"
+            exit 1
+          fi
+          echo "Database backup completed successfully."
+
+      # NOTE: Database migrations run at container startup (runtime):
+      # - Bot: database/db.py _ensure_schema() — idempotent, additive DDL
+      # - API-TS: api-ts/start.sh runs drizzle-kit migrate before server start
+      # Migration failures crash the container, triggering ECS circuit breaker rollback.
+
+      - name: Update task definition with new image
+        id: update-task-def
+        if: steps.check-service.outputs.exists == 'true'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Get the current task definition name from the service
+          TASK_DEF_ARN=$(aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ steps.env.outputs.ECS_SERVICE }} \
+            --query 'services[0].taskDefinition' \
+            --output text)
+
+          TASK_DEF_NAME=$(echo "$TASK_DEF_ARN" | awk -F'/' '{print $NF}' | awk -F':' '{print $1}')
+          echo "Current task definition: $TASK_DEF_ARN"
+
+          # Get the current task definition JSON
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition "$TASK_DEF_ARN" \
+            --query 'taskDefinition')
+
+          # Get the container name
+          CONTAINER_NAME=$(echo "$TASK_DEF" | python3 -c "import sys,json; print(json.load(sys.stdin)['containerDefinitions'][0]['name'])")
+          echo "Container name: $CONTAINER_NAME"
+
+          # Update the image in the task definition and register new revision
+          NEW_IMAGE="$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG"
+          echo "New image: $NEW_IMAGE"
+
+          echo "$TASK_DEF" | python3 -c "
+          import sys, json
+          td = json.load(sys.stdin)
+          td['containerDefinitions'][0]['image'] = '$NEW_IMAGE'
+          # Remove fields that can't be in register-task-definition
+          for key in ['taskDefinitionArn', 'revision', 'status', 'requiresAttributes', 'compatibilities', 'registeredAt', 'registeredBy']:
+              td.pop(key, None)
+          with open('/tmp/task-def.json', 'w') as f:
+              json.dump(td, f)
+          "
+
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file:///tmp/task-def.json \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+
+          echo "New task definition: $NEW_TASK_DEF_ARN"
+          echo "task_def_arn=$NEW_TASK_DEF_ARN" >> $GITHUB_OUTPUT
+
+      - name: Deploy to ECS
+        if: steps.check-service.outputs.exists == 'true'
+        run: |
+          echo "Deploying to ${{ steps.env.outputs.ENVIRONMENT }} environment..."
+          echo "Service: ${{ steps.env.outputs.ECS_SERVICE }}"
+          echo "Task definition: ${{ steps.update-task-def.outputs.task_def_arn }}"
+
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ steps.env.outputs.ECS_SERVICE }} \
+            --task-definition ${{ steps.update-task-def.outputs.task_def_arn }} \
+            --deployment-configuration "deploymentCircuitBreaker={enable=true,rollback=true}" \
+            --enable-execute-command \
+            --force-new-deployment
+
+          echo "Deployment initiated with circuit breaker enabled. Waiting for service to stabilize..."
+
+      - name: Wait for deployment
+        if: steps.check-service.outputs.exists == 'true'
+        run: |
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ steps.env.outputs.ECS_SERVICE }}
+
+          echo "Deployment complete!"
+
+      - name: Health check
+        if: steps.check-service.outputs.exists == 'true'
+        run: |
+          echo "Checking health endpoint..."
+          sleep 10
+          curl -sf "${{ steps.env.outputs.BOT_URL }}/health" || echo "Health check pending (service may still be starting)"
+
+      - name: Verify Telegram bot is polling
+        if: steps.check-service.outputs.exists == 'true'
+        continue-on-error: true
+        run: |
+          echo "Checking Telegram bot status..."
+          sleep 20
+
+          # Get bot token from Secrets Manager
+          TOKEN=$(aws secretsmanager get-secret-value \
+            --secret-id "suwappu/app-secrets" \
+            --query 'SecretString' \
+            --output text 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('TELEGRAM_BOT_TOKEN',''))" 2>/dev/null)
+
+          if [ -n "$TOKEN" ]; then
+            echo "=== getWebhookInfo ==="
+            WEBHOOK_INFO=$(curl -sf "https://api.telegram.org/bot${TOKEN}/getWebhookInfo")
+            echo "$WEBHOOK_INFO" | python3 << 'PYEOF'
+          import sys,json
+          d = json.load(sys.stdin)['result']
+          pending = d.get('pending_update_count', 0)
+          url = d.get('url', '')
+          err = d.get('last_synchronization_error_date')
+          print(f'Webhook URL: {url or "(none - polling mode)"}')
+          print(f'Pending updates: {pending}')
+          if err:
+              print(f'Last sync error: {err}')
+          if pending > 0 and not url:
+              print('WARNING: Bot is NOT consuming updates! Polling may have failed.')
+          else:
+              print('OK: Bot appears to be polling normally.')
+          PYEOF
+          else
+            echo "Could not retrieve bot token"
+          fi
+
+      - name: Deployment summary
+        run: |
+          echo "## Bot Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ steps.env.outputs.ENVIRONMENT }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ steps.build-image.outputs.image }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| ECS Cluster | ${{ env.ECS_CLUSTER }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ECS Service | ${{ steps.env.outputs.ECS_SERVICE }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| URL | ${{ steps.env.outputs.BOT_URL }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Service Exists | ${{ steps.check-service.outputs.exists }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
