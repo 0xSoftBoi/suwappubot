@@ -575,6 +575,11 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
             amount=quote.from_amount_human,
             token_symbol=swap_data["from_token"],
         )
+        # Persist fee values so post-execution can record them
+        context.user_data["swap"]["fee_amount"] = fee_amount
+        context.user_data["swap"]["fee_percentage"] = fee_percentage
+        context.user_data["swap"]["fee_usd"] = fee_usd
+
         num_wallets = len(selected_wallet_ids)
         total_fee_usd = fee_usd * num_wallets
         total_from_human = quote.from_amount_human * num_wallets
