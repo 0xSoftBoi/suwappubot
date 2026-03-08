@@ -25,7 +25,7 @@ from bot.config.settings import settings
 from bot.utils.cache import quote_cache
 from bot.utils.performance import track_time, MetricNames
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
-from bot.config.tokens import get_token_address, get_token_decimals
+from bot.config.tokens import get_token_address, get_token_decimals, NATIVE_TOKEN_ADDRESS
 from bot.services.lifi_api import LiFiAPI, LiFiQuote, LiFiError
 from bot.services.jupiter_api import JupiterAPI, JupiterQuote, JupiterError
 from bot.services.layerzero_api import LayerZeroAPI, LayerZeroQuote, LayerZeroError
@@ -730,15 +730,54 @@ class SwapEngine:
         else:
             # EVM transaction
             web3 = self.wallet_service._get_web3(quote.from_chain)
+            sender = Web3.to_checksum_address(wallet_data["address"])
+            nonce = web3.eth.get_transaction_count(sender)
 
-            # Build transaction - parse hex values from Li.Fi
+            # ERC20 approval: if swapping a token (not native), approve the LiFi contract
+            from_token_address = get_token_address(quote.from_token, quote.from_chain)
+            spender = Web3.to_checksum_address(tx_request.get("to"))
+
+            if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
+                token_addr = Web3.to_checksum_address(from_token_address)
+                erc20_abi = [
+                    {"inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "type": "function", "stateMutability": "view"},
+                    {"inputs": [{"name": "spender", "type": "address"}, {"name": "amount", "type": "uint256"}], "name": "approve", "outputs": [{"name": "", "type": "bool"}], "type": "function", "stateMutability": "nonpayable"},
+                ]
+                token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
+                amount_needed = int(quote.from_amount)
+                current_allowance = token_contract.functions.allowance(sender, spender).call()
+
+                if current_allowance < amount_needed:
+                    max_approval = 2**256 - 1
+                    approve_data = token_contract.functions.approve(spender, max_approval).build_transaction({
+                        "from": sender,
+                        "nonce": nonce,
+                        "chainId": chain.chain_id,
+                        "gasPrice": web3.eth.gas_price,
+                    })
+                    approve_tx = {
+                        "to": token_addr,
+                        "data": approve_data["data"],
+                        "value": 0,
+                        "gas": approve_data.get("gas", 60000),
+                        "gasPrice": approve_data["gasPrice"],
+                        "nonce": nonce,
+                        "chainId": chain.chain_id,
+                    }
+                    signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
+                    approve_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approve.replace("0x", "")))
+                    logger.info(f"LiFi approval tx: {approve_hash.hex()}")
+                    web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                    nonce += 1
+
+            # Build swap transaction - parse hex values from Li.Fi
             tx = {
-                "to": Web3.to_checksum_address(tx_request.get("to")),
+                "to": spender,
                 "data": tx_request.get("data"),
                 "value": _parse_int(tx_request.get("value"), 0),
                 "gas": _parse_int(tx_request.get("gasLimit"), 500000),
                 "gasPrice": _parse_int(tx_request.get("gasPrice"), web3.eth.gas_price),
-                "nonce": web3.eth.get_transaction_count(wallet_data["address"]),
+                "nonce": nonce,
                 "chainId": chain.chain_id,
             }
 
