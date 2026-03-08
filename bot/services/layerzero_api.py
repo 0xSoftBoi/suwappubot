@@ -269,6 +269,7 @@ class LayerZeroAPI:
             slippage: Slippage tolerance percentage
         """
         from web3 import Web3
+        import random as _rand
 
         pool_address = self.get_pool_address(src_chain, token_symbol)
         if not pool_address:
@@ -276,8 +277,26 @@ class LayerZeroAPI:
 
         dst_eid = self.get_dst_eid(dst_chain)
         chain = get_chain_by_name(src_chain)
-        rpc_url = settings.get_rpc_url(src_chain)
-        web3 = Web3(Web3.HTTPProvider(rpc_url))
+
+        # Try all RPCs with fallback to handle rate limits
+        rpc_attr = f"{src_chain.lower().replace('-', '_')}_rpc_url"
+        rpc_str = getattr(settings, rpc_attr, "") or ""
+        rpc_urls = [u.strip() for u in rpc_str.split(",") if u.strip()]
+        _rand.shuffle(rpc_urls)
+        if not rpc_urls:
+            raise LayerZeroError(f"No RPC URLs for {src_chain}")
+
+        web3 = None
+        for url in rpc_urls:
+            try:
+                w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 10}))
+                w3.eth.block_number  # quick connectivity test
+                web3 = w3
+                break
+            except Exception:
+                continue
+        if web3 is None:
+            raise LayerZeroError(f"All RPCs failed for {src_chain}")
 
         pool = web3.eth.contract(
             address=Web3.to_checksum_address(pool_address),

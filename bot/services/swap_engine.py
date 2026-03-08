@@ -1088,11 +1088,32 @@ class SwapEngine:
         logger.info(f"CCIP transfer tx: {tx_hash.hex()}")
         return tx_hash.hex()
     
+    def _get_web3_with_fallback(self, chain_name: str) -> Web3:
+        """Get a Web3 instance, trying all configured RPCs until one works."""
+        rpc_str = getattr(settings, f"{chain_name.lower().replace('-', '_')}_rpc_url", "")
+        urls = [u.strip() for u in rpc_str.split(",") if u.strip()]
+        if not urls:
+            raise SwapError(f"No RPC URLs configured for {chain_name}")
+
+        # Shuffle to spread load, then try each
+        import random
+        random.shuffle(urls)
+        last_error = None
+        for url in urls:
+            try:
+                w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 15}))
+                w3.eth.block_number  # connectivity check
+                return w3
+            except Exception as e:
+                last_error = e
+                logger.debug(f"RPC {url[:40]} failed: {e}, trying next...")
+        raise SwapError(f"All RPCs failed for {chain_name}: {last_error}")
+
     async def _execute_layerzero_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a cross-chain transfer via LayerZero/Stargate V2.
 
         Steps:
-        1. Get fresh quote (quoteSend on-chain) for current LZ fee
+        1. Rebuild tx from stored quote data (no extra RPC calls)
         2. Approve ERC20 spend to Stargate pool (wait for receipt)
         3. Call sendToken() on the Stargate pool contract
         """
@@ -1102,16 +1123,24 @@ class SwapEngine:
 
         sender = wallet_data["address"]
         chain = get_chain_by_name(quote.from_chain)
-        rpc_url = settings.get_rpc_url(quote.from_chain)
-        web3 = Web3(Web3.HTTPProvider(rpc_url))
+        web3 = self._get_web3_with_fallback(quote.from_chain)
 
-        # Fresh quote with current LZ fee
-        lz_quote = await self.layerzero.get_quote(
+        # Rebuild LZ quote from stored raw_quote data (avoids extra RPC round-trip)
+        raw = quote.raw_quote
+        from bot.services.layerzero_api import LayerZeroQuote
+        lz_quote = LayerZeroQuote(
             src_chain=quote.from_chain,
             dst_chain=quote.to_chain,
             token_symbol=quote.from_token,
-            amount=quote.from_amount,
-            from_address=sender,
+            amount_in=quote.from_amount,
+            amount_out=quote.to_amount,
+            amount_out_min=quote.to_amount_min,
+            native_fee=raw.get("native_fee", "0"),
+            native_fee_usd=quote.gas_cost_usd,
+            estimated_time=quote.estimated_time,
+            pool_address=self.layerzero.get_pool_address(quote.from_chain, quote.from_token),
+            dst_eid=self.layerzero.get_dst_eid(quote.to_chain),
+            raw_data=raw,
         )
 
         tx_bundle = self.layerzero.build_send_transaction(
