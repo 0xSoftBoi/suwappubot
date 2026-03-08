@@ -51,7 +51,7 @@ export class MorphoService extends Context.Tag('MorphoService')<
 
 async function getMarketsImpl(chainId = 8453): Promise<LendingMarket[]> {
 	const query = `{
-		markets(first: 50, where: { chainId_in: [${chainId}] }, orderBy: TotalSupplyAssetsUsd, orderDirection: Desc) {
+		markets(first: 50, where: { chainId_in: [${chainId}] }, orderBy: SupplyAssetsUsd, orderDirection: Desc) {
 			items {
 				uniqueKey
 				loanAsset { symbol }
