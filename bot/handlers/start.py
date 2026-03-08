@@ -10,10 +10,11 @@ from bot.models.user import User, Wallet
 from database.db import get_session
 from bot.services.tos_service import tos_service, TOS_TEXT
 from bot.services.referral_service import referral_service
-from bot.services.wallet import wallet_service
+from bot.services.wallet import WalletService
 from bot.utils.templates import WELCOME_MESSAGE, HELP_MESSAGE, TOS_KEYBOARD
 
 logger = logging.getLogger(__name__)
+wallet_service = WalletService()
 
 
 async def _ensure_wallets(user_id: int) -> dict:
