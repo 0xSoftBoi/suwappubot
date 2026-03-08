@@ -215,32 +215,22 @@ async def select_from_chain(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     # Sort tokens with balance by amount descending
     tokens_with_bal.sort(key=lambda x: x[1], reverse=True)
 
-    text = f"🔄 *New Swap*\n\n{chain.logo_emoji} From: *{chain.display_name}*\n\nSelect the token to swap:"
-
     token_buttons = []
 
-    # Tokens with balance — show balance amount, one per row for clarity
     if tokens_with_bal:
+        text = f"🔄 *New Swap*\n\n{chain.logo_emoji} From: *{chain.display_name}*\n\nSelect the token to swap:"
+        # Only show tokens the user holds
         for token, bal in tokens_with_bal:
-            label = f"✅ {token.logo_emoji} {token.symbol} — {format_amount(bal)}"
+            label = f"{token.logo_emoji} {token.symbol} — {format_amount(bal)}"
             token_buttons.append([InlineKeyboardButton(
                 label, callback_data=f"from_token_{token.symbol}"
             )])
-
-    # Remaining tokens — compact 2 per row
-    if tokens_without_bal:
-        row = []
-        for token in tokens_without_bal:
-            btn = InlineKeyboardButton(
-                f"{token.logo_emoji} {token.symbol}",
-                callback_data=f"from_token_{token.symbol}"
-            )
-            row.append(btn)
-            if len(row) == 3:
-                token_buttons.append(row)
-                row = []
-        if row:
-            token_buttons.append(row)
+    else:
+        text = (
+            f"🔄 *New Swap*\n\n{chain.logo_emoji} From: *{chain.display_name}*\n\n"
+            f"You don't hold any tokens on this chain.\n"
+            f"Deposit funds first or select a different chain."
+        )
 
     token_buttons.append([
         InlineKeyboardButton("« Back", callback_data="swap_start"),
