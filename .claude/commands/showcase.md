@@ -1,3 +1,8 @@
+---
+description: "Build, dev, or check the Next.js showcase homepage"
+context: fork
+---
+
 # Showcase Site Management
 
 Build, dev, or check the Next.js showcase homepage.

@@ -1,5 +1,6 @@
 ---
 description: "Add a new TypeScript API endpoint (Hono + Effect-TS)"
+context: fork
 ---
 
 # New TypeScript API Route

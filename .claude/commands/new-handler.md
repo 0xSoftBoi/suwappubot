@@ -1,5 +1,6 @@
 ---
 description: "Add a new Telegram bot command handler"
+context: fork
 ---
 
 # New Telegram Bot Handler

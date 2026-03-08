@@ -1,3 +1,8 @@
+---
+description: "Scaffold a new horizontal scroll panel for the showcase homepage"
+context: fork
+---
+
 # Add a New GSAP Panel to Showcase
 
 Scaffold a new horizontal scroll panel for the showcase homepage.

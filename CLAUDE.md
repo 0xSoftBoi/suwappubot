@@ -26,14 +26,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **If any git operation fails twice, STOP and ask the user** — do NOT attempt dozens of recovery steps.
 - Use `HUSKY=0` prefix for all git commits and pushes in worktrees to avoid hook hangs.
 
-## TypeScript & Build Tools
+## Build Tools
 - **Always use `bun`** instead of `tsc`, `npm`, or `npx`. The `tsc` command times out in this project.
-- Use `bun check` or equivalent bun commands for all TypeScript operations.
-- **postgres.js**: Do NOT assume standard psql connection string formats. postgres.js has its own options (e.g. `ssl: 'require'` must be set in code, not as a URL query param). Check postgres.js docs before configuring database connections.
-
-## CLI Tools
-- **Use `gh`** (GitHub CLI) for all GitHub operations (PRs, issues, etc.) — do not use raw git push or API calls when gh is available.
-- Use `aws` CLI for infrastructure checks but be aware of sandbox permission limitations.
+- **Use `gh`** (GitHub CLI) for all GitHub operations.
+- Component-specific rules are in `.claude/rules/` (api-ts, webapp, bot, showcase).
 
 ## Project Overview
 
