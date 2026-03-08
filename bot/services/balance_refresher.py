@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class BalanceRefresher:
     """Periodically refreshes balance cache for all active wallets."""
 
-    def __init__(self, refresh_interval: int = 45, concurrency: int = 5):
+    def __init__(self, refresh_interval: int = 45, concurrency: int = 3):
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._refresh_interval = refresh_interval
@@ -44,18 +44,25 @@ class BalanceRefresher:
     async def _refresh_loop(self):
         """Main refresh loop."""
         # Wait a bit on startup to let other services initialize
-        await asyncio.sleep(10)
+        await asyncio.sleep(15)
 
         while self._running:
             try:
                 await self._refresh_all()
+            except asyncio.CancelledError:
+                return
             except Exception as e:
                 logger.error(f"Balance refresh error: {e}")
 
+            if not self._running:
+                return
             await asyncio.sleep(self._refresh_interval)
 
     async def _refresh_all(self):
         """Refresh balances for all active wallets."""
+        if not self._running:
+            return
+
         # Get all unique (address, chain_type) pairs from active wallets
         seen: set[tuple[str, str]] = set()
         targets: list[tuple[str, str]] = []
@@ -80,9 +87,13 @@ class BalanceRefresher:
         sem = asyncio.Semaphore(self._concurrency)
 
         async def _refresh_one(address: str, chain_type: str):
+            if not self._running:
+                return
             async with sem:
                 try:
                     await self._wallet_service.get_balances_by_address(address, chain_type)
+                except asyncio.CancelledError:
+                    return
                 except Exception as e:
                     logger.debug(f"Failed to refresh {address} ({chain_type}): {e}")
 
