@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings
 from pydantic import Field, ConfigDict
-from typing import Optional, List
+from typing import ClassVar, Dict, Optional, List
 from functools import lru_cache
 import random
 
@@ -194,7 +194,7 @@ class Settings(BaseSettings):
     )
 
     # Infura network name mappings
-    INFURA_NETWORKS = {
+    INFURA_NETWORKS: ClassVar[Dict[str, str]] = {
         "ethereum": "mainnet",
         "polygon": "polygon-mainnet",
         "arbitrum": "arbitrum-mainnet",
