@@ -125,8 +125,9 @@ async def perps_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         keyboard.append([InlineKeyboardButton("\U0001f519 Back", callback_data="perps_back")])
 
         side = context.user_data["perps_side"]
+        side_emoji = '\U0001f4c8' if side == 'long' else '\U0001f4c9'
         await query.edit_message_text(
-            f"{'\U0001f4c8' if side == 'long' else '\U0001f4c9'} **Open {side.title()} Position**\n\n"
+            f"{side_emoji} **Open {side.title()} Position**\n\n"
             "Select a market:",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown",
@@ -185,9 +186,10 @@ async def perps_market_callback(update: Update, context: ContextTypes.DEFAULT_TY
     price_str = f"${price:,.2f}" if price else "N/A"
 
     side = context.user_data.get("perps_side", "long")
+    side_emoji = '\U0001f4c8' if side == 'long' else '\U0001f4c9'
 
     await query.edit_message_text(
-        f"{'\U0001f4c8' if side == 'long' else '\U0001f4c9'} **{side.title()} {market}**\n\n"
+        f"{side_emoji} **{side.title()} {market}**\n\n"
         f"Current Price: {price_str}\n\n"
         f"Enter the position size (in USD):\n"
         f"Example: `100` for $100",
