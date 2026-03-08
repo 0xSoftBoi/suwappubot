@@ -256,11 +256,16 @@ class TransactionPoller:
                     f"Chain: {tx.from_chain} → {tx.to_chain}\n\n"
                     f"[View Transaction]({self._get_explorer_link(tx)})"
                 )
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 New Swap", callback_data="swap_start")],
+                    [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
+                ])
                 await self._bot.send_message(
                     chat_id=telegram_id,
                     text=text,
                     parse_mode="Markdown",
                     disable_web_page_preview=True,
+                    reply_markup=keyboard,
                 )
             elif new_status == SwapStatus.FAILED.value:
                 text = (
