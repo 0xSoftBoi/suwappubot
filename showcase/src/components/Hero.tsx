@@ -1,43 +1,9 @@
 'use client';
 
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { motion, useMotionValue, useInView, animate, AnimatePresence } from 'framer-motion';
-import {
-  staggerContainerSlow,
-  staggerChild,
-  fadeInUp,
-  EASE_OUT_EXPO,
-} from '@/lib/animations';
-
-// ---------------------------------------------------------------------------
-// SwapCounter – social proof counter (preserved from original)
-// ---------------------------------------------------------------------------
-
-function SwapCounter() {
-  const count = useMotionValue(0);
-  const [display, setDisplay] = useState('0');
-  const ref = useRef<HTMLDivElement>(null);
-  const inView = useInView(ref, { once: true });
-
-  useEffect(() => {
-    if (inView) {
-      return animate(count, 247583, {
-        duration: 2.5,
-        ease: 'easeOut',
-        onUpdate: (v) => setDisplay(Math.floor(v).toLocaleString()),
-      }).stop;
-    }
-  }, [inView, count]);
-
-  return (
-    <div ref={ref} className="text-sm font-medium text-white/60">
-      <span className="bg-gradient-to-r from-suwappu-magenta to-suwappu-purple bg-clip-text text-transparent font-bold text-base">
-        {display}+
-      </span>{' '}
-      swaps executed
-    </div>
-  );
-}
+import gsap from 'gsap';
+import { useGSAP } from '@gsap/react';
+import Panel from './Panel';
 
 // ---------------------------------------------------------------------------
 // Chat Demo types & data
@@ -56,65 +22,73 @@ const CHAT_SEQUENCE: { msg: ChatMessage; showAt: number }[] = [
   {
     msg: {
       type: 'bot',
-      text: '✅ Best route found via Li.Fi\n1 ETH → 2,847.32 USDC\nChain: Arbitrum\nFee: 0.3% | Gas: ~$0.12',
+      text: '\u2705 Best route found via Li.Fi\n1 ETH \u2192 2,847.32 USDC\nChain: Arbitrum\nFee: 0.3% | Gas: ~$0.12',
     },
     showAt: 2500,
   },
   { msg: { type: 'button', text: 'Confirm Swap' }, showAt: 3500 },
-  { msg: { type: 'success', text: '🎉 Swap complete! +2,847.32 USDC' }, showAt: 5000 },
+  { msg: { type: 'success', text: '\ud83c\udf89 Swap complete! +2,847.32 USDC' }, showAt: 5000 },
 ];
 
-const LOOP_DELAY = 3000; // ms to wait after last message before resetting
+const LOOP_DELAY = 3000;
 const TOTAL_CYCLE = 5000 + LOOP_DELAY;
 
 // ---------------------------------------------------------------------------
-// TypingIndicator
+// TypingIndicator — GSAP-driven dots
 // ---------------------------------------------------------------------------
 
 function TypingIndicator() {
+  const dotsRef = useRef<HTMLDivElement>(null);
+
+  useGSAP(() => {
+    if (!dotsRef.current) return;
+    const dots = dotsRef.current.querySelectorAll('.typing-dot');
+    gsap.to(dots, {
+      opacity: 1,
+      stagger: { each: 0.2, repeat: -1, yoyo: true },
+      duration: 0.4,
+      ease: 'power1.inOut',
+    });
+  }, { scope: dotsRef });
+
   return (
-    <div className="flex items-center gap-1 px-4 py-3">
-      {[0, 1, 2].map((i) => (
-        <motion.span
-          key={i}
-          className="w-2 h-2 rounded-full bg-white/40"
-          animate={{ opacity: [0.3, 1, 0.3] }}
-          transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
-        />
-      ))}
+    <div ref={dotsRef} className="flex items-center gap-1 px-4 py-3">
+      <span className="typing-dot w-2 h-2 rounded-full bg-white/40 opacity-30" />
+      <span className="typing-dot w-2 h-2 rounded-full bg-white/40 opacity-30" />
+      <span className="typing-dot w-2 h-2 rounded-full bg-white/40 opacity-30" />
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// ChatDemo
+// ChatDemo — loops with GSAP timeline for message entrance
 // ---------------------------------------------------------------------------
 
 function ChatDemo() {
   const [visibleMessages, setVisibleMessages] = useState<ChatMessage[]>([]);
   const [cycleKey, setCycleKey] = useState(0);
+  const chatAreaRef = useRef<HTMLDivElement>(null);
 
   const runSequence = useCallback(() => {
-    // Clear messages at start of each cycle
     setVisibleMessages([]);
-
     const timers: NodeJS.Timeout[] = [];
 
-    CHAT_SEQUENCE.forEach(({ msg, showAt }, index) => {
+    CHAT_SEQUENCE.forEach(({ msg }) => {
+      // We handle animation in useEffect below
+    });
+
+    CHAT_SEQUENCE.forEach(({ msg, showAt }) => {
       const timer = setTimeout(() => {
         setVisibleMessages((prev) => {
-          // When a bot message arrives, remove the typing indicator
           if (msg.type === 'bot') {
             return [...prev.filter((m) => m.type !== 'typing'), msg];
           }
-          // When typing arrives, just add it
           return [...prev, msg];
         });
       }, showAt);
       timers.push(timer);
     });
 
-    // Schedule next cycle
     const resetTimer = setTimeout(() => {
       setCycleKey((k) => k + 1);
     }, TOTAL_CYCLE);
@@ -128,33 +102,22 @@ function ChatDemo() {
     return cleanup;
   }, [cycleKey, runSequence]);
 
-  const messageVariants = {
-    hidden: { opacity: 0, y: 20, scale: 0.95 },
-    visible: {
-      opacity: 1,
-      y: 0,
-      scale: 1,
-      transition: { duration: 0.4, ease: EASE_OUT_EXPO },
-    },
-    exit: { opacity: 0, transition: { duration: 0.2 } },
-  };
-
-  const popInVariants = {
-    hidden: { opacity: 0, scale: 0.6 },
-    visible: {
-      opacity: 1,
-      scale: 1,
-      transition: { type: 'spring', stiffness: 400, damping: 15 },
-    },
-    exit: { opacity: 0, scale: 0.8, transition: { duration: 0.2 } },
-  };
+  // Animate new messages in with GSAP
+  useEffect(() => {
+    if (!chatAreaRef.current) return;
+    const children = chatAreaRef.current.children;
+    if (children.length === 0) return;
+    const last = children[children.length - 1] as HTMLElement;
+    gsap.fromTo(last,
+      { opacity: 0, y: 20, scale: 0.95 },
+      { opacity: 1, y: 0, scale: 1, duration: 0.4, ease: 'expo.out' }
+    );
+  }, [visibleMessages]);
 
   return (
     <div className="relative">
-      {/* Glow behind phone */}
       <div className="absolute inset-0 -m-8 bg-[radial-gradient(ellipse_at_center,_rgba(233,30,140,0.1)_0%,_transparent_70%)]" />
 
-      {/* Phone frame */}
       <div className="relative w-full max-w-[360px] mx-auto rounded-3xl border border-white/10 bg-suwappu-dark-surface overflow-hidden shadow-suwappu-card-dark">
         {/* Header bar */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-white/5 bg-suwappu-dark-surface-elevated">
@@ -170,102 +133,60 @@ function ChatDemo() {
         </div>
 
         {/* Chat area */}
-        <div className="px-4 py-5 min-h-[340px] flex flex-col gap-3">
-          <AnimatePresence mode="popLayout">
-            {visibleMessages.map((msg, i) => {
-              if (msg.type === 'user') {
-                return (
-                  <motion.div
-                    key={`${cycleKey}-user-${i}`}
-                    variants={messageVariants}
-                    initial="hidden"
-                    animate="visible"
-                    exit="exit"
-                    layout
-                    className="flex justify-end"
-                  >
-                    <div className="max-w-[80%] px-4 py-2.5 rounded-2xl rounded-br-md bg-blue-600/80 text-white text-sm leading-relaxed">
-                      {msg.text}
-                    </div>
-                  </motion.div>
-                );
-              }
+        <div ref={chatAreaRef} className="px-4 py-5 min-h-[340px] flex flex-col gap-3">
+          {visibleMessages.map((msg, i) => {
+            if (msg.type === 'user') {
+              return (
+                <div key={`${cycleKey}-user-${i}`} className="flex justify-end">
+                  <div className="max-w-[80%] px-4 py-2.5 rounded-2xl rounded-br-md bg-blue-600/80 text-white text-sm leading-relaxed">
+                    {msg.text}
+                  </div>
+                </div>
+              );
+            }
 
-              if (msg.type === 'typing') {
-                return (
-                  <motion.div
-                    key={`${cycleKey}-typing`}
-                    variants={messageVariants}
-                    initial="hidden"
-                    animate="visible"
-                    exit="exit"
-                    layout
-                    className="flex justify-start"
-                  >
-                    <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-suwappu-dark-surface-elevated">
-                      <TypingIndicator />
-                    </div>
-                  </motion.div>
-                );
-              }
+            if (msg.type === 'typing') {
+              return (
+                <div key={`${cycleKey}-typing`} className="flex justify-start">
+                  <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-suwappu-dark-surface-elevated">
+                    <TypingIndicator />
+                  </div>
+                </div>
+              );
+            }
 
-              if (msg.type === 'bot') {
-                return (
-                  <motion.div
-                    key={`${cycleKey}-bot-${i}`}
-                    variants={messageVariants}
-                    initial="hidden"
-                    animate="visible"
-                    exit="exit"
-                    layout
-                    className="flex justify-start"
-                  >
-                    <div className="max-w-[85%] px-4 py-3 rounded-2xl rounded-bl-md bg-suwappu-dark-surface-elevated text-white/90 text-sm leading-relaxed whitespace-pre-line">
-                      {msg.text}
-                    </div>
-                  </motion.div>
-                );
-              }
+            if (msg.type === 'bot') {
+              return (
+                <div key={`${cycleKey}-bot-${i}`} className="flex justify-start">
+                  <div className="max-w-[85%] px-4 py-3 rounded-2xl rounded-bl-md bg-suwappu-dark-surface-elevated text-white/90 text-sm leading-relaxed whitespace-pre-line">
+                    {msg.text}
+                  </div>
+                </div>
+              );
+            }
 
-              if (msg.type === 'button') {
-                return (
-                  <motion.div
-                    key={`${cycleKey}-btn-${i}`}
-                    variants={popInVariants}
-                    initial="hidden"
-                    animate="visible"
-                    exit="exit"
-                    layout
-                    className="flex justify-center pt-1"
-                  >
-                    <div className="px-8 py-2.5 rounded-full bg-gradient-to-r from-suwappu-magenta to-suwappu-purple text-white text-sm font-heading font-semibold shadow-suwappu-glow-magenta cursor-pointer hover:shadow-suwappu-glow-magenta-light transition-shadow">
-                      {msg.text}
-                    </div>
-                  </motion.div>
-                );
-              }
+            if (msg.type === 'button') {
+              return (
+                <div key={`${cycleKey}-btn-${i}`} className="flex justify-center pt-1">
+                  <div className="px-8 py-2.5 rounded-full bg-gradient-to-r from-suwappu-magenta to-suwappu-purple text-white text-sm font-heading font-semibold shadow-suwappu-glow-magenta">
+                    {msg.text}
+                  </div>
+                </div>
+              );
+            }
 
-              if (msg.type === 'success') {
-                return (
-                  <motion.div
-                    key={`${cycleKey}-success-${i}`}
-                    variants={messageVariants}
-                    initial="hidden"
-                    animate="visible"
-                    exit="exit"
-                    layout
-                    className="flex justify-start"
-                  >
-                    <div className="max-w-[85%] px-4 py-3 rounded-2xl rounded-bl-md bg-suwappu-success/10 border border-suwappu-success/20 text-suwappu-success text-sm font-semibold leading-relaxed">
-                      {msg.text}
-                    </div>
-                  </motion.div>
-                );
-              }
+            if (msg.type === 'success') {
+              return (
+                <div key={`${cycleKey}-success-${i}`} className="flex justify-start">
+                  <div className="max-w-[85%] px-4 py-3 rounded-2xl rounded-bl-md bg-suwappu-success/10 border border-suwappu-success/20 text-suwappu-success text-sm font-semibold leading-relaxed">
+                    {msg.text}
+                  </div>
+                </div>
+              );
+            }
 
-              return null;
-            })}
-          </AnimatePresence>
+            return null;
+          })}
         </div>
       </div>
     </div>
@@ -283,34 +204,48 @@ const STATS = [
 ];
 
 // ---------------------------------------------------------------------------
-// Hero
+// Hero Panel
 // ---------------------------------------------------------------------------
 
 export default function Hero() {
+  const heroRef = useRef<HTMLElement>(null);
+  const textRef = useRef<HTMLDivElement>(null);
+  const demoRef = useRef<HTMLDivElement>(null);
+
+  useGSAP(() => {
+    if (!textRef.current || !demoRef.current) return;
+
+    const tl = gsap.timeline({ defaults: { ease: 'expo.out', duration: 0.6 } });
+
+    tl.from(textRef.current.querySelectorAll('.hero-stagger'), {
+      y: 24,
+      opacity: 0,
+      stagger: 0.12,
+    })
+    .from(demoRef.current, {
+      y: 30,
+      opacity: 0,
+      scale: 0.97,
+      duration: 0.7,
+    }, '-=0.3');
+  }, { scope: heroRef });
+
   return (
-    <section className="relative min-h-screen flex items-center overflow-hidden pt-20 bg-suwappu-dark-bg">
-      {/* Background effects */}
+    <Panel ref={heroRef} id="hero" className="flex items-center bg-suwappu-dark-bg relative overflow-hidden pt-20 md:pt-0">
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(233,30,140,0.08)_0%,_transparent_70%)]" />
-      <div className="absolute top-1/4 left-[10%] w-72 h-72 rounded-full bg-suwappu-magenta/5 blur-3xl animate-float-slow" />
-      <div className="absolute bottom-1/4 right-[10%] w-96 h-96 rounded-full bg-suwappu-purple/5 blur-3xl animate-float" />
 
       <div className="relative z-10 max-w-6xl mx-auto px-6 w-full">
         <div className="grid lg:grid-cols-2 gap-12 items-center">
-          {/* Left side – text content */}
-          <motion.div variants={staggerContainerSlow} initial="hidden" animate="visible">
-            {/* Eyebrow badge */}
-            <motion.div variants={staggerChild} className="mb-5">
+          {/* Left side */}
+          <div ref={textRef}>
+            <div className="hero-stagger mb-5">
               <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-suwappu-magenta/30 bg-suwappu-magenta/5 text-xs font-heading font-semibold text-suwappu-magenta tracking-wider uppercase">
                 <span className="w-1.5 h-1.5 rounded-full bg-suwappu-success animate-pulse" />
                 Cross-chain DEX
               </span>
-            </motion.div>
+            </div>
 
-            {/* Headline */}
-            <motion.h1
-              variants={staggerChild}
-              className="font-heading font-bold text-4xl md:text-5xl lg:text-6xl leading-[1.08] mb-6 text-white"
-            >
+            <h1 className="hero-stagger font-heading font-bold text-4xl md:text-5xl lg:text-6xl leading-[1.08] mb-6 text-white">
               Swap Any Token.
               <br />
               Any Chain.
@@ -318,22 +253,14 @@ export default function Hero() {
               <span className="bg-gradient-to-r from-suwappu-magenta to-suwappu-purple bg-clip-text text-transparent">
                 Any Chat.
               </span>
-            </motion.h1>
+            </h1>
 
-            {/* Subheadline */}
-            <motion.p
-              variants={staggerChild}
-              className="text-lg text-suwappu-dark-text-secondary max-w-md mb-8 leading-relaxed"
-            >
+            <p className="hero-stagger text-lg text-suwappu-dark-text-secondary max-w-md mb-8 leading-relaxed">
               15 chains. 9 providers. One message. Trade from Telegram, WhatsApp,
               Discord, or iOS.
-            </motion.p>
+            </p>
 
-            {/* Stats row */}
-            <motion.div
-              variants={staggerChild}
-              className="flex items-center gap-6 mb-6"
-            >
+            <div className="hero-stagger flex items-center gap-6 mb-8">
               {STATS.map((stat, i) => (
                 <div key={stat.label} className="flex items-center gap-6">
                   {i > 0 && <div className="w-px h-8 bg-white/10" />}
@@ -347,15 +274,9 @@ export default function Hero() {
                   </div>
                 </div>
               ))}
-            </motion.div>
+            </div>
 
-            {/* SwapCounter */}
-            <motion.div variants={staggerChild} className="mb-8">
-              <SwapCounter />
-            </motion.div>
-
-            {/* CTA buttons */}
-            <motion.div variants={staggerChild} className="flex flex-wrap items-center gap-3">
+            <div className="hero-stagger flex flex-wrap items-center gap-3">
               <a
                 href="https://t.me/suwappu_bot"
                 target="_blank"
@@ -364,34 +285,24 @@ export default function Hero() {
               >
                 Start Trading
               </a>
-              <a
-                href="#how-it-works"
-                className="inline-flex items-center gap-1.5 font-heading font-medium text-sm text-white px-6 py-3 rounded-full border border-white/20 hover:bg-white/5 transition-all"
+              <button
+                className="nav-link inline-flex items-center gap-1.5 font-heading font-medium text-sm text-white px-6 py-3 rounded-full border border-white/20 hover:bg-white/5 transition-all"
+                data-panel="1"
               >
                 See How It Works
-                <svg
-                  className="w-3.5 h-3.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2.5}
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
                 </svg>
-              </a>
-            </motion.div>
-          </motion.div>
+              </button>
+            </div>
+          </div>
 
-          {/* Right side – chat demo */}
-          <motion.div
-            initial={{ opacity: 0, y: 30, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.7, delay: 0.3, ease: EASE_OUT_EXPO }}
-          >
+          {/* Right side */}
+          <div ref={demoRef}>
             <ChatDemo />
-          </motion.div>
+          </div>
         </div>
       </div>
-    </section>
+    </Panel>
   );
 }

@@ -18,15 +18,26 @@
   --suwappu-text-secondary: #8a8a9a;
 }
 
-html {
-  scroll-behavior: smooth;
-}
-
 body {
   font-family: 'Nunito', 'Open Sans', sans-serif;
   background: #0a0a0f;
   color: #f0f0f5;
   overflow-x: hidden;
+}
+
+/* ---- GSAP horizontal scroll panels ---- */
+.gsap-panel {
+  width: 100vw;
+  height: 100vh;
+  flex-shrink: 0;
+}
+
+@media (max-width: 767px) {
+  .gsap-panel {
+    width: auto;
+    height: auto;
+    min-height: 100vh;
+  }
 }
 
 /* ---- Glass effects ---- */
@@ -50,18 +61,6 @@ body {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-}
-
-.animated-gradient {
-  background: linear-gradient(-45deg, #ffd1dc, #ffb7c5, #e91e8c, #6c3483);
-  background-size: 400% 400%;
-  animation: gradient-shift 15s ease infinite;
-}
-
-@keyframes gradient-shift {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
 }
 
 /* ---- Terminal block ---- */
@@ -160,27 +159,6 @@ body {
   background: linear-gradient(90deg, transparent, rgba(233, 30, 140, 0.3), transparent);
 }
 
-/* ---- Sakura petal shape ---- */
-.sakura-petal {
-  width: 12px;
-  height: 12px;
-  background: linear-gradient(135deg, #ffd1dc, #ffb7c5 50%, #f8a5c2);
-  border-radius: 150% 0 150% 0;
-  pointer-events: none;
-}
-
-/* ---- Shimmer skeleton ---- */
-.shimmer-bg {
-  background: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 0.03) 25%,
-    rgba(255, 255, 255, 0.08) 50%,
-    rgba(255, 255, 255, 0.03) 75%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 3s ease-in-out infinite;
-}
-
 /* ---- Selection / scrollbar ---- */
 ::selection {
   background: rgba(233, 30, 140, 0.3);
@@ -251,18 +229,11 @@ body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
   }
 
-  .animated-gradient {
-    animation: none;
-  }
-
-  .shimmer-bg {
-    animation: none;
-  }
-
-  .sakura-petal {
-    display: none;
+  .gsap-panel {
+    width: auto !important;
+    height: auto !important;
+    min-height: 100vh;
   }
 }

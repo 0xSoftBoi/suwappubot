@@ -9,7 +9,8 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "framer-motion": "^11.15.0",
+    "gsap": "^3.14.2",
+    "@gsap/react": "^2.1.2",
     "next": "14.2.21",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
