@@ -125,6 +125,7 @@ jobs:
 
       - name: Run pre-deploy database backup
         if: steps.check-service.outputs.exists == 'true'
+        continue-on-error: true
         run: |
           echo "Starting database backup before deploy..."
           TASK_ARN=$(aws ecs run-task \
