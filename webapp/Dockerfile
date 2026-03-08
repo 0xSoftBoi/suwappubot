@@ -3,14 +3,14 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
-COPY package.json bun.lock* package-lock.json* ./
+# Copy package files (context is monorepo root, so prefix with webapp/)
+COPY webapp/package.json webapp/bun.lock* webapp/package-lock.json* ./
 
 # Install dependencies
 RUN npm install
 
 # Copy source files
-COPY . .
+COPY webapp/ .
 
 # Set production API URL
 ARG VITE_API_URL=https://api.suwappu.bot
@@ -23,7 +23,7 @@ RUN npx vite build
 FROM nginx:alpine
 
 # Copy custom nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY webapp/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copy built files from builder
 COPY --from=builder /app/dist /usr/share/nginx/html
