@@ -40,7 +40,7 @@ describe("@suwappu/sdk", () => {
   it("exports all type interfaces (compile-time check)", () => {
     // These are compile-time checks — if any type is missing, this file won't compile
     const _config: SuwappuConfig = { apiKey: "k", baseUrl: "u" };
-    const _quote: Quote = { id: "1", fromToken: "ETH", toToken: "USDC", fromAmount: "1", toAmount: "2847", route: "uni", gas: "0.1", fee: "0.01", chain: "arb" };
+    const _quote: Quote = { id: "1", fromToken: "ETH", toToken: "USDC", fromAmount: "1", toAmount: "2847", route: "uni", gas: "0.1", fee: "0.01", chain: "arb", exchangeRate: "2847", priceImpact: "0.01", slippage: "0.5", estimatedTimeSeconds: 30, dex: "uniswap" };
     const _swap: SwapResult = { txHash: "0x1", status: "confirmed", chain: "arb" };
     const _bal: TokenBalance = { token: "ETH", balance: "1", usdValue: "2847", chain: "arb" };
     const _price: TokenPrice = { token: "ETH", priceUsd: "2847", change24h: "-1" };
