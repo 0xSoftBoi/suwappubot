@@ -10,8 +10,8 @@ import {
 	uniqueIndex,
 	varchar,
 } from 'drizzle-orm/pg-core'
-import { users } from './users'
 import { swapTransactions } from './swaps'
+import { users } from './users'
 
 // Level definitions
 export const LEVELS = {
@@ -77,7 +77,7 @@ export const userPoints = pgTable(
 	},
 	(table) => ({
 		userIdIdx: index('user_points_user_id_idx').on(table.userId),
-	})
+	}),
 )
 
 export type UserPoints = typeof userPoints.$inferSelect
@@ -111,7 +111,7 @@ export const pointTransactions = pgTable(
 		userIdIdx: index('point_transactions_user_id_idx').on(table.userId),
 		createdAtIdx: index('point_transactions_created_at_idx').on(table.createdAt),
 		userActionIdx: index('point_transactions_user_action_idx').on(table.userId, table.action),
-	})
+	}),
 )
 
 export type PointTransaction = typeof pointTransactions.$inferSelect
@@ -155,8 +155,11 @@ export const userMilestones = pgTable(
 	},
 	(table) => ({
 		userIdIdx: index('user_milestones_user_id_idx').on(table.userId),
-		userMilestoneIdx: uniqueIndex('user_milestones_user_milestone_idx').on(table.userId, table.milestoneId),
-	})
+		userMilestoneIdx: uniqueIndex('user_milestones_user_milestone_idx').on(
+			table.userId,
+			table.milestoneId,
+		),
+	}),
 )
 
 export type UserMilestone = typeof userMilestones.$inferSelect
@@ -210,7 +213,7 @@ export const pointRedemptions = pgTable(
 	},
 	(table) => ({
 		userIdIdx: index('point_redemptions_user_id_idx').on(table.userId),
-	})
+	}),
 )
 
 export type PointRedemption = typeof pointRedemptions.$inferSelect
@@ -218,25 +221,146 @@ export type NewPointRedemption = typeof pointRedemptions.$inferInsert
 
 // Default milestones to seed
 export const DEFAULT_MILESTONES: Omit<NewMilestone, 'id'>[] = [
-	{ name: 'First Swap', description: 'Complete your first swap', emoji: '🎉', requirementType: 'swaps', requirementValue: 1, pointsReward: 100 },
-	{ name: 'Swap Apprentice', description: 'Complete 10 swaps', emoji: '📈', requirementType: 'swaps', requirementValue: 10, pointsReward: 250 },
-	{ name: 'Swap Master', description: 'Complete 50 swaps', emoji: '🔥', requirementType: 'swaps', requirementValue: 50, pointsReward: 500 },
-	{ name: 'Swap Legend', description: 'Complete 100 swaps', emoji: '⚡', requirementType: 'swaps', requirementValue: 100, pointsReward: 1000 },
-	{ name: 'Volume $100', description: 'Trade $100 total volume', emoji: '💵', requirementType: 'volume', requirementValue: 100, pointsReward: 100 },
-	{ name: 'Volume $1K', description: 'Trade $1,000 total volume', emoji: '💰', requirementType: 'volume', requirementValue: 1000, pointsReward: 500 },
-	{ name: 'Volume $10K', description: 'Trade $10,000 total volume', emoji: '🤑', requirementType: 'volume', requirementValue: 10000, pointsReward: 1000 },
-	{ name: 'Volume $100K', description: 'Trade $100,000 total volume', emoji: '🏆', requirementType: 'volume', requirementValue: 100000, pointsReward: 5000 },
-	{ name: 'Week Streak', description: 'Maintain a 7-day streak', emoji: '📅', requirementType: 'streak', requirementValue: 7, pointsReward: 200 },
-	{ name: 'Month Streak', description: 'Maintain a 30-day streak', emoji: '🗓️', requirementType: 'streak', requirementValue: 30, pointsReward: 1000 },
-	{ name: 'Century Streak', description: 'Maintain a 100-day streak', emoji: '💯', requirementType: 'streak', requirementValue: 100, pointsReward: 5000 },
-	{ name: 'First Referral', description: 'Refer your first user', emoji: '👥', requirementType: 'referrals', requirementValue: 1, pointsReward: 200 },
+	{
+		name: 'First Swap',
+		description: 'Complete your first swap',
+		emoji: '🎉',
+		requirementType: 'swaps',
+		requirementValue: 1,
+		pointsReward: 100,
+	},
+	{
+		name: 'Swap Apprentice',
+		description: 'Complete 10 swaps',
+		emoji: '📈',
+		requirementType: 'swaps',
+		requirementValue: 10,
+		pointsReward: 250,
+	},
+	{
+		name: 'Swap Master',
+		description: 'Complete 50 swaps',
+		emoji: '🔥',
+		requirementType: 'swaps',
+		requirementValue: 50,
+		pointsReward: 500,
+	},
+	{
+		name: 'Swap Legend',
+		description: 'Complete 100 swaps',
+		emoji: '⚡',
+		requirementType: 'swaps',
+		requirementValue: 100,
+		pointsReward: 1000,
+	},
+	{
+		name: 'Volume $100',
+		description: 'Trade $100 total volume',
+		emoji: '💵',
+		requirementType: 'volume',
+		requirementValue: 100,
+		pointsReward: 100,
+	},
+	{
+		name: 'Volume $1K',
+		description: 'Trade $1,000 total volume',
+		emoji: '💰',
+		requirementType: 'volume',
+		requirementValue: 1000,
+		pointsReward: 500,
+	},
+	{
+		name: 'Volume $10K',
+		description: 'Trade $10,000 total volume',
+		emoji: '🤑',
+		requirementType: 'volume',
+		requirementValue: 10000,
+		pointsReward: 1000,
+	},
+	{
+		name: 'Volume $100K',
+		description: 'Trade $100,000 total volume',
+		emoji: '🏆',
+		requirementType: 'volume',
+		requirementValue: 100000,
+		pointsReward: 5000,
+	},
+	{
+		name: 'Week Streak',
+		description: 'Maintain a 7-day streak',
+		emoji: '📅',
+		requirementType: 'streak',
+		requirementValue: 7,
+		pointsReward: 200,
+	},
+	{
+		name: 'Month Streak',
+		description: 'Maintain a 30-day streak',
+		emoji: '🗓️',
+		requirementType: 'streak',
+		requirementValue: 30,
+		pointsReward: 1000,
+	},
+	{
+		name: 'Century Streak',
+		description: 'Maintain a 100-day streak',
+		emoji: '💯',
+		requirementType: 'streak',
+		requirementValue: 100,
+		pointsReward: 5000,
+	},
+	{
+		name: 'First Referral',
+		description: 'Refer your first user',
+		emoji: '👥',
+		requirementType: 'referrals',
+		requirementValue: 1,
+		pointsReward: 200,
+	},
 ]
 
 // Default rewards to seed
 export const DEFAULT_REWARDS: Omit<NewReward, 'id'>[] = [
-	{ name: 'Fee Discount 0.1%', description: '0.1% fee reduction on next swap', emoji: '💸', pointsCost: 500, rewardType: 'fee_discount', rewardValue: '0.1', durationDays: 7 },
-	{ name: 'Fee Discount 0.2%', description: '0.2% fee reduction for a week', emoji: '💵', pointsCost: 1000, rewardType: 'fee_discount', rewardValue: '0.2', durationDays: 7 },
-	{ name: 'Gas Rebate $5', description: '$5 gas rebate on next swap', emoji: '⛽', pointsCost: 750, rewardType: 'gas_rebate', rewardValue: '5' },
-	{ name: 'Gas Rebate $10', description: '$10 gas rebate on next swap', emoji: '🛢️', pointsCost: 1400, rewardType: 'gas_rebate', rewardValue: '10' },
-	{ name: 'Raffle Ticket', description: 'Entry into weekly prize draw', emoji: '🎟️', pointsCost: 100, rewardType: 'raffle', rewardValue: '1' },
+	{
+		name: 'Fee Discount 0.1%',
+		description: '0.1% fee reduction on next swap',
+		emoji: '💸',
+		pointsCost: 500,
+		rewardType: 'fee_discount',
+		rewardValue: '0.1',
+		durationDays: 7,
+	},
+	{
+		name: 'Fee Discount 0.2%',
+		description: '0.2% fee reduction for a week',
+		emoji: '💵',
+		pointsCost: 1000,
+		rewardType: 'fee_discount',
+		rewardValue: '0.2',
+		durationDays: 7,
+	},
+	{
+		name: 'Gas Rebate $5',
+		description: '$5 gas rebate on next swap',
+		emoji: '⛽',
+		pointsCost: 750,
+		rewardType: 'gas_rebate',
+		rewardValue: '5',
+	},
+	{
+		name: 'Gas Rebate $10',
+		description: '$10 gas rebate on next swap',
+		emoji: '🛢️',
+		pointsCost: 1400,
+		rewardType: 'gas_rebate',
+		rewardValue: '10',
+	},
+	{
+		name: 'Raffle Ticket',
+		description: 'Entry into weekly prize draw',
+		emoji: '🎟️',
+		pointsCost: 100,
+		rewardType: 'raffle',
+		rewardValue: '1',
+	},
 ]

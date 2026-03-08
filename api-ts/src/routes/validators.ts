@@ -14,10 +14,13 @@ export const RegisterAgentSchema = z.object({
 export const QuoteRequestSchema = z.object({
 	from_token: z.string().min(1, 'from_token is required'),
 	to_token: z.string().min(1, 'to_token is required'),
-	amount: z.string().min(1, 'amount is required').refine(
-		(v) => { const n = parseFloat(v); return !isNaN(n) && n > 0 },
-		'amount must be a positive number'
-	),
+	amount: z
+		.string()
+		.min(1, 'amount is required')
+		.refine((v) => {
+			const n = parseFloat(v)
+			return !isNaN(n) && n > 0
+		}, 'amount must be a positive number'),
 	chain: z.string().optional(),
 	from_chain: z.string().optional(),
 	to_chain: z.string().optional(),
@@ -40,14 +43,19 @@ export const ExecuteCommandSchema = z.object({
 	wallet_address: z.string().optional(),
 })
 
-export const UpdateAgentSchema = z.object({
-	description: z.string().max(500).optional(),
-	callback_url: z.url('Invalid callback URL').nullish(),
-	metadata: z.record(z.string(), z.unknown()).optional(),
-}).refine(
-	(data) => data.description !== undefined || data.callback_url !== undefined || data.metadata !== undefined,
-	'At least one field must be provided'
-)
+export const UpdateAgentSchema = z
+	.object({
+		description: z.string().max(500).optional(),
+		callback_url: z.url('Invalid callback URL').nullish(),
+		metadata: z.record(z.string(), z.unknown()).optional(),
+	})
+	.refine(
+		(data) =>
+			data.description !== undefined ||
+			data.callback_url !== undefined ||
+			data.metadata !== undefined,
+		'At least one field must be provided',
+	)
 
 export const ExecuteSwapSchema = z.object({
 	quote_id: z.string().min(1, 'quote_id is required'),

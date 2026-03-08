@@ -1,11 +1,19 @@
-import { Hono } from 'hono'
+import crypto from 'crypto'
 import { Effect, Either, Option } from 'effect'
-import { AgentService, TokenService, SwapService, JupiterService, CHAINS, SOLANA_TOKENS, type QuoteParams } from '../services'
-import { runEffectEither } from '../runtime'
+import { Hono } from 'hono'
+import type { Agent } from '../db'
 import { ValidationError } from '../errors'
 import { agentBearerAuth } from '../middleware'
-import type { Agent } from '../db'
-import crypto from 'crypto'
+import { runEffectEither } from '../runtime'
+import {
+	AgentService,
+	CHAINS,
+	JupiterService,
+	type QuoteParams,
+	SOLANA_TOKENS,
+	SwapService,
+	TokenService,
+} from '../services'
 
 // -------------------------------------------------------------------
 // Types
@@ -86,7 +94,11 @@ function jsonRpcOk(id: string | number, result: unknown) {
 }
 
 function jsonRpcError(id: string | number | null, code: number, message: string, data?: unknown) {
-	return { jsonrpc: '2.0' as const, id, error: { code, message, ...(data !== undefined && { data }) } }
+	return {
+		jsonrpc: '2.0' as const,
+		id,
+		error: { code, message, ...(data !== undefined && { data }) },
+	}
 }
 
 // A2A-specific error codes
@@ -117,13 +129,14 @@ function isSolanaChain(chain: string): boolean {
 // Message processing — routes to swap/quote/portfolio
 // -------------------------------------------------------------------
 
-async function processMessage(text: string, agent: Agent): Promise<{ parts: Part[]; metadata?: Record<string, unknown> }> {
+async function processMessage(
+	text: string,
+	agent: Agent,
+): Promise<{ parts: Part[]; metadata?: Record<string, unknown> }> {
 	const lower = text.toLowerCase()
 
 	// --- Swap command ---
-	const swapMatch = lower.match(
-		/swap\s+([\d.]+)\s+(\w+)\s+(?:to|for)\s+(\w+)(?:\s+on\s+(\w+))?/
-	)
+	const swapMatch = lower.match(/swap\s+([\d.]+)\s+(\w+)\s+(?:to|for)\s+(\w+)(?:\s+on\s+(\w+))?/)
 	if (swapMatch) {
 		const [, amount, fromToken, toToken, chain] = swapMatch
 		const chainKey = chain || 'ethereum'
@@ -136,7 +149,7 @@ async function processMessage(text: string, agent: Agent): Promise<{ parts: Part
 
 	// --- Quote / price command ---
 	const quoteMatch = lower.match(
-		/(?:quote|price)\s+(?:of\s+)?([\d.]+)\s+(\w+)\s+(?:to|in|for)\s+(\w+)(?:\s+on\s+(\w+))?/
+		/(?:quote|price)\s+(?:of\s+)?([\d.]+)\s+(\w+)\s+(?:to|in|for)\s+(\w+)(?:\s+on\s+(\w+))?/,
 	)
 	if (quoteMatch) {
 		const [, amount, fromToken, toToken, chain] = quoteMatch
@@ -152,7 +165,10 @@ async function processMessage(text: string, agent: Agent): Promise<{ parts: Part
 	if (lower.includes('balance') || lower.includes('portfolio')) {
 		return {
 			parts: [
-				{ type: 'text', text: 'Portfolio check requires a wallet address. Use POST /v1/agent/portfolio?wallet_address=0x... for balance details.' },
+				{
+					type: 'text',
+					text: 'Portfolio check requires a wallet address. Use POST /v1/agent/portfolio?wallet_address=0x... for balance details.',
+				},
 			],
 		}
 	}
@@ -160,15 +176,10 @@ async function processMessage(text: string, agent: Agent): Promise<{ parts: Part
 	// --- Chains list ---
 	if (lower.includes('chains') || lower.includes('supported')) {
 		const uniqueChains = Object.values(CHAINS)
-			.filter((chain, index, self) =>
-				index === self.findIndex((c) => c.id === chain.id)
-			)
+			.filter((chain, index, self) => index === self.findIndex((c) => c.id === chain.id))
 			.map((c) => c.name)
 
-		const chainList = [
-			...uniqueChains,
-			'Solana',
-		]
+		const chainList = [...uniqueChains, 'Solana']
 		return {
 			parts: [
 				{ type: 'text', text: `Supported chains: ${chainList.join(', ')}` },
@@ -189,7 +200,11 @@ async function processMessage(text: string, agent: Agent): Promise<{ parts: Part
 }
 
 async function processEvmQuote(
-	amount: string, fromToken: string, toToken: string, chainKey: string, agent: Agent
+	amount: string,
+	fromToken: string,
+	toToken: string,
+	chainKey: string,
+	agent: Agent,
 ): Promise<{ parts: Part[]; metadata?: Record<string, unknown> }> {
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -203,34 +218,38 @@ async function processEvmQuote(
 
 			const fromTokenInfo = yield* tokenService.resolveToken(fromToken, chainInfo.id)
 			if (!fromTokenInfo) {
-				return yield* Effect.fail(new ValidationError({ message: `Token not found: ${fromToken} on ${chainInfo.name}` }))
+				return yield* Effect.fail(
+					new ValidationError({ message: `Token not found: ${fromToken} on ${chainInfo.name}` }),
+				)
 			}
 
 			const toTokenInfo = yield* tokenService.resolveToken(toToken, chainInfo.id)
 			if (!toTokenInfo) {
-				return yield* Effect.fail(new ValidationError({ message: `Token not found: ${toToken} on ${chainInfo.name}` }))
+				return yield* Effect.fail(
+					new ValidationError({ message: `Token not found: ${toToken} on ${chainInfo.name}` }),
+				)
 			}
 
 			const amountNum = parseFloat(amount)
 			if (isNaN(amountNum) || amountNum <= 0) {
 				return yield* Effect.fail(new ValidationError({ message: 'Invalid amount' }))
 			}
-			const fromAmountWei = BigInt(Math.floor(amountNum * Math.pow(10, fromTokenInfo.decimals))).toString()
+			const fromAmountWei = BigInt(Math.floor(amountNum * 10 ** fromTokenInfo.decimals)).toString()
 
-			const quote = yield* swapService.getQuote({
-				fromChain: chainInfo.id,
-				toChain: chainInfo.id,
-				fromToken: fromTokenInfo.address,
-				toToken: toTokenInfo.address,
-				fromAmount: fromAmountWei,
-				fromAddress: '0x0000000000000000000000000000000000000001',
-				slippage: 0.03,
-				integrator: 'suwappu-agent',
-			} as QuoteParams).pipe(
-				Effect.mapError((e) => new ValidationError({ message: e.message }))
-			)
+			const quote = yield* swapService
+				.getQuote({
+					fromChain: chainInfo.id,
+					toChain: chainInfo.id,
+					fromToken: fromTokenInfo.address,
+					toToken: toTokenInfo.address,
+					fromAmount: fromAmountWei,
+					fromAddress: '0x0000000000000000000000000000000000000001',
+					slippage: 0.03,
+					integrator: 'suwappu-agent',
+				} as QuoteParams)
+				.pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
-			const toAmountHuman = parseFloat(quote.toAmount) / Math.pow(10, toTokenInfo.decimals)
+			const toAmountHuman = parseFloat(quote.toAmount) / 10 ** toTokenInfo.decimals
 
 			return {
 				fromSymbol: fromTokenInfo.symbol,
@@ -242,7 +261,7 @@ async function processEvmQuote(
 				gasUsd: quote.estimatedGasUsd,
 				route: quote.route,
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -252,7 +271,10 @@ async function processEvmQuote(
 	const q = result.right
 	return {
 		parts: [
-			{ type: 'text', text: `Quote: ${q.amountIn} ${q.fromSymbol} -> ${q.amountOut} ${q.toSymbol} on ${q.chain} (rate: ${q.exchangeRate}, gas: $${q.gasUsd})` },
+			{
+				type: 'text',
+				text: `Quote: ${q.amountIn} ${q.fromSymbol} -> ${q.amountOut} ${q.toSymbol} on ${q.chain} (rate: ${q.exchangeRate}, gas: $${q.gasUsd})`,
+			},
 			{ type: 'data', data: q as unknown as Record<string, unknown> },
 		],
 		metadata: { action: 'quote', chain: q.chain },
@@ -260,7 +282,10 @@ async function processEvmQuote(
 }
 
 async function processSolanaQuote(
-	amount: string, fromToken: string, toToken: string, agent: Agent
+	amount: string,
+	fromToken: string,
+	toToken: string,
+	agent: Agent,
 ): Promise<{ parts: Part[]; metadata?: Record<string, unknown> }> {
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -268,40 +293,46 @@ async function processSolanaQuote(
 
 			const fromTokenInfo = jupiterService.resolveToken(fromToken)
 			if (!fromTokenInfo) {
-				return yield* Effect.fail(new ValidationError({
-					message: `Token not found on Solana: ${fromToken}`,
-					fields: { supported: Object.keys(SOLANA_TOKENS).join(', ') },
-				}))
+				return yield* Effect.fail(
+					new ValidationError({
+						message: `Token not found on Solana: ${fromToken}`,
+						fields: { supported: Object.keys(SOLANA_TOKENS).join(', ') },
+					}),
+				)
 			}
 
 			const toTokenInfo = jupiterService.resolveToken(toToken)
 			if (!toTokenInfo) {
-				return yield* Effect.fail(new ValidationError({
-					message: `Token not found on Solana: ${toToken}`,
-					fields: { supported: Object.keys(SOLANA_TOKENS).join(', ') },
-				}))
+				return yield* Effect.fail(
+					new ValidationError({
+						message: `Token not found on Solana: ${toToken}`,
+						fields: { supported: Object.keys(SOLANA_TOKENS).join(', ') },
+					}),
+				)
 			}
 
 			const amountNum = parseFloat(amount)
 			if (isNaN(amountNum) || amountNum <= 0) {
 				return yield* Effect.fail(new ValidationError({ message: 'Invalid amount' }))
 			}
-			const lamports = BigInt(Math.floor(amountNum * Math.pow(10, fromTokenInfo.decimals))).toString()
+			const lamports = BigInt(Math.floor(amountNum * 10 ** fromTokenInfo.decimals)).toString()
 
-			const quote = yield* jupiterService.getQuote({
-				inputMint: fromTokenInfo.address,
-				outputMint: toTokenInfo.address,
-				amount: lamports,
-				slippageBps: 300,
-			}).pipe(
-				Effect.mapError((e) => {
-					if (e instanceof ValidationError) return e
-					return new ValidationError({ message: e.message })
+			const quote = yield* jupiterService
+				.getQuote({
+					inputMint: fromTokenInfo.address,
+					outputMint: toTokenInfo.address,
+					amount: lamports,
+					slippageBps: 300,
 				})
-			)
+				.pipe(
+					Effect.mapError((e) => {
+						if (e instanceof ValidationError) return e
+						return new ValidationError({ message: e.message })
+					}),
+				)
 
-			const fromAmountHuman = parseFloat(quote.inAmount) / Math.pow(10, fromTokenInfo.decimals)
-			const toAmountHuman = parseFloat(quote.outAmount) / Math.pow(10, toTokenInfo.decimals)
+			const fromAmountHuman = parseFloat(quote.inAmount) / 10 ** fromTokenInfo.decimals
+			const toAmountHuman = parseFloat(quote.outAmount) / 10 ** toTokenInfo.decimals
 			const route = quote.routePlan.map((r: any) => r.swapInfo.label).join(' -> ')
 
 			return {
@@ -313,7 +344,7 @@ async function processSolanaQuote(
 				priceImpact: quote.priceImpactPct,
 				route,
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -323,7 +354,10 @@ async function processSolanaQuote(
 	const q = result.right
 	return {
 		parts: [
-			{ type: 'text', text: `Quote: ${q.amountIn} ${q.fromSymbol} -> ${q.amountOut} ${q.toSymbol} on Solana (impact: ${q.priceImpact}%, route: ${q.route})` },
+			{
+				type: 'text',
+				text: `Quote: ${q.amountIn} ${q.fromSymbol} -> ${q.amountOut} ${q.toSymbol} on Solana (impact: ${q.priceImpact}%, route: ${q.route})`,
+			},
 			{ type: 'data', data: q as unknown as Record<string, unknown> },
 		],
 		metadata: { action: 'quote', chain: 'Solana' },
@@ -365,7 +399,7 @@ a2aRoutes.post('/', async (c) => {
 		Effect.gen(function* () {
 			const agentService = yield* AgentService
 			yield* agentService.incrementAgentStats(agent.id, 'request')
-		})
+		}),
 	)
 
 	switch (req.method) {
@@ -385,18 +419,34 @@ a2aRoutes.post('/', async (c) => {
 // -------------------------------------------------------------------
 
 async function handleMessageSend(c: any, req: JsonRpcRequest, agent: Agent) {
-	const params = req.params as {
-		message?: { role?: string; parts?: Part[] }
-		contextId?: string
-	} | undefined
+	const params = req.params as
+		| {
+				message?: { role?: string; parts?: Part[] }
+				contextId?: string
+		  }
+		| undefined
 
-	if (!params?.message?.parts || !Array.isArray(params.message.parts) || params.message.parts.length === 0) {
-		return c.json(jsonRpcError(req.id, INVALID_REQUEST, 'message.parts is required and must be a non-empty array'), 200)
+	if (
+		!params?.message?.parts ||
+		!Array.isArray(params.message.parts) ||
+		params.message.parts.length === 0
+	) {
+		return c.json(
+			jsonRpcError(
+				req.id,
+				INVALID_REQUEST,
+				'message.parts is required and must be a non-empty array',
+			),
+			200,
+		)
 	}
 
 	const userText = parseUserMessage(params.message.parts)
 	if (!userText) {
-		return c.json(jsonRpcError(req.id, INVALID_REQUEST, 'No text content found in message parts'), 200)
+		return c.json(
+			jsonRpcError(req.id, INVALID_REQUEST, 'No text content found in message parts'),
+			200,
+		)
 	}
 
 	// Create task
@@ -478,8 +528,12 @@ async function handleTasksCancel(c: any, req: JsonRpcRequest) {
 
 	if (task.status.state === 'completed' || task.status.state === 'failed') {
 		return c.json(
-			jsonRpcError(req.id, UNSUPPORTED_OPERATION, `Cannot cancel task in ${task.status.state} state`),
-			200
+			jsonRpcError(
+				req.id,
+				UNSUPPORTED_OPERATION,
+				`Cannot cancel task in ${task.status.state} state`,
+			),
+			200,
 		)
 	}
 

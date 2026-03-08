@@ -1,6 +1,6 @@
+import { and, eq } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
-import { eq, and } from 'drizzle-orm'
-import { DrizzleService, requireDb, wallets, type Wallet } from '../db'
+import { type DrizzleService, requireDb, type Wallet, wallets } from '../db'
 import { DatabaseError } from '../errors'
 
 export interface CreateTurnkeyWalletParams {
@@ -13,13 +13,13 @@ export interface CreateTurnkeyWalletParams {
 
 export interface WalletServiceInterface {
 	readonly getUserWallets: (
-		userId: number
+		userId: number,
 	) => Effect.Effect<Wallet[], DatabaseError, DrizzleService>
 	readonly getActiveWallets: (
-		userId: number
+		userId: number,
 	) => Effect.Effect<Wallet[], DatabaseError, DrizzleService>
 	readonly createTurnkeyWallet: (
-		params: CreateTurnkeyWalletParams
+		params: CreateTurnkeyWalletParams,
 	) => Effect.Effect<Wallet, DatabaseError, DrizzleService>
 }
 
@@ -32,7 +32,7 @@ export const WalletServiceLive = Layer.succeed(WalletService, {
 	getUserWallets: (userId: number) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const result = yield* Effect.tryPromise({
@@ -46,7 +46,7 @@ export const WalletServiceLive = Layer.succeed(WalletService, {
 	getActiveWallets: (userId: number) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const result = yield* Effect.tryPromise({
@@ -65,7 +65,7 @@ export const WalletServiceLive = Layer.succeed(WalletService, {
 	createTurnkeyWallet: (params: CreateTurnkeyWalletParams) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const result = yield* Effect.tryPromise({

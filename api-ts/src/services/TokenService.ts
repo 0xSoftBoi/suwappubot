@@ -22,19 +22,97 @@ export interface ChainInfo {
 
 // Chain mappings
 export const CHAINS: Record<string, ChainInfo> = {
-	ethereum: { id: 1, key: 'ethereum', name: 'Ethereum', nativeToken: 'ETH', nativeTokenAddress: '0x0000000000000000000000000000000000000000' },
-	eth: { id: 1, key: 'ethereum', name: 'Ethereum', nativeToken: 'ETH', nativeTokenAddress: '0x0000000000000000000000000000000000000000' },
-	optimism: { id: 10, key: 'optimism', name: 'Optimism', nativeToken: 'ETH', nativeTokenAddress: '0x0000000000000000000000000000000000000000' },
-	op: { id: 10, key: 'optimism', name: 'Optimism', nativeToken: 'ETH', nativeTokenAddress: '0x0000000000000000000000000000000000000000' },
-	bsc: { id: 56, key: 'bsc', name: 'BNB Chain', nativeToken: 'BNB', nativeTokenAddress: '0x0000000000000000000000000000000000000000' },
-	bnb: { id: 56, key: 'bsc', name: 'BNB Chain', nativeToken: 'BNB', nativeTokenAddress: '0x0000000000000000000000000000000000000000' },
-	polygon: { id: 137, key: 'polygon', name: 'Polygon', nativeToken: 'MATIC', nativeTokenAddress: '0x0000000000000000000000000000000000000000' },
-	matic: { id: 137, key: 'polygon', name: 'Polygon', nativeToken: 'MATIC', nativeTokenAddress: '0x0000000000000000000000000000000000000000' },
-	arbitrum: { id: 42161, key: 'arbitrum', name: 'Arbitrum', nativeToken: 'ETH', nativeTokenAddress: '0x0000000000000000000000000000000000000000' },
-	arb: { id: 42161, key: 'arbitrum', name: 'Arbitrum', nativeToken: 'ETH', nativeTokenAddress: '0x0000000000000000000000000000000000000000' },
-	base: { id: 8453, key: 'base', name: 'Base', nativeToken: 'ETH', nativeTokenAddress: '0x0000000000000000000000000000000000000000' },
-	avalanche: { id: 43114, key: 'avalanche', name: 'Avalanche', nativeToken: 'AVAX', nativeTokenAddress: '0x0000000000000000000000000000000000000000' },
-	avax: { id: 43114, key: 'avalanche', name: 'Avalanche', nativeToken: 'AVAX', nativeTokenAddress: '0x0000000000000000000000000000000000000000' },
+	ethereum: {
+		id: 1,
+		key: 'ethereum',
+		name: 'Ethereum',
+		nativeToken: 'ETH',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	eth: {
+		id: 1,
+		key: 'ethereum',
+		name: 'Ethereum',
+		nativeToken: 'ETH',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	optimism: {
+		id: 10,
+		key: 'optimism',
+		name: 'Optimism',
+		nativeToken: 'ETH',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	op: {
+		id: 10,
+		key: 'optimism',
+		name: 'Optimism',
+		nativeToken: 'ETH',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	bsc: {
+		id: 56,
+		key: 'bsc',
+		name: 'BNB Chain',
+		nativeToken: 'BNB',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	bnb: {
+		id: 56,
+		key: 'bsc',
+		name: 'BNB Chain',
+		nativeToken: 'BNB',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	polygon: {
+		id: 137,
+		key: 'polygon',
+		name: 'Polygon',
+		nativeToken: 'MATIC',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	matic: {
+		id: 137,
+		key: 'polygon',
+		name: 'Polygon',
+		nativeToken: 'MATIC',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	arbitrum: {
+		id: 42161,
+		key: 'arbitrum',
+		name: 'Arbitrum',
+		nativeToken: 'ETH',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	arb: {
+		id: 42161,
+		key: 'arbitrum',
+		name: 'Arbitrum',
+		nativeToken: 'ETH',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	base: {
+		id: 8453,
+		key: 'base',
+		name: 'Base',
+		nativeToken: 'ETH',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	avalanche: {
+		id: 43114,
+		key: 'avalanche',
+		name: 'Avalanche',
+		nativeToken: 'AVAX',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	avax: {
+		id: 43114,
+		key: 'avalanche',
+		name: 'Avalanche',
+		nativeToken: 'AVAX',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
 }
 
 // Common token addresses by chain
@@ -114,30 +192,30 @@ export class TokenService extends Context.Tag('TokenService')<
 export const TokenServiceLive = Layer.succeed(TokenService, {
 	resolveChain: (chainInput: string) => {
 		const normalized = chainInput.toLowerCase().trim()
-		
+
 		// Try direct lookup
 		if (CHAINS[normalized]) {
 			return CHAINS[normalized]
 		}
-		
+
 		// Try as chain ID
 		const chainId = parseInt(normalized, 10)
 		if (!isNaN(chainId)) {
-			const chain = Object.values(CHAINS).find(c => c.id === chainId)
+			const chain = Object.values(CHAINS).find((c) => c.id === chainId)
 			if (chain) return chain
 		}
-		
+
 		return null
 	},
 
 	getChainId: (chainInput: string | number) => {
 		if (typeof chainInput === 'number') return chainInput
-		
+
 		const normalized = chainInput.toLowerCase().trim()
 		if (CHAINS[normalized]) {
 			return CHAINS[normalized].id
 		}
-		
+
 		const parsed = parseInt(normalized, 10)
 		return isNaN(parsed) ? null : parsed
 	},
@@ -145,7 +223,7 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 	resolveToken: (symbol: string, chainId: number) =>
 		Effect.gen(function* () {
 			const normalized = symbol.toUpperCase().trim()
-			
+
 			// Check common tokens first
 			const chainTokens = COMMON_TOKENS[chainId]
 			if (chainTokens && chainTokens[normalized]) {
@@ -157,31 +235,31 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 					chainId,
 				}
 			}
-			
+
 			// If not found locally, fetch from Li.Fi
 			const response = yield* Effect.tryPromise({
 				try: async () => {
 					const res = await fetch(`https://li.quest/v1/tokens?chains=${chainId}`, {
 						headers: {
-							'Accept': 'application/json',
+							Accept: 'application/json',
 							...(process.env.LIFI_API_KEY && {
 								'x-lifi-api-key': process.env.LIFI_API_KEY,
 							}),
 						},
 					})
-					
+
 					if (!res.ok) {
 						throw new Error(`Failed to fetch tokens: ${res.statusText}`)
 					}
-					
-					return await res.json() as { tokens: Record<string, TokenInfo[]> }
+
+					return (await res.json()) as { tokens: Record<string, TokenInfo[]> }
 				},
 				catch: (e) => new Error(`Token lookup failed: ${e}`),
 			})
-			
+
 			const tokens = response.tokens[String(chainId)] || []
-			const found = tokens.find(t => t.symbol.toUpperCase() === normalized)
-			
+			const found = tokens.find((t) => t.symbol.toUpperCase() === normalized)
+
 			return found || null
 		}),
 })

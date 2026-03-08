@@ -1,6 +1,12 @@
+import { desc, eq } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
-import { eq, desc } from 'drizzle-orm'
-import { DrizzleService, requireDb, swapTransactions, type SwapTransaction, type NewSwapTransaction } from '../db'
+import {
+	type DrizzleService,
+	type NewSwapTransaction,
+	requireDb,
+	type SwapTransaction,
+	swapTransactions,
+} from '../db'
 import { DatabaseError, ValidationError } from '../errors'
 
 // Li.Fi API base URL
@@ -178,33 +184,28 @@ export interface SwapServiceInterface {
 	readonly getUserSwaps: (
 		userId: number,
 		limit?: number,
-		offset?: number
+		offset?: number,
 	) => Effect.Effect<SwapTransaction[], DatabaseError, DrizzleService>
-	
-	readonly getQuote: (
-		params: QuoteParams
-	) => Effect.Effect<SwapQuote, ValidationError | Error>
-	
+
+	readonly getQuote: (params: QuoteParams) => Effect.Effect<SwapQuote, ValidationError | Error>
+
 	readonly createSwapRecord: (
-		swap: NewSwapTransaction
+		swap: NewSwapTransaction,
 	) => Effect.Effect<SwapTransaction, DatabaseError, DrizzleService>
-	
+
 	readonly updateSwapStatus: (
 		swapId: number,
 		status: string,
 		txHash?: string,
-		errorMessage?: string
+		errorMessage?: string,
 	) => Effect.Effect<SwapTransaction | null, DatabaseError, DrizzleService>
-	
+
 	readonly getSwapById: (
-		swapId: number
+		swapId: number,
 	) => Effect.Effect<SwapTransaction | null, DatabaseError, DrizzleService>
 }
 
-export class SwapService extends Context.Tag('SwapService')<
-	SwapService,
-	SwapServiceInterface
->() {}
+export class SwapService extends Context.Tag('SwapService')<SwapService, SwapServiceInterface>() {}
 
 // Helper to map chain key to chain ID
 const CHAIN_IDS: Record<string, number> = {
@@ -235,7 +236,7 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 	getUserSwaps: (userId: number, limit = 20, offset = 0) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const result = yield* Effect.tryPromise({
@@ -257,28 +258,36 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 		Effect.gen(function* () {
 			// Validate required params
 			if (!params.fromChain || !params.toChain) {
-				return yield* Effect.fail(new ValidationError({ 
-					message: 'fromChain and toChain are required',
-					fields: { fromChain: 'required', toChain: 'required' }
-				}))
+				return yield* Effect.fail(
+					new ValidationError({
+						message: 'fromChain and toChain are required',
+						fields: { fromChain: 'required', toChain: 'required' },
+					}),
+				)
 			}
 			if (!params.fromToken || !params.toToken) {
-				return yield* Effect.fail(new ValidationError({ 
-					message: 'fromToken and toToken are required',
-					fields: { fromToken: 'required', toToken: 'required' }
-				}))
+				return yield* Effect.fail(
+					new ValidationError({
+						message: 'fromToken and toToken are required',
+						fields: { fromToken: 'required', toToken: 'required' },
+					}),
+				)
 			}
 			if (!params.fromAmount || params.fromAmount === '0') {
-				return yield* Effect.fail(new ValidationError({ 
-					message: 'fromAmount must be greater than 0',
-					fields: { fromAmount: 'must be greater than 0' }
-				}))
+				return yield* Effect.fail(
+					new ValidationError({
+						message: 'fromAmount must be greater than 0',
+						fields: { fromAmount: 'must be greater than 0' },
+					}),
+				)
 			}
 			if (!params.fromAddress) {
-				return yield* Effect.fail(new ValidationError({ 
-					message: 'fromAddress is required',
-					fields: { fromAddress: 'required' }
-				}))
+				return yield* Effect.fail(
+					new ValidationError({
+						message: 'fromAddress is required',
+						fields: { fromAddress: 'required' },
+					}),
+				)
 			}
 
 			// Build query params
@@ -298,7 +307,7 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 			})
 
 			const url = `${LIFI_API_BASE}/quote?${queryParams.toString()}`
-			
+
 			console.log('[SwapService] Fetching quote:', url)
 
 			// Call Li.Fi API
@@ -307,45 +316,49 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 					const res = await fetch(url, {
 						method: 'GET',
 						headers: {
-							'Accept': 'application/json',
+							Accept: 'application/json',
 							// Add API key if configured
 							...(process.env.LIFI_API_KEY && {
 								'x-lifi-api-key': process.env.LIFI_API_KEY,
 							}),
 						},
 					})
-					
+
 					if (!res.ok) {
-						const errorData = await res.json().catch(() => ({ message: res.statusText })) as LifiApiError
+						const errorData = (await res
+							.json()
+							.catch(() => ({ message: res.statusText }))) as LifiApiError
 						throw new Error(`Li.Fi API error: ${errorData.message || res.statusText}`)
 					}
-					
-					return await res.json() as LifiQuote
+
+					return (await res.json()) as LifiQuote
 				},
 				catch: (e) => new Error(`Failed to fetch quote: ${e}`),
 			})
 
 			// Calculate derived values
-			const fromAmountNum = parseFloat(response.action.fromAmount) / Math.pow(10, response.action.fromToken.decimals)
-			const toAmountNum = parseFloat(response.estimate.toAmount) / Math.pow(10, response.action.toToken.decimals)
+			const fromAmountNum =
+				parseFloat(response.action.fromAmount) / 10 ** response.action.fromToken.decimals
+			const toAmountNum =
+				parseFloat(response.estimate.toAmount) / 10 ** response.action.toToken.decimals
 			const exchangeRate = toAmountNum / fromAmountNum
-			
+
 			// Calculate total gas in USD
 			const gasUsd = response.estimate.gasCosts.reduce(
-				(sum, g) => sum + parseFloat(g.amountUSD || '0'), 
-				0
+				(sum, g) => sum + parseFloat(g.amountUSD || '0'),
+				0,
 			)
-			
+
 			// Calculate bridge fees
 			const bridgeFeeUsd = response.estimate.feeCosts.reduce(
 				(sum, f) => sum + parseFloat(f.amountUSD || '0'),
-				0
+				0,
 			)
-			
+
 			// Calculate price impact (simplified)
 			const fromUsd = parseFloat(response.action.fromToken.priceUSD || '0') * fromAmountNum
 			const toUsd = parseFloat(response.action.toToken.priceUSD || '0') * toAmountNum
-			const priceImpact = fromUsd > 0 ? ((fromUsd - toUsd) / fromUsd * 100) : 0
+			const priceImpact = fromUsd > 0 ? ((fromUsd - toUsd) / fromUsd) * 100 : 0
 
 			// Build route description
 			const route = response.includedSteps
@@ -392,16 +405,13 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 	createSwapRecord: (swap: NewSwapTransaction) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const result = yield* Effect.tryPromise({
-				try: () =>
-					db
-						.insert(swapTransactions)
-						.values(swap)
-						.returning(),
-				catch: (e) => new DatabaseError({ message: `Failed to create swap record: ${e}`, cause: e }),
+				try: () => db.insert(swapTransactions).values(swap).returning(),
+				catch: (e) =>
+					new DatabaseError({ message: `Failed to create swap record: ${e}`, cause: e }),
 			})
 
 			return result[0]
@@ -410,7 +420,7 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 	updateSwapStatus: (swapId: number, status: string, txHash?: string, errorMessage?: string) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const updateData: Partial<SwapTransaction> = {
@@ -429,7 +439,8 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 						.set(updateData)
 						.where(eq(swapTransactions.id, swapId))
 						.returning(),
-				catch: (e) => new DatabaseError({ message: `Failed to update swap status: ${e}`, cause: e }),
+				catch: (e) =>
+					new DatabaseError({ message: `Failed to update swap status: ${e}`, cause: e }),
 			})
 
 			return result[0] || null
@@ -438,16 +449,12 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 	getSwapById: (swapId: number) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const result = yield* Effect.tryPromise({
 				try: () =>
-					db
-						.select()
-						.from(swapTransactions)
-						.where(eq(swapTransactions.id, swapId))
-						.limit(1),
+					db.select().from(swapTransactions).where(eq(swapTransactions.id, swapId)).limit(1),
 				catch: (e) => new DatabaseError({ message: `Failed to get swap: ${e}`, cause: e }),
 			})
 

@@ -1,8 +1,8 @@
-import { Context, Effect, Layer, Option } from 'effect'
-import { eq, sql } from 'drizzle-orm'
-import { DrizzleService, requireDb, agents, webhookEvents, type Agent } from '../db'
-import { DatabaseError } from '../errors'
 import crypto from 'crypto'
+import { eq, sql } from 'drizzle-orm'
+import { Context, Effect, Layer, Option } from 'effect'
+import { type Agent, agents, type DrizzleService, requireDb, webhookEvents } from '../db'
+import { DatabaseError } from '../errors'
 
 export interface RegisterAgentParams {
 	name: string
@@ -19,53 +19,47 @@ export interface UpdateAgentParams {
 
 export interface AgentServiceInterface {
 	readonly registerAgent: (
-		params: RegisterAgentParams
+		params: RegisterAgentParams,
 	) => Effect.Effect<{ agent: Agent; apiKey: string }, DatabaseError, DrizzleService>
 
 	readonly getAgentByApiKey: (
-		apiKey: string
+		apiKey: string,
 	) => Effect.Effect<Option.Option<Agent>, DatabaseError, DrizzleService>
 
 	readonly getAgentByName: (
-		name: string
+		name: string,
 	) => Effect.Effect<Option.Option<Agent>, DatabaseError, DrizzleService>
 
 	readonly getAgentById: (
-		id: number
+		id: number,
 	) => Effect.Effect<Option.Option<Agent>, DatabaseError, DrizzleService>
 
 	readonly updateAgent: (
 		agentId: number,
-		params: UpdateAgentParams
+		params: UpdateAgentParams,
 	) => Effect.Effect<Agent, DatabaseError, DrizzleService>
 
 	readonly updateAgentActivity: (
-		agentId: number
+		agentId: number,
 	) => Effect.Effect<void, DatabaseError, DrizzleService>
 
 	readonly incrementAgentStats: (
 		agentId: number,
-		type: 'request' | 'swap'
+		type: 'request' | 'swap',
 	) => Effect.Effect<void, DatabaseError, DrizzleService>
 
 	readonly rotateApiKey: (
-		agentId: number
+		agentId: number,
 	) => Effect.Effect<{ agent: Agent; apiKey: string }, DatabaseError, DrizzleService>
 
-	readonly deactivateAgent: (
-		agentId: number
-	) => Effect.Effect<Agent, DatabaseError, DrizzleService>
+	readonly deactivateAgent: (agentId: number) => Effect.Effect<Agent, DatabaseError, DrizzleService>
 
-	readonly reactivateAgent: (
-		agentId: number
-	) => Effect.Effect<Agent, DatabaseError, DrizzleService>
+	readonly reactivateAgent: (agentId: number) => Effect.Effect<Agent, DatabaseError, DrizzleService>
 
-	readonly deleteAgent: (
-		agentId: number
-	) => Effect.Effect<void, DatabaseError, DrizzleService>
+	readonly deleteAgent: (agentId: number) => Effect.Effect<void, DatabaseError, DrizzleService>
 
 	readonly getAgentByApiKeyIncludingInactive: (
-		apiKey: string
+		apiKey: string,
 	) => Effect.Effect<Option.Option<Agent>, DatabaseError, DrizzleService>
 }
 
@@ -94,7 +88,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 	registerAgent: (params: RegisterAgentParams) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			// Generate API key
@@ -133,7 +127,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 	getAgentByApiKey: (apiKey: string) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const apiKeyHash = hashApiKey(apiKey)
@@ -162,7 +156,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 	getAgentByName: (name: string) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const result = yield* Effect.tryPromise({
@@ -180,13 +174,12 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 	getAgentById: (id: number) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const result = yield* Effect.tryPromise({
 				try: () => db.select().from(agents).where(eq(agents.id, id)),
-				catch: (e) =>
-					new DatabaseError({ message: `Failed to get agent: ${e}`, cause: e }),
+				catch: (e) => new DatabaseError({ message: `Failed to get agent: ${e}`, cause: e }),
 			})
 
 			return result.length > 0 ? Option.some(result[0]) : Option.none()
@@ -195,7 +188,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 	updateAgent: (agentId: number, params: UpdateAgentParams) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const updates: Record<string, unknown> = { updatedAt: new Date() }
@@ -204,20 +197,12 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 			if (params.metadata !== undefined) updates.metadata = params.metadata
 
 			const result = yield* Effect.tryPromise({
-				try: () =>
-					db
-						.update(agents)
-						.set(updates)
-						.where(eq(agents.id, agentId))
-						.returning(),
-				catch: (e) =>
-					new DatabaseError({ message: `Failed to update agent: ${e}`, cause: e }),
+				try: () => db.update(agents).set(updates).where(eq(agents.id, agentId)).returning(),
+				catch: (e) => new DatabaseError({ message: `Failed to update agent: ${e}`, cause: e }),
 			})
 
 			if (result.length === 0) {
-				return yield* Effect.fail(
-					new DatabaseError({ message: 'Agent not found' })
-				)
+				return yield* Effect.fail(new DatabaseError({ message: 'Agent not found' }))
 			}
 
 			return result[0]
@@ -226,7 +211,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 	updateAgentActivity: (agentId: number) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			yield* Effect.tryPromise({
@@ -243,7 +228,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 	incrementAgentStats: (agentId: number, type: 'request' | 'swap') =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			// Atomic increment using SQL
@@ -264,7 +249,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 	rotateApiKey: (agentId: number) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const apiKey = generateApiKey()
@@ -278,14 +263,11 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 						.set({ apiKey: apiKeyDisplay, apiKeyHash, updatedAt: new Date() })
 						.where(eq(agents.id, agentId))
 						.returning(),
-				catch: (e) =>
-					new DatabaseError({ message: `Failed to rotate API key: ${e}`, cause: e }),
+				catch: (e) => new DatabaseError({ message: `Failed to rotate API key: ${e}`, cause: e }),
 			})
 
 			if (result.length === 0) {
-				return yield* Effect.fail(
-					new DatabaseError({ message: 'Agent not found' })
-				)
+				return yield* Effect.fail(new DatabaseError({ message: 'Agent not found' }))
 			}
 
 			return { agent: result[0], apiKey }
@@ -294,7 +276,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 	deactivateAgent: (agentId: number) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const result = yield* Effect.tryPromise({
@@ -304,14 +286,11 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 						.set({ isActive: false, updatedAt: new Date() })
 						.where(eq(agents.id, agentId))
 						.returning(),
-				catch: (e) =>
-					new DatabaseError({ message: `Failed to deactivate agent: ${e}`, cause: e }),
+				catch: (e) => new DatabaseError({ message: `Failed to deactivate agent: ${e}`, cause: e }),
 			})
 
 			if (result.length === 0) {
-				return yield* Effect.fail(
-					new DatabaseError({ message: 'Agent not found' })
-				)
+				return yield* Effect.fail(new DatabaseError({ message: 'Agent not found' }))
 			}
 
 			return result[0]
@@ -320,7 +299,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 	reactivateAgent: (agentId: number) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const result = yield* Effect.tryPromise({
@@ -330,14 +309,11 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 						.set({ isActive: true, updatedAt: new Date() })
 						.where(eq(agents.id, agentId))
 						.returning(),
-				catch: (e) =>
-					new DatabaseError({ message: `Failed to reactivate agent: ${e}`, cause: e }),
+				catch: (e) => new DatabaseError({ message: `Failed to reactivate agent: ${e}`, cause: e }),
 			})
 
 			if (result.length === 0) {
-				return yield* Effect.fail(
-					new DatabaseError({ message: 'Agent not found' })
-				)
+				return yield* Effect.fail(new DatabaseError({ message: 'Agent not found' }))
 			}
 
 			return result[0]
@@ -346,7 +322,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 	deleteAgent: (agentId: number) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			// Delete webhook events first
@@ -359,15 +335,14 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 			// Delete agent
 			yield* Effect.tryPromise({
 				try: () => db.delete(agents).where(eq(agents.id, agentId)),
-				catch: (e) =>
-					new DatabaseError({ message: `Failed to delete agent: ${e}`, cause: e }),
+				catch: (e) => new DatabaseError({ message: `Failed to delete agent: ${e}`, cause: e }),
 			})
 		}),
 
 	getAgentByApiKeyIncludingInactive: (apiKey: string) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const apiKeyHash = hashApiKey(apiKey)

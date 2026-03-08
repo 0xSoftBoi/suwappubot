@@ -1,5 +1,5 @@
-import { Context, Effect, Layer } from 'effect'
 import { Schema } from '@effect/schema'
+import { Context, Effect, Layer } from 'effect'
 
 export const EnvSchema = Schema.Struct({
 	NODE_ENV: Schema.optionalWith(Schema.Literal('development', 'test', 'production'), {
@@ -29,7 +29,8 @@ export const EnvSchema = Schema.Struct({
 
 	// CORS
 	ALLOWED_ORIGINS: Schema.optionalWith(Schema.String, {
-		default: () => 'https://app.suwappu.bot,https://www.suwappu.bot,https://suwappu.bot,https://devfront.suwappu.bot,http://localhost:3000,http://localhost:5173',
+		default: () =>
+			'https://app.suwappu.bot,https://www.suwappu.bot,https://suwappu.bot,https://devfront.suwappu.bot,http://localhost:3000,http://localhost:5173',
 	}),
 
 	// Internal Python API
@@ -57,5 +58,5 @@ export class EnvService extends Context.Tag('EnvService')<EnvService, Env>() {}
 
 export const EnvServiceLive = Layer.effect(
 	EnvService,
-	Effect.sync(() => Schema.decodeUnknownSync(EnvSchema)(process.env))
+	Effect.sync(() => Schema.decodeUnknownSync(EnvSchema)(process.env)),
 )

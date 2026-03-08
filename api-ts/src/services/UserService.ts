@@ -1,6 +1,6 @@
-import { Context, Effect, Layer, Option } from 'effect'
 import { eq } from 'drizzle-orm'
-import { DrizzleService, requireDb, users, type User } from '../db'
+import { Context, Effect, Layer, Option } from 'effect'
+import { type DrizzleService, requireDb, type User, users } from '../db'
 import { DatabaseError } from '../errors'
 
 export interface CreateUserParams {
@@ -19,33 +19,30 @@ export interface UpdateUserPreferencesParams {
 
 export interface UserServiceInterface {
 	readonly getUserById: (
-		id: number
+		id: number,
 	) => Effect.Effect<Option.Option<User>, DatabaseError, DrizzleService>
 	readonly getUserByTelegramId: (
-		telegramId: number
+		telegramId: number,
 	) => Effect.Effect<Option.Option<User>, DatabaseError, DrizzleService>
 	readonly createUser: (
-		params: CreateUserParams
+		params: CreateUserParams,
 	) => Effect.Effect<User, DatabaseError, DrizzleService>
 	readonly getOrCreateUser: (
-		params: CreateUserParams
+		params: CreateUserParams,
 	) => Effect.Effect<{ user: User; isNew: boolean }, DatabaseError, DrizzleService>
 	readonly updateUserPreferences: (
 		userId: number,
-		params: UpdateUserPreferencesParams
+		params: UpdateUserPreferencesParams,
 	) => Effect.Effect<User, DatabaseError, DrizzleService>
 }
 
-export class UserService extends Context.Tag('UserService')<
-	UserService,
-	UserServiceInterface
->() {}
+export class UserService extends Context.Tag('UserService')<UserService, UserServiceInterface>() {}
 
 export const UserServiceLive = Layer.succeed(UserService, {
 	getUserById: (id: number) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const result = yield* Effect.tryPromise({
@@ -59,7 +56,7 @@ export const UserServiceLive = Layer.succeed(UserService, {
 	getUserByTelegramId: (telegramId: number) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const result = yield* Effect.tryPromise({
@@ -77,7 +74,7 @@ export const UserServiceLive = Layer.succeed(UserService, {
 	createUser: (params: CreateUserParams) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const result = yield* Effect.tryPromise({
@@ -91,8 +88,7 @@ export const UserServiceLive = Layer.succeed(UserService, {
 							lastName: params.lastName || null,
 						})
 						.returning(),
-				catch: (e) =>
-					new DatabaseError({ message: `Failed to create user: ${e}`, cause: e }),
+				catch: (e) => new DatabaseError({ message: `Failed to create user: ${e}`, cause: e }),
 			})
 
 			return result[0]
@@ -101,7 +97,7 @@ export const UserServiceLive = Layer.succeed(UserService, {
 	getOrCreateUser: (params: CreateUserParams) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			// Try to find existing user
@@ -127,8 +123,7 @@ export const UserServiceLive = Layer.succeed(UserService, {
 							lastName: params.lastName || null,
 						})
 						.returning(),
-				catch: (e) =>
-					new DatabaseError({ message: `Failed to create user: ${e}`, cause: e }),
+				catch: (e) => new DatabaseError({ message: `Failed to create user: ${e}`, cause: e }),
 			})
 
 			return { user: created[0], isNew: true }
@@ -137,7 +132,7 @@ export const UserServiceLive = Layer.succeed(UserService, {
 	updateUserPreferences: (userId: number, params: UpdateUserPreferencesParams) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			// Build update object with only provided fields
@@ -158,12 +153,7 @@ export const UserServiceLive = Layer.succeed(UserService, {
 			}
 
 			const result = yield* Effect.tryPromise({
-				try: () =>
-					db
-						.update(users)
-						.set(updateData)
-						.where(eq(users.id, userId))
-						.returning(),
+				try: () => db.update(users).set(updateData).where(eq(users.id, userId)).returning(),
 				catch: (e) =>
 					new DatabaseError({ message: `Failed to update user preferences: ${e}`, cause: e }),
 			})

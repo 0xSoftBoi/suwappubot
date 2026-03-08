@@ -1,9 +1,9 @@
-import { Hono } from 'hono'
+import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { Effect, Either } from 'effect'
-import { runEffectEither } from '../runtime'
+import { Hono } from 'hono'
+import { agents, requireDb, swapTransactions, webhookEvents } from '../db'
 import { mapErrorToResponse } from '../errors'
-import { requireDb, agents, swapTransactions, webhookEvents } from '../db'
-import { eq, and, desc, sql, gte } from 'drizzle-orm'
+import { runEffectEither } from '../runtime'
 
 const adminRoutes = new Hono()
 
@@ -70,7 +70,7 @@ adminRoutes.get('/stats', async (c) => {
 					failed: webhookStats[0]?.failed ?? 0,
 				},
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -125,11 +125,7 @@ adminRoutes.get('/agents', async (c) => {
 					catch: (e) => new Error(`Database error: ${e}`),
 				}),
 				Effect.tryPromise({
-					try: () =>
-						db
-							.select({ count: sql<number>`count(*)` })
-							.from(agents)
-							.where(whereClause),
+					try: () => db.select({ count: sql<number>`count(*)` }).from(agents).where(whereClause),
 					catch: (e) => new Error(`Database error: ${e}`),
 				}),
 			])
@@ -152,7 +148,7 @@ adminRoutes.get('/agents', async (c) => {
 				})),
 				pagination: { total, limit, offset, has_more: offset + limit < total },
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -198,10 +194,7 @@ adminRoutes.get('/swaps', async (c) => {
 				}),
 				Effect.tryPromise({
 					try: () =>
-						db
-							.select({ count: sql<number>`count(*)` })
-							.from(swapTransactions)
-							.where(whereClause),
+						db.select({ count: sql<number>`count(*)` }).from(swapTransactions).where(whereClause),
 					catch: (e) => new Error(`Database error: ${e}`),
 				}),
 			])
@@ -231,7 +224,7 @@ adminRoutes.get('/swaps', async (c) => {
 				})),
 				pagination: { total, limit, offset, has_more: offset + limit < total },
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -277,10 +270,7 @@ adminRoutes.get('/webhooks', async (c) => {
 				}),
 				Effect.tryPromise({
 					try: () =>
-						db
-							.select({ count: sql<number>`count(*)` })
-							.from(webhookEvents)
-							.where(whereClause),
+						db.select({ count: sql<number>`count(*)` }).from(webhookEvents).where(whereClause),
 					catch: (e) => new Error(`Database error: ${e}`),
 				}),
 			])
@@ -302,7 +292,7 @@ adminRoutes.get('/webhooks', async (c) => {
 				})),
 				pagination: { total, limit, offset, has_more: offset + limit < total },
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {

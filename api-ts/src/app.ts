@@ -1,11 +1,18 @@
 import { Hono } from 'hono'
-import { logger } from 'hono/logger'
-import { HTTPException } from 'hono/http-exception'
 import { serveStatic } from 'hono/bun'
-
-import { createCorsMiddleware, adminKeyAuth } from './middleware'
-import { healthRoutes, webappRoutes, agentRoutes, a2aRoutes, swapRoutes, publicSwapRoutes, adminRoutes } from './routes'
+import { HTTPException } from 'hono/http-exception'
+import { logger } from 'hono/logger'
 import agentCard from '../agent-card.json'
+import { adminKeyAuth, createCorsMiddleware } from './middleware'
+import {
+	a2aRoutes,
+	adminRoutes,
+	agentRoutes,
+	healthRoutes,
+	publicSwapRoutes,
+	swapRoutes,
+	webappRoutes,
+} from './routes'
 
 export interface AppConfig {
 	allowedOrigins: string
@@ -57,35 +64,42 @@ export function createApp(config: AppConfig) {
 	app.route('/admin', adminRoutes)
 
 	// Dashboard SPA - static files
-	app.use('/dashboard/*', serveStatic({
-		root: './dashboard/dist',
-		rewriteRequestPath: (path) => path.replace(/^\/dashboard/, ''),
-	}))
-	app.get('/dashboard/*', serveStatic({
-		root: './dashboard/dist',
-		rewriteRequestPath: () => '/index.html',
-	}))
+	app.use(
+		'/dashboard/*',
+		serveStatic({
+			root: './dashboard/dist',
+			rewriteRequestPath: (path) => path.replace(/^\/dashboard/, ''),
+		}),
+	)
+	app.get(
+		'/dashboard/*',
+		serveStatic({
+			root: './dashboard/dist',
+			rewriteRequestPath: () => '/index.html',
+		}),
+	)
 	app.get('/dashboard', (c) => c.redirect('/dashboard/'))
 
 	// OpenAPI / AI plugin manifest
 	app.get('/ai-plugin.json', (c) => {
 		return c.json({
-			"schema_version": "v1",
-			"name_for_human": "Suwappu DEX",
-			"name_for_model": "suwappu",
-			"description_for_human": "Swap tokens across 7 blockchain networks via natural language",
-			"description_for_model": "Use Suwappu to execute token swaps across Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, and Solana. Accepts natural language commands like 'swap 0.5 ETH to USDC on Base'. Returns transaction status and explorer links.",
-			"auth": {
-				"type": "service_http",
-				"authorization_type": "bearer"
+			schema_version: 'v1',
+			name_for_human: 'Suwappu DEX',
+			name_for_model: 'suwappu',
+			description_for_human: 'Swap tokens across 7 blockchain networks via natural language',
+			description_for_model:
+				"Use Suwappu to execute token swaps across Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, and Solana. Accepts natural language commands like 'swap 0.5 ETH to USDC on Base'. Returns transaction status and explorer links.",
+			auth: {
+				type: 'service_http',
+				authorization_type: 'bearer',
 			},
-			"api": {
-				"type": "openapi",
-				"url": "https://api.suwappu.bot/openapi.json"
+			api: {
+				type: 'openapi',
+				url: 'https://api.suwappu.bot/openapi.json',
 			},
-			"logo_url": "https://suwappu.bot/logo.png",
-			"contact_email": "support@suwappu.bot",
-			"legal_info_url": "https://suwappu.bot/terms"
+			logo_url: 'https://suwappu.bot/logo.png',
+			contact_email: 'support@suwappu.bot',
+			legal_info_url: 'https://suwappu.bot/terms',
 		})
 	})
 

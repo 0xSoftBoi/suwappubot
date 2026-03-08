@@ -1,28 +1,39 @@
-import { Hono } from 'hono'
+import crypto from 'crypto'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
-import { AgentService, BalanceService, TurnkeyService, TokenService, SwapService, JupiterService, CHAINS, COMMON_TOKENS, SOLANA_TOKENS, type QuoteParams } from '../services'
-import { runEffectEither } from '../runtime'
+import { Hono } from 'hono'
+import { z } from 'zod'
+import openApiSpec from '../../openapi-agent.json'
+import { EnvService } from '../config/EnvService'
+import type { Agent } from '../db'
+import { requireDb, swapTransactions, webhookEvents } from '../db'
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { agentBearerAuth, agentBearerAuthAllowInactive } from '../middleware'
 import { rateLimit } from '../middleware/rateLimit'
-import { requireDb, swapTransactions, webhookEvents } from '../db'
-import { eq, and, desc, sql } from 'drizzle-orm'
-import { EnvService } from '../config/EnvService'
+import { runEffectEither } from '../runtime'
 import {
-	RegisterAgentSchema,
-	QuoteRequestSchema,
-	SwapRequestSchema,
+	AgentService,
+	BalanceService,
+	CHAINS,
+	COMMON_TOKENS,
+	JupiterService,
+	type QuoteParams,
+	SOLANA_TOKENS,
+	SwapService,
+	TokenService,
+	TurnkeyService,
+} from '../services'
+import {
 	ExecuteCommandSchema,
-	UpdateAgentSchema,
 	ExecuteSwapSchema,
-	SwapStatusQuerySchema,
-	WebhookEventsQuerySchema,
 	formatZodErrors,
+	QuoteRequestSchema,
+	RegisterAgentSchema,
+	SwapRequestSchema,
+	SwapStatusQuerySchema,
+	UpdateAgentSchema,
+	WebhookEventsQuerySchema,
 } from './validators'
-import type { Agent } from '../db'
-import { z } from 'zod'
-import crypto from 'crypto'
-import openApiSpec from '../../openapi-agent.json'
 
 // Extend Hono's context to include our agent
 type AgentContext = {
@@ -34,7 +45,10 @@ type AgentContext = {
 const agentRoutes = new Hono<AgentContext>()
 
 // In-memory quote cache
-const quoteCache = new Map<string, { quote: any; expiry: number; agentId: number; isSolana?: boolean }>()
+const quoteCache = new Map<
+	string,
+	{ quote: any; expiry: number; agentId: number; isSolana?: boolean }
+>()
 const QUOTE_TTL = 60_000 // 60 seconds for agent quotes
 const QUOTE_CACHE_MAX = 10_000
 
@@ -58,17 +72,34 @@ const quoteCacheCleanup = setInterval(() => {
 
 // CoinGecko ID mapping for token prices
 const COINGECKO_IDS: Record<string, string> = {
-	eth: 'ethereum', sol: 'solana', bnb: 'binancecoin', usdc: 'usd-coin',
-	usdt: 'tether', btc: 'bitcoin', dai: 'dai', wbtc: 'wrapped-bitcoin',
-	arb: 'arbitrum', op: 'optimism', avax: 'avalanche-2', matic: 'matic-network',
-	weth: 'weth', bonk: 'bonk', jup: 'jupiter-exchange-solana', ray: 'raydium',
+	eth: 'ethereum',
+	sol: 'solana',
+	bnb: 'binancecoin',
+	usdc: 'usd-coin',
+	usdt: 'tether',
+	btc: 'bitcoin',
+	dai: 'dai',
+	wbtc: 'wrapped-bitcoin',
+	arb: 'arbitrum',
+	op: 'optimism',
+	avax: 'avalanche-2',
+	matic: 'matic-network',
+	weth: 'weth',
+	bonk: 'bonk',
+	jup: 'jupiter-exchange-solana',
+	ray: 'raydium',
 }
 
 // Token price cache (60s TTL)
-const tokenPriceCache = new Map<string, { usd: number; change_24h: number | null; timestamp: number }>()
+const tokenPriceCache = new Map<
+	string,
+	{ usd: number; change_24h: number | null; timestamp: number }
+>()
 const PRICE_CACHE_TTL = 60_000
 
-async function fetchTokenPrices(symbols: string[]): Promise<Record<string, { usd: number; change_24h: number | null }>> {
+async function fetchTokenPrices(
+	symbols: string[],
+): Promise<Record<string, { usd: number; change_24h: number | null }>> {
 	const now = Date.now()
 	const result: Record<string, { usd: number; change_24h: number | null }> = {}
 	const toFetch: string[] = []
@@ -87,10 +118,10 @@ async function fetchTokenPrices(symbols: string[]): Promise<Record<string, { usd
 		const ids = toFetch.map((s) => COINGECKO_IDS[s]).join(',')
 		try {
 			const res = await fetch(
-				`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`
+				`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`,
 			)
 			if (res.ok) {
-				const data = await res.json() as Record<string, { usd?: number; usd_24h_change?: number }>
+				const data = (await res.json()) as Record<string, { usd?: number; usd_24h_change?: number }>
 				for (const sym of toFetch) {
 					const cgId = COINGECKO_IDS[sym]
 					const priceData = data[cgId]
@@ -111,8 +142,13 @@ async function fetchTokenPrices(symbols: string[]): Promise<Record<string, { usd
 
 // Chain name/id mapping for token listing
 const CHAIN_NAMES: Record<number, string> = {
-	1: 'Ethereum', 10: 'Optimism', 56: 'BNB Chain', 137: 'Polygon',
-	42161: 'Arbitrum', 8453: 'Base', 43114: 'Avalanche',
+	1: 'Ethereum',
+	10: 'Optimism',
+	56: 'BNB Chain',
+	137: 'Polygon',
+	42161: 'Arbitrum',
+	8453: 'Base',
+	43114: 'Avalanche',
 }
 
 // Helper to detect if chain is Solana
@@ -136,11 +172,14 @@ agentRoutes.post('/register', async (c) => {
 
 	const parsed = RegisterAgentSchema.safeParse(body)
 	if (!parsed.success) {
-		return c.json({
-			success: false,
-			error: 'Validation error',
-			fields: formatZodErrors(parsed.error),
-		}, 400)
+		return c.json(
+			{
+				success: false,
+				error: 'Validation error',
+				fields: formatZodErrors(parsed.error),
+			},
+			400,
+		)
 	}
 
 	const { name, description, callback_url, metadata } = parsed.data
@@ -152,7 +191,7 @@ agentRoutes.post('/register', async (c) => {
 			const existing = yield* agentService.getAgentByName(name)
 			if (Option.isSome(existing)) {
 				return yield* Effect.fail(
-					new ValidationError({ message: `Agent name "${name}" is already taken` })
+					new ValidationError({ message: `Agent name "${name}" is already taken` }),
 				)
 			}
 
@@ -164,7 +203,7 @@ agentRoutes.post('/register', async (c) => {
 			})
 
 			return { agent, apiKey }
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -174,32 +213,34 @@ agentRoutes.post('/register', async (c) => {
 
 	const { agent, apiKey } = result.right
 
-	return c.json({
-		success: true,
-		message: 'Welcome to Suwappu!',
-		agent: {
-			id: agent.uuid,
-			name: agent.name,
-			api_key: apiKey,
-			created_at: agent.createdAt,
+	return c.json(
+		{
+			success: true,
+			message: 'Welcome to Suwappu!',
+			agent: {
+				id: agent.uuid,
+				name: agent.name,
+				api_key: apiKey,
+				created_at: agent.createdAt,
+			},
+			important: 'SAVE YOUR API KEY! It cannot be retrieved later.',
+			next_steps: {
+				step_1: 'Save your api_key securely',
+				step_2: 'Use Authorization: Bearer YOUR_API_KEY for all requests',
+				step_3:
+					'Try POST /v1/agent/quote with {"from_token": "ETH", "to_token": "USDC", "amount": "0.1", "chain": "base"}',
+			},
+			docs: 'https://api.suwappu.bot/docs',
 		},
-		important: 'SAVE YOUR API KEY! It cannot be retrieved later.',
-		next_steps: {
-			step_1: 'Save your api_key securely',
-			step_2: 'Use Authorization: Bearer YOUR_API_KEY for all requests',
-			step_3: 'Try POST /v1/agent/quote with {"from_token": "ETH", "to_token": "USDC", "amount": "0.1", "chain": "base"}',
-		},
-		docs: 'https://api.suwappu.bot/docs',
-	}, 201)
+		201,
+	)
 })
 
 // GET /v1/agent/chains - List supported chains (public)
 agentRoutes.get('/chains', async (c) => {
 	const evmChains = Object.values(CHAINS)
-		.filter((chain, index, self) =>
-			index === self.findIndex(ch => ch.id === chain.id)
-		)
-		.map(chain => ({
+		.filter((chain, index, self) => index === self.findIndex((ch) => ch.id === chain.id))
+		.map((chain) => ({
 			id: chain.id,
 			key: chain.key,
 			name: chain.name,
@@ -216,7 +257,7 @@ agentRoutes.get('/chains', async (c) => {
 			name: 'Solana',
 			native_token: 'SOL',
 			type: 'solana',
-		}
+		},
 	]
 
 	return c.json({
@@ -282,7 +323,7 @@ agentRoutes.get('/me', async (c) => {
 			},
 			created_at: agent.createdAt,
 			last_active_at: agent.lastActiveAt,
-		}
+		},
 	})
 })
 
@@ -299,11 +340,14 @@ agentRoutes.patch('/me', async (c) => {
 
 	const parsed = UpdateAgentSchema.safeParse(body)
 	if (!parsed.success) {
-		return c.json({
-			success: false,
-			error: 'Validation error',
-			fields: formatZodErrors(parsed.error),
-		}, 400)
+		return c.json(
+			{
+				success: false,
+				error: 'Validation error',
+				fields: formatZodErrors(parsed.error),
+			},
+			400,
+		)
 	}
 
 	const { description, callback_url, metadata } = parsed.data
@@ -316,7 +360,7 @@ agentRoutes.patch('/me', async (c) => {
 				callbackUrl: callback_url,
 				metadata,
 			})
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -340,7 +384,7 @@ agentRoutes.patch('/me', async (c) => {
 				total_swaps: updated.totalSwaps,
 			},
 			updated_at: updated.updatedAt,
-		}
+		},
 	})
 })
 
@@ -357,25 +401,29 @@ agentRoutes.post('/quote', async (c) => {
 
 	const parsed = QuoteRequestSchema.safeParse(body)
 	if (!parsed.success) {
-		return c.json({
-			success: false,
-			error: 'Validation error',
-			fields: formatZodErrors(parsed.error),
-			examples: {
-				evm: { from_token: 'ETH', to_token: 'USDC', amount: '0.5', chain: 'base' },
-				solana: { from_token: 'SOL', to_token: 'USDC', amount: '1', chain: 'solana' }
-			}
-		}, 400)
+		return c.json(
+			{
+				success: false,
+				error: 'Validation error',
+				fields: formatZodErrors(parsed.error),
+				examples: {
+					evm: { from_token: 'ETH', to_token: 'USDC', amount: '0.5', chain: 'base' },
+					solana: { from_token: 'SOL', to_token: 'USDC', amount: '1', chain: 'solana' },
+				},
+			},
+			400,
+		)
 	}
 
-	const { from_token, to_token, amount, chain, from_chain, to_chain, wallet_address, slippage } = parsed.data
+	const { from_token, to_token, amount, chain, from_chain, to_chain, wallet_address, slippage } =
+		parsed.data
 
 	// Track request
 	await runEffectEither(
 		Effect.gen(function* () {
 			const agentService = yield* AgentService
 			yield* agentService.incrementAgentStats(agent.id, 'request')
-		})
+		}),
 	)
 
 	const chainKey = from_chain || chain || 'ethereum'
@@ -390,18 +438,22 @@ agentRoutes.post('/quote', async (c) => {
 				// Resolve tokens
 				const fromTokenInfo = jupiterService.resolveToken(from_token)
 				if (!fromTokenInfo) {
-					return yield* Effect.fail(new ValidationError({
-						message: `Token not found on Solana: ${from_token}`,
-						fields: { supported: Object.keys(SOLANA_TOKENS).join(', ') }
-					}))
+					return yield* Effect.fail(
+						new ValidationError({
+							message: `Token not found on Solana: ${from_token}`,
+							fields: { supported: Object.keys(SOLANA_TOKENS).join(', ') },
+						}),
+					)
 				}
 
 				const toTokenInfo = jupiterService.resolveToken(to_token)
 				if (!toTokenInfo) {
-					return yield* Effect.fail(new ValidationError({
-						message: `Token not found on Solana: ${to_token}`,
-						fields: { supported: Object.keys(SOLANA_TOKENS).join(', ') }
-					}))
+					return yield* Effect.fail(
+						new ValidationError({
+							message: `Token not found on Solana: ${to_token}`,
+							fields: { supported: Object.keys(SOLANA_TOKENS).join(', ') },
+						}),
+					)
 				}
 
 				// Convert amount to smallest unit (lamports for SOL, etc)
@@ -409,20 +461,24 @@ agentRoutes.post('/quote', async (c) => {
 				if (isNaN(amountNum) || amountNum <= 0) {
 					return yield* Effect.fail(new ValidationError({ message: 'Invalid amount' }))
 				}
-				const fromAmountLamports = BigInt(Math.floor(amountNum * Math.pow(10, fromTokenInfo.decimals))).toString()
+				const fromAmountLamports = BigInt(
+					Math.floor(amountNum * 10 ** fromTokenInfo.decimals),
+				).toString()
 
 				// Get quote from Jupiter
-				const quote = yield* jupiterService.getQuote({
-					inputMint: fromTokenInfo.address,
-					outputMint: toTokenInfo.address,
-					amount: fromAmountLamports,
-					slippageBps: slippage ? Math.floor(slippage * 10000) : 300, // Default 3%
-				}).pipe(
-					Effect.mapError((e) => {
-						if (e instanceof ValidationError) return e
-						return new ValidationError({ message: e.message })
+				const quote = yield* jupiterService
+					.getQuote({
+						inputMint: fromTokenInfo.address,
+						outputMint: toTokenInfo.address,
+						amount: fromAmountLamports,
+						slippageBps: slippage ? Math.floor(slippage * 10000) : 300, // Default 3%
 					})
-				)
+					.pipe(
+						Effect.mapError((e) => {
+							if (e instanceof ValidationError) return e
+							return new ValidationError({ message: e.message })
+						}),
+					)
 
 				// Generate quote ID
 				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -436,9 +492,9 @@ agentRoutes.post('/quote', async (c) => {
 				})
 
 				// Calculate human-readable amounts
-				const fromAmountHuman = parseFloat(quote.inAmount) / Math.pow(10, fromTokenInfo.decimals)
-				const toAmountHuman = parseFloat(quote.outAmount) / Math.pow(10, toTokenInfo.decimals)
-				const toAmountMinHuman = parseFloat(quote.otherAmountThreshold) / Math.pow(10, toTokenInfo.decimals)
+				const fromAmountHuman = parseFloat(quote.inAmount) / 10 ** fromTokenInfo.decimals
+				const toAmountHuman = parseFloat(quote.outAmount) / 10 ** toTokenInfo.decimals
+				const toAmountMinHuman = parseFloat(quote.otherAmountThreshold) / 10 ** toTokenInfo.decimals
 				const exchangeRate = toAmountHuman / fromAmountHuman
 
 				// Build route description
@@ -470,7 +526,7 @@ agentRoutes.post('/quote', async (c) => {
 					requires_wallet: true,
 					wallet_type: 'solana',
 				}
-			})
+			}),
 		)
 
 		if (Either.isLeft(result)) {
@@ -495,32 +551,40 @@ agentRoutes.post('/quote', async (c) => {
 			const destChainInfo = tokenService.resolveChain(destChain)
 
 			if (!sourceChainInfo) {
-				return yield* Effect.fail(new ValidationError({
-					message: `Unknown chain: ${sourceChain}`,
-					fields: { chain: `Supported: ${Object.keys(CHAINS).join(', ')}, solana` }
-				}))
+				return yield* Effect.fail(
+					new ValidationError({
+						message: `Unknown chain: ${sourceChain}`,
+						fields: { chain: `Supported: ${Object.keys(CHAINS).join(', ')}, solana` },
+					}),
+				)
 			}
 
 			if (!destChainInfo) {
-				return yield* Effect.fail(new ValidationError({
-					message: `Unknown chain: ${destChain}`,
-					fields: { chain: `Supported: ${Object.keys(CHAINS).join(', ')}, solana` }
-				}))
+				return yield* Effect.fail(
+					new ValidationError({
+						message: `Unknown chain: ${destChain}`,
+						fields: { chain: `Supported: ${Object.keys(CHAINS).join(', ')}, solana` },
+					}),
+				)
 			}
 
 			// Resolve tokens
 			const fromTokenInfo = yield* tokenService.resolveToken(from_token, sourceChainInfo.id)
 			if (!fromTokenInfo) {
-				return yield* Effect.fail(new ValidationError({
-					message: `Token not found: ${from_token} on ${sourceChainInfo.name}`
-				}))
+				return yield* Effect.fail(
+					new ValidationError({
+						message: `Token not found: ${from_token} on ${sourceChainInfo.name}`,
+					}),
+				)
 			}
 
 			const toTokenInfo = yield* tokenService.resolveToken(to_token, destChainInfo.id)
 			if (!toTokenInfo) {
-				return yield* Effect.fail(new ValidationError({
-					message: `Token not found: ${to_token} on ${destChainInfo.name}`
-				}))
+				return yield* Effect.fail(
+					new ValidationError({
+						message: `Token not found: ${to_token} on ${destChainInfo.name}`,
+					}),
+				)
 			}
 
 			// Convert amount to wei/smallest unit
@@ -528,7 +592,7 @@ agentRoutes.post('/quote', async (c) => {
 			if (isNaN(amountNum) || amountNum <= 0) {
 				return yield* Effect.fail(new ValidationError({ message: 'Invalid amount' }))
 			}
-			const fromAmountWei = BigInt(Math.floor(amountNum * Math.pow(10, fromTokenInfo.decimals))).toString()
+			const fromAmountWei = BigInt(Math.floor(amountNum * 10 ** fromTokenInfo.decimals)).toString()
 
 			// Use a placeholder address if none provided
 			const fromAddress = wallet_address || '0x0000000000000000000000000000000000000001'
@@ -551,7 +615,7 @@ agentRoutes.post('/quote', async (c) => {
 				Effect.mapError((e) => {
 					if (e instanceof ValidationError) return e
 					return new ValidationError({ message: e.message })
-				})
+				}),
 			)
 
 			// Cache the quote
@@ -563,9 +627,9 @@ agentRoutes.post('/quote', async (c) => {
 			})
 
 			// Calculate human-readable amounts
-			const fromAmountHuman = parseFloat(quote.fromAmount) / Math.pow(10, fromTokenInfo.decimals)
-			const toAmountHuman = parseFloat(quote.toAmount) / Math.pow(10, toTokenInfo.decimals)
-			const toAmountMinHuman = parseFloat(quote.toAmountMin) / Math.pow(10, toTokenInfo.decimals)
+			const fromAmountHuman = parseFloat(quote.fromAmount) / 10 ** fromTokenInfo.decimals
+			const toAmountHuman = parseFloat(quote.toAmount) / 10 ** toTokenInfo.decimals
+			const toAmountMinHuman = parseFloat(quote.toAmountMin) / 10 ** toTokenInfo.decimals
 
 			return {
 				quote_id: quote.quoteId,
@@ -597,15 +661,17 @@ agentRoutes.post('/quote', async (c) => {
 				expires_in_seconds: 60,
 				dex: 'Li.Fi',
 				// Transaction data for execution
-				transaction: wallet_address ? {
-					to: quote.transactionRequest.to,
-					value: quote.transactionRequest.value,
-					data: quote.transactionRequest.data,
-					chain_id: quote.transactionRequest.chainId,
-					gas_limit: quote.transactionRequest.gasLimit,
-				} : undefined,
+				transaction: wallet_address
+					? {
+							to: quote.transactionRequest.to,
+							value: quote.transactionRequest.value,
+							data: quote.transactionRequest.data,
+							chain_id: quote.transactionRequest.chainId,
+							gas_limit: quote.transactionRequest.gasLimit,
+						}
+					: undefined,
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -632,11 +698,14 @@ agentRoutes.post('/swap', async (c) => {
 
 	const parsed = SwapRequestSchema.safeParse(body)
 	if (!parsed.success) {
-		return c.json({
-			success: false,
-			error: 'Validation error',
-			fields: formatZodErrors(parsed.error),
-		}, 400)
+		return c.json(
+			{
+				success: false,
+				error: 'Validation error',
+				fields: formatZodErrors(parsed.error),
+			},
+			400,
+		)
 	}
 
 	const { quote_id, wallet_address } = parsed.data
@@ -646,7 +715,7 @@ agentRoutes.post('/swap', async (c) => {
 		Effect.gen(function* () {
 			const agentService = yield* AgentService
 			yield* agentService.incrementAgentStats(agent.id, 'swap')
-		})
+		}),
 	)
 
 	// If quote_id provided, use cached quote
@@ -654,20 +723,26 @@ agentRoutes.post('/swap', async (c) => {
 		const cached = quoteCache.get(quote_id)
 
 		if (!cached) {
-			return c.json({
-				success: false,
-				error: 'Quote expired or not found',
-				hint: 'Request a new quote using POST /v1/agent/quote'
-			}, 400)
+			return c.json(
+				{
+					success: false,
+					error: 'Quote expired or not found',
+					hint: 'Request a new quote using POST /v1/agent/quote',
+				},
+				400,
+			)
 		}
 
 		if (Date.now() > cached.expiry) {
 			quoteCache.delete(quote_id)
-			return c.json({
-				success: false,
-				error: 'Quote expired',
-				hint: 'Request a new quote using POST /v1/agent/quote'
-			}, 400)
+			return c.json(
+				{
+					success: false,
+					error: 'Quote expired',
+					hint: 'Request a new quote using POST /v1/agent/quote',
+				},
+				400,
+			)
 		}
 
 		const quote = cached.quote
@@ -679,24 +754,27 @@ agentRoutes.post('/swap', async (c) => {
 				Effect.gen(function* () {
 					const jupiterService = yield* JupiterService
 
-					const swapResponse = yield* jupiterService.getSwapTransaction({
-						quote,
-						userPublicKey: wallet_address,
-						wrapUnwrapSOL: true,
-					}).pipe(
-						Effect.mapError((e) => new ValidationError({ message: e.message }))
-					)
+					const swapResponse = yield* jupiterService
+						.getSwapTransaction({
+							quote,
+							userPublicKey: wallet_address,
+							wrapUnwrapSOL: true,
+						})
+						.pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 					return swapResponse
-				})
+				}),
 			)
 
 			if (Either.isLeft(result)) {
-				return c.json({
-					success: false,
-					error: 'Failed to get Solana transaction',
-					details: result.left.message,
-				}, 400)
+				return c.json(
+					{
+						success: false,
+						error: 'Failed to get Solana transaction',
+						details: result.left.message,
+					},
+					400,
+				)
 			}
 
 			const swapTx = result.right
@@ -772,15 +850,18 @@ agentRoutes.post('/swap', async (c) => {
 	}
 
 	// No quote_id - need to get a fresh quote first
-	return c.json({
-		success: false,
-		error: 'quote_id required',
-		hint: 'First get a quote using POST /v1/agent/quote, then pass the quote_id here',
-		example: {
-			step_1: 'POST /v1/agent/quote with {from_token, to_token, amount, chain, wallet_address}',
-			step_2: 'POST /v1/agent/swap with {quote_id, wallet_address}'
-		}
-	}, 400)
+	return c.json(
+		{
+			success: false,
+			error: 'quote_id required',
+			hint: 'First get a quote using POST /v1/agent/quote, then pass the quote_id here',
+			example: {
+				step_1: 'POST /v1/agent/quote with {from_token, to_token, amount, chain, wallet_address}',
+				step_2: 'POST /v1/agent/swap with {quote_id, wallet_address}',
+			},
+		},
+		400,
+	)
 })
 
 // POST /v1/agent/execute - Natural language command execution
@@ -796,12 +877,15 @@ agentRoutes.post('/execute', async (c) => {
 
 	const parsed = ExecuteCommandSchema.safeParse(body)
 	if (!parsed.success) {
-		return c.json({
-			success: false,
-			error: 'Validation error',
-			fields: formatZodErrors(parsed.error),
-			hint: 'Example: {"command": "swap 0.5 ETH to USDC on Base", "wallet_address": "0x..."}'
-		}, 400)
+		return c.json(
+			{
+				success: false,
+				error: 'Validation error',
+				fields: formatZodErrors(parsed.error),
+				hint: 'Example: {"command": "swap 0.5 ETH to USDC on Base", "wallet_address": "0x..."}',
+			},
+			400,
+		)
 	}
 
 	const { command, wallet_address } = parsed.data
@@ -811,14 +895,14 @@ agentRoutes.post('/execute', async (c) => {
 		Effect.gen(function* () {
 			const agentService = yield* AgentService
 			yield* agentService.incrementAgentStats(agent.id, 'request')
-		})
+		}),
 	)
 
 	const lowerCommand = command.toLowerCase()
 
 	// Parse swap command
 	const swapMatch = lowerCommand.match(
-		/swap\s+([\d.]+)\s+(\w+)\s+(?:to|for)\s+(\w+)(?:\s+on\s+(\w+))?/
+		/swap\s+([\d.]+)\s+(\w+)\s+(?:to|for)\s+(\w+)(?:\s+on\s+(\w+))?/,
 	)
 
 	if (swapMatch) {
@@ -834,41 +918,49 @@ agentRoutes.post('/execute', async (c) => {
 				const chainInfo = tokenService.resolveChain(chainKey)
 
 				if (!chainInfo) {
-					return yield* Effect.fail(new ValidationError({
-						message: `Unknown chain: ${chainKey}`
-					}))
+					return yield* Effect.fail(
+						new ValidationError({
+							message: `Unknown chain: ${chainKey}`,
+						}),
+					)
 				}
 
 				const fromTokenInfo = yield* tokenService.resolveToken(fromToken, chainInfo.id)
 				if (!fromTokenInfo) {
-					return yield* Effect.fail(new ValidationError({
-						message: `Token not found: ${fromToken}`
-					}))
+					return yield* Effect.fail(
+						new ValidationError({
+							message: `Token not found: ${fromToken}`,
+						}),
+					)
 				}
 
 				const toTokenInfo = yield* tokenService.resolveToken(toToken, chainInfo.id)
 				if (!toTokenInfo) {
-					return yield* Effect.fail(new ValidationError({
-						message: `Token not found: ${toToken}`
-					}))
+					return yield* Effect.fail(
+						new ValidationError({
+							message: `Token not found: ${toToken}`,
+						}),
+					)
 				}
 
 				const amountNum = parseFloat(amount)
-				const fromAmountWei = BigInt(Math.floor(amountNum * Math.pow(10, fromTokenInfo.decimals))).toString()
+				const fromAmountWei = BigInt(
+					Math.floor(amountNum * 10 ** fromTokenInfo.decimals),
+				).toString()
 				const fromAddress = wallet_address || '0x0000000000000000000000000000000000000001'
 
-				const quote = yield* swapService.getQuote({
-					fromChain: chainInfo.id,
-					toChain: chainInfo.id,
-					fromToken: fromTokenInfo.address,
-					toToken: toTokenInfo.address,
-					fromAmount: fromAmountWei,
-					fromAddress,
-					slippage: 0.03,
-					integrator: 'suwappu-agent',
-				} as QuoteParams).pipe(
-					Effect.mapError((e) => new ValidationError({ message: e.message }))
-				)
+				const quote = yield* swapService
+					.getQuote({
+						fromChain: chainInfo.id,
+						toChain: chainInfo.id,
+						fromToken: fromTokenInfo.address,
+						toToken: toTokenInfo.address,
+						fromAmount: fromAmountWei,
+						fromAddress,
+						slippage: 0.03,
+						integrator: 'suwappu-agent',
+					} as QuoteParams)
+					.pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 				// Cache quote
 				quoteCache.set(quote.quoteId, {
@@ -877,7 +969,7 @@ agentRoutes.post('/execute', async (c) => {
 					agentId: agent.id,
 				})
 
-				const toAmountHuman = parseFloat(quote.toAmount) / Math.pow(10, toTokenInfo.decimals)
+				const toAmountHuman = parseFloat(quote.toAmount) / 10 ** toTokenInfo.decimals
 
 				return {
 					quote_id: quote.quoteId,
@@ -891,14 +983,16 @@ agentRoutes.post('/execute', async (c) => {
 					gas_usd: quote.estimatedGasUsd,
 					route: quote.route,
 					has_transaction: !!wallet_address,
-					transaction: wallet_address ? {
-						to: quote.transactionRequest.to,
-						value: quote.transactionRequest.value,
-						data: quote.transactionRequest.data,
-						chain_id: quote.transactionRequest.chainId,
-					} : undefined,
+					transaction: wallet_address
+						? {
+								to: quote.transactionRequest.to,
+								value: quote.transactionRequest.value,
+								data: quote.transactionRequest.data,
+								chain_id: quote.transactionRequest.chainId,
+							}
+						: undefined,
 				}
-			})
+			}),
 		)
 
 		// Track swap attempt
@@ -906,7 +1000,7 @@ agentRoutes.post('/execute', async (c) => {
 			Effect.gen(function* () {
 				const agentService = yield* AgentService
 				yield* agentService.incrementAgentStats(agent.id, 'swap')
-			})
+			}),
 		)
 
 		if (Either.isLeft(result)) {
@@ -928,7 +1022,7 @@ agentRoutes.post('/execute', async (c) => {
 
 	// Parse quote/price command
 	const quoteMatch = lowerCommand.match(
-		/(?:quote|price)\s+(?:of\s+)?([\d.]+)\s+(\w+)\s+(?:to|in|for)\s+(\w+)(?:\s+on\s+(\w+))?/
+		/(?:quote|price)\s+(?:of\s+)?([\d.]+)\s+(\w+)\s+(?:to|in|for)\s+(\w+)(?:\s+on\s+(\w+))?/,
 	)
 
 	if (quoteMatch) {
@@ -989,11 +1083,14 @@ agentRoutes.get('/portfolio', async (c) => {
 	const walletAddress = c.req.query('wallet_address')
 
 	if (!walletAddress) {
-		return c.json({
-			success: false,
-			error: 'Missing required query parameter: wallet_address',
-			hint: 'GET /v1/agent/portfolio?wallet_address=0x...',
-		}, 400)
+		return c.json(
+			{
+				success: false,
+				error: 'Missing required query parameter: wallet_address',
+				hint: 'GET /v1/agent/portfolio?wallet_address=0x...',
+			},
+			400,
+		)
 	}
 
 	const chain = c.req.query('chain')
@@ -1003,11 +1100,13 @@ agentRoutes.get('/portfolio', async (c) => {
 		Effect.gen(function* () {
 			const agentService = yield* AgentService
 			yield* agentService.incrementAgentStats(agent.id, 'request')
-		})
+		}),
 	)
 
 	// Determine if this is a Solana address (base58, 32-44 chars, no 0x prefix)
-	const isSolana = chain ? isSolanaChain(chain) : (!walletAddress.startsWith('0x') && walletAddress.length >= 32 && walletAddress.length <= 44)
+	const isSolana = chain
+		? isSolanaChain(chain)
+		: !walletAddress.startsWith('0x') && walletAddress.length >= 32 && walletAddress.length <= 44
 	const isEvm = chain ? !isSolanaChain(chain) : walletAddress.startsWith('0x')
 
 	const result = await runEffectEither(
@@ -1020,14 +1119,15 @@ agentRoutes.get('/portfolio', async (c) => {
 				chainType: isSolana ? 'solana' : 'evm',
 			} as any
 
-			const balances = yield* balanceService.getWalletBalances(wallet).pipe(
-				Effect.mapError((e) => new ValidationError({ message: e.message }))
-			)
+			const balances = yield* balanceService
+				.getWalletBalances(wallet)
+				.pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 			// If a specific chain was requested, filter
-			const filtered = chain && !isSolana
-				? balances.filter((b) => b.chain.toLowerCase() === chain.toLowerCase())
-				: balances
+			const filtered =
+				chain && !isSolana
+					? balances.filter((b) => b.chain.toLowerCase() === chain.toLowerCase())
+					: balances
 
 			const totalUsd = filtered.reduce((sum, b) => sum + b.usdValue, 0)
 
@@ -1044,7 +1144,7 @@ agentRoutes.get('/portfolio', async (c) => {
 					usd_value: b.usdValue.toFixed(2),
 				})),
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -1067,12 +1167,9 @@ agentRoutes.post('/wallets', async (c) => {
 			const turnkeyService = yield* TurnkeyService
 
 			// Create sub-org named agent-{uuid}
-			const wallet = yield* turnkeyService.createSubOrgForTelegramUser(
-				agent.id,
-				`agent-${agent.uuid}`
-			).pipe(
-				Effect.mapError((e) => new ValidationError({ message: e.message }))
-			)
+			const wallet = yield* turnkeyService
+				.createSubOrgForTelegramUser(agent.id, `agent-${agent.uuid}`)
+				.pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 			// Call internal Python API to provision a User + Wallet row for swap execution
 			const env = yield* EnvService
@@ -1121,7 +1218,7 @@ agentRoutes.post('/wallets', async (c) => {
 			})
 
 			return wallet
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -1131,15 +1228,18 @@ agentRoutes.post('/wallets', async (c) => {
 
 	const wallet = result.right
 
-	return c.json({
-		success: true,
-		wallet: {
-			address: wallet.address,
-			chain_type: 'evm',
-			supported_chains: ['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc'],
+	return c.json(
+		{
+			success: true,
+			wallet: {
+				address: wallet.address,
+				chain_type: 'evm',
+				supported_chains: ['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc'],
+			},
+			message: 'Wallet created. Fund it to start swapping.',
 		},
-		message: 'Wallet created. Fund it to start swapping.',
-	}, 201)
+		201,
+	)
 })
 
 // POST /v1/agent/swap/execute - Managed swap execution via Python pipeline
@@ -1155,11 +1255,14 @@ agentRoutes.post('/swap/execute', async (c) => {
 
 	const parsed = ExecuteSwapSchema.safeParse(body)
 	if (!parsed.success) {
-		return c.json({
-			success: false,
-			error: 'Validation error',
-			fields: formatZodErrors(parsed.error),
-		}, 400)
+		return c.json(
+			{
+				success: false,
+				error: 'Validation error',
+				fields: formatZodErrors(parsed.error),
+			},
+			400,
+		)
 	}
 
 	const { quote_id } = parsed.data
@@ -1171,30 +1274,39 @@ agentRoutes.post('/swap/execute', async (c) => {
 	const walletAddress = metadata.wallet_address as string | undefined
 
 	if (!internalUserId || !internalWalletId || !walletAddress) {
-		return c.json({
-			success: false,
-			error: 'No managed wallet found',
-			hint: 'Create a wallet first using POST /v1/agent/wallets',
-		}, 400)
+		return c.json(
+			{
+				success: false,
+				error: 'No managed wallet found',
+				hint: 'Create a wallet first using POST /v1/agent/wallets',
+			},
+			400,
+		)
 	}
 
 	// Look up cached quote
 	const cached = quoteCache.get(quote_id)
 	if (!cached) {
-		return c.json({
-			success: false,
-			error: 'Quote expired or not found',
-			hint: 'Request a new quote using POST /v1/agent/quote',
-		}, 400)
+		return c.json(
+			{
+				success: false,
+				error: 'Quote expired or not found',
+				hint: 'Request a new quote using POST /v1/agent/quote',
+			},
+			400,
+		)
 	}
 
 	if (Date.now() > cached.expiry) {
 		quoteCache.delete(quote_id)
-		return c.json({
-			success: false,
-			error: 'Quote expired',
-			hint: 'Request a new quote using POST /v1/agent/quote',
-		}, 400)
+		return c.json(
+			{
+				success: false,
+				error: 'Quote expired',
+				hint: 'Request a new quote using POST /v1/agent/quote',
+			},
+			400,
+		)
 	}
 
 	const quote = cached.quote
@@ -1202,43 +1314,44 @@ agentRoutes.post('/swap/execute', async (c) => {
 	// Build quote_data for the Python endpoint
 	const quoteData: Record<string, unknown> = cached.isSolana
 		? {
-			provider: 'jupiter',
-			from_chain: 'solana',
-			to_chain: 'solana',
-			from_token: quote.inputMint,
-			to_token: quote.outputMint,
-			from_amount: quote.inAmount,
-			from_amount_human: parseFloat(quote.inAmount) / 1e9,
-			to_amount: quote.outAmount,
-			to_amount_human: parseFloat(quote.outAmount) / 1e6,
-			to_amount_min: quote.otherAmountThreshold,
-			gas_cost_usd: 0,
-			fee_cost_usd: 0,
-			total_cost_usd: 0,
-			estimated_time: 30,
-			price_impact: parseFloat(quote.priceImpactPct || '0'),
-			exchange_rate: 0,
-			raw_quote: quote,
-		}
+				provider: 'jupiter',
+				from_chain: 'solana',
+				to_chain: 'solana',
+				from_token: quote.inputMint,
+				to_token: quote.outputMint,
+				from_amount: quote.inAmount,
+				from_amount_human: parseFloat(quote.inAmount) / 1e9,
+				to_amount: quote.outAmount,
+				to_amount_human: parseFloat(quote.outAmount) / 1e6,
+				to_amount_min: quote.otherAmountThreshold,
+				gas_cost_usd: 0,
+				fee_cost_usd: 0,
+				total_cost_usd: 0,
+				estimated_time: 30,
+				price_impact: parseFloat(quote.priceImpactPct || '0'),
+				exchange_rate: 0,
+				raw_quote: quote,
+			}
 		: {
-			provider: 'lifi',
-			from_chain: quote.fromChain?.key || quote.action?.fromChainId?.toString() || 'ethereum',
-			to_chain: quote.toChain?.key || quote.action?.toChainId?.toString() || 'ethereum',
-			from_token: quote.fromToken?.symbol || '',
-			to_token: quote.toToken?.symbol || '',
-			from_amount: quote.fromAmount || '',
-			from_amount_human: parseFloat(quote.fromAmount || '0') / 1e18,
-			to_amount: quote.toAmount || '',
-			to_amount_human: parseFloat(quote.toAmount || '0') / 1e18,
-			to_amount_min: quote.toAmountMin || quote.toAmount || '',
-			gas_cost_usd: parseFloat(quote.estimatedGasUsd || '0'),
-			fee_cost_usd: parseFloat(quote.bridgeFeeUsd || '0'),
-			total_cost_usd: parseFloat(quote.estimatedGasUsd || '0') + parseFloat(quote.bridgeFeeUsd || '0'),
-			estimated_time: quote.estimatedDuration || 60,
-			price_impact: parseFloat(quote.priceImpact || '0'),
-			exchange_rate: parseFloat(quote.exchangeRate || '0'),
-			raw_quote: quote,
-		}
+				provider: 'lifi',
+				from_chain: quote.fromChain?.key || quote.action?.fromChainId?.toString() || 'ethereum',
+				to_chain: quote.toChain?.key || quote.action?.toChainId?.toString() || 'ethereum',
+				from_token: quote.fromToken?.symbol || '',
+				to_token: quote.toToken?.symbol || '',
+				from_amount: quote.fromAmount || '',
+				from_amount_human: parseFloat(quote.fromAmount || '0') / 1e18,
+				to_amount: quote.toAmount || '',
+				to_amount_human: parseFloat(quote.toAmount || '0') / 1e18,
+				to_amount_min: quote.toAmountMin || quote.toAmount || '',
+				gas_cost_usd: parseFloat(quote.estimatedGasUsd || '0'),
+				fee_cost_usd: parseFloat(quote.bridgeFeeUsd || '0'),
+				total_cost_usd:
+					parseFloat(quote.estimatedGasUsd || '0') + parseFloat(quote.bridgeFeeUsd || '0'),
+				estimated_time: quote.estimatedDuration || 60,
+				price_impact: parseFloat(quote.priceImpact || '0'),
+				exchange_rate: parseFloat(quote.exchangeRate || '0'),
+				raw_quote: quote,
+			}
 
 	const idempotencyKey = `agent_${agent.id}_${quote_id}`
 
@@ -1248,9 +1361,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 			const env = yield* EnvService
 
 			if (!env.INTERNAL_API_KEY || !env.INTERNAL_API_URL) {
-				return yield* Effect.fail(
-					new ValidationError({ message: 'Internal API not configured' })
-				)
+				return yield* Effect.fail(new ValidationError({ message: 'Internal API not configured' }))
 			}
 
 			const internalUrl = env.INTERNAL_API_URL
@@ -1277,7 +1388,9 @@ agentRoutes.post('/swap/execute', async (c) => {
 					})
 
 					if (!res.ok) {
-						const errBody = await res.json().catch(() => ({ detail: 'Unknown error' })) as { detail?: string }
+						const errBody = (await res.json().catch(() => ({ detail: 'Unknown error' }))) as {
+							detail?: string
+						}
 						throw new Error(errBody.detail || `Internal API error: ${res.status}`)
 					}
 
@@ -1287,7 +1400,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 			})
 
 			return swapResponse
-		})
+		}),
 	)
 
 	// Track swap
@@ -1295,7 +1408,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 		Effect.gen(function* () {
 			const agentService = yield* AgentService
 			yield* agentService.incrementAgentStats(agent.id, 'swap')
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -1337,12 +1450,7 @@ agentRoutes.get('/swap/status/:swapId', async (c) => {
 					db
 						.select()
 						.from(swapTransactions)
-						.where(
-							and(
-								eq(swapTransactions.id, swapId),
-								eq(swapTransactions.agentId, agent.id)
-							)
-						)
+						.where(and(eq(swapTransactions.id, swapId), eq(swapTransactions.agentId, agent.id)))
 						.limit(1),
 				catch: (e) => new Error(`Database error: ${e}`),
 			})
@@ -1366,7 +1474,7 @@ agentRoutes.get('/swap/status/:swapId', async (c) => {
 				created_at: s.createdAt,
 				completed_at: s.completedAt,
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -1438,7 +1546,7 @@ agentRoutes.get('/swaps', async (c) => {
 					has_more: offset + limit < total,
 				},
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -1457,26 +1565,33 @@ agentRoutes.get('/swaps', async (c) => {
 agentRoutes.get('/prices', async (c) => {
 	const symbolsParam = c.req.query('symbols')
 	if (!symbolsParam) {
-		return c.json({
-			success: false,
-			error: 'Missing required query parameter: symbols',
-			hint: 'GET /v1/agent/prices?symbols=ETH,SOL,USDC',
-			supported: Object.keys(COINGECKO_IDS).map((s) => s.toUpperCase()),
-		}, 400)
+		return c.json(
+			{
+				success: false,
+				error: 'Missing required query parameter: symbols',
+				hint: 'GET /v1/agent/prices?symbols=ETH,SOL,USDC',
+				supported: Object.keys(COINGECKO_IDS).map((s) => s.toUpperCase()),
+			},
+			400,
+		)
 	}
 
-	const symbols = symbolsParam.split(',').map((s) => s.trim()).filter(Boolean)
+	const symbols = symbolsParam
+		.split(',')
+		.map((s) => s.trim())
+		.filter(Boolean)
 	if (symbols.length === 0 || symbols.length > 20) {
-		return c.json({
-			success: false,
-			error: 'Provide 1-20 comma-separated symbols',
-		}, 400)
+		return c.json(
+			{
+				success: false,
+				error: 'Provide 1-20 comma-separated symbols',
+			},
+			400,
+		)
 	}
 
 	const prices = await fetchTokenPrices(symbols)
-	const unknownSymbols = symbols
-		.filter((s) => !prices[s.toUpperCase()])
-		.map((s) => s.toUpperCase())
+	const unknownSymbols = symbols.filter((s) => !prices[s.toUpperCase()]).map((s) => s.toUpperCase())
 
 	return c.json({
 		success: true,
@@ -1530,11 +1645,14 @@ agentRoutes.get('/tokens', async (c) => {
 		// EVM chain
 		const chainInfo = CHAINS[lower]
 		if (!chainInfo) {
-			return c.json({
-				success: false,
-				error: `Unknown chain: ${chainParam}`,
-				supported: [...new Set(Object.values(CHAINS).map((c) => c.key)), 'solana'],
-			}, 400)
+			return c.json(
+				{
+					success: false,
+					error: `Unknown chain: ${chainParam}`,
+					supported: [...new Set(Object.values(CHAINS).map((c) => c.key)), 'solana'],
+				},
+				400,
+			)
 		}
 
 		const chainTokens = COMMON_TOKENS[chainInfo.id] || {}
@@ -1547,7 +1665,11 @@ agentRoutes.get('/tokens', async (c) => {
 	}
 
 	// No chain param — return all
-	const chains: Array<{ chain: string; chain_id: number | string; tokens: Array<{ symbol: string; address: string; decimals: number }> }> = []
+	const chains: Array<{
+		chain: string
+		chain_id: number | string
+		tokens: Array<{ symbol: string; address: string; decimals: number }>
+	}> = []
 
 	for (const [chainId, tokens] of Object.entries(COMMON_TOKENS)) {
 		const id = parseInt(chainId, 10)
@@ -1597,7 +1719,15 @@ agentRoutes.get('/wallets', async (c) => {
 			{
 				address: walletAddress,
 				chain_type: 'evm',
-				supported_chains: ['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc', 'avalanche'],
+				supported_chains: [
+					'ethereum',
+					'polygon',
+					'arbitrum',
+					'optimism',
+					'base',
+					'bsc',
+					'avalanche',
+				],
 			},
 		],
 	})
@@ -1613,11 +1743,14 @@ agentRoutes.get('/webhooks', async (c) => {
 
 	const parsed = WebhookEventsQuerySchema.safeParse(c.req.query())
 	if (!parsed.success) {
-		return c.json({
-			success: false,
-			error: 'Validation error',
-			fields: formatZodErrors(parsed.error),
-		}, 400)
+		return c.json(
+			{
+				success: false,
+				error: 'Validation error',
+				fields: formatZodErrors(parsed.error),
+			},
+			400,
+		)
 	}
 
 	const { status, event_type, limit, offset } = parsed.data
@@ -1676,7 +1809,7 @@ agentRoutes.get('/webhooks', async (c) => {
 					has_more: offset + limit < total,
 				},
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -1692,11 +1825,14 @@ agentRoutes.post('/webhooks/test', async (c) => {
 	const agent = c.get('agent')
 
 	if (!agent.callbackUrl) {
-		return c.json({
-			success: false,
-			error: 'No callback_url configured',
-			hint: 'Set callback_url via PATCH /v1/agent/me first',
-		}, 400)
+		return c.json(
+			{
+				success: false,
+				error: 'No callback_url configured',
+				hint: 'Set callback_url via PATCH /v1/agent/me first',
+			},
+			400,
+		)
 	}
 
 	// Extract raw API key from Authorization header for signing
@@ -1760,7 +1896,7 @@ agentRoutes.post('/keys/rotate', async (c) => {
 		Effect.gen(function* () {
 			const agentService = yield* AgentService
 			return yield* agentService.rotateApiKey(agent.id)
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -1787,7 +1923,7 @@ agentRoutes.post('/me/deactivate', async (c) => {
 		Effect.gen(function* () {
 			const agentService = yield* AgentService
 			return yield* agentService.deactivateAgent(agent.id)
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -1816,7 +1952,7 @@ agentRoutes.post('/reactivate', async (c) => {
 		Effect.gen(function* () {
 			const agentService = yield* AgentService
 			return yield* agentService.reactivateAgent(agent.id)
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -1838,7 +1974,7 @@ agentRoutes.delete('/me', async (c) => {
 		Effect.gen(function* () {
 			const agentService = yield* AgentService
 			yield* agentService.deleteAgent(agent.id)
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {

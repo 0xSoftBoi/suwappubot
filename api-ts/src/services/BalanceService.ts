@@ -15,11 +15,31 @@ export interface TokenBalance {
 // Chain RPC endpoints (use env vars in production, Alchemy as primary fallback)
 const alchemyKey = process.env.ALCHEMY_API_KEY || ''
 const RPC_ENDPOINTS: Record<string, string> = {
-	ethereum: process.env.ETH_RPC_URL || (alchemyKey ? `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://eth.llamarpc.com'),
-	arbitrum: process.env.ARBITRUM_RPC_URL || (alchemyKey ? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://arbitrum.llamarpc.com'),
-	optimism: process.env.OPTIMISM_RPC_URL || (alchemyKey ? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://optimism.llamarpc.com'),
-	polygon: process.env.POLYGON_RPC_URL || (alchemyKey ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://polygon.llamarpc.com'),
-	base: process.env.BASE_RPC_URL || (alchemyKey ? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://base.llamarpc.com'),
+	ethereum:
+		process.env.ETH_RPC_URL ||
+		(alchemyKey
+			? `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`
+			: 'https://eth.llamarpc.com'),
+	arbitrum:
+		process.env.ARBITRUM_RPC_URL ||
+		(alchemyKey
+			? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}`
+			: 'https://arbitrum.llamarpc.com'),
+	optimism:
+		process.env.OPTIMISM_RPC_URL ||
+		(alchemyKey
+			? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}`
+			: 'https://optimism.llamarpc.com'),
+	polygon:
+		process.env.POLYGON_RPC_URL ||
+		(alchemyKey
+			? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}`
+			: 'https://polygon.llamarpc.com'),
+	base:
+		process.env.BASE_RPC_URL ||
+		(alchemyKey
+			? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}`
+			: 'https://base.llamarpc.com'),
 	bsc: process.env.BSC_RPC_URL || 'https://bsc.llamarpc.com',
 	solana: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
 }
@@ -73,11 +93,14 @@ async function fetchEvmNativeBalance(address: string, chain: string): Promise<st
 			if (data.result) {
 				const balanceWei = BigInt(data.result)
 				const decimals = NATIVE_TOKENS[chain]?.decimals || 18
-				const balance = Number(balanceWei) / Math.pow(10, decimals)
+				const balance = Number(balanceWei) / 10 ** decimals
 				return balance.toFixed(6)
 			}
 		} catch (e) {
-			console.error(`Failed to fetch ${chain} balance (attempt ${attempt}/${maxAttempts}, rpc=${rpcUrl}):`, e)
+			console.error(
+				`Failed to fetch ${chain} balance (attempt ${attempt}/${maxAttempts}, rpc=${rpcUrl}):`,
+				e,
+			)
 			if (attempt < maxAttempts) continue
 		}
 	}
@@ -138,7 +161,7 @@ async function fetchTokenPrice(symbol: string): Promise<number> {
 
 	try {
 		const response = await fetch(
-			`https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`
+			`https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`,
 		)
 		const data = (await response.json()) as Record<string, { usd?: number }>
 

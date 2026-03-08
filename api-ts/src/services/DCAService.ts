@@ -37,46 +37,27 @@ export interface DCAStats {
 }
 
 export interface DCAServiceInterface {
-	readonly createOrder: (
-		params: CreateDCAOrderParams
-	) => Effect.Effect<DCAOrder, Error>
+	readonly createOrder: (params: CreateDCAOrderParams) => Effect.Effect<DCAOrder, Error>
 
 	readonly getUserOrders: (
 		userId: number,
 		status?: string,
 		limit?: number,
-		offset?: number
+		offset?: number,
 	) => Effect.Effect<DCAOrder[], Error>
 
-	readonly pauseOrder: (
-		orderId: number,
-		userId: number
-	) => Effect.Effect<DCAOrder, Error>
+	readonly pauseOrder: (orderId: number, userId: number) => Effect.Effect<DCAOrder, Error>
 
-	readonly resumeOrder: (
-		orderId: number,
-		userId: number
-	) => Effect.Effect<DCAOrder, Error>
+	readonly resumeOrder: (orderId: number, userId: number) => Effect.Effect<DCAOrder, Error>
 
-	readonly cancelOrder: (
-		orderId: number,
-		userId: number
-	) => Effect.Effect<DCAOrder, Error>
+	readonly cancelOrder: (orderId: number, userId: number) => Effect.Effect<DCAOrder, Error>
 
-	readonly getExecutions: (
-		orderId: number,
-		userId: number
-	) => Effect.Effect<DCAExecution[], Error>
+	readonly getExecutions: (orderId: number, userId: number) => Effect.Effect<DCAExecution[], Error>
 
-	readonly getStats: (
-		userId: number
-	) => Effect.Effect<DCAStats, Error>
+	readonly getStats: (userId: number) => Effect.Effect<DCAStats, Error>
 }
 
-export class DCAService extends Context.Tag('DCAService')<
-	DCAService,
-	DCAServiceInterface
->() {}
+export class DCAService extends Context.Tag('DCAService')<DCAService, DCAServiceInterface>() {}
 
 export const DCAServiceLive = Layer.succeed(DCAService, {
 	createOrder: () => Effect.fail(new Error('Not implemented')),

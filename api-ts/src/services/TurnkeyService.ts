@@ -1,5 +1,5 @@
-import { Context, Effect, Layer } from 'effect'
 import { Turnkey } from '@turnkey/sdk-server'
+import { Context, Effect, Layer } from 'effect'
 import { EnvService } from '../config/EnvService'
 
 export interface TurnkeyWallet {
@@ -12,7 +12,7 @@ export interface TurnkeyWallet {
 export interface TurnkeyServiceInterface {
 	readonly createSubOrgForTelegramUser: (
 		telegramUserId: number,
-		userName?: string
+		userName?: string,
 	) => Effect.Effect<TurnkeyWallet, Error>
 }
 
@@ -35,11 +35,15 @@ export const TurnkeyServiceLive = Layer.effect(
 
 		const createSubOrgForTelegramUser = (telegramUserId: number, userName?: string) =>
 			Effect.gen(function* () {
-				if (!env.TURNKEY_API_PUBLIC_KEY || !env.TURNKEY_API_PRIVATE_KEY || !env.TURNKEY_ORGANIZATION_ID) {
+				if (
+					!env.TURNKEY_API_PUBLIC_KEY ||
+					!env.TURNKEY_API_PRIVATE_KEY ||
+					!env.TURNKEY_ORGANIZATION_ID
+				) {
 					return yield* Effect.fail(new Error('Turnkey credentials not configured'))
 				}
 
-				const subOrgName = userName 
+				const subOrgName = userName
 					? `telegram-${telegramUserId}-${userName}`
 					: `telegram-${telegramUserId}`
 
@@ -87,5 +91,5 @@ export const TurnkeyServiceLive = Layer.effect(
 			})
 
 		return { createSubOrgForTelegramUser }
-	})
+	}),
 )

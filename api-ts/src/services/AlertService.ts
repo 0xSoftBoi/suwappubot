@@ -19,24 +19,13 @@ export interface Alert {
 }
 
 export interface AlertServiceInterface {
-	readonly getUserAlerts: (
-		userId: number,
-		activeOnly?: boolean
-	) => Effect.Effect<Alert[], Error>
+	readonly getUserAlerts: (userId: number, activeOnly?: boolean) => Effect.Effect<Alert[], Error>
 
-	readonly createAlert: (
-		params: CreateAlertParams
-	) => Effect.Effect<Alert, Error>
+	readonly createAlert: (params: CreateAlertParams) => Effect.Effect<Alert, Error>
 
-	readonly toggleAlert: (
-		alertId: number,
-		userId: number
-	) => Effect.Effect<Alert, Error>
+	readonly toggleAlert: (alertId: number, userId: number) => Effect.Effect<Alert, Error>
 
-	readonly deleteAlert: (
-		alertId: number,
-		userId: number
-	) => Effect.Effect<void, Error>
+	readonly deleteAlert: (alertId: number, userId: number) => Effect.Effect<void, Error>
 }
 
 export class AlertService extends Context.Tag('AlertService')<

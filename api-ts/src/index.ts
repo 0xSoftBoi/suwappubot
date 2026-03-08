@@ -5,9 +5,11 @@ import { runEffect, shutdownRuntime } from './runtime'
 
 async function main() {
 	// Get environment config
-	const env = await runEffect(Effect.gen(function* () {
-		return yield* EnvService
-	}))
+	const env = await runEffect(
+		Effect.gen(function* () {
+			return yield* EnvService
+		}),
+	)
 
 	// Create app with config
 	const app = createApp({

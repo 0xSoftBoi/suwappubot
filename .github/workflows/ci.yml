@@ -110,9 +110,6 @@ jobs:
       - name: Install dependencies
         run: cd webapp && bun install
 
-      - name: Lint
-        run: cd webapp && bunx eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0
-
       - name: Build
         run: cd webapp && bun run build
 

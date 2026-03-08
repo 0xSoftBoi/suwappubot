@@ -1,4 +1,4 @@
-import { Effect, Either, ManagedRuntime } from 'effect'
+import { Effect, type Either, ManagedRuntime } from 'effect'
 import { MainLayer, type MainLayerContext } from './services/MainLayer'
 
 // Create a managed runtime that handles resource lifecycle
@@ -14,7 +14,7 @@ export const runEffect = <A, E>(effect: Effect.Effect<A, E, MainLayerContext>): 
  * Run an Effect and return an Either (for error handling in routes)
  */
 export const runEffectEither = async <A, E>(
-	effect: Effect.Effect<A, E, MainLayerContext>
+	effect: Effect.Effect<A, E, MainLayerContext>,
 ): Promise<Either.Either<A, E>> => managedRuntime.runPromise(Effect.either(effect))
 
 /**

@@ -87,7 +87,10 @@ export const RedisServiceLive = Layer.effect(
 		}).pipe(Effect.either)
 
 		if (Either.isLeft(connectResult)) {
-			console.warn('[RedisService] Failed to connect to Redis, using no-op fallback:', connectResult.left)
+			console.warn(
+				'[RedisService] Failed to connect to Redis, using no-op fallback:',
+				connectResult.left,
+			)
 			return createNoOpService()
 		}
 
@@ -103,7 +106,7 @@ export const RedisServiceLive = Layer.effect(
 		})
 
 		return createRedisService(client)
-	})
+	}),
 )
 
 // Cache key builders

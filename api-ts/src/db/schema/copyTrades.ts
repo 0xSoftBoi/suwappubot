@@ -5,10 +5,10 @@ import {
 	pgTable,
 	real,
 	serial,
+	text,
 	timestamp,
 	uniqueIndex,
 	varchar,
-	text,
 } from 'drizzle-orm/pg-core'
 import { users } from './users'
 
@@ -55,7 +55,7 @@ export const traderProfiles = pgTable(
 	(table) => ({
 		userIdIdx: uniqueIndex('trader_profiles_user_id_idx').on(table.userId),
 		publicIdx: index('trader_profiles_public_idx').on(table.isPublic),
-	})
+	}),
 )
 
 export type TraderProfile = typeof traderProfiles.$inferSelect
@@ -107,7 +107,7 @@ export const copyFollows = pgTable(
 		traderIdx: index('copy_follows_trader_id_idx').on(table.traderId),
 		uniqueFollowIdx: uniqueIndex('ix_copy_follows_unique').on(table.followerId, table.traderId),
 		traderActiveIdx: index('ix_copy_follows_trader_active').on(table.traderId, table.isActive),
-	})
+	}),
 )
 
 export type CopyFollow = typeof copyFollows.$inferSelect
@@ -150,7 +150,7 @@ export const copyTrades = pgTable(
 	(table) => ({
 		copierStatusIdx: index('ix_copy_trades_copier_status').on(table.copierId, table.status),
 		originalIdx: index('ix_copy_trades_original').on(table.originalSwapId),
-	})
+	}),
 )
 
 export type CopyTrade = typeof copyTrades.$inferSelect
@@ -187,7 +187,7 @@ export const traderTrades = pgTable(
 	},
 	(table) => ({
 		traderDateIdx: index('ix_trader_trades_trader_date').on(table.traderId, table.createdAt),
-	})
+	}),
 )
 
 export type TraderTrade = typeof traderTrades.$inferSelect

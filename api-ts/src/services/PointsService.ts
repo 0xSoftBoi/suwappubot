@@ -1,26 +1,26 @@
+import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
-import { eq, desc, and, gte, sql } from 'drizzle-orm'
 import {
-	DrizzleService,
-	requireDb,
-	userPoints,
-	pointTransactions,
-	milestones,
-	userMilestones,
-	rewards,
-	pointRedemptions,
-	users,
-	LEVELS,
-	POINT_ACTIONS,
 	DEFAULT_MILESTONES,
 	DEFAULT_REWARDS,
-	type UserPoints,
-	type PointTransaction,
-	type UserMilestone,
-	type Reward,
-	type PointRedemption,
+	type DrizzleService,
+	LEVELS,
 	type LevelName,
+	milestones,
+	POINT_ACTIONS,
 	type PointAction,
+	type PointRedemption,
+	type PointTransaction,
+	pointRedemptions,
+	pointTransactions,
+	type Reward,
+	requireDb,
+	rewards,
+	type UserMilestone,
+	type UserPoints,
+	userMilestones,
+	userPoints,
+	users,
 } from '../db'
 import { DatabaseError, NotFoundError, ValidationError } from '../errors'
 
@@ -75,41 +75,58 @@ export interface SwapPointsResult {
 }
 
 export interface PointsServiceInterface {
-	readonly getUserPoints: (userId: number) => Effect.Effect<UserPoints, DatabaseError, DrizzleService>
-	readonly getUserStats: (userId: number) => Effect.Effect<UserPointsStats, DatabaseError, DrizzleService>
+	readonly getUserPoints: (
+		userId: number,
+	) => Effect.Effect<UserPoints, DatabaseError, DrizzleService>
+	readonly getUserStats: (
+		userId: number,
+	) => Effect.Effect<UserPointsStats, DatabaseError, DrizzleService>
 	readonly awardPoints: (
 		userId: number,
 		action: PointAction,
 		amount?: number,
 		description?: string,
-		metadata?: Record<string, unknown>
+		metadata?: Record<string, unknown>,
 	) => Effect.Effect<{ points: number; newLevel: LevelName | null }, DatabaseError, DrizzleService>
 	readonly awardSwapPoints: (
 		userId: number,
 		swapAmountUsd: number,
-		swapId?: number
+		swapId?: number,
 	) => Effect.Effect<SwapPointsResult, DatabaseError, DrizzleService>
 	readonly dailyCheckin: (
-		userId: number
+		userId: number,
 	) => Effect.Effect<CheckinResult, DatabaseError | ValidationError, DrizzleService>
 	readonly redeemReward: (
 		userId: number,
-		rewardId: number
-	) => Effect.Effect<PointRedemption, DatabaseError | ValidationError | NotFoundError, DrizzleService>
-	readonly getLeaderboard: (limit?: number) => Effect.Effect<LeaderboardEntry[], DatabaseError, DrizzleService>
-	readonly getUserRank: (userId: number) => Effect.Effect<number | null, DatabaseError, DrizzleService>
+		rewardId: number,
+	) => Effect.Effect<
+		PointRedemption,
+		DatabaseError | ValidationError | NotFoundError,
+		DrizzleService
+	>
+	readonly getLeaderboard: (
+		limit?: number,
+	) => Effect.Effect<LeaderboardEntry[], DatabaseError, DrizzleService>
+	readonly getUserRank: (
+		userId: number,
+	) => Effect.Effect<number | null, DatabaseError, DrizzleService>
 	readonly getAvailableRewards: () => Effect.Effect<Reward[], DatabaseError, DrizzleService>
 	readonly getPointHistory: (
 		userId: number,
 		limit?: number,
 		offset?: number,
-		action?: PointAction
+		action?: PointAction,
 	) => Effect.Effect<PointTransaction[], DatabaseError, DrizzleService>
-	readonly checkMilestones: (userId: number) => Effect.Effect<UserMilestone[], DatabaseError, DrizzleService>
+	readonly checkMilestones: (
+		userId: number,
+	) => Effect.Effect<UserMilestone[], DatabaseError, DrizzleService>
 	readonly seedDefaults: () => Effect.Effect<void, DatabaseError, DrizzleService>
 }
 
-export class PointsService extends Context.Tag('PointsService')<PointsService, PointsServiceInterface>() {}
+export class PointsService extends Context.Tag('PointsService')<
+	PointsService,
+	PointsServiceInterface
+>() {}
 
 // Helper functions
 function getLevelFromXp(xp: number): LevelName {
@@ -147,9 +164,13 @@ function isYesterday(d1: Date, d2: Date): boolean {
 }
 
 // Internal helper: Get or create user points (not exported as service method)
-const getOrCreateUserPoints = (userId: number): Effect.Effect<UserPoints, DatabaseError, DrizzleService> =>
+const getOrCreateUserPoints = (
+	userId: number,
+): Effect.Effect<UserPoints, DatabaseError, DrizzleService> =>
 	Effect.gen(function* () {
-		const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+		const db = yield* requireDb.pipe(
+			Effect.mapError((e) => new DatabaseError({ message: e.message })),
+		)
 
 		const existing = yield* Effect.tryPromise({
 			try: () => db.select().from(userPoints).where(eq(userPoints.userId, userId)),
@@ -171,10 +192,12 @@ const getOrCreateUserPoints = (userId: number): Effect.Effect<UserPoints, Databa
 // Internal helper: Check and award milestones
 const checkAndAwardMilestones = (
 	userId: number,
-	current: UserPoints
+	current: UserPoints,
 ): Effect.Effect<UserMilestone[], DatabaseError, DrizzleService> =>
 	Effect.gen(function* () {
-		const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+		const db = yield* requireDb.pipe(
+			Effect.mapError((e) => new DatabaseError({ message: e.message })),
+		)
 
 		const allMilestones = yield* Effect.tryPromise({
 			try: () => db.select().from(milestones).where(eq(milestones.isActive, true)),
@@ -187,7 +210,8 @@ const checkAndAwardMilestones = (
 					.select({ milestoneId: userMilestones.milestoneId })
 					.from(userMilestones)
 					.where(eq(userMilestones.userId, userId)),
-			catch: (e) => new DatabaseError({ message: `Failed to get achieved milestones: ${e}`, cause: e }),
+			catch: (e) =>
+				new DatabaseError({ message: `Failed to get achieved milestones: ${e}`, cause: e }),
 		})
 
 		const achievedIds = new Set(achieved.map((a) => a.milestoneId))
@@ -237,7 +261,8 @@ const checkAndAwardMilestones = (
 									updatedAt: new Date(),
 								})
 								.where(eq(userPoints.userId, userId)),
-						catch: (e) => new DatabaseError({ message: `Failed to add milestone points: ${e}`, cause: e }),
+						catch: (e) =>
+							new DatabaseError({ message: `Failed to add milestone points: ${e}`, cause: e }),
 					})
 
 					yield* Effect.tryPromise({
@@ -249,7 +274,8 @@ const checkAndAwardMilestones = (
 								description: `${milestone.emoji} ${milestone.name}`,
 								metadata: { milestoneId: milestone.id, milestoneName: milestone.name },
 							}),
-						catch: (e) => new DatabaseError({ message: `Failed to record milestone: ${e}`, cause: e }),
+						catch: (e) =>
+							new DatabaseError({ message: `Failed to record milestone: ${e}`, cause: e }),
 					})
 				}
 			}
@@ -263,7 +289,9 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 
 	getUserStats: (userId: number) =>
 		Effect.gen(function* () {
-			const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
 			const points = yield* getOrCreateUserPoints(userId)
 			const level = points.level as LevelName
 			const levelInfo = LEVELS[level]
@@ -304,10 +332,12 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 		action: PointAction,
 		amount?: number,
 		description?: string,
-		metadata?: Record<string, unknown>
+		metadata?: Record<string, unknown>,
 	) =>
 		Effect.gen(function* () {
-			const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
 
 			const pointAmount = amount ?? POINT_ACTIONS[action].points
 			const desc = description ?? POINT_ACTIONS[action].description
@@ -343,7 +373,8 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 						description: desc,
 						metadata,
 					}),
-				catch: (e) => new DatabaseError({ message: `Failed to record transaction: ${e}`, cause: e }),
+				catch: (e) =>
+					new DatabaseError({ message: `Failed to record transaction: ${e}`, cause: e }),
 			})
 
 			if (leveledUp) {
@@ -365,7 +396,8 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 							.update(userPoints)
 							.set({
 								xp: newXp + POINT_ACTIONS.level_up.points,
-								totalPointsEarned: current.totalPointsEarned + pointAmount + POINT_ACTIONS.level_up.points,
+								totalPointsEarned:
+									current.totalPointsEarned + pointAmount + POINT_ACTIONS.level_up.points,
 								currentPoints: current.currentPoints + pointAmount + POINT_ACTIONS.level_up.points,
 							})
 							.where(eq(userPoints.userId, userId)),
@@ -381,7 +413,9 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 
 	awardSwapPoints: (userId: number, swapAmountUsd: number, swapId?: number) =>
 		Effect.gen(function* () {
-			const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
 
 			const now = new Date()
 			const current = yield* getOrCreateUserPoints(userId)
@@ -412,7 +446,8 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 							updatedAt: now,
 						})
 						.where(eq(userPoints.userId, userId)),
-				catch: (e) => new DatabaseError({ message: `Failed to update swap points: ${e}`, cause: e }),
+				catch: (e) =>
+					new DatabaseError({ message: `Failed to update swap points: ${e}`, cause: e }),
 			})
 
 			if (volumePoints > 0) {
@@ -426,7 +461,8 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 							swapId,
 							metadata: { swapAmountUsd },
 						}),
-					catch: (e) => new DatabaseError({ message: `Failed to record swap points: ${e}`, cause: e }),
+					catch: (e) =>
+						new DatabaseError({ message: `Failed to record swap points: ${e}`, cause: e }),
 				})
 			}
 
@@ -440,7 +476,8 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 							description: 'First swap of the day bonus',
 							swapId,
 						}),
-					catch: (e) => new DatabaseError({ message: `Failed to record daily bonus: ${e}`, cause: e }),
+					catch: (e) =>
+						new DatabaseError({ message: `Failed to record daily bonus: ${e}`, cause: e }),
 				})
 			}
 
@@ -475,7 +512,9 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 
 	dailyCheckin: (userId: number) =>
 		Effect.gen(function* () {
-			const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
 
 			const now = new Date()
 			const current = yield* getOrCreateUserPoints(userId)
@@ -547,7 +586,8 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 							description: `${newStreak}-day streak bonus`,
 							metadata: { streak: newStreak },
 						}),
-					catch: (e) => new DatabaseError({ message: `Failed to record streak bonus: ${e}`, cause: e }),
+					catch: (e) =>
+						new DatabaseError({ message: `Failed to record streak bonus: ${e}`, cause: e }),
 				})
 			}
 
@@ -580,7 +620,9 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 
 	redeemReward: (userId: number, rewardId: number) =>
 		Effect.gen(function* () {
-			const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
 
 			const rewardResult = yield* Effect.tryPromise({
 				try: () => db.select().from(rewards).where(eq(rewards.id, rewardId)),
@@ -607,7 +649,7 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 				return yield* Effect.fail(
 					new ValidationError({
 						message: `Insufficient points. Need ${reward.pointsCost}, have ${current.currentPoints}`,
-					})
+					}),
 				)
 			}
 
@@ -674,7 +716,9 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 
 	getLeaderboard: (limit = 10) =>
 		Effect.gen(function* () {
-			const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
 
 			const result = yield* Effect.tryPromise({
 				try: () =>
@@ -706,7 +750,9 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 
 	getUserRank: (userId: number) =>
 		Effect.gen(function* () {
-			const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
 			const current = yield* getOrCreateUserPoints(userId)
 
 			const result = yield* Effect.tryPromise({
@@ -723,7 +769,9 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 
 	getAvailableRewards: () =>
 		Effect.gen(function* () {
-			const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
 
 			const result = yield* Effect.tryPromise({
 				try: () => db.select().from(rewards).where(eq(rewards.isActive, true)),
@@ -735,7 +783,9 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 
 	getPointHistory: (userId: number, limit = 20, offset = 0, action?: PointAction) =>
 		Effect.gen(function* () {
-			const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
 
 			const conditions = [eq(pointTransactions.userId, userId)]
 			if (action) {
@@ -765,11 +815,17 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 
 	seedDefaults: () =>
 		Effect.gen(function* () {
-			const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
 
 			for (const milestone of DEFAULT_MILESTONES) {
 				yield* Effect.tryPromise({
-					try: () => db.insert(milestones).values(milestone).onConflictDoNothing({ target: milestones.name }),
+					try: () =>
+						db
+							.insert(milestones)
+							.values(milestone)
+							.onConflictDoNothing({ target: milestones.name }),
 					catch: () => new DatabaseError({ message: 'Failed to seed milestone' }),
 				})
 			}

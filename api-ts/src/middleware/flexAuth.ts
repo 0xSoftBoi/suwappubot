@@ -1,10 +1,10 @@
+import { Effect, Either, Option } from 'effect'
 import type { Context, Next } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { Effect, Either, Option } from 'effect'
 import jwt from 'jsonwebtoken'
-import { TelegramAuthService, UserService, WalletService } from '../services'
 import { EnvService } from '../config/EnvService'
 import { runEffectEither } from '../runtime'
+import { TelegramAuthService, UserService, WalletService } from '../services'
 
 export interface AuthUser {
 	userId: number
@@ -56,7 +56,7 @@ export function flexAuth() {
 					}
 
 					return { userId: user.id, walletAddress } as AuthUser
-				})
+				}),
 			)
 
 			if (Either.isRight(result)) {
@@ -86,7 +86,7 @@ export function flexAuth() {
 						userId: decoded.userId,
 						walletAddress: decoded.walletAddress || null,
 					} as AuthUser
-				})
+				}),
 			)
 
 			if (Either.isRight(result)) {

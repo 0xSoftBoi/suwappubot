@@ -37,22 +37,14 @@ export interface OrderServiceInterface {
 		userId: number,
 		status?: string,
 		limit?: number,
-		offset?: number
+		offset?: number,
 	) => Effect.Effect<Order[], Error>
 
-	readonly createOrder: (
-		params: CreateOrderParams
-	) => Effect.Effect<Order, Error>
+	readonly createOrder: (params: CreateOrderParams) => Effect.Effect<Order, Error>
 
-	readonly cancelOrder: (
-		orderId: number,
-		userId: number
-	) => Effect.Effect<Order, Error>
+	readonly cancelOrder: (orderId: number, userId: number) => Effect.Effect<Order, Error>
 
-	readonly getOrderFills: (
-		orderId: number,
-		userId: number
-	) => Effect.Effect<OrderFill[], Error>
+	readonly getOrderFills: (orderId: number, userId: number) => Effect.Effect<OrderFill[], Error>
 }
 
 export class OrderService extends Context.Tag('OrderService')<

@@ -1,8 +1,8 @@
+import { Effect, Either, Option } from 'effect'
 import type { Context, Next } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { Effect, Either, Option } from 'effect'
-import { AgentService } from '../services'
 import { runEffectEither } from '../runtime'
+import { AgentService } from '../services'
 
 /**
  * Middleware to validate X-Admin-Key header
@@ -37,16 +37,16 @@ export function agentBearerAuth() {
 		const authHeader = c.req.header('Authorization')
 
 		if (!authHeader) {
-			throw new HTTPException(401, { 
+			throw new HTTPException(401, {
 				message: 'Missing Authorization header',
-				cause: { hint: 'Use Authorization: Bearer YOUR_API_KEY' }
+				cause: { hint: 'Use Authorization: Bearer YOUR_API_KEY' },
 			})
 		}
 
 		if (!authHeader.startsWith('Bearer ')) {
-			throw new HTTPException(401, { 
+			throw new HTTPException(401, {
 				message: 'Invalid Authorization header format',
-				cause: { hint: 'Use Authorization: Bearer YOUR_API_KEY' }
+				cause: { hint: 'Use Authorization: Bearer YOUR_API_KEY' },
 			})
 		}
 
@@ -56,9 +56,11 @@ export function agentBearerAuth() {
 		const API_KEY_PATTERN = /^suwappu_sk_[a-zA-Z0-9_-]+$/
 
 		if (!apiKey || apiKey.length < API_KEY_MIN_LENGTH || !API_KEY_PATTERN.test(apiKey)) {
-			throw new HTTPException(401, { 
+			throw new HTTPException(401, {
 				message: 'Invalid API key format',
-				cause: { hint: 'API key must start with suwappu_sk_ followed by at least 21 alphanumeric characters' }
+				cause: {
+					hint: 'API key must start with suwappu_sk_ followed by at least 21 alphanumeric characters',
+				},
 			})
 		}
 
@@ -67,20 +69,20 @@ export function agentBearerAuth() {
 			Effect.gen(function* () {
 				const agentService = yield* AgentService
 				const agentOption = yield* agentService.getAgentByApiKey(apiKey)
-				
+
 				if (Option.isNone(agentOption)) {
 					return null
 				}
-				
+
 				const agent = agentOption.value
-				
+
 				// Update last active timestamp (fire and forget)
-				yield* agentService.updateAgentActivity(agent.id).pipe(
-					Effect.catchAll(() => Effect.succeed(undefined))
-				)
-				
+				yield* agentService
+					.updateAgentActivity(agent.id)
+					.pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+
 				return agent
-			})
+			}),
 		)
 
 		if (Either.isLeft(result)) {
@@ -110,14 +112,14 @@ export function agentBearerAuthAllowInactive() {
 		if (!authHeader) {
 			throw new HTTPException(401, {
 				message: 'Missing Authorization header',
-				cause: { hint: 'Use Authorization: Bearer YOUR_API_KEY' }
+				cause: { hint: 'Use Authorization: Bearer YOUR_API_KEY' },
 			})
 		}
 
 		if (!authHeader.startsWith('Bearer ')) {
 			throw new HTTPException(401, {
 				message: 'Invalid Authorization header format',
-				cause: { hint: 'Use Authorization: Bearer YOUR_API_KEY' }
+				cause: { hint: 'Use Authorization: Bearer YOUR_API_KEY' },
 			})
 		}
 
@@ -129,7 +131,9 @@ export function agentBearerAuthAllowInactive() {
 		if (!apiKey || apiKey.length < API_KEY_MIN_LENGTH || !API_KEY_PATTERN.test(apiKey)) {
 			throw new HTTPException(401, {
 				message: 'Invalid API key format',
-				cause: { hint: 'API key must start with suwappu_sk_ followed by at least 21 alphanumeric characters' }
+				cause: {
+					hint: 'API key must start with suwappu_sk_ followed by at least 21 alphanumeric characters',
+				},
 			})
 		}
 
@@ -143,7 +147,7 @@ export function agentBearerAuthAllowInactive() {
 				}
 
 				return agentOption.value
-			})
+			}),
 		)
 
 		if (Either.isLeft(result)) {

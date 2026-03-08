@@ -1,12 +1,23 @@
-import { Hono } from 'hono'
-import { Effect, Either, Option } from 'effect'
 import { Turnkey } from '@turnkey/sdk-server'
-import { telegramAuth } from '../middleware'
-import { SwapService, UserService, WalletService, RedisService, cacheKeys, QUOTE_TTL, TOKEN_LIST_TTL, type QuoteParams, type SwapQuote, type RedisServiceInterface } from '../services'
-import { runEffectEither } from '../runtime'
-import type { TelegramUser } from '../services/TelegramAuthService'
-import { mapErrorToResponse, ValidationError, NotFoundError, DatabaseError } from '../errors'
+import { Effect, Either, Option } from 'effect'
+import { Hono } from 'hono'
 import { EnvService } from '../config/EnvService'
+import { DatabaseError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
+import { telegramAuth } from '../middleware'
+import { runEffectEither } from '../runtime'
+import {
+	cacheKeys,
+	QUOTE_TTL,
+	type QuoteParams,
+	RedisService,
+	type RedisServiceInterface,
+	type SwapQuote,
+	SwapService,
+	TOKEN_LIST_TTL,
+	UserService,
+	WalletService,
+} from '../services'
+import type { TelegramUser } from '../services/TelegramAuthService'
 
 const swapRoutes = new Hono()
 
@@ -16,12 +27,32 @@ const swapRoutes = new Hono()
 // Chain ID to RPC endpoint mapping for broadcasting transactions
 const alchemyKey = process.env.ALCHEMY_API_KEY || ''
 const CHAIN_RPC_ENDPOINTS: Record<number, string> = {
-	1: process.env.ETH_RPC_URL || (alchemyKey ? `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://eth.llamarpc.com'),
-	10: process.env.OPTIMISM_RPC_URL || (alchemyKey ? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://optimism.llamarpc.com'),
+	1:
+		process.env.ETH_RPC_URL ||
+		(alchemyKey
+			? `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`
+			: 'https://eth.llamarpc.com'),
+	10:
+		process.env.OPTIMISM_RPC_URL ||
+		(alchemyKey
+			? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}`
+			: 'https://optimism.llamarpc.com'),
 	56: process.env.BSC_RPC_URL || 'https://bsc.llamarpc.com',
-	137: process.env.POLYGON_RPC_URL || (alchemyKey ? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://polygon.llamarpc.com'),
-	8453: process.env.BASE_RPC_URL || (alchemyKey ? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://base.llamarpc.com'),
-	42161: process.env.ARBITRUM_RPC_URL || (alchemyKey ? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://arbitrum.llamarpc.com'),
+	137:
+		process.env.POLYGON_RPC_URL ||
+		(alchemyKey
+			? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}`
+			: 'https://polygon.llamarpc.com'),
+	8453:
+		process.env.BASE_RPC_URL ||
+		(alchemyKey
+			? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}`
+			: 'https://base.llamarpc.com'),
+	42161:
+		process.env.ARBITRUM_RPC_URL ||
+		(alchemyKey
+			? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}`
+			: 'https://arbitrum.llamarpc.com'),
 	43114: process.env.AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc',
 	59144: process.env.LINEA_RPC_URL || 'https://rpc.linea.build',
 	324: process.env.ZKSYNC_RPC_URL || 'https://mainnet.era.zksync.io',
@@ -46,7 +77,10 @@ const cacheQuote = (redis: RedisServiceInterface, quote: SwapQuote): Effect.Effe
 	})
 
 // Get cached quote from Redis with in-memory fallback
-const getCachedQuote = (redis: RedisServiceInterface, quoteId: string): Effect.Effect<SwapQuote | null, never> =>
+const getCachedQuote = (
+	redis: RedisServiceInterface,
+	quoteId: string,
+): Effect.Effect<SwapQuote | null, never> =>
 	Effect.gen(function* () {
 		const key = cacheKeys.quote(quoteId)
 		const result = yield* Effect.either(redis.get<SwapQuote>(key))
@@ -64,7 +98,10 @@ const getCachedQuote = (redis: RedisServiceInterface, quoteId: string): Effect.E
 	})
 
 // Delete cached quote
-const deleteCachedQuote = (redis: RedisServiceInterface, quoteId: string): Effect.Effect<void, never> =>
+const deleteCachedQuote = (
+	redis: RedisServiceInterface,
+	quoteId: string,
+): Effect.Effect<void, never> =>
 	Effect.gen(function* () {
 		const key = cacheKeys.quote(quoteId)
 		yield* Effect.either(redis.del(key))
@@ -74,7 +111,7 @@ const deleteCachedQuote = (redis: RedisServiceInterface, quoteId: string): Effec
 /**
  * GET /webapp/swap/quote
  * Get a swap quote from Li.Fi
- * 
+ *
  * Query params:
  * - fromChain: Chain ID or key (e.g., "1" or "ethereum")
  * - toChain: Target chain ID or key
@@ -86,7 +123,7 @@ const deleteCachedQuote = (redis: RedisServiceInterface, quoteId: string): Effec
  */
 swapRoutes.get('/quote', telegramAuth(), async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
-	
+
 	// Extract query params
 	const fromChain = c.req.query('fromChain')
 	const toChain = c.req.query('toChain')
@@ -94,7 +131,12 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 	const toToken = c.req.query('toToken')
 	const fromAmount = c.req.query('fromAmount')
 	const slippage = c.req.query('slippage')
-	const order = c.req.query('order') as 'RECOMMENDED' | 'FASTEST' | 'CHEAPEST' | 'SAFEST' | undefined
+	const order = c.req.query('order') as
+		| 'RECOMMENDED'
+		| 'FASTEST'
+		| 'CHEAPEST'
+		| 'SAFEST'
+		| undefined
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -106,7 +148,7 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 			// Get user and wallet - use placeholder if not found (for quotes only)
 			// Use a real address as placeholder since Li.Fi rejects zero address
 			let walletAddress = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045' // vitalik.eth as placeholder
-			
+
 			const userResult = yield* Effect.either(userService.getUserByTelegramId(telegramUser.id))
 			if (Either.isRight(userResult) && Option.isSome(userResult.right)) {
 				const user = userResult.right.value
@@ -115,22 +157,24 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 					walletAddress = walletsResult.right[0].address
 				}
 			}
-			
+
 			// For backward compat - allow quotes without wallet
 			const wallet = { address: walletAddress }
 
 			// Validate required params
 			if (!fromChain || !toChain || !fromToken || !toToken || !fromAmount) {
-				return yield* Effect.fail(new ValidationError({ 
-					message: 'Missing required parameters',
-					fields: {
-						...(fromChain ? {} : { fromChain: 'required' }),
-						...(toChain ? {} : { toChain: 'required' }),
-						...(fromToken ? {} : { fromToken: 'required' }),
-						...(toToken ? {} : { toToken: 'required' }),
-						...(fromAmount ? {} : { fromAmount: 'required' }),
-					}
-				}))
+				return yield* Effect.fail(
+					new ValidationError({
+						message: 'Missing required parameters',
+						fields: {
+							...(fromChain ? {} : { fromChain: 'required' }),
+							...(toChain ? {} : { toChain: 'required' }),
+							...(fromToken ? {} : { fromToken: 'required' }),
+							...(toToken ? {} : { toToken: 'required' }),
+							...(fromAmount ? {} : { fromAmount: 'required' }),
+						},
+					}),
+				)
 			}
 
 			// Build quote params
@@ -150,7 +194,7 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 				Effect.mapError((e) => {
 					if (e instanceof ValidationError) return e
 					return new ValidationError({ message: e.message })
-				})
+				}),
 			)
 
 			// Cache the quote for execution (Redis with in-memory fallback)
@@ -168,7 +212,7 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 					gasLimit: transactionRequest.gasLimit,
 				},
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -182,7 +226,7 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 /**
  * POST /webapp/swap/execute
  * Execute a swap using a cached quote
- * 
+ *
  * Body:
  * - quoteId: The quote ID to execute
  * - idempotencyKey: Optional unique key to prevent duplicate swaps
@@ -190,7 +234,7 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 swapRoutes.post('/execute', telegramAuth(), async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
 	const body = await c.req.json().catch(() => ({}))
-	
+
 	const { quoteId, idempotencyKey } = body as { quoteId?: string; idempotencyKey?: string }
 
 	if (!quoteId) {
@@ -208,37 +252,48 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 			// Get user
 			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
 			if (Option.isNone(userOption)) {
-				return yield* Effect.fail(new NotFoundError({ message: 'User not found', resource: 'user' }))
+				return yield* Effect.fail(
+					new NotFoundError({ message: 'User not found', resource: 'user' }),
+				)
 			}
 			const user = userOption.value
 
 			// Get user's wallet
 			const wallets = yield* walletService.getActiveWallets(user.id)
 			if (wallets.length === 0) {
-				return yield* Effect.fail(new NotFoundError({ message: 'No wallet found', resource: 'wallet' }))
+				return yield* Effect.fail(
+					new NotFoundError({ message: 'No wallet found', resource: 'wallet' }),
+				)
 			}
 			const wallet = wallets[0]
 
 			// Check if wallet is a Turnkey wallet
 			if (wallet.walletProvider !== 'turnkey' || !wallet.turnkeySubOrgId) {
-				return yield* Effect.fail(new ValidationError({ 
-					message: 'Wallet does not support server-side signing. Use client-side signing instead.',
-				}))
+				return yield* Effect.fail(
+					new ValidationError({
+						message:
+							'Wallet does not support server-side signing. Use client-side signing instead.',
+					}),
+				)
 			}
 
 			// Get cached quote from Redis (with in-memory fallback)
 			const quote = yield* getCachedQuote(redis, quoteId)
 			if (!quote) {
-				return yield* Effect.fail(new ValidationError({ 
-					message: 'Quote expired or not found. Please request a new quote.',
-				}))
+				return yield* Effect.fail(
+					new ValidationError({
+						message: 'Quote expired or not found. Please request a new quote.',
+					}),
+				)
 			}
 
 			// Verify quote is for this wallet
 			if (quote.transactionRequest.from.toLowerCase() !== wallet.address.toLowerCase()) {
-				return yield* Effect.fail(new ValidationError({ 
-					message: 'Quote wallet address mismatch',
-				}))
+				return yield* Effect.fail(
+					new ValidationError({
+						message: 'Quote wallet address mismatch',
+					}),
+				)
 			}
 
 			// Create swap record first (pending status)
@@ -262,9 +317,20 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 			})
 
 			// Check Turnkey credentials
-			if (!env.TURNKEY_API_PUBLIC_KEY || !env.TURNKEY_API_PRIVATE_KEY || !env.TURNKEY_ORGANIZATION_ID) {
-				yield* swapService.updateSwapStatus(swapRecord.id, 'failed', undefined, 'Turnkey not configured')
-				return yield* Effect.fail(new ValidationError({ message: 'Signing service not configured' }))
+			if (
+				!env.TURNKEY_API_PUBLIC_KEY ||
+				!env.TURNKEY_API_PRIVATE_KEY ||
+				!env.TURNKEY_ORGANIZATION_ID
+			) {
+				yield* swapService.updateSwapStatus(
+					swapRecord.id,
+					'failed',
+					undefined,
+					'Turnkey not configured',
+				)
+				return yield* Effect.fail(
+					new ValidationError({ message: 'Signing service not configured' }),
+				)
 			}
 
 			// Initialize Turnkey client for signing
@@ -277,7 +343,7 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 
 			// Sign the transaction
 			const txRequest = quote.transactionRequest
-			
+
 			console.log('[SwapRoute] Signing transaction:', {
 				swapId: swapRecord.id,
 				from: txRequest.from,
@@ -331,7 +397,10 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 								id: 1,
 							}),
 						})
-						const data = await res.json() as { result?: string; error?: { message: string; code: number } }
+						const data = (await res.json()) as {
+							result?: string
+							error?: { message: string; code: number }
+						}
 						if (data.error) {
 							throw new Error(`RPC error: ${data.error.message} (code ${data.error.code})`)
 						}
@@ -342,7 +411,9 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 				txHash = broadcastResult
 				console.log('[SwapRoute] Transaction broadcast, txHash:', txHash)
 			} else {
-				console.warn(`[SwapRoute] No RPC endpoint for chainId ${txRequest.chainId}, transaction signed but not broadcast`)
+				console.warn(
+					`[SwapRoute] No RPC endpoint for chainId ${txRequest.chainId}, transaction signed but not broadcast`,
+				)
 			}
 
 			// Update swap status with tx hash
@@ -370,20 +441,23 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 					expectedToAmount: quote.toAmount,
 				},
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
 		const error = result.left
 		console.error('[SwapRoute] Execute error:', error)
-		
+
 		// Map error to response
 		if ('status' in error) {
 			const { status, body } = mapErrorToResponse(error as any)
 			return c.json(body, status as 200)
 		}
-		
-		return c.json({ error: 'Internal Error', message: error.message || 'Failed to execute swap' }, 500)
+
+		return c.json(
+			{ error: 'Internal Error', message: error.message || 'Failed to execute swap' },
+			500,
+		)
 	}
 
 	return c.json(result.right)
@@ -409,19 +483,25 @@ swapRoutes.get('/status/:swapId', telegramAuth(), async (c) => {
 			// Get user
 			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
 			if (Option.isNone(userOption)) {
-				return yield* Effect.fail(new NotFoundError({ message: 'User not found', resource: 'user' }))
+				return yield* Effect.fail(
+					new NotFoundError({ message: 'User not found', resource: 'user' }),
+				)
 			}
 			const user = userOption.value
 
 			// Get swap
 			const swap = yield* swapService.getSwapById(swapId)
 			if (!swap) {
-				return yield* Effect.fail(new NotFoundError({ message: 'Swap not found', resource: 'swap' }))
+				return yield* Effect.fail(
+					new NotFoundError({ message: 'Swap not found', resource: 'swap' }),
+				)
 			}
 
 			// Verify ownership
 			if (swap.userId !== user.id) {
-				return yield* Effect.fail(new NotFoundError({ message: 'Swap not found', resource: 'swap' }))
+				return yield* Effect.fail(
+					new NotFoundError({ message: 'Swap not found', resource: 'swap' }),
+				)
 			}
 
 			return {
@@ -440,7 +520,7 @@ swapRoutes.get('/status/:swapId', telegramAuth(), async (c) => {
 				createdAt: swap.createdAt?.toISOString(),
 				completedAt: swap.completedAt?.toISOString(),
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -459,15 +539,69 @@ swapRoutes.get('/chains', async (c) => {
 	// Return static list of supported chains
 	// In production, this could be fetched from Li.Fi API
 	const chains = [
-		{ id: 1, key: 'ethereum', name: 'Ethereum', logoURI: 'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/ethereum.svg' },
-		{ id: 10, key: 'optimism', name: 'Optimism', logoURI: 'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/optimism.svg' },
-		{ id: 56, key: 'bsc', name: 'BNB Chain', logoURI: 'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/bsc.svg' },
-		{ id: 137, key: 'polygon', name: 'Polygon', logoURI: 'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/polygon.svg' },
-		{ id: 42161, key: 'arbitrum', name: 'Arbitrum', logoURI: 'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/arbitrum.svg' },
-		{ id: 43114, key: 'avalanche', name: 'Avalanche', logoURI: 'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/avalanche.svg' },
-		{ id: 8453, key: 'base', name: 'Base', logoURI: 'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/base.svg' },
-		{ id: 59144, key: 'linea', name: 'Linea', logoURI: 'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/linea.svg' },
-		{ id: 324, key: 'zksync', name: 'zkSync Era', logoURI: 'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/zksync.svg' },
+		{
+			id: 1,
+			key: 'ethereum',
+			name: 'Ethereum',
+			logoURI:
+				'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/ethereum.svg',
+		},
+		{
+			id: 10,
+			key: 'optimism',
+			name: 'Optimism',
+			logoURI:
+				'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/optimism.svg',
+		},
+		{
+			id: 56,
+			key: 'bsc',
+			name: 'BNB Chain',
+			logoURI:
+				'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/bsc.svg',
+		},
+		{
+			id: 137,
+			key: 'polygon',
+			name: 'Polygon',
+			logoURI:
+				'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/polygon.svg',
+		},
+		{
+			id: 42161,
+			key: 'arbitrum',
+			name: 'Arbitrum',
+			logoURI:
+				'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/arbitrum.svg',
+		},
+		{
+			id: 43114,
+			key: 'avalanche',
+			name: 'Avalanche',
+			logoURI:
+				'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/avalanche.svg',
+		},
+		{
+			id: 8453,
+			key: 'base',
+			name: 'Base',
+			logoURI:
+				'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/base.svg',
+		},
+		{
+			id: 59144,
+			key: 'linea',
+			name: 'Linea',
+			logoURI:
+				'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/linea.svg',
+		},
+		{
+			id: 324,
+			key: 'zksync',
+			name: 'zkSync Era',
+			logoURI:
+				'https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/chains/zksync.svg',
+		},
 	]
 
 	return c.json({ chains })
@@ -522,7 +656,7 @@ async function fetchNativeBalance(address: string, chainId: string): Promise<str
 			}),
 			signal: AbortSignal.timeout(5000),
 		})
-		const data = await res.json() as { result?: string }
+		const data = (await res.json()) as { result?: string }
 		if (data.result) {
 			const balanceWei = BigInt(data.result)
 			const balance = Number(balanceWei) / 1e18
@@ -565,7 +699,7 @@ swapRoutes.get('/tokens', async (c) => {
 				if (Option.isNone(userOption)) return null
 				const wallets = yield* walletService.getActiveWallets(userOption.value.id)
 				return wallets.length > 0 ? wallets[0].address : null
-			})
+			}),
 		)
 		if (Either.isRight(walletResult) && walletResult.right) {
 			walletAddress = walletResult.right
@@ -588,7 +722,7 @@ swapRoutes.get('/tokens', async (c) => {
 				try: async () => {
 					const res = await fetch(`https://li.quest/v1/tokens?chains=${chainId}`, {
 						headers: {
-							'Accept': 'application/json',
+							Accept: 'application/json',
 							...(process.env.LIFI_API_KEY && {
 								'x-lifi-api-key': process.env.LIFI_API_KEY,
 							}),
@@ -599,7 +733,19 @@ swapRoutes.get('/tokens', async (c) => {
 						throw new Error(`Failed to fetch tokens: ${res.statusText}`)
 					}
 
-					return await res.json() as { tokens: Record<string, Array<{ address: string; symbol: string; decimals: number; name: string; logoURI?: string; priceUSD?: string }>> }
+					return (await res.json()) as {
+						tokens: Record<
+							string,
+							Array<{
+								address: string
+								symbol: string
+								decimals: number
+								name: string
+								logoURI?: string
+								priceUSD?: string
+							}>
+						>
+					}
 				},
 				catch: (e) => new Error(`Token fetch failed: ${e}`),
 			})
@@ -622,7 +768,7 @@ swapRoutes.get('/tokens', async (c) => {
 			yield* Effect.either(redis.set(cacheKey, tokenListResponse, TOKEN_LIST_TTL))
 
 			return tokenListResponse
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -637,7 +783,7 @@ swapRoutes.get('/tokens', async (c) => {
 		const nativeBalance = await fetchNativeBalance(walletAddress, chainId)
 		if (nativeBalance) {
 			const nativeToken = tokenList.tokens.find(
-				(t) => t.address.toLowerCase() === NATIVE_TOKEN_ADDRESS
+				(t) => t.address.toLowerCase() === NATIVE_TOKEN_ADDRESS,
 			)
 			if (nativeToken) {
 				nativeToken.balance = nativeBalance

@@ -1,7 +1,13 @@
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
-import { eq, and, desc, inArray } from 'drizzle-orm'
-import { DrizzleService, requireDb, limitOrders, type LimitOrder, type NewLimitOrder } from '../db'
-import { DatabaseError, ValidationError, NotFoundError } from '../errors'
+import {
+	type DrizzleService,
+	type LimitOrder,
+	limitOrders,
+	type NewLimitOrder,
+	requireDb,
+} from '../db'
+import { DatabaseError, NotFoundError, ValidationError } from '../errors'
 
 // Li.Fi API for price checking
 const LIFI_API_BASE = 'https://li.quest/v1'
@@ -36,50 +42,50 @@ export interface PriceCheckResult {
 
 export interface LimitOrderServiceInterface {
 	readonly createOrder: (
-		params: CreateLimitOrderParams
+		params: CreateLimitOrderParams,
 	) => Effect.Effect<LimitOrder, ValidationError | DatabaseError, DrizzleService>
 
 	readonly getUserOrders: (
 		userId: number,
 		status?: string,
 		limit?: number,
-		offset?: number
+		offset?: number,
 	) => Effect.Effect<LimitOrder[], DatabaseError, DrizzleService>
 
 	readonly getOrderById: (
 		orderId: number,
-		userId?: number
+		userId?: number,
 	) => Effect.Effect<Option.Option<LimitOrder>, DatabaseError, DrizzleService>
 
 	readonly cancelOrder: (
 		orderId: number,
-		userId: number
+		userId: number,
 	) => Effect.Effect<LimitOrder, NotFoundError | ValidationError | DatabaseError, DrizzleService>
 
 	readonly getActiveOrders: () => Effect.Effect<LimitOrder[], DatabaseError, DrizzleService>
 
 	readonly updateOrderPrice: (
 		orderId: number,
-		currentPrice: number
+		currentPrice: number,
 	) => Effect.Effect<LimitOrder | null, DatabaseError, DrizzleService>
 
 	readonly markOrderFilled: (
 		orderId: number,
 		executedPrice: number,
 		txHash: string,
-		swapTransactionId?: number
+		swapTransactionId?: number,
 	) => Effect.Effect<LimitOrder | null, DatabaseError, DrizzleService>
 
 	readonly markOrderFailed: (
 		orderId: number,
-		errorMessage: string
+		errorMessage: string,
 	) => Effect.Effect<LimitOrder | null, DatabaseError, DrizzleService>
 
 	readonly expireOrders: () => Effect.Effect<number, DatabaseError, DrizzleService>
 
 	readonly getTokenPrice: (
 		chain: string,
-		tokenAddress: string
+		tokenAddress: string,
 	) => Effect.Effect<number | null, Error>
 }
 
@@ -112,7 +118,7 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 					new ValidationError({
 						message: 'Target price must be positive',
 						fields: { targetPrice: 'must be positive' },
-					})
+					}),
 				)
 			}
 
@@ -121,12 +127,12 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 					new ValidationError({
 						message: 'Trigger type must be lte or gte',
 						fields: { triggerType: 'must be lte or gte' },
-					})
+					}),
 				)
 			}
 
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const newOrder: NewLimitOrder = {
@@ -148,7 +154,8 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 
 			const result = yield* Effect.tryPromise({
 				try: () => db.insert(limitOrders).values(newOrder).returning(),
-				catch: (e) => new DatabaseError({ message: `Failed to create limit order: ${e}`, cause: e }),
+				catch: (e) =>
+					new DatabaseError({ message: `Failed to create limit order: ${e}`, cause: e }),
 			})
 
 			return result[0]
@@ -157,7 +164,7 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 	getUserOrders: (userId: number, status?: string, limit = 20, offset = 0) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const conditions = [eq(limitOrders.userId, userId)]
@@ -183,7 +190,7 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 	getOrderById: (orderId: number, userId?: number) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const conditions = [eq(limitOrders.id, orderId)]
@@ -207,7 +214,7 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 	cancelOrder: (orderId: number, userId: number) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			// Get the order first
@@ -223,7 +230,7 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 
 			if (existing.length === 0) {
 				return yield* Effect.fail(
-					new NotFoundError({ message: 'Order not found', resource: 'limit_order' })
+					new NotFoundError({ message: 'Order not found', resource: 'limit_order' }),
 				)
 			}
 
@@ -232,7 +239,7 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 					new ValidationError({
 						message: `Cannot cancel order with status: ${existing[0].status}`,
 						fields: { status: 'must be active' },
-					})
+					}),
 				)
 			}
 
@@ -252,7 +259,7 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 	getActiveOrders: () =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const result = yield* Effect.tryPromise({
@@ -271,7 +278,7 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 	updateOrderPrice: (orderId: number, currentPrice: number) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const result = yield* Effect.tryPromise({
@@ -291,10 +298,15 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 			return result[0] || null
 		}),
 
-	markOrderFilled: (orderId: number, executedPrice: number, txHash: string, swapTransactionId?: number) =>
+	markOrderFilled: (
+		orderId: number,
+		executedPrice: number,
+		txHash: string,
+		swapTransactionId?: number,
+	) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const result = yield* Effect.tryPromise({
@@ -320,7 +332,7 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 	markOrderFailed: (orderId: number, errorMessage: string) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			// Increment retry count and potentially mark as failed
@@ -355,7 +367,7 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 	expireOrders: () =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
-				Effect.mapError((e) => new DatabaseError({ message: e.message }))
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
 			const now = new Date()
@@ -371,7 +383,7 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 								eq(limitOrders.status, 'active'),
 								// expiresAt is not null and is in the past
 								// Note: Drizzle doesn't have lt for timestamps directly in this pattern
-							)
+							),
 						)
 						.returning()
 					return expired.length
@@ -393,7 +405,9 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 			})
 
 			if (!response.ok) {
-				console.warn(`[LimitOrderService] Failed to get price for ${tokenAddress}: ${response.status}`)
+				console.warn(
+					`[LimitOrderService] Failed to get price for ${tokenAddress}: ${response.status}`,
+				)
 				return null
 			}
 

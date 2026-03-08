@@ -1,8 +1,8 @@
+import { Effect, Option } from 'effect'
 import type { Context, Next } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { Effect, Option } from 'effect'
-import { TelegramAuthService, type TelegramUser } from '../services'
 import { runEffect } from '../runtime'
+import { TelegramAuthService, type TelegramUser } from '../services'
 
 // Extend Hono context to include telegramUser
 declare module 'hono' {
@@ -44,7 +44,7 @@ export function telegramAuth() {
 			Effect.gen(function* () {
 				const authService = yield* TelegramAuthService
 				return yield* authService.validateInitData(initData)
-			})
+			}),
 		)
 
 		if (Option.isNone(userOption)) {

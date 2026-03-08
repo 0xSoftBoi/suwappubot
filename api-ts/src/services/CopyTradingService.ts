@@ -1,17 +1,17 @@
+import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
-import { eq, desc, and, gte, sql } from 'drizzle-orm'
 import {
-	DrizzleService,
-	requireDb,
-	traderProfiles,
-	copyFollows,
-	copyTrades,
-	traderTrades,
-	users,
-	type TraderProfile,
 	type CopyFollow,
 	type CopyTrade,
+	copyFollows,
+	copyTrades,
+	type DrizzleService,
+	requireDb,
+	type TraderProfile,
 	type TraderTrade,
+	traderProfiles,
+	traderTrades,
+	users,
 } from '../db'
 import { DatabaseError, NotFoundError } from '../errors'
 
@@ -104,38 +104,38 @@ export interface FollowSettings {
 export interface CopyTradingServiceInterface {
 	readonly getTopTraders: (
 		limit?: number,
-		filters?: { minTrades?: number; minWinRate?: number; chain?: string; sortBy?: string }
+		filters?: { minTrades?: number; minWinRate?: number; chain?: string; sortBy?: string },
 	) => Effect.Effect<TopTraderEntry[], DatabaseError, DrizzleService>
 
 	readonly getTraderProfile: (
-		userId: number
+		userId: number,
 	) => Effect.Effect<TraderProfileDetail, DatabaseError | NotFoundError, DrizzleService>
 
 	readonly getFollowing: (
-		userId: number
+		userId: number,
 	) => Effect.Effect<FollowingEntry[], DatabaseError, DrizzleService>
 
 	readonly getCopyTrades: (
 		userId: number,
 		limit?: number,
-		offset?: number
+		offset?: number,
 	) => Effect.Effect<CopyTradeEntry[], DatabaseError, DrizzleService>
 
 	readonly followTrader: (
 		followerId: number,
 		traderId: number,
-		settings: FollowSettings
+		settings: FollowSettings,
 	) => Effect.Effect<CopyFollow, DatabaseError | NotFoundError, DrizzleService>
 
 	readonly unfollowTrader: (
 		followerId: number,
-		traderId: number
+		traderId: number,
 	) => Effect.Effect<void, DatabaseError | NotFoundError, DrizzleService>
 
 	readonly updateCopySettings: (
 		followerId: number,
 		traderId: number,
-		settings: FollowSettings
+		settings: FollowSettings,
 	) => Effect.Effect<CopyFollow, DatabaseError | NotFoundError, DrizzleService>
 }
 
@@ -147,7 +147,9 @@ export class CopyTradingService extends Context.Tag('CopyTradingService')<
 export const CopyTradingServiceLive = Layer.succeed(CopyTradingService, {
 	getTopTraders: (limit = 10, filters) =>
 		Effect.gen(function* () {
-			const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
 
 			const conditions = [
 				eq(traderProfiles.isPublic, true),
@@ -208,15 +210,14 @@ export const CopyTradingServiceLive = Layer.succeed(CopyTradingService, {
 
 	getTraderProfile: (userId: number) =>
 		Effect.gen(function* () {
-			const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
 
 			const profileResult = yield* Effect.tryPromise({
-				try: () =>
-					db
-						.select()
-						.from(traderProfiles)
-						.where(eq(traderProfiles.userId, userId)),
-				catch: (e) => new DatabaseError({ message: `Failed to get trader profile: ${e}`, cause: e }),
+				try: () => db.select().from(traderProfiles).where(eq(traderProfiles.userId, userId)),
+				catch: (e) =>
+					new DatabaseError({ message: `Failed to get trader profile: ${e}`, cause: e }),
 			})
 
 			if (profileResult.length === 0) {
@@ -272,7 +273,9 @@ export const CopyTradingServiceLive = Layer.succeed(CopyTradingService, {
 
 	getFollowing: (userId: number) =>
 		Effect.gen(function* () {
-			const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
 
 			const result = yield* Effect.tryPromise({
 				try: () =>
@@ -301,7 +304,9 @@ export const CopyTradingServiceLive = Layer.succeed(CopyTradingService, {
 
 	getCopyTrades: (userId: number, limit = 20, offset = 0) =>
 		Effect.gen(function* () {
-			const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
 
 			const result = yield* Effect.tryPromise({
 				try: () =>
@@ -332,7 +337,9 @@ export const CopyTradingServiceLive = Layer.succeed(CopyTradingService, {
 
 	followTrader: (followerId: number, traderId: number, settings: FollowSettings) =>
 		Effect.gen(function* () {
-			const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
 
 			// Check trader has a public profile
 			const profileResult = yield* Effect.tryPromise({
@@ -341,11 +348,14 @@ export const CopyTradingServiceLive = Layer.succeed(CopyTradingService, {
 						.select()
 						.from(traderProfiles)
 						.where(and(eq(traderProfiles.userId, traderId), eq(traderProfiles.isPublic, true))),
-				catch: (e) => new DatabaseError({ message: `Failed to check trader profile: ${e}`, cause: e }),
+				catch: (e) =>
+					new DatabaseError({ message: `Failed to check trader profile: ${e}`, cause: e }),
 			})
 
 			if (profileResult.length === 0) {
-				return yield* Effect.fail(new NotFoundError({ message: 'Trader does not have a public profile' }))
+				return yield* Effect.fail(
+					new NotFoundError({ message: 'Trader does not have a public profile' }),
+				)
 			}
 
 			// Check if already following (reactivate if inactive)
@@ -355,7 +365,8 @@ export const CopyTradingServiceLive = Layer.succeed(CopyTradingService, {
 						.select()
 						.from(copyFollows)
 						.where(and(eq(copyFollows.followerId, followerId), eq(copyFollows.traderId, traderId))),
-				catch: (e) => new DatabaseError({ message: `Failed to check existing follow: ${e}`, cause: e }),
+				catch: (e) =>
+					new DatabaseError({ message: `Failed to check existing follow: ${e}`, cause: e }),
 			})
 
 			if (existingResult.length > 0) {
@@ -372,12 +383,16 @@ export const CopyTradingServiceLive = Layer.succeed(CopyTradingService, {
 								maxTradeUsd: settings.maxTradeUsd ?? existing.maxTradeUsd,
 								dailyLimitUsd: settings.dailyLimitUsd ?? existing.dailyLimitUsd,
 								autoSellEnabled: settings.autoSellEnabled ?? existing.autoSellEnabled,
-								chainsFilter: settings.chainsFilter !== undefined ? settings.chainsFilter : existing.chainsFilter,
+								chainsFilter:
+									settings.chainsFilter !== undefined
+										? settings.chainsFilter
+										: existing.chainsFilter,
 								updatedAt: new Date(),
 							})
 							.where(eq(copyFollows.id, existing.id))
 							.returning(),
-					catch: (e) => new DatabaseError({ message: `Failed to reactivate follow: ${e}`, cause: e }),
+					catch: (e) =>
+						new DatabaseError({ message: `Failed to reactivate follow: ${e}`, cause: e }),
 				})
 				return updated[0]
 			}
@@ -411,7 +426,8 @@ export const CopyTradingServiceLive = Layer.succeed(CopyTradingService, {
 							updatedAt: new Date(),
 						})
 						.where(eq(traderProfiles.userId, traderId)),
-				catch: (e) => new DatabaseError({ message: `Failed to update follower count: ${e}`, cause: e }),
+				catch: (e) =>
+					new DatabaseError({ message: `Failed to update follower count: ${e}`, cause: e }),
 			})
 
 			return created[0]
@@ -419,7 +435,9 @@ export const CopyTradingServiceLive = Layer.succeed(CopyTradingService, {
 
 	unfollowTrader: (followerId: number, traderId: number) =>
 		Effect.gen(function* () {
-			const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
 
 			const existingResult = yield* Effect.tryPromise({
 				try: () =>
@@ -430,8 +448,8 @@ export const CopyTradingServiceLive = Layer.succeed(CopyTradingService, {
 							and(
 								eq(copyFollows.followerId, followerId),
 								eq(copyFollows.traderId, traderId),
-								eq(copyFollows.isActive, true)
-							)
+								eq(copyFollows.isActive, true),
+							),
 						),
 				catch: (e) => new DatabaseError({ message: `Failed to check follow: ${e}`, cause: e }),
 			})
@@ -459,13 +477,16 @@ export const CopyTradingServiceLive = Layer.succeed(CopyTradingService, {
 							updatedAt: new Date(),
 						})
 						.where(eq(traderProfiles.userId, traderId)),
-				catch: (e) => new DatabaseError({ message: `Failed to update follower count: ${e}`, cause: e }),
+				catch: (e) =>
+					new DatabaseError({ message: `Failed to update follower count: ${e}`, cause: e }),
 			})
 		}),
 
 	updateCopySettings: (followerId: number, traderId: number, settings: FollowSettings) =>
 		Effect.gen(function* () {
-			const db = yield* requireDb.pipe(Effect.mapError((e) => new DatabaseError({ message: e.message })))
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
 
 			const existingResult = yield* Effect.tryPromise({
 				try: () =>
@@ -476,8 +497,8 @@ export const CopyTradingServiceLive = Layer.succeed(CopyTradingService, {
 							and(
 								eq(copyFollows.followerId, followerId),
 								eq(copyFollows.traderId, traderId),
-								eq(copyFollows.isActive, true)
-							)
+								eq(copyFollows.isActive, true),
+							),
 						),
 				catch: (e) => new DatabaseError({ message: `Failed to check follow: ${e}`, cause: e }),
 			})
@@ -491,7 +512,8 @@ export const CopyTradingServiceLive = Layer.succeed(CopyTradingService, {
 			if (settings.copyAmountUsd !== undefined) updateData.copyAmountUsd = settings.copyAmountUsd
 			if (settings.maxTradeUsd !== undefined) updateData.maxTradeUsd = settings.maxTradeUsd
 			if (settings.dailyLimitUsd !== undefined) updateData.dailyLimitUsd = settings.dailyLimitUsd
-			if (settings.autoSellEnabled !== undefined) updateData.autoSellEnabled = settings.autoSellEnabled
+			if (settings.autoSellEnabled !== undefined)
+				updateData.autoSellEnabled = settings.autoSellEnabled
 			if (settings.chainsFilter !== undefined) updateData.chainsFilter = settings.chainsFilter
 
 			const updated = yield* Effect.tryPromise({

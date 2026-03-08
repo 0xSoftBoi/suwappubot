@@ -21,17 +21,11 @@ export interface ReferredUser {
 }
 
 export interface ReferralServiceInterface {
-	readonly getReferralCode: (
-		userId: number
-	) => Effect.Effect<ReferralCode, Error>
+	readonly getReferralCode: (userId: number) => Effect.Effect<ReferralCode, Error>
 
-	readonly getReferralStats: (
-		userId: number
-	) => Effect.Effect<ReferralStats, Error>
+	readonly getReferralStats: (userId: number) => Effect.Effect<ReferralStats, Error>
 
-	readonly getReferredUsers: (
-		userId: number
-	) => Effect.Effect<ReferredUser[], Error>
+	readonly getReferredUsers: (userId: number) => Effect.Effect<ReferredUser[], Error>
 }
 
 export class ReferralService extends Context.Tag('ReferralService')<

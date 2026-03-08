@@ -85,6 +85,6 @@ export const mapErrorToResponse = (error: AppError | Error | unknown): ErrorResp
 			status: e.status,
 			body: { error: 'Database Error', message: e.message },
 		})),
-		Match.exhaustive
+		Match.exhaustive,
 	)
 }

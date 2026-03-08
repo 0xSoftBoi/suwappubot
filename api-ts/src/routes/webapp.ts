@@ -1,12 +1,20 @@
-import { Hono } from 'hono'
 import { Effect, Either, Option } from 'effect'
+import { Hono } from 'hono'
 import jwt from 'jsonwebtoken'
-import { telegramAuth } from '../middleware'
-import { TelegramAuthService, UserService, WalletService, SwapService, BalanceService, TurnkeyService, PointsService } from '../services'
-import { runEffect, runEffectEither } from '../runtime'
-import type { TelegramUser } from '../services/TelegramAuthService'
-import { mapErrorToResponse } from '../errors'
 import { EnvService } from '../config/EnvService'
+import { mapErrorToResponse } from '../errors'
+import { telegramAuth } from '../middleware'
+import { runEffect, runEffectEither } from '../runtime'
+import {
+	BalanceService,
+	PointsService,
+	SwapService,
+	TelegramAuthService,
+	TurnkeyService,
+	UserService,
+	WalletService,
+} from '../services'
+import type { TelegramUser } from '../services/TelegramAuthService'
 
 const webappRoutes = new Hono()
 
@@ -22,7 +30,7 @@ webappRoutes.post('/validate', async (c) => {
 		Effect.gen(function* () {
 			const authService = yield* TelegramAuthService
 			return yield* authService.validateInitData(initData)
-		})
+		}),
 	)
 
 	if (Option.isNone(userOption)) {
@@ -84,7 +92,7 @@ webappRoutes.post('/telegram/auth', async (c) => {
 			if (existingWallets.length === 0) {
 				// Create Turnkey wallet for new user
 				const turnkeyResult = yield* Effect.either(
-					turnkeyService.createSubOrgForTelegramUser(telegramUser.id, telegramUser.username)
+					turnkeyService.createSubOrgForTelegramUser(telegramUser.id, telegramUser.username),
 				)
 
 				if (Either.isRight(turnkeyResult)) {
@@ -115,7 +123,7 @@ webappRoutes.post('/telegram/auth', async (c) => {
 					walletAddress,
 				},
 				jwtSecret,
-				{ expiresIn: '7d' }
+				{ expiresIn: '7d' },
 			)
 
 			return {
@@ -131,7 +139,7 @@ webappRoutes.post('/telegram/auth', async (c) => {
 				walletAddress,
 				isNewUser: isNew,
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -210,8 +218,8 @@ protectedWebapp.get('/portfolio', async (c) => {
 			Effect.catchAll((error) => {
 				console.error('Portfolio fetch error:', error)
 				return Effect.succeed(emptyPortfolio)
-			})
-		)
+			}),
+		),
 	)
 
 	// Result should always be Right now due to catchAll
@@ -242,7 +250,7 @@ protectedWebapp.get('/wallets', async (c) => {
 
 			// Get active wallets
 			const walletsResult = yield* Effect.either(walletService.getActiveWallets(user.id))
-			
+
 			if (Either.isLeft(walletsResult)) {
 				return { wallets: [] }
 			}
@@ -259,9 +267,7 @@ protectedWebapp.get('/wallets', async (c) => {
 					createdAt: w.createdAt?.toISOString() ?? '',
 				})),
 			}
-		}).pipe(
-			Effect.catchAll(() => Effect.succeed({ wallets: [] }))
-		)
+		}).pipe(Effect.catchAll(() => Effect.succeed({ wallets: [] }))),
 	)
 
 	if (Either.isLeft(result)) {
@@ -312,7 +318,7 @@ protectedWebapp.get('/swaps', async (c) => {
 				completedAt: swap.completedAt?.toISOString() ?? null,
 				errorMessage: swap.errorMessage,
 			}))
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -367,7 +373,7 @@ protectedWebapp.get('/preferences', async (c) => {
 					linkedAt: w.createdAt?.toISOString() ?? '',
 				})),
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -412,7 +418,7 @@ protectedWebapp.put('/preferences', async (c) => {
 					twoFaThreshold: updatedUser.twoFaThreshold ?? 1000,
 				},
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -443,7 +449,7 @@ protectedWebapp.get('/points/stats', async (c) => {
 				...stats,
 				lastCheckin: stats.lastCheckin?.toISOString() ?? null,
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -467,7 +473,7 @@ protectedWebapp.post('/points/checkin', async (c) => {
 			}
 
 			return yield* pointsService.dailyCheckin(userOption.value.id)
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -500,7 +506,7 @@ protectedWebapp.get('/points/history', async (c) => {
 				description: tx.description,
 				createdAt: tx.createdAt.toISOString(),
 			}))
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -517,7 +523,7 @@ protectedWebapp.get('/points/leaderboard', async (c) => {
 		Effect.gen(function* () {
 			const pointsService = yield* PointsService
 			return yield* pointsService.getLeaderboard(limit)
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -542,7 +548,7 @@ protectedWebapp.get('/points/rewards', async (c) => {
 				rewardValue: r.rewardValue,
 				stock: r.stock,
 			}))
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -579,7 +585,7 @@ protectedWebapp.post('/points/redeem/:rewardId', async (c) => {
 				status: redemption.status,
 				expiresAt: redemption.expiresAt?.toISOString() ?? null,
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -608,7 +614,12 @@ protectedWebapp.get('/limit-orders', async (c) => {
 				return yield* Effect.fail(new Error('User not found'))
 			}
 
-			const orders = yield* limitOrderService.getUserOrders(userOption.value.id, status, limit, offset)
+			const orders = yield* limitOrderService.getUserOrders(
+				userOption.value.id,
+				status,
+				limit,
+				offset,
+			)
 			return orders.map((order) => ({
 				id: order.id,
 				fromChain: order.fromChain,
@@ -628,7 +639,7 @@ protectedWebapp.get('/limit-orders', async (c) => {
 				executedPrice: order.executedPrice,
 				executedTxHash: order.executedTxHash,
 			}))
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -699,7 +710,7 @@ protectedWebapp.post('/limit-orders', async (c) => {
 				targetPrice: order.targetPrice,
 				createdAt: order.createdAt?.toISOString() ?? null,
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -733,7 +744,7 @@ protectedWebapp.delete('/limit-orders/:orderId', async (c) => {
 				status: order.status,
 				message: 'Order cancelled successfully',
 			}
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -757,7 +768,7 @@ protectedWebapp.get('/copy/top-traders', async (c) => {
 		Effect.gen(function* () {
 			const copyService = yield* CopyTradingService
 			return yield* copyService.getTopTraders(limit, { minTrades, minWinRate, chain, sortBy })
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -778,7 +789,7 @@ protectedWebapp.get('/copy/trader/:id', async (c) => {
 		Effect.gen(function* () {
 			const copyService = yield* CopyTradingService
 			return yield* copyService.getTraderProfile(userId)
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -803,7 +814,7 @@ protectedWebapp.get('/copy/following', async (c) => {
 			}
 
 			return yield* copyService.getFollowing(userOption.value.id)
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -829,7 +840,7 @@ protectedWebapp.get('/copy/trades', async (c) => {
 			}
 
 			return yield* copyService.getCopyTrades(userOption.value.id, limit, offset)
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -867,7 +878,7 @@ protectedWebapp.post('/copy/follow/:traderId', async (c) => {
 				autoSellEnabled: body.autoSellEnabled,
 				chainsFilter: body.chainsFilter,
 			})
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -898,7 +909,7 @@ protectedWebapp.delete('/copy/follow/:traderId', async (c) => {
 
 			yield* copyService.unfollowTrader(userOption.value.id, traderId)
 			return { success: true, message: 'Unfollowed successfully' }
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -937,7 +948,7 @@ protectedWebapp.put('/copy/follow/:traderId', async (c) => {
 				autoSellEnabled: body.autoSellEnabled,
 				chainsFilter: body.chainsFilter,
 			})
-		})
+		}),
 	)
 
 	if (Either.isLeft(result)) {
@@ -959,7 +970,7 @@ webappRoutes.get('/tokens/trending', async (c) => {
 		if (!response.ok) {
 			return c.json({ tokens: [] })
 		}
-		const data = await response.json() as Array<{
+		const data = (await response.json()) as Array<{
 			tokenAddress: string
 			chainId: string
 			icon?: string
@@ -975,14 +986,18 @@ webappRoutes.get('/tokens/trending', async (c) => {
 		const enriched = await Promise.all(
 			topTokens.map(async (token) => {
 				try {
-					const pairRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${token.tokenAddress}`)
+					const pairRes = await fetch(
+						`https://api.dexscreener.com/latest/dex/tokens/${token.tokenAddress}`,
+					)
 					if (!pairRes.ok) return null
-					const pairData = await pairRes.json() as { pairs?: Array<{
-						baseToken?: { name?: string; symbol?: string }
-						priceUsd?: string
-						priceChange?: { h24?: number }
-						volume?: { h24?: number }
-					}> }
+					const pairData = (await pairRes.json()) as {
+						pairs?: Array<{
+							baseToken?: { name?: string; symbol?: string }
+							priceUsd?: string
+							priceChange?: { h24?: number }
+							volume?: { h24?: number }
+						}>
+					}
 					const pair = pairData.pairs?.[0]
 					if (!pair) return null
 
@@ -999,7 +1014,7 @@ webappRoutes.get('/tokens/trending', async (c) => {
 				} catch {
 					return null
 				}
-			})
+			}),
 		)
 
 		return c.json({ tokens: enriched.filter(Boolean) })
@@ -1034,14 +1049,17 @@ webappRoutes.get('/tokens/:chain/:address/chart', async (c) => {
 		if (!response.ok) {
 			return c.json({ candles: [], pair: null })
 		}
-		const data = await response.json() as { pairs?: Array<{
-			priceUsd?: string
-			priceChange?: { h24?: number; h6?: number; h1?: number; m5?: number }
-		}> }
+		const data = (await response.json()) as {
+			pairs?: Array<{
+				priceUsd?: string
+				priceChange?: { h24?: number; h6?: number; h1?: number; m5?: number }
+			}>
+		}
 		const pair = data.pairs?.[0]
 
 		// Generate synthetic candles from available price change data
-		const candles: Array<{ time: number; open: number; high: number; low: number; close: number }> = []
+		const candles: Array<{ time: number; open: number; high: number; low: number; close: number }> =
+			[]
 		if (pair?.priceUsd) {
 			const currentPrice = parseFloat(pair.priceUsd)
 			const now = Math.floor(Date.now() / 1000)

@@ -1,4 +1,13 @@
-import { integer, pgTable, real, serial, text, timestamp, varchar, pgEnum } from 'drizzle-orm/pg-core'
+import {
+	integer,
+	pgEnum,
+	pgTable,
+	real,
+	serial,
+	text,
+	timestamp,
+	varchar,
+} from 'drizzle-orm/pg-core'
 import { users } from './users'
 
 export const dcaIntervalEnum = pgEnum('dca_interval', ['hourly', 'daily', 'weekly'])

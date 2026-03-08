@@ -14,7 +14,7 @@ export interface TelegramUser {
 
 export interface TelegramAuthServiceInterface {
 	readonly validateInitData: (
-		initData: string
+		initData: string,
 	) => Effect.Effect<Option.Option<TelegramUser>, UnauthorizedError>
 }
 
@@ -59,7 +59,7 @@ export const TelegramAuthServiceLive = Layer.effect(
 								encoder.encode('WebAppData'),
 								{ name: 'HMAC', hash: 'SHA-256' },
 								false,
-								['sign']
+								['sign'],
 							),
 						catch: () => new UnauthorizedError({ message: 'Crypto error' }),
 					})
@@ -73,13 +73,9 @@ export const TelegramAuthServiceLive = Layer.effect(
 					// Import the derived secret key
 					const derivedKey = yield* Effect.tryPromise({
 						try: () =>
-							crypto.subtle.importKey(
-								'raw',
-								secretKey,
-								{ name: 'HMAC', hash: 'SHA-256' },
-								false,
-								['sign']
-							),
+							crypto.subtle.importKey('raw', secretKey, { name: 'HMAC', hash: 'SHA-256' }, false, [
+								'sign',
+							]),
 						catch: () => new UnauthorizedError({ message: 'Crypto error' }),
 					})
 
@@ -117,5 +113,5 @@ export const TelegramAuthServiceLive = Layer.effect(
 			})
 
 		return { validateInitData }
-	})
+	}),
 )

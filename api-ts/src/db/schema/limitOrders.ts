@@ -1,4 +1,13 @@
-import { integer, pgTable, real, serial, text, timestamp, varchar, pgEnum } from 'drizzle-orm/pg-core'
+import {
+	integer,
+	pgEnum,
+	pgTable,
+	real,
+	serial,
+	text,
+	timestamp,
+	varchar,
+} from 'drizzle-orm/pg-core'
 import { users } from './users'
 
 export const limitOrderStatusEnum = pgEnum('limit_order_status', [
@@ -28,7 +37,7 @@ export const limitOrders = pgTable('limit_orders', {
 	// Price conditions
 	targetPrice: real('target_price').notNull(), // target price in USD
 	triggerType: varchar('trigger_type', { length: 10 }).notNull().default('lte'), // 'lte' (<=) or 'gte' (>=)
-	
+
 	// Execution settings
 	slippage: integer('slippage').default(50), // basis points
 	walletAddress: varchar('wallet_address', { length: 42 }).notNull(),
