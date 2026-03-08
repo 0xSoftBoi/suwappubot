@@ -40,13 +40,15 @@ def format_amount(amount: float, decimals: int = 2, symbol: str = "") -> str:
 def format_usd(amount: float) -> str:
     """
     Format an amount as USD.
-    
+
     Args:
         amount: Amount in USD
-        
+
     Returns:
         Formatted USD string (e.g., "$1,234.56")
     """
+    if 0 < abs(amount) < 0.01:
+        return f"${amount:.4f}"
     return f"${amount:,.2f}"
 
 
