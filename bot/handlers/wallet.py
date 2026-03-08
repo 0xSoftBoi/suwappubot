@@ -496,6 +496,8 @@ async def wallet_import_cancel(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # Create conversation handler for wallet import
 wallet_import_handler = ConversationHandler(
+    name="wallet_import",
+    persistent=True,
     entry_points=[
         CallbackQueryHandler(wallet_import_start, pattern="^wallet_import_"),
     ],

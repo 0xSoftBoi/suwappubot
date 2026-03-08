@@ -281,6 +281,8 @@ async def alerts_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # Create conversation handler
 alert_conversation = ConversationHandler(
+    name="alert",
+    persistent=True,
     entry_points=[CallbackQueryHandler(alert_create_callback, pattern="^alert_create$")],
     states={
         SELECT_TOKEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, alert_select_token)],

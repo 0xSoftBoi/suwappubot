@@ -828,6 +828,8 @@ skip_copy_callback_handler = CallbackQueryHandler(skip_copy_callback, pattern=r"
 
 # Conversation handler for profile editing
 profile_edit_conversation = ConversationHandler(
+    name="profile_edit",
+    persistent=True,
     entry_points=[
         CallbackQueryHandler(edit_name_callback, pattern="^copy_edit_name$"),
         CallbackQueryHandler(edit_bio_callback, pattern="^copy_edit_bio$"),
