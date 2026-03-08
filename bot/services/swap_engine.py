@@ -1060,13 +1060,13 @@ class SwapEngine:
         return tx_hash.hex()
     
     async def _execute_layerzero_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
-        """Execute a cross-chain transfer via LayerZero/Stargate."""
+        """Execute a cross-chain transfer via LayerZero/Stargate V2."""
         wallet = self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
-        # Get transaction data from LayerZero
-        tx_data = await self.layerzero.get_swap_transaction(
+        # Build Stargate V2 sendToken transaction
+        lz_quote = await self.layerzero.get_quote(
             src_chain=quote.from_chain,
             dst_chain=quote.to_chain,
             token_symbol=quote.from_token,
@@ -1074,26 +1074,61 @@ class SwapEngine:
             from_address=wallet_data["address"],
         )
 
+        tx_bundle = self.layerzero.build_send_transaction(
+            quote=lz_quote,
+            sender_address=wallet_data["address"],
+        )
+
         chain = get_chain_by_name(quote.from_chain)
-        web3 = Web3(Web3.HTTPProvider(chain.rpc_url))
+        rpc_url = settings.get_rpc_url(quote.from_chain)
+        web3 = Web3(Web3.HTTPProvider(rpc_url))
+        sender = wallet_data["address"]
+        nonce = web3.eth.get_transaction_count(sender)
 
-        nonce = web3.eth.get_transaction_count(wallet_data["address"])
+        # Step 1: ERC20 approval if needed
+        if "approval_tx" in tx_bundle:
+            approve_tx = {
+                "to": Web3.to_checksum_address(tx_bundle["approval_tx"]["to"]),
+                "data": tx_bundle["approval_tx"]["data"],
+                "value": 0,
+                "gas": 100000,
+                "gasPrice": web3.eth.gas_price,
+                "nonce": nonce,
+                "chainId": chain.chain_id,
+            }
+            signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
+            web3.eth.send_raw_transaction(bytes.fromhex(signed_approve.replace("0x", "")))
+            logger.info(f"LayerZero approval tx sent for {quote.from_token}")
+            nonce += 1
 
-        tx = {
-            "to": Web3.to_checksum_address(tx_data.get("to")),
-            "data": tx_data.get("data"),
-            "value": _parse_int(tx_data.get("value", 0)),
-            "gas": _parse_int(tx_data.get("gasLimit", 300000)),
-            "gasPrice": _parse_int(tx_data.get("gasPrice")) or web3.eth.gas_price,
+        # Step 2: sendToken transaction
+        send_tx_data = tx_bundle["send_tx"]
+        gas_estimate = 300000
+        try:
+            gas_estimate = web3.eth.estimate_gas({
+                "from": sender,
+                "to": Web3.to_checksum_address(send_tx_data["to"]),
+                "data": send_tx_data["data"],
+                "value": send_tx_data["value"],
+            })
+            gas_estimate = int(gas_estimate * 1.2)  # 20% buffer
+        except Exception:
+            pass
+
+        send_tx = {
+            "to": Web3.to_checksum_address(send_tx_data["to"]),
+            "data": send_tx_data["data"],
+            "value": send_tx_data["value"],
+            "gas": gas_estimate,
+            "gasPrice": web3.eth.gas_price,
             "nonce": nonce,
             "chainId": chain.chain_id,
         }
 
-        # Sign and send
-        signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
+        signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, send_tx)
         tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
 
-        logger.info(f"LayerZero transfer tx: {tx_hash.hex()}")
+        logger.info(f"LayerZero/Stargate V2 transfer tx: {tx_hash.hex()}")
         return tx_hash.hex()
     
     async def _execute_cctp_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
