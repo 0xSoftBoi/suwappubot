@@ -110,7 +110,7 @@ class LiFiAPI:
         from_address: str,
         to_address: Optional[str] = None,
         slippage: float = 0.5,
-        integrator: str = "suwappubot",
+        integrator: str = "SuwappuProduction",
         fee: float = 0.008,  # 0.8% integrator fee (80 bips)
     ) -> LiFiQuote:
         """
