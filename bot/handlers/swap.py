@@ -145,7 +145,7 @@ async def start_swap(update: Update, context: ContextTypes.DEFAULT_TYPE, is_call
             callback_data=f"from_chain_{name}"
         )
         row.append(btn)
-        if len(row) == 2:
+        if len(row) == 3:
             chain_buttons.append(row)
             row = []
     if row:
@@ -236,7 +236,7 @@ async def select_from_chain(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 callback_data=f"from_token_{token.symbol}"
             )
             row.append(btn)
-            if len(row) == 2:
+            if len(row) == 3:
                 token_buttons.append(row)
                 row = []
         if row:
@@ -280,7 +280,7 @@ async def select_from_token(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             callback_data=f"to_chain_{name}"
         )
         row.append(btn)
-        if len(row) == 2:
+        if len(row) == 3:
             chain_buttons.append(row)
             row = []
     if row:
@@ -334,7 +334,7 @@ async def select_to_chain(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             callback_data=f"to_token_{token.symbol}"
         )
         row.append(btn)
-        if len(row) == 2:
+        if len(row) == 3:
             token_buttons.append(row)
             row = []
     if row:
