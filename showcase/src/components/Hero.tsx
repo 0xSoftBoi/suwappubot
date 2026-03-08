@@ -14,17 +14,17 @@ const SakuraPetal3D = dynamic(() => import('./SakuraPetal3D'), {
 });
 
 // ---------------------------------------------------------------------------
-// Stats
+// Steps — how an agent uses Suwappu
 // ---------------------------------------------------------------------------
 
-const STATS = [
-  { value: '6', label: 'Tools' },
-  { value: '15', label: 'Chains' },
-  { value: 'bun', label: 'Native' },
+const STEPS = [
+  { num: '01', title: 'Install', desc: 'bun add @suwappu/sdk' },
+  { num: '02', title: 'Quote', desc: 'Get the best route across 15 chains' },
+  { num: '03', title: 'Swap', desc: 'Execute on-chain in one call' },
 ];
 
 // ---------------------------------------------------------------------------
-// Hero Panel — content always visible, gentle entrance only
+// Hero Panel — agent-driven DEX demo
 // ---------------------------------------------------------------------------
 
 export default function Hero() {
@@ -34,7 +34,6 @@ export default function Hero() {
   useGSAP(() => {
     if (!heroRef.current) return;
     const items = heroRef.current.querySelectorAll('.hero-stagger');
-    // Gentle slide up — starts slightly offset, always visible
     gsap.fromTo(items,
       { y: 16, opacity: 0.7 },
       { y: 0, opacity: 1, stagger: 0.1, duration: 0.8, ease: 'back.out(1.4)' }
@@ -50,6 +49,8 @@ export default function Hero() {
 
       <div className="relative z-10 max-w-6xl mx-auto px-6 w-full">
         <div className="grid lg:grid-cols-2 gap-12 items-center">
+
+          {/* Left — positioning + steps */}
           <div>
             <div className="hero-stagger mb-5">
               <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-suwappu-magenta/30 bg-suwappu-magenta/5 text-xs font-heading font-semibold text-suwappu-magenta tracking-wider uppercase">
@@ -59,30 +60,25 @@ export default function Hero() {
             </div>
 
             <h1 className="hero-stagger font-heading font-bold text-4xl md:text-5xl lg:text-6xl leading-[1.08] mb-6 text-white">
-              One line.
+              Agent-driven
               <br />
               <span className="bg-gradient-to-r from-suwappu-magenta to-suwappu-purple bg-clip-text text-transparent">
-                Every chain.
+                DEX.
               </span>
             </h1>
 
-            <p className="hero-stagger text-lg text-suwappu-dark-text-secondary max-w-md mb-8 leading-relaxed">
-              Cross-chain routing, gas abstraction, MEV protection — handled.{' '}
-              <code className="text-suwappu-cyan/70 text-base">bun&nbsp;add&nbsp;@suwappu/sdk</code>{' '}
-              and start building.
+            <p className="hero-stagger text-suwappu-dark-text-secondary max-w-md mb-10 leading-relaxed">
+              Your agent installs the SDK, gets a quote, and executes the swap. Three calls. Any chain.
             </p>
 
-            <div className="hero-stagger flex items-center gap-6 mb-8">
-              {STATS.map((stat, i) => (
-                <div key={stat.label} className="flex items-center gap-6">
-                  {i > 0 && <div className="w-px h-8 bg-white/10" />}
-                  <div className="text-center">
-                    <div className="bg-gradient-to-r from-suwappu-magenta to-suwappu-purple bg-clip-text text-transparent font-heading font-bold text-2xl">
-                      {stat.value}
-                    </div>
-                    <div className="text-white/50 text-xs font-medium uppercase tracking-wider mt-0.5">
-                      {stat.label}
-                    </div>
+            {/* Steps */}
+            <div className="hero-stagger space-y-4 mb-10">
+              {STEPS.map((step) => (
+                <div key={step.num} className="flex items-start gap-4">
+                  <span className="text-white/15 font-mono text-xs mt-0.5 shrink-0">{step.num}</span>
+                  <div>
+                    <span className="text-white font-heading font-semibold text-sm">{step.title}</span>
+                    <span className="text-suwappu-dark-text-secondary text-sm ml-2">{step.desc}</span>
                   </div>
                 </div>
               ))}
@@ -108,9 +104,14 @@ export default function Hero() {
             </div>
           </div>
 
+          {/* Right — live terminal demo */}
           <div className="hero-stagger">
             <Terminal />
+            <p className="text-white/20 text-xs mt-3 text-center font-mono">
+              Watch the agent work
+            </p>
           </div>
+
         </div>
       </div>
     </Panel>
