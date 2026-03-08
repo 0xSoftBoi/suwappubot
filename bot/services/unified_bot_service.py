@@ -192,7 +192,7 @@ class UnifiedBotService:
             lines = ["👛 *Your Wallets*\n"]
             for w in wallets:
                 type_icon = "🔷" if w.chain_type == "evm" else "🟢"
-                lines.append(f"{type_icon} *{w.chain_type.upper()}*: `{w.address[:6]}...{w.address[-4:]}`")
+                lines.append(f"{type_icon} *{w.chain_type.upper()}*: `{w.address}`")
             
             return UnifiedResponse("\n".join(lines))
 
