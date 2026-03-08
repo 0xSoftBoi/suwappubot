@@ -58,7 +58,7 @@ class GasTracker:
             return None
         
         try:
-            rpc_url = getattr(settings, chain.rpc_url_env.lower(), None)
+            rpc_url = settings.get_rpc_url(chain_name)
             if not rpc_url:
                 return None
             
