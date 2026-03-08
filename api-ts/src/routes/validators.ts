@@ -67,6 +67,23 @@ export const CreatePolicySchema = z.object({
 })
 
 /** Format Zod errors into a flat field map */
+export const ExecuteSwapSchema = z.object({
+	quote_id: z.string().min(1, 'quote_id is required'),
+})
+
+export const SwapStatusQuerySchema = z.object({
+	status: z.string().optional(),
+	limit: z.coerce.number().min(1).max(100).default(20),
+	offset: z.coerce.number().min(0).default(0),
+})
+
+export const WebhookEventsQuerySchema = z.object({
+	status: z.string().optional(),
+	event_type: z.string().optional(),
+	limit: z.coerce.number().min(1).max(100).default(20),
+	offset: z.coerce.number().min(0).default(0),
+})
+
 export function formatZodErrors(error: z.ZodError): Record<string, string> {
 	const fields: Record<string, string> = {}
 	for (const issue of error.issues) {
