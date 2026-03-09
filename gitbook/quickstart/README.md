@@ -6,6 +6,7 @@ Get up and running with the Suwappu Agent API in minutes. No SDK installation re
 
 - **An HTTP client**: `curl`, Postman, or any programming language with HTTP support
 - **No account needed to start**: The registration endpoint is public, so you can create an API key with a single request
+- **Optional**: Install the CLI for the fastest experience: `npm install -g @suwappu/sdk`
 
 ## What You'll Learn
 

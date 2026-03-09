@@ -514,7 +514,7 @@ curl -X POST https://api.suwappu.bot/a2a \
 | Package | Description |
 |---------|-------------|
 | [`@suwappu/mcp-server`](https://www.npmjs.com/package/@suwappu/mcp-server) | MCP server (stdio transport) |
-| [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) | TypeScript SDK for REST API |
+| [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) | TypeScript SDK + `suwappu` trading CLI |
 | [`@suwappu/langchain-suwappu`](https://www.npmjs.com/package/@suwappu/langchain-suwappu) | LangChain toolkit integration |
 
 ### Registry Listings

@@ -16,6 +16,10 @@ Create and use server-side managed wallets for hands-free swap execution. Suwapp
 
 Receive real-time notifications when swaps complete or fail. Set up a webhook endpoint, configure your agent's callback URL, and handle incoming events.
 
+### [Trading CLI](trading-cli.md)
+
+Interactive command-line tool for swapping tokens, checking prices, viewing portfolio balances, and managing perpetual positions. Colored output, formatted tables, and `--json` flag for scripting. Install with `npm install -g @suwappu/sdk`.
+
 ### [Building a Trading Bot](building-a-trading-bot.md)
 
 End-to-end tutorial for building an automated trading bot. Complete, runnable scripts in Python and TypeScript that register an agent, create a wallet, monitor prices, and execute swaps based on conditions.

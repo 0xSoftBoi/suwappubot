@@ -4,6 +4,35 @@ Complete, runnable scripts that perform the full swap flow: register an agent, g
 
 ---
 
+## CLI (`@suwappu/sdk`)
+
+The fastest way to interact with Suwappu from your terminal. The `@suwappu/sdk` package includes a `suwappu` binary with colored tables, spinners, and interactive swap confirmation.
+
+```bash
+# Install
+npm install -g @suwappu/sdk
+
+# Configure
+export SUWAPPU_API_KEY=suwappu_sk_your_api_key
+# Or: suwappu config set api-key suwappu_sk_your_api_key
+
+# Use
+suwappu chains                       # List supported chains
+suwappu tokens ethereum              # List tokens on a chain
+suwappu prices ETH BTC SOL           # Token prices with 24h change
+suwappu portfolio                    # Portfolio balances with totals
+suwappu swap ETH USDC 0.5 --chain base  # Quote → confirm → execute
+suwappu perps markets                # Perpetual futures markets
+suwappu perps positions 0x1234...    # Open positions with PnL
+
+# JSON output for scripting
+suwappu prices ETH --json | jq '.[] .priceUsd'
+```
+
+See the full [Trading CLI guide](../guides/trading-cli.md) for detailed usage and examples.
+
+---
+
 ## Bash (curl)
 
 ```bash

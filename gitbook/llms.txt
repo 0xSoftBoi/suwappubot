@@ -60,5 +60,12 @@ Ethereum (1), Optimism (10), BSC (56), Polygon (137), Arbitrum (42161), Base (84
 free: 30/min, agent: 100/min, pro: 500/min
 Headers: X-RateLimit-Limit, X-RateLimit-Remaining, Retry-After (on 429)
 
+## CLI Tool
+Install: npm install -g @suwappu/sdk
+Binary: suwappu
+Commands: chains, tokens <chain>, prices <tokens...>, portfolio, swap <from> <to> <amount>, perps markets, perps positions <addr>, config set|show
+All commands support --json for machine-readable output
+Config priority: CLI flags > SUWAPPU_API_KEY env > ~/.suwappu/config.json
+
 ## Docs
 https://docs.suwappu.bot
