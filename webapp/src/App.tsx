@@ -5,8 +5,13 @@ import { AnimatePresence, motion, type Variants } from 'framer-motion'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useTelegram } from './hooks/useTelegram'
+import { useDesktopHotkeys } from './hooks/useDesktopHotkeys'
 import { Welcome, Home, Swap, Wallet, Portfolio, History, Points, DCA, DCACreate, LimitOrders, PriceAlerts, Referrals, CopyTrading, Subscriptions, Settings, Recovery } from './pages'
+import { DesktopLayout } from './components/layout'
+import { HotkeyOverlay } from './components/desktop/HotkeyOverlay'
 import './theme/suwappu.css'
+
+const isDesktop = !!(typeof window !== 'undefined' && (window as any).__SUWAPPU_DESKTOP__?.isDesktop)
 
 // Page transition variants
 const pageVariants: Variants = {
@@ -103,6 +108,9 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 function AppContent() {
   const { webApp, colorScheme } = useTelegram()
 
+  // Desktop-only: register in-app keyboard shortcuts
+  useDesktopHotkeys()
+
   useEffect(() => {
     // Sync theme with Telegram or default to light
     if (colorScheme === 'dark') {
@@ -122,7 +130,7 @@ function AppContent() {
 
   const location = useLocation()
 
-  return (
+  const content = (
     <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
         {/* Public routes */}
@@ -294,6 +302,13 @@ function AppContent() {
       </Routes>
     </AnimatePresence>
   )
+
+  return isDesktop ? (
+    <>
+      <DesktopLayout>{content}</DesktopLayout>
+      <HotkeyOverlay />
+    </>
+  ) : content
 }
 
 function App() {

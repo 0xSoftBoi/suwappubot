@@ -3,65 +3,36 @@
  * even when the app is not focused.
  *
  * Uses Electrobun's globalShortcut API.
+ * Bindings are loaded dynamically from hotkey-store.
  */
 
 import { GlobalShortcut } from "electrobun/bun";
+import {
+  getHotkeys,
+  type HotkeyAction,
+  type HotkeyBinding,
+} from "./hotkey-store";
 
-export type HotkeyAction =
-  | "quick-swap"
-  | "panic-sell"
-  | "quick-search"
-  | "toggle-launch-feed"
-  | "toggle-overlay";
-
-interface HotkeyBinding {
-  accelerator: string;
-  action: HotkeyAction;
-  description: string;
-}
-
-const HOTKEY_BINDINGS: HotkeyBinding[] = [
-  {
-    accelerator: "CmdOrCtrl+Shift+S",
-    action: "quick-swap",
-    description: "Open quick swap panel",
-  },
-  {
-    accelerator: "CmdOrCtrl+Shift+P",
-    action: "panic-sell",
-    description: "Panic sell — emergency sell all positions",
-  },
-  {
-    accelerator: "CmdOrCtrl+Shift+K",
-    action: "quick-search",
-    description: "Quick token search",
-  },
-  {
-    accelerator: "CmdOrCtrl+Shift+L",
-    action: "toggle-launch-feed",
-    description: "Toggle launch scanner feed",
-  },
-  {
-    accelerator: "CmdOrCtrl+Shift+T",
-    action: "toggle-overlay",
-    description: "Toggle always-on-top price ticker",
-  },
-];
+export type { HotkeyAction, HotkeyBinding };
 
 type HotkeyCallback = (action: HotkeyAction) => void;
 
 let registered = false;
+let currentBindings: HotkeyBinding[] = [];
 let onTrigger: HotkeyCallback | null = null;
 
-export function registerGlobalHotkeys(callback: HotkeyCallback): void {
+export async function registerGlobalHotkeys(
+  callback: HotkeyCallback
+): Promise<void> {
   if (registered) {
     console.warn("[Hotkeys] Already registered — unregister first");
     return;
   }
 
   onTrigger = callback;
+  currentBindings = await getHotkeys();
 
-  for (const binding of HOTKEY_BINDINGS) {
+  for (const binding of currentBindings) {
     try {
       GlobalShortcut.register(binding.accelerator, () => {
         console.log(`[Hotkey] ${binding.accelerator} → ${binding.action}`);
@@ -77,14 +48,14 @@ export function registerGlobalHotkeys(callback: HotkeyCallback): void {
 
   registered = true;
   console.log(
-    `[Hotkeys] Registered ${HOTKEY_BINDINGS.length} global hotkeys`
+    `[Hotkeys] Registered ${currentBindings.length} global hotkeys`
   );
 }
 
 export function unregisterGlobalHotkeys(): void {
   if (!registered) return;
 
-  for (const binding of HOTKEY_BINDINGS) {
+  for (const binding of currentBindings) {
     try {
       GlobalShortcut.unregister(binding.accelerator);
     } catch {
@@ -93,8 +64,21 @@ export function unregisterGlobalHotkeys(): void {
   }
 
   onTrigger = null;
+  currentBindings = [];
   registered = false;
   console.log("[Hotkeys] Unregistered all global hotkeys");
 }
 
-export { HOTKEY_BINDINGS };
+/**
+ * Re-register all hotkeys — unregister current, reload from store,
+ * re-register. Used when the user changes bindings at runtime.
+ */
+export async function reregisterGlobalHotkeys(): Promise<void> {
+  const callback = onTrigger;
+  unregisterGlobalHotkeys();
+  if (callback) {
+    await registerGlobalHotkeys(callback);
+  }
+}
+
+export { currentBindings as HOTKEY_BINDINGS };

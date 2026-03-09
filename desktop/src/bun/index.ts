@@ -1,9 +1,17 @@
 import { BrowserWindow, Tray, Updater, Utils } from "electrobun/bun";
 import Electrobun from "electrobun/bun";
-import { createMainRPC, setTrayUpdateCallback } from "../rpc/handlers";
+import {
+  createMainRPC,
+  setTrayUpdateCallback,
+  setClipboardDetectionCallback,
+  initClipboardFromPreference,
+} from "../rpc/handlers";
 import { registerGlobalHotkeys, unregisterGlobalHotkeys } from "../native/hotkeys";
-import { startClipboardMonitor, stopClipboardMonitor } from "../native/clipboard";
-import { destroyOverlay, toggleOverlay, updateOverlayPositions } from "../native/overlay";
+import { stopClipboardMonitor } from "../native/clipboard";
+import { destroyOverlay, toggleOverlay } from "../native/overlay";
+import { setBaseUrl, openWindow, closeAll } from "../native/window-manager";
+import { loadAllWindowStates, saveAllNow } from "../native/window-state";
+import { createApplicationMenu, destroyApplicationMenu } from "../native/menu";
 
 const DEV_SERVER_PORT = 5174;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
@@ -50,6 +58,28 @@ const mainWindow = new BrowserWindow({
     };
   `,
 });
+
+// ── Window Manager Setup ──────────────────────────────────────────────
+setBaseUrl(url);
+
+// Restore previously-open detached panels
+const savedStates = await loadAllWindowStates();
+for (const state of savedStates) {
+  if (state.isOpen) {
+    try {
+      openWindow(state.id, {
+        route: state.route,
+        width: state.width,
+        height: state.height,
+        x: state.x,
+        y: state.y,
+      });
+      console.log(`[Startup] Restored panel: ${state.id}`);
+    } catch (err) {
+      console.error(`[Startup] Failed to restore panel ${state.id}:`, err);
+    }
+  }
+}
 
 // ── System Tray (Enhanced) ─────────────────────────────────────────────
 const tray = new Tray({
@@ -168,6 +198,19 @@ registerGlobalHotkeys(async (action) => {
     toggleOverlay();
   }
 
+  // Navigate to specific pages for toggle actions
+  if (action === "toggle-alerts") {
+    focusAndNavigate("/alerts");
+  }
+  if (action === "toggle-copy-trading") {
+    focusAndNavigate("/copy");
+  }
+
+  // Focus app for search and help actions (webview handles display)
+  if (action === "focus-search" || action === "show-hotkey-help") {
+    mainWindow.focus();
+  }
+
   // Focus app for actions that need UI
   if (action === "quick-swap" || action === "panic-sell" || action === "quick-search") {
     mainWindow.focus();
@@ -175,17 +218,42 @@ registerGlobalHotkeys(async (action) => {
 });
 
 // ── Clipboard Monitor ──────────────────────────────────────────────────
-// Clipboard monitoring is disabled by default — enable via settings when user opts in
-// startClipboardMonitor((detection) => {
-//   (mainWindow.webview.rpc as any)?.send?.["clipboard:address-detected"]({
-//     address: detection.address,
-//     chain: detection.chain,
-//   });
-//   Utils.showNotification({
-//     title: "Address Detected",
-//     body: `Found ${detection.chain} address in clipboard`,
-//   });
-// });
+// Wire clipboard detections to webview + native notification
+setClipboardDetectionCallback((detection) => {
+  (mainWindow.webview.rpc as any)?.send?.["clipboard:address-detected"]({
+    address: detection.address,
+    chain: detection.chain,
+  });
+  Utils.showNotification({
+    title: "Address Detected",
+    body: `Found ${detection.chain} address in clipboard`,
+  });
+});
+
+// Load user preference and conditionally start monitor
+initClipboardFromPreference();
+
+// ── Application Menu ──────────────────────────────────────────────────
+createApplicationMenu({
+  onNavigate: (path) => focusAndNavigate(path),
+  onToggleOverlay: () => toggleOverlay(),
+  onToggleLaunchFeed: () => {
+    (mainWindow.webview.rpc as any)?.send?.["hotkey:triggered"]({
+      action: "toggle-launch-feed",
+    });
+    mainWindow.focus();
+  },
+  onShowHotkeys: () => {
+    (mainWindow.webview.rpc as any)?.send?.["hotkey:triggered"]({
+      action: "show-hotkey-help",
+    });
+    mainWindow.focus();
+  },
+  onQuit: () => {
+    cleanup();
+    Utils.quit();
+  },
+});
 
 // ── Deep Links ─────────────────────────────────────────────────────────
 Electrobun.events.on("open-url", (e) => {
@@ -230,15 +298,18 @@ checkForUpdates();
 setInterval(checkForUpdates, 6 * 60 * 60 * 1000);
 
 // ── Graceful Shutdown ──────────────────────────────────────────────────
-function cleanup() {
+async function cleanup() {
   unregisterGlobalHotkeys();
+  destroyApplicationMenu();
   stopClipboardMonitor();
   destroyOverlay();
+  await saveAllNow();
+  closeAll();
   tray.remove();
 }
 
 Electrobun.events.on("before-quit", async () => {
-  cleanup();
+  await cleanup();
 });
 
 console.log("Suwappu desktop app started!");
