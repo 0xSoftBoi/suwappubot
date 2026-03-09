@@ -1,7 +1,8 @@
 # Suwappu Mobile App — Comprehensive Development Plan
 
 **Date:** 2026-03-06
-**Status:** ~40% complete → roadmap to 100%
+**Updated:** 2026-03-09
+**Status:** ~90% complete — all phases implemented, native bridges + StoreKit remain
 
 ---
 
@@ -27,27 +28,33 @@
 | Error boundary | Done | AppErrorBoundary with retry |
 | Hooks (data fetching) | Scaffolded | useAlerts, useCopyTrading, useDCA, useOrders, usePoints, useReferrals, useSniping, useTokenDiscovery, useTokenPrice, useWallets |
 
-### What's MISSING (Critical Gaps)
-| Area | Status | Impact |
-|------|--------|--------|
-| **`lib/api.ts`** | MISSING | Every screen imports this — app literally cannot run without it |
-| **`lib/auth.ts`** | MISSING | Token persistence (SecureStore), wallet address extraction |
-| **`lib/authEvents.ts`** | MISSING | 401 unauthorized event bus |
-| **`lib/passkey.ts`** | MISSING | Passkey creation/authentication wrappers |
-| **`lib/notifications.ts`** | MISSING | Push notification registration, categories, unregister |
-| Send/Receive flow | MISSING | No send or receive screens (webapp has them) |
-| Token search | Partial | TokenSearchBar component exists but no full search screen |
-| Swap history (dedicated) | MISSING | Portfolio shows recent, but no full history page |
-| Token logos/icons | MISSING | All tokens show as text symbols only |
-| Price charts | Partial | PriceChart component exists, unknown if functional |
-| Onboarding flow | Basic | Just welcome → create/login. No walkthrough or tutorial |
-| Haptic feedback | MISSING | expo-haptics is installed but never used |
-| Animations | MISSING | reanimated installed but minimal usage |
-| Offline support | MISSING | No caching strategy, error states only |
-| WalletConnect/External wallets | MISSING | No WC integration for connecting external wallets |
-| Biometric lock | MISSING | No app-level lock screen (separate from passkey auth) |
-| Tests | MISSING | Zero test files |
-| Premium/subscription | MISSING | Webapp has it, mobile doesn't |
+### Implementation Status (Updated March 9, 2026)
+| Area | Status | Notes |
+|------|--------|-------|
+| **`lib/api.ts`** | **Done** | Full API client with 401 interception, all endpoints |
+| **`lib/auth.ts`** | **Done** | SecureStore + memory cache, 3 auth methods, expiry validation |
+| **`lib/authEvents.ts`** | **Done** | Typed event emitter for unauthorized events |
+| **`lib/passkey.ts`** | **Done** | Wraps react-native-passkeys for Face ID/Touch ID |
+| **`lib/notifications.ts`** | **Done** | Push token registration, 5 notification categories |
+| Send flow | **Partial** | UI complete, Turnkey signing TODO |
+| Receive flow | **Done** | Chain selector, QR, copy, share |
+| Swap history | **Done** | FlashList, status badges, filtering |
+| Token logos/icons | **Done** | CoinGecko fallback, colored avatar, chain badge |
+| Onboarding flow | **Done** | 3-screen walkthrough with persistence |
+| Haptic feedback | **Done** | Integrated across swap, buttons, confirmations |
+| Skeleton loaders | **Done** | Shimmer animations with multiple variants |
+| Biometric lock | **Done** | Face ID/Touch ID bottom sheet with haptics |
+| Network detection | **Done** | Polling-based online/offline detection |
+| Watchlist | **Done** | React Query hooks with backend sync |
+| Premium/subscription | **Partial** | Tier display + comparison, StoreKit 2 TODO |
+| Tests | **Partial** | 6 test files for lib/, hooks tests TODO |
+| CI/CD | **Done** | GitHub Actions: lint, typecheck, test, EAS build |
+| Live Activities | **Partial** | Data layer done, native ActivityKit bridge TODO |
+| Siri Shortcuts | **Partial** | Registry defined, native NSUserActivity TODO |
+| Spotlight Search | **Partial** | Data layer done, CoreSpotlight bridge TODO |
+| iOS Widgets | **Partial** | Data layer (SecureStore), WidgetKit extension TODO |
+| WalletConnect | **Not started** | No WC integration for external wallets |
+| Price charts | **Partial** | PriceChart component exists, needs TradingView integration |
 
 ---
 
@@ -450,43 +457,80 @@ The app cannot launch without these core lib files. Everything else depends on t
 
 ## Feature Parity: Mobile vs Webapp vs Bot
 
-| Feature | Bot | Webapp | Mobile | Priority |
-|---------|-----|--------|--------|----------|
-| Auth (Passkey) | N/A | Done | Scaffolded | P0 |
-| Auth (OAuth) | N/A | N/A | Scaffolded | P0 |
+| Feature | Bot | Webapp | Mobile | Status |
+|---------|-----|--------|--------|--------|
+| Auth (Passkey) | N/A | Done | **Done** | - |
+| Auth (OAuth) | N/A | N/A | **Done** | - |
 | Portfolio view | /b | Done | Done | - |
-| Swap | /s | Done | Done | - |
-| Send | N/A | Done | MISSING | P1 |
-| Receive | N/A | Done | MISSING | P1 |
-| Swap history | N/A | Done | Partial | P1 |
-| Price alerts | /a | Done | Scaffolded | P2 |
-| Limit orders | /o | Done | Scaffolded | P2 |
-| DCA | N/A | Planned | Scaffolded | P2 |
-| Sniping | /snipe | N/A | Scaffolded | P2 |
-| Copy trading | N/A | Done | Scaffolded | P2 |
-| Points/XP | /xp | Done | Scaffolded | P2 |
-| Referrals | /ref | Done | Scaffolded | P3 |
-| Settings | N/A | Done | Scaffolded | P2 |
-| Premium | N/A | Done | MISSING | P3 |
-| Token search | N/A | Done | Partial | P1 |
-| Push notifications | N/A | N/A | Wired | P1 |
-| Biometric lock | N/A | N/A | MISSING | P1 |
-| Tests | Partial | Done | MISSING | P1 |
+| Swap | /s | Done | **Done** (polished) | - |
+| Send | N/A | Done | **Partial** (needs Turnkey signing) | P1 |
+| Receive | N/A | Done | **Done** | - |
+| Swap history | N/A | Done | **Done** | - |
+| Price alerts | /a | Done | **Enhanced** (haptics, push) | - |
+| Limit orders | /o | Done | **Enhanced** | - |
+| DCA | N/A | Planned | **Enhanced** | - |
+| Sniping | /snipe | N/A | **Enhanced** | - |
+| Copy trading | N/A | Done | **Enhanced** (trader profiles) | - |
+| Points/XP | /xp | Done | **Enhanced** (haptics, streaks) | - |
+| Referrals | /ref | Done | **Enhanced** (share sheet) | - |
+| Settings | N/A | Done | **Done** | - |
+| Premium | N/A | Done | **Partial** (needs StoreKit 2) | P2 |
+| Token search | N/A | Done | **Done** (discovery feed) | - |
+| Push notifications | N/A | N/A | **Done** | - |
+| Biometric lock | N/A | N/A | **Done** | - |
+| Network detection | N/A | N/A | **Done** | - |
+| Watchlist | N/A | N/A | **Done** | - |
+| Onboarding | N/A | N/A | **Done** | - |
+| Skeleton loaders | N/A | N/A | **Done** | - |
+| Token logos | N/A | Done | **Done** | - |
+| Tests | Partial | Done | **Partial** (6 files) | P1 |
+| CI/CD | Done | Done | **Done** | - |
+| iOS Widgets | N/A | N/A | **Partial** (data layer) | P3 |
+| Live Activities | N/A | N/A | **Partial** (data layer) | P3 |
+| Siri Shortcuts | N/A | N/A | **Partial** (registry) | P3 |
+| Spotlight | N/A | N/A | **Partial** (data layer) | P3 |
 
 ---
 
-## Recommended Execution Order
+## Remaining Work (March 2026)
 
+### Must-Have Before Launch (P0-P1)
 ```
-Week 1-2:  Phase 1 (Foundation — lib/ files, app must boot)
-Week 2-3:  Phase 2 (Core Trading — swap polish, send/receive)
-Week 3-4:  Phase 6.1-6.5 (UX Polish — animations, haptics, skeletons)
-Week 4-5:  Phase 3 (Token Discovery — charts, search, watchlist)
-Week 5-6:  Phase 7 (Security — biometric lock, tx confirmation)
-Week 6-8:  Phase 4 (Advanced Trading — alerts, orders, DCA, sniping, copy)
-Week 8-9:  Phase 5 (Engagement — points, referrals, premium)
-Week 9-10: Phase 9 (Testing — unit + E2E + CI/CD)
-Week 10+:  Phase 8 (iOS-Specific — widgets, Live Activities, Siri)
+1. Turnkey signing in Send flow        — send.tsx executes but tx signing is TODO
+2. TradingView charts integration       — PriceChart exists, needs real chart library
+3. Expand test coverage                 — 6 test files exist, need hooks + screen tests
+4. WalletConnect integration            — External wallet support not started
+5. End-to-end testing (Detox/Maestro)   — CI runs unit tests only
+```
+
+### Nice-to-Have Before Launch (P2)
+```
+6. StoreKit 2 for Premium subscription  — Tier UI done, payment flow TODO
+7. Error reporting (Sentry/Bugsnag)     — Error boundary exists, no remote reporting
+8. Certificate pinning                  — API calls unprotected
+9. Android build (extend Expo)          — iOS only currently
+```
+
+### Post-Launch (P3)
+```
+10. Native ActivityKit bridge            — Live Activity data layer ready
+11. Native NSUserActivity bridge         — Siri Shortcuts registry ready
+12. CoreSpotlight native bridge          — Spotlight data layer ready
+13. WidgetKit Swift extension            — Widget data layer ready
+14. App Clips                           — Not started
+```
+
+### Original Execution Order (for reference)
+```
+Week 1-2:  Phase 1 (Foundation) .............. DONE
+Week 2-3:  Phase 2 (Core Trading) ........... DONE
+Week 3-4:  Phase 6 (UX Polish) .............. DONE
+Week 4-5:  Phase 3 (Token Discovery) ........ DONE
+Week 5-6:  Phase 7 (Security) ............... DONE
+Week 6-8:  Phase 4 (Advanced Trading) ....... DONE
+Week 8-9:  Phase 5 (Engagement) ............. DONE
+Week 9-10: Phase 9 (Testing + CI/CD) ........ DONE (partial)
+Week 10+:  Phase 8 (iOS-Specific) ........... DONE (data layers, native bridges TODO)
 ```
 
 ---
