@@ -1,0 +1,152 @@
+name: Deploy Terminal to ECS
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - 'terminal/**'
+      - '.github/workflows/deploy-terminal.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - development
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: suwappu-terminal
+  ECS_CLUSTER: suwappu-cluster
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and Deploy Terminal
+    runs-on: ubuntu-latest
+    environment: ${{ (github.ref == 'refs/heads/main' || inputs.environment == 'production') && 'production' || 'development' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Determine environment
+        id: env
+        run: |
+          if [ "${{ github.event.inputs.environment }}" == "development" ] || [ "${{ github.ref }}" == "refs/heads/dev" ]; then
+            echo "env=development" >> $GITHUB_OUTPUT
+            echo "service=suwappu-terminal-dev" >> $GITHUB_OUTPUT
+            echo "tag=development" >> $GITHUB_OUTPUT
+            echo "api_url=https://devapi.suwappu.bot" >> $GITHUB_OUTPUT
+            echo "url=https://devterminal.suwappu.bot" >> $GITHUB_OUTPUT
+          else
+            echo "env=production" >> $GITHUB_OUTPUT
+            echo "service=suwappu-terminal-prod" >> $GITHUB_OUTPUT
+            echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+            echo "api_url=https://api.suwappu.bot" >> $GITHUB_OUTPUT
+            echo "url=https://terminal.suwappu.bot" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.env.outputs.tag }}
+          VITE_API_URL: ${{ steps.env.outputs.api_url }}
+        run: |
+          docker build \
+            --no-cache \
+            -f terminal/Dockerfile \
+            --build-arg VITE_API_URL=$VITE_API_URL \
+            --build-arg BUILD_TIMESTAMP=$(date -u +%Y%m%d%H%M%S) \
+            --build-arg GIT_SHA=${{ github.sha }} \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }}
+
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }}
+
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Update ECS task definition with new image
+        id: task-def
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          TASK_DEF_ARN=$(aws ecs describe-services \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ steps.env.outputs.service }} \
+            --query 'services[0].taskDefinition' --output text)
+
+          NEW_IMAGE="${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
+          echo "Updating task definition to image: $NEW_IMAGE"
+
+          aws ecs describe-task-definition --task-definition "$TASK_DEF_ARN" \
+            --query 'taskDefinition' | \
+            jq --arg IMAGE "$NEW_IMAGE" \
+            'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy) |
+             .containerDefinitions[0].image = $IMAGE' > /tmp/new-task-def.json
+
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file:///tmp/new-task-def.json \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+
+          echo "Registered new task definition: $NEW_TASK_DEF_ARN"
+          echo "task_def_arn=$NEW_TASK_DEF_ARN" >> $GITHUB_OUTPUT
+
+      - name: Deploy to ECS
+        run: |
+          echo "Deploying to ${{ steps.env.outputs.env }} environment..."
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ steps.env.outputs.service }} \
+            --task-definition ${{ steps.task-def.outputs.task_def_arn }} \
+            --enable-execute-command \
+            --force-new-deployment
+
+          echo "Deployment initiated. Waiting for service to stabilize..."
+
+      - name: Wait for deployment
+        run: |
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ steps.env.outputs.service }}
+
+          echo "Deployment complete!"
+
+      - name: Health check
+        run: |
+          sleep 10
+          curl -sf "${{ steps.env.outputs.url }}/health" || echo "Health check pending (service may still be starting)"
+
+      - name: Deployment summary
+        run: |
+          echo "## Terminal Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ steps.env.outputs.env }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ steps.build-image.outputs.image }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| ECS Cluster | ${{ env.ECS_CLUSTER }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ECS Service | ${{ steps.env.outputs.service }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| URL | ${{ steps.env.outputs.url }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
