@@ -13,6 +13,7 @@ import {
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import Slider from '@react-native-community/slider'
+import * as Haptics from 'expo-haptics'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../../lib/api'
 import { colors, spacing, radius } from '../../../lib/theme'
@@ -34,6 +35,7 @@ export default function SettingsScreen() {
   const [twoFaEnabled, setTwoFaEnabled] = useState(false)
   const [twoFaThreshold, setTwoFaThreshold] = useState(100)
   const [mevProtection, setMevProtection] = useState(true)
+  const [biometricLock, setBiometricLock] = useState(false)
 
   useEffect(() => {
     if (prefs) {
@@ -131,6 +133,22 @@ export default function SettingsScreen() {
       <View style={styles.card}>
         <View style={styles.row}>
           <View style={{ flex: 1 }}>
+            <Text style={styles.label}>Biometric Lock</Text>
+            <Text style={styles.hint}>Require Face ID when opening the app</Text>
+          </View>
+          <Switch
+            value={biometricLock}
+            onValueChange={(v) => {
+              setBiometricLock(v)
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              updateMutation.mutate({ biometricLock: v })
+            }}
+            trackColor={{ false: colors.borderLight, true: colors.primary }}
+          />
+        </View>
+
+        <View style={[styles.row, { marginTop: spacing.lg }]}>
+          <View style={{ flex: 1 }}>
             <Text style={styles.label}>2FA for Transactions</Text>
             <Text style={styles.hint}>Require confirmation for large trades</Text>
           </View>
@@ -187,6 +205,25 @@ export default function SettingsScreen() {
           <Text style={styles.label}>App Version</Text>
           <Text style={styles.value}>1.0.0</Text>
         </View>
+      </View>
+
+      {/* Manage */}
+      <Text style={styles.sectionTitle}>Manage</Text>
+      <View style={styles.card}>
+        <TouchableOpacity
+          style={styles.row}
+          onPress={() => { Haptics.selectionAsync(); router.push('/(features)/settings/wallets' as any) }}
+        >
+          <Text style={styles.label}>Wallets</Text>
+          <Text style={styles.value}>&#x203A;</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.row, { marginTop: spacing.lg }]}
+          onPress={() => { Haptics.selectionAsync(); router.push('/(features)/settings/premium' as any) }}
+        >
+          <Text style={styles.label}>Premium</Text>
+          <Text style={styles.value}>&#x203A;</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Legal */}
