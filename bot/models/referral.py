@@ -12,23 +12,30 @@ from database.db import Base
 
 class Referral(Base):
     """Tracks referral relationships between users.
-    
-    When user B signs up with user A's referral code:
-    - referrer_id = A's user ID
-    - referee_id = B's user ID
-    - A earns 30% of all fees B pays
+
+    Multi-tier referral system:
+    - Level 1 (direct): 25% of referee's fees
+    - Level 2: 5% of L2 referee's fees
+    - Level 3: 2% of L3 referee's fees
+
+    When user B signs up with user A's code, and user C signs up with B's code:
+    - A earns L1 from B, L2 from C
+    - B earns L1 from C
     """
     __tablename__ = "referrals"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
-    
+
     # Referral relationship
     referrer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     referee_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)  # One referrer per user
-    
+
     # Referral code used
     referral_code = Column(String(32), nullable=False, index=True)
-    
+
+    # Multi-tier: which level is this referral (1=direct, 2=indirect, 3=third-degree)
+    referral_level = Column(Integer, default=1)
+
     # Tracking
     created_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=True)  # Can be deactivated if abuse detected
@@ -45,24 +52,28 @@ class Referral(Base):
 
 class ReferralCode(Base):
     """Stores unique referral codes for each user.
-    
+
     Each user gets one unique code they can share.
     Code format: USERNAME_XXXX or USER_XXXX (4 random chars)
     """
     __tablename__ = "referral_codes"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)
     code = Column(String(32), nullable=False, unique=True, index=True)
-    
+
     # Stats
     times_used = Column(Integer, default=0)
     total_rewards_earned = Column(Float, default=0.0)  # Total USD earned from this code
-    
+
+    # KOL program: custom elevated rates for influencers
+    is_kol = Column(Boolean, default=False)
+    custom_l1_rate = Column(Float, nullable=True)  # Override L1 rate (e.g., 0.30 for 30%)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     last_used_at = Column(DateTime, nullable=True)
-    
+
     # Relationship
     user = relationship("User", backref="referral_code")
 

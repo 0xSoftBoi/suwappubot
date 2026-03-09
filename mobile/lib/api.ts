@@ -131,6 +131,20 @@ class MobileApiClient extends BaseApiClient {
     })
   }
 
+  // ── Send Tokens ───────────────────────────────────────────
+
+  async sendTokens(params: {
+    recipient: string
+    token: string
+    amount: number
+    chain: string
+  }): Promise<{ txHash: string; status: string }> {
+    return this.fetch<{ txHash: string; status: string }>('/v1/wallet/send', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  }
+
   // ── Token Discovery ────────────────────────────────────────
 
   async getDiscoverTrending(chain = 'all', limit = 50): Promise<DiscoveryToken[]> {

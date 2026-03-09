@@ -604,25 +604,38 @@ class SwapEngine:
                     
                     logger.info(f"Deep Simulation PASSED for {quote.to_token}. Proceeding with trade.")
 
+            # MEV protection: upgrade Jupiter to Jito when user has it enabled
+            effective_provider = quote.provider
+            if effective_provider == "jupiter":
+                try:
+                    with get_session() as _sess:
+                        from bot.models.user import User as _U
+                        _user = _sess.query(_U).filter(_U.id == user_id).first()
+                        if _user and getattr(_user, "mev_protection_enabled", True):
+                            effective_provider = "jito"
+                            logger.info(f"MEV protection: upgrading jupiter→jito for user {user_id}")
+                except Exception as _e:
+                    logger.debug(f"MEV check failed, using default provider: {_e}")
+
             try:
                 # Route to appropriate execution method based on provider
-                if quote.provider == "cow":
+                if effective_provider == "cow":
                     tx_hash = await self._execute_cow_swap(quote, wallet)
-                elif quote.provider == "socket":
+                elif effective_provider == "socket":
                     tx_hash = await self._execute_socket_swap(quote, wallet)
-                elif quote.provider == "jito":
+                elif effective_provider == "jito":
                     tx_hash = await self._execute_jito_swap(quote, wallet)
-                elif quote.provider == "jupiter":
+                elif effective_provider == "jupiter":
                     tx_hash = await self._execute_jupiter_swap(quote, wallet)
-                elif quote.provider == "ccip":
+                elif effective_provider == "ccip":
                     tx_hash = await self._execute_ccip_swap(quote, wallet)
-                elif quote.provider == "layerzero":
+                elif effective_provider == "layerzero":
                     tx_hash = await self._execute_layerzero_swap(quote, wallet)
-                elif quote.provider == "cctp":
+                elif effective_provider == "cctp":
                     tx_hash = await self._execute_cctp_swap(quote, wallet)
-                elif quote.provider == "across":
+                elif effective_provider == "across":
                     tx_hash = await self._execute_across_swap(quote, wallet)
-                elif quote.provider == "wormhole":
+                elif effective_provider == "wormhole":
                     tx_hash = await self._execute_wormhole_swap(quote, wallet)
                 else:
                     tx_hash = await self._execute_lifi_swap(quote, wallet)

@@ -1,10 +1,14 @@
-"""Referral service for viral growth with 30% reward distribution.
+"""Multi-tier referral service for viral growth.
 
-Referral Program:
-- Each user gets a unique referral code
-- When someone signs up with the code, they're linked forever
-- Referrer earns 30% of all fees from their referrals
-- Rewards accumulate and can be claimed
+Referral Program (3-tier):
+- Level 1 (direct referral): 25% of referee's fees
+- Level 2 (referee's referrals): 5% of L2 fees
+- Level 3 (L2's referrals): 2% of L3 fees
+- KOL program: custom elevated L1 rates (30%+)
+- Referred users get 10% fee discount
+
+When someone signs up with a code, the entire referral chain
+(up to 3 levels) is created for all upstream referrers.
 """
 
 import logging
@@ -25,13 +29,23 @@ from database.db import get_session
 logger = logging.getLogger(__name__)
 
 
+# Multi-tier reward rates
+TIER_RATES = {
+    1: Decimal("0.25"),  # 25% for direct referrals
+    2: Decimal("0.05"),  # 5% for level 2
+    3: Decimal("0.02"),  # 2% for level 3
+}
+MAX_REFERRAL_DEPTH = 3
+
+
 class ReferralService:
-    """Service for managing referral relationships and rewards.
-    
-    Reward Structure:
-    - 30% of all swap fees go to the referrer
-    - Rewards are tracked per-swap for transparency
-    - Users can claim accumulated rewards
+    """Service for managing multi-tier referral relationships and rewards.
+
+    Reward Structure (3-tier):
+    - L1 (direct): 25% of referee's fees (KOL: 30%+)
+    - L2: 5% of L2 referee's fees
+    - L3: 2% of L3 referee's fees
+    - Referee gets 10% fee discount
     """
     
     def generate_code(self, user_id: int, username: Optional[str] = None) -> str:
@@ -175,94 +189,154 @@ class ReferralService:
             
             return referral.referrer_id if referral else None
     
+    def get_referral_chain(self, user_id: int, max_depth: int = MAX_REFERRAL_DEPTH) -> List[Tuple[int, int]]:
+        """Walk up the referral chain from a user.
+
+        Returns list of (referrer_id, level) tuples, up to max_depth levels.
+        """
+        chain = []
+        current_id = user_id
+
+        with get_session() as session:
+            for level in range(1, max_depth + 1):
+                referral = session.query(Referral).filter(
+                    Referral.referee_id == current_id,
+                    Referral.is_active == True,
+                ).first()
+
+                if not referral:
+                    break
+
+                chain.append((referral.referrer_id, level))
+                current_id = referral.referrer_id
+
+        return chain
+
+    def get_reward_rate(self, referrer_id: int, level: int) -> Decimal:
+        """Get the reward rate for a referrer at a given level.
+
+        KOL codes override the L1 rate.
+        """
+        base_rate = TIER_RATES.get(level, Decimal("0"))
+
+        if level == 1:
+            with get_session() as session:
+                code = session.query(ReferralCode).filter(
+                    ReferralCode.user_id == referrer_id
+                ).first()
+                if code and code.is_kol and code.custom_l1_rate is not None:
+                    return Decimal(str(code.custom_l1_rate))
+
+        return base_rate
+
     def record_reward(
         self,
         referee_id: int,
         swap_id: int,
         fee_amount_usd: float,
     ) -> Optional[ReferralReward]:
+        """Record multi-tier referral rewards when a referred user swaps.
+
+        Walks the referral chain and creates rewards for each level:
+        - L1 referrer: 25% (or KOL custom rate)
+        - L2 referrer: 5%
+        - L3 referrer: 2%
         """
-        Record a referral reward when a referred user swaps.
-        
-        Args:
-            referee_id: The user who made the swap
-            swap_id: The swap transaction ID
-            fee_amount_usd: Total fee paid
-            
-        Returns:
-            ReferralReward if a reward was created, None otherwise
-        """
+        fee = Decimal(str(fee_amount_usd))
+        chain = self.get_referral_chain(referee_id)
+
+        if not chain:
+            return None
+
+        first_reward = None
+
         with get_session() as session:
-            # Find the referral relationship
-            referral = session.query(Referral).filter(
-                Referral.referee_id == referee_id,
-                Referral.is_active == True
-            ).first()
-            
-            if not referral:
-                return None
-            
-            # Check if reward already exists for this swap
+            # Check if rewards already exist for this swap
             existing = session.query(ReferralReward).filter(
                 ReferralReward.swap_id == swap_id
             ).first()
-            
             if existing:
                 return existing
-            
-            # Calculate reward (30% of fee)
-            reward_amount = float(Decimal(str(fee_amount_usd)) * REFERRAL_REWARD_DECIMAL)
-            
-            # Create reward record
-            reward = ReferralReward(
-                referral_id=referral.id,
-                swap_id=swap_id,
-                fee_amount_usd=fee_amount_usd,
-                reward_amount_usd=reward_amount,
-                is_paid=False,
-            )
-            session.add(reward)
-            
-            # Update referral code stats
-            code = session.query(ReferralCode).filter(
-                ReferralCode.user_id == referral.referrer_id
-            ).first()
-            if code:
-                code.total_rewards_earned = (code.total_rewards_earned or 0) + reward_amount
-            
-            # Update referrer's total rewards
-            referrer = session.query(User).filter(User.id == referral.referrer_id).first()
-            if referrer:
-                referrer.total_referral_rewards = (referrer.total_referral_rewards or 0) + reward_amount
-            
+
+            for referrer_id, level in chain:
+                # Find the referral record for this level
+                if level == 1:
+                    referral = session.query(Referral).filter(
+                        Referral.referee_id == referee_id,
+                        Referral.referrer_id == referrer_id,
+                        Referral.is_active == True,
+                    ).first()
+                else:
+                    # For L2+, find any active referral link
+                    referral = session.query(Referral).filter(
+                        Referral.referrer_id == referrer_id,
+                        Referral.is_active == True,
+                    ).first()
+
+                if not referral:
+                    continue
+
+                rate = self.get_reward_rate(referrer_id, level)
+                reward_amount = float(fee * rate)
+
+                if reward_amount <= 0:
+                    continue
+
+                reward = ReferralReward(
+                    referral_id=referral.id,
+                    swap_id=swap_id,
+                    fee_amount_usd=fee_amount_usd,
+                    reward_amount_usd=reward_amount,
+                    is_paid=False,
+                )
+                session.add(reward)
+
+                # Update referrer stats
+                code = session.query(ReferralCode).filter(
+                    ReferralCode.user_id == referrer_id
+                ).first()
+                if code:
+                    code.total_rewards_earned = (code.total_rewards_earned or 0) + reward_amount
+
+                referrer = session.query(User).filter(User.id == referrer_id).first()
+                if referrer:
+                    referrer.total_referral_rewards = (referrer.total_referral_rewards or 0) + reward_amount
+
+                logger.info(
+                    f"L{level} referral reward: ${reward_amount:.2f} for user {referrer_id} "
+                    f"from swap {swap_id} by user {referee_id}"
+                )
+
+                if first_reward is None:
+                    session.flush()
+                    first_reward = reward
+
             session.flush()
-            reward_id = reward.id
-        
-        logger.info(
-            f"Referral reward recorded: ${reward_amount:.2f} for referrer of user {referee_id} "
-            f"from swap {swap_id}"
-        )
-        
-        # Check if this is referee's first swap and award bonus points to referrer
-        with get_session() as session:
-            # Count rewards for this referral to see if first swap
-            reward_count = session.query(func.count(ReferralReward.id)).filter(
-                ReferralReward.referral_id == referral.id
-            ).scalar()
-            
-            if reward_count == 1:  # This is the first reward (first swap)
-                try:
-                    from bot.services.points_service import points_service
-                    points_service.award_referral_points(
-                        referrer_id=referral.referrer_id,
-                        referee_id=referee_id,
-                        action="first_swap",
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to award first swap referral points: {e}")
-        
-        with get_session() as session:
-            return session.query(ReferralReward).filter(ReferralReward.id == reward_id).first()
+
+        # Award points for first swap (L1 only)
+        if chain:
+            l1_referrer_id = chain[0][0]
+            with get_session() as session:
+                l1_ref = session.query(Referral).filter(
+                    Referral.referee_id == referee_id,
+                    Referral.referrer_id == l1_referrer_id,
+                ).first()
+                if l1_ref:
+                    reward_count = session.query(func.count(ReferralReward.id)).filter(
+                        ReferralReward.referral_id == l1_ref.id
+                    ).scalar()
+                    if reward_count == 1:
+                        try:
+                            from bot.services.points_service import points_service
+                            points_service.award_referral_points(
+                                referrer_id=l1_referrer_id,
+                                referee_id=referee_id,
+                                action="first_swap",
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to award first swap points: {e}")
+
+        return first_reward
     
     def get_pending_rewards(self, user_id: int) -> Tuple[float, int]:
         """
@@ -381,10 +455,11 @@ class ReferralService:
             f"💰 Total Earned: *${stats['total_earnings_usd']:.2f}*\n"
             f"⏳ Pending: *${stats['pending_rewards_usd']:.2f}*\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "💡 *How it works:*\n"
-            "• Share your link or code\n"
-            "• Friends sign up and swap\n"
-            "• You earn *30%* of all their fees!\n\n"
+            "💡 *3-Tier Rewards:*\n"
+            "• L1 (direct): *25%* of their fees\n"
+            "• L2 (their referrals): *5%* of fees\n"
+            "• L3 (third degree): *2%* of fees\n"
+            "• Your friends get *10% fee discount*!\n\n"
             "_Rewards are credited after each swap_"
         )
         

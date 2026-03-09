@@ -43,8 +43,15 @@ class OrderService:
         trigger_price: float,
         slippage: float = 0.5,
         expires_in_hours: int = None,
+        trailing_percent: float = None,
     ) -> LimitOrder:
-        """Create a new limit order."""
+        """Create a new limit order.
+
+        For trailing stops, set order_type='trailing_stop' and pass
+        trailing_percent (e.g. 5.0 for 5%).  trigger_price should be
+        the current price at creation time; it will be dynamically
+        recalculated as the price peaks.
+        """
         with get_session() as session:
             order = LimitOrder(
                 user_id=user_id,
@@ -58,14 +65,18 @@ class OrderService:
                 trigger_price=trigger_price,
                 slippage=slippage,
             )
-            
+
+            if trailing_percent is not None:
+                order.trailing_percent = trailing_percent
+                order.peak_price = trigger_price  # Start peak at current price
+
             if expires_in_hours:
                 order.expires_at = datetime.utcnow() + timedelta(hours=expires_in_hours)
-            
+
             session.add(order)
             session.flush()
             order_id = order.id
-        
+
         with get_session() as session:
             return session.query(LimitOrder).filter(LimitOrder.id == order_id).first()
     
@@ -162,6 +173,25 @@ class OrderService:
                     check_token = order.from_token
                     current_price = prices.get(check_token, 0)
                     should_trigger = current_price >= order.trigger_price
+
+                elif order.order_type == OrderType.TRAILING_STOP.value:
+                    # Trailing stop: sell when price drops X% from peak
+                    check_token = order.from_token
+                    current_price = prices.get(check_token, 0)
+                    should_trigger = False
+
+                    if current_price > 0 and order.trailing_percent:
+                        # Update peak price if current is higher
+                        peak = order.peak_price or current_price
+                        if current_price > peak:
+                            order.peak_price = current_price
+                            peak = current_price
+                            # Recalculate dynamic trigger
+                            order.trigger_price = peak * (1 - order.trailing_percent / 100)
+
+                        # Trigger when price drops trailing_percent from peak
+                        threshold = peak * (1 - order.trailing_percent / 100)
+                        should_trigger = current_price <= threshold
                 else:
                     continue
                 

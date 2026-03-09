@@ -45,9 +45,19 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         require_2fa = user_settings.require_2fa_above_usd
         notify_complete = user_settings.notify_on_complete
         panic_sell = user_settings.panic_sell_enabled
-    
+
+        # MEV protection from User model
+        mev_enabled = getattr(db_user, "mev_protection_enabled", True)
+        tip_priority = getattr(db_user, "jito_tip_priority", "medium")
+
+    mev_icon = "🛡️" if mev_enabled else "⚡"
+    mev_label = "Secure (MEV Protected)" if mev_enabled else "Fast (Standard)"
+
     text = (
         "⚙️ *Settings*\n\n"
+        f"*MEV Protection:*\n"
+        f"  • Mode: {mev_icon} {mev_label}\n"
+        f"  • Jito Tip: {tip_priority.title()}\n\n"
         f"*Trading:*\n"
         f"  • Default Slippage: {slippage}%\n\n"
         f"*Anti-Rug:*\n"
@@ -59,8 +69,10 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"*Notifications:*\n"
         f"  • Swap Complete: {'✅' if notify_complete else '❌'}\n"
     )
-    
+
     keyboard = [
+        [InlineKeyboardButton(f"{mev_icon} MEV: {mev_label}", callback_data="settings_toggle_mev"),
+         InlineKeyboardButton(f"💰 Jito Tip: {tip_priority.title()}", callback_data="settings_cycle_tip")],
         [InlineKeyboardButton("📊 Set Slippage", callback_data="settings_slippage"),
          InlineKeyboardButton("💰 Set Limits", callback_data="settings_limits")],
         [InlineKeyboardButton(f"{'🛡️' if not panic_sell else '❌'} {'Enable' if not panic_sell else 'Disable'} Panic Sell", callback_data="settings_toggle_panic")],
@@ -96,9 +108,19 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         require_2fa = user_settings.require_2fa_above_usd
         notify_complete = user_settings.notify_on_complete
         panic_sell = user_settings.panic_sell_enabled
-    
+
+        # MEV protection from User model
+        mev_enabled = getattr(db_user, "mev_protection_enabled", True)
+        tip_priority = getattr(db_user, "jito_tip_priority", "medium")
+
+    mev_icon = "🛡️" if mev_enabled else "⚡"
+    mev_label = "Secure (MEV Protected)" if mev_enabled else "Fast (Standard)"
+
     text = (
         "⚙️ *Settings*\n\n"
+        f"*MEV Protection:*\n"
+        f"  • Mode: {mev_icon} {mev_label}\n"
+        f"  • Jito Tip: {tip_priority.title()}\n\n"
         f"*Trading:*\n"
         f"  • Default Slippage: {slippage}%\n\n"
         f"*Anti-Rug:*\n"
@@ -110,8 +132,10 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         f"*Notifications:*\n"
         f"  • Swap Complete: {'✅' if notify_complete else '❌'}\n"
     )
-    
+
     keyboard = [
+        [InlineKeyboardButton(f"{mev_icon} MEV: {mev_label}", callback_data="settings_toggle_mev"),
+         InlineKeyboardButton(f"💰 Jito Tip: {tip_priority.title()}", callback_data="settings_cycle_tip")],
         [InlineKeyboardButton("📊 Set Slippage", callback_data="settings_slippage"),
          InlineKeyboardButton("💰 Set Limits", callback_data="settings_limits")],
         [InlineKeyboardButton(f"{'🛡️' if not panic_sell else '❌'} {'Enable' if not panic_sell else 'Disable'} Panic Sell", callback_data="settings_toggle_panic")],
@@ -672,12 +696,55 @@ limits_conversation = ConversationHandler(
 )
 
 
+# === MEV Protection Toggles ===
+
+
+async def toggle_mev_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Toggle MEV protection on/off."""
+    query = update.callback_query
+    await query.answer()
+
+    user = update.effective_user
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            return
+        current = getattr(db_user, "mev_protection_enabled", True)
+        db_user.mev_protection_enabled = not current
+        status = "enabled" if not current else "disabled"
+        await query.answer(f"🛡️ MEV protection {status}!", show_alert=False)
+
+    await settings_callback(update, context)
+
+
+async def cycle_tip_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Cycle Jito tip priority: low -> medium -> high -> urgent."""
+    query = update.callback_query
+    await query.answer()
+
+    tip_cycle = ["low", "medium", "high", "urgent"]
+
+    user = update.effective_user
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            return
+        current = getattr(db_user, "jito_tip_priority", "medium")
+        idx = tip_cycle.index(current) if current in tip_cycle else 1
+        new_tip = tip_cycle[(idx + 1) % len(tip_cycle)]
+        db_user.jito_tip_priority = new_tip
+
+    await settings_callback(update, context)
+
+
 # Create handlers
 settings_handler = CommandHandler("set", settings_command)
 recovery_handler = CommandHandler("recovery", recovery_command)
 limits_handler = CommandHandler("limits", limits_command)
 toggle_notify_handler = CallbackQueryHandler(toggle_notify_callback, pattern="^settings_toggle_notify$")
 toggle_panic_handler = CallbackQueryHandler(toggle_panic_sell_callback, pattern="^settings_toggle_panic$")
+toggle_mev_handler = CallbackQueryHandler(toggle_mev_callback, pattern="^settings_toggle_mev$")
+cycle_tip_handler = CallbackQueryHandler(cycle_tip_callback, pattern="^settings_cycle_tip$")
 settings_menu_callback = CallbackQueryHandler(settings_callback, pattern="^settings_menu$")
 recovery_menu_callback = CallbackQueryHandler(recovery_callback, pattern="^settings_recovery$")
 

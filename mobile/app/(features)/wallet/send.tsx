@@ -74,17 +74,27 @@ export default function SendScreen() {
   const handleConfirmSend = async () => {
     setIsSending(true)
     try {
-      // TODO: Implement actual send via Turnkey signing
-      // For now, show success state
-      await new Promise((r) => setTimeout(r, 2000))
+      // Execute send via backend API (Turnkey signing happens server-side)
+      const result = await api.sendTokens({
+        recipient,
+        token: selectedToken,
+        amount: parseFloat(amount),
+        chain: params.chain || (recipient.startsWith('0x') ? 'ethereum' : 'solana'),
+      })
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-      Alert.alert('Sent!', `${amount} ${selectedToken} sent to ${recipient.slice(0, 8)}...`)
+
+      const txHash = result?.txHash || 'pending'
+      Alert.alert(
+        'Sent!',
+        `${amount} ${selectedToken} sent to ${recipient.slice(0, 8)}...\n\nTX: ${txHash.slice(0, 16)}...`,
+      )
       setShowConfirm(false)
       setAmount('')
       setRecipient('')
-    } catch {
+    } catch (err: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
-      Alert.alert('Failed', 'Transaction failed. Please try again.')
+      Alert.alert('Failed', err?.message || 'Transaction failed. Please try again.')
     } finally {
       setIsSending(false)
     }

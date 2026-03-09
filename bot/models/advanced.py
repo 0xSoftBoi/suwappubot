@@ -19,6 +19,7 @@ class OrderType(enum.Enum):
     LIMIT_SELL = "limit_sell"
     STOP_LOSS = "stop_loss"
     TAKE_PROFIT = "take_profit"
+    TRAILING_STOP = "trailing_stop"
 
 
 class OrderStatus(enum.Enum):
@@ -91,7 +92,11 @@ class LimitOrder(Base):
     amount = Column(String(78), nullable=False)  # Amount to swap
     trigger_price = Column(Float, nullable=False)  # Price to trigger at
     slippage = Column(Float, default=0.5)
-    
+
+    # Trailing stop parameters
+    trailing_percent = Column(Float, nullable=True)  # e.g., 5.0 for 5% trailing
+    peak_price = Column(Float, nullable=True)  # Highest price seen since order creation
+
     # Expiration
     expires_at = Column(DateTime, nullable=True)
     
