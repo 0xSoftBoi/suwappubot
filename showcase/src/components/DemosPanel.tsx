@@ -9,10 +9,6 @@ import { useScrollContext } from './HorizontalScroll';
 
 gsap.registerPlugin(ScrollTrigger);
 
-/* ---------------------------------------------------------------
-   Data
-   --------------------------------------------------------------- */
-
 const STEPS = [
   {
     number: '01',
@@ -49,10 +45,6 @@ const STEPS = [
   },
 ];
 
-/* ---------------------------------------------------------------
-   Component
-   --------------------------------------------------------------- */
-
 export default function DemosPanel() {
   const panelRef = useRef<HTMLDivElement>(null);
   const { scrollTween } = useScrollContext();
@@ -67,31 +59,62 @@ export default function DemosPanel() {
             trigger: panelRef.current,
             containerAnimation: scrollTween,
             start: 'left 75%',
-            end: 'left 40%',
+            end: 'left 45%',
             scrub: true,
           },
-          y: 30,
+          y: 40,
           opacity: 0,
           stagger: 0.1,
         });
 
-        // 2. Step cards scale up and fade in with stagger
-        gsap.from('.step-card', {
+        // 2. Step cards enter with stagger — scale + slight rotation
+        STEPS.forEach((_, i) => {
+          gsap.from(`.step-card-${i}`, {
+            scrollTrigger: {
+              trigger: panelRef.current,
+              containerAnimation: scrollTween,
+              start: `left ${65 - i * 8}%`,
+              end: `left ${40 - i * 8}%`,
+              scrub: true,
+            },
+            scale: 0.85,
+            y: 50 + i * 15,
+            opacity: 0,
+            rotateY: -5 + i * 2.5,
+            transformOrigin: 'center bottom',
+          });
+        });
+
+        // 3. Sequential card activation — each card border glows at a different scroll position
+        STEPS.forEach((step, i) => {
+          gsap.to(`.step-card-${i} .card-inner`, {
+            scrollTrigger: {
+              trigger: panelRef.current,
+              containerAnimation: scrollTween,
+              start: `left ${50 - i * 12}%`,
+              end: `left ${40 - i * 12}%`,
+              scrub: true,
+            },
+            borderColor: `${step.color}33`,
+            boxShadow: `0 0 40px ${step.color}0d, inset 0 1px 0 ${step.color}1a`,
+          });
+        });
+
+        // 4. Flow arrows fade in between cards
+        gsap.from('.flow-arrow', {
           scrollTrigger: {
             trigger: panelRef.current,
             containerAnimation: scrollTween,
-            start: 'left 60%',
-            end: 'center center',
+            start: 'left 50%',
+            end: 'left 30%',
             scrub: true,
           },
-          scale: 0.85,
-          y: 60,
           opacity: 0,
-          stagger: 0.1,
-          transformOrigin: 'center bottom',
+          x: -8,
+          stagger: 0.05,
         });
 
-        // 3. Parallax blob
+        // 5. Parallax blob
         gsap.to('.demos-parallax', {
           xPercent: -25,
           yPercent: -15,
@@ -127,39 +150,61 @@ export default function DemosPanel() {
             </h2>
           </div>
 
-          {/* Three steps in a row */}
-          <div className="grid md:grid-cols-3 gap-6 lg:gap-8">
-            {STEPS.map((step) => (
-              <div key={step.number} className="step-card group">
-                <div className="p-6 rounded-2xl border border-white/[0.06] bg-[#0e0e1a]/80 backdrop-blur-sm h-full">
-                  <div className="flex items-center gap-3 mb-4">
-                    <span
-                      className="font-mono text-xs"
-                      style={{ color: step.color }}
-                    >
-                      {step.number}
-                    </span>
-                    <div
-                      className="h-px flex-1"
-                      style={{
-                        background: `linear-gradient(to right, ${step.color}4d, transparent)`,
-                      }}
-                    />
-                  </div>
-                  <h3 className="font-display font-bold text-xl text-[#e8e6e3] mb-2">
-                    {step.title}
-                  </h3>
-                  <p className="text-sm text-[#8a8a9c] mb-5 leading-relaxed">
-                    {step.description}
-                  </p>
-                  <div className="rounded-lg bg-[#07070e] border border-white/[0.04] p-4">
-                    <pre
-                      className={`font-mono text-xs ${step.codeColor} whitespace-pre`}
-                    >
-                      {step.code}
-                    </pre>
+          {/* Three steps with connecting arrows */}
+          <div className="grid md:grid-cols-[1fr_auto_1fr_auto_1fr] gap-0 md:gap-0 items-stretch">
+            {STEPS.map((step, i) => (
+              <div key={step.number} className="contents">
+                <div className={`step-card-${i}`} style={{ perspective: '800px' }}>
+                  <div className="card-inner card-hover p-6 rounded-2xl border border-white/[0.06] bg-[#0e0e1a]/80 backdrop-blur-sm h-full transition-all duration-500">
+                    <div className="flex items-center gap-3 mb-4">
+                      <span
+                        className="font-mono text-xs font-medium"
+                        style={{ color: step.color }}
+                      >
+                        {step.number}
+                      </span>
+                      <div
+                        className="h-px flex-1"
+                        style={{
+                          background: `linear-gradient(to right, ${step.color}4d, transparent)`,
+                        }}
+                      />
+                    </div>
+                    <h3 className="font-display font-bold text-xl text-[#e8e6e3] mb-2">
+                      {step.title}
+                    </h3>
+                    <p className="text-sm text-[#8a8a9c] mb-5 leading-relaxed">
+                      {step.description}
+                    </p>
+                    <div className="rounded-lg bg-[#07070e] border border-white/[0.04] p-4">
+                      <pre
+                        className={`font-mono text-xs ${step.codeColor} whitespace-pre`}
+                      >
+                        {step.code}
+                      </pre>
+                    </div>
                   </div>
                 </div>
+
+                {/* Flow arrow between cards */}
+                {i < STEPS.length - 1 && (
+                  <div className="hidden md:flex items-center justify-center w-10">
+                    <svg
+                      className="flow-arrow w-5 h-5"
+                      style={{ color: STEPS[i + 1].color }}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={1}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"
+                      />
+                    </svg>
+                  </div>
+                )}
               </div>
             ))}
           </div>

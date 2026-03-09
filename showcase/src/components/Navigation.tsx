@@ -52,15 +52,17 @@ export default function Navigation() {
           Suwappu
         </a>
 
-        {/* Center: Panel indicator dots (hidden on mobile) */}
-        <div className="hidden md:flex items-center gap-2.5">
+        {/* Center: Panel indicator lines (hidden on mobile) */}
+        <div className="hidden md:flex items-center gap-1.5">
           {Array.from({ length: NUM_PANELS }).map((_, i) => (
             <span
               key={i}
-              className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
+              className={`h-[2px] rounded-full transition-all duration-500 ease-out ${
                 activePanel === i
-                  ? 'bg-[#ff2d78] scale-125'
-                  : 'bg-white/10'
+                  ? 'w-8 bg-[#ff2d78]'
+                  : activePanel > i
+                    ? 'w-3 bg-[#ff2d78]/30'
+                    : 'w-3 bg-white/[0.08]'
               }`}
             />
           ))}

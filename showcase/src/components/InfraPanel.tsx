@@ -97,32 +97,63 @@ export default function InfraPanel() {
     () => {
       if (!scrollTween) return;
       const ctx = gsap.context(() => {
-        // 1. Section elements reveal
+        // 1. Headline clip-path reveal — wipes in from left
+        gsap.fromTo(
+          '.infra-headline',
+          { clipPath: 'inset(0 100% 0 0)' },
+          {
+            clipPath: 'inset(0 0% 0 0)',
+            ease: 'power2.inOut',
+            scrollTrigger: {
+              trigger: panelRef.current,
+              containerAnimation: scrollTween,
+              start: 'left 70%',
+              end: 'left 40%',
+              scrub: true,
+            },
+          }
+        );
+
+        // 2. Other infra elements fade up with stagger
         gsap.from('.infra-reveal', {
           scrollTrigger: {
             trigger: panelRef.current,
             containerAnimation: scrollTween,
-            start: 'left 70%',
+            start: 'left 65%',
             end: 'left 30%',
             scrub: true,
           },
-          y: 40,
+          y: 30,
           opacity: 0,
-          stagger: 0.08,
+          stagger: 0.06,
         });
 
-        // 2. Tools list stagger
+        // 3. Tools list cascade in from right
         gsap.from('.tool-item', {
           scrollTrigger: {
             trigger: panelRef.current,
             containerAnimation: scrollTween,
-            start: 'left 60%',
+            start: 'left 55%',
             end: 'center center',
             scrub: true,
           },
-          x: 20,
+          x: 30,
           opacity: 0,
-          stagger: 0.03,
+          stagger: 0.02,
+        });
+
+        // 4. Code block lines stagger in
+        gsap.from('.infra-code-block', {
+          scrollTrigger: {
+            trigger: panelRef.current,
+            containerAnimation: scrollTween,
+            start: 'left 60%',
+            end: 'left 30%',
+            scrub: true,
+          },
+          y: 20,
+          opacity: 0,
+          scale: 0.98,
         });
 
         // 3. Counter animations — use scrub to reliably animate with containerAnimation
@@ -172,16 +203,16 @@ export default function InfraPanel() {
       <div ref={panelRef} className="relative z-10 h-full flex items-center">
         <div className="max-w-[1400px] mx-auto px-8 lg:px-16 w-full">
           {/* Section header */}
-          <div className="infra-reveal mb-12">
-            <span className="text-xs uppercase tracking-[0.3em] text-[#ff2d78] font-display font-medium">
+          <div className="mb-12">
+            <span className="infra-reveal text-xs uppercase tracking-[0.3em] text-[#ff2d78] font-display font-medium inline-block mb-3">
               Infrastructure
             </span>
-            <h2 className="font-display font-bold text-4xl md:text-5xl lg:text-[3.5rem] text-[#e8e6e3] mt-3 leading-tight">
+            <h2 className="infra-headline font-display font-bold text-4xl md:text-5xl lg:text-[3.5rem] text-[#e8e6e3] leading-tight">
               13 Tools.
               <br />
               <span className="text-[#8a8a9c]">One SDK.</span>
             </h2>
-            <p className="text-[#8a8a9c] text-base mt-4 max-w-md">
+            <p className="infra-reveal text-[#8a8a9c] text-base mt-4 max-w-md">
               Swaps, perpetual futures, prediction markets, and lending — all
               from a single TypeScript client.
             </p>
@@ -250,7 +281,7 @@ export default function InfraPanel() {
               </div>
 
               {/* Code block */}
-              <div className="infra-reveal rounded-xl border border-white/[0.06] bg-[#0a0a14] overflow-hidden">
+              <div className="infra-code-block rounded-xl border border-white/[0.06] bg-[#0a0a14] overflow-hidden">
                 <div className="px-5 py-4">
                   <pre className="font-mono text-[13px] leading-[1.7] text-[#8a8a9c] overflow-x-auto whitespace-pre">
                     {SDK_EXAMPLES[activeTab]}

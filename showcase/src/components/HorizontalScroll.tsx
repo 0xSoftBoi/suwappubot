@@ -28,6 +28,7 @@ interface HorizontalScrollProps {
 export default function HorizontalScroll({ children }: HorizontalScrollProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const panelsContainerRef = useRef<HTMLDivElement>(null);
+  const progressBarRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef(0);
   const [scrollTween, setScrollTween] = useState<gsap.core.Tween | null>(null);
   const [isMobile, setIsMobile] = useState(false);
@@ -62,6 +63,9 @@ export default function HorizontalScroll({ children }: HorizontalScrollProps) {
         invalidateOnRefresh: true,
         onUpdate: (self) => {
           progressRef.current = self.progress;
+          if (progressBarRef.current) {
+            progressBarRef.current.style.transform = `scaleX(${self.progress})`;
+          }
         },
       },
     });
@@ -95,6 +99,10 @@ export default function HorizontalScroll({ children }: HorizontalScrollProps) {
       <div ref={containerRef} className="relative overflow-hidden">
         <div ref={panelsContainerRef} className="flex h-screen w-max">
           {children}
+        </div>
+        {/* Scroll progress bar */}
+        <div className="scroll-progress-track">
+          <div ref={progressBarRef} className="scroll-progress-bar" style={{ transform: 'scaleX(0)' }} />
         </div>
       </div>
     </ScrollContext.Provider>

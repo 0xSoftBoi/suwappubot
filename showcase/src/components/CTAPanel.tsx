@@ -18,38 +18,39 @@ export default function CTAPanel() {
       if (!scrollTween || !panelRef.current) return;
 
       const ctx = gsap.context(() => {
-        // 1. Headline scales down from larger size (dramatic entrance)
+        // 1. Headline — dramatic scale + blur entrance
         gsap.from('.cta-headline', {
           scrollTrigger: {
             trigger: panelRef.current,
             containerAnimation: scrollTween,
-            start: 'left 70%',
-            end: 'left 20%',
+            start: 'left 75%',
+            end: 'left 25%',
             scrub: true,
           },
-          scale: 1.3,
+          scale: 1.5,
           opacity: 0,
-          filter: 'blur(8px)',
+          filter: 'blur(12px)',
+          rotateX: 10,
         });
 
-        // 2. Content fades up
+        // 2. Content elements cascade up with stagger
         gsap.from('.cta-content', {
           scrollTrigger: {
             trigger: panelRef.current,
             containerAnimation: scrollTween,
             start: 'left 50%',
-            end: 'center center',
+            end: 'left 15%',
             scrub: true,
           },
-          y: 30,
+          y: 40,
           opacity: 0,
-          stagger: 0.08,
+          stagger: 0.06,
         });
 
-        // 3. Background glow intensifies
+        // 3. Background glow intensifies and shifts
         gsap.fromTo(
           '.cta-glow',
-          { opacity: 0.05, scale: 0.8 },
+          { opacity: 0.03, scale: 0.6, rotate: 0 },
           {
             scrollTrigger: {
               trigger: panelRef.current,
@@ -58,10 +59,23 @@ export default function CTAPanel() {
               end: 'center center',
               scrub: true,
             },
-            opacity: 0.2,
-            scale: 1.1,
+            opacity: 0.18,
+            scale: 1.2,
+            rotate: 15,
           },
         );
+
+        // 4. Grid overlay fades in
+        gsap.from('.cta-grid', {
+          scrollTrigger: {
+            trigger: panelRef.current,
+            containerAnimation: scrollTween,
+            start: 'left 60%',
+            end: 'center center',
+            scrub: true,
+          },
+          opacity: 0,
+        });
       }, panelRef);
 
       return () => ctx.revert();
@@ -79,9 +93,9 @@ export default function CTAPanel() {
         </div>
 
         {/* Grid overlay */}
-        <div className="absolute inset-0 grid-overlay pointer-events-none opacity-20" />
+        <div className="cta-grid absolute inset-0 grid-overlay pointer-events-none opacity-[0.12]" />
 
-        <div className="relative z-10 h-full flex flex-col items-center justify-center text-center px-8">
+        <div className="relative z-10 h-full flex flex-col items-center justify-center text-center px-8" style={{ perspective: '1000px' }}>
           {/* Big headline */}
           <h2 className="cta-headline font-display font-bold text-4xl md:text-5xl lg:text-6xl xl:text-7xl text-[#e8e6e3] leading-[1.05] max-w-3xl">
             Your next swap is
@@ -109,7 +123,7 @@ export default function CTAPanel() {
               href="https://t.me/suwappu_bot"
               target="_blank"
               rel="noopener noreferrer"
-              className="bg-[#ff2d78] text-white rounded-full px-8 py-3.5 text-sm font-medium hover:bg-[#ff2d78]/90 transition-all hover:shadow-[0_0_40px_rgba(255,45,120,0.3)] inline-flex items-center justify-center"
+              className="btn-suwappu bg-[#ff2d78] text-white rounded-full px-8 py-3.5 text-sm font-medium hover:shadow-[0_0_40px_rgba(255,45,120,0.3)] inline-flex items-center justify-center"
             >
               Open @suwappu_bot
             </a>

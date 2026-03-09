@@ -289,6 +289,36 @@ body {
 ::-webkit-scrollbar-track { background: #07070e; }
 ::-webkit-scrollbar-thumb { background: #1a1a2e; border-radius: 2px; }
 
+/* ---- Card hover lift ---- */
+.card-hover {
+  transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+              border-color 0.3s ease,
+              box-shadow 0.5s ease;
+}
+.card-hover:hover {
+  transform: translateY(-6px);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), 0 0 24px rgba(255, 45, 120, 0.06);
+}
+
+/* ---- Scroll progress ---- */
+.scroll-progress-track {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 50;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.scroll-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #ff2d78, #a855f7 50%, #6366f1);
+  transform-origin: left;
+  will-change: transform;
+}
+
 /* ---- Focus visible ---- */
 *:focus-visible {
   outline: 2px solid rgba(255, 45, 120, 0.5);
