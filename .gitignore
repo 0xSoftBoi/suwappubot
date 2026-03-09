@@ -13,6 +13,7 @@ eggs/
 lib/
 !webapp/src/lib/
 !mobile/lib/
+!mobile/__tests__/lib/
 !showcase/src/lib/
 lib64/
 parts/
