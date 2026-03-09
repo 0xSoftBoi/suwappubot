@@ -89,11 +89,11 @@ class ReferralReward(Base):
     
     # Links
     referral_id = Column(Integer, ForeignKey("referrals.id"), nullable=False, index=True)
-    swap_id = Column(Integer, ForeignKey("swap_transactions.id"), nullable=False, unique=True)
+    swap_id = Column(Integer, ForeignKey("swap_transactions.id"), nullable=False)
     
     # Reward details
     fee_amount_usd = Column(Float, nullable=False)  # Total fee paid by referee
-    reward_amount_usd = Column(Float, nullable=False)  # 30% of fee (referrer's reward)
+    reward_amount_usd = Column(Float, nullable=False)  # Tier-based % of fee (referrer's reward)
     
     # Status
     is_paid = Column(Boolean, default=False)  # Whether reward has been paid out
@@ -105,9 +105,10 @@ class ReferralReward(Base):
     # Relationships
     referral = relationship("Referral", backref="rewards")
     
-    # Indexes
+    # Indexes — (swap_id, referral_id) unique allows one reward per tier per swap
     __table_args__ = (
         Index('ix_referral_rewards_unpaid', 'referral_id', 'is_paid'),
+        Index('ix_referral_rewards_swap_referral', 'swap_id', 'referral_id', unique=True),
     )
 
 

@@ -486,7 +486,7 @@ class ReferralService:
                 msg += f"{i}. {username}: ${rewards:.2f}\n"
         
         msg += (
-            "\n_You earn 30% of all swap fees from your referrals!_"
+            "\n_You earn 25% (L1) + 5% (L2) + 2% (L3) of referral fees!_"
         )
         
         return msg

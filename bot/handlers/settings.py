@@ -702,25 +702,23 @@ limits_conversation = ConversationHandler(
 async def toggle_mev_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Toggle MEV protection on/off."""
     query = update.callback_query
-    await query.answer()
 
     user = update.effective_user
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
         if not db_user:
+            await query.answer()
             return
         current = getattr(db_user, "mev_protection_enabled", True)
         db_user.mev_protection_enabled = not current
-        status = "enabled" if not current else "disabled"
-        await query.answer(f"🛡️ MEV protection {status}!", show_alert=False)
 
+    # settings_callback will call query.answer() and refresh the view
     await settings_callback(update, context)
 
 
 async def cycle_tip_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Cycle Jito tip priority: low -> medium -> high -> urgent."""
     query = update.callback_query
-    await query.answer()
 
     tip_cycle = ["low", "medium", "high", "urgent"]
 
@@ -728,12 +726,14 @@ async def cycle_tip_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
         if not db_user:
+            await query.answer()
             return
         current = getattr(db_user, "jito_tip_priority", "medium")
         idx = tip_cycle.index(current) if current in tip_cycle else 1
         new_tip = tip_cycle[(idx + 1) % len(tip_cycle)]
         db_user.jito_tip_priority = new_tip
 
+    # settings_callback will call query.answer() and refresh the view
     await settings_callback(update, context)
 
 
