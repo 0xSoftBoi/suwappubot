@@ -8,6 +8,9 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      screens: {
+        'desktop': '1024px',
+      },
       colors: {
         // Telegram theme colors
         tg: {
@@ -56,6 +59,8 @@ export default {
           'bg': '#FFFBFC',
           'text': '#2C3E50',
           'text-secondary': '#6C7A89',
+          'text-muted': '#9A9AB0',
+          'magenta-dark': '#B8185C',
         },
         // Price impact severity scale
         impact: {

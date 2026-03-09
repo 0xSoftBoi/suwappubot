@@ -1,0 +1,22 @@
+{
+  "name": "suwappu-desktop",
+  "version": "0.1.0",
+  "description": "Suwappu Desktop Trading Terminal",
+  "scripts": {
+    "start": "bun run build:webapp && electrobun dev",
+    "dev": "electrobun dev --watch",
+    "dev:hmr": "concurrently \"bun run hmr\" \"bun run start\"",
+    "hmr": "cd ../webapp && vite --port 5174",
+    "build:webapp": "bash scripts/build-webapp.sh",
+    "build:canary": "bun run build:webapp && electrobun build --env=canary",
+    "build:stable": "bun run build:webapp && electrobun build --env=stable"
+  },
+  "dependencies": {
+    "electrobun": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "concurrently": "^9.1.0",
+    "typescript": "^5.6.3"
+  }
+}

@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
+PackageIdentifier: Suwappu.Suwappu
+PackageVersion: 0.1.0
+PackageName: Suwappu
+Publisher: Suwappu
+License: MIT
+LicenseUrl: https://github.com/0xSoftBoi/suwappubot/blob/main/LICENSE
+Copyright: Copyright (c) Suwappu
+ShortDescription: Cross-chain DEX trading terminal
+Description: Suwappu is a desktop trading terminal for cross-chain token swaps across multiple blockchains.
+Homepage: https://suwappu.bot
+PackageUrl: https://suwappu.bot
+PublisherUrl: https://github.com/0xSoftBoi
+PublisherSupportUrl: https://github.com/0xSoftBoi/suwappubot/issues
+Tags:
+  - crypto
+  - trading
+  - dex
+  - blockchain
+  - defi
+  - swap
+ManifestType: singleton
+ManifestVersion: 1.6.0
+ReleaseNotesUrl: https://github.com/0xSoftBoi/suwappubot/releases
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/0xSoftBoi/suwappubot/releases/latest/download/Suwappu-0.1.0-x64-setup.exe
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    InstallerType: exe
+    InstallerSwitches:
+      Silent: /S
+      SilentWithProgress: /S
+    UpgradeBehavior: install
+    ProductCode: Suwappu
