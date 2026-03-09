@@ -251,6 +251,14 @@ server.tool(
 	async () => callTool(() => client.getTrendingTokens()),
 )
 
+// 11. list_chains
+server.tool(
+	'list_chains',
+	'List all supported blockchain networks with their names, chain IDs, and native tokens. Use this to discover which chains are available for swaps and portfolio queries.',
+	{},
+	async () => callTool(() => client.listChains()),
+)
+
 // ---------------------------------------------------------------
 // Start server
 // ---------------------------------------------------------------

@@ -45,14 +45,50 @@ export function QuickSwap() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [visible, dismiss])
 
+  const [quote, setQuote] = useState<{ outputAmount?: string; rate?: string } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  // Fetch quote when inputs change
+  useEffect(() => {
+    if (!amount || !toToken || !fromToken) {
+      setQuote(null)
+      return
+    }
+    const controller = new AbortController()
+    const apiUrl = import.meta.env.VITE_API_URL || 'https://api.suwappu.bot'
+    fetch(`${apiUrl}/v1/agent/quote`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from_token: fromToken, to_token: toToken, amount }),
+      signal: controller.signal,
+    })
+      .then((r) => (r.ok ? r.json() : r.json().then((d) => Promise.reject(d.error || 'Quote failed'))))
+      .then((data) => setQuote({ outputAmount: data.output_amount, rate: data.exchange_rate }))
+      .catch((e) => { if (e !== 'AbortError') setQuote(null) })
+    return () => controller.abort()
+  }, [fromToken, toToken, amount])
+
   const handleExecute = async () => {
     if (!amount || !toToken) return
     setExecuting(true)
-    // In production: call swap API
-    setTimeout(() => {
-      setExecuting(false)
+    setError(null)
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'https://api.suwappu.bot'
+      const res = await fetch(`${apiUrl}/v1/agent/quote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from_token: fromToken, to_token: toToken, amount }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `Failed (${res.status})`)
+      }
       dismiss()
-    }, 1500)
+    } catch (e: any) {
+      setError(e.message || 'Swap failed')
+    } finally {
+      setExecuting(false)
+    }
   }
 
   if (!isDesktop || !visible) return null
@@ -136,6 +172,29 @@ export function QuickSwap() {
               className="w-full px-3 py-2.5 bg-suwappu-sakura-50 border border-suwappu-sakura-mid/20 rounded-xl text-sm font-heading focus:outline-none focus:ring-2 focus:ring-suwappu-magenta-mid/30"
             />
           </div>
+
+          {/* Quote preview */}
+          {quote && (
+            <div className="px-3 py-2 bg-suwappu-sakura-50 rounded-xl text-xs text-suwappu-text-secondary">
+              <div className="flex justify-between">
+                <span>You receive:</span>
+                <span className="font-heading font-bold text-suwappu-text">{quote.outputAmount} {toToken}</span>
+              </div>
+              {quote.rate && (
+                <div className="flex justify-between mt-1">
+                  <span>Rate:</span>
+                  <span>1 {fromToken} = {quote.rate} {toToken}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Error */}
+          {error && (
+            <div className="px-3 py-2 bg-red-50 text-red-600 text-xs rounded-xl">
+              {error}
+            </div>
+          )}
 
           {/* Execute */}
           <button

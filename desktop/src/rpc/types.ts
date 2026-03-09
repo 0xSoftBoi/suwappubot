@@ -57,6 +57,18 @@ export type DesktopRPC = {
         };
         response: { success: boolean };
       };
+      // Overlay — push portfolio positions to the floating overlay
+      "overlay:update": {
+        params: {
+          positions: Array<{
+            symbol: string;
+            chain: string;
+            value: number;
+            pnlPercent: number;
+          }>;
+        };
+        response: { success: boolean };
+      };
     };
     messages: {};
   }>;

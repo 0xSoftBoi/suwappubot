@@ -54,6 +54,17 @@ type DesktopRPC = {
         params: {};
         response: { visible: boolean };
       };
+      "overlay:update": {
+        params: {
+          positions: Array<{
+            symbol: string;
+            chain: string;
+            value: number;
+            pnlPercent: number;
+          }>;
+        };
+        response: { success: boolean };
+      };
       "tray:update-portfolio": {
         params: {
           totalValue: string;
@@ -158,6 +169,13 @@ desktopBridge.exportFile = async (
 desktopBridge.toggleOverlay = async (): Promise<boolean> => {
   const result = await electroview.rpc!.request["overlay:toggle"]({});
   return result.visible;
+};
+
+desktopBridge.updateOverlay = async (
+  positions: Array<{ symbol: string; chain: string; value: number; pnlPercent: number }>
+): Promise<boolean> => {
+  const result = await electroview.rpc!.request["overlay:update"]({ positions });
+  return result.success;
 };
 
 desktopBridge.updateTrayPortfolio = async (

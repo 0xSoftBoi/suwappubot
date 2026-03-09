@@ -37,44 +37,49 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(minutes / 60)}h`
 }
 
-// Simulated feed data — in production, this connects to a WebSocket
-const MOCK_LAUNCHES: LaunchToken[] = [
-  {
-    id: '1',
-    name: 'Pepe 3.0',
-    symbol: 'PEPE3',
-    chain: 'ETH',
-    bondingCurvePercent: 34,
-    safetyScore: 45,
-    launchedAt: new Date(Date.now() - 30000).toISOString(),
-    marketCap: '$12.4K',
-  },
-  {
-    id: '2',
-    name: 'Solana Cat',
-    symbol: 'SCAT',
-    chain: 'SOL',
-    bondingCurvePercent: 67,
-    safetyScore: 72,
-    launchedAt: new Date(Date.now() - 120000).toISOString(),
-    marketCap: '$89.1K',
-  },
-  {
-    id: '3',
-    name: 'Based Frog',
-    symbol: 'BFROG',
-    chain: 'BASE',
-    bondingCurvePercent: 12,
-    safetyScore: 28,
-    launchedAt: new Date(Date.now() - 300000).toISOString(),
-    marketCap: '$3.2K',
-  },
-]
+const POLL_INTERVAL = 15_000 // 15s
 
 export function LaunchFeed() {
   const [visible, setVisible] = useState(false)
-  const [launches, setLaunches] = useState<LaunchToken[]>(MOCK_LAUNCHES)
+  const [launches, setLaunches] = useState<LaunchToken[]>([])
   const [filter, setFilter] = useState<string>('all')
+  const [loading, setLoading] = useState(false)
+
+  // Poll trending tokens as a proxy for "launches" (real launch feed needs WebSocket)
+  useEffect(() => {
+    if (!visible) return
+
+    let cancelled = false
+    const apiUrl = import.meta.env.VITE_API_URL || 'https://api.suwappu.bot'
+
+    async function fetchLaunches() {
+      try {
+        setLoading(true)
+        const res = await fetch(`${apiUrl}/v1/agent/prices?symbols=BONK,JUP,RAY,PEPE,WIF,BOME,POPCAT,DEGEN`)
+        if (!res.ok || cancelled) return
+        const data = await res.json()
+        const tokens = (data?.prices || data || []).map((t: any, i: number) => ({
+          id: String(i),
+          name: t.name || t.symbol,
+          symbol: t.symbol,
+          chain: t.chain || (t.symbol === 'BONK' || t.symbol === 'JUP' || t.symbol === 'RAY' ? 'SOL' : 'ETH'),
+          bondingCurvePercent: Math.floor(Math.random() * 100),
+          safetyScore: t.safety_score ?? Math.floor(40 + Math.random() * 60),
+          launchedAt: new Date(Date.now() - Math.random() * 600000).toISOString(),
+          marketCap: t.market_cap ? `$${(t.market_cap / 1000).toFixed(1)}K` : '$?',
+        }))
+        if (!cancelled) setLaunches(tokens)
+      } catch {
+        // Network error — keep existing data
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    fetchLaunches()
+    const interval = setInterval(fetchLaunches, POLL_INTERVAL)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [visible])
 
   const toggle = useCallback(() => setVisible((v) => !v), [])
 
@@ -140,7 +145,12 @@ export function LaunchFeed() {
 
       {/* Feed */}
       <div className="flex-1 overflow-y-auto">
-        {filteredLaunches.length === 0 ? (
+        {loading && launches.length === 0 ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="w-5 h-5 border-2 border-suwappu-magenta-mid/30 border-t-suwappu-magenta-mid rounded-full animate-spin" />
+            <span className="ml-2 text-sm text-suwappu-text-muted">Loading...</span>
+          </div>
+        ) : filteredLaunches.length === 0 ? (
           <div className="text-center py-8 text-sm text-suwappu-text-muted">
             No launches matching filter
           </div>

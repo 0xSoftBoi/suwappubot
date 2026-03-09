@@ -63,18 +63,32 @@ export function ClipboardLookup() {
       setVisible(true)
       setLoading(true)
 
-      // Simulate token lookup — in production this would call the API
-      setTimeout(() => {
-        setTokenInfo({
-          name: 'Unknown Token',
-          symbol: address.slice(0, 6).toUpperCase(),
-          price: '$0.00',
-          safetyScore: 0,
-          chain: chain === 'ethereum' ? 'Ethereum' : chain === 'solana' ? 'Solana' : 'Unknown',
-          address,
+      // Look up token by address via API
+      const apiUrl = import.meta.env.VITE_API_URL || 'https://api.suwappu.bot'
+      fetch(`${apiUrl}/v1/agent/tokens?search=${encodeURIComponent(address)}&chain=${chain === 'unknown' ? '' : chain}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          const token = data?.tokens?.[0] || data?.[0]
+          setTokenInfo({
+            name: token?.name || 'Unknown Token',
+            symbol: token?.symbol || address.slice(0, 6).toUpperCase(),
+            price: token?.price ? `$${Number(token.price).toFixed(token.price < 0.01 ? 6 : 2)}` : '$0.00',
+            safetyScore: token?.safety_score ?? 0,
+            chain: chain === 'ethereum' ? 'Ethereum' : chain === 'solana' ? 'Solana' : 'Unknown',
+            address,
+          })
         })
-        setLoading(false)
-      }, 500)
+        .catch(() => {
+          setTokenInfo({
+            name: 'Unknown Token',
+            symbol: address.slice(0, 6).toUpperCase(),
+            price: '$0.00',
+            safetyScore: 0,
+            chain: chain === 'ethereum' ? 'Ethereum' : chain === 'solana' ? 'Solana' : 'Unknown',
+            address,
+          })
+        })
+        .finally(() => setLoading(false))
     }
 
     window.addEventListener('suwappu:clipboard-address', handleClipboardAddress)

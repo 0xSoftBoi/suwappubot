@@ -3,7 +3,7 @@ import Electrobun from "electrobun/bun";
 import { createMainRPC, setTrayUpdateCallback } from "../rpc/handlers";
 import { registerGlobalHotkeys, unregisterGlobalHotkeys } from "../native/hotkeys";
 import { startClipboardMonitor, stopClipboardMonitor } from "../native/clipboard";
-import { destroyOverlay, toggleOverlay } from "../native/overlay";
+import { destroyOverlay, toggleOverlay, updateOverlayPositions } from "../native/overlay";
 
 const DEV_SERVER_PORT = 5174;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;

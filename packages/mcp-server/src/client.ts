@@ -149,27 +149,16 @@ export class SuwappuClient {
 	}
 
 	// ---------------------------------------------------------------
-	// Token safety (via MCP endpoint for richer analysis)
+	// Token safety / lookup by address
 	// ---------------------------------------------------------------
 
 	async getTokenSafety(params: {
 		token_address: string
 		chain?: string
 	}): Promise<unknown> {
-		// Use the MCP endpoint which has richer tool handling
-		const rpcBody = {
-			jsonrpc: '2.0',
-			id: 1,
-			method: 'tools/call',
-			params: {
-				name: 'list_tokens',
-				arguments: {
-					chain: params.chain || 'ethereum',
-					search: params.token_address,
-				},
-			},
-		}
-		return this.post('/mcp', rpcBody)
+		let path = `/v1/agent/tokens?search=${encodeURIComponent(params.token_address)}`
+		if (params.chain) path += `&chain=${encodeURIComponent(params.chain)}`
+		return this.get(path)
 	}
 
 	// ---------------------------------------------------------------
