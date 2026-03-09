@@ -1,5 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&family=Quicksand:wght@300;400;500;600;700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+/* Fonts loaded via next/font/google in layout.tsx */
 
 @tailwind base;
 @tailwind components;
@@ -13,9 +12,6 @@
   --suwappu-magenta-mid: #c44569;
   --suwappu-purple: #6c3483;
   --suwappu-purple-deep: #4a235a;
-  --suwappu-bg: #fffbfc;
-  --suwappu-text: #2c3e50;
-  --suwappu-text-secondary: #6c7a89;
 }
 
 html {
@@ -23,9 +19,8 @@ html {
 }
 
 body {
-  font-family: 'Nunito', 'Open Sans', sans-serif;
-  background: var(--suwappu-bg);
-  color: var(--suwappu-text);
+  background: #09090b;
+  color: #fafafa;
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -35,20 +30,20 @@ body {
 .glass {
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.8),
-    rgba(255, 215, 220, 0.35) 50%,
-    rgba(232, 244, 253, 0.5)
+    rgba(24, 24, 27, 0.8),
+    rgba(39, 39, 42, 0.5) 50%,
+    rgba(24, 24, 27, 0.6)
   );
   backdrop-filter: blur(16px) saturate(180%);
   -webkit-backdrop-filter: blur(16px) saturate(180%);
-  border: 1px solid rgba(255, 183, 197, 0.25);
+  border: 1px solid rgba(113, 113, 122, 0.25);
 }
 
 .glass-card {
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(24, 24, 27, 0.9);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 183, 197, 0.12);
+  border: 1px solid rgba(113, 113, 122, 0.12);
 }
 
 /* ---- Gradient text ---- */
@@ -221,7 +216,7 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: #09090b;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -233,42 +228,37 @@ body {
   background: linear-gradient(180deg, #f8a5c2, #e91e8c);
 }
 
-/* ---- Three.js Canvas ---- */
-.petal-canvas {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 1;
+/* ---- Section utility classes ---- */
+.section-label {
+  @apply text-xs uppercase tracking-[0.3em] text-zinc-500 font-medium;
 }
 
-.petal-canvas canvas {
-  width: 100% !important;
-  height: 100% !important;
+.section-heading {
+  @apply font-serif text-4xl md:text-5xl lg:text-6xl text-zinc-50;
 }
 
-/* ---- Horizontal scroll panels ---- */
-.gsap-panel {
-  width: 100vw;
-  min-height: 100vh;
-  flex-shrink: 0;
-  position: relative;
-  overflow: hidden;
-  touch-action: pan-y;
+.step-number {
+  @apply text-sm font-mono text-zinc-600;
 }
 
-@media (max-width: 767px) {
-  .gsap-panel {
-    width: 100%;
-    min-height: auto;
-    padding-top: 3rem;
-    padding-bottom: 3rem;
-    overflow: visible;
+/* ---- Fade-up animation ---- */
+.fade-up {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.fade-up.visible {
+  animation: fadeUp 0.6s ease-out forwards;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
   }
-
-  /* Kill 3D canvases on mobile — saves GPU + fixes touch scroll */
-  .petal-canvas,
-  .gsap-panel canvas {
-    display: none !important;
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 

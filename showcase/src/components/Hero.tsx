@@ -3,19 +3,7 @@
 import { useRef } from 'react';
 import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
-import dynamic from 'next/dynamic';
-import Panel from './Panel';
 import Terminal from './Terminal';
-import { useScrollContext } from './HorizontalScroll';
-
-const SakuraPetal3D = dynamic(() => import('./SakuraPetal3D'), {
-  ssr: false,
-  loading: () => null,
-});
-
-// ---------------------------------------------------------------------------
-// Steps — how an agent uses Suwappu
-// ---------------------------------------------------------------------------
 
 const STEPS = [
   { num: '01', title: 'Install', desc: 'bun add @suwappu/sdk' },
@@ -23,73 +11,80 @@ const STEPS = [
   { num: '03', title: 'Swap', desc: 'Execute on-chain in one call' },
 ];
 
-// ---------------------------------------------------------------------------
-// Hero Panel — agent-driven DEX demo
-// ---------------------------------------------------------------------------
-
 export default function Hero() {
-  const heroRef = useRef<HTMLElement>(null);
-  const { progressRef } = useScrollContext();
+  const sectionRef = useRef<HTMLElement>(null);
 
-  useGSAP(() => {
-    if (!heroRef.current) return;
-    const items = heroRef.current.querySelectorAll('.hero-stagger');
-    gsap.fromTo(items,
-      { y: 16, opacity: 0.7 },
-      { y: 0, opacity: 1, stagger: 0.1, duration: 0.8, ease: 'back.out(1.4)' }
-    );
-  }, { scope: heroRef });
+  useGSAP(
+    () => {
+      if (!sectionRef.current) return;
+      const items = sectionRef.current.querySelectorAll('.hero-stagger');
+      gsap.fromTo(
+        items,
+        { y: 30, opacity: 0 },
+        {
+          y: 0,
+          opacity: 1,
+          stagger: 0.1,
+          duration: 0.8,
+          ease: 'power3.out',
+        }
+      );
+    },
+    { scope: sectionRef }
+  );
 
   return (
-    <Panel ref={heroRef} id="hero" className="flex items-center bg-suwappu-dark-bg relative overflow-hidden pt-20 md:pt-0">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(233,30,140,0.08)_0%,_transparent_70%)]" />
-      <div className="absolute inset-0 pointer-events-none z-[1] hidden lg:block opacity-40">
-        <SakuraPetal3D variant="cluster" progressRef={progressRef} />
-      </div>
+    <section
+      ref={sectionRef}
+      id="hero"
+      className="min-h-screen flex items-center relative overflow-hidden"
+    >
+      {/* Subtle radial glow behind content */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_30%_50%,_rgba(233,30,140,0.06)_0%,_transparent_60%)] pointer-events-none" />
 
-      <div className="relative z-10 max-w-6xl mx-auto px-6 w-full">
-        <div className="grid lg:grid-cols-2 gap-12 items-center">
-
-          {/* Left — positioning + steps */}
+      <div className="max-w-7xl mx-auto px-6 lg:px-8 w-full py-32 lg:py-0">
+        <div className="grid lg:grid-cols-2 gap-16 lg:gap-20 items-center">
+          {/* Left column */}
           <div>
-            <div className="hero-stagger mb-5">
-              <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-suwappu-magenta/30 bg-suwappu-magenta/5 text-xs font-heading font-semibold text-suwappu-magenta tracking-wider uppercase">
-                <span className="w-1.5 h-1.5 rounded-full bg-suwappu-success animate-pulse" />
-                Agent-native DEX
-              </span>
+            <div className="hero-stagger">
+              <span className="section-label">Agent-native DEX</span>
             </div>
 
-            <h1 className="hero-stagger font-heading font-bold text-4xl md:text-5xl lg:text-6xl leading-[1.08] mb-6 text-white">
+            <h1 className="hero-stagger font-serif text-7xl md:text-8xl lg:text-[7rem] text-zinc-50 leading-[0.9] mt-6">
               Agent-driven
               <br />
-              <span className="bg-gradient-to-r from-suwappu-magenta to-suwappu-purple bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-[#ffb7c5] via-[#e91e8c] to-[#6c3483] bg-clip-text text-transparent">
                 DEX.
               </span>
             </h1>
 
-            <p className="hero-stagger text-suwappu-dark-text-secondary max-w-md mb-10 leading-relaxed">
-              Your agent installs the SDK, gets a quote, and executes the swap. Three calls. Any chain.
+            <p className="hero-stagger text-xl text-zinc-400 leading-relaxed mt-6 max-w-lg">
+              Your agent installs the SDK, gets a quote, and executes the swap.
+              Three calls. Any chain.
             </p>
 
             {/* Steps */}
-            <div className="hero-stagger space-y-4 mb-10">
+            <div className="hero-stagger mt-10 space-y-3">
               {STEPS.map((step) => (
-                <div key={step.num} className="flex items-start gap-4">
-                  <span className="text-white/15 font-mono text-xs mt-0.5 shrink-0">{step.num}</span>
-                  <div>
-                    <span className="text-white font-heading font-semibold text-sm">{step.title}</span>
-                    <span className="text-suwappu-dark-text-secondary text-sm ml-2">{step.desc}</span>
-                  </div>
+                <div key={step.num} className="flex items-baseline gap-4">
+                  <span className="font-mono text-sm text-zinc-600 shrink-0">
+                    {step.num}
+                  </span>
+                  <span className="text-zinc-200 font-medium">
+                    {step.title}
+                  </span>
+                  <span className="text-zinc-500">{step.desc}</span>
                 </div>
               ))}
             </div>
 
-            <div className="hero-stagger flex flex-wrap items-center gap-3">
+            {/* CTA buttons */}
+            <div className="hero-stagger mt-10 flex flex-wrap gap-4">
               <a
                 href="https://t.me/suwappu_bot"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 bg-gradient-to-r from-suwappu-magenta to-suwappu-purple text-white font-heading font-semibold px-8 py-3 rounded-full shadow-suwappu-button hover:shadow-suwappu-button-hover transition-shadow"
+                className="bg-zinc-50 text-zinc-950 rounded-full px-7 py-3 text-sm font-medium hover:bg-zinc-200 transition-colors"
               >
                 Open @suwappu_bot
               </a>
@@ -97,23 +92,26 @@ export default function Hero() {
                 href="https://docs.suwappu.bot"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 font-mono font-medium text-sm text-suwappu-dark-text-secondary px-6 py-3 rounded-full border border-white/20 hover:bg-white/5 hover:text-white transition-all"
+                className="font-mono text-sm border border-zinc-700 rounded-full px-7 py-3 text-zinc-300 hover:border-zinc-500 hover:text-zinc-100 transition-colors"
               >
                 bun add @suwappu/sdk
               </a>
             </div>
           </div>
 
-          {/* Right — live terminal demo */}
-          <div className="hero-stagger">
-            <Terminal />
-            <p className="text-white/20 text-xs mt-3 text-center font-mono">
+          {/* Right column — Terminal */}
+          <div className="hero-stagger relative">
+            {/* Gradient glow behind terminal */}
+            <div className="absolute -inset-8 bg-gradient-to-br from-[#ffb7c5]/10 via-[#e91e8c]/8 to-[#6c3483]/10 rounded-3xl blur-3xl pointer-events-none" />
+            <div className="relative">
+              <Terminal />
+            </div>
+            <p className="text-xs text-zinc-600 mt-4 text-center">
               Watch the agent work
             </p>
           </div>
-
         </div>
       </div>
-    </Panel>
+    </section>
   );
 }

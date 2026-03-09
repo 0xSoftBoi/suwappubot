@@ -34,8 +34,11 @@ const config: Config = {
         },
       },
       fontFamily: {
-        heading: ['Quicksand', 'Nunito', 'Poppins', 'sans-serif'],
-        body: ['Nunito', 'Open Sans', 'Lato', 'sans-serif'],
+        serif: ['"DM Serif Display"', 'Georgia', 'serif'],
+        sans: ['"Inter"', 'system-ui', 'sans-serif'],
+        heading: ['"DM Serif Display"', 'Georgia', 'serif'],
+        body: ['"Inter"', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       borderRadius: {
         'suwappu-pill': '50px',
@@ -64,13 +67,9 @@ const config: Config = {
           'linear-gradient(135deg, #ffb7c5, #c44569 35%, #6c3483 70%, #4a235a)',
       },
       keyframes: {
-        marquee: {
-          '0%': { transform: 'translateX(0)' },
-          '100%': { transform: 'translateX(-50%)' },
-        },
-        'marquee-reverse': {
-          '0%': { transform: 'translateX(-50%)' },
-          '100%': { transform: 'translateX(0)' },
+        fadeUp: {
+          '0%': { opacity: '0', transform: 'translateY(20px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
         },
         float: {
           '0%, 100%': { transform: 'translateY(0)' },
@@ -90,8 +89,7 @@ const config: Config = {
         },
       },
       animation: {
-        marquee: 'marquee 30s linear infinite',
-        'marquee-reverse': 'marquee-reverse 30s linear infinite',
+        'fade-up': 'fadeUp 0.6s ease-out forwards',
         float: 'float 6s ease-in-out infinite',
         'float-slow': 'float-slow 8s ease-in-out infinite',
         'petal-fall': 'petal-fall 12s linear infinite',
