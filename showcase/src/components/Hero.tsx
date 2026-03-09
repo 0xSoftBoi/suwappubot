@@ -86,10 +86,18 @@ export default function Hero() {
 
             <div className="hero-stagger flex flex-wrap items-center gap-3">
               <a
-                href="https://t.me/suwappu_bot"
+                href="https://terminal.suwappu.bot"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 bg-gradient-to-r from-suwappu-magenta to-suwappu-purple text-white font-heading font-semibold px-8 py-3 rounded-full shadow-suwappu-button hover:shadow-suwappu-button-hover transition-shadow"
+              >
+                Launch Terminal
+              </a>
+              <a
+                href="https://t.me/suwappu_bot"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 font-heading font-medium text-sm text-suwappu-dark-text-secondary px-6 py-3 rounded-full border border-white/20 hover:bg-white/5 hover:text-white transition-all"
               >
                 Open @suwappu_bot
               </a>

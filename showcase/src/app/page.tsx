@@ -333,6 +333,14 @@ function Footer() {
         <span className="font-heading font-bold text-sm gradient-text">Suwappu<sup className="text-suwappu-dark-text-muted font-normal text-[8px] ml-0.5">すわっぷ</sup></span>
         <div className="flex items-center gap-6">
           <a
+            href="https://terminal.suwappu.bot"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-suwappu-dark-text-muted hover:text-suwappu-dark-text-secondary transition-colors"
+          >
+            Terminal
+          </a>
+          <a
             href="https://t.me/suwappu_bot"
             target="_blank"
             rel="noopener noreferrer"

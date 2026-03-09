@@ -10,6 +10,7 @@ gsap.registerPlugin(ScrollToPlugin, ScrollTrigger);
 const NAV_LINKS = [
   { label: 'Infra', panel: 1 },
   { label: 'Interfaces', panel: 2 },
+  { label: 'Terminal', href: 'https://terminal.suwappu.bot' },
 ];
 
 export default function Navigation() {
@@ -77,13 +78,25 @@ export default function Navigation() {
 
         <div className="hidden md:flex items-center gap-8">
           {NAV_LINKS.map((l) => (
-            <button
-              key={l.label}
-              onClick={() => scrollToPanel(l.panel)}
-              className="nav-link font-heading text-sm font-medium text-suwappu-dark-text-secondary hover:text-suwappu-magenta transition-colors"
-            >
-              {l.label}
-            </button>
+            'href' in l ? (
+              <a
+                key={l.label}
+                href={l.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="nav-link font-heading text-sm font-medium text-suwappu-dark-text-secondary hover:text-suwappu-magenta transition-colors"
+              >
+                {l.label}
+              </a>
+            ) : (
+              <button
+                key={l.label}
+                onClick={() => scrollToPanel(l.panel)}
+                className="nav-link font-heading text-sm font-medium text-suwappu-dark-text-secondary hover:text-suwappu-magenta transition-colors"
+              >
+                {l.label}
+              </button>
+            )
           ))}
           <a
             href="https://t.me/suwappu_bot"
@@ -123,13 +136,25 @@ export default function Navigation() {
       >
         <div className="glass mx-4 mt-2 rounded-2xl p-6 space-y-3">
           {NAV_LINKS.map((l) => (
-            <button
-              key={l.label}
-              onClick={() => scrollToPanel(l.panel)}
-              className="block w-full text-left font-heading text-base font-medium py-2 text-suwappu-dark-text hover:text-suwappu-magenta transition-colors"
-            >
-              {l.label}
-            </button>
+            'href' in l ? (
+              <a
+                key={l.label}
+                href={l.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full text-left font-heading text-base font-medium py-2 text-suwappu-dark-text hover:text-suwappu-magenta transition-colors"
+              >
+                {l.label}
+              </a>
+            ) : (
+              <button
+                key={l.label}
+                onClick={() => scrollToPanel(l.panel)}
+                className="block w-full text-left font-heading text-base font-medium py-2 text-suwappu-dark-text hover:text-suwappu-magenta transition-colors"
+              >
+                {l.label}
+              </button>
+            )
           ))}
           <a
             href="https://t.me/suwappu_bot"
