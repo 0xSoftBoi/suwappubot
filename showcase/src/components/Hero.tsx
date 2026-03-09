@@ -87,18 +87,17 @@ export default function Hero() {
       <div className="absolute inset-0 noise-overlay pointer-events-none z-[1]" />
 
       {/* Grid overlay - subtle decorative grid */}
-      <div className="absolute inset-0 grid-overlay pointer-events-none opacity-30" />
+      <div className="absolute inset-0 grid-overlay pointer-events-none opacity-[0.08]" />
 
       {/* Floating gradient blobs - parallax */}
-      <div className="gradient-blob w-[500px] h-[500px] bg-[#ff2d78] top-[-10%] right-[10%] animate-pulse-glow hero-parallax" />
+      <div className="gradient-blob w-[350px] h-[350px] bg-[#ff2d78] top-[-10%] right-[10%] hero-parallax" />
       <div
-        className="gradient-blob w-[400px] h-[400px] bg-[#a855f7] bottom-[5%] left-[-5%] animate-pulse-glow hero-parallax"
-        style={{ animationDelay: '1.5s' }}
+        className="gradient-blob w-[280px] h-[280px] bg-[#a855f7] bottom-[5%] left-[-5%] hero-parallax"
       />
 
       {/* Content */}
       <div className="relative z-10 h-full flex items-center">
-        <div className="max-w-[1400px] mx-auto px-8 lg:px-16 w-full grid lg:grid-cols-[1.1fr_0.9fr] gap-12 lg:gap-20 items-center">
+        <div className="max-w-[1400px] mx-auto px-8 lg:px-16 w-full grid lg:grid-cols-[1.2fr_0.8fr] gap-12 lg:gap-16 items-center">
           {/* LEFT COLUMN */}
           <div>
             {/* Section label */}
@@ -110,7 +109,7 @@ export default function Hero() {
 
             {/* Headline - character split */}
             <h1 className="hero-anim">
-              <span className="block font-display font-bold text-6xl md:text-7xl lg:text-[5.5rem] xl:text-[6.5rem] leading-[0.95] text-[#e8e6e3]">
+              <span className="block font-display font-bold text-5xl md:text-6xl lg:text-7xl xl:text-[5.5rem] leading-[0.95] text-[#e8e6e3] whitespace-nowrap">
                 <span className="hero-title-line inline-block">
                   {'Agent-driven'.split('').map((char, i) => (
                     <span key={i} className="split-char inline-block">
@@ -119,7 +118,7 @@ export default function Hero() {
                   ))}
                 </span>
               </span>
-              <span className="block font-display font-bold text-6xl md:text-7xl lg:text-[5.5rem] xl:text-[6.5rem] leading-[0.95] mt-2">
+              <span className="block font-display font-bold text-5xl md:text-6xl lg:text-7xl xl:text-[5.5rem] leading-[0.95] mt-2">
                 <span className="hero-title-dex bg-clip-text text-transparent bg-gradient-to-r from-[#ff2d78] via-[#a855f7] to-[#6366f1] inline-block">
                   DEX.
                 </span>

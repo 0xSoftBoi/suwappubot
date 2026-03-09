@@ -49,7 +49,7 @@ export default function CTAPanel() {
         // 3. Background glow intensifies
         gsap.fromTo(
           '.cta-glow',
-          { opacity: 0.1, scale: 0.8 },
+          { opacity: 0.05, scale: 0.8 },
           {
             scrollTrigger: {
               trigger: panelRef.current,
@@ -58,8 +58,8 @@ export default function CTAPanel() {
               end: 'center center',
               scrub: true,
             },
-            opacity: 0.35,
-            scale: 1.2,
+            opacity: 0.2,
+            scale: 1.1,
           },
         );
       }, panelRef);
@@ -71,11 +71,11 @@ export default function CTAPanel() {
 
   return (
     <Panel id="cta" className="bg-[#07070e] relative overflow-hidden">
-      <div ref={panelRef as React.RefObject<HTMLDivElement>} className="w-screen h-screen relative">
+      <div ref={panelRef as React.RefObject<HTMLDivElement>} className="h-full relative">
         {/* Dramatic gradient background that intensifies */}
         <div className="absolute inset-0">
           <div className="absolute inset-0 bg-gradient-to-br from-[#ff2d78]/[0.03] via-transparent to-[#a855f7]/[0.03]" />
-          <div className="gradient-blob w-[600px] h-[600px] bg-[#ff2d78] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 cta-glow" />
+          <div className="gradient-blob w-[400px] h-[400px] bg-[#ff2d78] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 cta-glow" />
         </div>
 
         {/* Grid overlay */}

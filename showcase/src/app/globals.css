@@ -273,8 +273,8 @@ body {
 .gradient-blob {
   position: absolute;
   border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.3;
+  filter: blur(100px);
+  opacity: 0.15;
   pointer-events: none;
 }
 

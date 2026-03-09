@@ -125,25 +125,23 @@ export default function InfraPanel() {
           stagger: 0.03,
         });
 
-        // 3. Counter animations
+        // 3. Counter animations — use scrub to reliably animate with containerAnimation
         document.querySelectorAll('.stat-counter').forEach((el) => {
           const htmlEl = el as HTMLElement;
           const target = parseInt(htmlEl.getAttribute('data-target') || '0');
-          gsap.to(htmlEl, {
+          const counter = { val: 0 };
+          gsap.to(counter, {
+            val: target,
+            ease: 'power2.out',
             scrollTrigger: {
               trigger: panelRef.current,
               containerAnimation: scrollTween,
-              start: 'left 40%',
-              toggleActions: 'play none none reverse',
+              start: 'left 50%',
+              end: 'left 20%',
+              scrub: true,
             },
-            textContent: target,
-            duration: 1.5,
-            ease: 'power2.out',
-            snap: { textContent: 1 },
-            onUpdate: function () {
-              htmlEl.textContent = Math.round(
-                parseFloat(htmlEl.textContent || '0'),
-              ).toString();
+            onUpdate: () => {
+              htmlEl.textContent = Math.round(counter.val).toString();
             },
           });
         });
@@ -190,7 +188,7 @@ export default function InfraPanel() {
           </div>
 
           {/* Two-column layout */}
-          <div className="grid lg:grid-cols-[1fr_320px] gap-8 items-start">
+          <div className="grid lg:grid-cols-[1fr_300px] gap-6 items-start">
             {/* Left: Install + tabbed code */}
             <div>
               {/* Install bar */}
@@ -266,11 +264,11 @@ export default function InfraPanel() {
               <h3 className="infra-reveal font-display text-xs text-[#4a4a5e] uppercase tracking-[0.2em] mb-4">
                 All Tools
               </h3>
-              <div className="space-y-0">
+              <div className="space-y-0 max-h-[380px] overflow-y-auto scrollbar-thin">
                 {TOOLS.map((tool) => (
                   <div
                     key={tool.name}
-                    className="tool-item flex items-start gap-3 py-2.5 border-b border-white/[0.03] last:border-0"
+                    className="tool-item flex items-start gap-3 py-2 border-b border-white/[0.03] last:border-0"
                   >
                     <code className="font-mono text-[11px] text-[#22d3ee]/70 whitespace-nowrap mt-0.5 shrink-0">
                       {tool.name}

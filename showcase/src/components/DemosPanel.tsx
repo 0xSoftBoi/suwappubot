@@ -113,7 +113,7 @@ export default function DemosPanel() {
   return (
     <Panel id="demos" className="bg-[#0a0a12] relative overflow-hidden">
       {/* Decorative blob */}
-      <div className="gradient-blob w-[400px] h-[400px] bg-[#6366f1] bottom-[10%] left-[-5%] demos-parallax" />
+      <div className="gradient-blob w-[300px] h-[300px] bg-[#6366f1] bottom-[10%] left-[-5%] demos-parallax" />
 
       <div ref={panelRef} className="relative z-10 h-full flex items-center">
         <div className="max-w-[1400px] mx-auto px-8 lg:px-16 w-full">
