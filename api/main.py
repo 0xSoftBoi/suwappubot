@@ -130,7 +130,20 @@ async def lifespan(app: FastAPI):
             logger.error(f"❌ Telegram bot failed to initialize: {e}")
             logger.warning("⚠️ Continuing in HEADLESS MODE (API only)")
 
-    # 4. Start Background Services (only if database is available)
+    # 4. Start Discord Bot (if configured)
+    discord_bot = None
+    discord_task = None
+    if db_success and settings.discord_bot_token:
+        try:
+            from bot.platforms.discord_bot import SuwappuDiscordBot
+            discord_bot = SuwappuDiscordBot()
+            discord_task = asyncio.create_task(discord_bot.start())
+            app.state.discord_bot = discord_bot
+            logger.info("✓ Discord bot starting")
+        except Exception as e:
+            logger.warning(f"⚠️ Discord bot failed to start: {e}")
+
+    # 5. Start Background Services (only if database is available)
     admin_ids = getattr(settings, 'admin_ids', [])
 
     if db_success:
@@ -140,6 +153,16 @@ async def lifespan(app: FastAPI):
         await tx_poller.start(bot=bot_app.bot if bot_initialized else None)
         await health_monitor.start(bot=bot_app.bot if bot_initialized else None, admin_ids=admin_ids)
         await balance_refresher.start()
+
+        # Start Discord alert service if Discord bot is available
+        if discord_bot:
+            try:
+                from bot.services.discord_alerts import discord_alert_service
+                await discord_alert_service.start(discord_bot)
+                logger.info("✓ Discord alert service started")
+            except Exception as e:
+                logger.warning(f"⚠️ Discord alerts failed to start: {e}")
+
         logger.info("✓ All background services running")
     else:
         logger.warning("⚠️ Background services NOT started - database unavailable")
@@ -148,6 +171,14 @@ async def lifespan(app: FastAPI):
 
     # --- Shutdown ---
     logger.info("🛑 Shutting down Suwappu Monolith...")
+
+    # Stop Discord bot
+    if discord_bot:
+        try:
+            await discord_bot.stop()
+            logger.info("✓ Discord bot stopped")
+        except Exception as e:
+            logger.warning(f"Failed to stop Discord bot: {e}")
 
     # Stop bot polling if it was started
     if polling_task:
@@ -1273,30 +1304,9 @@ async def receive_whatsapp_message(request: Request):
     # Mark as read
     await whatsapp_service.mark_as_read(message.message_id)
 
-    # Process command via Unified Service
-    text = message.text or ""
-    if message.button_payload:
-        text = message.button_payload
-
-    response = await unified_bot_service.handle_command(
-        platform="whatsapp",
-        user_id=message.from_number,
-        text=text
-    )
-
-    # Send response
-    if response.buttons:
-        await whatsapp_service.send_interactive_buttons(
-            message.from_number,
-            response.text,
-            response.buttons,
-            header=response.header
-        )
-    else:
-        await whatsapp_service.send_text_message(
-            message.from_number,
-            response.text
-        )
+    # Route through flow-aware router (activates swap_flow, wallet_flow, etc.)
+    from bot.services.whatsapp_router import whatsapp_router
+    await whatsapp_router.route(message)
 
     return {"status": "ok"}
 
