@@ -1,8 +1,9 @@
 /**
- * Referral dashboard — code, stats, referral list.
+ * Referral dashboard — code, stats, referral list, share CTA.
  */
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
-import { FlashList } from '@shopify/flash-list'
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Share } from 'react-native'
+import FontAwesome from '@expo/vector-icons/FontAwesome'
+import * as Haptics from 'expo-haptics'
 import { useReferralCode, useReferralStats, useReferralList } from '../../../hooks/useReferrals'
 import ReferralCodeCard from '../../../components/referral/ReferralCodeCard'
 import ReferralStatsCard from '../../../components/referral/ReferralStatsCard'
@@ -15,6 +16,18 @@ export default function ReferralScreen() {
   const { data: referrals } = useReferralList()
 
   const isLoading = codeLoading || statsLoading
+
+  const handleShare = async () => {
+    if (!codeData?.code) return
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    try {
+      await Share.share({
+        message: `Join Suwappu and trade crypto across 7+ chains! Use my referral code: ${codeData.code}\n\nhttps://app.suwappu.xyz/ref/${codeData.code}`,
+      })
+    } catch {
+      // User cancelled
+    }
+  }
 
   if (isLoading) {
     return (
@@ -41,6 +54,14 @@ export default function ReferralScreen() {
         <View style={styles.noCode}>
           <Text style={styles.noCodeText}>No referral code yet. Complete a swap to get one.</Text>
         </View>
+      )}
+
+      {/* Share CTA */}
+      {codeData?.code && (
+        <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
+          <FontAwesome name="share-alt" size={16} color="#fff" />
+          <Text style={styles.shareText}>Share & Earn</Text>
+        </TouchableOpacity>
       )}
 
       {/* Stats */}
@@ -106,6 +127,17 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
   noCodeText: { fontSize: 15, color: colors.textSecondary },
+  shareButton: {
+    flexDirection: 'row',
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  shareText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   sectionTitle: {
     fontSize: 13,
     fontWeight: '600',

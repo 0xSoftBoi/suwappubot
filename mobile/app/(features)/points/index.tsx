@@ -1,9 +1,10 @@
 /**
  * Points dashboard — level, check-in, milestones, rewards.
  */
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator } from 'react-native'
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator, Alert } from 'react-native'
 import { useRouter } from 'expo-router'
 import FontAwesome from '@expo/vector-icons/FontAwesome'
+import * as Haptics from 'expo-haptics'
 import { usePoints, useDailyCheckin, useMilestones, useRewards, useRedeemReward } from '../../../hooks/usePoints'
 import LevelCard from '../../../components/points/LevelCard'
 import MilestoneCard from '../../../components/points/MilestoneCard'
@@ -34,7 +35,15 @@ export default function PointsScreen() {
       {/* Daily check-in */}
       <TouchableOpacity
         style={[styles.checkinButton, !points.canCheckin && styles.checkinDisabled]}
-        onPress={() => checkinMutation.mutate()}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+          checkinMutation.mutate(undefined, {
+            onSuccess: () => {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+              Alert.alert('Checked In!', '+10 points earned')
+            },
+          })
+        }}
         disabled={!points.canCheckin || checkinMutation.isPending}
       >
         {checkinMutation.isPending ? (
@@ -53,14 +62,14 @@ export default function PointsScreen() {
       <View style={styles.quickLinks}>
         <TouchableOpacity
           style={styles.quickLink}
-          onPress={() => router.push('/(features)/points/leaderboard' as any)}
+          onPress={() => { Haptics.selectionAsync(); router.push('/(features)/points/leaderboard' as any) }}
         >
           <FontAwesome name="trophy" size={16} color={colors.warning} />
           <Text style={styles.quickLinkText}>Leaderboard</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.quickLink}
-          onPress={() => router.push('/(features)/points/history' as any)}
+          onPress={() => { Haptics.selectionAsync(); router.push('/(features)/points/history' as any) }}
         >
           <FontAwesome name="history" size={16} color={colors.textSecondary} />
           <Text style={styles.quickLinkText}>History</Text>
@@ -88,7 +97,16 @@ export default function PointsScreen() {
               key={r.id}
               reward={r}
               spendablePoints={points.spendablePoints}
-              onRedeem={id => redeemMutation.mutate(id)}
+              onRedeem={id => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+                redeemMutation.mutate(id, {
+                  onSuccess: () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
+                  onError: () => {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+                    Alert.alert('Error', 'Failed to redeem reward.')
+                  },
+                })
+              }}
               isRedeeming={redeemMutation.isPending}
             />
           ))}
