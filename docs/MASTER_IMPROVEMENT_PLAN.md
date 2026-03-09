@@ -401,6 +401,88 @@ EFF │                   │                   │ EFFORT
 
 ---
 
+---
+
+## March 2026 Competitive Update
+
+**Updated**: March 9, 2026
+
+### Market Shifts Since February
+
+The competitive landscape has accelerated significantly:
+
+1. **Axiom now dominates Solana** -- reportedly ~72% of Solana bot trade volume. Y Combinator-backed, they've added perpetual futures trading, Turbo Mode (nonce-based millisecond execution), and tiered cashback (down to 0.75% effective fee at Champion tier). Their wallet tracker + leaderboard combo is the gold standard for copy trading UX.
+
+2. **Trojan hit 2M users and $24B+ lifetime volume** -- sub-2-second execution on Solana, added ETH bridging. Confirmation that speed + gamification is the winning formula.
+
+3. **BullX emerged as the multi-chain leader** -- ETH, SOL, Base, Arbitrum, Blast through one interface with integrated TradingView charts. 0.9% fee undercuts most competitors. Hybrid Telegram + web model.
+
+4. **GMGN differentiated on AI + smart money** -- AI-driven sniping triggers, contract security checks (honeypot, LP analysis, first-70-buyers tracking), supports ETH/BSC/Base/SOL/Tron. Copy trading is their core strength.
+
+5. **Photon focused on speed** -- web-only terminal, Memescope for trend aggregation, Smart-MEV protection modes. Favored by manual/discretionary traders.
+
+6. **Cross-chain aggregators matured**:
+   - LI.FI/Jumper: 54+ chains, no platform fee, multi-routing-engine comparison
+   - deBridge: 0-TVL model (no pooled liquidity risk), 30+ security audits
+   - Squid Router: 79+ chains via Axelar, simplest UX
+
+7. **Telegram ecosystem exploded** -- 1B+ monthly users, 100M+ wallet activations, TON in top-10 crypto by market cap ($18.3B). Blum (Telegram mini app) hit 43M MAU across 45+ chains. The "financial super app" thesis is materializing.
+
+8. **AI agents went mainstream in DeFi** -- 550+ AI agent crypto projects, $4.34B combined market cap. Key trends: natural language wallets, ERC-8004 identity registries for trustless agent trading, DeFAI (autonomous on-chain strategy execution), volatility shields.
+
+### New Competitive Gaps Identified
+
+| Gap | Who Has It | Why It Matters | Priority |
+|-----|-----------|----------------|----------|
+| **Turbo/nonce-based execution** | Axiom | Millisecond trades during congestion | **P1** |
+| **Integrated TradingView charts** | BullX, Photon, Axiom | Users won't leave for charting | **P1** |
+| **Memescope/token discovery feed** | Photon, GMGN | Trend detection drives trading volume | **P1** |
+| **Bubble maps (holder visualization)** | Axiom, Photon | Visual rug detection is trust-building | **P2** |
+| **5-second chart intervals** | Axiom | Critical for memecoin scalping | **P2** |
+| **Perpetual futures** | Axiom (via HyperLiquid) | Massive volume opportunity | **P2** |
+| **Group bot model** | GMGN | Bot invited to alpha groups, admins earn | **P2** |
+| **First-70-buyers tracking** | GMGN | Insider detection before buying | **P2** |
+| **Migration sniping** | Axiom | Auto-snipe tokens migrating to new DEX pools | **P3** |
+
+### Updated Strategic Priorities (March 2026)
+
+Given these shifts, the recommended priority order is:
+
+**Immediate (this sprint):**
+1. **PnL tracking + shareable cards** -- still the biggest missing table-stakes feature
+2. **Token safety scoring with GoPlus** -- every competitor has this now
+3. **MEV protection toggle** -- Jito bundles on Solana, Flashbots on ETH
+
+**Next sprint:**
+4. **Integrated charts** (TradingView lightweight-charts in webapp/mobile)
+5. **Token discovery feed** ("Memescope" equivalent) -- trending tokens by volume, new pools, smart money activity
+6. **Multi-tier referral upgrade** -- 3-5 tier, KOL program
+
+**Quarter 2:**
+7. **Gamification system** ("Suwappu Arena" -- quests, streaks, leaderboard, jackpot)
+8. **Web trading terminal** (evolve webapp into full desktop-grade terminal)
+9. **Enhanced copy trading** with wallet scoring and auto-sell mirroring
+
+### Suwappu's Unique Advantages
+
+Despite the gaps, Suwappu has several differentiators to lean into:
+
+1. **True cross-chain from day one** -- 13 chains configured (ETH, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche, Fantom, Linea, Mantle, Gnosis, Scroll, Solana). Most competitors max out at 5-6. This is a real moat.
+
+2. **Multi-surface distribution** -- Telegram bot + Mini App + Expo iOS app + WhatsApp (webhook exists). No competitor has all four.
+
+3. **Sophisticated bridge integrations** -- LiFi, Across, CCIP, CCTP, LayerZero, Socket, Wormhole. This routing diversity is unmatched.
+
+4. **Agent API (A2A protocol)** -- `api-ts/src/routes/a2a.ts` and `agent.ts` position Suwappu for the AI agent trading wave. No major bot has a clean agent API yet.
+
+5. **x402 micropayment service** -- forward-looking infrastructure for agent-to-agent payments.
+
+6. **KMS envelope encryption** -- stronger security model than most competitors who use simple encrypted keys.
+
+**Strategy**: Lead on cross-chain breadth and agent infrastructure while closing table-stakes gaps on speed/safety/UX.
+
+---
+
 ## Sources
 
 This plan is synthesized from research across 50+ sources including:
@@ -412,3 +494,21 @@ This plan is synthesized from research across 50+ sources including:
 - Jito Labs, Flashbots, deBridge documentation
 - Industry reports from Hacken, CertiK, PropellerAds
 - Revenue data from DLNews, Benzinga, Phemex, Solana Floor
+
+### March 2026 Update Sources
+- [CoinGecko: Top Telegram Trading Bots](https://www.coingecko.com/learn/top-telegram-trading-bots)
+- [DEV Community: BullX vs Banana Gun vs Maestro](https://dev.to/airesearchnow/best-telegram-crypto-trading-bots-2025-bullx-vs-banana-gun-vs-maestro-1h95)
+- [Solana Trading Bots 2026](https://solanatradingbots.com/)
+- [CoinCodeCap: Top Telegram Trading Bots March 2026](https://signals.coincodecap.com/top-best-telegram-trading-bots)
+- [deBridge: Top DEX Swap Aggregators](https://debridge.com/learn/guides/top-dex-swap-aggregators-2026/)
+- [Best Cross-Chain Swap Platforms 2026](https://coingape.com/best-cross-chain-swap-platforms/)
+- [CoinMarketCap: AI Predictions 2026](https://coinmarketcap.com/academy/article/whats-next-for-ai-predictions-for-2026-and-beyond)
+- [AI Agents in Crypto 2025 Guide](https://www.ampcome.com/post/ai-agents-in-crypto-2025-guide)
+- [Top AI Agent Crypto Projects 2026](https://bingx.com/en/learn/article/top-ai-agent-crypto-projects-to-watch)
+- [TON Mini-Apps Reshaping Crypto](https://www.bitrue.com/blog/ton-mini-app-reshape-crypto)
+- [CoinDesk: Affluent Super App](https://www.coindesk.com/business/2025/06/16/ton-based-protocol-affluent-wants-to-make-telegram-a-financial-super-app)
+- [Telegram 450M Daily Users, 33% Crypto](https://www.financemagnates.com/forex/telegram-reaches-1b-users-33-trade-crypto-brokers-see-growth-via-mini-apps/)
+- [GMGN vs Photon Comparison](https://memecointradingplatforms.com/blog/gmgn-vs-photon/)
+- [GMGN vs Photon vs Axiom](https://telegramtrading.net/gmgn-vs-photon-vs-axiom/)
+- [Axiom Pro Solana Sniper](https://axiompro.app/sniper/)
+- [ERC-8004 Trustless AI Trading Agents](https://medium.com/@gwrx2005/trustless-ai-powered-crypto-trading-agents-with-erc-8004-and-moltbot-58d8789be837)
