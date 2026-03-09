@@ -19,8 +19,8 @@ html {
 }
 
 body {
-  background: #09090b;
-  color: #fafafa;
+  background: #07070e;
+  color: #e8e6e3;
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -30,32 +30,32 @@ body {
 .glass {
   background: linear-gradient(
     135deg,
-    rgba(24, 24, 27, 0.8),
-    rgba(39, 39, 42, 0.5) 50%,
-    rgba(24, 24, 27, 0.6)
+    rgba(14, 14, 26, 0.8),
+    rgba(22, 22, 42, 0.5) 50%,
+    rgba(14, 14, 26, 0.6)
   );
   backdrop-filter: blur(16px) saturate(180%);
   -webkit-backdrop-filter: blur(16px) saturate(180%);
-  border: 1px solid rgba(113, 113, 122, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .glass-card {
-  background: rgba(24, 24, 27, 0.9);
+  background: rgba(14, 14, 26, 0.9);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(113, 113, 122, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 /* ---- Gradient text ---- */
 .gradient-text {
-  background: linear-gradient(135deg, #e91e8c, #6c3483 50%, #4a235a);
+  background: linear-gradient(135deg, #ff2d78, #a855f7 50%, #6366f1);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 .animated-gradient {
-  background: linear-gradient(-45deg, #ffd1dc, #ffb7c5, #e91e8c, #6c3483);
+  background: linear-gradient(-45deg, #ff2d78, #a855f7, #6366f1, #22d3ee);
   background-size: 400% 400%;
   animation: gradient-shift 15s ease infinite;
 }
@@ -68,8 +68,8 @@ body {
 
 /* ---- Terminal block ---- */
 .terminal {
-  background: #1a1b2e;
-  border: 1px solid rgba(255, 183, 197, 0.15);
+  background: #0e0e1a;
+  border: 1px solid rgba(255, 45, 120, 0.12);
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
 }
 
@@ -91,7 +91,7 @@ body {
   content: '';
   position: absolute;
   inset: 0;
-  border: 2px solid rgba(255, 183, 197, 0.3);
+  border: 2px solid rgba(255, 45, 120, 0.2);
   border-radius: 20px;
   pointer-events: none;
   z-index: 10;
@@ -101,11 +101,11 @@ body {
 .phone-frame {
   position: relative;
   padding: 12px;
-  background: linear-gradient(145deg, #1a1a1a, #2d2d2d);
+  background: linear-gradient(145deg, #0e0e1a, #16162a);
   border-radius: 40px;
   box-shadow:
     0 25px 50px rgba(0, 0, 0, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
     inset 0 -1px 0 rgba(0, 0, 0, 0.3);
 }
 
@@ -177,9 +177,9 @@ body {
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(255, 183, 197, 0.4) 20%,
-    rgba(233, 30, 140, 0.2) 50%,
-    rgba(255, 183, 197, 0.4) 80%,
+    rgba(255, 45, 120, 0.3) 20%,
+    rgba(168, 85, 247, 0.2) 50%,
+    rgba(255, 45, 120, 0.3) 80%,
     transparent
   );
 }
@@ -197,71 +197,32 @@ body {
 .shimmer-bg {
   background: linear-gradient(
     90deg,
-    rgba(255, 183, 197, 0.08) 25%,
-    rgba(255, 183, 197, 0.18) 50%,
-    rgba(255, 183, 197, 0.08) 75%
+    rgba(255, 45, 120, 0.06) 25%,
+    rgba(255, 45, 120, 0.14) 50%,
+    rgba(255, 45, 120, 0.06) 75%
   );
   background-size: 200% 100%;
   animation: shimmer 3s ease-in-out infinite;
 }
 
-/* ---- Selection / scrollbar ---- */
+/* ---- Selection ---- */
 ::selection {
-  background: rgba(233, 30, 140, 0.3);
+  background: rgba(255, 45, 120, 0.3);
   color: inherit;
-}
-
-::-webkit-scrollbar {
-  width: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: #09090b;
-}
-
-::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #ffb7c5, #c44569);
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #f8a5c2, #e91e8c);
 }
 
 /* ---- Section utility classes ---- */
 .section-label {
-  @apply text-xs uppercase tracking-[0.3em] text-zinc-500 font-medium;
+  @apply text-xs uppercase tracking-[0.3em] text-noir-text-3 font-medium font-display;
 }
 
 .section-heading {
-  @apply font-serif text-4xl md:text-5xl lg:text-6xl text-zinc-50;
+  @apply font-display text-4xl md:text-5xl lg:text-6xl text-noir-text font-bold;
 }
 
 .step-number {
-  @apply text-sm font-mono text-zinc-600;
+  @apply text-sm font-mono text-noir-text-3;
 }
-
-/* ---- Fade-up animation ---- */
-.fade-up {
-  opacity: 0;
-  transform: translateY(20px);
-}
-
-.fade-up.visible {
-  animation: fadeUp 0.6s ease-out forwards;
-}
-
-@keyframes fadeUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 
 /* ---- Particle float ---- */
 @keyframes particle-float {
@@ -273,9 +234,64 @@ body {
   animation: particle-float 3s ease-in-out infinite;
 }
 
+/* ---- Panel base ---- */
+.gsap-panel {
+  width: 100vw;
+  height: 100vh;
+  flex-shrink: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ---- Decorative grid overlay ---- */
+.grid-overlay {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
+
+/* ---- Glow effects ---- */
+.glow-pink {
+  box-shadow: 0 0 80px rgba(255, 45, 120, 0.15), 0 0 160px rgba(255, 45, 120, 0.05);
+}
+.glow-purple {
+  box-shadow: 0 0 80px rgba(168, 85, 247, 0.15), 0 0 160px rgba(168, 85, 247, 0.05);
+}
+
+/* ---- Noise texture overlay ---- */
+.noise-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ---- Gradient blob ---- */
+.gradient-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+/* ---- Split text character ---- */
+.split-char {
+  display: inline-block;
+  will-change: transform, opacity;
+}
+
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: #07070e; }
+::-webkit-scrollbar-thumb { background: #1a1a2e; border-radius: 2px; }
+
 /* ---- Focus visible ---- */
 *:focus-visible {
-  outline: 2px solid rgba(233, 30, 140, 0.5);
+  outline: 2px solid rgba(255, 45, 120, 0.5);
   outline-offset: 2px;
   border-radius: 4px;
 }

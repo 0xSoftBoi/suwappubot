@@ -1,24 +1,23 @@
 import type { Metadata } from 'next';
-import { Inter, DM_Serif_Display, JetBrains_Mono } from 'next/font/google';
+import { Syne, Outfit, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 
-const inter = Inter({
+const syne = Syne({
+  subsets: ['latin'],
+  variable: '--font-display',
+  display: 'swap',
+});
+
+const outfit = Outfit({
   subsets: ['latin'],
   weight: ['300', '400', '500', '600'],
   variable: '--font-sans',
   display: 'swap',
 });
 
-const dmSerifDisplay = DM_Serif_Display({
-  subsets: ['latin'],
-  weight: '400',
-  variable: '--font-serif',
-  display: 'swap',
-});
-
 const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin'],
-  weight: ['400', '500', '600'],
+  weight: ['400', '500'],
   variable: '--font-mono',
   display: 'swap',
 });
@@ -59,12 +58,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${inter.variable} ${dmSerifDisplay.variable} ${jetbrainsMono.variable}`}>
+    <html lang="en" className={`${syne.variable} ${outfit.variable} ${jetbrainsMono.variable}`}>
       <head>
         <link rel="icon" href="/favicon.ico" />
         <link rel="author" type="text/plain" href="/llms.txt" />
       </head>
-      <body className="font-sans antialiased bg-zinc-950 text-zinc-50">{children}</body>
+      <body className="font-sans antialiased bg-[#07070e] text-[#e8e6e3]">{children}</body>
     </html>
   );
 }
