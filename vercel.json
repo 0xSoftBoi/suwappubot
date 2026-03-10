@@ -3,6 +3,5 @@
     "buildCommand": "vite build",
     "outputDirectory": "dist",
     "framework": "vite",
-    "installCommand": "npm ci || bun install",
-    "rootDirectory": "webapp"
+    "installCommand": "npm ci || bun install"
 }
