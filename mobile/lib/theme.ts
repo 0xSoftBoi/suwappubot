@@ -1,6 +1,16 @@
 /**
- * Centralized color tokens for the Suwappu dark theme.
+ * Mobile theme — maps shared design tokens to existing mobile color keys.
+ *
+ * The mobile app uses a flat color structure (bg, card, text, primary, etc.)
+ * while the shared tokens use a nested structure (brand, semantic, surface, etc.).
+ * This mapping layer preserves backward compatibility for all existing consumers.
  */
+import { sakuraTheme, professionalTheme } from '@suwappu/design-tokens/react-native'
+
+// Re-export full themes for new consumers
+export { sakuraTheme, professionalTheme } from '@suwappu/design-tokens/react-native'
+
+// Map shared tokens to mobile's existing flat color structure
 export const colors = {
   bg: '#000',
   card: '#111',
@@ -28,21 +38,22 @@ export const colors = {
   errorDim: '#b91c1c',
   info: '#3b82f6',
 
-  // Status badge colors
-  statusActive: '#22c55e',
-  statusPending: '#f59e0b',
-  statusTriggered: '#3b82f6',
+  // Status badge colors (mapped from shared tx/semantic tokens)
+  statusActive: sakuraTheme.colors.txState.success,
+  statusPending: sakuraTheme.colors.txState.pending,
+  statusTriggered: sakuraTheme.colors.txState.confirming,
   statusCancelled: '#666',
-  statusFailed: '#ef4444',
-  statusPaused: '#f59e0b',
-  statusCompleted: '#22c55e',
-  statusExecuted: '#22c55e',
+  statusFailed: sakuraTheme.colors.txState.failed,
+  statusPaused: sakuraTheme.colors.txState.pending,
+  statusCompleted: sakuraTheme.colors.txState.success,
+  statusExecuted: sakuraTheme.colors.txState.success,
 
   // Chain badge colors
-  chainEvm: '#627eea',
-  chainSolana: '#9945ff',
+  chainEvm: sakuraTheme.colors.chain.ethereum,
+  chainSolana: sakuraTheme.colors.chain.solana,
 } as const
 
+// Preserve original mobile spacing (differs from shared tokens scale)
 export const spacing = {
   xs: 4,
   sm: 8,
@@ -53,6 +64,7 @@ export const spacing = {
   xxxl: 32,
 } as const
 
+// Preserve original mobile radius (differs from shared tokens scale)
 export const radius = {
   sm: 8,
   md: 14,

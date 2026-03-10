@@ -12,6 +12,8 @@
     "build:prod": "eas build --platform ios --profile production"
   },
   "dependencies": {
+    "@suwappu/design-tokens": "file:../packages/design-tokens",
+    "@suwappu/shared": "file:../packages/shared",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-community/slider": "^5.1.2",
     "@react-navigation/native": "^7.1.8",
