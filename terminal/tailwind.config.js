@@ -8,30 +8,30 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Terminal dark theme
+        // Terminal dark theme — aligned with showcase noir palette
         terminal: {
-          bg: '#0a0a0f',
-          'bg-secondary': '#12121a',
-          'bg-tertiary': '#1a1a2e',
-          panel: '#0f0f18',
-          border: '#1e1e30',
-          'border-active': '#2a2a45',
-          text: '#e2e2f0',
-          'text-secondary': '#8888a0',
-          'text-muted': '#55556a',
+          bg: '#050508',
+          'bg-secondary': '#0a0a12',
+          'bg-tertiary': '#12121e',
+          panel: '#07070e',
+          border: '#1a1a2a',
+          'border-active': '#2a2a40',
+          text: '#e8e6e3',
+          'text-secondary': '#8a8a9c',
+          'text-muted': '#4a4a5e',
         },
-        // Suwappu sakura accent (carried from webapp)
+        // Suwappu accent — matched to showcase #ff2d78 pink + purple
         sakura: {
-          50: '#FFF5F7',
-          100: '#FFEBEF',
-          200: '#FFD1DC',
-          300: '#FFB7C5',
-          400: '#FF9DB0',
-          500: '#FF839B',
-          600: '#E66D85',
-          700: '#CC576F',
-          800: '#B34159',
-          900: '#992B43',
+          50: '#FFF0F4',
+          100: '#FFE0EA',
+          200: '#FFC1D5',
+          300: '#FF8AAF',
+          400: '#FF5C91',
+          500: '#ff2d78',
+          600: '#e6286c',
+          700: '#cc2360',
+          800: '#b31e54',
+          900: '#991948',
         },
         // Trading colors
         bull: '#22c55e',
