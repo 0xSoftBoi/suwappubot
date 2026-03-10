@@ -1,26 +1,52 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
-import { createChart, type IChartApi, type ISeriesApi, ColorType } from 'lightweight-charts'
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
+import { createChart, type IChartApi, type ISeriesApi, ColorType, LineStyle } from 'lightweight-charts'
 import { ChartToolbar } from './ChartToolbar'
 import { useChartData } from '../../hooks/useChartData'
+import { usePair } from '../../contexts/PairContext'
+import { useTrading } from '../../contexts/TradingContext'
+import type { OHLCVCandle } from '../../types/api'
 
 const INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1D'] as const
 type Interval = typeof INTERVALS[number]
+
+function computeSMA(candles: OHLCVCandle[], period: number) {
+  const result: { time: number; value: number }[] = []
+  for (let i = period - 1; i < candles.length; i++) {
+    let sum = 0
+    for (let j = i - period + 1; j <= i; j++) {
+      sum += candles[j].close
+    }
+    result.push({ time: candles[i].time, value: sum / period })
+  }
+  return result
+}
 
 export function PriceChart() {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  const lineSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
+  const sma20Ref = useRef<ISeriesApi<'Line'> | null>(null)
+  const sma50Ref = useRef<ISeriesApi<'Line'> | null>(null)
 
-  const [interval, setInterval] = useState<Interval>('1h')
+  const { chartInterval: interval, setChartInterval } = useTrading()
   const [chartType, setChartType] = useState<'candle' | 'line'>('candle')
 
-  // TODO: Get pair from context/header selection
+  const { selectedPair, selectedChain } = usePair()
+
+  // Use the base token address for chart data
+  const tokenAddress = selectedPair.base?.address ?? null
+
   const { data: candles, isLoading } = useChartData(
-    '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC
-    'ethereum',
+    tokenAddress,
+    selectedChain,
     interval
   )
+
+  // Compute SMA data
+  const sma20Data = useMemo(() => candles ? computeSMA(candles, 20) : [], [candles])
+  const sma50Data = useMemo(() => candles ? computeSMA(candles, 50) : [], [candles])
 
   // Initialize chart
   useEffect(() => {
@@ -66,6 +92,16 @@ export function PriceChart() {
     })
     candleSeriesRef.current = candleSeries
 
+    // Line series (for line chart mode)
+    const lineSeries = chart.addLineSeries({
+      color: '#E66D85',
+      lineWidth: 2,
+      crosshairMarkerVisible: true,
+      crosshairMarkerRadius: 4,
+      visible: false,
+    })
+    lineSeriesRef.current = lineSeries
+
     // Volume histogram
     const volumeSeries = chart.addHistogramSeries({
       priceFormat: { type: 'volume' },
@@ -75,6 +111,28 @@ export function PriceChart() {
       scaleMargins: { top: 0.8, bottom: 0 },
     })
     volumeSeriesRef.current = volumeSeries
+
+    // SMA 20 line
+    const sma20 = chart.addLineSeries({
+      color: '#f59e0b',
+      lineWidth: 1,
+      lineStyle: LineStyle.Solid,
+      crosshairMarkerVisible: false,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    })
+    sma20Ref.current = sma20
+
+    // SMA 50 line
+    const sma50 = chart.addLineSeries({
+      color: '#8b5cf6',
+      lineWidth: 1,
+      lineStyle: LineStyle.Solid,
+      crosshairMarkerVisible: false,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    })
+    sma50Ref.current = sma50
 
     // Resize observer
     const observer = new ResizeObserver(entries => {
@@ -92,9 +150,19 @@ export function PriceChart() {
     }
   }, [])
 
+  // Toggle candle/line visibility when chartType changes
+  useEffect(() => {
+    if (candleSeriesRef.current) {
+      candleSeriesRef.current.applyOptions({ visible: chartType === 'candle' })
+    }
+    if (lineSeriesRef.current) {
+      lineSeriesRef.current.applyOptions({ visible: chartType === 'line' })
+    }
+  }, [chartType])
+
   // Update data when candles change
   useEffect(() => {
-    if (!candles || !candleSeriesRef.current || !volumeSeriesRef.current) return
+    if (!candles || !candleSeriesRef.current || !volumeSeriesRef.current || !lineSeriesRef.current) return
 
     const candleData = candles.map(c => ({
       time: c.time as number,
@@ -104,6 +172,11 @@ export function PriceChart() {
       close: c.close,
     }))
 
+    const lineData = candles.map(c => ({
+      time: c.time as number,
+      value: c.close,
+    }))
+
     const volumeData = candles.map(c => ({
       time: c.time as number,
       value: c.volume,
@@ -111,31 +184,24 @@ export function PriceChart() {
     }))
 
     candleSeriesRef.current.setData(candleData)
+    lineSeriesRef.current.setData(lineData)
     volumeSeriesRef.current.setData(volumeData)
+
+    // SMA overlays
+    if (sma20Ref.current) sma20Ref.current.setData(sma20Data)
+    if (sma50Ref.current) sma50Ref.current.setData(sma50Data)
 
     // Fit content
     chartRef.current?.timeScale().fitContent()
-  }, [candles])
-
-  // Keyboard shortcuts for intervals
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return
-      const key = e.key
-      if (key === '1') setInterval('1m')
-      else if (key === '2') setInterval('5m')
-      else if (key === '3') setInterval('15m')
-      else if (key === '4') setInterval('1h')
-      else if (key === '5') setInterval('4h')
-      else if (key === '6') setInterval('1D')
-    }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [])
+  }, [candles, sma20Data, sma50Data])
 
   const handleIntervalChange = useCallback((i: string) => {
-    setInterval(i as Interval)
-  }, [])
+    setChartInterval(i as Interval)
+  }, [setChartInterval])
+
+  const pairLabel = selectedPair.base && selectedPair.quote
+    ? `${selectedPair.base.symbol}/${selectedPair.quote.symbol}`
+    : null
 
   return (
     <div className="h-full flex flex-col">
@@ -148,15 +214,24 @@ export function PriceChart() {
       <div ref={containerRef} className="flex-1 relative">
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-terminal-text-muted text-sm animate-pulse">Loading chart...</div>
+            <div className="text-terminal-text-muted text-sm animate-pulse">
+              Loading {pairLabel ?? 'chart'}...
+            </div>
           </div>
         )}
         {!isLoading && !candles && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center">
               <div className="text-terminal-text-muted text-sm">Select a trading pair</div>
-              <div className="text-terminal-text-muted text-xs mt-1">Use ⌘K to search</div>
+              <div className="text-terminal-text-muted text-xs mt-1">Use Cmd+K to search</div>
             </div>
+          </div>
+        )}
+        {/* SMA legend */}
+        {candles && candles.length > 0 && (
+          <div className="absolute top-1 left-2 flex gap-3 text-[10px] font-mono z-10 pointer-events-none">
+            <span className="text-amber-400">SMA 20</span>
+            <span className="text-violet-400">SMA 50</span>
           </div>
         )}
       </div>

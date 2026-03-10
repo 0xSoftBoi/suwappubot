@@ -8,6 +8,8 @@ import { config } from './lib/wagmi'
 import { AuthProvider } from './contexts/AuthContext'
 import { BottomTabProvider } from './contexts/BottomTabContext'
 import { HotkeysProvider } from './contexts/HotkeysContext'
+import { TradingProvider } from './contexts/TradingContext'
+import { PairProvider } from './contexts/PairContext'
 import { App } from './App'
 import './index.css'
 
@@ -34,11 +36,15 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           })}
         >
           <AuthProvider>
-            <BottomTabProvider>
-              <HotkeysProvider>
-                <App />
-              </HotkeysProvider>
-            </BottomTabProvider>
+            <PairProvider>
+              <BottomTabProvider>
+                <TradingProvider>
+                  <HotkeysProvider>
+                    <App />
+                  </HotkeysProvider>
+                </TradingProvider>
+              </BottomTabProvider>
+            </PairProvider>
           </AuthProvider>
         </RainbowKitProvider>
       </QueryClientProvider>

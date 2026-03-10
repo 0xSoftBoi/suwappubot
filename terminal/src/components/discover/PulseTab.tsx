@@ -1,3 +1,4 @@
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { usePulse } from '../../hooks/usePulse'
 import { PulseFilters } from './PulseFilters'
 import { PulseTokenRow } from './PulseTokenRow'
@@ -9,10 +10,29 @@ const SUB_TABS = [
 ]
 
 export function PulseTab() {
-  const { activeStage, setActiveStage, tokens, filters, setFilters, resetFilters, lastUpdated } = usePulse()
+  const {
+    activeStage, setActiveStage,
+    tokens, filters, setFilters, resetFilters,
+    lastUpdated, soundEnabled, setSoundEnabled,
+  } = usePulse()
+
+  const [isHovered, setIsHovered] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const prevTokenCountRef = useRef(tokens.length)
 
   const timeSince = Math.floor((Date.now() - lastUpdated) / 1000)
   const hasBondingCol = activeStage === 'final_stretch'
+
+  // Auto-scroll to top when new tokens arrive (unless hovered)
+  useEffect(() => {
+    if (tokens.length > prevTokenCountRef.current && !isHovered && scrollRef.current) {
+      scrollRef.current.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+    prevTokenCountRef.current = tokens.length
+  }, [tokens.length, isHovered])
+
+  const handleMouseEnter = useCallback(() => setIsHovered(true), [])
+  const handleMouseLeave = useCallback(() => setIsHovered(false), [])
 
   return (
     <div className="flex flex-col h-full" data-testid="pulse-tab">
@@ -34,25 +54,68 @@ export function PulseTab() {
             </button>
           ))}
         </div>
-        <span className="flex items-center gap-1 text-[9px] text-terminal-text-muted">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-          {timeSince < 5 ? 'Live' : `${timeSince}s ago`}
-        </span>
+
+        <div className="flex items-center gap-2">
+          {/* Sound toggle */}
+          <button
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] border transition-colors ${
+              soundEnabled
+                ? 'bg-sakura-600/15 text-sakura-400 border-sakura-600/30'
+                : 'text-terminal-text-muted border-terminal-border hover:border-terminal-border-active'
+            }`}
+            title={soundEnabled ? 'Mute new token alerts' : 'Enable sound for new tokens'}
+          >
+            {soundEnabled ? (
+              <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 2.81v10.38c0 .67-.81 1-1.28.53L3.78 10.8H1.5A.5.5 0 011 10.3V5.7a.5.5 0 01.5-.5h2.28l2.94-2.92A.75.75 0 018 2.81zM11.5 5a.5.5 0 01.36.15 4.98 4.98 0 010 5.7.5.5 0 01-.72-.7 3.98 3.98 0 000-4.3.5.5 0 01.36-.85zM13 3.5a.5.5 0 01.36.15 7.48 7.48 0 010 8.7.5.5 0 01-.72-.7 6.48 6.48 0 000-7.3A.5.5 0 0113 3.5z" />
+              </svg>
+            ) : (
+              <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 2.81v10.38c0 .67-.81 1-1.28.53L3.78 10.8H1.5A.5.5 0 011 10.3V5.7a.5.5 0 01.5-.5h2.28l2.94-2.92A.75.75 0 018 2.81zM12.2 5.2a.5.5 0 01.7 0l1.1 1.1 1.1-1.1a.5.5 0 01.7.7L14.7 7l1.1 1.1a.5.5 0 01-.7.7L14 7.7l-1.1 1.1a.5.5 0 01-.7-.7L13.3 7l-1.1-1.1a.5.5 0 010-.7z" />
+              </svg>
+            )}
+            <span>{soundEnabled ? 'On' : 'Off'}</span>
+          </button>
+
+          {/* Pause indicator */}
+          {isHovered && (
+            <span className="flex items-center gap-1 text-[9px] text-yellow-400">
+              <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="currentColor">
+                <rect x="2" y="1" width="2" height="8" rx="0.5" />
+                <rect x="6" y="1" width="2" height="8" rx="0.5" />
+              </svg>
+              Paused
+            </span>
+          )}
+
+          {/* Live indicator */}
+          <span className="flex items-center gap-1 text-[9px] text-terminal-text-muted">
+            <span className={`w-1.5 h-1.5 rounded-full ${isHovered ? 'bg-yellow-500' : 'bg-green-500 animate-pulse'}`} />
+            {timeSince < 5 ? 'Live' : `${timeSince}s ago`}
+          </span>
+        </div>
       </div>
 
       {/* Filters */}
       <PulseFilters filters={filters} onChange={setFilters} onReset={resetFilters} />
 
       {/* Table */}
-      <div className="flex-1 overflow-auto">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-auto"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
         <table className="w-full text-xs">
           <thead>
-            <tr className="text-terminal-text-muted border-b border-terminal-border sticky top-0 bg-terminal-bg">
+            <tr className="text-terminal-text-muted border-b border-terminal-border sticky top-0 bg-terminal-bg z-10">
               <th className="text-left py-1 px-2 font-medium text-[10px]">Age</th>
               <th className="text-left py-1 px-2 font-medium text-[10px]">Token</th>
               <th className="text-left py-1 px-2 font-medium text-[10px]">Chain</th>
               <th className="text-right py-1 px-2 font-medium text-[10px]">MCap</th>
               <th className="text-right py-1 px-2 font-medium text-[10px]">Vol</th>
+              <th className="text-left py-1 px-2 font-medium text-[10px]">Chart</th>
               <th className="text-right py-1 px-2 font-medium text-[10px]">5m</th>
               <th className="text-right py-1 px-2 font-medium text-[10px]">Holders</th>
               <th className="text-left py-1 px-2 font-medium text-[10px]">Insiders</th>
@@ -65,13 +128,17 @@ export function PulseTab() {
           <tbody>
             {tokens.length === 0 ? (
               <tr>
-                <td colSpan={hasBondingCol ? 10 : 9} className="text-center text-terminal-text-muted text-sm py-8">
+                <td colSpan={hasBondingCol ? 11 : 10} className="text-center text-terminal-text-muted text-sm py-8">
                   No tokens match your filters
                 </td>
               </tr>
             ) : (
-              tokens.map(token => (
-                <PulseTokenRow key={token.address} token={token} />
+              tokens.map((token, idx) => (
+                <PulseTokenRow
+                  key={token.address}
+                  token={token}
+                  isNew={idx === 0}
+                />
               ))
             )}
           </tbody>

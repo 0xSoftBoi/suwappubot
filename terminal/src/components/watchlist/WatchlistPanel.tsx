@@ -1,9 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
 import { useWatchlist, type WatchlistToken } from '../../hooks/useWatchlist'
+import { useWatchlistPrices } from '../../hooks/useWatchlistPrices'
+import { usePair } from '../../contexts/PairContext'
 import { WatchlistItem } from './WatchlistItem'
 
 export function WatchlistPanel() {
   const { watchlist, addToken, removeToken } = useWatchlist()
+  const { getPrice, refetch } = useWatchlistPrices(watchlist)
+  const { setSelectedPair, setSelectedChain } = usePair()
   const [showAdd, setShowAdd] = useState(false)
   const [search, setSearch] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -45,9 +49,25 @@ export function WatchlistPanel() {
     }
   }
 
-  const handleTokenClick = (_token: WatchlistToken) => {
-    // TODO: Navigate to token chart
-    // Could use router or pair selector context
+  const handleTokenClick = (token: WatchlistToken) => {
+    // Navigate to token chart by setting it as the selected pair
+    setSelectedChain(token.chain)
+    setSelectedPair({
+      base: {
+        symbol: token.symbol,
+        name: token.name,
+        address: token.address,
+        chain: token.chain,
+        decimals: 18,
+      },
+      quote: {
+        symbol: 'USDC',
+        name: 'USD Coin',
+        address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+        chain: token.chain,
+        decimals: 6,
+      },
+    })
   }
 
   return (
@@ -56,6 +76,15 @@ export function WatchlistPanel() {
       <div className="flex items-center justify-between px-3 py-2 border-b border-terminal-border shrink-0">
         <h3 className="text-sm font-semibold text-terminal-text">Watchlist</h3>
         <div className="flex items-center gap-1.5">
+          <button
+            onClick={refetch}
+            className="text-terminal-text-muted hover:text-terminal-text transition-colors p-0.5"
+            title="Refresh prices"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
           <span className="text-xs text-terminal-text-muted font-mono">
             {watchlist.length} tokens
           </span>
@@ -128,6 +157,7 @@ export function WatchlistPanel() {
               <WatchlistItem
                 key={`${token.chain}-${token.address}`}
                 token={token}
+                priceData={getPrice(token.chain, token.address)}
                 onRemove={removeToken}
                 onClick={handleTokenClick}
               />
