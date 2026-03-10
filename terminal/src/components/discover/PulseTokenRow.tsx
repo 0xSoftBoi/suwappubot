@@ -1,6 +1,7 @@
 import type { PulseToken } from '../../types/api'
 import { InsiderMetrics } from './InsiderMetrics'
 import { QuickBuyButton } from './QuickBuyButton'
+import { Sparkline } from './Sparkline'
 
 function formatAge(createdAt: string): { text: string; color: string } {
   const diffMs = Date.now() - new Date(createdAt).getTime()
@@ -39,14 +40,20 @@ function formatChange(value: number): { text: string; className: string } {
 interface PulseTokenRowProps {
   token: PulseToken
   onBuy?: (amount: number, tokenAddress: string) => void
+  isNew?: boolean
 }
 
-export function PulseTokenRow({ token, onBuy }: PulseTokenRowProps) {
+export function PulseTokenRow({ token, onBuy, isNew }: PulseTokenRowProps) {
   const age = formatAge(token.createdAt)
   const change = formatChange(token.priceChange5m)
 
   return (
-    <tr className="border-b border-terminal-border/50 hover:bg-terminal-bg-tertiary/50 transition-colors" data-testid="pulse-token-row">
+    <tr
+      className={`border-b border-terminal-border/50 hover:bg-terminal-bg-tertiary/50 transition-all ${
+        isNew ? 'animate-pulse-once bg-sakura-600/5' : ''
+      }`}
+      data-testid="pulse-token-row"
+    >
       {/* Age badge */}
       <td className="py-1 px-2">
         <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-mono border ${age.color}`}>
@@ -75,6 +82,11 @@ export function PulseTokenRow({ token, onBuy }: PulseTokenRowProps) {
       {/* Volume */}
       <td className="py-1 px-2 text-right font-mono text-xs text-terminal-text-secondary">
         {formatNum(token.volume24h)}
+      </td>
+
+      {/* Sparkline mini-chart */}
+      <td className="py-1 px-2">
+        <Sparkline data={token.sparkline} width={50} height={20} />
       </td>
 
       {/* 5m Change */}

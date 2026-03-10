@@ -57,17 +57,67 @@ export type DesktopRPC = {
         };
         response: { success: boolean };
       };
-      // Overlay — push portfolio positions to the floating overlay
-      "overlay:update": {
+      // Window management — detachable panels
+      "window:open": {
         params: {
-          positions: Array<{
-            symbol: string;
-            chain: string;
-            value: number;
-            pnlPercent: number;
+          id: string;
+          route: string;
+          width?: number;
+          height?: number;
+        };
+        response: {
+          id: string;
+          route: string;
+          bounds: { x: number; y: number; width: number; height: number };
+        };
+      };
+      "window:close": {
+        params: { id: string };
+        response: { success: boolean };
+      };
+      "window:list": {
+        params: {};
+        response: {
+          windows: Array<{
+            id: string;
+            route: string;
+            bounds: { width: number; height: number };
           }>;
         };
+      };
+      // Hotkeys — list, update, and reset global hotkey bindings
+      "hotkeys:list": {
+        params: {};
+        response: {
+          bindings: Array<{
+            action: string;
+            accelerator: string;
+            description: string;
+          }>;
+        };
+      };
+      "hotkeys:update": {
+        params: { action: string; accelerator: string };
         response: { success: boolean };
+      };
+      "hotkeys:reset": {
+        params: {};
+        response: {
+          bindings: Array<{
+            action: string;
+            accelerator: string;
+            description: string;
+          }>;
+        };
+      };
+      // Clipboard monitoring — toggle and query state
+      "clipboard:set-enabled": {
+        params: { enabled: boolean };
+        response: { success: boolean };
+      };
+      "clipboard:get-enabled": {
+        params: {};
+        response: { enabled: boolean };
       };
     };
     messages: {};
@@ -86,7 +136,11 @@ export type DesktopRPC = {
           | "panic-sell"
           | "quick-search"
           | "toggle-launch-feed"
-          | "toggle-overlay";
+          | "toggle-overlay"
+          | "toggle-alerts"
+          | "toggle-copy-trading"
+          | "focus-search"
+          | "show-hotkey-help";
       };
       // Clipboard detected a contract address
       "clipboard:address-detected": {

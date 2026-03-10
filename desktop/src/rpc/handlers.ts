@@ -1,39 +1,74 @@
 import { BrowserView, Utils } from "electrobun/bun";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { existsSync, mkdirSync } from "node:fs";
 import type { DesktopRPC } from "./types";
 import { exportFile } from "../native/export";
-import { toggleOverlay, updateOverlayPositions, type OverlayPosition } from "../native/overlay";
+import { toggleOverlay } from "../native/overlay";
+import {
+  openWindow,
+  closeWindow,
+  listWindows,
+} from "../native/window-manager";
+import {
+  getHotkeys,
+  updateHotkey,
+  resetHotkeys,
+} from "../native/hotkey-store";
+import { reregisterGlobalHotkeys } from "../native/hotkeys";
+import {
+  startClipboardMonitor,
+  stopClipboardMonitor,
+  setClipboardMonitorEnabled,
+} from "../native/clipboard";
+import { secureGet, secureSet, secureRemove, migrateFromMap } from "../native/keychain";
 
-// File-backed secure store — persists across app restarts
-// Stored at ~/.suwappu/store.json (replace with OS keychain in production)
-const STORE_DIR = join(homedir(), ".suwappu");
-const STORE_PATH = join(STORE_DIR, "store.json");
+// Legacy in-memory store — kept for migration from older sessions
+const legacyStore = new Map<string, string>();
+let migrationDone = false;
 
-function loadStore(): Map<string, string> {
-  try {
-    if (existsSync(STORE_PATH)) {
-      const data = JSON.parse(require("node:fs").readFileSync(STORE_PATH, "utf-8"));
-      return new Map(Object.entries(data));
-    }
-  } catch {
-    // Corrupted file — start fresh
+async function ensureMigrated(): Promise<void> {
+  if (migrationDone) return;
+  migrationDone = true;
+  if (legacyStore.size > 0) {
+    await migrateFromMap(legacyStore);
+    legacyStore.clear();
   }
-  return new Map();
 }
 
-function saveStore(store: Map<string, string>): void {
-  try {
-    if (!existsSync(STORE_DIR)) mkdirSync(STORE_DIR, { recursive: true });
-    const obj = Object.fromEntries(store);
-    Bun.write(STORE_PATH, JSON.stringify(obj));
-  } catch (err) {
-    console.error("[Store] Failed to save:", err);
+// Clipboard monitoring state
+let clipboardEnabled = false;
+let clipboardMonitorStarted = false;
+let clipboardDetectionCallback: ((detection: { address: string; chain: string }) => void) | null = null;
+
+export function setClipboardDetectionCallback(
+  callback: (detection: { address: string; chain: string }) => void
+) {
+  clipboardDetectionCallback = callback;
+}
+
+export async function initClipboardFromPreference() {
+  await ensureMigrated();
+  const stored = await secureGet("clipboard-enabled");
+  if (stored === "true") {
+    clipboardEnabled = true;
+    startClipboardIfNeeded();
   }
 }
 
-const secureStore = loadStore();
+function startClipboardIfNeeded() {
+  if (clipboardEnabled && !clipboardMonitorStarted) {
+    startClipboardMonitor((detection) => {
+      clipboardDetectionCallback?.(detection);
+    });
+    clipboardMonitorStarted = true;
+  }
+  setClipboardMonitorEnabled(clipboardEnabled);
+}
+
+function stopClipboardIfRunning() {
+  if (clipboardMonitorStarted) {
+    stopClipboardMonitor();
+    clipboardMonitorStarted = false;
+  }
+}
 
 // Tray state — shared with main process via callback
 let onTrayUpdate: ((data: { totalValue: string; alertCount: number; pendingOrders: number }) => void) | null = null;
@@ -49,17 +84,19 @@ export function createMainRPC() {
     maxRequestTime: 5000,
     handlers: {
       requests: {
-        "store:get": ({ key }) => {
-          return { value: secureStore.get(key) ?? null };
+        "store:get": async ({ key }) => {
+          await ensureMigrated();
+          const value = await secureGet(key);
+          return { value };
         },
-        "store:set": ({ key, value }) => {
-          secureStore.set(key, value);
-          saveStore(secureStore);
+        "store:set": async ({ key, value }) => {
+          await ensureMigrated();
+          await secureSet(key, value);
           return { success: true };
         },
-        "store:remove": ({ key }) => {
-          secureStore.delete(key);
-          saveStore(secureStore);
+        "store:remove": async ({ key }) => {
+          await ensureMigrated();
+          await secureRemove(key);
           return { success: true };
         },
         "notify:show": ({ title, body }) => {
@@ -82,9 +119,45 @@ export function createMainRPC() {
           onTrayUpdate?.({ totalValue, alertCount, pendingOrders });
           return { success: true };
         },
-        "overlay:update": ({ positions }) => {
-          updateOverlayPositions(positions as OverlayPosition[]);
+        "window:open": ({ id, route, width, height }) => {
+          return openWindow(id, { route, width, height });
+        },
+        "window:close": ({ id }) => {
+          const closed = closeWindow(id);
+          return { success: closed };
+        },
+        "window:list": () => {
+          return { windows: listWindows() };
+        },
+        "hotkeys:list": async () => {
+          const bindings = await getHotkeys();
+          return { bindings };
+        },
+        "hotkeys:update": async ({ action, accelerator }) => {
+          const success = await updateHotkey(action, accelerator);
+          if (success) {
+            await reregisterGlobalHotkeys();
+          }
+          return { success };
+        },
+        "hotkeys:reset": async () => {
+          const bindings = await resetHotkeys();
+          await reregisterGlobalHotkeys();
+          return { bindings };
+        },
+        "clipboard:set-enabled": async ({ enabled }) => {
+          clipboardEnabled = enabled;
+          await secureSet("clipboard-enabled", String(enabled));
+          if (enabled) {
+            startClipboardIfNeeded();
+          } else {
+            setClipboardMonitorEnabled(false);
+            stopClipboardIfRunning();
+          }
           return { success: true };
+        },
+        "clipboard:get-enabled": () => {
+          return { enabled: clipboardEnabled };
         },
       },
       messages: {},

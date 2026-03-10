@@ -30,6 +30,7 @@ TOKENS: dict[str, TokenConfig] = {
             "optimism": "0x94b008aA00579c1307B0EF2c499aD98a8ce58e58",
             "base": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
             "solana": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+            "tron": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
         },
         logo_emoji="💵",
     ),
@@ -45,6 +46,7 @@ TOKENS: dict[str, TokenConfig] = {
             "optimism": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
             "base": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
             "solana": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "tron": "TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8",
         },
         logo_emoji="💲",
     ),
@@ -134,6 +136,7 @@ TOKENS: dict[str, TokenConfig] = {
         addresses={
             "ethereum": "0x0C10bF8FcB7Bf5412187A595ab97a3609160b5c6",
             "bsc": "0xd17479997F34dd9156Deef8F95A52D81D265be9c",
+            "tron": "TPYmHEhy5n8TCEfYGqW2rPxsghSfzghPDn",
         },
         logo_emoji="🟢",
     ),
@@ -290,6 +293,18 @@ TOKENS: dict[str, TokenConfig] = {
             "ethereum": "0xD31a59c85aE9D8edEFeC411D448f90841571b89c",
         },
         logo_emoji="🟢",
+        is_stablecoin=False,
+    ),
+    "TRX": TokenConfig(
+        symbol="TRX",
+        name="TRON",
+        decimals=6,
+        addresses={
+            "tron": "native",
+            "ethereum": "0x50327c6c5a14DCaDE707ABad2E27eB517df87AB5",
+            "bsc": "0xCE7de646e7208a4Ef112cb6ed5038FA6cC6b12e3",
+        },
+        logo_emoji="💎",
         is_stablecoin=False,
     ),
     "ARB": TokenConfig(

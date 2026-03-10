@@ -75,13 +75,13 @@ def _build_more_keyboard() -> InlineKeyboardMarkup:
 
 
 async def _ensure_wallets(user_id: int) -> dict:
-    """Auto-create EVM and Solana wallets if user doesn't have them.
+    """Auto-create EVM, Solana, and TRON wallets if user doesn't have them.
 
-    Returns dict with 'evm' and 'solana' wallet addresses (or None if creation failed).
+    Returns dict with 'evm', 'solana', and 'tron' wallet addresses (or None if creation failed).
     """
-    result = {"evm": None, "solana": None}
+    result = {"evm": None, "solana": None, "tron": None}
 
-    for chain_type in ("evm", "solana"):
+    for chain_type in ("evm", "solana", "tron"):
         existing = wallet_service.get_user_wallets(user_id, chain_type=chain_type)
         if existing:
             result[chain_type] = existing[0].address
@@ -171,13 +171,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     
     # Build wallet info line
     wallet_info = ""
-    if wallets["evm"] or wallets["solana"]:
+    if wallets["evm"] or wallets["solana"] or wallets["tron"]:
         wallet_info = (
             "\n\n👛 *Your Wallets*\n"
             f"  EVM: {_format_address(wallets['evm'])}\n"
-            f"  SOL: {_format_address(wallets['solana'])}"
+            f"  SOL: {_format_address(wallets['solana'])}\n"
+            f"  TRX: {_format_address(wallets['tron'])}"
         )
-    if is_new_user and (wallets["evm"] or wallets["solana"]):
+    if is_new_user and (wallets["evm"] or wallets["solana"] or wallets["tron"]):
         wallet_info += "\n_Deposit funds to start trading!_"
 
     welcome_text = WELCOME_MESSAGE + wallet_info + referral_message

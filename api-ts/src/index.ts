@@ -15,6 +15,7 @@ async function main() {
 	const app = createApp({
 		allowedOrigins: env.ALLOWED_ORIGINS,
 		adminApiKey: env.ADMIN_API_KEY,
+		internalApiKey: env.INTERNAL_API_KEY,
 	})
 
 	// Start server

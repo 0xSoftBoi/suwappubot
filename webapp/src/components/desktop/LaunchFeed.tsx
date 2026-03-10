@@ -1,20 +1,13 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../../lib/api'
+import { useSnipe } from '../../hooks/useSnipe'
+import type { LaunchToken } from '../../types/snipe'
 
 const isDesktop = !!(
   typeof window !== 'undefined' &&
   (window as any).__SUWAPPU_DESKTOP__?.isDesktop
 )
-
-interface LaunchToken {
-  id: string
-  name: string
-  symbol: string
-  chain: string
-  bondingCurvePercent: number
-  safetyScore: number
-  launchedAt: string
-  marketCap: string
-}
 
 function getSafetyColor(score: number): string {
   if (score >= 80) return 'text-green-400'
@@ -37,51 +30,97 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(minutes / 60)}h`
 }
 
-const POLL_INTERVAL = 15_000 // 15s
+function formatMarketCap(mc: number): string {
+  if (mc >= 1_000_000) return `$${(mc / 1_000_000).toFixed(1)}M`
+  if (mc >= 1_000) return `$${(mc / 1_000).toFixed(1)}K`
+  return `$${mc.toFixed(0)}`
+}
+
+const SNIPE_PRESETS: { label: string; amount: string }[] = [
+  { label: '0.1', amount: '0.1' },
+  { label: '0.5', amount: '0.5' },
+  { label: '1.0', amount: '1.0' },
+]
+
+function nativeSymbol(chain: string): string {
+  const lower = chain.toLowerCase()
+  if (lower === 'sol' || lower === 'solana') return 'SOL'
+  return 'ETH'
+}
+
+interface SnipeDropdownProps {
+  token: LaunchToken
+  onClose: () => void
+}
+
+function SnipeDropdown({ token, onClose }: SnipeDropdownProps) {
+  const { snipe, isLoading } = useSnipe()
+  const ref = useRef<HTMLDivElement>(null)
+
+  // Close on click outside
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        onClose()
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [onClose])
+
+  const symbol = nativeSymbol(token.chain)
+
+  return (
+    <div
+      ref={ref}
+      className="absolute bottom-full left-0 right-0 mb-1 bg-white rounded-lg shadow-lg border border-suwappu-sakura-mid/20 overflow-hidden z-10"
+    >
+      <div className="px-2 py-1.5 text-[10px] text-suwappu-text-muted border-b border-suwappu-sakura-mid/10">
+        Snipe with {symbol}
+      </div>
+      <div className="flex gap-1 p-1.5">
+        {SNIPE_PRESETS.map((preset) => (
+          <button
+            key={preset.amount}
+            disabled={isLoading}
+            onClick={() => {
+              snipe({
+                tokenAddress: token.address,
+                chain: token.chain,
+                amount: preset.amount,
+              })
+              onClose()
+            }}
+            className="flex-1 py-1 text-xs font-heading font-bold bg-suwappu-magenta-mid text-white rounded hover:bg-suwappu-magenta-dark transition-colors disabled:opacity-50"
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 export function LaunchFeed() {
   const [visible, setVisible] = useState(false)
-  const [launches, setLaunches] = useState<LaunchToken[]>([])
   const [filter, setFilter] = useState<string>('all')
-  const [loading, setLoading] = useState(false)
-
-  // Poll trending tokens as a proxy for "launches" (real launch feed needs WebSocket)
-  useEffect(() => {
-    if (!visible) return
-
-    let cancelled = false
-    const apiUrl = import.meta.env.VITE_API_URL || 'https://api.suwappu.bot'
-
-    async function fetchLaunches() {
-      try {
-        setLoading(true)
-        const res = await fetch(`${apiUrl}/v1/agent/prices?symbols=BONK,JUP,RAY,PEPE,WIF,BOME,POPCAT,DEGEN`)
-        if (!res.ok || cancelled) return
-        const data = await res.json()
-        const tokens = (data?.prices || data || []).map((t: any, i: number) => ({
-          id: String(i),
-          name: t.name || t.symbol,
-          symbol: t.symbol,
-          chain: t.chain || (t.symbol === 'BONK' || t.symbol === 'JUP' || t.symbol === 'RAY' ? 'SOL' : 'ETH'),
-          bondingCurvePercent: Math.floor(Math.random() * 100),
-          safetyScore: t.safety_score ?? Math.floor(40 + Math.random() * 60),
-          launchedAt: new Date(Date.now() - Math.random() * 600000).toISOString(),
-          marketCap: t.market_cap ? `$${(t.market_cap / 1000).toFixed(1)}K` : '$?',
-        }))
-        if (!cancelled) setLaunches(tokens)
-      } catch {
-        // Network error — keep existing data
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-
-    fetchLaunches()
-    const interval = setInterval(fetchLaunches, POLL_INTERVAL)
-    return () => { cancelled = true; clearInterval(interval) }
-  }, [visible])
+  const [snipeOpenId, setSnipeOpenId] = useState<string | null>(null)
 
   const toggle = useCallback(() => setVisible((v) => !v), [])
+
+  // Fetch launches from API, poll every 10 seconds
+  const chainParam = filter === 'all' ? undefined : filter
+  const { data: launches = [], isLoading, error } = useQuery({
+    queryKey: ['launches', chainParam],
+    queryFn: () => api.getLaunches(chainParam),
+    refetchInterval: 10_000,
+    enabled: visible,
+  })
+
+  // Sort by launch time (newest first)
+  const sortedLaunches = [...launches].sort(
+    (a, b) => new Date(b.launchedAt).getTime() - new Date(a.launchedAt).getTime()
+  )
 
   // Listen for toggle-launch-feed hotkey
   useEffect(() => {
@@ -97,11 +136,6 @@ export function LaunchFeed() {
     window.addEventListener('suwappu:hotkey', handleHotkey)
     return () => window.removeEventListener('suwappu:hotkey', handleHotkey)
   }, [toggle])
-
-  const filteredLaunches = launches.filter((t) => {
-    if (filter === 'all') return true
-    return t.chain.toLowerCase() === filter
-  })
 
   if (!isDesktop || !visible) return null
 
@@ -145,17 +179,21 @@ export function LaunchFeed() {
 
       {/* Feed */}
       <div className="flex-1 overflow-y-auto">
-        {loading && launches.length === 0 ? (
+        {isLoading ? (
           <div className="flex items-center justify-center py-8">
             <div className="w-5 h-5 border-2 border-suwappu-magenta-mid/30 border-t-suwappu-magenta-mid rounded-full animate-spin" />
-            <span className="ml-2 text-sm text-suwappu-text-muted">Loading...</span>
+            <span className="ml-2 text-sm text-suwappu-text-secondary">Loading launches...</span>
           </div>
-        ) : filteredLaunches.length === 0 ? (
+        ) : error ? (
+          <div className="text-center py-8 text-sm text-red-400">
+            Failed to load launches
+          </div>
+        ) : sortedLaunches.length === 0 ? (
           <div className="text-center py-8 text-sm text-suwappu-text-muted">
             No launches matching filter
           </div>
         ) : (
-          filteredLaunches.map((token) => (
+          sortedLaunches.map((token) => (
             <div
               key={token.id}
               className="px-4 py-3 border-b border-suwappu-sakura-mid/10 hover:bg-suwappu-sakura-50/50 transition-colors"
@@ -185,7 +223,7 @@ export function LaunchFeed() {
                 <div className="flex items-center gap-1">
                   <span className="text-[10px] text-suwappu-text-muted">MC:</span>
                   <span className="text-xs font-heading font-semibold text-suwappu-text">
-                    {token.marketCap}
+                    {formatMarketCap(token.marketCap)}
                   </span>
                 </div>
                 <div className="flex items-center gap-1">
@@ -210,10 +248,23 @@ export function LaunchFeed() {
                 </span>
               </div>
 
-              {/* Snipe button */}
-              <button className="w-full py-1.5 bg-suwappu-magenta-mid text-white text-xs font-heading font-bold rounded-lg hover:bg-suwappu-magenta-dark transition-colors">
-                Snipe
-              </button>
+              {/* Snipe button with dropdown */}
+              <div className="relative">
+                {snipeOpenId === token.id && (
+                  <SnipeDropdown
+                    token={token}
+                    onClose={() => setSnipeOpenId(null)}
+                  />
+                )}
+                <button
+                  onClick={() =>
+                    setSnipeOpenId((prev) => (prev === token.id ? null : token.id))
+                  }
+                  className="w-full py-1.5 bg-suwappu-magenta-mid text-white text-xs font-heading font-bold rounded-lg hover:bg-suwappu-magenta-dark transition-colors"
+                >
+                  Snipe
+                </button>
+              </div>
             </div>
           ))
         )}

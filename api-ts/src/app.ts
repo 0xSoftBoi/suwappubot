@@ -4,11 +4,13 @@ import { HTTPException } from 'hono/http-exception'
 import { logger } from 'hono/logger'
 import agentCard from '../agent-card.json'
 import { adminKeyAuth, createCorsMiddleware } from './middleware'
+import { internalAuth } from './middleware/internalAuth'
 import {
 	a2aRoutes,
 	adminRoutes,
 	agentRoutes,
 	healthRoutes,
+	internalRoutes,
 	lendRoutes,
 	mcpRoutes,
 	perpsRoutes,
@@ -21,6 +23,7 @@ import {
 export interface AppConfig {
 	allowedOrigins: string
 	adminApiKey?: string
+	internalApiKey?: string
 }
 
 export function createApp(config: AppConfig) {
@@ -71,6 +74,10 @@ export function createApp(config: AppConfig) {
 	app.get('/.well-known/agent-card.json', (c) => c.json(agentCard))
 	app.get('/.well-known/agent.json', (c) => c.json(agentCard))
 	app.get('/agent-card.json', (c) => c.json(agentCard))
+
+	// Internal API routes - service-to-service (Python bot → api-ts)
+	app.use('/internal/*', internalAuth(config.internalApiKey))
+	app.route('/internal', internalRoutes)
 
 	// Admin API routes - X-Admin-Key required
 	app.use('/admin/*', adminKeyAuth(config.adminApiKey))

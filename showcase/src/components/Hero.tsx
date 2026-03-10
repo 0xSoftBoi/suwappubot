@@ -233,10 +233,18 @@ export default function Hero() {
             {/* CTA Buttons */}
             <div className="hero-mid-layer mt-10 flex flex-wrap gap-4">
               <a
-                href="https://t.me/suwappu_bot"
+                href="https://terminal.suwappu.bot"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hero-cta btn-suwappu bg-[#ff2d78] text-white rounded-full px-7 py-3 text-sm font-medium hover:shadow-[0_0_30px_rgba(255,45,120,0.3)]"
+              >
+                Launch Terminal
+              </a>
+              <a
+                href="https://t.me/suwappu_bot"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 font-heading font-medium text-sm text-suwappu-dark-text-secondary px-6 py-3 rounded-full border border-white/20 hover:bg-white/5 hover:text-white transition-all"
               >
                 Open @suwappu_bot
               </a>

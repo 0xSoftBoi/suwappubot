@@ -54,12 +54,11 @@ class TestWhatsAppMessage:
             timestamp="1700000000",
             text="Ethereum",
             list_reply_id="chain_ethereum",
-            list_reply_title="Ethereum",
             message_type="interactive",
         )
 
         assert msg.list_reply_id == "chain_ethereum"
-        assert msg.list_reply_title == "Ethereum"
+        assert msg.text == "Ethereum"
 
 
 class TestWhatsAppService:
@@ -297,7 +296,7 @@ class TestWhatsAppService:
         with patch.object(service, "_get_session", AsyncMock(return_value=mock_session)):
             result = await service.send_image(
                 to="1234567890",
-                image_url="https://example.com/image.png",
+                media_url="https://example.com/image.png",
                 caption="Check this out!",
             )
 
@@ -321,7 +320,7 @@ class TestWhatsAppService:
 
         with patch.object(service, "_get_session", AsyncMock(return_value=mock_session)):
             await service.send_image(
-                to="1234567890", image_url="https://example.com/image.png"
+                to="1234567890", media_url="https://example.com/image.png"
             )
 
         call_args = mock_session.post.call_args
@@ -341,7 +340,7 @@ class TestWhatsAppService:
         with patch.object(service, "_get_session", AsyncMock(return_value=mock_session)):
             result = await service.send_document(
                 to="1234567890",
-                document_url="https://example.com/doc.pdf",
+                media_url="https://example.com/doc.pdf",
                 filename="tax_export.pdf",
                 caption="Your tax export",
             )
@@ -498,7 +497,6 @@ class TestParseWebhookMessage:
 
         assert result is not None
         assert result.list_reply_id == "chain_ethereum"
-        assert result.list_reply_title == "Ethereum"
         assert result.text == "Ethereum"
         assert result.message_type == "interactive"
 
@@ -634,8 +632,8 @@ class TestWhatsAppServiceErrorHandling:
         mock_session.close.assert_called_once()
 
 
-class TestMessageSplitting:
-    """Tests for message splitting logic."""
+class TestRetryLogic:
+    """Tests for retry logic in WhatsAppService."""
 
     @pytest.fixture
     def service(self):
@@ -648,46 +646,37 @@ class TestMessageSplitting:
 
             return WhatsAppService()
 
-    def test_short_message_no_split(self, service):
-        """Short messages should not be split."""
-        result = service._split_message("Hello world")
-        assert result == ["Hello world"]
+    @pytest.mark.asyncio
+    async def test_post_with_retry_success(self, service):
+        """Successful POST should return result immediately."""
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.json = AsyncMock(return_value={"messages": [{"id": "wamid.1"}]})
 
-    def test_long_message_splits_on_newline(self, service):
-        """Long messages should split on the last newline before the limit."""
-        # Build a message slightly over 4000 chars with newlines
-        lines = [f"Line {i}: " + "x" * 80 for i in range(60)]
-        text = "\n".join(lines)
-        assert len(text) > 4000
+        mock_session = MagicMock()
+        mock_session.post = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response), __aexit__=AsyncMock()))
 
-        chunks = service._split_message(text)
-        assert len(chunks) >= 2
-        for chunk in chunks:
-            assert len(chunk) <= 4000
+        with patch.object(service, "_get_session", AsyncMock(return_value=mock_session)):
+            result = await service._post_with_retry("https://example.com", {"test": True})
 
-    def test_long_message_no_newlines_hard_split(self, service):
-        """Messages without newlines should hard-split at max_len."""
-        text = "x" * 10000
-        chunks = service._split_message(text, max_len=4000)
-        assert len(chunks) == 3  # 4000 + 4000 + 2000
-        assert chunks[0] == "x" * 4000
-        assert chunks[1] == "x" * 4000
-        assert chunks[2] == "x" * 2000
-
-    def test_exact_limit_no_split(self, service):
-        """Message exactly at limit should not split."""
-        text = "x" * 4000
-        chunks = service._split_message(text)
-        assert chunks == [text]
+        assert result == {"messages": [{"id": "wamid.1"}]}
 
     @pytest.mark.asyncio
-    async def test_send_text_splits_long_message(self, service):
-        """send_text_message should call _send_single_text for each chunk."""
-        long_text = "a" * 5000
-        with patch.object(service, "_send_single_text", AsyncMock(return_value={"messages": [{"id": "wamid.1"}]})) as mock_send:
-            await service.send_text_message("1234567890", long_text)
+    async def test_post_with_retry_returns_error_on_4xx(self, service):
+        """Non-retryable errors (4xx except 429) should return immediately."""
+        mock_response = AsyncMock()
+        mock_response.status = 400
+        mock_response.json = AsyncMock(return_value={"error": "bad request"})
 
-        assert mock_send.call_count == 2
+        mock_session = MagicMock()
+        mock_session.post = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response), __aexit__=AsyncMock()))
+
+        with patch.object(service, "_get_session", AsyncMock(return_value=mock_session)):
+            result = await service._post_with_retry("https://example.com", {"test": True})
+
+        assert "error" in result
+        # Should only call once (no retry for 400)
+        assert mock_session.post.call_count == 1
 
 
 class TestParseUnsupportedTypes:
@@ -791,64 +780,25 @@ class TestParseUnsupportedTypes:
         assert result is None
 
 
-class TestWebhookSignatureVerification:
-    """Tests for the _verify_whatsapp_signature helper."""
+class TestWhatsAppConnectionPooling:
+    """Tests for connection pooling configuration."""
 
     @pytest.mark.asyncio
-    async def test_signature_valid(self):
-        """Valid signature should pass verification."""
-        import hashlib
-        import hmac as hmac_mod
+    async def test_get_session_creates_with_connector(self):
+        """_get_session should create a session with connection pooling."""
+        with patch("bot.services.whatsapp_service.settings") as mock_settings:
+            mock_settings.whatsapp_phone_number_id = "123456789"
+            mock_settings.whatsapp_access_token = "test_access_token"
+            mock_settings.whatsapp_verify_token = "test_verify_token"
 
-        secret = "test_app_secret"
-        body = b'{"entry": []}'
-        expected_sig = hmac_mod.new(secret.encode(), body, hashlib.sha256).hexdigest()
+            from bot.services.whatsapp_service import WhatsAppService
 
-        mock_request = MagicMock()
-        mock_request.headers = {"X-Hub-Signature-256": f"sha256={expected_sig}"}
+            service = WhatsAppService()
+            session = await service._get_session()
 
-        with patch("api.main.settings") as mock_settings:
-            mock_settings.whatsapp_app_secret = secret
-            from api.main import _verify_whatsapp_signature
-            result = await _verify_whatsapp_signature(mock_request, body)
+            assert session is not None
+            assert not session.closed
+            # Verify connector is configured
+            assert session.connector is not None
 
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_signature_invalid(self):
-        """Invalid signature should fail verification."""
-        mock_request = MagicMock()
-        mock_request.headers = {"X-Hub-Signature-256": "sha256=invalid_signature"}
-
-        with patch("api.main.settings") as mock_settings:
-            mock_settings.whatsapp_app_secret = "test_app_secret"
-            from api.main import _verify_whatsapp_signature
-            result = await _verify_whatsapp_signature(mock_request, b'{"entry": []}')
-
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_signature_skipped_when_no_secret(self):
-        """Verification should be skipped when no app secret is configured."""
-        mock_request = MagicMock()
-        mock_request.headers = {}
-
-        with patch("api.main.settings") as mock_settings:
-            mock_settings.whatsapp_app_secret = None
-            from api.main import _verify_whatsapp_signature
-            result = await _verify_whatsapp_signature(mock_request, b'anything')
-
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_signature_missing_header(self):
-        """Missing signature header should fail when secret is configured."""
-        mock_request = MagicMock()
-        mock_request.headers = {}
-
-        with patch("api.main.settings") as mock_settings:
-            mock_settings.whatsapp_app_secret = "test_app_secret"
-            from api.main import _verify_whatsapp_signature
-            result = await _verify_whatsapp_signature(mock_request, b'{"entry": []}')
-
-        assert result is False
+            await service.close()

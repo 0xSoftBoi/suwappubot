@@ -61,49 +61,53 @@ async def wallet_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 text = "👛 *Wallet Management*\n\nYou don't have any wallets yet."
                 keyboard = [
                     [
-                        InlineKeyboardButton("➕ Create EVM Wallet", callback_data="wallet_create_evm"),
-                        InlineKeyboardButton("➕ Create Solana Wallet", callback_data="wallet_create_solana"),
+                        InlineKeyboardButton("➕ EVM", callback_data="wallet_create_evm"),
+                        InlineKeyboardButton("➕ Solana", callback_data="wallet_create_solana"),
+                        InlineKeyboardButton("➕ TRON", callback_data="wallet_create_tron"),
                     ],
                     [
-                        InlineKeyboardButton("📥 Import EVM Wallet", callback_data="wallet_import_evm"),
-                        InlineKeyboardButton("📥 Import Solana Wallet", callback_data="wallet_import_solana"),
+                        InlineKeyboardButton("📥 Import EVM", callback_data="wallet_import_evm"),
+                        InlineKeyboardButton("📥 Import SOL", callback_data="wallet_import_solana"),
+                        InlineKeyboardButton("📥 Import TRX", callback_data="wallet_import_tron"),
                     ],
                     [InlineKeyboardButton("« Back", callback_data="main_menu")],
                 ]
             else:
                 lines = ["👛 *Your Wallets*\n"]
                 lines.append("Tap a wallet to view its QR code:\n")
-                
+
                 keyboard = []
-                
+
                 for w in wallets:
-                    chain_emoji = "🔷" if w.chain_type == "evm" else "🟢"
+                    chain_emoji = {"evm": "🔷", "solana": "🟢", "tron": "💎"}.get(w.chain_type, "🔷")
                     default_mark = " ⭐" if w.is_default else ""
                     lines.append(f"{chain_emoji} *{w.name}*{default_mark}")
                     lines.append(f"   `{w.address}`")
                     lines.append("")
-                    
+
                     keyboard.append([
                         InlineKeyboardButton(
-                            f"{chain_emoji} {w.name} QR", 
+                            f"{chain_emoji} {w.name} QR",
                             callback_data=f"wallet_qr_{w.id}"
                         )
                     ])
-                
+
                 text = "\n".join(lines)
-                
+
                 keyboard.extend([
                     [
-                        InlineKeyboardButton("➕ Add EVM", callback_data="wallet_create_evm"),
-                        InlineKeyboardButton("➕ Add Solana", callback_data="wallet_create_solana"),
+                        InlineKeyboardButton("➕ EVM", callback_data="wallet_create_evm"),
+                        InlineKeyboardButton("➕ Solana", callback_data="wallet_create_solana"),
+                        InlineKeyboardButton("➕ TRON", callback_data="wallet_create_tron"),
                     ],
                     [
                         InlineKeyboardButton("📥 Import EVM", callback_data="wallet_import_evm"),
-                        InlineKeyboardButton("📥 Import Solana", callback_data="wallet_import_solana"),
+                        InlineKeyboardButton("📥 Import SOL", callback_data="wallet_import_solana"),
+                        InlineKeyboardButton("📥 Import TRX", callback_data="wallet_import_tron"),
                     ],
                     [InlineKeyboardButton("« Back", callback_data="main_menu")],
                 ])
-        
+
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text=text,
@@ -139,46 +143,50 @@ async def show_wallet_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, i
             text = "👛 *Wallet Management*\n\nYou don't have any wallets yet."
             keyboard = [
                 [
-                    InlineKeyboardButton("➕ Create EVM Wallet", callback_data="wallet_create_evm"),
-                    InlineKeyboardButton("➕ Create Solana Wallet", callback_data="wallet_create_solana"),
+                    InlineKeyboardButton("➕ EVM", callback_data="wallet_create_evm"),
+                    InlineKeyboardButton("➕ Solana", callback_data="wallet_create_solana"),
+                    InlineKeyboardButton("➕ TRON", callback_data="wallet_create_tron"),
                 ],
                 [
-                    InlineKeyboardButton("📥 Import EVM Wallet", callback_data="wallet_import_evm"),
-                    InlineKeyboardButton("📥 Import Solana Wallet", callback_data="wallet_import_solana"),
+                    InlineKeyboardButton("📥 Import EVM", callback_data="wallet_import_evm"),
+                    InlineKeyboardButton("📥 Import SOL", callback_data="wallet_import_solana"),
+                    InlineKeyboardButton("📥 Import TRX", callback_data="wallet_import_tron"),
                 ],
                 [InlineKeyboardButton("« Back", callback_data="main_menu")],
             ]
         else:
             lines = ["👛 *Your Wallets*\n"]
             lines.append("Tap a wallet to view its QR code:\n")
-            
+
             keyboard = []
-            
+
             for w in wallets:
-                chain_emoji = "🔷" if w.chain_type == "evm" else "🟢"
+                chain_emoji = {"evm": "🔷", "solana": "🟢", "tron": "💎"}.get(w.chain_type, "🔷")
                 default_mark = " ⭐" if w.is_default else ""
                 lines.append(f"{chain_emoji} *{w.name}*{default_mark}")
                 lines.append(f"   `{w.address}`")
                 lines.append("")
-                
+
                 # Add button for each wallet
                 keyboard.append([
                     InlineKeyboardButton(
-                        f"{chain_emoji} {w.name} QR", 
+                        f"{chain_emoji} {w.name} QR",
                         callback_data=f"wallet_qr_{w.id}"
                     )
                 ])
-            
+
             text = "\n".join(lines)
-            
+
             keyboard.extend([
                 [
-                    InlineKeyboardButton("➕ Add EVM", callback_data="wallet_create_evm"),
-                    InlineKeyboardButton("➕ Add Solana", callback_data="wallet_create_solana"),
+                    InlineKeyboardButton("➕ EVM", callback_data="wallet_create_evm"),
+                    InlineKeyboardButton("➕ Solana", callback_data="wallet_create_solana"),
+                    InlineKeyboardButton("➕ TRON", callback_data="wallet_create_tron"),
                 ],
                 [
                     InlineKeyboardButton("📥 Import EVM", callback_data="wallet_import_evm"),
-                    InlineKeyboardButton("📥 Import Solana", callback_data="wallet_import_solana"),
+                    InlineKeyboardButton("📥 Import SOL", callback_data="wallet_import_solana"),
+                    InlineKeyboardButton("📥 Import TRX", callback_data="wallet_import_tron"),
                 ],
                 [InlineKeyboardButton("« Back", callback_data="main_menu")],
             ])
@@ -205,8 +213,13 @@ async def wallet_create_callback(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     
     user = update.effective_user
-    chain_type = "evm" if "evm" in query.data else "solana"
-    
+    if "tron" in query.data:
+        chain_type = "tron"
+    elif "solana" in query.data:
+        chain_type = "solana"
+    else:
+        chain_type = "evm"
+
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
         
@@ -293,8 +306,8 @@ async def wallet_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         wallet_name = wallet.name
     
     # Determine chain for QR styling
-    chain = "ethereum" if chain_type == "evm" else "solana"
-    chain_emoji = "🔷" if chain_type == "evm" else "🟢"
+    chain = {"evm": "ethereum", "solana": "solana", "tron": "tron"}.get(chain_type, "ethereum")
+    chain_emoji = {"evm": "🔷", "solana": "🟢", "tron": "💎"}.get(chain_type, "🔷")
     
     # Generate QR code
     try:
@@ -343,17 +356,27 @@ async def wallet_import_start(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
     
-    chain_type = "evm" if "evm" in query.data else "solana"
+    if "tron" in query.data:
+        chain_type = "tron"
+    elif "solana" in query.data:
+        chain_type = "solana"
+    else:
+        chain_type = "evm"
     context.user_data["import_chain_type"] = chain_type
-    
-    chain_name = "EVM" if chain_type == "evm" else "SOL"
-    
+
+    chain_name = {"evm": "EVM", "solana": "SOL", "tron": "TRON"}.get(chain_type, "EVM")
+    key_hint = {
+        "evm": "• EVM: 64 hex characters (with or without 0x prefix)",
+        "solana": "• Solana: Base58 encoded key or JSON array",
+        "tron": "• TRON: 64 hex characters (same format as EVM)",
+    }.get(chain_type, "")
+
     text = f"""
 📥 *Import {chain_name} Wallet*
 
 Please send your private key:
 
-{"• EVM: 64 hex characters (with or without 0x prefix)" if chain_type == "evm" else "• Solana: Base58 encoded key or JSON array"}
+{key_hint}
 
 ⚠️ Your key will be encrypted and stored securely.
 Send /cancel to abort.
@@ -385,6 +408,8 @@ async def wallet_import_key(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     try:
         if chain_type == "evm":
             address = wallet_service.import_evm_wallet(private_key)
+        elif chain_type == "tron":
+            address = wallet_service.import_tron_wallet(private_key)
         else:
             address = wallet_service.import_solana_wallet(private_key)
     except Exception as e:

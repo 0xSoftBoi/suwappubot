@@ -7,7 +7,14 @@ import { useAuth, formatAddress } from '../contexts/AuthContext'
 import { api } from '../lib/api'
 import type { UserPreferences, LinkedWalletInfo, UserProfile } from '../types/api'
 
-type SettingsView = 'main' | 'slippage' | 'notifications' | 'wallets' | 'gas'
+type SettingsView = 'main' | 'slippage' | 'notifications' | 'wallets' | 'gas' | 'desktop'
+
+const isDesktop = !!(
+  typeof window !== 'undefined' &&
+  (window as any).__SUWAPPU_DESKTOP__?.isDesktop
+)
+
+const desktopBridge = isDesktop ? (window as any).__SUWAPPU_DESKTOP__ : null
 
 // Slippage stored as basis points (50 = 0.5%)
 const bpToPercent = (bp: number) => (bp / 100).toFixed(1)
@@ -26,6 +33,13 @@ export function Settings() {
 
   // Local editing state for slippage
   const [slippageInput, setSlippageInput] = useState('0.5')
+
+  // Desktop-specific state
+  const [clipboardMonitoring, setClipboardMonitoring] = useState(false)
+  const [overlayEnabled, setOverlayEnabled] = useState(false)
+  const [rememberPositions, setRememberPositions] = useState(true)
+  const [startMinimized, setStartMinimized] = useState(false)
+  const [launchAtLogin, setLaunchAtLogin] = useState(false)
 
   const navigate = useNavigate()
   const { logout, telegramUser, walletInfo } = useAuth()
@@ -51,6 +65,31 @@ export function Settings() {
   useEffect(() => {
     loadPreferences()
   }, [loadPreferences])
+
+  // Load desktop-specific settings from secure store
+  useEffect(() => {
+    if (!isDesktop) return
+    const rpc = (window as any).__electrobun?.rpc
+    if (!rpc) return
+
+    async function loadDesktopSettings() {
+      try {
+        const [clipRes, posRes, minRes, loginRes] = await Promise.all([
+          rpc.request['clipboard:get-enabled']({}),
+          rpc.request['store:get']({ key: 'remember-positions' }),
+          rpc.request['store:get']({ key: 'start-minimized' }),
+          rpc.request['store:get']({ key: 'launch-at-login' }),
+        ])
+        setClipboardMonitoring(clipRes.enabled)
+        setRememberPositions(posRes.value !== 'false')
+        setStartMinimized(minRes.value === 'true')
+        setLaunchAtLogin(loginRes.value === 'true')
+      } catch {
+        // Silently fail — desktop settings are non-critical
+      }
+    }
+    loadDesktopSettings()
+  }, [])
 
   // Save preferences to backend
   const savePreferences = useCallback(async (updates: Partial<UserPreferences>) => {
@@ -298,6 +337,120 @@ export function Settings() {
     )
   }
 
+  // Desktop Settings View
+  if (view === 'desktop') {
+    const rpc = (window as any).__electrobun?.rpc
+
+    const handleClipboardToggle = async () => {
+      const next = !clipboardMonitoring
+      setClipboardMonitoring(next)
+      try {
+        await rpc?.request['clipboard:set-enabled']({ enabled: next })
+      } catch { /* ignore */ }
+    }
+
+    const handleOverlayToggle = async () => {
+      try {
+        const result = await rpc?.request['overlay:toggle']({})
+        setOverlayEnabled(result?.visible ?? !overlayEnabled)
+      } catch { /* ignore */ }
+    }
+
+    const handleDesktopToggle = async (key: string, current: boolean, setter: (v: boolean) => void) => {
+      const next = !current
+      setter(next)
+      try {
+        await rpc?.request['store:set']({ key, value: String(next) })
+      } catch { /* ignore */ }
+    }
+
+    return (
+      <AppLayout
+        header={<AppHeader title="Desktop" showBack onBack={() => setView('main')} />}
+        activeNav="settings"
+      >
+        <div className="p-3 pb-20 space-y-4">
+          {/* Monitoring */}
+          <div>
+            <p className="text-xs text-suwappu-text-secondary mb-2 px-1">Monitoring</p>
+            <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 divide-y divide-suwappu-sakura-mid/10">
+              <ToggleItem
+                icon="📋"
+                label="Clipboard Monitoring"
+                description="Automatically detect token addresses copied to clipboard"
+                enabled={clipboardMonitoring}
+                onToggle={handleClipboardToggle}
+              />
+              <ToggleItem
+                icon="📊"
+                label="Price Overlay"
+                description="Show floating price ticker on top of other apps"
+                enabled={overlayEnabled}
+                onToggle={handleOverlayToggle}
+              />
+            </div>
+          </div>
+
+          {/* Window Behavior */}
+          <div>
+            <p className="text-xs text-suwappu-text-secondary mb-2 px-1">Window</p>
+            <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 divide-y divide-suwappu-sakura-mid/10">
+              <ToggleItem
+                icon="📐"
+                label="Remember window positions"
+                description="Restore window size and position on launch"
+                enabled={rememberPositions}
+                onToggle={() => handleDesktopToggle('remember-positions', rememberPositions, setRememberPositions)}
+              />
+              <ToggleItem
+                icon="🔽"
+                label="Start minimized to tray"
+                description="App starts in the system tray instead of opening a window"
+                enabled={startMinimized}
+                onToggle={() => handleDesktopToggle('start-minimized', startMinimized, setStartMinimized)}
+              />
+            </div>
+          </div>
+
+          {/* Startup */}
+          <div>
+            <p className="text-xs text-suwappu-text-secondary mb-2 px-1">Startup</p>
+            <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 divide-y divide-suwappu-sakura-mid/10">
+              <ToggleItem
+                icon="🚀"
+                label="Launch at login"
+                description="Automatically start Suwappu when you log in"
+                enabled={launchAtLogin}
+                onToggle={() => handleDesktopToggle('launch-at-login', launchAtLogin, setLaunchAtLogin)}
+              />
+            </div>
+          </div>
+
+          {/* About */}
+          <div>
+            <p className="text-xs text-suwappu-text-secondary mb-2 px-1">About</p>
+            <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-suwappu-text">App Version</span>
+                <span className="text-sm text-suwappu-text-secondary font-mono">0.1.0</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-suwappu-text">Platform</span>
+                <span className="text-sm text-suwappu-text-secondary font-mono">
+                  {desktopBridge?.platform || 'unknown'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-suwappu-text">Build</span>
+                <span className="text-sm text-suwappu-text-secondary font-mono">Desktop (Electrobun)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </AppLayout>
+    )
+  }
+
   // Main settings view
   const slippageDisplay = preferences ? bpToPercent(preferences.defaultSlippage) : '0.5'
 
@@ -354,6 +507,9 @@ export function Settings() {
           <SettingsItem icon="📊" label="Slippage" value={`${slippageDisplay}%`} hasArrow onClick={() => setView('slippage')} />
           <SettingsItem icon="⛽" label="Gas Settings" value={preferences?.gasMode ? preferences.gasMode.charAt(0).toUpperCase() + preferences.gasMode.slice(1) : 'Auto'} hasArrow onClick={() => setView('gas')} />
           <SettingsItem icon="🌐" label="Language" value="English" hasArrow />
+          {isDesktop && (
+            <SettingsItem icon="🖥️" label="Desktop" hasArrow onClick={() => setView('desktop')} />
+          )}
         </div>
 
         {/* Security Section */}

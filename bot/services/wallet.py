@@ -123,29 +123,43 @@ class WalletService:
         private_key = base58.b58encode(bytes(keypair)).decode()
         return address, private_key
 
+    def create_tron_wallet(self) -> tuple[str, str]:
+        """
+        Create a new TRON wallet.
+
+        Returns:
+            Tuple of (address, private_key as hex)
+        """
+        from tronpy.keys import PrivateKey
+        pk = PrivateKey.random()
+        address = pk.public_key.to_base58check_address()
+        return address, pk.hex()
+
     async def create_wallet(self, user_id: int, name: str, chain_type: str = "evm"):
         """
         Convenience method to create and save a wallet in one call.
-        
+
         Routes to Turnkey if configured, otherwise creates local wallet.
-        
+
         Args:
             user_id: Target user
             name: Label for the wallet
-            chain_type: "evm" or "solana"
-            
+            chain_type: "evm", "solana", or "tron"
+
         Returns:
             Wallet object
         """
-        # Check if Turnkey is configured
-        if settings.wallet_provider == "turnkey":
+        # Check if Turnkey is configured (Turnkey doesn't support TRON yet)
+        if settings.wallet_provider == "turnkey" and chain_type != "tron":
             return await self._create_turnkey_wallet(user_id, name, chain_type)
-        
+
         # Local wallet creation
         if chain_type == "evm":
             address, pk = self.create_evm_wallet()
         elif chain_type == "solana":
             address, pk = self.create_solana_wallet()
+        elif chain_type == "tron":
+            address, pk = self.create_tron_wallet()
         else:
             raise ValueError(f"Unsupported chain type: {chain_type}")
             
@@ -288,7 +302,28 @@ class WalletService:
         
         keypair = Keypair.from_bytes(key_bytes)
         return str(keypair.pubkey())
-    
+
+    def import_tron_wallet(self, private_key: str) -> str:
+        """
+        Import a TRON wallet from private key.
+
+        Args:
+            private_key: Private key (64 hex chars, with or without 0x prefix)
+
+        Returns:
+            TRON wallet address (base58check, starts with T)
+
+        Raises:
+            ValueError: If private key is invalid
+        """
+        if not validate_private_key(private_key, "tron"):
+            raise ValueError("Invalid TRON private key")
+
+        from tronpy.keys import PrivateKey as TronPrivateKey
+        key_hex = private_key.replace("0x", "")
+        pk = TronPrivateKey(bytes.fromhex(key_hex))
+        return pk.public_key.to_base58check_address()
+
     # === Database Operations ===
     
     def save_wallet(
@@ -580,6 +615,43 @@ class WalletService:
         except Exception:
             return 0.0
     
+    async def get_tron_native_balance(self, address: str) -> float:
+        """Get TRX balance for a TRON address."""
+        try:
+            rpc_url = settings.get_rpc_url("tron") or "https://api.trongrid.io"
+            async with aiohttp.ClientSession() as session:
+                url = f"{rpc_url}/v1/accounts/{address}"
+                async with session.get(url) as resp:
+                    result = await resp.json()
+                    if "data" in result and result["data"]:
+                        balance = result["data"][0].get("balance", 0)
+                        return balance / 1e6
+            return 0.0
+        except Exception:
+            return 0.0
+
+    async def get_tron_token_balance(self, token_symbol: str, address: str) -> float:
+        """Get TRC20 token balance for a TRON address."""
+        token_address = get_token_address(token_symbol, "tron")
+        if not token_address or token_address == "native":
+            return 0.0
+
+        try:
+            rpc_url = settings.get_rpc_url("tron") or "https://api.trongrid.io"
+            async with aiohttp.ClientSession() as session:
+                url = f"{rpc_url}/v1/accounts/{address}/tokens"
+                async with session.get(url) as resp:
+                    result = await resp.json()
+                    if "data" in result:
+                        for token_data in result["data"]:
+                            if token_data.get("tokenId") == token_address:
+                                decimals = token_data.get("tokenDecimal", 6)
+                                balance = int(token_data.get("balance", 0))
+                                return balance / (10 ** decimals)
+            return 0.0
+        except Exception:
+            return 0.0
+
     async def get_all_balances(self, wallet: Wallet) -> dict[str, dict[str, float]]:
         """
         Get all token balances for a wallet.
@@ -633,9 +705,27 @@ class WalletService:
             
             if chain_balances:
                 balances["solana"] = chain_balances
-        
+
+        elif wallet.chain_type == "tron":
+            chain_balances: dict[str, float] = {}
+
+            # TRX balance
+            trx_balance = await self.get_tron_native_balance(wallet.address)
+            if trx_balance > 0:
+                chain_balances["TRX"] = trx_balance
+
+            # Token balances
+            for token_symbol, token in TOKENS.items():
+                if "tron" in token.addresses and token.addresses["tron"] != "native":
+                    balance = await self.get_tron_token_balance(token_symbol, wallet.address)
+                    if balance > 0:
+                        chain_balances[token_symbol] = balance
+
+            if chain_balances:
+                balances["tron"] = chain_balances
+
         return balances
-    
+
     async def get_balances_by_address(self, address: str, chain_type: str) -> dict[str, dict[str, float]]:
         """
         Get all token balances for an address without needing a Wallet object.
@@ -802,6 +892,31 @@ class WalletService:
                     if chain_balances:
                         balances["solana"] = chain_balances
 
+                elif chain_type == "tron":
+                    chain_balances: dict[str, float] = {}
+
+                    tasks = []
+                    task_keys = []
+
+                    tasks.append(_safe_call(self.get_tron_native_balance(address)))
+                    task_keys.append("TRX")
+
+                    for token_symbol, token in TOKENS.items():
+                        if "tron" in token.addresses and token.addresses["tron"] != "native":
+                            tasks.append(_safe_call(
+                                self.get_tron_token_balance(token_symbol, address)
+                            ))
+                            task_keys.append(token_symbol)
+
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                    for key, result in zip(task_keys, results):
+                        if isinstance(result, (int, float)) and result > 0:
+                            chain_balances[key] = result
+
+                    if chain_balances:
+                        balances["tron"] = chain_balances
+
         except asyncio.TimeoutError:
             logger.warning(f"Global timeout fetching balances for {address}")
 
@@ -967,7 +1082,57 @@ class WalletService:
         
         # Convert back to bytes
         return bytes.fromhex(signed_tx_hex.replace("0x", ""))
-    
+
+    async def sign_and_broadcast_tron_transaction(self, wallet: Wallet, tx_request: dict) -> str:
+        """
+        Sign and broadcast a TRON transaction from Li.Fi tx_request.
+
+        TRON transactions must be signed and broadcast through TronGrid/fullnode API.
+        Li.Fi returns the raw transaction JSON which we sign locally and submit.
+
+        Args:
+            wallet: Wallet to sign with
+            tx_request: Li.Fi transaction request containing TRON transaction data
+
+        Returns:
+            Transaction hash (txID)
+        """
+        from tronpy.keys import PrivateKey as TronPrivateKey
+
+        private_key_hex = self.get_private_key(wallet)
+        pk = TronPrivateKey(bytes.fromhex(private_key_hex.replace("0x", "")))
+
+        rpc_url = settings.get_rpc_url("tron") or "https://api.trongrid.io"
+
+        # Li.Fi provides the raw TRON transaction in tx_request
+        raw_txn = tx_request.get("rawTransaction") or tx_request
+        tx_id = raw_txn.get("txID", "")
+        raw_data_hex = raw_txn.get("raw_data_hex", "")
+
+        # Sign the transaction ID (32-byte hash)
+        signature = pk.sign(bytes.fromhex(tx_id))
+
+        # Broadcast via TronGrid API
+        signed_payload = {
+            "raw_data": raw_txn.get("raw_data", {}),
+            "raw_data_hex": raw_data_hex,
+            "txID": tx_id,
+            "signature": [signature.hex()],
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{rpc_url}/wallet/broadcasttransaction",
+                json=signed_payload,
+            ) as resp:
+                result = await resp.json()
+                if result.get("result") is True:
+                    return result.get("txid", tx_id)
+                error_msg = result.get("message", "Unknown error")
+                if isinstance(error_msg, str) and error_msg.startswith("0x"):
+                    error_msg = bytes.fromhex(error_msg[2:]).decode("utf-8", errors="replace")
+                raise Exception(f"TRON broadcast failed: {error_msg}")
+
     def sign_evm_transaction_raw(
         self,
         encrypted_private_key: str,

@@ -33,6 +33,11 @@ def _bootstrap() -> None:
     from bot.services.whatsapp_flows import custodial_flow  # noqa: F401
     from bot.services.whatsapp_flows import snipe_flow  # noqa: F401
     from bot.services.whatsapp_flows import tax_flow  # noqa: F401
+    from bot.services.whatsapp_flows import referral_flow  # noqa: F401
+    from bot.services.whatsapp_flows import twofa_flow  # noqa: F401
+    from bot.services.whatsapp_flows import panic_flow  # noqa: F401
+    from bot.services.whatsapp_flows import copy_flow  # noqa: F401
+    from bot.services.whatsapp_flows import perps_flow  # noqa: F401
 
 
 _bootstrap()

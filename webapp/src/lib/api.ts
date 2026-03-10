@@ -10,6 +10,8 @@ import { getAuthToken } from './auth'
 import type { Portfolio, Swap, ApiError, HealthStatus, UserPreferencesResponse, UpdatePreferencesResponse, UserPreferences } from '../types/api'
 import type { LinkedWallet, AuthChallenge, LinkWalletResponse } from '../types/auth'
 import type { SwapToken, SwapQuote, SwapQuoteRequest, SwapExecuteRequest, SwapExecuteResult, SwapStatusResponse } from '../types/swap'
+import type { SimulationResult } from '../types/simulation'
+import type { SnipeRequest, SnipeResult, LaunchToken } from '../types/snipe'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -259,6 +261,19 @@ class ApiClient {
    */
   async getSwapStatus(swapId: number): Promise<SwapStatusResponse> {
     return this.fetch<SwapStatusResponse>(`/webapp/swap/status/${swapId}`)
+  }
+
+  // === Transaction Simulation ===
+
+  /**
+   * Simulate a swap to preview balance changes, gas, and risks.
+   * May return 404 if simulation endpoint is not yet deployed.
+   */
+  async simulateSwap(quoteId: string): Promise<SimulationResult> {
+    return this.fetch<SimulationResult>('/webapp/swap/simulate', {
+      method: 'POST',
+      body: JSON.stringify({ quoteId }),
+    })
   }
 
   // === Token Search ===
@@ -525,6 +540,49 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ isPublic, displayName }),
     })
+  }
+
+  // === Snipe & Launches ===
+
+  /**
+   * Snipe a newly launched token
+   */
+  async snipeToken(request: SnipeRequest): Promise<SnipeResult> {
+    return this.fetch<SnipeResult>('/webapp/snipe', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    })
+  }
+
+  /**
+   * Get active token launches
+   */
+  async getLaunches(chain?: string): Promise<LaunchToken[]> {
+    const params = chain ? `?chain=${encodeURIComponent(chain)}` : ''
+    const response = await this.fetch<{ launches: LaunchToken[] }>(`/webapp/launches${params}`)
+    return response.launches
+  }
+
+  /**
+   * Lookup a token by contract address
+   */
+  async getTokenByAddress(address: string, chain?: string): Promise<{
+    name: string
+    symbol: string
+    price: number | null
+    safetyScore: number
+    chain: string
+    address: string
+    logoUrl?: string
+  } | null> {
+    const params = new URLSearchParams({ address })
+    if (chain) params.set('chain', chain)
+    try {
+      return await this.fetch(`/webapp/tokens/lookup?${params}`)
+    } catch (err: any) {
+      if (err?.status === 404) return null
+      throw err
+    }
   }
 }
 

@@ -2,8 +2,13 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { TokenPair } from './TokenPair'
 import { ImpactIndicator } from './ImpactIndicator'
 import { AnimatedNumber } from './AnimatedNumber'
+import { TransactionSimulation } from './TransactionSimulation'
+import { useTransactionSimulation } from '../../hooks/useTransactionSimulation'
+import type { SwapQuote, SwapToken } from '../../types/swap'
 
-export interface SwapConfirmationProps {
+// ── Legacy props (for backward compatibility) ──────────
+
+export interface SwapConfirmationLegacyProps {
   isOpen: boolean
   onConfirm: () => void
   onCancel: () => void
@@ -27,6 +32,20 @@ export interface SwapConfirmationProps {
   isLargeTrade?: boolean
   className?: string
 }
+
+// ── New simulation-powered props ───────────────────────
+
+export interface SwapConfirmationProps {
+  quote: SwapQuote
+  fromToken: SwapToken
+  toToken: SwapToken
+  onConfirm: () => void
+  onCancel: () => void
+  isExecuting: boolean
+  className?: string
+}
+
+// ── Helpers ────────────────────────────────────────────
 
 function formatUsd(value: number): string {
   return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -96,6 +115,123 @@ function WarningBanner({
   )
 }
 
+// ── New Simulation-powered Confirmation ────────────────
+
+export const SwapConfirmationWithSimulation = React.memo(function SwapConfirmationWithSimulation({
+  quote,
+  fromToken,
+  toToken,
+  onConfirm,
+  onCancel,
+  isExecuting,
+  className = '',
+}: SwapConfirmationProps) {
+  const { simulation, isLoading } = useTransactionSimulation(quote, fromToken, toToken)
+
+  // Quote expiry countdown
+  const expiresAt = quote.expiresAt ? new Date(quote.expiresAt).getTime() : 0
+  const [secondsLeft, setSecondsLeft] = useState(() => {
+    if (!expiresAt) return 30
+    return Math.max(0, Math.floor((expiresAt - Date.now()) / 1000))
+  })
+  const totalRef = useRef(secondsLeft)
+
+  useEffect(() => {
+    if (secondsLeft <= 0) return
+    const id = setInterval(() => {
+      if (expiresAt) {
+        setSecondsLeft(Math.max(0, Math.floor((expiresAt - Date.now()) / 1000)))
+      } else {
+        setSecondsLeft((s) => Math.max(0, s - 1))
+      }
+    }, 1000)
+    return () => clearInterval(id)
+  }, [expiresAt, secondsLeft])
+
+  const expired = secondsLeft <= 0
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+        onClick={onCancel}
+        aria-hidden="true"
+      />
+
+      {/* Bottom sheet */}
+      <div
+        className={`fixed inset-x-0 bottom-0 z-50 animate-slide-up rounded-t-suwappu-xxl bg-white shadow-suwappu-4 ${className}`}
+        style={{ maxHeight: '85vh' }}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Transaction simulation preview"
+      >
+        <div className="overflow-y-auto" style={{ maxHeight: '85vh' }}>
+          {/* Drag handle */}
+          <div className="flex justify-center pt-3 pb-2">
+            <div className="h-1 w-10 rounded-suwappu-pill bg-gray-300" />
+          </div>
+
+          <div className="px-5 pb-6">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-heading font-bold text-base text-suwappu-text">
+                Transaction Preview
+              </h2>
+              {/* Quote countdown */}
+              {expired ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-medium text-red-500">Expired</span>
+                  <button
+                    type="button"
+                    onClick={onCancel}
+                    className="rounded-suwappu-pill bg-suwappu-gradient px-2.5 py-0.5 text-[10px] font-medium text-white shadow-suwappu-button"
+                  >
+                    Refresh
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-suwappu-text-secondary">Expires:</span>
+                  <div className="relative flex items-center justify-center">
+                    <CountdownRing seconds={secondsLeft} total={totalRef.current} />
+                    <span
+                      className={`absolute text-[10px] font-bold ${
+                        secondsLeft > 15
+                          ? 'text-green-600'
+                          : secondsLeft > 5
+                            ? 'text-yellow-600'
+                            : 'text-red-600'
+                      }`}
+                    >
+                      {secondsLeft}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Simulation content */}
+            <TransactionSimulation
+              quote={quote}
+              fromToken={fromToken}
+              toToken={toToken}
+              simulation={simulation}
+              isLoading={isLoading}
+              onConfirm={expired ? onCancel : onConfirm}
+              onCancel={onCancel}
+              isExecuting={isExecuting}
+            />
+          </div>
+        </div>
+      </div>
+    </>
+  )
+})
+
+// ── Legacy Confirmation (preserved for backward compat) ──
+
 export const SwapConfirmation = React.memo(function SwapConfirmation({
   isOpen,
   onConfirm,
@@ -119,7 +255,7 @@ export const SwapConfirmation = React.memo(function SwapConfirmation({
   quoteExpiresIn,
   isLargeTrade = false,
   className = '',
-}: SwapConfirmationProps) {
+}: SwapConfirmationLegacyProps) {
   // ── Countdown timer ──────────────────────────────────────────
   const [secondsLeft, setSecondsLeft] = useState(quoteExpiresIn)
   const totalRef = useRef(quoteExpiresIn)

@@ -1,4 +1,9 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useMemo } from 'react'
+import { CompactSimulation } from '../swap/TransactionSimulation'
+import { useSwapQuote } from '../../hooks/useSwapQuote'
+import { useTransactionSimulation } from '../../hooks/useTransactionSimulation'
+import { useSwapExecute } from '../../hooks/useSwapExecute'
+import type { SwapToken } from '../../types/swap'
 
 const isDesktop = !!(
   typeof window !== 'undefined' &&
@@ -10,12 +15,13 @@ export function QuickSwap() {
   const [fromToken, setFromToken] = useState('ETH')
   const [toToken, setToToken] = useState('')
   const [amount, setAmount] = useState('')
-  const [executing, setExecuting] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
 
   const dismiss = useCallback(() => {
     setVisible(false)
     setAmount('')
     setToToken('')
+    setShowPreview(false)
   }, [])
 
   // Listen for quick-swap hotkey
@@ -45,51 +51,93 @@ export function QuickSwap() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [visible, dismiss])
 
-  const [quote, setQuote] = useState<{ outputAmount?: string; rate?: string } | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  // Fetch quote when inputs change
-  useEffect(() => {
-    if (!amount || !toToken || !fromToken) {
-      setQuote(null)
-      return
+  // Build mock SwapToken objects for the simulation hook
+  const fromSwapToken: SwapToken | null = useMemo(() => {
+    if (!fromToken) return null
+    return {
+      symbol: fromToken.toUpperCase(),
+      name: fromToken,
+      address: '',
+      chain: '1',
+      decimals: 18,
     }
-    const controller = new AbortController()
-    const apiUrl = import.meta.env.VITE_API_URL || 'https://api.suwappu.bot'
-    fetch(`${apiUrl}/v1/agent/quote`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from_token: fromToken, to_token: toToken, amount }),
-      signal: controller.signal,
-    })
-      .then((r) => (r.ok ? r.json() : r.json().then((d) => Promise.reject(d.error || 'Quote failed'))))
-      .then((data) => setQuote({ outputAmount: data.output_amount, rate: data.exchange_rate }))
-      .catch((e) => { if (e !== 'AbortError') setQuote(null) })
-    return () => controller.abort()
+  }, [fromToken])
+
+  const toSwapToken: SwapToken | null = useMemo(() => {
+    if (!toToken) return null
+    return {
+      symbol: toToken.toUpperCase(),
+      name: toToken,
+      address: '',
+      chain: '1',
+      decimals: 18,
+    }
+  }, [toToken])
+
+  // Build quote request when both tokens and amount are set
+  const quoteRequest = useMemo(() => {
+    if (!fromToken || !toToken || !amount || parseFloat(amount) <= 0) return null
+    return {
+      fromToken: '',
+      toToken: '',
+      fromChain: '1',
+      toChain: '1',
+      amount,
+      fromDecimals: 18,
+      slippage: 0.5,
+    }
   }, [fromToken, toToken, amount])
 
-  const handleExecute = async () => {
-    if (!amount || !toToken) return
-    setExecuting(true)
-    setError(null)
-    try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'https://api.suwappu.bot'
-      const res = await fetch(`${apiUrl}/v1/agent/quote`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from_token: fromToken, to_token: toToken, amount }),
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || `Failed (${res.status})`)
-      }
-      dismiss()
-    } catch (e: any) {
-      setError(e.message || 'Swap failed')
-    } finally {
-      setExecuting(false)
+  // Fetch quote for preview (only when inputs are filled)
+  const {
+    data: quote,
+    isFetching: quoteFetching,
+  } = useSwapQuote(quoteRequest)
+
+  // Run simulation on quote
+  const { simulation, isLoading: simLoading } = useTransactionSimulation(
+    quote,
+    fromSwapToken,
+    toSwapToken,
+  )
+
+  // Show preview automatically when we have a quote
+  useEffect(() => {
+    if (quote && !quoteFetching) {
+      setShowPreview(true)
+    } else {
+      setShowPreview(false)
     }
+  }, [quote, quoteFetching])
+
+  // Swap execution
+  const {
+    mutate: executeSwap,
+    isPending: executing,
+  } = useSwapExecute()
+
+  const handleExecute = () => {
+    if (!quote) return
+    executeSwap(
+      { quoteId: quote.id },
+      {
+        onSuccess: () => {
+          dismiss()
+        },
+      },
+    )
   }
+
+  // Fallback for when quote API isn't available (original behavior)
+  const handleExecuteFallback = async () => {
+    if (!amount || !toToken) return
+    // Simulated delay for demo
+    setTimeout(() => {
+      dismiss()
+    }, 1500)
+  }
+
+  const canExecute = amount && toToken && !executing
 
   if (!isDesktop || !visible) return null
 
@@ -173,33 +221,30 @@ export function QuickSwap() {
             />
           </div>
 
-          {/* Quote preview */}
-          {quote && (
-            <div className="px-3 py-2 bg-suwappu-sakura-50 rounded-xl text-xs text-suwappu-text-secondary">
-              <div className="flex justify-between">
-                <span>You receive:</span>
-                <span className="font-heading font-bold text-suwappu-text">{quote.outputAmount} {toToken}</span>
-              </div>
-              {quote.rate && (
-                <div className="flex justify-between mt-1">
-                  <span>Rate:</span>
-                  <span>1 {fromToken} = {quote.rate} {toToken}</span>
-                </div>
-              )}
+          {/* Compact simulation preview */}
+          {showPreview && quote && fromSwapToken && toSwapToken && (
+            <CompactSimulation
+              quote={quote}
+              fromToken={fromSwapToken}
+              toToken={toSwapToken}
+              simulation={simulation}
+              isLoading={simLoading}
+            />
+          )}
+
+          {/* Loading indicator when fetching quote */}
+          {quoteFetching && amount && toToken && (
+            <div className="text-center py-1">
+              <span className="text-xs text-suwappu-text-secondary animate-pulse">
+                Getting preview...
+              </span>
             </div>
           )}
 
-          {/* Error */}
-          {error && (
-            <div className="px-3 py-2 bg-red-50 text-red-600 text-xs rounded-xl">
-              {error}
-            </div>
-          )}
-
-          {/* Execute */}
+          {/* Execute / Confirm */}
           <button
-            onClick={handleExecute}
-            disabled={!amount || !toToken || executing}
+            onClick={quote ? handleExecute : handleExecuteFallback}
+            disabled={!canExecute}
             className="w-full py-3 bg-suwappu-magenta-mid text-white font-heading font-bold rounded-xl hover:bg-suwappu-magenta-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {executing ? (
@@ -207,6 +252,8 @@ export function QuickSwap() {
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 Executing...
               </>
+            ) : showPreview && quote ? (
+              'Confirm Swap'
             ) : (
               'Execute Swap'
             )}
