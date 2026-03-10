@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react'
+import { api } from '../../lib/api'
 
 interface ClipboardDetection {
   address: string
@@ -36,10 +37,29 @@ function getSafetyLabel(score: number): string {
   return 'Risky'
 }
 
+function formatPrice(price: number | null): string {
+  if (price === null || price === undefined) return '$0.00'
+  if (price < 0.01) return `$${price.toFixed(6)}`
+  if (price < 1) return `$${price.toFixed(4)}`
+  return `$${price.toFixed(2)}`
+}
+
+function chainDisplayName(chain: string): string {
+  if (chain === 'ethereum') return 'Ethereum'
+  if (chain === 'solana') return 'Solana'
+  return chain.charAt(0).toUpperCase() + chain.slice(1)
+}
+
+function navigate(path: string) {
+  window.history.pushState({}, '', path)
+  window.dispatchEvent(new PopStateEvent('popstate'))
+}
+
 export function ClipboardLookup() {
   const [detection, setDetection] = useState<ClipboardDetection | null>(null)
   const [tokenInfo, setTokenInfo] = useState<TokenInfo | null>(null)
   const [loading, setLoading] = useState(false)
+  const [notFound, setNotFound] = useState(false)
   const [visible, setVisible] = useState(false)
   const [mounted, setMounted] = useState(false)
 
@@ -49,6 +69,7 @@ export function ClipboardLookup() {
       setMounted(false)
       setDetection(null)
       setTokenInfo(null)
+      setNotFound(false)
     }, 300)
   }, [])
 
@@ -62,33 +83,33 @@ export function ClipboardLookup() {
       setMounted(true)
       setVisible(true)
       setLoading(true)
+      setNotFound(false)
+      setTokenInfo(null)
 
-      // Look up token by address via API
-      const apiUrl = import.meta.env.VITE_API_URL || 'https://api.suwappu.bot'
-      fetch(`${apiUrl}/v1/agent/tokens?search=${encodeURIComponent(address)}&chain=${chain === 'unknown' ? '' : chain}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          const token = data?.tokens?.[0] || data?.[0]
-          setTokenInfo({
-            name: token?.name || 'Unknown Token',
-            symbol: token?.symbol || address.slice(0, 6).toUpperCase(),
-            price: token?.price ? `$${Number(token.price).toFixed(token.price < 0.01 ? 6 : 2)}` : '$0.00',
-            safetyScore: token?.safety_score ?? 0,
-            chain: chain === 'ethereum' ? 'Ethereum' : chain === 'solana' ? 'Solana' : 'Unknown',
-            address,
-          })
+      // Look up token via API
+      const chainHint = chain === 'unknown' ? undefined : chain
+      api
+        .getTokenByAddress(address, chainHint)
+        .then((result) => {
+          if (result) {
+            setTokenInfo({
+              name: result.name,
+              symbol: result.symbol,
+              price: formatPrice(result.price),
+              safetyScore: result.safetyScore,
+              chain: chainDisplayName(result.chain),
+              address: result.address,
+            })
+          } else {
+            setNotFound(true)
+          }
         })
         .catch(() => {
-          setTokenInfo({
-            name: 'Unknown Token',
-            symbol: address.slice(0, 6).toUpperCase(),
-            price: '$0.00',
-            safetyScore: 0,
-            chain: chain === 'ethereum' ? 'Ethereum' : chain === 'solana' ? 'Solana' : 'Unknown',
-            address,
-          })
+          setNotFound(true)
         })
-        .finally(() => setLoading(false))
+        .finally(() => {
+          setLoading(false)
+        })
     }
 
     window.addEventListener('suwappu:clipboard-address', handleClipboardAddress)
@@ -170,16 +191,40 @@ export function ClipboardLookup() {
 
             {/* Quick actions */}
             <div className="flex gap-2">
-              <button className="flex-1 px-3 py-2 bg-suwappu-magenta-mid text-white text-sm font-heading font-semibold rounded-xl hover:bg-suwappu-magenta-dark transition-colors">
+              <button
+                onClick={() => navigate(`/swap?token=${tokenInfo.address}`)}
+                className="flex-1 px-3 py-2 bg-suwappu-magenta-mid text-white text-sm font-heading font-semibold rounded-xl hover:bg-suwappu-magenta-dark transition-colors"
+              >
                 Swap
               </button>
-              <button className="flex-1 px-3 py-2 bg-suwappu-sakura-100 text-suwappu-magenta-mid text-sm font-heading font-semibold rounded-xl hover:bg-suwappu-sakura-200 transition-colors">
+              <button
+                onClick={() => navigate(`/alerts?create=true&token=${tokenInfo.address}`)}
+                className="flex-1 px-3 py-2 bg-suwappu-sakura-100 text-suwappu-magenta-mid text-sm font-heading font-semibold rounded-xl hover:bg-suwappu-sakura-200 transition-colors"
+              >
                 Alert
               </button>
-              <button className="flex-1 px-3 py-2 bg-suwappu-sakura-50 text-suwappu-text-secondary text-sm font-heading font-semibold rounded-xl hover:bg-suwappu-sakura-100 transition-colors">
+              <button
+                onClick={() => navigate(`/chart/${tokenInfo.address}`)}
+                className="flex-1 px-3 py-2 bg-suwappu-sakura-50 text-suwappu-text-secondary text-sm font-heading font-semibold rounded-xl hover:bg-suwappu-sakura-100 transition-colors"
+              >
                 Chart
               </button>
             </div>
+          </div>
+        ) : notFound ? (
+          <div className="space-y-3">
+            <div className="text-center py-2 text-sm text-suwappu-text-muted">
+              Token not found for address
+            </div>
+            <div className="text-center text-xs text-suwappu-text-muted">
+              {detection ? shortenAddress(detection.address) : ''}
+            </div>
+            <button
+              onClick={() => detection && navigate(`/swap?token=${detection.address}`)}
+              className="w-full px-3 py-2 bg-suwappu-sakura-100 text-suwappu-magenta-mid text-sm font-heading font-semibold rounded-xl hover:bg-suwappu-sakura-200 transition-colors"
+            >
+              Try Swap Anyway
+            </button>
           </div>
         ) : (
           <div className="text-center py-4 text-sm text-suwappu-text-muted">

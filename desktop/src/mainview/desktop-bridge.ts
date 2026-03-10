@@ -15,7 +15,11 @@ type HotkeyAction =
   | "panic-sell"
   | "quick-search"
   | "toggle-launch-feed"
-  | "toggle-overlay";
+  | "toggle-overlay"
+  | "toggle-alerts"
+  | "toggle-copy-trading"
+  | "focus-search"
+  | "show-hotkey-help";
 
 type DetectedChain = "ethereum" | "solana" | "unknown";
 
@@ -54,17 +58,6 @@ type DesktopRPC = {
         params: {};
         response: { visible: boolean };
       };
-      "overlay:update": {
-        params: {
-          positions: Array<{
-            symbol: string;
-            chain: string;
-            value: number;
-            pnlPercent: number;
-          }>;
-        };
-        response: { success: boolean };
-      };
       "tray:update-portfolio": {
         params: {
           totalValue: string;
@@ -72,6 +65,65 @@ type DesktopRPC = {
           pendingOrders: number;
         };
         response: { success: boolean };
+      };
+      "window:open": {
+        params: {
+          id: string;
+          route: string;
+          width?: number;
+          height?: number;
+        };
+        response: {
+          id: string;
+          route: string;
+          bounds: { x: number; y: number; width: number; height: number };
+        };
+      };
+      "window:close": {
+        params: { id: string };
+        response: { success: boolean };
+      };
+      "window:list": {
+        params: {};
+        response: {
+          windows: Array<{
+            id: string;
+            route: string;
+            bounds: { width: number; height: number };
+          }>;
+        };
+      };
+      "hotkeys:list": {
+        params: {};
+        response: {
+          bindings: Array<{
+            action: string;
+            accelerator: string;
+            description: string;
+          }>;
+        };
+      };
+      "hotkeys:update": {
+        params: { action: string; accelerator: string };
+        response: { success: boolean };
+      };
+      "hotkeys:reset": {
+        params: {};
+        response: {
+          bindings: Array<{
+            action: string;
+            accelerator: string;
+            description: string;
+          }>;
+        };
+      };
+      "clipboard:set-enabled": {
+        params: { enabled: boolean };
+        response: { success: boolean };
+      };
+      "clipboard:get-enabled": {
+        params: {};
+        response: { enabled: boolean };
       };
     };
     messages: {};
@@ -171,13 +223,6 @@ desktopBridge.toggleOverlay = async (): Promise<boolean> => {
   return result.visible;
 };
 
-desktopBridge.updateOverlay = async (
-  positions: Array<{ symbol: string; chain: string; value: number; pnlPercent: number }>
-): Promise<boolean> => {
-  const result = await electroview.rpc!.request["overlay:update"]({ positions });
-  return result.success;
-};
-
 desktopBridge.updateTrayPortfolio = async (
   totalValue: string,
   alertCount: number,
@@ -189,6 +234,67 @@ desktopBridge.updateTrayPortfolio = async (
     pendingOrders,
   });
   return result.success;
+};
+
+desktopBridge.openWindow = async (
+  id: string,
+  route?: string,
+  width?: number,
+  height?: number
+): Promise<{ id: string; route: string; bounds: { x: number; y: number; width: number; height: number } }> => {
+  return await electroview.rpc!.request["window:open"]({
+    id,
+    route: route ?? `/${id}`,
+    width,
+    height,
+  });
+};
+
+desktopBridge.closeWindow = async (id: string): Promise<boolean> => {
+  const result = await electroview.rpc!.request["window:close"]({ id });
+  return result.success;
+};
+
+desktopBridge.listWindows = async (): Promise<
+  Array<{ id: string; route: string; bounds: { width: number; height: number } }>
+> => {
+  const result = await electroview.rpc!.request["window:list"]({});
+  return result.windows;
+};
+
+desktopBridge.clipboard = {
+  setEnabled: async (enabled: boolean): Promise<boolean> => {
+    const result = await electroview.rpc!.request["clipboard:set-enabled"]({
+      enabled,
+    });
+    return result.success;
+  },
+  isEnabled: async (): Promise<boolean> => {
+    const result = await electroview.rpc!.request["clipboard:get-enabled"]({});
+    return result.enabled;
+  },
+};
+
+desktopBridge.hotkeys = {
+  list: async (): Promise<
+    Array<{ action: string; accelerator: string; description: string }>
+  > => {
+    const result = await electroview.rpc!.request["hotkeys:list"]({});
+    return result.bindings;
+  },
+  update: async (action: string, accelerator: string): Promise<boolean> => {
+    const result = await electroview.rpc!.request["hotkeys:update"]({
+      action,
+      accelerator,
+    });
+    return result.success;
+  },
+  reset: async (): Promise<
+    Array<{ action: string; accelerator: string; description: string }>
+  > => {
+    const result = await electroview.rpc!.request["hotkeys:reset"]({});
+    return result.bindings;
+  },
 };
 
 (window as any).__SUWAPPU_DESKTOP__ = desktopBridge;

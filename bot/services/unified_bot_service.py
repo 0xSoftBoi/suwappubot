@@ -30,18 +30,22 @@ class UnifiedBotService:
     async def handle_command(self, platform: str, user_id: str, text: str) -> UnifiedResponse:
         """Process a command from any platform."""
         text = text.lower().strip()
-        
+
         # 1. Get or Create User
         with get_session() as session:
             if platform == "telegram":
                 user = session.query(User).filter(User.telegram_id == int(user_id)).first()
-            else: # whatsapp
+            elif platform == "discord":
+                user = session.query(User).filter(User.discord_id == user_id).first()
+            else:  # whatsapp
                 user = session.query(User).filter(User.whatsapp_id == user_id).first()
-                
+
             if not user and text in ["/start", "start", "hi", "hello"]:
                 # Create user
                 if platform == "telegram":
                     user = User(telegram_id=int(user_id))
+                elif platform == "discord":
+                    user = User(discord_id=user_id)
                 else:
                     user = User(whatsapp_id=user_id)
                 session.add(user)

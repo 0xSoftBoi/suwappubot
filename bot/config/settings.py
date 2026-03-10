@@ -300,6 +300,27 @@ class Settings(BaseSettings):
     whatsapp_phone_number_id: Optional[str] = Field(default=None, description="WhatsApp Business Phone Number ID")
     whatsapp_access_token: Optional[str] = Field(default=None, description="WhatsApp Cloud API Access Token")
     whatsapp_verify_token: Optional[str] = Field(default=None, description="Webhook verification token — must be set explicitly")
+
+    # Discord Bot
+    discord_bot_token: Optional[str] = Field(default=None, description="Discord bot token")
+    discord_guild_ids: Optional[str] = Field(default=None, description="Comma-separated guild IDs for slash command sync")
+    discord_whale_channel_id: Optional[str] = Field(default=None, description="Channel ID for whale alerts")
+    discord_trending_channel_id: Optional[str] = Field(default=None, description="Channel ID for trending tokens")
+    discord_leaderboard_channel_id: Optional[str] = Field(default=None, description="Channel ID for leaderboard posts")
+    discord_alerts_channel_id: Optional[str] = Field(default=None, description="Channel ID for general alerts")
+    discord_forum_channel_id: Optional[str] = Field(default=None, description="Forum channel ID for token analysis")
+    discord_admin_role_id: Optional[str] = Field(default=None, description="Admin role ID")
+    discord_vip_role_ids: Optional[str] = Field(default=None, description="Comma-separated VIP role IDs")
+
+    def get_discord_guild_ids(self) -> list[int]:
+        if not self.discord_guild_ids:
+            return []
+        return [int(gid.strip()) for gid in self.discord_guild_ids.split(",") if gid.strip()]
+
+    def get_discord_vip_role_ids(self) -> list[int]:
+        if not self.discord_vip_role_ids:
+            return []
+        return [int(rid.strip()) for rid in self.discord_vip_role_ids.split(",") if rid.strip()]
     
     # Telegram Mini App
     webapp_url: str = Field(
