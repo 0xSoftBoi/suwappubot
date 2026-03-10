@@ -1,4 +1,5 @@
 import type { WatchlistToken } from '../../hooks/useWatchlist'
+import type { TokenPriceData } from '../../hooks/useWatchlistPrices'
 
 const CHAIN_COLORS: Record<string, string> = {
   ethereum: 'bg-chain-ethereum',
@@ -24,15 +25,33 @@ const CHAIN_LABELS: Record<string, string> = {
   sui: 'SUI',
 }
 
+function formatPrice(price: number): string {
+  if (price >= 1000) return `$${price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+  if (price >= 1) return `$${price.toFixed(2)}`
+  if (price >= 0.01) return `$${price.toFixed(4)}`
+  if (price >= 0.0001) return `$${price.toFixed(6)}`
+  return `$${price.toExponential(2)}`
+}
+
+function formatChange(change: number): string {
+  const sign = change >= 0 ? '+' : ''
+  return `${sign}${change.toFixed(2)}%`
+}
+
 interface Props {
   token: WatchlistToken
+  priceData: TokenPriceData
   onRemove: (address: string, chain: string) => void
   onClick: (token: WatchlistToken) => void
 }
 
-export function WatchlistItem({ token, onRemove, onClick }: Props) {
+export function WatchlistItem({ token, priceData, onRemove, onClick }: Props) {
   const chainColor = CHAIN_COLORS[token.chain] || 'bg-terminal-border-active'
   const chainLabel = CHAIN_LABELS[token.chain] || token.chain.slice(0, 4).toUpperCase()
+
+  const { price, change24h, loading } = priceData
+  const isPositive = change24h !== null && change24h >= 0
+  const changeColor = change24h === null ? 'text-terminal-text-muted' : isPositive ? 'text-bull' : 'text-bear'
 
   return (
     <div
@@ -41,8 +60,15 @@ export function WatchlistItem({ token, onRemove, onClick }: Props) {
       title={token.name}
       data-testid="watchlist-item"
     >
+      {/* Color indicator dot */}
+      {change24h !== null && (
+        <span
+          className={`w-1.5 h-1.5 rounded-full shrink-0 ${isPositive ? 'bg-bull' : 'bg-bear'}`}
+        />
+      )}
+
       {/* Symbol */}
-      <span className="text-sm font-medium text-terminal-text min-w-[60px]">
+      <span className="text-sm font-medium text-terminal-text min-w-[48px]">
         {token.symbol}
       </span>
 
@@ -56,14 +82,26 @@ export function WatchlistItem({ token, onRemove, onClick }: Props) {
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Price placeholder - monospace */}
+      {/* Price */}
       <span className="text-xs font-mono text-terminal-text-secondary">
-        --
+        {loading ? (
+          <span className="inline-block w-12 h-3 bg-terminal-bg-tertiary rounded animate-shimmer" />
+        ) : price !== null ? (
+          formatPrice(price)
+        ) : (
+          '--'
+        )}
       </span>
 
-      {/* 24h change placeholder */}
-      <span className="text-xs font-mono text-terminal-text-muted min-w-[48px] text-right">
-        --
+      {/* 24h change */}
+      <span className={`text-xs font-mono min-w-[52px] text-right ${changeColor}`}>
+        {loading ? (
+          <span className="inline-block w-10 h-3 bg-terminal-bg-tertiary rounded animate-shimmer" />
+        ) : change24h !== null ? (
+          formatChange(change24h)
+        ) : (
+          '--'
+        )}
       </span>
 
       {/* Remove button */}

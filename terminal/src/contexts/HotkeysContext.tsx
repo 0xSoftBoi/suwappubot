@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react'
 import { useBottomTab } from './BottomTabContext'
+import { useTrading } from './TradingContext'
 
 interface HotkeyEntry {
   key: string
@@ -52,6 +53,7 @@ export function HotkeysProvider({ children }: { children: ReactNode }) {
   const hotkeysRef = useRef<Map<string, HotkeyEntry>>(new Map())
   const [, forceUpdate] = useState(0)
   const { setActiveTab } = useBottomTab()
+  const { buyInputRef, sellInputRef, setChartInterval, toggleChartFullscreen } = useTrading()
 
   const toggleHelp = useCallback(() => {
     setShowHelp(prev => !prev)
@@ -86,6 +88,59 @@ export function HotkeysProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [setActiveTab, toggleHelp])
+
+  // Register trading hotkeys: B (buy), S (sell), F (fullscreen), 1-6 (intervals)
+  useEffect(() => {
+    const intervalMap: [string, string, string][] = [
+      ['chart-1m', '1', '1m'],
+      ['chart-5m', '2', '5m'],
+      ['chart-15m', '3', '15m'],
+      ['chart-1h', '4', '1h'],
+      ['chart-4h', '5', '4h'],
+      ['chart-1d', '6', '1D'],
+    ]
+
+    const tradingKeys: [string, HotkeyEntry][] = [
+      ['focus-buy', {
+        key: 'b',
+        label: 'Focus Buy / Swap Input',
+        category: 'Trading',
+        action: () => buyInputRef.current?.focus(),
+      }],
+      ['focus-sell', {
+        key: 's',
+        label: 'Focus Sell Input',
+        category: 'Trading',
+        action: () => sellInputRef.current?.focus(),
+      }],
+      ['chart-fullscreen', {
+        key: 'f',
+        label: 'Toggle Fullscreen Chart',
+        category: 'Chart',
+        action: () => toggleChartFullscreen(),
+      }],
+      ...intervalMap.map(([id, key, interval]): [string, HotkeyEntry] => [
+        id,
+        {
+          key,
+          label: `${interval} Chart Interval`,
+          category: 'Chart',
+          action: () => setChartInterval(interval as '1m' | '5m' | '15m' | '1h' | '4h' | '1D'),
+        },
+      ]),
+    ]
+
+    for (const [id, entry] of tradingKeys) {
+      hotkeysRef.current.set(id, entry)
+    }
+    forceUpdate(n => n + 1)
+
+    return () => {
+      for (const [id] of tradingKeys) {
+        hotkeysRef.current.delete(id)
+      }
+    }
+  }, [buyInputRef, sellInputRef, setChartInterval, toggleChartFullscreen])
 
   // Global keydown listener
   useEffect(() => {
