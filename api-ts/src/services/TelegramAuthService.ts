@@ -1,6 +1,7 @@
 import { Context, Effect, Layer, Option } from 'effect'
 import { EnvService } from '../config/EnvService'
 import { UnauthorizedError } from '../errors'
+import { logger } from '../lib/logger'
 
 export interface TelegramUser {
 	id: number
@@ -91,11 +92,11 @@ export const TelegramAuthServiceLive = Layer.effect(
 
 					// Constant-time comparison
 					if (calculatedHash !== receivedHash) {
-						console.log('Hash mismatch:', {
+						logger.info({
 							receivedHash: receivedHash.substring(0, 16) + '...',
 							calculatedHash: calculatedHash.substring(0, 16) + '...',
 							botTokenPrefix: env.TELEGRAM_BOT_TOKEN?.substring(0, 10) + '...',
-						})
+						}, 'Hash mismatch')
 						return Option.none<TelegramUser>()
 					}
 

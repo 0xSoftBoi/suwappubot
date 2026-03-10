@@ -71,6 +71,10 @@ const quoteCacheCleanup = setInterval(() => {
 	}
 }, 5 * 60_000)
 
+export function stopAgentCleanup() {
+	clearInterval(quoteCacheCleanup)
+}
+
 // CoinGecko ID mapping for token prices
 const COINGECKO_IDS: Record<string, string> = {
 	eth: 'ethereum',

@@ -58,5 +58,18 @@ export class EnvService extends Context.Tag('EnvService')<EnvService, Env>() {}
 
 export const EnvServiceLive = Layer.effect(
 	EnvService,
-	Effect.sync(() => Schema.decodeUnknownSync(EnvSchema)(process.env)),
+	Effect.sync(() => {
+		const env = Schema.decodeUnknownSync(EnvSchema)(process.env)
+		if (env.NODE_ENV === 'production') {
+			const missing: string[] = []
+			if (!env.DATABASE_URL) missing.push('DATABASE_URL')
+			if (!env.TELEGRAM_BOT_TOKEN) missing.push('TELEGRAM_BOT_TOKEN')
+			if (!env.JWT_SECRET) missing.push('JWT_SECRET')
+			if (!env.ADMIN_API_KEY) missing.push('ADMIN_API_KEY')
+			if (missing.length > 0) {
+				throw new Error(`Missing required env vars for production: ${missing.join(', ')}`)
+			}
+		}
+		return env
+	}),
 )

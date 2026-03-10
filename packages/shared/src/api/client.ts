@@ -6,13 +6,47 @@
  */
 import type { Portfolio, Swap, ApiError, HealthStatus, UserPreferencesResponse, UpdatePreferencesResponse, UserPreferences } from '../types/api'
 import type { LinkedWallet, AuthChallenge, LinkWalletResponse, RegistrationInitResponse, AuthenticationInitResponse, PasskeyAuthResult } from '../types/auth'
-import type { SwapToken, SwapQuote, SwapQuoteRequest, SwapExecuteRequest, SwapExecuteResult } from '../types/swap'
+import type { SwapToken, SwapQuote, SwapQuoteRequest, SwapExecuteRequest, SwapExecuteResult, SwapStatusResponse } from '../types/swap'
 import type { PriceAlert, CreateAlertRequest, UpdateAlertRequest } from '../types/alerts'
 import type { LimitOrder, CreateOrderRequest, DCAOrder, CreateDCARequest, DCAExecution } from '../types/orders'
 import type { TraderProfile, CopyFollow, FollowTraderRequest, CopyTrade } from '../types/copy-trading'
 import type { UserPointsInfo, Milestone, Reward, PointTransaction, LeaderboardEntry } from '../types/points'
 import type { ReferralCode, ReferralStats, Referral } from '../types/referral'
 import type { SnipeOrder, CreateSnipeRequest, SnipeConfig, SnipeHistory, AutoSnipeRule, WatchedToken } from '../types/sniping'
+import type {
+  TelegramAuthResult,
+  SimulationResult,
+  WebappSnipeRequest,
+  WebappSnipeResult,
+  LaunchToken,
+  TokenLookupResult,
+  WebappPointsStats,
+  WebappCheckinResult,
+  WebappPointTransaction,
+  WebappLeaderboardEntry,
+  WebappReward,
+  WebappRedemptionResult,
+  WebappDCAOrder,
+  WebappDCAExecution,
+  WebappDCAStats,
+  WebappCreateDCAParams,
+  WebappPriceAlert,
+  WebappCreateAlertParams,
+  WebappLimitOrder,
+  WebappCreateOrderParams,
+  WebappOrderFill,
+  WebappReferralStats,
+  WebappReferredUser,
+  WebappTraderEntry,
+  WebappTraderStats,
+  WebappCopyFollow,
+  WebappCopySettings,
+  WebappFollowTraderParams,
+  WebappCopyTraderProfile,
+  WebappCopyFollowingEntry,
+  WebappCopyTradeRecord,
+  WebappCopyFollowSettings,
+} from '../types/webapp'
 
 export abstract class BaseApiClient {
   protected baseUrl: string
@@ -59,6 +93,19 @@ export abstract class BaseApiClient {
 
   async getHealth(): Promise<HealthStatus> {
     return this.fetch<HealthStatus>('/health')
+  }
+
+  // === Auth (Telegram) ===
+
+  async telegramAuth(initData: string): Promise<TelegramAuthResult> {
+    return this.fetch<TelegramAuthResult>('/webapp/telegram/auth', {
+      method: 'POST',
+      body: JSON.stringify({ initData }),
+    })
+  }
+
+  async validateAuth(): Promise<{ valid: boolean; user?: unknown }> {
+    return this.fetch('/webapp/validate', { method: 'POST' })
   }
 
   // === Auth (Passkey) ===
@@ -136,6 +183,10 @@ export abstract class BaseApiClient {
     return this.fetch<Swap[]>(`/webapp/users/me/swaps?limit=${limit}&offset=${offset}`)
   }
 
+  async getSwap(id: string): Promise<Swap> {
+    return this.fetch<Swap>(`/swaps/${id}`)
+  }
+
   // === Tokens & Chains (public) ===
 
   async getTokens(chainId = '1'): Promise<SwapToken[]> {
@@ -159,6 +210,42 @@ export abstract class BaseApiClient {
     return data.chains
   }
 
+  // === Token Search & Prices ===
+
+  async searchTokens(query: string, chains?: string[]): Promise<SwapToken[]> {
+    const params = new URLSearchParams({ q: query })
+    if (chains?.length) params.set('chains', chains.join(','))
+    const data = await this.fetch<{ tokens: Array<{ address: string; symbol: string; decimals: number; name: string; chainId: number; logoURI?: string; priceUSD?: string }> }>(
+      `/webapp/tokens/search?${params}`
+    )
+    return data.tokens.map((t) => ({
+      symbol: t.symbol,
+      name: t.name,
+      address: t.address,
+      chain: String(t.chainId),
+      decimals: t.decimals,
+      logoUrl: t.logoURI,
+    }))
+  }
+
+  async getTokenPrices(symbols: string[]): Promise<Record<string, number>> {
+    const data = await this.fetch<{ prices: Record<string, number> }>(
+      `/webapp/tokens/prices?tokens=${symbols.join(',')}`
+    )
+    return data.prices
+  }
+
+  async getTokenByAddress(address: string, chain?: string): Promise<TokenLookupResult | null> {
+    const params = new URLSearchParams({ address })
+    if (chain) params.set('chain', chain)
+    try {
+      return await this.fetch<TokenLookupResult>(`/webapp/tokens/lookup?${params}`)
+    } catch (err: any) {
+      if (err?.status === 404) return null
+      throw err
+    }
+  }
+
   // === Swap ===
 
   async getSwapQuote(request: SwapQuoteRequest): Promise<SwapQuote> {
@@ -177,6 +264,17 @@ export abstract class BaseApiClient {
     return this.fetch<SwapExecuteResult>('/webapp/swap/execute', {
       method: 'POST',
       body: JSON.stringify(request),
+    })
+  }
+
+  async getSwapStatus(swapId: number): Promise<SwapStatusResponse> {
+    return this.fetch<SwapStatusResponse>(`/webapp/swap/status/${swapId}`)
+  }
+
+  async simulateSwap(quoteId: string): Promise<SimulationResult> {
+    return this.fetch<SimulationResult>('/webapp/swap/simulate', {
+      method: 'POST',
+      body: JSON.stringify({ quoteId }),
     })
   }
 
@@ -206,7 +304,7 @@ export abstract class BaseApiClient {
     return this.fetch('/v1/me/push-token', { method: 'DELETE' })
   }
 
-  // === Alerts ===
+  // === Alerts (v1 API) ===
 
   async getAlerts(activeOnly = false): Promise<PriceAlert[]> {
     const params = activeOnly ? '?active_only=true' : ''
@@ -235,7 +333,31 @@ export abstract class BaseApiClient {
     return this.fetch(`/v1/alerts/${id}`, { method: 'DELETE' })
   }
 
-  // === Limit Orders ===
+  // === Alerts (webapp API) ===
+
+  async getWebappAlerts(): Promise<WebappPriceAlert[]> {
+    const response = await this.fetch<{ alerts: WebappPriceAlert[] }>('/webapp/alerts')
+    return response.alerts
+  }
+
+  async createWebappAlert(params: WebappCreateAlertParams): Promise<WebappPriceAlert> {
+    const response = await this.fetch<{ alert: WebappPriceAlert }>('/webapp/alerts', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+    return response.alert
+  }
+
+  async toggleAlert(id: number): Promise<WebappPriceAlert> {
+    const response = await this.fetch<{ alert: WebappPriceAlert }>(`/webapp/alerts/${id}/toggle`, { method: 'POST' })
+    return response.alert
+  }
+
+  async deleteWebappAlert(id: number): Promise<void> {
+    await this.fetch(`/webapp/alerts/${id}`, { method: 'DELETE' })
+  }
+
+  // === Limit Orders (v1 API) ===
 
   async getOrders(status?: string): Promise<LimitOrder[]> {
     const params = status ? `?status=${status}` : ''
@@ -257,7 +379,31 @@ export abstract class BaseApiClient {
     return this.fetch(`/v1/orders/${id}/cancel`, { method: 'PUT' })
   }
 
-  // === DCA ===
+  // === Limit Orders (webapp API) ===
+
+  async getWebappOrders(): Promise<WebappLimitOrder[]> {
+    const response = await this.fetch<{ orders: WebappLimitOrder[] }>('/webapp/users/me/limit-orders')
+    return response.orders
+  }
+
+  async createWebappOrder(params: WebappCreateOrderParams): Promise<WebappLimitOrder> {
+    const response = await this.fetch<{ order: WebappLimitOrder }>('/webapp/users/me/limit-orders', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+    return response.order
+  }
+
+  async cancelWebappOrder(id: number): Promise<void> {
+    await this.fetch(`/webapp/users/me/limit-orders/${id}`, { method: 'DELETE' })
+  }
+
+  async getOrderFills(id: number): Promise<WebappOrderFill[]> {
+    const response = await this.fetch<{ fills: WebappOrderFill[] }>(`/webapp/users/me/limit-orders/${id}/fills`)
+    return response.fills
+  }
+
+  // === DCA (v1 API) ===
 
   async getDCAOrders(status?: string): Promise<DCAOrder[]> {
     const params = status ? `?status=${status}` : ''
@@ -291,7 +437,50 @@ export abstract class BaseApiClient {
     return this.fetch<DCAExecution[]>(`/v1/dca/${id}/executions`)
   }
 
-  // === Copy Trading ===
+  // === DCA (webapp API) ===
+
+  async getWebappDCAOrders(): Promise<WebappDCAOrder[]> {
+    const response = await this.fetch<{ orders: WebappDCAOrder[] }>('/webapp/dca')
+    return response.orders
+  }
+
+  async getWebappDCAOrder(id: number): Promise<WebappDCAOrder> {
+    const response = await this.fetch<{ order: WebappDCAOrder }>(`/webapp/dca/${id}`)
+    return response.order
+  }
+
+  async createWebappDCAOrder(params: WebappCreateDCAParams): Promise<WebappDCAOrder> {
+    const response = await this.fetch<{ order: WebappDCAOrder }>('/webapp/dca', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+    return response.order
+  }
+
+  async pauseWebappDCA(id: number): Promise<WebappDCAOrder> {
+    const response = await this.fetch<{ order: WebappDCAOrder }>(`/webapp/dca/${id}/pause`, { method: 'POST' })
+    return response.order
+  }
+
+  async resumeWebappDCA(id: number): Promise<WebappDCAOrder> {
+    const response = await this.fetch<{ order: WebappDCAOrder }>(`/webapp/dca/${id}/resume`, { method: 'POST' })
+    return response.order
+  }
+
+  async cancelWebappDCA(id: number): Promise<void> {
+    await this.fetch(`/webapp/dca/${id}`, { method: 'DELETE' })
+  }
+
+  async getWebappDCAExecutions(id: number): Promise<WebappDCAExecution[]> {
+    const response = await this.fetch<{ executions: WebappDCAExecution[] }>(`/webapp/dca/${id}/executions`)
+    return response.executions
+  }
+
+  async getDCAStats(): Promise<WebappDCAStats> {
+    return this.fetch<WebappDCAStats>('/webapp/dca/stats')
+  }
+
+  // === Copy Trading (v1 API) ===
 
   async getTraders(sort = 'rank_score', limit = 20): Promise<TraderProfile[]> {
     return this.fetch<TraderProfile[]>(`/v1/traders?sort=${sort}&limit=${limit}`)
@@ -331,7 +520,73 @@ export abstract class BaseApiClient {
     return this.fetch<CopyTrade[]>('/v1/copy/trades')
   }
 
-  // === Points / XP ===
+  // === Copy Trading (webapp API) ===
+
+  async getTraderLeaderboard(sortBy = 'pnl7d', limit = 50): Promise<WebappTraderEntry[]> {
+    const response = await this.fetch<{ traders: WebappTraderEntry[] }>(`/webapp/copy/traders?sortBy=${sortBy}&limit=${limit}`)
+    return response.traders
+  }
+
+  async getTraderProfile(id: number): Promise<WebappCopyTraderProfile> {
+    return this.fetch<WebappCopyTraderProfile>(`/webapp/me/copy/trader/${id}`)
+  }
+
+  async getWebappFollowing(): Promise<WebappCopyFollowingEntry[]> {
+    return this.fetch<WebappCopyFollowingEntry[]>('/webapp/me/copy/following')
+  }
+
+  async getWebappCopyTrades(limit = 20, offset = 0): Promise<WebappCopyTradeRecord[]> {
+    return this.fetch<WebappCopyTradeRecord[]>(`/webapp/me/copy/trades?limit=${limit}&offset=${offset}`)
+  }
+
+  async webappFollowTrader(traderId: number, settings: WebappCopyFollowSettings): Promise<unknown> {
+    return this.fetch('/webapp/me/copy/follow/' + traderId, {
+      method: 'POST',
+      body: JSON.stringify(settings),
+    })
+  }
+
+  async webappUnfollowTrader(traderId: number): Promise<void> {
+    await this.fetch(`/webapp/copy/${traderId}`, { method: 'DELETE' })
+  }
+
+  async getWebappCopyFollowing(): Promise<WebappCopyFollow[]> {
+    const response = await this.fetch<{ following: WebappCopyFollow[] }>('/webapp/copy/following')
+    return response.following
+  }
+
+  async getCopySettings(traderId: number): Promise<WebappCopySettings> {
+    const response = await this.fetch<{ settings: WebappCopySettings }>(`/webapp/copy/settings/${traderId}`)
+    return response.settings
+  }
+
+  async updateCopySettings(traderId: number, settings: Partial<WebappCopySettings>): Promise<void> {
+    await this.fetch(`/webapp/copy/settings/${traderId}`, {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    })
+  }
+
+  async getMyTraderStats(): Promise<WebappTraderStats | null> {
+    const response = await this.fetch<{ stats: WebappTraderStats | null }>('/webapp/copy/my-stats')
+    return response.stats
+  }
+
+  async setTraderVisibility(isPublic: boolean, displayName?: string): Promise<void> {
+    await this.fetch('/webapp/copy/visibility', {
+      method: 'POST',
+      body: JSON.stringify({ isPublic, displayName }),
+    })
+  }
+
+  async webappFollowTraderSimple(traderId: number, params: WebappFollowTraderParams): Promise<void> {
+    await this.fetch(`/webapp/copy/${traderId}`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  }
+
+  // === Points / XP (v1 API) ===
 
   async getMyPoints(): Promise<UserPointsInfo> {
     return this.fetch<UserPointsInfo>('/v1/points/me')
@@ -364,7 +619,33 @@ export abstract class BaseApiClient {
     return this.fetch<PointTransaction[]>(`/v1/points/transactions?limit=${limit}`)
   }
 
-  // === Referrals ===
+  // === Points / XP (webapp API) ===
+
+  async getPointsStats(): Promise<WebappPointsStats> {
+    return this.fetch<WebappPointsStats>('/webapp/users/me/points/stats')
+  }
+
+  async webappDailyCheckin(): Promise<WebappCheckinResult> {
+    return this.fetch<WebappCheckinResult>('/webapp/users/me/points/checkin', { method: 'POST' })
+  }
+
+  async getPointsHistory(limit = 20, offset = 0): Promise<WebappPointTransaction[]> {
+    return this.fetch<WebappPointTransaction[]>(`/webapp/users/me/points/history?limit=${limit}&offset=${offset}`)
+  }
+
+  async getWebappLeaderboard(limit = 10): Promise<WebappLeaderboardEntry[]> {
+    return this.fetch<WebappLeaderboardEntry[]>(`/webapp/users/me/points/leaderboard?limit=${limit}`)
+  }
+
+  async getWebappRewards(): Promise<WebappReward[]> {
+    return this.fetch<WebappReward[]>('/webapp/users/me/points/rewards')
+  }
+
+  async redeemWebappReward(rewardId: number): Promise<WebappRedemptionResult> {
+    return this.fetch<WebappRedemptionResult>(`/webapp/users/me/points/redeem/${rewardId}`, { method: 'POST' })
+  }
+
+  // === Referrals (v1 API) ===
 
   async getReferralCode(): Promise<ReferralCode> {
     return this.fetch<ReferralCode>('/v1/referral/code')
@@ -385,7 +666,22 @@ export abstract class BaseApiClient {
     })
   }
 
-  // === Sniping ===
+  // === Referrals (webapp API) ===
+
+  async getWebappReferralCode(): Promise<{ referralCode: string; referralLink: string }> {
+    return this.fetch('/webapp/referrals/code')
+  }
+
+  async getWebappReferralStats(): Promise<WebappReferralStats> {
+    return this.fetch('/webapp/referrals/stats')
+  }
+
+  async getReferredUsers(): Promise<WebappReferredUser[]> {
+    const response = await this.fetch<{ referrals: WebappReferredUser[] }>('/webapp/referrals')
+    return response.referrals
+  }
+
+  // === Sniping (v1 API) ===
 
   async getSnipeOrders(status?: string): Promise<SnipeOrder[]> {
     const params = status ? `?status=${status}` : ''
@@ -446,5 +742,41 @@ export abstract class BaseApiClient {
 
   async removeFromWatchlist(id: number): Promise<{ success: boolean }> {
     return this.fetch(`/v1/snipe/watchlist/${id}`, { method: 'DELETE' })
+  }
+
+  // === Sniping (webapp API) ===
+
+  async snipeToken(request: WebappSnipeRequest): Promise<WebappSnipeResult> {
+    return this.fetch<WebappSnipeResult>('/webapp/snipe', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    })
+  }
+
+  async getLaunches(chain?: string): Promise<LaunchToken[]> {
+    const params = chain ? `?chain=${encodeURIComponent(chain)}` : ''
+    const response = await this.fetch<{ launches: LaunchToken[] }>(`/webapp/launches${params}`)
+    return response.launches
+  }
+}
+
+/**
+ * Concrete API client for cases where auth is injected via constructor.
+ * Useful for agent API clients, tests, and server-side usage.
+ */
+export class SimpleApiClient extends BaseApiClient {
+  private headers: Record<string, string>
+
+  constructor(baseUrl: string, authHeaders?: Record<string, string>) {
+    super(baseUrl)
+    this.headers = authHeaders ?? {}
+  }
+
+  protected getAuthHeaders(): Record<string, string> {
+    return this.headers
+  }
+
+  setAuthHeaders(headers: Record<string, string>): void {
+    this.headers = headers
   }
 }

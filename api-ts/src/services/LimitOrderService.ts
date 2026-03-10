@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
+import { logger } from '../lib/logger'
 import {
 	type DrizzleService,
 	type LimitOrder,
@@ -405,7 +406,7 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 			})
 
 			if (!response.ok) {
-				console.warn(
+				logger.warn(
 					`[LimitOrderService] Failed to get price for ${tokenAddress}: ${response.status}`,
 				)
 				return null

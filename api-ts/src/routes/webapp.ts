@@ -2,6 +2,7 @@ import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import jwt from 'jsonwebtoken'
 import { EnvService } from '../config/EnvService'
+import { logger } from '../lib/logger'
 import { mapErrorToResponse } from '../errors'
 import { telegramAuth } from '../middleware'
 import { runEffect, runEffectEither } from '../runtime'
@@ -49,12 +50,12 @@ webappRoutes.post('/telegram/auth', async (c) => {
 	const initData = body.initData || c.req.header('X-Telegram-Init-Data')
 
 	// Debug logging
-	console.log('Telegram auth request:', {
+	logger.info({
 		hasBody: !!body,
 		hasInitData: !!initData,
 		initDataLength: initData?.length,
 		initDataPreview: initData?.substring(0, 100),
-	})
+	}, 'Telegram auth request')
 
 	if (!initData) {
 		return c.json({ success: false, error: 'Missing initData' }, 400)
@@ -108,7 +109,7 @@ webappRoutes.post('/telegram/auth', async (c) => {
 					walletAddress = wallet.address
 				} else {
 					// Log error but don't fail auth - wallet can be created later
-					console.error('Failed to create Turnkey wallet:', turnkeyResult.left)
+					logger.error({ err: turnkeyResult.left }, 'Failed to create Turnkey wallet')
 				}
 			} else {
 				walletAddress = existingWallets[0].address
@@ -144,7 +145,7 @@ webappRoutes.post('/telegram/auth', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const error = result.left
-		console.error('Telegram auth error:', error)
+		logger.error({ err: error }, 'Telegram auth error')
 		return c.json({ success: false, error: error.message || 'Authentication failed' }, 401)
 	}
 
@@ -196,7 +197,7 @@ webappRoutes.post('/turnkey/oauth-wallet', async (c) => {
 	)
 
 	if (Either.isLeft(result)) {
-		console.error('OAuth wallet creation error:', result.left)
+		logger.error({ err: result.left }, 'OAuth wallet creation error')
 		return c.json({ error: result.left.message || 'Failed to create OAuth wallet' }, 500)
 	}
 
@@ -268,7 +269,7 @@ protectedWebapp.get('/portfolio', async (c) => {
 		}).pipe(
 			// Gracefully handle any errors by returning empty portfolio
 			Effect.catchAll((error) => {
-				console.error('Portfolio fetch error:', error)
+				logger.error({ err: error }, 'Portfolio fetch error')
 				return Effect.succeed(emptyPortfolio)
 			}),
 		),
@@ -894,7 +895,7 @@ protectedWebapp.get('/copy/trades', async (c) => {
 				return yield* Effect.fail(new Error('User not found'))
 			}
 
-			return yield* copyService.getCopyTrades(userOption.value.id, limit, offset)
+			return yield* copyService.getCopyTrades(userOption.value.id, { limit })
 		}),
 	)
 
@@ -925,7 +926,9 @@ protectedWebapp.post('/copy/follow/:traderId', async (c) => {
 				return yield* Effect.fail(new Error('User not found'))
 			}
 
-			return yield* copyService.followTrader(userOption.value.id, traderId, {
+			return yield* copyService.followTrader({
+				followerId: userOption.value.id,
+				traderId,
 				copyMode: body.copyMode,
 				copyAmountUsd: body.copyAmountUsd,
 				maxTradeUsd: body.maxTradeUsd,
@@ -1074,7 +1077,7 @@ webappRoutes.get('/tokens/trending', async (c) => {
 
 		return c.json({ tokens: enriched.filter(Boolean) })
 	} catch (error) {
-		console.error('Trending tokens error:', error)
+		logger.error({ err: error }, 'Trending tokens error')
 		return c.json({ tokens: [] })
 	}
 })
@@ -1090,7 +1093,7 @@ webappRoutes.get('/tokens/:chain/:address/info', async (c) => {
 		}
 		return c.json(await response.json())
 	} catch (error) {
-		console.error('Token info error:', error)
+		logger.error({ err: error }, 'Token info error')
 		return c.json({ pairs: [] })
 	}
 })
@@ -1145,7 +1148,7 @@ webappRoutes.get('/tokens/:chain/:address/chart', async (c) => {
 
 		return c.json({ candles, pair })
 	} catch (error) {
-		console.error('Token chart error:', error)
+		logger.error({ err: error }, 'Token chart error')
 		return c.json({ candles: [], pair: null })
 	}
 })

@@ -7,13 +7,13 @@ export {
 export { type Alert, AlertService, AlertServiceLive, type CreateAlertParams } from './AlertService'
 export { BalanceService, BalanceServiceLive, type TokenBalance } from './BalanceService'
 export {
-	type CopyTradeEntry,
 	CopyTradingService,
 	CopyTradingServiceLive,
-	type FollowingEntry,
 	type FollowSettings,
+	type FollowTraderParams,
 	type TopTraderEntry,
 	type TraderProfileDetail,
+	type UpdateCopySettingsParams,
 } from './CopyTradingService'
 export {
 	type CreateDCAOrderParams,

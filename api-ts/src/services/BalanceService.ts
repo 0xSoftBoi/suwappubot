@@ -1,5 +1,6 @@
 import { Context, Effect, Layer } from 'effect'
 import type { Wallet } from '../db'
+import { logger } from '../lib/logger'
 
 // Token balance with USD value
 export interface TokenBalance {
@@ -97,9 +98,9 @@ async function fetchEvmNativeBalance(address: string, chain: string): Promise<st
 				return balance.toFixed(6)
 			}
 		} catch (e) {
-			console.error(
-				`Failed to fetch ${chain} balance (attempt ${attempt}/${maxAttempts}, rpc=${rpcUrl}):`,
-				e,
+			logger.error(
+				{ err: e },
+				`Failed to fetch ${chain} balance (attempt ${attempt}/${maxAttempts}, rpc=${rpcUrl})`,
 			)
 			if (attempt < maxAttempts) continue
 		}
@@ -132,7 +133,7 @@ async function fetchSolanaBalance(address: string): Promise<string> {
 			return sol.toFixed(6)
 		}
 	} catch (e) {
-		console.error('Failed to fetch SOL balance:', e)
+		logger.error({ err: e }, 'Failed to fetch SOL balance')
 	}
 
 	return '0'
@@ -171,7 +172,7 @@ async function fetchTokenPrice(symbol: string): Promise<number> {
 			return price
 		}
 	} catch (e) {
-		console.error(`Failed to fetch price for ${symbol}:`, e)
+		logger.error({ err: e }, `Failed to fetch price for ${symbol}`)
 	}
 
 	return 0

@@ -1,5 +1,6 @@
 import { desc, eq } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
+import { logger } from '../lib/logger'
 import {
 	type DrizzleService,
 	type NewSwapTransaction,
@@ -313,7 +314,7 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 
 			const url = `${LIFI_API_BASE}/quote?${queryParams.toString()}`
 
-			console.log('[SwapService] Fetching quote:', url)
+			logger.info('[SwapService] Fetching quote: %s', url)
 
 			// Call Li.Fi API
 			const response = yield* Effect.tryPromise({
@@ -491,9 +492,9 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				catch: () => new DatabaseError({ message: 'Failed to check tx receipt' }),
 			})
 
-			if (!receipt.confirmed) return swap // Still pending
+			if (!receipt) return swap // Still pending
 
-			const newStatus = receipt.success ? 'completed' : 'failed'
+			const newStatus = receipt.status === 'completed' ? 'completed' : 'failed'
 			const updateData: Partial<SwapTransaction> = {
 				status: newStatus,
 				updatedAt: new Date(),

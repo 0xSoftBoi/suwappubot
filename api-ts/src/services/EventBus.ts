@@ -1,6 +1,7 @@
 import { Context, Effect, Layer } from 'effect'
 import Redis from 'ioredis'
 import { EnvService } from '../config/EnvService'
+import { logger } from '../lib/logger'
 
 // ─── Event Types ────────────────────────────────────────────
 
@@ -149,7 +150,7 @@ export const EventBusLive = Layer.effect(
 		const env = yield* EnvService
 
 		if (!env.REDIS_URL) {
-			console.log('[EventBus] REDIS_URL not configured, events disabled')
+			logger.info('[EventBus] REDIS_URL not configured, events disabled')
 			return createNoOpEventBus()
 		}
 
@@ -179,18 +180,18 @@ export const EventBusLive = Layer.effect(
 		}).pipe(Effect.either)
 
 		if (connectPub._tag === 'Left' || connectSub._tag === 'Left') {
-			console.warn('[EventBus] Failed to connect to Redis, events disabled')
+			logger.warn('[EventBus] Failed to connect to Redis, events disabled')
 			return createNoOpEventBus()
 		}
 
-		console.log('[EventBus] Connected to Redis pub/sub')
+		logger.info('[EventBus] Connected to Redis pub/sub')
 
 		// Handler registry: eventType -> Set<handler>
 		const handlers = new Map<string, Set<EventHandler>>()
 
 		// Subscribe to channel
 		subscriber.subscribe(CHANNEL, (err) => {
-			if (err) console.error('[EventBus] Subscribe error:', err.message)
+			if (err) logger.error('[EventBus] Subscribe error: %s', err.message)
 		})
 
 		subscriber.on('message', (_channel: string, message: string) => {
@@ -203,7 +204,7 @@ export const EventBusLive = Layer.effect(
 				if (typeHandlers) {
 					for (const handler of typeHandlers) {
 						Promise.resolve(handler(envelope)).catch((err) =>
-							console.error(`[EventBus] Handler error for ${eventType}:`, err),
+							logger.error({ err }, `[EventBus] Handler error for ${eventType}`),
 						)
 					}
 				}
@@ -213,17 +214,17 @@ export const EventBusLive = Layer.effect(
 				if (wildcardHandlers) {
 					for (const handler of wildcardHandlers) {
 						Promise.resolve(handler(envelope)).catch((err) =>
-							console.error('[EventBus] Wildcard handler error:', err),
+							logger.error({ err }, '[EventBus] Wildcard handler error'),
 						)
 					}
 				}
 			} catch (err) {
-				console.error('[EventBus] Failed to parse event:', err)
+				logger.error({ err }, '[EventBus] Failed to parse event')
 			}
 		})
 
-		publisher.on('error', (err) => console.error('[EventBus] Publisher error:', err.message))
-		subscriber.on('error', (err) => console.error('[EventBus] Subscriber error:', err.message))
+		publisher.on('error', (err) => logger.error('[EventBus] Publisher error: %s', err.message))
+		subscriber.on('error', (err) => logger.error('[EventBus] Subscriber error: %s', err.message))
 
 		let counter = 0
 

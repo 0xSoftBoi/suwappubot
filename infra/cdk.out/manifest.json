@@ -23,7 +23,7 @@
         "validateOnSynth": false,
         "assumeRoleArn": "arn:${AWS::Partition}:iam::905418423235:role/cdk-hnb659fds-deploy-role-905418423235-us-east-1",
         "cloudFormationExecutionRoleArn": "arn:${AWS::Partition}:iam::905418423235:role/cdk-hnb659fds-cfn-exec-role-905418423235-us-east-1",
-        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-905418423235-us-east-1/921bb3fbac91f916c0dc4cbd6c1fe10a8d2de31a1b7beae8184e584ffa3931c3.json",
+        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-905418423235-us-east-1/afb17e67fbdaac94f90527dbe070a42815e42e447ac69f6193373d15ae53285b.json",
         "requiresBootstrapStackVersion": 6,
         "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version",
         "additionalDependencies": [
@@ -298,34 +298,28 @@
             "data": "SuwappuLogs901F517E"
           }
         ],
-        "/SuwappuStack/SuwappuTask/TaskRole/Resource": [
+        "/SuwappuStack/SuwappuTaskRole/Resource": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "SuwappuTaskTaskRoleB8E1A138"
+            "data": "SuwappuTaskRoleBA33CEAC"
           }
         ],
-        "/SuwappuStack/SuwappuTask/TaskRole/DefaultPolicy/Resource": [
+        "/SuwappuStack/SuwappuTaskRole/DefaultPolicy/Resource": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "SuwappuTaskTaskRoleDefaultPolicy06C6CD88"
+            "data": "SuwappuTaskRoleDefaultPolicy978F6F50"
           }
         ],
-        "/SuwappuStack/SuwappuTask/Resource": [
+        "/SuwappuStack/SuwappuExecutionRole/Resource": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "SuwappuTaskC46C6156"
+            "data": "SuwappuExecutionRole18411D52"
           }
         ],
-        "/SuwappuStack/SuwappuTask/ExecutionRole/Resource": [
+        "/SuwappuStack/SuwappuExecutionRole/DefaultPolicy/Resource": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "SuwappuTaskExecutionRole23EC76C6"
-          }
-        ],
-        "/SuwappuStack/SuwappuTask/ExecutionRole/DefaultPolicy/Resource": [
-          {
-            "type": "aws:cdk:logicalId",
-            "data": "SuwappuTaskExecutionRoleDefaultPolicy3A1C9E48"
+            "data": "SuwappuExecutionRoleDefaultPolicy1F4B446C"
           }
         ],
         "/SuwappuStack/SuwappuAlb/Resource": [
@@ -344,6 +338,243 @@
           {
             "type": "aws:cdk:logicalId",
             "data": "SuwappuAlbHttpsListenerCE6601D6"
+          }
+        ],
+        "/SuwappuStack/SuwappuAlb/HttpsListener/BotTargetGroup/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SuwappuAlbHttpsListenerBotTargetGroupD39B63BC"
+          }
+        ],
+        "/SuwappuStack/SuwappuAlb/HttpsListener/BotTargetRule/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SuwappuAlbHttpsListenerBotTargetRuleBB246B85"
+          }
+        ],
+        "/SuwappuStack/SuwappuAlb/HttpsListener/ApiTsTargetGroup/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SuwappuAlbHttpsListenerApiTsTargetGroup6CC8D22A"
+          }
+        ],
+        "/SuwappuStack/SuwappuAlb/HttpsListener/ApiTsTargetRule/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SuwappuAlbHttpsListenerApiTsTargetRuleE9D18ABB"
+          }
+        ],
+        "/SuwappuStack/SuwappuAlb/HttpsListener/WebappTargetGroup/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SuwappuAlbHttpsListenerWebappTargetGroup087AA058"
+          }
+        ],
+        "/SuwappuStack/SuwappuAlb/HttpsListener/WebappTargetRule/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "SuwappuAlbHttpsListenerWebappTargetRule0B435081"
+          }
+        ],
+        "/SuwappuStack/BotTask/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "BotTaskA4C0D5BB"
+          }
+        ],
+        "/SuwappuStack/BotService": [
+          {
+            "type": "aws:cdk:warning",
+            "data": "minHealthyPercent has not been configured so the default value of 50% is used. The number of running tasks will decrease below the desired count during deployments etc. See https://github.com/aws/aws-cdk/issues/31705 [ack: @aws-cdk/aws-ecs:minHealthyPercent]",
+            "trace": [
+              "Annotations.addMessage (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/node_modules/aws-cdk-lib/core/lib/annotations.js:1:2066)",
+              "Annotations.addWarningV2 (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/node_modules/aws-cdk-lib/core/lib/annotations.js:1:984)",
+              "new BaseService2 (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/node_modules/aws-cdk-lib/aws-ecs/lib/base/base-service.js:1:12364)",
+              "new FargateService2 (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/node_modules/aws-cdk-lib/aws-ecs/lib/fargate/fargate-service.js:1:6371)",
+              "new FargateService2 (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/node_modules/aws-cdk-lib/core/lib/prop-injectable.js:1:681)",
+              "createService (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/lib/suwappu-stack.ts:329:23)",
+              "new SuwappuStack (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/lib/suwappu-stack.ts:381:24)",
+              "Object.<anonymous> (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/bin/infra.ts:14:1)",
+              "Module._compile (node:internal/modules/cjs/loader:1803:14)",
+              "Module.m._compile (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/index.ts:1618:23)",
+              "Module._extensions..js (node:internal/modules/cjs/loader:1934:10)",
+              "Object.require.extensions.<computed> [as .ts] (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/index.ts:1621:12)",
+              "Module.load (node:internal/modules/cjs/loader:1524:32)",
+              "Module._load (node:internal/modules/cjs/loader:1326:12)",
+              "TracingChannel.traceSync (node:diagnostics_channel:328:14)",
+              "wrapModuleLoad (node:internal/modules/cjs/loader:245:24)",
+              "Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)",
+              "phase4 (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/bin.ts:649:14)",
+              "bootstrap (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/bin.ts:95:10)",
+              "main (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/bin.ts:55:10)",
+              "Object.<anonymous> (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/bin.ts:800:3)",
+              "Module._compile (node:internal/modules/cjs/loader:1803:14)",
+              "Object.Module._extensions..js (node:internal/modules/cjs/loader:1934:10)",
+              "Module.load (node:internal/modules/cjs/loader:1524:32)",
+              "Module._load (node:internal/modules/cjs/loader:1326:12)",
+              "TracingChannel.traceSync (node:diagnostics_channel:328:14)",
+              "wrapModuleLoad (node:internal/modules/cjs/loader:245:24)",
+              "Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)",
+              "node:internal/main/run_main_module:33:47"
+            ]
+          }
+        ],
+        "/SuwappuStack/BotService/Service": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "BotServiceC5D9C2A0"
+          }
+        ],
+        "/SuwappuStack/BotService/TaskCount/Target/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "BotServiceTaskCountTarget902AAC1D"
+          }
+        ],
+        "/SuwappuStack/BotService/TaskCount/Target/BotCpuScaling/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "BotServiceTaskCountTargetBotCpuScaling735A8984"
+          }
+        ],
+        "/SuwappuStack/BotService/TaskCount/Target/BotMemoryScaling/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "BotServiceTaskCountTargetBotMemoryScalingB2172D20"
+          }
+        ],
+        "/SuwappuStack/ApiTsTask/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiTsTaskCAF9CE82"
+          }
+        ],
+        "/SuwappuStack/ApiTsService": [
+          {
+            "type": "aws:cdk:warning",
+            "data": "minHealthyPercent has not been configured so the default value of 50% is used. The number of running tasks will decrease below the desired count during deployments etc. See https://github.com/aws/aws-cdk/issues/31705 [ack: @aws-cdk/aws-ecs:minHealthyPercent]",
+            "trace": [
+              "Annotations.addMessage (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/node_modules/aws-cdk-lib/core/lib/annotations.js:1:2066)",
+              "Annotations.addWarningV2 (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/node_modules/aws-cdk-lib/core/lib/annotations.js:1:984)",
+              "new BaseService2 (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/node_modules/aws-cdk-lib/aws-ecs/lib/base/base-service.js:1:12364)",
+              "new FargateService2 (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/node_modules/aws-cdk-lib/aws-ecs/lib/fargate/fargate-service.js:1:6371)",
+              "new FargateService2 (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/node_modules/aws-cdk-lib/core/lib/prop-injectable.js:1:681)",
+              "createService (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/lib/suwappu-stack.ts:329:23)",
+              "new SuwappuStack (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/lib/suwappu-stack.ts:392:26)",
+              "Object.<anonymous> (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/bin/infra.ts:14:1)",
+              "Module._compile (node:internal/modules/cjs/loader:1803:14)",
+              "Module.m._compile (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/index.ts:1618:23)",
+              "Module._extensions..js (node:internal/modules/cjs/loader:1934:10)",
+              "Object.require.extensions.<computed> [as .ts] (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/index.ts:1621:12)",
+              "Module.load (node:internal/modules/cjs/loader:1524:32)",
+              "Module._load (node:internal/modules/cjs/loader:1326:12)",
+              "TracingChannel.traceSync (node:diagnostics_channel:328:14)",
+              "wrapModuleLoad (node:internal/modules/cjs/loader:245:24)",
+              "Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)",
+              "phase4 (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/bin.ts:649:14)",
+              "bootstrap (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/bin.ts:95:10)",
+              "main (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/bin.ts:55:10)",
+              "Object.<anonymous> (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/bin.ts:800:3)",
+              "Module._compile (node:internal/modules/cjs/loader:1803:14)",
+              "Object.Module._extensions..js (node:internal/modules/cjs/loader:1934:10)",
+              "Module.load (node:internal/modules/cjs/loader:1524:32)",
+              "Module._load (node:internal/modules/cjs/loader:1326:12)",
+              "TracingChannel.traceSync (node:diagnostics_channel:328:14)",
+              "wrapModuleLoad (node:internal/modules/cjs/loader:245:24)",
+              "Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)",
+              "node:internal/main/run_main_module:33:47"
+            ]
+          }
+        ],
+        "/SuwappuStack/ApiTsService/Service": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiTsService71E88FA0"
+          }
+        ],
+        "/SuwappuStack/ApiTsService/TaskCount/Target/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiTsServiceTaskCountTargetE9821A3C"
+          }
+        ],
+        "/SuwappuStack/ApiTsService/TaskCount/Target/ApiTsCpuScaling/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiTsServiceTaskCountTargetApiTsCpuScalingAC582C30"
+          }
+        ],
+        "/SuwappuStack/ApiTsService/TaskCount/Target/ApiTsMemoryScaling/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiTsServiceTaskCountTargetApiTsMemoryScaling799A08DA"
+          }
+        ],
+        "/SuwappuStack/WebappTask/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "WebappTaskDD1342FF"
+          }
+        ],
+        "/SuwappuStack/WebappService": [
+          {
+            "type": "aws:cdk:warning",
+            "data": "minHealthyPercent has not been configured so the default value of 50% is used. The number of running tasks will decrease below the desired count during deployments etc. See https://github.com/aws/aws-cdk/issues/31705 [ack: @aws-cdk/aws-ecs:minHealthyPercent]",
+            "trace": [
+              "Annotations.addMessage (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/node_modules/aws-cdk-lib/core/lib/annotations.js:1:2066)",
+              "Annotations.addWarningV2 (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/node_modules/aws-cdk-lib/core/lib/annotations.js:1:984)",
+              "new BaseService2 (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/node_modules/aws-cdk-lib/aws-ecs/lib/base/base-service.js:1:12364)",
+              "new FargateService2 (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/node_modules/aws-cdk-lib/aws-ecs/lib/fargate/fargate-service.js:1:6371)",
+              "new FargateService2 (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/node_modules/aws-cdk-lib/core/lib/prop-injectable.js:1:681)",
+              "createService (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/lib/suwappu-stack.ts:329:23)",
+              "new SuwappuStack (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/lib/suwappu-stack.ts:406:27)",
+              "Object.<anonymous> (/Users/mongolraider/Desktop/suwappumain/worktrees/main/infra/bin/infra.ts:14:1)",
+              "Module._compile (node:internal/modules/cjs/loader:1803:14)",
+              "Module.m._compile (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/index.ts:1618:23)",
+              "Module._extensions..js (node:internal/modules/cjs/loader:1934:10)",
+              "Object.require.extensions.<computed> [as .ts] (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/index.ts:1621:12)",
+              "Module.load (node:internal/modules/cjs/loader:1524:32)",
+              "Module._load (node:internal/modules/cjs/loader:1326:12)",
+              "TracingChannel.traceSync (node:diagnostics_channel:328:14)",
+              "wrapModuleLoad (node:internal/modules/cjs/loader:245:24)",
+              "Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)",
+              "phase4 (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/bin.ts:649:14)",
+              "bootstrap (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/bin.ts:95:10)",
+              "main (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/bin.ts:55:10)",
+              "Object.<anonymous> (/Users/mongolraider/.npm/_npx/1bf7c3c15bf47d04/node_modules/ts-node/src/bin.ts:800:3)",
+              "Module._compile (node:internal/modules/cjs/loader:1803:14)",
+              "Object.Module._extensions..js (node:internal/modules/cjs/loader:1934:10)",
+              "Module.load (node:internal/modules/cjs/loader:1524:32)",
+              "Module._load (node:internal/modules/cjs/loader:1326:12)",
+              "TracingChannel.traceSync (node:diagnostics_channel:328:14)",
+              "wrapModuleLoad (node:internal/modules/cjs/loader:245:24)",
+              "Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)",
+              "node:internal/main/run_main_module:33:47"
+            ]
+          }
+        ],
+        "/SuwappuStack/WebappService/Service": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "WebappServiceA4465243"
+          }
+        ],
+        "/SuwappuStack/WebappService/TaskCount/Target/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "WebappServiceTaskCountTargetEC5C7350"
+          }
+        ],
+        "/SuwappuStack/WebappService/TaskCount/Target/WebappCpuScaling/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "WebappServiceTaskCountTargetWebappCpuScaling62213F2D"
+          }
+        ],
+        "/SuwappuStack/WebappService/TaskCount/Target/WebappMemoryScaling/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "WebappServiceTaskCountTargetWebappMemoryScaling7FE6C2E5"
           }
         ],
         "/SuwappuStack/SuwappuWaf": [

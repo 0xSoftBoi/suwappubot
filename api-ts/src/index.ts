@@ -1,6 +1,9 @@
 import { Effect } from 'effect'
 import { createApp } from './app'
 import { EnvService } from './config/EnvService'
+import { logger } from './lib/logger'
+import { stopA2aCleanup } from './routes/a2a'
+import { stopAgentCleanup } from './routes/agent'
 import { runEffect, shutdownRuntime } from './runtime'
 
 async function main() {
@@ -24,13 +27,15 @@ async function main() {
 		fetch: app.fetch,
 	})
 
-	console.log(`🚀 Suwappu API (TypeScript) running at http://localhost:${server.port}`)
-	console.log(`   Environment: ${env.NODE_ENV}`)
-	console.log(`   Database: ${env.DATABASE_URL ? 'configured' : 'not configured'}`)
+	logger.info(`Suwappu API (TypeScript) running at http://localhost:${server.port}`)
+	logger.info(`Environment: ${env.NODE_ENV}`)
+	logger.info(`Database: ${env.DATABASE_URL ? 'configured' : 'not configured'}`)
 
 	// Graceful shutdown
 	const shutdown = async () => {
-		console.log('\n🛑 Shutting down...')
+		logger.info('Shutting down...')
+		stopA2aCleanup()
+		stopAgentCleanup()
 		server.stop()
 		await shutdownRuntime()
 		process.exit(0)
@@ -41,6 +46,6 @@ async function main() {
 }
 
 main().catch((err) => {
-	console.error('Failed to start server:', err)
+	logger.error({ err }, 'Failed to start server')
 	process.exit(1)
 })

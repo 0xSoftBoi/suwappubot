@@ -75,7 +75,10 @@ export function flexAuth() {
 			const result = await runEffectEither(
 				Effect.gen(function* () {
 					const env = yield* EnvService
-					const jwtSecret = env.JWT_SECRET || 'development-secret-change-in-production'
+					if (!env.JWT_SECRET) {
+						return yield* Effect.fail(new Error('JWT_SECRET not configured'))
+					}
+					const jwtSecret = env.JWT_SECRET
 
 					const decoded = yield* Effect.try({
 						try: () => jwt.verify(token, jwtSecret) as { userId: number; walletAddress?: string },

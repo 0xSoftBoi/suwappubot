@@ -131,6 +131,8 @@ export const TurnkeyServiceLive = Layer.effect(
 							subOrganizationName: `suwappu-${telegramUserId}-oauth`,
 							rootUsers: [{
 								userName: `user-${telegramUserId}`,
+								apiKeys: [],
+								authenticators: [],
 								oauthProviders: [{
 									providerName: provider,
 									oidcToken: oauthToken,
@@ -267,7 +269,7 @@ export const TurnkeyServiceLive = Layer.effect(
 						const response = await turnkeyClient.apiClient().createPolicy({
 							organizationId: subOrgId,
 							policyName,
-							effect: policyEffect,
+							effect: policyEffect as 'EFFECT_ALLOW' | 'EFFECT_DENY',
 							condition,
 							notes: `Created via Suwappu Agent API`,
 						})

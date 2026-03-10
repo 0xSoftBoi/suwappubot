@@ -1,5 +1,7 @@
 import { Context, Effect, Layer, Option, Scope } from 'effect'
 import { EnvService } from '../config/EnvService'
+import { DatabaseError } from '../errors'
+import { logger } from '../lib/logger'
 import { createDbClient, type DbClient } from './client'
 
 // Optional database client - None when DATABASE_URL is not configured
@@ -17,7 +19,7 @@ export const DrizzleServiceLive = Layer.scoped(
 		const scope = yield* Effect.scope
 
 		if (!env.DATABASE_URL) {
-			console.log('[DrizzleService] DATABASE_URL not configured, running without database')
+			logger.info('[DrizzleService] DATABASE_URL not configured, running without database')
 			return Option.none<DbClient>()
 		}
 
@@ -27,7 +29,7 @@ export const DrizzleServiceLive = Layer.scoped(
 		yield* Scope.addFinalizer(
 			scope,
 			Effect.sync(() => {
-				console.log('[DrizzleService] Shutting down database connections')
+				logger.info('[DrizzleService] Shutting down database connections')
 			}),
 		)
 
@@ -40,7 +42,7 @@ export const requireDb = Effect.gen(function* () {
 	const dbOption = yield* DrizzleService
 	if (Option.isNone(dbOption)) {
 		return yield* Effect.fail(
-			new Error('Database not configured. Set DATABASE_URL environment variable.'),
+			new DatabaseError({ message: 'Database not configured. Set DATABASE_URL environment variable.' }),
 		)
 	}
 	return dbOption.value

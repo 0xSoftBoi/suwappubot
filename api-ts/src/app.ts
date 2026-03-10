@@ -1,7 +1,8 @@
 import { Hono } from 'hono'
 import { serveStatic } from 'hono/bun'
 import { HTTPException } from 'hono/http-exception'
-import { logger } from 'hono/logger'
+import { logger as honoLogger } from 'hono/logger'
+import { logger } from './lib/logger'
 import agentCard from '../agent-card.json'
 import { adminKeyAuth, createCorsMiddleware } from './middleware'
 import { internalAuth } from './middleware/internalAuth'
@@ -30,7 +31,7 @@ export function createApp(config: AppConfig) {
 	const app = new Hono()
 
 	// Global middleware
-	app.use('*', logger())
+	app.use('*', honoLogger())
 	app.use('*', createCorsMiddleware(config.allowedOrigins))
 
 	// Global error handler
@@ -39,7 +40,7 @@ export function createApp(config: AppConfig) {
 			return c.json({ error: err.message }, err.status)
 		}
 
-		console.error('Unhandled error:', err)
+		logger.error({ err }, 'Unhandled error')
 		return c.json({ error: 'Internal Server Error' }, 500)
 	})
 
