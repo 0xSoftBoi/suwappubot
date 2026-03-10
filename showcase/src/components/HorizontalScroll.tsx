@@ -1,36 +1,37 @@
 'use client';
 
-import { useRef, useEffect, useState, createContext, useContext } from 'react';
+import { createContext, useContext, useRef, useEffect, useState, type ReactNode } from 'react';
+import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { ScrollToPlugin } from 'gsap/ScrollToPlugin';
-import { useGSAP } from '@gsap/react';
 
-gsap.registerPlugin(ScrollTrigger, ScrollToPlugin);
+gsap.registerPlugin(ScrollTrigger);
 
-interface ScrollContextValue {
+type ScrollContextValue = {
   scrollTween: gsap.core.Tween | null;
-  /** 0–1 normalized scroll progress through the horizontal section */
-  progressRef: React.RefObject<number>;
-}
+  progressRef: React.MutableRefObject<number>;
+  panelCount: number;
+};
 
 const ScrollContext = createContext<ScrollContextValue>({
   scrollTween: null,
   progressRef: { current: 0 },
+  panelCount: 0,
 });
+
 export const useScrollContext = () => useContext(ScrollContext);
 
 interface HorizontalScrollProps {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 export default function HorizontalScroll({ children }: HorizontalScrollProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const panelsRef = useRef<HTMLDivElement>(null);
-  const progressRef = useRef<number>(0);
+  const panelsContainerRef = useRef<HTMLDivElement>(null);
+  const progressBarRef = useRef<HTMLDivElement>(null);
+  const progressRef = useRef(0);
   const [scrollTween, setScrollTween] = useState<gsap.core.Tween | null>(null);
-  // null = unknown yet, avoids SSR flash
-  const [isMobile, setIsMobile] = useState<boolean | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -40,69 +41,68 @@ export default function HorizontalScroll({ children }: HorizontalScrollProps) {
   }, []);
 
   useGSAP(() => {
-    if (isMobile !== false || !panelsRef.current || !containerRef.current) return;
+    if (isMobile || !panelsContainerRef.current || !containerRef.current) return;
 
-    const panels = gsap.utils.toArray<HTMLElement>('.gsap-panel', panelsRef.current);
+    const panels = gsap.utils.toArray<HTMLElement>('.gsap-panel');
     if (panels.length === 0) return;
 
-    const tween = gsap.to(panels, {
-      xPercent: -100 * (panels.length - 1),
+    // Main horizontal scroll tween
+    const tween = gsap.to(panelsContainerRef.current, {
+      x: () => -(panelsContainerRef.current!.scrollWidth - window.innerWidth),
       ease: 'none',
       scrollTrigger: {
         trigger: containerRef.current,
         pin: true,
-        scrub: 1,
-        end: () => `+=${panelsRef.current!.scrollWidth - window.innerWidth}`,
+        scrub: 0.8,
+        snap: {
+          snapTo: 1 / (panels.length - 1),
+          duration: { min: 0.15, max: 0.4 },
+          ease: 'power2.inOut',
+        },
+        end: () => '+=' + (panelsContainerRef.current!.scrollWidth - window.innerWidth),
         invalidateOnRefresh: true,
         onUpdate: (self) => {
           progressRef.current = self.progress;
+          if (progressBarRef.current) {
+            progressBarRef.current.style.transform = `scaleX(${self.progress})`;
+          }
         },
       },
     });
 
     setScrollTween(tween);
 
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const handleMotion = (e: MediaQueryListEvent | MediaQueryList) => {
-      if (e.matches) {
-        tween.scrollTrigger?.kill();
-        gsap.set(panels, { xPercent: 0 });
-      }
-    };
-    handleMotion(mq);
-    mq.addEventListener('change', handleMotion);
+    // Prefetch reduced-motion preference
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (prefersReducedMotion) {
+      ScrollTrigger.getAll().forEach(t => t.kill());
+    }
 
     return () => {
-      mq.removeEventListener('change', handleMotion);
+      ScrollTrigger.getAll().forEach(t => t.kill());
     };
   }, { scope: containerRef, dependencies: [isMobile] });
 
-  // Don't render until we know mobile vs desktop
-  if (isMobile === null) {
-    return (
-      <ScrollContext.Provider value={{ scrollTween: null, progressRef }}>
-        <div className="flex flex-col">
-          {children}
-        </div>
-      </ScrollContext.Provider>
-    );
-  }
+  const panelCount = Array.isArray(children) ? children.length : 1;
 
+  // Mobile: vertical fallback
   if (isMobile) {
     return (
-      <ScrollContext.Provider value={{ scrollTween: null, progressRef }}>
-        <div className="flex flex-col">
-          {children}
-        </div>
+      <ScrollContext.Provider value={{ scrollTween: null, progressRef, panelCount }}>
+        <div className="flex flex-col">{children}</div>
       </ScrollContext.Provider>
     );
   }
 
   return (
-    <ScrollContext.Provider value={{ scrollTween, progressRef }}>
-      <div ref={containerRef} className="overflow-hidden">
-        <div ref={panelsRef} className="flex flex-nowrap">
+    <ScrollContext.Provider value={{ scrollTween, progressRef, panelCount }}>
+      <div ref={containerRef} className="relative overflow-hidden">
+        <div ref={panelsContainerRef} className="flex h-screen w-max">
           {children}
+        </div>
+        {/* Scroll progress bar */}
+        <div className="scroll-progress-track">
+          <div ref={progressBarRef} className="scroll-progress-bar" style={{ transform: 'scaleX(0)' }} />
         </div>
       </div>
     </ScrollContext.Provider>
