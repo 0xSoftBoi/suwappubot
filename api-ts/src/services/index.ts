@@ -111,3 +111,10 @@ export {
 	MorphoService,
 	MorphoServiceLive,
 } from './MorphoService'
+export {
+	EventBus,
+	EventBusLive,
+	type EventBusInterface,
+	type SuwappuEvent,
+	type EventEnvelope,
+} from './EventBus'

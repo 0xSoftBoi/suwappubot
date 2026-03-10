@@ -6,6 +6,7 @@ import { AlertServiceLive } from './AlertService'
 import { BalanceServiceLive } from './BalanceService'
 import { CopyTradingServiceLive } from './CopyTradingService'
 import { DCAServiceLive } from './DCAService'
+import { EventBusLive } from './EventBus'
 import { JupiterServiceLive } from './JupiterService'
 import { LimitOrderServiceLive } from './LimitOrderService'
 import { OrderServiceLive } from './OrderService'
@@ -37,6 +38,9 @@ export const TurnkeyLayer = TurnkeyServiceLive.pipe(Layer.provide(ConfigLayer))
 // Redis layer depends on config
 export const RedisLayer = RedisServiceLive.pipe(Layer.provide(ConfigLayer))
 
+// Event bus layer depends on config (uses Redis for pub/sub)
+export const EventBusLayer = EventBusLive.pipe(Layer.provide(ConfigLayer))
+
 // Service layers (stateless, no dependencies on other services)
 export const ServicesLayer = Layer.mergeAll(
 	WalletServiceLive,
@@ -65,6 +69,7 @@ export const MainLayer = Layer.mergeAll(
 	TelegramAuthLayer,
 	TurnkeyLayer,
 	RedisLayer,
+	EventBusLayer,
 	ServicesLayer,
 )
 

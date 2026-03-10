@@ -22,6 +22,7 @@ pytest-cov==5.0.0
 pytest==8.4.2
 python-dotenv==1.2.1
 python-telegram-bot==21.3
+redis[hiredis]>=5.0.0
 pyyaml==6.0.3
 qrcode[pil]==7.4.2
 solana==0.36.11

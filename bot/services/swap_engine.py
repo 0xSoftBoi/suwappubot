@@ -45,6 +45,7 @@ from bot.models.user import Wallet
 from bot.models.swap import SwapTransaction, SwapStatus
 from bot.utils.quote_validator import quote_validator
 from bot.utils.exceptions import SwapError
+from bot.services.event_bus import event_bus
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -666,6 +667,16 @@ class SwapEngine:
                 except Exception:
                     pass
 
+                # Publish swap.submitted event
+                await event_bus.publish("swap.submitted", {
+                    "userId": user_id,
+                    "swapId": swap_id,
+                    "txHash": tx_hash,
+                    "fromChain": quote.from_chain,
+                    "toChain": quote.to_chain,
+                    "provider": quote.provider,
+                })
+
                 # Clean up local references
                 wallet_encrypted_key = None
 
@@ -683,6 +694,17 @@ class SwapEngine:
                     if db_tx:
                         db_tx.status = SwapStatus.FAILED.value
                         db_tx.error_message = str(e)
+
+                # Publish swap.failed event
+                await event_bus.publish("swap.failed", {
+                    "userId": user_id,
+                    "swapId": swap_id,
+                    "error": str(e),
+                    "fromChain": quote.from_chain,
+                    "toChain": quote.to_chain,
+                    "fromToken": quote.from_token,
+                    "toToken": quote.to_token,
+                })
 
                 # Clean up local references
                 wallet_encrypted_key = None

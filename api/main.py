@@ -33,6 +33,8 @@ from bot.services.orders import order_service
 from bot.services.tx_poller import tx_poller
 from bot.services.health_monitor import health_monitor
 from bot.services.balance_refresher import balance_refresher
+from bot.services.event_bus import event_bus
+from bot.services.api_client import api_client
 from bot.utils.preload import preload_config
 from database.db import init_db, engine, get_session, DATABASE_AVAILABLE
 from bot.models.user import User, Wallet
@@ -167,6 +169,22 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("⚠️ Background services NOT started - database unavailable")
 
+    # 6. Start cross-service integrations
+    try:
+        await event_bus.connect()
+        if event_bus.connected:
+            logger.info("✓ Event bus connected (Redis pub/sub)")
+        else:
+            logger.info("ℹ Event bus not connected (Redis unavailable, events disabled)")
+    except Exception as e:
+        logger.warning(f"⚠️ Event bus failed to connect: {e}")
+
+    try:
+        await api_client.init()
+        logger.info("✓ Internal API client initialized")
+    except Exception as e:
+        logger.warning(f"⚠️ Internal API client failed to init: {e}")
+
     yield
 
     # --- Shutdown ---
@@ -208,6 +226,11 @@ async def lifespan(app: FastAPI):
         await tx_poller.stop()
         await health_monitor.stop()
         await balance_refresher.stop()
+
+    # Stop cross-service integrations
+    await event_bus.close()
+    await api_client.close()
+
     logger.info("✓ Cleanup complete")
 
 app = FastAPI(
