@@ -27,6 +27,7 @@ qrcode[pil]==7.4.2
 solana==0.36.11
 solders==0.27.1
 # spl-token - functionality included in solana-py
+tronpy>=1.20.0
 sqlalchemy>=2.0.29
 uvicorn[standard]>=0.32.1
 fastapi>=0.104.0

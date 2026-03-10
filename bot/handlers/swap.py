@@ -285,7 +285,7 @@ async def select_from_chain(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     # Fetch user's balances to show tokens they hold first
     user_id = context.user_data.get("user_id")
-    chain_type = "solana" if chain.chain_type == ChainType.SOLANA else "evm"
+    chain_type = chain.chain_type.value
     user_balances: dict[str, float] = {}
 
     try:
@@ -422,7 +422,7 @@ async def select_to_chain(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # Fetch user balances on destination chain to sort tokens
     user_id = context.user_data.get("user_id")
-    chain_type = "solana" if chain.chain_type == ChainType.SOLANA else "evm"
+    chain_type = chain.chain_type.value
     dest_balances: dict[str, float] = {}
     try:
         default_wallet = wallet_service.get_default_wallet(user_id, chain_type)
@@ -529,7 +529,7 @@ async def swap_pct_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     # Get user's balance for the from_token
     user_id = context.user_data.get("user_id")
     from_chain_config = get_chain_by_name(from_chain)
-    chain_type = "solana" if from_chain_config.chain_type == ChainType.SOLANA else "evm"
+    chain_type = from_chain_config.chain_type.value
 
     default_wallet = wallet_service.get_default_wallet(user_id, chain_type)
     if not default_wallet:
@@ -585,7 +585,7 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     # Get default wallet to start selection
     user_id = context.user_data["user_id"]
     from_chain_config = get_chain_by_name(context.user_data["swap"]["from_chain"])
-    chain_type = "solana" if from_chain_config.chain_type == ChainType.SOLANA else "evm"
+    chain_type = from_chain_config.chain_type.value
     
     default_wallet = wallet_service.get_default_wallet(user_id, chain_type)
     if not default_wallet:
@@ -602,7 +602,7 @@ async def show_wallet_selection(update: Update, context: ContextTypes.DEFAULT_TY
     swap_data = context.user_data["swap"]
     user_id = context.user_data["user_id"]
     from_chain_config = get_chain_by_name(swap_data["from_chain"])
-    chain_type = "solana" if from_chain_config.chain_type == ChainType.SOLANA else "evm"
+    chain_type = from_chain_config.chain_type.value
     
     with get_session() as session:
         wallets = session.query(Wallet).filter(
@@ -1005,7 +1005,7 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     
     with get_session() as session:
         from_chain_config = get_chain_by_name(swap_data["from_chain"])
-        chain_type = "solana" if from_chain_config.chain_type == ChainType.SOLANA else "evm"
+        chain_type = from_chain_config.chain_type.value
         
         wallet = wallet_service.get_default_wallet(user_id, chain_type)
         wallet_address = wallet.address if wallet else None

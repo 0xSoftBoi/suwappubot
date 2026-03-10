@@ -193,6 +193,12 @@ class Settings(BaseSettings):
         description="Solana mainnet RPC URL(s)"
     )
 
+    # TRON RPC
+    tron_rpc_url: str = Field(
+        default="https://api.trongrid.io",
+        description="TRON mainnet RPC URL(s)"
+    )
+
     # Infura network name mappings
     INFURA_NETWORKS: ClassVar[Dict[str, str]] = {
         "ethereum": "mainnet",

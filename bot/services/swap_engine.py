@@ -727,6 +727,12 @@ class SwapEngine:
                     if "error" in result:
                         raise SwapError(f"Transaction failed: {result['error']}")
                     return result["result"]
+        elif chain.chain_type == ChainType.TRON:
+            # TRON transaction via Li.Fi
+            tx_hash = await self.wallet_service.sign_and_broadcast_tron_transaction(
+                wallet, tx_request
+            )
+            return tx_hash
         else:
             # EVM transaction
             web3 = self.wallet_service._get_web3(quote.from_chain)

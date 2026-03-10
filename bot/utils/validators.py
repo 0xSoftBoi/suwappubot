@@ -34,19 +34,32 @@ def validate_solana_address(address: str) -> bool:
         return False
 
 
+def validate_tron_address(address: str) -> bool:
+    """Validate a TRON address (base58check, starts with T, 34 chars)."""
+    try:
+        if not address.startswith("T") or len(address) != 34:
+            return False
+        decoded = base58.b58decode_check(address)
+        return len(decoded) == 21 and decoded[0] == 0x41
+    except Exception:
+        return False
+
+
 def validate_address(address: str, chain_type: str = "evm") -> bool:
     """
     Validate a blockchain address.
-    
+
     Args:
         address: The address to validate
-        chain_type: "evm" or "solana"
-        
+        chain_type: "evm", "solana", or "tron"
+
     Returns:
         True if valid, False otherwise
     """
     if chain_type == "solana":
         return validate_solana_address(address)
+    if chain_type == "tron":
+        return validate_tron_address(address)
     return validate_evm_address(address)
 
 
@@ -81,19 +94,26 @@ def validate_solana_private_key(private_key: str) -> bool:
     return False
 
 
+def validate_tron_private_key(private_key: str) -> bool:
+    """Validate a TRON private key (64 hex chars, same as EVM — secp256k1)."""
+    return validate_evm_private_key(private_key)
+
+
 def validate_private_key(private_key: str, chain_type: str = "evm") -> bool:
     """
     Validate a private key.
-    
+
     Args:
         private_key: The private key to validate
-        chain_type: "evm" or "solana"
-        
+        chain_type: "evm", "solana", or "tron"
+
     Returns:
         True if valid, False otherwise
     """
     if chain_type == "solana":
         return validate_solana_private_key(private_key)
+    if chain_type == "tron":
+        return validate_tron_private_key(private_key)
     return validate_evm_private_key(private_key)
 
 
