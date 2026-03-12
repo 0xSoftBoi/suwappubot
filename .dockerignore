@@ -56,11 +56,19 @@ infra/
 tui/
 .github/
 node_modules/
-webapp/node_modules/
-webapp/dist/
-webapp/.storybook/
-webapp/storybook-static/
-webapp/coverage/
+webapp/
+showcase/
+mobile/
+api-ts/
+packages/
+.claude/
+desktop/
+terminal/
+dashboard/
+cpp/
+examples/
+docs/
+gitbook/
 
 # Deployment
 deploy.sh
