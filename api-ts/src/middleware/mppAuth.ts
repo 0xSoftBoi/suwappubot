@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import type { Context, Next } from 'hono'
 import { Effect, Either } from 'effect'
+import type { Env } from '../config/EnvService'
 import { EnvService } from '../config/EnvService'
 import { runEffectEither } from '../runtime'
 import { TTLCache } from '../lib/cache'
@@ -10,7 +11,6 @@ interface PaymentChallenge {
 	token: string
 	chain: string
 	paymentAddress: string
-	createdAt: number
 }
 
 interface PaymentProof {
@@ -58,7 +58,8 @@ export function mppPaymentAuth() {
 
 		// No payment proof — issue a 402 challenge
 		const challengeId = crypto.randomUUID()
-		const priceUsd = env.MPP_SWAP_PRICE_USD || '0.001'
+		const now = Date.now()
+		const priceUsd = env.MPP_SWAP_PRICE_USD
 		const paymentAddress = env.FEE_WALLET_EVM
 
 		challengeCache.set(challengeId, {
@@ -66,27 +67,27 @@ export function mppPaymentAuth() {
 			token: 'pathUSD',
 			chain: 'tempo',
 			paymentAddress,
-			createdAt: Date.now(),
 		})
 
-		return c.json(
-			{
-				status: 402,
-				payment_required: {
-					service: 'suwappu-dex',
-					price: { amount: priceUsd, token: 'pathUSD', chain: 'tempo' },
-					payment_address: paymentAddress,
-					payment_methods: ['mpp_one_time', 'x402_on_chain'],
-					challenge_id: challengeId,
-					expires_at: Math.floor((Date.now() + CHALLENGE_TTL) / 1000),
-				},
-			},
-			402,
-		)
+		const expiresAt = Math.floor((now + CHALLENGE_TTL) / 1000)
+		const paymentChallenge = {
+			service: 'suwappu-dex',
+			price: { amount: priceUsd, token: 'pathUSD', chain: 'tempo' },
+			payment_address: paymentAddress,
+			payment_methods: ['mpp_one_time', 'x402_on_chain'],
+			challenge_id: challengeId,
+			expires_at: expiresAt,
+		}
+
+		// AP2-compliant headers
+		c.header('x-402', Buffer.from(JSON.stringify(paymentChallenge)).toString('base64'))
+		c.header('x-ap2-version', '1')
+
+		return c.json({ status: 402, payment_required: paymentChallenge }, 402)
 	}
 }
 
-async function verifyPayment(c: Context, next: Next, proofHeader: string, env: any) {
+async function verifyPayment(c: Context, next: Next, proofHeader: string, env: Env) {
 	let proof: PaymentProof
 	try {
 		proof = JSON.parse(Buffer.from(proofHeader, 'base64').toString('utf-8'))

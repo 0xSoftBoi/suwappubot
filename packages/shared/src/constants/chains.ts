@@ -76,6 +76,24 @@ export const CHAINS: Record<string, ChainInfo> = {
     explorerUrl: 'https://solscan.io',
     type: 'solana',
   },
+  tempo: {
+    id: 4217,
+    key: 'tempo',
+    name: 'Tempo',
+    displayName: 'Tempo',
+    nativeToken: 'USD',
+    explorerUrl: 'https://explore.tempo.xyz',
+    type: 'evm',
+  },
+  plasma: {
+    id: 9745,
+    key: 'plasma',
+    name: 'Plasma',
+    displayName: 'Plasma',
+    nativeToken: 'XPL',
+    explorerUrl: 'https://plasmascan.to',
+    type: 'evm',
+  },
 }
 
 export const CHAIN_LIST = Object.values(CHAINS)
