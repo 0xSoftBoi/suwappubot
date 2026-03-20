@@ -2,8 +2,11 @@ import { Turnkey } from '@turnkey/sdk-server'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import { EnvService } from '../config/EnvService'
+import { logger } from '../lib/logger'
 import { DatabaseError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
+import { fetchWithRetry } from '../lib/retry'
 import { telegramAuth } from '../middleware'
+import { ipRateLimit } from '../middleware/ipRateLimit'
 import { runEffectEither } from '../runtime'
 import {
 	cacheKeys,
@@ -18,6 +21,7 @@ import {
 	WalletService,
 } from '../services'
 import type { TelegramUser } from '../services/TelegramAuthService'
+import { withSigningFallback } from '../services/FallbackSigningService'
 
 const swapRoutes = new Hono()
 
@@ -121,7 +125,7 @@ const deleteCachedQuote = (
  * - slippage: Optional, default 0.03 (3%)
  * - order: Optional, "RECOMMENDED" | "FASTEST" | "CHEAPEST" | "SAFEST"
  */
-swapRoutes.get('/quote', telegramAuth(), async (c) => {
+swapRoutes.get('/quote', ipRateLimit(30), telegramAuth(), async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
 
 	// Extract query params
@@ -250,7 +254,7 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
  * - quoteId: The quote ID to execute
  * - idempotencyKey: Optional unique key to prevent duplicate swaps
  */
-swapRoutes.post('/execute', telegramAuth(), async (c) => {
+swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
 	const body = await c.req.json().catch(() => ({}))
 
@@ -363,13 +367,13 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 			// Sign the transaction
 			const txRequest = quote.transactionRequest
 
-			console.log('[SwapRoute] Signing transaction:', {
+			logger.info({
 				swapId: swapRecord.id,
 				from: txRequest.from,
 				to: txRequest.to,
 				chainId: txRequest.chainId,
 				value: txRequest.value,
-			})
+			}, '[SwapRoute] Signing transaction')
 
 			// Get RPC URL for this chain
 			const rpcUrlForChain = CHAIN_RPC_ENDPOINTS[txRequest.chainId]
@@ -429,7 +433,7 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 
 					const requiredAmount = BigInt(quote.fromAmount)
 					if (allowanceResult < requiredAmount) {
-						console.log('[SwapRoute] Insufficient ERC20 allowance, sending approval tx')
+						logger.info('[SwapRoute] Insufficient ERC20 allowance, sending approval tx')
 						// Build approve(spender, uint256.max) calldata
 						const maxUint256 = '0x' + 'f'.repeat(64)
 						const approveData = '0x095ea7b3' +
@@ -441,13 +445,7 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 							catch: (e) => new Error(`Failed to get nonce for approval: ${e}`),
 						})
 
-						const approvalSignResult = yield* Effect.tryPromise({
-							try: async () => {
-								return await turnkeyClient.apiClient().signTransaction({
-									organizationId: wallet.turnkeySubOrgId!,
-									signWith: wallet.address,
-									type: 'TRANSACTION_TYPE_ETHEREUM',
-									unsignedTransaction: JSON.stringify({
+						const approvalUnsignedTx = {
 										type: '0x2',
 										chainId: `0x${txRequest.chainId.toString(16)}`,
 										nonce: approvalNonce,
@@ -457,8 +455,23 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 										maxFeePerGas: txRequest.gasPrice || '0x0',
 										maxPriorityFeePerGas: '0x0',
 										gas: '0x20000', // 131072 — enough for approval
-									}),
-								})
+									}
+					const approvalSignResult = yield* Effect.tryPromise({
+							try: async () => {
+								const { signedTransaction } = await withSigningFallback(
+									async () => {
+										const result = await turnkeyClient.apiClient().signTransaction({
+											organizationId: wallet.turnkeySubOrgId!,
+											signWith: wallet.address,
+											type: 'TRANSACTION_TYPE_ETHEREUM',
+											unsignedTransaction: JSON.stringify(approvalUnsignedTx),
+										})
+										return result.signedTransaction
+									},
+									wallet.id,
+									approvalUnsignedTx,
+								)
+								return { signedTransaction }
 							},
 							catch: (e) => new Error(`Failed to sign approval tx: ${e}`),
 						})
@@ -478,7 +491,7 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 								})
 								const data = (await res.json()) as { result?: string; error?: { message: string; code: number } }
 								if (data.error) throw new Error(`Approval RPC error: ${data.error.message}`)
-								console.log('[SwapRoute] Approval tx broadcast:', data.result)
+								logger.info('[SwapRoute] Approval tx broadcast: %s', data.result)
 								// Wait a bit for the approval to be included
 								await new Promise((r) => setTimeout(r, 3000))
 								return data.result
@@ -495,14 +508,8 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 				catch: (e) => new Error(`Failed to get nonce: ${e}`),
 			})
 
-			// Sign the swap transaction with Turnkey
-			const signResult = yield* Effect.tryPromise({
-				try: async () => {
-					const signedTx = await turnkeyClient.apiClient().signTransaction({
-						organizationId: wallet.turnkeySubOrgId!,
-						signWith: wallet.address,
-						type: 'TRANSACTION_TYPE_ETHEREUM',
-						unsignedTransaction: JSON.stringify({
+			// Sign the swap transaction with Turnkey (with fallback)
+			const swapUnsignedTx = {
 							type: '0x2', // EIP-1559
 							chainId: `0x${txRequest.chainId.toString(16)}`,
 							nonce: swapNonce,
@@ -512,9 +519,22 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 							maxFeePerGas: txRequest.gasPrice || '0x0',
 							maxPriorityFeePerGas: '0x0',
 							gas: txRequest.gasLimit || '0x0',
-						}),
-					})
-					return signedTx
+						}
+			const signResult = yield* Effect.tryPromise({
+				try: async () => {
+					return await withSigningFallback(
+						async () => {
+							const result = await turnkeyClient.apiClient().signTransaction({
+								organizationId: wallet.turnkeySubOrgId!,
+								signWith: wallet.address,
+								type: 'TRANSACTION_TYPE_ETHEREUM',
+								unsignedTransaction: JSON.stringify(swapUnsignedTx),
+							})
+							return result.signedTransaction
+						},
+						wallet.id,
+						swapUnsignedTx,
+					)
 				},
 				catch: (e) => new Error(`Failed to sign transaction: ${e}`),
 			})
@@ -523,7 +543,7 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 
 			// Submit to RPC
 			// For now, return the signed tx - in production, submit to the chain's RPC
-			console.log('[SwapRoute] Transaction signed successfully')
+			logger.info('[SwapRoute] Transaction signed successfully')
 
 			// In a full implementation, you would:
 			// 1. Get the appropriate RPC endpoint for the chain
@@ -536,7 +556,7 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 			if (rpcUrlForChain) {
 				const broadcastResult = yield* Effect.tryPromise({
 					try: async () => {
-						const res = await fetch(rpcUrlForChain, {
+						const res = await fetchWithRetry(rpcUrlForChain, {
 							method: 'POST',
 							headers: { 'Content-Type': 'application/json' },
 							body: JSON.stringify({
@@ -558,9 +578,9 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 					catch: (e) => new Error(`Failed to broadcast transaction: ${e}`),
 				})
 				txHash = broadcastResult
-				console.log('[SwapRoute] Transaction broadcast, txHash:', txHash)
+				logger.info('[SwapRoute] Transaction broadcast, txHash: %s', txHash)
 			} else {
-				console.warn(
+				logger.warn(
 					`[SwapRoute] No RPC endpoint for chainId ${txRequest.chainId}, transaction signed but not broadcast`,
 				)
 			}
@@ -596,7 +616,7 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		const error = result.left
-		console.error('[SwapRoute] Execute error:', error)
+		logger.error({ err: error }, '[SwapRoute] Execute error')
 
 		// Map error to response
 		if ('status' in error) {
@@ -813,7 +833,7 @@ async function fetchNativeBalance(address: string, chainId: string): Promise<str
 			return balance.toFixed(6)
 		}
 	} catch (e) {
-		console.error(`[SwapRoute] Failed to fetch native balance for chain ${chainId}:`, e)
+		logger.error({ err: e }, `[SwapRoute] Failed to fetch native balance for chain ${chainId}`)
 	}
 	return null
 }
@@ -843,7 +863,12 @@ swapRoutes.get('/tokens', async (c) => {
 				const params = new URLSearchParams(initData)
 				const userParam = params.get('user')
 				if (!userParam) return null
-				const tgUser = JSON.parse(decodeURIComponent(userParam)) as { id: number }
+				let tgUser: { id: number }
+				try {
+					tgUser = JSON.parse(decodeURIComponent(userParam))
+				} catch {
+					return null
+				}
 				const userOption = yield* userService.getUserByTelegramId(tgUser.id)
 				if (Option.isNone(userOption)) return null
 				const wallets = yield* walletService.getActiveWallets(userOption.value.id)
@@ -921,7 +946,7 @@ swapRoutes.get('/tokens', async (c) => {
 	)
 
 	if (Either.isLeft(result)) {
-		console.error('[SwapRoute] Failed to fetch tokens:', result.left)
+		logger.error({ err: result.left }, '[SwapRoute] Failed to fetch tokens')
 		return c.json({ error: 'Failed to fetch tokens' }, 500)
 	}
 

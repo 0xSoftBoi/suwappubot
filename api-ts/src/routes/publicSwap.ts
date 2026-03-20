@@ -4,8 +4,11 @@ import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import jwt from 'jsonwebtoken'
 import { EnvService } from '../config/EnvService'
+import { logger } from '../lib/logger'
 import { DrizzleService, requireDb, wallets } from '../db'
 import { mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
+import { fetchWithRetry } from '../lib/retry'
+import { withSigningFallback } from '../services/FallbackSigningService'
 import { type AuthUser, flexAuth } from '../middleware/flexAuth'
 import { ipRateLimit } from '../middleware/ipRateLimit'
 import { runEffectEither } from '../runtime'
@@ -255,7 +258,7 @@ publicSwapRoutes.get('/tokens', ipRateLimit(), async (c) => {
 	)
 
 	if (Either.isLeft(result)) {
-		console.error('[PublicSwap] Failed to fetch tokens:', result.left)
+		logger.error({ err: result.left }, '[PublicSwap] Failed to fetch tokens')
 		return c.json({ error: 'Failed to fetch tokens' }, 500)
 	}
 
@@ -444,20 +447,14 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 
 			const txRequest = quote.transactionRequest
 
-			console.log('[PublicSwap] Signing transaction:', {
+			logger.info({
 				swapId: swapRecord.id,
 				from: txRequest.from,
 				to: txRequest.to,
 				chainId: txRequest.chainId,
-			})
+			}, '[PublicSwap] Signing transaction')
 
-			const signResult = yield* Effect.tryPromise({
-				try: async () => {
-					const signedTx = await turnkeyClient.apiClient().signTransaction({
-						organizationId: wallet.turnkeySubOrgId!,
-						signWith: wallet.address,
-						type: 'TRANSACTION_TYPE_ETHEREUM',
-						unsignedTransaction: JSON.stringify({
+			const publicSwapUnsignedTx = {
 							type: '0x2',
 							chainId: `0x${txRequest.chainId.toString(16)}`,
 							nonce: '0x0',
@@ -467,9 +464,22 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 							maxFeePerGas: txRequest.gasPrice || '0x0',
 							maxPriorityFeePerGas: '0x0',
 							gas: txRequest.gasLimit || '0x0',
-						}),
-					})
-					return signedTx
+						}
+			const signResult = yield* Effect.tryPromise({
+				try: async () => {
+					return await withSigningFallback(
+						async () => {
+							const result = await turnkeyClient.apiClient().signTransaction({
+								organizationId: wallet.turnkeySubOrgId!,
+								signWith: wallet.address,
+								type: 'TRANSACTION_TYPE_ETHEREUM',
+								unsignedTransaction: JSON.stringify(publicSwapUnsignedTx),
+							})
+							return result.signedTransaction
+						},
+						wallet.id,
+						publicSwapUnsignedTx,
+					)
 				},
 				catch: (e) => new Error(`Failed to sign transaction: ${e}`),
 			})
@@ -482,7 +492,7 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 			if (rpcUrl) {
 				const broadcastResult = yield* Effect.tryPromise({
 					try: async () => {
-						const res = await fetch(rpcUrl, {
+						const res = await fetchWithRetry(rpcUrl, {
 							method: 'POST',
 							headers: { 'Content-Type': 'application/json' },
 							body: JSON.stringify({
@@ -504,7 +514,7 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 					catch: (e) => new Error(`Failed to broadcast transaction: ${e}`),
 				})
 				txHash = broadcastResult
-				console.log('[PublicSwap] Transaction broadcast, txHash:', txHash)
+				logger.info('[PublicSwap] Transaction broadcast, txHash: %s', txHash)
 			}
 
 			const newStatus = txHash ? 'submitted' : 'signed'
@@ -534,7 +544,7 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		const error = result.left
-		console.error('[PublicSwap] Execute error:', error)
+		logger.error({ err: error }, '[PublicSwap] Execute error')
 		if ('status' in error) {
 			const { status, body } = mapErrorToResponse(error as any)
 			return c.json(body, status as 200)
@@ -656,7 +666,10 @@ publicSwapRoutes.post('/auth', ipRateLimit(), async (c) => {
 			}
 
 			// Generate JWT
-			const jwtSecret = env.JWT_SECRET || 'development-secret-change-in-production'
+			if (!env.JWT_SECRET) {
+				return yield* Effect.fail(new Error('JWT_SECRET not configured'))
+			}
+			const jwtSecret = env.JWT_SECRET
 			const token = jwt.sign({ userId, walletAddress }, jwtSecret, { expiresIn: '7d' })
 
 			return {
@@ -669,7 +682,7 @@ publicSwapRoutes.post('/auth', ipRateLimit(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		const error = result.left
-		console.error('[PublicSwap] Auth error:', error)
+		logger.error({ err: error }, '[PublicSwap] Auth error')
 		return c.json({ error: (error as Error).message || 'Authentication failed' }, 500)
 	}
 

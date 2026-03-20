@@ -221,6 +221,19 @@ class WalletService:
             wallet_id = wallet.id
         
         logger.info(f"Created Turnkey wallet for user {user_id}: {turnkey_wallet.address}")
+
+        # Export and backup private key from Turnkey
+        try:
+            wallet_obj = self.get_wallet_by_id(wallet_id)
+            if wallet_obj:
+                from bot.services.turnkey_export import export_and_backup_wallet
+                with get_session() as session:
+                    attached = session.query(Wallet).filter(Wallet.id == wallet_id).first()
+                    if attached:
+                        await export_and_backup_wallet(attached, client, session)
+        except Exception as e:
+            logger.warning(f"Backup key export failed for wallet {wallet_id} (non-fatal): {e}")
+
         return self.get_wallet_by_id(wallet_id)
     
     async def _ensure_user_sub_org(self, user_id: int) -> str:
@@ -465,8 +478,29 @@ class WalletService:
                 auto_migrate=auto_migrate,
             )
     
+    def get_backup_private_key(self, wallet: Wallet) -> str:
+        """
+        Get the backup private key for a Turnkey wallet.
+
+        Turnkey wallets store an encrypted backup key (exported at creation time)
+        in the same DB columns as local wallets. This method decrypts and returns it.
+
+        Args:
+            wallet: Wallet object (must have backup key exported)
+
+        Returns:
+            Decrypted private key string
+
+        Raises:
+            ValueError: If no backup key exists for this wallet
+        """
+        if not wallet.encrypted_private_key or wallet.encrypted_private_key == "turnkey_managed":
+            raise ValueError(f"No backup key for wallet {wallet.id}")
+
+        return get_private_key_with_auto_migrate(wallet, auto_migrate=False)
+
     # === Balance Checking ===
-    
+
     async def get_evm_token_balance(
         self,
         chain_name: str,
@@ -927,33 +961,42 @@ class WalletService:
     async def sign_evm_transaction(self, wallet: Wallet, transaction: dict) -> str:
         """
         Sign an EVM transaction.
-        
+
         Routes to Turnkey for Turnkey wallets, local signing for local wallets.
-        
+        Falls back to local signing using backup key if Turnkey is unavailable.
+
         Args:
             wallet: Wallet to sign with
             transaction: Transaction dict
-            
+
         Returns:
             Signed transaction hex string
         """
         if wallet.is_turnkey_wallet:
-            return await self._sign_evm_via_turnkey(wallet, transaction)
-        
-        # Local signing
+            from bot.services.turnkey_fallback import sign_evm_with_fallback
+            return await sign_evm_with_fallback(self, wallet, transaction)
+
+        return self._sign_evm_local(wallet, transaction)
+
+    def _sign_evm_local(self, wallet: Wallet, transaction: dict) -> str:
+        """Sign EVM transaction with local private key."""
         private_key = self.get_private_key(wallet)
         if not private_key.startswith("0x"):
             private_key = "0x" + private_key
-        
+
         signed = Account.sign_transaction(transaction, private_key)
         return signed.raw_transaction.hex()
     
     async def sign_typed_data(self, wallet: Wallet, typed_data: dict) -> str:
-        """Sign EIP-712 typed data. Routes to Turnkey for Turnkey wallets."""
+        """Sign EIP-712 typed data. Falls back to local signing if Turnkey is down."""
         if wallet.is_turnkey_wallet:
-            return await self._sign_typed_data_via_turnkey(wallet, typed_data)
+            from bot.services.turnkey_fallback import sign_typed_data_with_fallback
+            return await sign_typed_data_with_fallback(self, wallet, typed_data)
 
-        # Local signing
+        return self._sign_typed_data_local(wallet, typed_data)
+
+    def _sign_typed_data_local(self, wallet: Wallet, typed_data: dict) -> str:
+        """Sign EIP-712 typed data with local private key."""
         from eth_account.messages import encode_typed_data
 
         private_key = self.get_private_key(wallet)
@@ -1032,36 +1075,35 @@ class WalletService:
     
     async def sign_solana_transaction(self, wallet: Wallet, transaction_bytes: bytes) -> bytes:
         """
-        Sign a Solana transaction.
-        
-        Routes to Turnkey for Turnkey wallets, local signing for local wallets.
-        
+        Sign a Solana transaction. Falls back to local signing if Turnkey is down.
+
         Args:
             wallet: Wallet to sign with
             transaction_bytes: Serialized transaction
-            
+
         Returns:
             Signed transaction bytes
         """
         if wallet.is_turnkey_wallet:
-            return await self._sign_solana_via_turnkey(wallet, transaction_bytes)
-        
-        # Local signing
+            from bot.services.turnkey_fallback import sign_solana_with_fallback
+            return await sign_solana_with_fallback(self, wallet, transaction_bytes)
+
+        return self._sign_solana_local(wallet, transaction_bytes)
+
+    def _sign_solana_local(self, wallet: Wallet, transaction_bytes: bytes) -> bytes:
+        """Sign Solana transaction with local private key."""
         from solders.transaction import VersionedTransaction
-        
+
         private_key = self.get_private_key(wallet)
-        
+
         try:
             key_bytes = base58.b58decode(private_key)
         except Exception:
             key_bytes = bytes(json.loads(private_key))
-        
+
         keypair = Keypair.from_bytes(key_bytes)
-        
-        # Deserialize, sign, and serialize
         tx = VersionedTransaction.from_bytes(transaction_bytes)
         tx.sign([keypair])
-        
         return bytes(tx)
     
     async def _sign_solana_via_turnkey(self, wallet: Wallet, transaction_bytes: bytes) -> bytes:
@@ -1089,6 +1131,7 @@ class WalletService:
 
         TRON transactions must be signed and broadcast through TronGrid/fullnode API.
         Li.Fi returns the raw transaction JSON which we sign locally and submit.
+        For Turnkey wallets with backup keys, uses the backup key for local signing.
 
         Args:
             wallet: Wallet to sign with
@@ -1099,7 +1142,11 @@ class WalletService:
         """
         from tronpy.keys import PrivateKey as TronPrivateKey
 
-        private_key_hex = self.get_private_key(wallet)
+        # TRON always signs locally — use backup key for Turnkey wallets
+        if wallet.is_turnkey_wallet:
+            private_key_hex = self.get_backup_private_key(wallet)
+        else:
+            private_key_hex = self.get_private_key(wallet)
         pk = TronPrivateKey(bytes.fromhex(private_key_hex.replace("0x", "")))
 
         rpc_url = settings.get_rpc_url("tron") or "https://api.trongrid.io"

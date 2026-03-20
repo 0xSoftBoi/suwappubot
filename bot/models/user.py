@@ -89,9 +89,12 @@ class Wallet(Base):
     is_active = Column(Boolean, default=True)
     is_default = Column(Boolean, default=False)
     
+    # Backup key export tracking
+    backup_key_exported_at = Column(DateTime, nullable=True)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     # Relationships
     user = relationship("User", back_populates="wallets")
     

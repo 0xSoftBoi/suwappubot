@@ -9,6 +9,13 @@
       "env": {
         "RENDER_API_KEY": "${RENDER_API_KEY}"
       }
+    },
+    "suwappu": {
+      "url": "https://api.suwappu.bot/mcp",
+      "transport": "streamable-http",
+      "headers": {
+        "Authorization": "Bearer ${SUWAPPU_API_KEY}"
+      }
     }
   }
 }

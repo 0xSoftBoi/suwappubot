@@ -82,6 +82,26 @@ class X402Payment(Base):
 
 
 
+class MPPSessionRecord(Base):
+    """Persisted MPP streaming payment session."""
+    __tablename__ = "mpp_sessions"
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(String(128), unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    service_url = Column(String(512), nullable=False)
+    service_name = Column(String(256), nullable=True)
+    fee_token = Column(String(32), default="pathUSD")
+    deposit_amount = Column(Float, default=0)
+    spent_amount = Column(Float, default=0)
+    status = Column(String(32), default="active")  # active, paused, closed, expired
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+    closed_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", backref="mpp_sessions")
+
+
 class APICredit(Base):
     """API credits for pay-per-use features."""
     __tablename__ = "api_credits"

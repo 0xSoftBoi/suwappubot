@@ -113,6 +113,13 @@ export const CHAINS: Record<string, ChainInfo> = {
 		nativeToken: 'AVAX',
 		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
 	},
+	tempo: {
+		id: 4217,
+		key: 'tempo',
+		name: 'Tempo',
+		nativeToken: 'USD',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
 }
 
 // Common token addresses by chain
@@ -176,6 +183,13 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		'USDC.e': '0xA7D7079b0FEaD91F3e65f86E8915Cb59c1a4C664',
 		USDT: '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
 	},
+	// Tempo
+	4217: {
+		pathUSD: '0x20c0000000000000000000000000000000000000',
+		AlphaUSD: '0x20c0000000000000000000000000000000000001',
+		BetaUSD: '0x20c0000000000000000000000000000000000002',
+		ThetaUSD: '0x20c0000000000000000000000000000000000003',
+	},
 }
 
 export interface TokenServiceInterface {
@@ -226,11 +240,14 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 
 			// Check common tokens first
 			const chainTokens = COMMON_TOKENS[chainId]
+			// 6-decimal stablecoins (USDC, USDT, TIP-20 tokens on Tempo)
+			const DECIMALS_6 = new Set(['USDC', 'USDT', 'USDC.E', 'BUSD', 'PATHUSD', 'ALPHAUSD', 'BETAUSD', 'THETAUSD'])
+
 			if (chainTokens && chainTokens[normalized]) {
 				return {
 					address: chainTokens[normalized],
 					symbol: normalized,
-					decimals: normalized === 'USDC' || normalized === 'USDT' ? 6 : 18,
+					decimals: DECIMALS_6.has(normalized) ? 6 : 18,
 					name: normalized,
 					chainId,
 				}

@@ -42,6 +42,14 @@ export const EnvSchema = Schema.Struct({
 	// Redis
 	REDIS_URL: Schema.optional(Schema.String),
 
+	// Sponge Gateway
+	SPONGE_API_KEY: Schema.optional(Schema.String),
+	SPONGE_WEBHOOK_SECRET: Schema.optional(Schema.String),
+
+	// MPP (Micropayment Protocol)
+	MPP_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	MPP_SWAP_PRICE_USD: Schema.optionalWith(Schema.String, { default: () => '0.001' }),
+
 	// Fee Collection
 	FEE_WALLET_EVM: Schema.optionalWith(Schema.String, {
 		default: () => '0x6456f69215C470e1545Ed6eea4621C136B30D85d',
@@ -58,5 +66,18 @@ export class EnvService extends Context.Tag('EnvService')<EnvService, Env>() {}
 
 export const EnvServiceLive = Layer.effect(
 	EnvService,
-	Effect.sync(() => Schema.decodeUnknownSync(EnvSchema)(process.env)),
+	Effect.sync(() => {
+		const env = Schema.decodeUnknownSync(EnvSchema)(process.env)
+		if (env.NODE_ENV === 'production') {
+			const missing: string[] = []
+			if (!env.DATABASE_URL) missing.push('DATABASE_URL')
+			if (!env.TELEGRAM_BOT_TOKEN) missing.push('TELEGRAM_BOT_TOKEN')
+			if (!env.JWT_SECRET) missing.push('JWT_SECRET')
+			if (!env.ADMIN_API_KEY) missing.push('ADMIN_API_KEY')
+			if (missing.length > 0) {
+				throw new Error(`Missing required env vars for production: ${missing.join(', ')}`)
+			}
+		}
+		return env
+	}),
 )

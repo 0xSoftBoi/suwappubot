@@ -380,6 +380,12 @@ try:
 except ImportError as e:
     print(f"Warning: Could not load a2a_router: {e}")
 
+try:
+    from api.routes.internal import router as internal_router
+    app.include_router(internal_router)
+except ImportError as e:
+    print(f"Warning: Could not load internal_router: {e}")
+
 # --- Pydantic Models (Aligned with Mobile/Web) ---
 
 class TokenInfo(BaseModel):

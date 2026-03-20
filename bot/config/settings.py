@@ -84,6 +84,24 @@ class Settings(BaseSettings):
         description="Default curve for Solana wallets"
     )
 
+    # Turnkey Fallback Signing
+    turnkey_fallback_enabled: bool = Field(
+        default=True,
+        description="Enable fallback to local signing when Turnkey is unavailable"
+    )
+    turnkey_fallback_mode: str = Field(
+        default="auto",
+        description="Fallback mode: 'auto' (circuit breaker), 'manual' (always local), 'disabled'"
+    )
+    turnkey_circuit_breaker_threshold: int = Field(
+        default=3,
+        description="Number of consecutive Turnkey failures before opening circuit breaker"
+    )
+    turnkey_circuit_breaker_recovery_seconds: int = Field(
+        default=300,
+        description="Seconds to wait before testing if Turnkey recovered"
+    )
+
     # OAuth Configuration (Google + Twitter)
     google_client_id: Optional[str] = Field(
         default=None,

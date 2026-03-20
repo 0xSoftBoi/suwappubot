@@ -10,7 +10,7 @@
 
 import { Hono } from 'hono'
 import { Effect, Either, Option } from 'effect'
-import { AgentService, TokenService, SwapService, BalanceService, JupiterService, CHAINS, SOLANA_TOKENS, type QuoteParams } from '../services'
+import { AgentService, TokenService, SwapService, BalanceService, JupiterService, CHAINS, COMMON_TOKENS, SOLANA_TOKENS, type QuoteParams } from '../services'
 import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
 import { agentBearerAuth } from '../middleware'
@@ -97,6 +97,27 @@ const TOOLS = [
 			required: ['quote_id', 'wallet_address'],
 		},
 	},
+	{
+		name: 'get_tempo_tokens',
+		description: 'Get TIP-20 token list on Tempo mainnet (chain ID 4217) with addresses and decimals. Tempo uses USD-denominated stablecoins: pathUSD, AlphaUSD, BetaUSD, ThetaUSD.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				search: { type: 'string', description: 'Filter tokens by symbol substring (optional)' },
+			},
+		},
+	},
+	{
+		name: 'browse_mpp_directory',
+		description: 'Browse the MPP (Micropayment Protocol) service directory to discover available services and their payment requirements.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				category: { type: 'string', description: 'Filter by category (e.g. "defi", "ai", "data"). Optional.' },
+				limit: { type: 'number', description: 'Max results to return (default 20, max 100)' },
+			},
+		},
+	},
 ]
 
 // ---------------------------------------------------------------
@@ -118,6 +139,68 @@ function rpcErr(id: string | number | null, code: number, message: string, data?
 function isSolanaChain(chain: string): boolean {
 	const n = chain.toLowerCase().trim()
 	return n === 'solana' || n === 'sol'
+}
+
+function isTempoChain(chain: string): boolean {
+	const n = chain.toLowerCase().trim()
+	return n === 'tempo' || n === '4217'
+}
+
+const TEMPO_TOKENS = [
+	{ symbol: 'pathUSD', name: 'pathUSD', address: '0x20c0000000000000000000000000000000000000', decimals: 6, description: 'Tempo native stablecoin' },
+	{ symbol: 'AlphaUSD', name: 'AlphaUSD', address: '0x20c0000000000000000000000000000000000001', decimals: 6, description: 'Alpha yield-bearing stablecoin' },
+	{ symbol: 'BetaUSD', name: 'BetaUSD', address: '0x20c0000000000000000000000000000000000002', decimals: 6, description: 'Beta yield-bearing stablecoin' },
+	{ symbol: 'ThetaUSD', name: 'ThetaUSD', address: '0x20c0000000000000000000000000000000000003', decimals: 6, description: 'Theta yield-bearing stablecoin' },
+]
+
+function handleGetTempoTokens(args: Record<string, unknown>) {
+	const search = (args.search as string)?.toUpperCase()
+	let tokens = TEMPO_TOKENS
+	if (search) {
+		tokens = tokens.filter((t) => t.symbol.toUpperCase().includes(search))
+	}
+	return {
+		content: [{
+			type: 'text',
+			text: JSON.stringify({
+				chain: 'Tempo',
+				chain_id: 4217,
+				native_token: 'USD',
+				tokens: tokens.map((t) => ({
+					symbol: t.symbol,
+					name: t.name,
+					address: t.address,
+					decimals: t.decimals,
+					description: t.description,
+				})),
+			}),
+		}],
+	}
+}
+
+async function handleBrowseMppDirectory(args: Record<string, unknown>) {
+	const category = args.category as string | undefined
+	const limit = Math.min(Math.max((args.limit as number) || 20, 1), 100)
+
+	try {
+		const url = new URL('https://directory.mpp.dev/v1/services')
+		if (category) url.searchParams.set('category', category)
+		url.searchParams.set('limit', String(limit))
+
+		const res = await fetch(url.toString(), {
+			headers: { Accept: 'application/json' },
+			signal: AbortSignal.timeout(10_000),
+		})
+
+		if (!res.ok) {
+			return { isError: true, content: [{ type: 'text', text: `MPP directory returned ${res.status}: ${res.statusText}` }] }
+		}
+
+		const data = await res.json()
+		return { content: [{ type: 'text', text: JSON.stringify(data) }] }
+	} catch (e: any) {
+		return { isError: true, content: [{ type: 'text', text: `Failed to fetch MPP directory: ${e.message}` }] }
+	}
 }
 
 async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
@@ -162,6 +245,49 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 		)
 		if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: result.left.message }] }
 		return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
+	}
+
+	// Tempo — route to Python internal API for enshrined DEX quotes
+	if (isTempoChain(chainKey)) {
+		const fromNorm = from_token.toUpperCase().trim()
+		const toNorm = to_token.toUpperCase().trim()
+		const tempoTokens = COMMON_TOKENS[4217] || {}
+		const fromAddr = Object.entries(tempoTokens).find(([k]) => k.toUpperCase() === fromNorm)?.[1]
+		const toAddr = Object.entries(tempoTokens).find(([k]) => k.toUpperCase() === toNorm)?.[1]
+		if (!fromAddr) return { isError: true, content: [{ type: 'text', text: `Token not found on Tempo: ${from_token}. Available: ${Object.keys(tempoTokens).join(', ')}` }] }
+		if (!toAddr) return { isError: true, content: [{ type: 'text', text: `Token not found on Tempo: ${to_token}. Available: ${Object.keys(tempoTokens).join(', ')}` }] }
+
+		try {
+			const internalUrl = process.env.INTERNAL_API_URL || 'http://localhost:8000'
+			const res = await fetch(`${internalUrl}/internal/tempo/quote?from_token=${fromAddr}&to_token=${toAddr}&amount=${amount}&wallet_address=${wallet_address || ''}`, {
+				headers: {
+					'X-Internal-Key': process.env.INTERNAL_API_KEY || '',
+					Accept: 'application/json',
+				},
+				signal: AbortSignal.timeout(15_000),
+			})
+			if (!res.ok) {
+				const err = await res.text().catch(() => res.statusText)
+				return { isError: true, content: [{ type: 'text', text: `Tempo quote failed: ${err}` }] }
+			}
+			const quote = await res.json() as Record<string, unknown>
+			const quoteId = `tempo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+			cacheAgentQuote(quoteId, quote, agent.id, false)
+			return {
+				content: [{
+					type: 'text',
+					text: JSON.stringify({
+						quote_id: quoteId, chain: 'Tempo', chain_id: 4217, chain_type: 'evm',
+						from_token: from_token, to_token: to_token,
+						amount_in: amount, amount_out: quote.amount_out || quote.amountOut,
+						exchange_rate: quote.exchange_rate || quote.exchangeRate,
+						expires_in_seconds: 60,
+					}),
+				}],
+			}
+		} catch (e: any) {
+			return { isError: true, content: [{ type: 'text', text: `Tempo quote error: ${e.message}` }] }
+		}
 	}
 
 	// EVM
@@ -343,7 +469,7 @@ mcpRoutes.post('/', async (c) => {
 			return c.json(rpcOk(req.id, {
 				protocolVersion: '2024-11-05',
 				capabilities: { tools: {} },
-				serverInfo: { name: 'suwappu', version: '0.4.0' },
+				serverInfo: { name: 'suwappu', version: '0.5.0' },
 			}), 200)
 
 		case 'tools/list':
@@ -372,6 +498,12 @@ mcpRoutes.post('/', async (c) => {
 					break
 				case 'execute_swap':
 					result = await handleExecuteSwap(args || {})
+					break
+				case 'get_tempo_tokens':
+					result = handleGetTempoTokens(args || {})
+					break
+				case 'browse_mpp_directory':
+					result = await handleBrowseMppDirectory(args || {})
 					break
 				default:
 					return c.json(rpcErr(req.id, -32601, `Unknown tool: ${name}`), 200)

@@ -505,7 +505,75 @@ class TurnkeyClient:
         return signature
 
     # === Import/Export ===
-    
+
+    async def export_wallet(
+        self,
+        wallet_id: str,
+        organization_id: Optional[str] = None,
+    ) -> str:
+        """
+        Export a wallet's private key from Turnkey using ACTIVITY_TYPE_EXPORT_WALLET.
+
+        Turnkey returns the mnemonic/key via an encrypted bundle. For server-side
+        export we use Turnkey's plaintext export (no HPKE) which is available when
+        using API key auth from the parent org.
+
+        Args:
+            wallet_id: Turnkey wallet ID to export
+            organization_id: Target organization
+
+        Returns:
+            Private key hex string
+        """
+        params = {
+            "walletId": wallet_id,
+        }
+
+        result = await self._submit_activity(
+            "ACTIVITY_TYPE_EXPORT_WALLET",
+            params,
+            organization_id=organization_id,
+        )
+
+        export_result = result.get("exportWalletResult", {})
+        mnemonic = export_result.get("mnemonic", "")
+
+        if not mnemonic:
+            raise TurnkeyActivityError(
+                "export_wallet",
+                "Turnkey export returned empty mnemonic/key"
+            )
+
+        # Derive private key from mnemonic for the appropriate path
+        # Turnkey returns the mnemonic — we derive the key for the wallet's path
+        return self._derive_key_from_mnemonic(mnemonic)
+
+    @staticmethod
+    def _derive_key_from_mnemonic(mnemonic: str) -> str:
+        """
+        Derive a private key from a BIP-39 mnemonic.
+
+        Uses the default EVM derivation path m/44'/60'/0'/0/0.
+        For Solana wallets, callers should handle ed25519 derivation separately.
+
+        Args:
+            mnemonic: BIP-39 mnemonic phrase
+
+        Returns:
+            Hex-encoded private key (without 0x prefix)
+        """
+        try:
+            from eth_account import Account
+            Account.enable_unaudited_hdwallet_features()
+            acct = Account.from_mnemonic(mnemonic)
+            return acct.key.hex().replace("0x", "")
+        except Exception as e:
+            # If mnemonic derivation fails, it may already be a raw hex key
+            clean = mnemonic.strip()
+            if len(clean) == 64 and all(c in '0123456789abcdefABCDEF' for c in clean):
+                return clean.lower()
+            raise ValueError(f"Cannot derive private key from export result: {e}")
+
     async def import_private_key(
         self,
         private_key: str,

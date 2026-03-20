@@ -111,7 +111,7 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
     try:
         from bot.models.user import User, Wallet
         from bot.models.swap import SwapTransaction
-        from bot.models.subscription import Subscription, X402Payment, APICredit
+        from bot.models.subscription import Subscription, X402Payment, APICredit, MPPSessionRecord
         # Common operational tables used by services/background tasks
         from bot.models.fees import FeeConfig, FeeTransaction, FeeSummary
         from bot.models.advanced import LimitOrder, DCAOrder, DCAExecution, SwapTemplate, RugMonitor
@@ -354,7 +354,7 @@ def _add_tos_columns(db_engine, inspector, is_sqlite: bool) -> None:
     
     new_columns = [
         ("tos_accepted", "BOOLEAN", "FALSE"),
-        ("tos_accepted_at", "DATETIME", "NULL"),
+        ("tos_accepted_at", "TIMESTAMP", "NULL"),
     ]
     
     for col_name, col_type, default in new_columns:
@@ -547,8 +547,9 @@ def _add_turnkey_columns(db_engine, inspector, table_name: str, is_sqlite: bool,
         ("wallet_provider", "VARCHAR(20)", "'local'"),
         ("turnkey_wallet_id", "VARCHAR(100)", "NULL"),
         ("turnkey_account_id", "VARCHAR(100)", "NULL"),
+        ("backup_key_exported_at", "TIMESTAMP", "NULL"),
     ]
-    
+
     # User wallets also need sub-organization tracking
     if include_sub_org:
         new_columns.append(("turnkey_sub_org_id", "VARCHAR(100)", "NULL"))
