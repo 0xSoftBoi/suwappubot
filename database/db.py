@@ -111,7 +111,7 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
     try:
         from bot.models.user import User, Wallet
         from bot.models.swap import SwapTransaction
-        from bot.models.subscription import Subscription, X402Payment, APICredit
+        from bot.models.subscription import Subscription, X402Payment, APICredit, MPPSessionRecord
         # Common operational tables used by services/background tasks
         from bot.models.fees import FeeConfig, FeeTransaction, FeeSummary
         from bot.models.advanced import LimitOrder, DCAOrder, DCAExecution, SwapTemplate, RugMonitor

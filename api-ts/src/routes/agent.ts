@@ -9,6 +9,7 @@ import type { Agent } from '../db'
 import { requireDb, swapTransactions, webhookEvents } from '../db'
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { agentBearerAuth, agentBearerAuthAllowInactive } from '../middleware'
+import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
 import { rateLimit } from '../middleware/rateLimit'
 import { runEffectEither } from '../runtime'
 import {
@@ -241,6 +242,112 @@ agentRoutes.post('/register', async (c) => {
 	)
 })
 
+// POST /v1/agent/sponge/callback - Sponge Gateway agent connection callback (public)
+agentRoutes.post('/sponge/callback', async (c) => {
+	// Validate X-Sponge-Signature if webhook secret is configured
+	const envResult = await runEffectEither(
+		Effect.gen(function* () {
+			return yield* EnvService
+		}),
+	)
+
+	if (Either.isRight(envResult)) {
+		const env = envResult.right
+		if (env.SPONGE_WEBHOOK_SECRET) {
+			const signature = c.req.header('X-Sponge-Signature')
+			if (!signature) {
+				return c.json({ error: 'Missing X-Sponge-Signature header' }, 401)
+			}
+
+			const rawBody = await c.req.text()
+			const expected = crypto
+				.createHmac('sha256', env.SPONGE_WEBHOOK_SECRET)
+				.update(rawBody)
+				.digest('hex')
+
+			if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+				return c.json({ error: 'Invalid signature' }, 401)
+			}
+
+			// Re-parse body since we consumed it
+			let body: any
+			try {
+				body = JSON.parse(rawBody)
+			} catch {
+				return c.json({ error: 'Invalid JSON body' }, 400)
+			}
+
+			return handleSpongeCallback(c, body)
+		}
+	}
+
+	// No webhook secret configured — accept without signature validation
+	let body: unknown
+	try {
+		body = await c.req.json()
+	} catch {
+		return c.json({ error: 'Invalid JSON body' }, 400)
+	}
+
+	return handleSpongeCallback(c, body as any)
+})
+
+async function handleSpongeCallback(c: any, body: any) {
+	const { event, agent_name, agent_url } = body as {
+		event: string
+		agent_name?: string
+		agent_url?: string
+	}
+
+	if (event !== 'agent_connect') {
+		return c.json({ error: `Unsupported event: ${event}` }, 400)
+	}
+
+	if (!agent_name) {
+		return c.json({ error: 'agent_name is required' }, 400)
+	}
+
+	// Auto-register the connecting agent
+	const name = `sponge_${agent_name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40)}`
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const agentService = yield* AgentService
+
+			// Check if already registered
+			const existing = yield* agentService.getAgentByName(name)
+			if (Option.isSome(existing)) {
+				// Return existing agent info (rotate key for security)
+				const rotated = yield* agentService.rotateApiKey(existing.value.id)
+				return { agent: existing.value, apiKey: rotated.apiKey, isNew: false }
+			}
+
+			const { agent, apiKey } = yield* agentService.registerAgent({
+				name,
+				description: `Auto-registered via Sponge Gateway from ${agent_url || 'unknown'}`,
+				callbackUrl: agent_url,
+				metadata: { source: 'sponge', original_name: agent_name, connected_at: new Date().toISOString() },
+			})
+
+			return { agent, apiKey, isNew: true }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body: errBody } = mapErrorToResponse(result.left)
+		return c.json(errBody, status as 200)
+	}
+
+	const { apiKey } = result.right
+	return c.json({
+		api_key: apiKey,
+		endpoints: {
+			rest: 'https://api.suwappu.bot/v1/agent',
+			mcp: 'https://api.suwappu.bot/mcp',
+			a2a: 'https://api.suwappu.bot/a2a',
+		},
+	})
+}
+
 // GET /v1/agent/chains - List supported chains (public)
 agentRoutes.get('/chains', async (c) => {
 	const evmChains = Object.values(CHAINS)
@@ -278,8 +385,8 @@ agentRoutes.get('/chains', async (c) => {
 
 agentRoutes.use('/me', agentBearerAuth())
 agentRoutes.use('/me/*', agentBearerAuth())
-agentRoutes.use('/quote', agentBearerAuth())
-agentRoutes.use('/swap', agentBearerAuth())
+agentRoutes.use('/quote', agentOrMppAuth())
+agentRoutes.use('/swap', agentOrMppAuth())
 agentRoutes.use('/execute', agentBearerAuth())
 agentRoutes.use('/portfolio', agentBearerAuth())
 agentRoutes.use('/wallets', agentBearerAuth())

@@ -3,7 +3,7 @@
   "id": "suwappu-dex",
   "name": "Suwappu",
   "description": "Cross-chain DEX for AI agents. Swap tokens across 7 chains via natural language.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "url": "https://api.suwappu.bot",
   "logo": "https://suwappu.bot/logo.png",
   "openApiUrl": "https://api.suwappu.bot/v1/agent/openapi",
@@ -221,6 +221,11 @@
       "id": "solana",
       "name": "Solana",
       "native": "SOL"
+    },
+    {
+      "id": 4217,
+      "name": "Tempo",
+      "native": "USD"
     }
   ]
 }

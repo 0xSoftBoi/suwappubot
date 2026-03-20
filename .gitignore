@@ -90,6 +90,9 @@ node_modules/
 webapp/bun.lock
 .env*.local
 
+# Sponge Gateway config
+.sponge-config.json
+
 # Next.js build output
 .next/
 showcase/.next/

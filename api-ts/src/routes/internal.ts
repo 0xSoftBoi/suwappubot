@@ -202,6 +202,58 @@ internalRoutes.post('/events/publish', async (c) => {
 })
 
 
+// ─── Payment Verification ──────────────────────────────────
+
+/**
+ * POST /internal/verify-payment
+ * Verify an on-chain payment for MPP 402 flow.
+ * Proxies to Python x402_service for actual chain verification.
+ */
+internalRoutes.post('/verify-payment', async (c) => {
+	const body = await c.req.json()
+	const { tx_hash, chain, expected_amount, expected_token, expected_recipient } = body as {
+		tx_hash: string
+		chain: string
+		expected_amount: string
+		expected_token: string
+		expected_recipient: string
+	}
+
+	if (!tx_hash || !expected_recipient) {
+		return c.json({ verified: false, error: 'tx_hash and expected_recipient are required' }, 400)
+	}
+
+	// Proxy to Python internal API for chain verification
+	try {
+		const pythonUrl = process.env.INTERNAL_API_URL || 'http://localhost:8000'
+		const res = await fetch(`${pythonUrl}/internal/x402/verify`, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'X-Internal-Key': process.env.INTERNAL_API_KEY || '',
+			},
+			body: JSON.stringify({
+				tx_hash,
+				chain: chain || 'tempo',
+				expected_amount,
+				expected_token: expected_token || 'pathUSD',
+				expected_recipient,
+			}),
+			signal: AbortSignal.timeout(15_000),
+		})
+
+		if (!res.ok) {
+			const errText = await res.text().catch(() => res.statusText)
+			return c.json({ verified: false, error: `Verification service error: ${errText}` }, 502)
+		}
+
+		const result = await res.json()
+		return c.json(result)
+	} catch (e: any) {
+		return c.json({ verified: false, error: `Verification failed: ${e.message}` }, 500)
+	}
+})
+
 // ─── Token Routes ───────────────────────────────────────────
 
 /**
