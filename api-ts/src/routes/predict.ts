@@ -115,7 +115,7 @@ predictRoutes.get('/midpoint', async (c) => {
 // ---- Authenticated endpoints ----
 
 // POST /v1/agent/predict/order — place a buy/sell order
-predictRoutes.post('/order', agentBearerAuth, async (c) => {
+predictRoutes.post('/order', agentBearerAuth(), async (c) => {
 	const body = await c.req.json()
 
 	const orderParsed = PlaceOrderSchema.safeParse(body)
@@ -162,7 +162,7 @@ predictRoutes.post('/order', agentBearerAuth, async (c) => {
 })
 
 // DELETE /v1/agent/predict/order/:id — cancel an order
-predictRoutes.delete('/order/:id', agentBearerAuth, async (c) => {
+predictRoutes.delete('/order/:id', agentBearerAuth(), async (c) => {
 	const orderId = c.req.param('id')
 
 	const body = await c.req.json().catch(() => ({}))
@@ -187,7 +187,7 @@ predictRoutes.delete('/order/:id', agentBearerAuth, async (c) => {
 })
 
 // DELETE /v1/agent/predict/orders — cancel all orders
-predictRoutes.delete('/orders', agentBearerAuth, async (c) => {
+predictRoutes.delete('/orders', agentBearerAuth(), async (c) => {
 	const body = await c.req.json().catch(() => ({}))
 	const credsParsed = ClobCredsSchema.safeParse(body.clobCreds ?? body)
 	if (!credsParsed.success) {
@@ -210,7 +210,7 @@ predictRoutes.delete('/orders', agentBearerAuth, async (c) => {
 })
 
 // GET /v1/agent/predict/orders — list open orders
-predictRoutes.get('/orders', agentBearerAuth, async (c) => {
+predictRoutes.get('/orders', agentBearerAuth(), async (c) => {
 	const apiKey = c.req.query('apiKey')
 	const secret = c.req.query('secret')
 	const passphrase = c.req.query('passphrase')
@@ -237,7 +237,7 @@ predictRoutes.get('/orders', agentBearerAuth, async (c) => {
 })
 
 // GET /v1/agent/predict/positions — list positions with PnL
-predictRoutes.get('/positions', agentBearerAuth, async (c) => {
+predictRoutes.get('/positions', agentBearerAuth(), async (c) => {
 	const apiKey = c.req.query('apiKey')
 	const secret = c.req.query('secret')
 	const passphrase = c.req.query('passphrase')
