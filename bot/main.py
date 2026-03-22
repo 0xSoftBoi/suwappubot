@@ -83,6 +83,7 @@ from bot.handlers.copy import (
 # Token Sniping handlers
 from bot.handlers.snipe import snipe_conversation_handler
 from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
+from bot.handlers.predict import predict_conversation_handler, predict_menu_callback_handler
 from bot.handlers.dashboard import dashboard_handler, dashboard_menu_callback
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
@@ -196,6 +197,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(profile_edit_conversation)  # Copy trading profile editing
     application.add_handler(snipe_conversation_handler)  # Token sniping /snipe
     application.add_handler(perps_conversation_handler)  # Perps trading /perps
+    application.add_handler(predict_conversation_handler)  # Prediction markets /predict
 
     # ============ CALLBACK QUERY HANDLERS ============
     
@@ -309,6 +311,7 @@ def add_handlers(application: Application) -> None:
     
     # Perps Trading callbacks
     application.add_handler(perps_menu_callback_handler)
+    application.add_handler(predict_menu_callback_handler)
 
     # Copy Trading callbacks
     application.add_handler(copy_menu_callback_handler)
@@ -365,6 +368,7 @@ async def post_init(application) -> None:
             BotCommand("checkin", "Daily check-in"),
             BotCommand("traders", "Copy trading"),
             BotCommand("perps", "Perpetual trading"),
+            BotCommand("predict", "Prediction markets"),
             BotCommand("following", "Copy trading follows"),
             BotCommand("profile", "Your trader profile"),
             BotCommand("c", "Custodial wallet"),
