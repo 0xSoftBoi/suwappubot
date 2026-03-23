@@ -235,44 +235,54 @@ class PolymarketClient:
         ],
     }
 
-    async def create_api_credentials(self, private_key: str) -> CLOBCredentials:
-        """Create CLOB API credentials by signing auth message and registering with server."""
-        account = Account.from_key(private_key)
-        address = account.address
+    # Auth domain/types for CLOB credential creation
+    AUTH_DOMAIN = {
+        "name": "ClobAuthDomain",
+        "version": "1",
+        "chainId": 137,
+    }
+    AUTH_TYPES = {
+        "ClobAuth": [
+            {"name": "address", "type": "address"},
+            {"name": "timestamp", "type": "string"},
+            {"name": "nonce", "type": "uint256"},
+            {"name": "message", "type": "string"},
+        ],
+    }
 
+    def build_auth_typed_data(self, wallet_address: str) -> tuple[dict, int]:
+        """Build the EIP-712 typed data for CLOB auth. Returns (typed_data, timestamp)."""
         timestamp = int(time.time())
-        nonce = 0
-
-        domain_data = {
-            "name": "ClobAuthDomain",
-            "version": "1",
-            "chainId": 137,
-        }
-        message_types = {
-            "ClobAuth": [
-                {"name": "address", "type": "address"},
-                {"name": "timestamp", "type": "string"},
-                {"name": "nonce", "type": "uint256"},
-                {"name": "message", "type": "string"},
-            ],
-        }
         message_data = {
-            "address": address,
+            "address": wallet_address,
             "timestamp": str(timestamp),
-            "nonce": nonce,
+            "nonce": 0,
             "message": "This message attests that I control the given wallet",
         }
+        typed_data = {
+            "types": {
+                "EIP712Domain": [
+                    {"name": "name", "type": "string"},
+                    {"name": "version", "type": "string"},
+                    {"name": "chainId", "type": "uint256"},
+                ],
+                **self.AUTH_TYPES,
+            },
+            "primaryType": "ClobAuth",
+            "domain": self.AUTH_DOMAIN,
+            "message": message_data,
+        }
+        return typed_data, timestamp
 
-        signable = encode_typed_data(domain_data, message_types, message_data)
-        signed = account.sign_message(signable)
-
-        # POST to CLOB API to register credentials (not local derivation)
+    async def create_api_credentials_with_signature(self, wallet_address: str, timestamp: int, signature: str) -> CLOBCredentials:
+        """Create CLOB API credentials using a pre-signed auth signature."""
         session = await self._get_session()
+        sig = signature if signature.startswith("0x") else "0x" + signature
         req_body = {
-            "address": address,
+            "address": wallet_address,
             "timestamp": str(timestamp),
-            "nonce": str(nonce),
-            "signature": "0x" + signed.signature.hex(),
+            "nonce": "0",
+            "signature": sig,
         }
         async with session.post(
             f"{CLOB_BASE_URL}/auth/api-key",
@@ -287,6 +297,20 @@ class PolymarketClient:
             api_key=data["apiKey"],
             secret=data["secret"],
             passphrase=data["passphrase"],
+        )
+
+    async def create_api_credentials(self, private_key: str) -> CLOBCredentials:
+        """Create CLOB API credentials by signing auth message with a raw private key."""
+        account = Account.from_key(private_key)
+        typed_data, timestamp = self.build_auth_typed_data(account.address)
+        signable = encode_typed_data(
+            typed_data["domain"],
+            {k: v for k, v in typed_data["types"].items() if k != "EIP712Domain"},
+            typed_data["message"],
+        )
+        signed = account.sign_message(signable)
+        return await self.create_api_credentials_with_signature(
+            account.address, timestamp, "0x" + signed.signature.hex()
         )
 
     def _sign_clob_request(self, creds: CLOBCredentials, wallet_address: str, method: str, path: str, body: str = "") -> dict:
@@ -311,66 +335,71 @@ class PolymarketClient:
             "Content-Type": "application/json",
         }
 
-    async def place_order(
+    def build_order_typed_data(self, wallet_address: str, token_id: str, side: str, amount: float, price: float) -> tuple[dict, dict]:
+        """Build EIP-712 typed data for an order. Returns (typed_data, order_meta)."""
+        size = amount / price if side == "BUY" else amount
+        salt = secrets.randbelow(10**18)
+        maker_amount = int(size * price * 1e6) if side == "BUY" else int(size * 1e6)
+        taker_amount = int(size * 1e6) if side == "BUY" else int(size * price * 1e6)
+
+        order_data = {
+            "salt": salt,
+            "maker": wallet_address,
+            "signer": wallet_address,
+            "taker": "0x0000000000000000000000000000000000000000",
+            "tokenId": int(token_id),
+            "makerAmount": maker_amount,
+            "takerAmount": taker_amount,
+            "expiration": 0,
+            "nonce": 0,
+            "feeRateBps": 0,
+            "side": 0 if side == "BUY" else 1,
+            "signatureType": 0,
+        }
+
+        typed_data = {
+            "types": {
+                "EIP712Domain": [
+                    {"name": "name", "type": "string"},
+                    {"name": "version", "type": "string"},
+                    {"name": "chainId", "type": "uint256"},
+                    {"name": "verifyingContract", "type": "address"},
+                ],
+                **self.ORDER_TYPES,
+            },
+            "primaryType": "Order",
+            "domain": self.ORDER_DOMAIN,
+            "message": order_data,
+        }
+
+        order_meta = {
+            "token_id": token_id,
+            "price": price,
+            "size": size,
+            "side": side,
+        }
+
+        return typed_data, order_meta
+
+    async def submit_signed_order(
         self,
-        private_key: str,
-        token_id: str,
-        side: str,
-        amount: float,
-        price: float,
+        creds: CLOBCredentials,
+        wallet_address: str,
+        order_meta: dict,
+        signature: str,
     ) -> OrderResult:
-        """Place an EIP-712 signed order on the CLOB.
-
-        Args:
-            private_key: Wallet private key for signing.
-            token_id: Polymarket token ID.
-            side: "BUY" or "SELL".
-            amount: USDC amount to spend (for BUY) or shares to sell (for SELL).
-            price: Limit price per share.
-        """
+        """Submit a pre-signed order to the CLOB."""
         try:
-            account = Account.from_key(private_key)
-            wallet_address = account.address
-
-            creds = await self.create_api_credentials(private_key)
-
-            size = amount / price if side == "BUY" else amount
-            salt = secrets.randbelow(10**18)
-            maker_amount = int(size * price * 1e6) if side == "BUY" else int(size * 1e6)
-            taker_amount = int(size * 1e6) if side == "BUY" else int(size * price * 1e6)
-
-            order_data = {
-                "salt": salt,
-                "maker": wallet_address,
-                "signer": wallet_address,
-                "taker": "0x0000000000000000000000000000000000000000",
-                "tokenId": int(token_id),
-                "makerAmount": maker_amount,
-                "takerAmount": taker_amount,
-                "expiration": 0,
-                "nonce": 0,
-                "feeRateBps": 0,
-                "side": 0 if side == "BUY" else 1,
-                "signatureType": 0,
-            }
-
-            # Sign the EIP-712 order
-            signable = encode_typed_data(
-                self.ORDER_DOMAIN,
-                self.ORDER_TYPES,
-                order_data,
-            )
-            signed = account.sign_message(signable)
-
+            sig = signature if signature.startswith("0x") else "0x" + signature
             order_payload = {
-                "tokenID": token_id,
-                "price": str(price),
-                "size": str(size),
-                "side": side,
+                "tokenID": order_meta["token_id"],
+                "price": str(order_meta["price"]),
+                "size": str(order_meta["size"]),
+                "side": order_meta["side"],
                 "type": "GTC",
                 "feeRateBps": 0,
                 "nonce": "0",
-                "signature": "0x" + signed.signature.hex(),
+                "signature": sig,
                 "owner": wallet_address,
                 "orderType": "GTC",
             }
@@ -386,7 +415,6 @@ class PolymarketClient:
                 headers=headers,
             ) as resp:
                 data = await resp.json()
-
                 if resp.status in (200, 201):
                     return OrderResult(
                         success=True,
@@ -398,6 +426,35 @@ class PolymarketClient:
                         success=False,
                         error=data.get("error", data.get("message", f"HTTP {resp.status}")),
                     )
+        except Exception as e:
+            logger.error(f"submit_signed_order error: {e}")
+            return OrderResult(success=False, error=str(e))
+
+    async def place_order(
+        self,
+        private_key: str,
+        token_id: str,
+        side: str,
+        amount: float,
+        price: float,
+    ) -> OrderResult:
+        """Place an order using a raw private key (for non-Turnkey wallets)."""
+        try:
+            account = Account.from_key(private_key)
+            wallet_address = account.address
+
+            creds = await self.create_api_credentials(private_key)
+
+            typed_data, order_meta = self.build_order_typed_data(wallet_address, token_id, side, amount, price)
+
+            signable = encode_typed_data(
+                typed_data["domain"],
+                {k: v for k, v in typed_data["types"].items() if k != "EIP712Domain"},
+                typed_data["message"],
+            )
+            signed = account.sign_message(signable)
+
+            return await self.submit_signed_order(creds, wallet_address, order_meta, "0x" + signed.signature.hex())
 
         except Exception as e:
             logger.error(f"place_order error: {e}")

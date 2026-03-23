@@ -749,20 +749,32 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
         order_id = order.id
 
     try:
-        # Get private key from wallet
         with get_session() as session:
             wallet = session.query(Wallet).filter(Wallet.id == wallet_id).first()
             if not wallet:
                 raise Exception("Wallet not found")
-            private_key = wallet_service.get_private_key(wallet)
+            wallet_address = wallet.address
 
-        # Place order via Polymarket CLOB
-        result = await polymarket_client.place_order(
-            private_key=private_key,
-            token_id=token_id,
-            side="BUY",
-            amount=amount,
-            price=price,
+        # Step 1: Get CLOB credentials (sign auth message via wallet service)
+        auth_typed_data, auth_timestamp = polymarket_client.build_auth_typed_data(wallet_address)
+        with get_session() as session:
+            wallet = session.query(Wallet).filter(Wallet.id == wallet_id).first()
+            auth_sig = await wallet_service.sign_typed_data(wallet, auth_typed_data)
+        creds = await polymarket_client.create_api_credentials_with_signature(
+            wallet_address, auth_timestamp, auth_sig
+        )
+
+        # Step 2: Build and sign order
+        order_typed_data, order_meta = polymarket_client.build_order_typed_data(
+            wallet_address, token_id, "BUY", amount, price
+        )
+        with get_session() as session:
+            wallet = session.query(Wallet).filter(Wallet.id == wallet_id).first()
+            order_sig = await wallet_service.sign_typed_data(wallet, order_typed_data)
+
+        # Step 3: Submit signed order to CLOB
+        result = await polymarket_client.submit_signed_order(
+            creds, wallet_address, order_meta, order_sig
         )
 
         # Update order in DB
@@ -1004,18 +1016,31 @@ async def confirm_sell_callback(update: Update, context: ContextTypes.DEFAULT_TY
             wallet = session.query(Wallet).filter(Wallet.id == wallet_id).first()
             if not wallet:
                 raise Exception("Wallet not found")
-            private_key = wallet_service.get_private_key(wallet)
+            wallet_address = wallet.address
 
         # Get current midpoint for pricing
         midpoint = await polymarket_client.get_midpoint(token_id)
         price = midpoint if midpoint else 0.5
 
-        result = await polymarket_client.place_order(
-            private_key=private_key,
-            token_id=token_id,
-            side="SELL",
-            amount=shares,
-            price=price,
+        # Sign auth + get CLOB credentials
+        auth_typed_data, auth_timestamp = polymarket_client.build_auth_typed_data(wallet_address)
+        with get_session() as session:
+            wallet = session.query(Wallet).filter(Wallet.id == wallet_id).first()
+            auth_sig = await wallet_service.sign_typed_data(wallet, auth_typed_data)
+        creds = await polymarket_client.create_api_credentials_with_signature(
+            wallet_address, auth_timestamp, auth_sig
+        )
+
+        # Build and sign order
+        order_typed_data, order_meta = polymarket_client.build_order_typed_data(
+            wallet_address, token_id, "SELL", shares, price
+        )
+        with get_session() as session:
+            wallet = session.query(Wallet).filter(Wallet.id == wallet_id).first()
+            order_sig = await wallet_service.sign_typed_data(wallet, order_typed_data)
+
+        result = await polymarket_client.submit_signed_order(
+            creds, wallet_address, order_meta, order_sig
         )
 
         if result.success:
