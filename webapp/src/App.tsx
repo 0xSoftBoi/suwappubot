@@ -6,7 +6,7 @@ import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useTelegram } from './hooks/useTelegram'
 import { useDesktopHotkeys } from './hooks/useDesktopHotkeys'
-import { Welcome, Home, Swap, Wallet, Portfolio, History, Points, DCA, DCACreate, LimitOrders, PriceAlerts, Referrals, CopyTrading, Subscriptions, Settings, Recovery } from './pages'
+import { Welcome, Home, Swap, Wallet, Portfolio, History, Points, DCA, DCACreate, LimitOrders, PriceAlerts, Referrals, CopyTrading, Subscriptions, Settings, Recovery, PredictionMarkets, PredictionMarketDetail, PerpsMarkets, PerpsMarketDetail } from './pages'
 import { DesktopLayout } from './components/layout'
 import { HotkeyOverlay } from './components/desktop/HotkeyOverlay'
 import './theme/suwappu.css'
@@ -272,6 +272,46 @@ function AppContent() {
             <ProtectedRoute>
               <PageTransition>
                 <Subscriptions />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/predict"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <PredictionMarkets />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/predict/:id"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <PredictionMarketDetail />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/perps"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <PerpsMarkets />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/perps/:symbol"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <PerpsMarketDetail />
               </PageTransition>
             </ProtectedRoute>
           }

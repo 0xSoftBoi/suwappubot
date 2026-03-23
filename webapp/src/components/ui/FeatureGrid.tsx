@@ -12,6 +12,8 @@ const features: Feature[] = [
   { icon: '📈', label: 'Limit Orders', path: '/limit-orders' },
   { icon: '🎯', label: 'Points', path: '/points' },
   { icon: '📜', label: 'History', path: '/history' },
+  { icon: '🔮', label: 'Markets', path: '/predict', badge: 'New' },
+  { icon: '📊', label: 'Perps', path: '/perps', badge: 'New' },
   { icon: '📋', label: 'Copy Trade', path: '/copy', badge: 'Soon' },
   { icon: '🎁', label: 'Referrals', path: '/referrals', badge: 'Soon' },
   { icon: '🔗', label: 'Wallets', path: '/settings' },
