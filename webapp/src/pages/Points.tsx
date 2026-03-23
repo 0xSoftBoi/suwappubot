@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AppLayout, AppHeader } from '../components/layout'
 import { api } from '../lib/api'
-import type { PointsStats, WebappPointTransaction, WebappLeaderboardEntry, WebappReward } from '../lib/api'
+import type { PointsStats, PointTransaction, LeaderboardEntry, Reward } from '../lib/api'
 
 // Action icons and colors
 const actionConfig: Record<string, { icon: string; color: string }> = {
@@ -69,7 +69,7 @@ function StatsCard({ stats, onCheckin, isCheckinLoading }: {
 }
 
 // Leaderboard Component
-function Leaderboard({ entries }: { entries: WebappLeaderboardEntry[] }) {
+function Leaderboard({ entries }: { entries: LeaderboardEntry[] }) {
   const medals = ['🥇', '🥈', '🥉']
   
   return (
@@ -104,7 +104,7 @@ function Leaderboard({ entries }: { entries: WebappLeaderboardEntry[] }) {
 }
 
 // History Component
-function PointsHistory({ transactions }: { transactions: WebappPointTransaction[] }) {
+function PointsHistory({ transactions }: { transactions: PointTransaction[] }) {
   return (
     <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 overflow-hidden">
       <div className="px-3 py-2 border-b border-suwappu-sakura-mid/10">
@@ -142,7 +142,7 @@ function PointsHistory({ transactions }: { transactions: WebappPointTransaction[
 }
 
 // Rewards Component
-function RewardsSection({ rewards, onRedeem }: { rewards: WebappReward[]; onRedeem: (id: number) => void }) {
+function RewardsSection({ rewards, onRedeem }: { rewards: Reward[]; onRedeem: (id: number) => void }) {
   return (
     <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 overflow-hidden">
       <div className="px-3 py-2 border-b border-suwappu-sakura-mid/10">
@@ -194,24 +194,24 @@ export function Points() {
 
   const { data: leaderboard } = useQuery({
     queryKey: ['points', 'leaderboard'],
-    queryFn: () => api.getWebappLeaderboard(10),
+    queryFn: () => api.getLeaderboard(10),
   })
 
   const { data: rewards } = useQuery({
     queryKey: ['points', 'rewards'],
-    queryFn: () => api.getWebappRewards(),
+    queryFn: () => api.getRewards(),
   })
 
   // Mutations
   const checkinMutation = useMutation({
-    mutationFn: () => api.webappCheckin(),
+    mutationFn: () => api.dailyCheckin(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['points'] })
     },
   })
 
   const redeemMutation = useMutation({
-    mutationFn: (rewardId: number) => api.redeemWebappReward(rewardId),
+    mutationFn: (rewardId: number) => api.redeemReward(rewardId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['points'] })
     },
