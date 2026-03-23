@@ -3,7 +3,7 @@
 import logging
 from typing import Optional
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bot.services.hyperliquid_client import hyperliquid_client, HLOrderResult
 from bot.models.perps import PerpPosition, PerpOrder, HyperLiquidAccount
@@ -46,7 +46,7 @@ class PerpsService:
                 account.api_key_encrypted = api_key_encrypted
                 account.api_secret_encrypted = api_secret_encrypted
                 account.is_active = True
-                account.updated_at = datetime.utcnow()
+                account.updated_at = datetime.now(timezone.utc)
             else:
                 account = HyperLiquidAccount(
                     user_id=user_id,
@@ -139,7 +139,7 @@ class PerpsService:
                 status="filled" if result.status == "filled" else "pending",
                 hl_order_id=result.order_id,
                 fill_price=Decimal(str(result.fill_price)) if result.fill_price else None,
-                filled_at=datetime.utcnow() if result.status == "filled" else None,
+                filled_at=datetime.now(timezone.utc) if result.status == "filled" else None,
             )
             session.add(order)
 
@@ -212,7 +212,7 @@ class PerpsService:
 
             if percent >= 100:
                 position.status = "closed"
-                position.closed_at = datetime.utcnow()
+                position.closed_at = datetime.now(timezone.utc)
                 position.closed_pnl = Decimal(str(pnl))
             else:
                 position.size = Decimal(str(float(position.size) - close_size))
@@ -232,7 +232,7 @@ class PerpsService:
                 status="filled",
                 hl_order_id=result.order_id,
                 fill_price=Decimal(str(close_price)),
-                filled_at=datetime.utcnow(),
+                filled_at=datetime.now(timezone.utc),
             )
             session.add(order)
 
@@ -318,7 +318,7 @@ class PerpsService:
                 else:
                     # Position no longer exists on exchange — mark as closed/liquidated
                     local_pos.status = "liquidated" if local_pos.unrealized_pnl and local_pos.unrealized_pnl < 0 else "closed"
-                    local_pos.closed_at = datetime.utcnow()
+                    local_pos.closed_at = datetime.now(timezone.utc)
 
     async def _place_tp_sl(
         self,

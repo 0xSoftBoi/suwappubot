@@ -17,7 +17,7 @@ import asyncio
 import base64
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from solders.pubkey import Pubkey
@@ -139,7 +139,7 @@ class SnipeExecutor:
         Returns:
             SnipeResult with execution details
         """
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
 
         try:
             # Determine execution path based on platform
@@ -155,7 +155,7 @@ class SnipeExecutor:
                 raise SnipeExecutorError(f"Unknown platform: {launch.platform}")
 
         except Exception as e:
-            execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+            execution_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             logger.error(f"Snipe execution error: {e}")
             return SnipeResult(
                 success=False,
@@ -211,7 +211,7 @@ class SnipeExecutor:
                 max_retries=config.max_retries,
             )
 
-        execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+        execution_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
 
         if result["success"]:
             return SnipeResult(
@@ -291,7 +291,7 @@ class SnipeExecutor:
                 is_versioned=True,
             )
 
-        execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+        execution_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
 
         out_amount = int(quote.get("outAmount", 0))
         in_amount = int(quote.get("inAmount", 0))

@@ -4,7 +4,7 @@ import logging
 import hashlib
 import secrets
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from enum import Enum
@@ -149,6 +149,9 @@ class X402Service:
                 "USDC": "0x06eFdBFf2a14a7c8E15944D1F4A48F9F95F663A4",
                 "ETH": "0x0000000000000000000000000000000000000000",
             },
+            "tempo": {
+                "pathUSD": "0x20c0000000000000000000000000000000000000",
+            },
         }
     
     # =========================================================================
@@ -168,9 +171,9 @@ class X402Service:
                 session.flush()
             
             # Reset daily counters if needed
-            if sub.last_reset_date.date() < datetime.utcnow().date():
+            if sub.last_reset_date.date() < datetime.now(timezone.utc).date():
                 sub.api_calls_today = 0
-                sub.last_reset_date = datetime.utcnow()
+                sub.last_reset_date = datetime.now(timezone.utc)
             
             return sub
     
@@ -179,7 +182,7 @@ class X402Service:
         sub = await self.get_subscription(user_id)
         
         # Check if subscription expired
-        if sub.expires_at and sub.expires_at < datetime.utcnow():
+        if sub.expires_at and sub.expires_at < datetime.now(timezone.utc):
             return SubscriptionTier.FREE
         
         return sub.tier
@@ -202,8 +205,8 @@ class X402Service:
                 session.add(sub)
             
             sub.tier = tier
-            sub.started_at = datetime.utcnow()
-            sub.expires_at = datetime.utcnow() + timedelta(days=duration_days)
+            sub.started_at = datetime.now(timezone.utc)
+            sub.expires_at = datetime.now(timezone.utc) + timedelta(days=duration_days)
             
             logger.info(f"User {user_id} upgraded to {tier.value} for {duration_days} days")
             return sub
@@ -227,8 +230,11 @@ class X402Service:
         tier_order = [SubscriptionTier.FREE, SubscriptionTier.PRO, 
                      SubscriptionTier.PREMIUM, SubscriptionTier.ENTERPRISE]
         
-        if tier_order.index(current_tier) >= tier_order.index(tier):
-            return False, f"You already have {current_tier.value.upper()} access!", None
+        try:
+            if tier_order.index(current_tier) >= tier_order.index(tier):
+                return False, f"You already have {current_tier.value.upper()} access!", None
+        except ValueError:
+            pass  # Unknown tier — proceed with upgrade
         
         # Grant beta access (lifetime = 365 days)
         await self.upgrade_subscription(user_id, tier, duration_days=365)
@@ -499,7 +505,7 @@ class X402Service:
                 # Mark as completed
                 payment.tx_hash = tx_hash
                 payment.status = PaymentStatus.COMPLETED
-                payment.completed_at = datetime.utcnow()
+                payment.completed_at = datetime.now(timezone.utc)
 
                 logger.info(f"Payment {payment_id} verified on-chain: {message}")
 

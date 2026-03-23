@@ -10,7 +10,7 @@ import logging
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from decimal import Decimal, ROUND_DOWN
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bot.config.settings import settings
 from bot.models.fees import FeeTransaction
@@ -249,7 +249,7 @@ class FeeService:
                 fee_percentage=resolved_fee_pct,
                 chain=chain,
                 collected=False,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             )
             session.add(fee_tx)
             session.flush()

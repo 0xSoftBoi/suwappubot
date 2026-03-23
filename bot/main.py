@@ -82,8 +82,8 @@ from bot.handlers.copy import (
 )
 # Token Sniping handlers
 from bot.handlers.snipe import snipe_conversation_handler
+from bot.handlers.predict import predict_conversation_handler
 from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
-from bot.handlers.predict import predict_conversation_handler, predict_menu_callback_handler
 from bot.handlers.dashboard import dashboard_handler, dashboard_menu_callback
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
@@ -311,7 +311,6 @@ def add_handlers(application: Application) -> None:
     
     # Perps Trading callbacks
     application.add_handler(perps_menu_callback_handler)
-    application.add_handler(predict_menu_callback_handler)
 
     # Copy Trading callbacks
     application.add_handler(copy_menu_callback_handler)
@@ -516,7 +515,7 @@ def main() -> None:
     
     # Log available commands
     logger.info("User commands: /start, /h, /w, /b, /s, /hx, /p, /g, /f, /set, /c")
-    logger.info("Trading commands: /a, /o, /dca, /ref, /tax, /sub, /snipe, /perps, /dashboard")
+    logger.info("Trading commands: /a, /o, /dca, /ref, /tax, /sub, /snipe, /perps, /predict, /dashboard")
     logger.info("Growth commands: /xp, /checkin, /lb, /traders, /following, /profile")
     logger.info("Admin commands: /st, /hw, /fee, /m")
     logger.info("Background services: Fee sweeper, Price alerts, Limit orders/DCA, Tx poller, Health monitor, Launch detector")

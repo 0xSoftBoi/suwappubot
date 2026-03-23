@@ -3,7 +3,7 @@
 import logging
 import asyncio
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bot.models.user import User, Wallet
 from bot.services.wallet import WalletService
@@ -59,7 +59,7 @@ class UnifiedBotService:
             if not user.tos_accepted:
                 if text in ["accept", "i accept", "agree"]:
                     user.tos_accepted = True
-                    user.tos_accepted_at = datetime.utcnow()
+                    user.tos_accepted_at = datetime.now(timezone.utc)
                     session.commit()
                     return UnifiedResponse("✅ *Terms Accepted!*\n\nYou can now use Suwappu Bot. Type *help* to see available commands.")
                 

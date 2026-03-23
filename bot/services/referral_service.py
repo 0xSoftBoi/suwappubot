@@ -11,7 +11,7 @@ import logging
 import secrets
 import string
 from typing import Optional, List, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import func
@@ -137,7 +137,7 @@ class ReferralService:
             
             # Update code stats
             code.times_used += 1
-            code.last_used_at = datetime.utcnow()
+            code.last_used_at = datetime.now(timezone.utc)
             
             # Update user's referred_by
             referee = session.query(User).filter(User.id == referee_id).first()

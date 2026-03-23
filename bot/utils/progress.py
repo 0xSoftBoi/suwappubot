@@ -4,7 +4,7 @@ import asyncio
 import logging
 from typing import Optional, List, Callable
 from telegram import Message
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class ProgressTracker:
         self.steps = steps
         self.title = title
         self.current_step = 0
-        self._start_time = datetime.utcnow()
+        self._start_time = datetime.now(timezone.utc)
         self._update_task: Optional[asyncio.Task] = None
     
     def _build_message(self) -> str:
@@ -46,7 +46,7 @@ class ProgressTracker:
                 lines.append(f"⬜ {step}")
         
         # Add elapsed time
-        elapsed = (datetime.utcnow() - self._start_time).total_seconds()
+        elapsed = (datetime.now(timezone.utc) - self._start_time).total_seconds()
         lines.append(f"\n⏱ {elapsed:.0f}s")
         
         return "\n".join(lines)

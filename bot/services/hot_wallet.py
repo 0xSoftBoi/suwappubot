@@ -4,7 +4,7 @@ import asyncio
 import logging
 from typing import Optional, Tuple
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timezone
 from web3 import Web3
 from eth_account import Account
 import aiohttp
@@ -428,7 +428,7 @@ class HotWalletService:
                 if tx_hash:
                     tx.tx_hash = tx_hash
                 if status == TransactionStatus.COMPLETED:
-                    tx.completed_at = datetime.utcnow()
+                    tx.completed_at = datetime.now(timezone.utc)
     
     # === Hot Wallet Operations ===
     
@@ -476,9 +476,9 @@ class HotWalletService:
                         )
                         if balance > 0:
                             token_balances[token_symbol] = balance
-                    except Exception:
-                        pass
-        
+                    except Exception as e:
+                        logger.debug(f"Failed to fetch {token_symbol} balance: {e}")
+
         return native_balance, token_balances
     
     async def _get_erc20_balance(

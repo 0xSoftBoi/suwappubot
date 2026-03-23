@@ -3,7 +3,7 @@
 import pyotp
 import secrets
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Tuple
 
 from bot.models.user import User
@@ -103,7 +103,7 @@ class TwoFactorService:
         
         self._pending_verifications[user_id] = {
             "code": code,
-            "expires_at": datetime.utcnow() + timedelta(minutes=self.CODE_VALIDITY_MINUTES),
+            "expires_at": datetime.now(timezone.utc) + timedelta(minutes=self.CODE_VALIDITY_MINUTES),
             "action_data": action_data,
         }
         
@@ -116,7 +116,7 @@ class TwoFactorService:
         if not pending:
             return False, None
         
-        if datetime.utcnow() > pending["expires_at"]:
+        if datetime.now(timezone.utc) > pending["expires_at"]:
             del self._pending_verifications[user_id]
             return False, None
         

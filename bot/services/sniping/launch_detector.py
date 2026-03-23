@@ -16,7 +16,7 @@ import logging
 import asyncio
 from typing import Optional, Dict, Any, List, Callable, Set
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 import re
 
@@ -97,7 +97,7 @@ class TokenLaunch:
     @property
     def age_seconds(self) -> float:
         """Seconds since detection."""
-        return (datetime.utcnow() - self.detected_at).total_seconds()
+        return (datetime.now(timezone.utc) - self.detected_at).total_seconds()
 
     @property
     def is_fresh(self) -> bool:
@@ -263,7 +263,7 @@ class LaunchDetector:
                 symbol=token.symbol,
                 creator=token.creator,
                 initial_liquidity_sol=0,  # pump.fun starts with 0 liquidity
-                detected_at=datetime.utcnow(),
+                detected_at=datetime.now(timezone.utc),
                 initial_price_sol=token.price_sol,
                 current_price_sol=token.price_sol,
                 description=token.description,
@@ -326,7 +326,7 @@ class LaunchDetector:
                 symbol=token.symbol,
                 creator=token.creator,
                 initial_liquidity_sol=85,  # ~85 SOL at migration
-                detected_at=datetime.utcnow(),
+                detected_at=datetime.now(timezone.utc),
                 initial_price_sol=token.price_sol,
                 current_price_sol=token.price_sol,
                 description=token.description,
@@ -485,7 +485,7 @@ class LaunchDetector:
         """Periodically cleanup old cached launches."""
         while self._running:
             try:
-                cutoff = datetime.utcnow() - timedelta(seconds=self._cache_ttl)
+                cutoff = datetime.now(timezone.utc) - timedelta(seconds=self._cache_ttl)
 
                 to_remove = [
                     mint for mint, launch in self._recent_launches.items()

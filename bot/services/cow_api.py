@@ -14,7 +14,7 @@ import time
 import json
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from web3 import Web3
 from eth_account.messages import encode_typed_data
 
@@ -381,7 +381,7 @@ class CoWProtocolAPI:
             from_amount=quote.from_amount,
             to_amount=quote.to_amount,
             status="open",
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
             valid_to=quote.valid_to,
             executed_sell_amount=None,
             executed_buy_amount=None,

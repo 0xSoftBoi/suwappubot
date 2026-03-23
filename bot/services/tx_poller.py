@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from typing import Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -62,7 +62,7 @@ class TransactionPoller:
     
     async def _check_pending_transactions(self):
         """Check all pending/submitted transactions."""
-        cutoff = datetime.utcnow() - timedelta(hours=self._max_age_hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=self._max_age_hours)
         
         with get_db_session() as session:
             # Get pending/submitted transactions
@@ -90,7 +90,7 @@ class TransactionPoller:
                         tx.status = new_status
 
                         if new_status == SwapStatus.COMPLETED.value:
-                            tx.completed_at = datetime.utcnow()
+                            tx.completed_at = datetime.now(timezone.utc)
 
                         logger.info(
                             f"Transaction {tx.id} status: {old_status} -> {new_status}"

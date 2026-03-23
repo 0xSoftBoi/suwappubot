@@ -2,7 +2,7 @@
 
 import logging
 import platform
-from datetime import datetime
+from datetime import datetime, timezone
 
 import discord
 from discord.ext import commands
@@ -91,7 +91,7 @@ class Admin(commands.Cog):
         except Exception:
             pass
 
-        embed.set_footer(text=f"Checked at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+        embed.set_footer(text=f"Checked at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @status.error

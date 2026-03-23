@@ -10,7 +10,7 @@ Handles:
 
 import logging
 from typing import Optional, List, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import func, desc, and_
 from sqlalchemy.orm import Session
@@ -451,7 +451,7 @@ class CopyService:
                 ).first()
                 copy_trade.copy_swap_id = swap_tx.id
                 copy_trade.status = "copied"
-                copy_trade.copied_at = datetime.utcnow()
+                copy_trade.copied_at = datetime.now(timezone.utc)
             
             # Award points to copier
             points_service.award_points(

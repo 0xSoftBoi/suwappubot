@@ -21,7 +21,7 @@ import json
 import base64
 from typing import Optional, Dict, Any, List, Callable, Tuple
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from solders.pubkey import Pubkey
@@ -447,7 +447,7 @@ class RaydiumMonitor:
                         pool=pool,
                         signature=signature,
                         slot=slot,
-                        timestamp=datetime.fromtimestamp(block_time) if block_time else datetime.utcnow(),
+                        timestamp=datetime.fromtimestamp(block_time) if block_time else datetime.now(timezone.utc),
                         creator=creator,
                         initial_base_amount=initial_base,
                         initial_quote_amount=initial_quote,

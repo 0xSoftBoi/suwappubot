@@ -6,7 +6,7 @@ import logging
 from typing import Dict, Optional, Callable, Any
 from functools import wraps
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ class Metric:
     """A single metric measurement."""
     name: str
     value: float
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     tags: Dict[str, str] = field(default_factory=dict)
 
 
@@ -72,7 +72,7 @@ class PerformanceTracker:
             ))
             
             # Cleanup old history
-            cutoff = datetime.utcnow() - self._retention
+            cutoff = datetime.now(timezone.utc) - self._retention
             self._history = [m for m in self._history if m.timestamp > cutoff]
     
     def record_sync(
@@ -221,6 +221,8 @@ class MetricNames:
     API_LIFI = "api_lifi"
     API_JUPITER = "api_jupiter"
     API_COINGECKO = "api_coingecko"
+    API_SUNSWAP = "api_sunswap"
+    API_OKX_DEX = "api_okx_dex"
     HANDLER_COMMAND = "handler_command"
     HANDLER_CALLBACK = "handler_callback"
 

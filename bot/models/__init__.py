@@ -35,6 +35,7 @@ from .subscription import (
     APICredit,
     APICredit,
 )
+from .predict import PredictionOrder, PredictionPosition
 
 __all__ = [
     "User",
@@ -81,5 +82,8 @@ __all__ = [
     "PaymentStatus",
     "TokenGate",
     "APICredit",
+    # Prediction markets
+    "PredictionOrder",
+    "PredictionPosition",
 ]
 

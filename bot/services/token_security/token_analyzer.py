@@ -20,7 +20,7 @@ import logging
 import asyncio
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from bot.config.settings import settings
@@ -70,7 +70,7 @@ class TokenSafetyReport:
     """Comprehensive token safety report."""
     token_mint: str
     chain: str = "solana"
-    analyzed_at: datetime = field(default_factory=datetime.utcnow)
+    analyzed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Overall assessment
     safety_score: int = 0  # 0-100
@@ -190,7 +190,7 @@ class TokenAnalyzer:
         # Check cache
         if use_cache and token_mint in self._cache:
             report, cached_at = self._cache[token_mint]
-            if (datetime.utcnow() - cached_at).total_seconds() < self._cache_ttl:
+            if (datetime.now(timezone.utc) - cached_at).total_seconds() < self._cache_ttl:
                 return report
 
         report = TokenSafetyReport(token_mint=token_mint, chain=chain)
@@ -215,7 +215,7 @@ class TokenAnalyzer:
             self._calculate_score(report)
 
             # Cache result
-            self._cache[token_mint] = (report, datetime.utcnow())
+            self._cache[token_mint] = (report, datetime.now(timezone.utc))
 
         except Exception as e:
             logger.error(f"Error analyzing token {token_mint}: {e}")

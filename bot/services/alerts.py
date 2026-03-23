@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bot.models.advanced import AdvancedPriceAlert as PriceAlert, AlertType
 from bot.services.price_service import price_service
@@ -131,7 +131,7 @@ class AlertService:
                 
                 if should_trigger:
                     alert.is_triggered = True
-                    alert.triggered_at = datetime.utcnow()
+                    alert.triggered_at = datetime.now(timezone.utc)
                     alert.triggered_price = current_price
                     
                     if alert.notify_once:

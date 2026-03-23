@@ -124,7 +124,10 @@ async def history_page_callback(update: Update, context: ContextTypes.DEFAULT_TY
     """Handle history pagination callbacks."""
     query = update.callback_query
     await query.answer()
-    page = int(query.data.replace("history_page_", ""))
+    try:
+        page = int(query.data.replace("history_page_", ""))
+    except ValueError:
+        page = 0
     await history_command(update, context, page=page)
 
 
@@ -225,7 +228,11 @@ async def share_pnl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
     
-    swap_id = int(query.data.replace("pnl_share_", ""))
+    try:
+        swap_id = int(query.data.replace("pnl_share_", ""))
+    except ValueError:
+        await query.message.reply_text("❌ Invalid swap reference.")
+        return
     data = await pnl_service.get_swap_pnl_data(swap_id)
     
     if not data:

@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from bot.services.fee_service import fee_service
@@ -94,7 +94,7 @@ class FeeSweeper:
             for f in failed:
                 logger.warning(f"Sweep failed for {f['chain']}/{f['token']}: {f['message']}")
         
-        self._last_sweep = datetime.utcnow()
+        self._last_sweep = datetime.now(timezone.utc)
     
     async def sweep_now(self):
         """Trigger an immediate sweep."""

@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from typing import Optional, List, Dict, Callable
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -94,7 +94,7 @@ class HealthMonitor:
         """Check swap failure rate."""
         with get_session() as session:
             # Get swaps from last hour
-            cutoff = datetime.utcnow() - timedelta(hours=1)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
             
             recent_swaps = session.query(SwapTransaction).filter(
                 SwapTransaction.created_at >= cutoff
@@ -117,7 +117,7 @@ class HealthMonitor:
                         f"Failed: {failed}/{total} in last hour\n\n"
                         f"Please investigate immediately."
                     ),
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(timezone.utc),
                     data={"failure_rate": failure_rate, "total": total, "failed": failed},
                 ))
     
@@ -139,7 +139,7 @@ class HealthMonitor:
                             f"Requests: {stats.count}, Errors: {stats.errors}\n"
                             f"Avg latency: {stats.avg:.0f}ms"
                         ),
-                        timestamp=datetime.utcnow(),
+                        timestamp=datetime.now(timezone.utc),
                     ))
     
     async def _check_database_health(self):
@@ -158,7 +158,7 @@ class HealthMonitor:
                     f"Slow queries: {stats['slow_query_count']}\n"
                     f"Consider optimizing queries."
                 ),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             ))
     
     async def _send_alert(self, alert: Alert):
@@ -167,10 +167,10 @@ class HealthMonitor:
         alert_key = f"{alert.severity}:{alert.title}"
         if alert_key in self._recent_alerts:
             last_sent = self._recent_alerts[alert_key]
-            if (datetime.utcnow() - last_sent).seconds < self._alert_cooldown:
+            if (datetime.now(timezone.utc) - last_sent).seconds < self._alert_cooldown:
                 return  # Skip, recently sent
         
-        self._recent_alerts[alert_key] = datetime.utcnow()
+        self._recent_alerts[alert_key] = datetime.now(timezone.utc)
         
         logger.warning(f"Alert: {alert.title} - {alert.message}")
         

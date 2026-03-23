@@ -10,7 +10,7 @@ Handles:
 
 import logging
 from typing import Optional, List, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func, desc
@@ -155,13 +155,13 @@ class PointsService:
                 session.flush()
             
             # Check if first swap of the day
-            today = datetime.utcnow().date()
+            today = datetime.now(timezone.utc).date()
             if account.last_swap_date is None or account.last_swap_date.date() < today:
                 is_first_today = True
                 total_points += POINT_ACTIONS["first_swap_daily"]["points"]
             
             # Update account stats
-            account.last_swap_date = datetime.utcnow()
+            account.last_swap_date = datetime.now(timezone.utc)
             account.total_swaps += 1
             account.total_volume_usd += swap_amount_usd
         
@@ -197,7 +197,7 @@ class PointsService:
                 session.add(account)
                 session.flush()
             
-            today = datetime.utcnow().date()
+            today = datetime.now(timezone.utc).date()
             yesterday = today - timedelta(days=1)
             
             # Check if already checked in today
@@ -216,7 +216,7 @@ class PointsService:
             if account.daily_streak > account.longest_streak:
                 account.longest_streak = account.daily_streak
             
-            account.last_checkin = datetime.utcnow()
+            account.last_checkin = datetime.now(timezone.utc)
         
         # Calculate points (base + streak bonus)
         base_points = POINT_ACTIONS["checkin"]["points"]
@@ -296,7 +296,7 @@ class PointsService:
                 reward_type=reward_type,
                 reward_value=reward_value,
                 status="completed",
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),
             )
             session.add(redemption)
             
@@ -479,7 +479,10 @@ class PointsService:
         # Progress bar for next level
         if stats["xp_to_next"] > 0:
             level_order = ["bronze", "silver", "gold", "platinum", "diamond"]
-            current_idx = level_order.index(stats["level"])
+            try:
+                current_idx = level_order.index(stats["level"])
+            except ValueError:
+                current_idx = 0
             if current_idx < len(level_order) - 1:
                 next_level = level_order[current_idx + 1]
                 current_threshold = LEVELS[stats["level"]]["xp"]

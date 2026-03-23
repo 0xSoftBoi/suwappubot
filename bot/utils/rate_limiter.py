@@ -6,7 +6,7 @@ import logging
 from typing import Dict, Optional, Hashable
 from functools import wraps
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +91,8 @@ class APIRateLimiter:
             "lifi": (5, 10),      # 5 req/sec, burst 10
             "jupiter": (10, 20),  # 10 req/sec, burst 20
             "coingecko": (1, 5),  # 1 req/sec, burst 5 (free tier)
+            "sunswap": (10, 20),  # 10 req/sec, burst 20 (shares TronGrid)
+            "okx_dex": (5, 10),   # 5 req/sec, burst 10
             "rpc": (20, 50),      # 20 req/sec per RPC
         }
     
@@ -144,7 +146,7 @@ class UserRateLimiter:
             True if within limit, raises RateLimitExceeded otherwise
         """
         async with self._lock:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             cutoff = now - timedelta(seconds=self.window_seconds)
             
             # Clean old requests
@@ -166,7 +168,7 @@ class UserRateLimiter:
     
     def get_remaining(self, user_id: Hashable) -> int:
         """Get remaining requests for user."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         cutoff = now - timedelta(seconds=self.window_seconds)
         
         recent = [

@@ -8,7 +8,7 @@ Handles email-based recovery flow:
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from bot.models.user import User, Wallet
@@ -66,7 +66,7 @@ class WalletRecoveryService:
                 return False
 
             user.recovery_email = email
-            user.recovery_setup_at = datetime.utcnow()
+            user.recovery_setup_at = datetime.now(timezone.utc)
 
         logger.info(f"Recovery email set for user {user_id}: {email[:3]}***")
         return True

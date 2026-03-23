@@ -276,8 +276,15 @@ class WhatsAppService:
     def parse_webhook_message(self, payload: Dict[str, Any]) -> Optional[WhatsAppMessage]:
         """Parse incoming webhook payload into a WhatsAppMessage."""
         try:
-            entry = payload.get("entry", [{}])[0]
-            changes = entry.get("changes", [{}])[0]
+            entry_list = payload.get("entry") or [{}]
+            if not entry_list:
+                return None
+            entry = entry_list[0]
+
+            changes_list = entry.get("changes") or [{}]
+            if not changes_list:
+                return None
+            changes = changes_list[0]
             value = changes.get("value", {})
             messages = value.get("messages", [])
 
@@ -314,8 +321,8 @@ class WhatsAppService:
                         import json
                         try:
                             nfm_reply_data = json.loads(nfm_reply_data)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"Failed to parse NFM reply JSON: {e}")
             elif msg_type == "audio":
                 audio_id = msg.get("audio", {}).get("id")
             elif msg_type == "image":

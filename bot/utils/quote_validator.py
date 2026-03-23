@@ -2,7 +2,7 @@
 
 import logging
 import calendar
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Optional, TYPE_CHECKING
 from decimal import Decimal
 
@@ -65,7 +65,7 @@ class QuoteValidator:
                 raise SwapError(str(e))
         
         # Python fallback
-        age_seconds = (datetime.utcnow() - quote.timestamp).total_seconds()
+        age_seconds = (datetime.now(timezone.utc) - quote.timestamp).total_seconds()
         
         if age_seconds > max_age_seconds:
             raise SwapError(

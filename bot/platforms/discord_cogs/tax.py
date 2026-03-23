@@ -2,7 +2,7 @@
 
 import io
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import discord
 from discord.ext import commands
@@ -40,7 +40,7 @@ class Tax(commands.Cog):
 
         user = self.bot.get_or_create_user(str(interaction.user.id), interaction.user.name)
 
-        current_year = datetime.utcnow().year
+        current_year = datetime.now(timezone.utc).year
         if year < 2020 or year > current_year:
             embed = discord.Embed(
                 title="Invalid Year",

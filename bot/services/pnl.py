@@ -1,7 +1,7 @@
 """P&L (Profit & Loss) tracking service."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 from decimal import Decimal
 from collections import defaultdict
@@ -29,7 +29,7 @@ class PnLService:
     ) -> Dict:
         """Calculate P&L from swaps over a period."""
         with get_session() as session:
-            cutoff = datetime.utcnow() - timedelta(days=days)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
             
             swaps = session.query(SwapTransaction).filter(
                 SwapTransaction.user_id == user_id,
@@ -178,7 +178,7 @@ class PnLService:
         """Save a daily portfolio snapshot for historical tracking."""
         portfolio = await self.get_portfolio_value(user_id)
         
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         
         with get_session() as session:
             # Check if already saved today
@@ -209,7 +209,7 @@ class PnLService:
     ) -> List[Dict]:
         """Get portfolio value history."""
         with get_session() as session:
-            cutoff_date = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+            cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
             
             snapshots = session.query(PortfolioSnapshot).filter(
                 PortfolioSnapshot.user_id == user_id,
@@ -247,7 +247,7 @@ class PnLService:
                 pass
 
             # Update streak
-            today = datetime.utcnow().date()
+            today = datetime.now(timezone.utc).date()
             if stats.last_swap_date:
                 last_date = stats.last_swap_date.date()
                 if last_date == today - timedelta(days=1):
@@ -260,7 +260,7 @@ class PnLService:
             else:
                 stats.current_streak_days = 1
             
-            stats.last_swap_date = datetime.utcnow()
+            stats.last_swap_date = datetime.now(timezone.utc)
             
             # Update tier based on volume
             volume = stats.total_volume_usd

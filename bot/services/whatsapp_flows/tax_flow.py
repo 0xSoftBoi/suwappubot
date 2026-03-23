@@ -1,7 +1,7 @@
 """Tax export flow for WhatsApp."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from bot.services.whatsapp_flows.base import BaseWhatsAppFlow, FlowResponse
 from bot.services.whatsapp_flows import register_flow
 from bot.services.whatsapp_conversation import ConversationState
@@ -19,7 +19,7 @@ class TaxFlow(BaseWhatsAppFlow):
     }
 
     async def start(self, user_id: str, user_db_id: int, text: str = "") -> FlowResponse:
-        current_year = datetime.utcnow().year
+        current_year = datetime.now(timezone.utc).year
         years = [str(current_year - i) for i in range(4)]  # Last 4 years
 
         await self._set_state(user_id, "choose_year", {"user_db_id": user_db_id})
@@ -40,7 +40,7 @@ class TaxFlow(BaseWhatsAppFlow):
         year_str = text.replace("year_", "")
         try:
             year = int(year_str)
-            if year < 2020 or year > datetime.utcnow().year:
+            if year < 2020 or year > datetime.now(timezone.utc).year:
                 raise ValueError
         except ValueError:
             return FlowResponse("Please select a valid year from the list.")
@@ -74,7 +74,7 @@ class TaxFlow(BaseWhatsAppFlow):
 
         await self._clear(user_id)
         db_uid = state.data.get("user_db_id") or user_db_id
-        year = state.data.get("year", datetime.utcnow().year)
+        year = state.data.get("year", datetime.now(timezone.utc).year)
 
         try:
             csv_url = await self._generate_tax_csv(db_uid, year)
@@ -100,7 +100,7 @@ class TaxFlow(BaseWhatsAppFlow):
         """Generate CSV and return a URL to download it."""
         import csv
         import io
-        from datetime import datetime
+        from datetime import datetime, timezone
         from database.db import get_session
         from bot.models.swap import SwapTransaction
 
