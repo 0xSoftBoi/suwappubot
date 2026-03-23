@@ -490,9 +490,10 @@ class TurnkeyClient:
         to sign the hash with Turnkey's secure enclave.
         """
         from eth_account.messages import encode_typed_data
+        from eth_utils import keccak
 
         signable = encode_typed_data(full_message=typed_data)
-        message_hash = signable.body.hex()
+        message_hash = keccak(signable.body).hex()
 
         result = await self.sign_raw_payload(
             payload=message_hash,

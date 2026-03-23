@@ -275,18 +275,19 @@ class PolymarketClient:
         return typed_data, timestamp
 
     async def create_api_credentials_with_signature(self, wallet_address: str, timestamp: int, signature: str) -> CLOBCredentials:
-        """Create CLOB API credentials using a pre-signed auth signature."""
+        """Create CLOB API credentials using L1 auth headers (no body)."""
         session = await self._get_session()
         sig = signature if signature.startswith("0x") else "0x" + signature
-        req_body = {
-            "address": wallet_address,
-            "timestamp": str(timestamp),
-            "nonce": "0",
-            "signature": sig,
+        headers = {
+            "POLY_ADDRESS": wallet_address,
+            "POLY_SIGNATURE": sig,
+            "POLY_TIMESTAMP": str(timestamp),
+            "POLY_NONCE": "0",
+            "Content-Type": "application/json",
         }
         async with session.post(
             f"{CLOB_BASE_URL}/auth/api-key",
-            json=req_body,
+            headers=headers,
         ) as resp:
             if resp.status not in (200, 201):
                 text = await resp.text()
@@ -314,12 +315,15 @@ class PolymarketClient:
         )
 
     def _sign_clob_request(self, creds: CLOBCredentials, wallet_address: str, method: str, path: str, body: str = "") -> dict:
-        """Create HMAC headers for authenticated CLOB requests."""
+        """Create L2 HMAC headers for authenticated CLOB requests."""
         timestamp = str(int(time.time()))
-        message = f"{timestamp}{method}{path}{body}"
-        signature = base64.b64encode(
+        message = f"{timestamp}{method}{path}"
+        if body:
+            message += body.replace("'", '"')
+        secret_bytes = base64.urlsafe_b64decode(creds.secret)
+        signature = base64.urlsafe_b64encode(
             hmac.new(
-                creds.secret.encode(),
+                secret_bytes,
                 message.encode(),
                 hashlib.sha256,
             ).digest()
