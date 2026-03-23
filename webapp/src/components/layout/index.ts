@@ -9,3 +9,6 @@ export type { BottomNavProps, NavItem } from './BottomNav'
 
 export { AppLayout } from './AppLayout'
 export type { AppLayoutProps } from './AppLayout'
+
+export { DesktopLayout } from "./DesktopLayout"
+export { WalletHeader } from "./WalletHeader"
