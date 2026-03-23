@@ -12,6 +12,7 @@ import type { LinkedWallet, AuthChallenge, LinkWalletResponse } from '../types/a
 import type { SwapToken, SwapQuote, SwapQuoteRequest, SwapExecuteRequest, SwapExecuteResult, SwapStatusResponse } from '../types/swap'
 import type { SimulationResult } from '../types/simulation'
 import type { SnipeRequest, SnipeResult, LaunchToken } from '../types/snipe'
+import type { PredictionMarket, PredictionMarketDetail, PredictionEvent, PredictionTrade, MarketPrice, PredictionPosition, PredictionOrderRequest, PredictionOrderResult } from '../types/prediction'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -561,6 +562,58 @@ class ApiClient {
     const params = chain ? `?chain=${encodeURIComponent(chain)}` : ''
     const response = await this.fetch<{ launches: LaunchToken[] }>(`/webapp/launches${params}`)
     return response.launches
+  }
+
+  // === Prediction Markets ===
+
+  async getPredictionMarkets(params?: { query?: string; category?: string; limit?: number }): Promise<{ markets: PredictionMarket[] }> {
+    const searchParams = new URLSearchParams()
+    if (params?.query) searchParams.set('query', params.query)
+    if (params?.category) searchParams.set('category', params.category)
+    if (params?.limit) searchParams.set('limit', String(params.limit))
+    const qs = searchParams.toString()
+    return this.fetch(`/webapp/me/predict/markets${qs ? `?${qs}` : ''}`)
+  }
+
+  async getPredictionMarket(id: string): Promise<PredictionMarketDetail> {
+    return this.fetch<PredictionMarketDetail>(`/webapp/me/predict/market/${encodeURIComponent(id)}`)
+  }
+
+  async getPredictionEvents(params?: { query?: string; limit?: number }): Promise<{ events: PredictionEvent[] }> {
+    const searchParams = new URLSearchParams()
+    if (params?.query) searchParams.set('query', params.query)
+    if (params?.limit) searchParams.set('limit', String(params.limit))
+    const qs = searchParams.toString()
+    return this.fetch(`/webapp/me/predict/events${qs ? `?${qs}` : ''}`)
+  }
+
+  async getPredictionOrderbook(id: string): Promise<{ marketId: string; question: string; outcomes: unknown[] }> {
+    return this.fetch(`/webapp/me/predict/market/${encodeURIComponent(id)}/book`)
+  }
+
+  async getPredictionPrices(id: string): Promise<{ marketId: string; question: string; prices: MarketPrice[] }> {
+    return this.fetch(`/webapp/me/predict/market/${encodeURIComponent(id)}/price`)
+  }
+
+  async getPredictionTrades(id: string): Promise<{ marketId: string; question: string; trades: PredictionTrade[] }> {
+    return this.fetch(`/webapp/me/predict/market/${encodeURIComponent(id)}/trades`)
+  }
+
+  async getPredictionPositions(): Promise<{ positions: PredictionPosition[] }> {
+    return this.fetch('/webapp/me/predict/positions')
+  }
+
+  async placePredictionOrder(order: PredictionOrderRequest): Promise<PredictionOrderResult> {
+    return this.fetch<PredictionOrderResult>('/webapp/me/predict/order', {
+      method: 'POST',
+      body: JSON.stringify(order),
+    })
+  }
+
+  // === Perps (Hyperliquid) ===
+
+  async getPerpsMarkets(): Promise<{ markets: Array<{ name: string; asset: string; szDecimals: number; maxLeverage: number; markPrice: number; fundingRate: number }> }> {
+    return this.fetch('/v1/agent/perps/markets')
   }
 
   /**
