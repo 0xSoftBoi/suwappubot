@@ -31,6 +31,7 @@ TOKENS: dict[str, TokenConfig] = {
             "base": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
             "solana": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
             "tron": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+            "plasma": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
         },
         logo_emoji="💵",
     ),
@@ -47,6 +48,7 @@ TOKENS: dict[str, TokenConfig] = {
             "base": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
             "solana": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             "tron": "TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8",
+            "plasma": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
         },
         logo_emoji="💲",
     ),
@@ -194,6 +196,50 @@ TOKENS: dict[str, TokenConfig] = {
             "base": "0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34",
         },
         logo_emoji="🟣",
+    ),
+    # === Tempo TIP-20 Stablecoins (mainnet live March 18, 2026) ===
+    # NOTE: These are TIP-20 tokens, NOT ERC-20. Circle USDC and Tether USDT
+    # are NOT yet deployed on Tempo. pathUSD is the primary payment token.
+    # Keys are uppercase for get_token_address() / get_token_by_symbol() lookups.
+    "PATHUSD": TokenConfig(
+        symbol="pathUSD",
+        name="Path USD",
+        decimals=6,
+        addresses={
+            "tempo": "0x20c0000000000000000000000000000000000000",
+        },
+        logo_emoji="⚡",
+        is_stablecoin=True,
+    ),
+    "ALPHAUSD": TokenConfig(
+        symbol="AlphaUSD",
+        name="Alpha USD",
+        decimals=6,
+        addresses={
+            "tempo": "0x20c0000000000000000000000000000000000001",
+        },
+        logo_emoji="🅰️",
+        is_stablecoin=True,
+    ),
+    "BETAUSD": TokenConfig(
+        symbol="BetaUSD",
+        name="Beta USD",
+        decimals=6,
+        addresses={
+            "tempo": "0x20c0000000000000000000000000000000000002",
+        },
+        logo_emoji="🅱️",
+        is_stablecoin=True,
+    ),
+    "THETAUSD": TokenConfig(
+        symbol="ThetaUSD",
+        name="Theta USD",
+        decimals=6,
+        addresses={
+            "tempo": "0x20c0000000000000000000000000000000000003",
+        },
+        logo_emoji="🔷",
+        is_stablecoin=True,
     ),
     # === Major Tokens (Non-Stablecoins) ===
     "WETH": TokenConfig(

@@ -195,6 +195,30 @@ CHAINS: dict[str, ChainConfig] = {
         logo_emoji="💎",
         lifi_chain_id=1170,
     ),
+    "tempo": ChainConfig(
+        chain_id=4217,
+        name="tempo",
+        display_name="Tempo",
+        chain_type=ChainType.EVM,
+        native_token="USD",
+        native_decimals=6,
+        rpc_url_env="TEMPO_RPC_URL",
+        explorer_url="https://explore.tempo.xyz",
+        logo_emoji="⚡",
+        lifi_chain_id=4217,
+    ),
+    "plasma": ChainConfig(
+        chain_id=9745,
+        name="plasma",
+        display_name="Plasma",
+        chain_type=ChainType.EVM,
+        native_token="XPL",
+        native_decimals=18,
+        rpc_url_env="PLASMA_RPC_URL",
+        explorer_url="https://plasmascan.to",
+        logo_emoji="🟪",
+        lifi_chain_id=9745,
+    ),
 }
 
 

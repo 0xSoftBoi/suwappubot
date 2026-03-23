@@ -1016,6 +1016,194 @@ protectedWebapp.put('/copy/follow/:traderId', async (c) => {
 	return c.json(result.right)
 })
 
+// === Prediction Market Routes ===
+import { PolymarketService } from '../services/PolymarketService'
+
+// GET /webapp/me/predict/markets — search/browse markets
+protectedWebapp.get('/predict/markets', async (c) => {
+	const query = c.req.query('query') || c.req.query('category')
+	const limit = Math.min(parseInt(c.req.query('limit') ?? '20', 10), 100)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			return yield* pm.getMarkets(query, limit)
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json({ markets: result.right })
+})
+
+// GET /webapp/me/predict/events — browse events
+protectedWebapp.get('/predict/events', async (c) => {
+	const query = c.req.query('query')
+	const limit = Math.min(parseInt(c.req.query('limit') ?? '20', 10), 100)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			return yield* pm.getEvents(query, limit)
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json({ events: result.right })
+})
+
+// GET /webapp/me/predict/market/:id — market detail
+protectedWebapp.get('/predict/market/:id', async (c) => {
+	const id = c.req.param('id')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			return yield* pm.getMarket(id)
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json(result.right)
+})
+
+// GET /webapp/me/predict/market/:id/book — orderbook for all outcomes
+protectedWebapp.get('/predict/market/:id/book', async (c) => {
+	const id = c.req.param('id')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			const market = yield* pm.getMarket(id)
+
+			if (market.tokens.length === 0) {
+				return { marketId: id, question: market.question, outcomes: [] }
+			}
+
+			const books = yield* Effect.all(
+				market.tokens.map((t) =>
+					Effect.map(pm.getOrderbook(t.tokenId), (book) => ({
+						outcome: t.outcome,
+						tokenId: t.tokenId,
+						...book,
+					}))
+				),
+				{ concurrency: 'unbounded' },
+			)
+
+			return { marketId: id, question: market.question, outcomes: books }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json(result.right)
+})
+
+// GET /webapp/me/predict/market/:id/price — live CLOB midpoint prices
+protectedWebapp.get('/predict/market/:id/price', async (c) => {
+	const id = c.req.param('id')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			const market = yield* pm.getMarket(id)
+
+			if (market.tokens.length === 0) {
+				return { marketId: id, question: market.question, prices: [] }
+			}
+
+			const prices = yield* Effect.all(
+				market.tokens.map((t) =>
+					Effect.map(pm.getMidpoint(t.tokenId), (midData) => ({
+						outcome: t.outcome,
+						tokenId: t.tokenId,
+						mid: midData.mid,
+					}))
+				),
+				{ concurrency: 'unbounded' },
+			)
+
+			return { marketId: id, question: market.question, prices }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json(result.right)
+})
+
+// GET /webapp/me/predict/market/:id/trades — recent trades across outcomes
+protectedWebapp.get('/predict/market/:id/trades', async (c) => {
+	const id = c.req.param('id')
+	const limit = Math.min(parseInt(c.req.query('limit') ?? '20', 10), 100)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			const market = yield* pm.getMarket(id)
+
+			if (market.tokens.length === 0) {
+				return { marketId: id, question: market.question, trades: [] }
+			}
+
+			const allTrades = yield* Effect.all(
+				market.tokens.map((t) =>
+					Effect.map(pm.getTrades(t.tokenId, limit), (trades) =>
+						trades.map((tr) => ({ ...tr, outcome: t.outcome, tokenId: t.tokenId }))
+					)
+				),
+				{ concurrency: 'unbounded' },
+			)
+
+			const merged = allTrades
+				.flat()
+				.sort((a, b) => (b.timestamp > a.timestamp ? 1 : -1))
+				.slice(0, limit)
+
+			return { marketId: id, question: market.question, trades: merged }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json(result.right)
+})
+
+// GET /webapp/me/predict/positions — user positions (placeholder)
+protectedWebapp.get('/predict/positions', async (c) => {
+	// Positions require on-chain state from Polymarket — placeholder until Workstream A
+	return c.json({ positions: [] })
+})
+
+// POST /webapp/me/predict/order — place order (501 placeholder)
+protectedWebapp.post('/predict/order', async (c) => {
+	return c.json(
+		{ error: 'Order placement not yet implemented. Coming in Workstream A.' },
+		501,
+	)
+})
+
 // === Token Discovery Routes (public) ===
 
 // GET /webapp/tokens/trending - Get trending tokens

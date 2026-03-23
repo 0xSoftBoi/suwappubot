@@ -18,7 +18,7 @@ import logging
 import asyncio
 import re
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -125,7 +125,7 @@ async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
         wallet = session.query(Wallet).filter(
             Wallet.user_id == db_user.id,
-            Wallet.chain == "solana",
+            Wallet.chain_type == "solana",
             Wallet.is_default == True,
         ).first()
 
@@ -331,8 +331,16 @@ async def amount_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     query = update.callback_query
     await query.answer()
 
-    amount = float(query.data.replace("snipe_amount_", ""))
-    context.user_data["snipe"]["sol_amount"] = amount
+    try:
+        amount = float(query.data.replace("snipe_amount_", ""))
+    except ValueError:
+        await query.edit_message_text("❌ Invalid amount.")
+        return ConversationHandler.END
+    snipe_data = context.user_data.get("snipe")
+    if not snipe_data:
+        await query.edit_message_text("❌ Session expired. Start again with /snipe")
+        return ConversationHandler.END
+    snipe_data["sol_amount"] = amount
 
     return await show_snipe_confirmation(update, context)
 
@@ -509,7 +517,7 @@ async def confirm_snipe_callback(update: Update, context: ContextTypes.DEFAULT_T
                 symbol=token.symbol,
                 creator=token.creator,
                 initial_liquidity_sol=0,
-                detected_at=datetime.utcnow(),
+                detected_at=datetime.now(timezone.utc),
                 bonding_curve=token.bonding_curve,
             )
         else:
@@ -520,7 +528,7 @@ async def confirm_snipe_callback(update: Update, context: ContextTypes.DEFAULT_T
                 symbol="",
                 creator="",
                 initial_liquidity_sol=0,
-                detected_at=datetime.utcnow(),
+                detected_at=datetime.now(timezone.utc),
             )
 
         # Execute snipe via the executor
@@ -541,7 +549,7 @@ async def confirm_snipe_callback(update: Update, context: ContextTypes.DEFAULT_T
                     order.status = SnipeStatus.CONFIRMED.value
                     order.tx_signature = result.signature or ""
                     order.tokens_received = str(int(result.tokens_received))
-                    order.executed_at = datetime.utcnow()
+                    order.executed_at = datetime.now(timezone.utc)
                 else:
                     order.status = SnipeStatus.FAILED.value
                     order.error_message = result.error or "Execution failed"

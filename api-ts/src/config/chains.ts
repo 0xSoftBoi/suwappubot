@@ -10,6 +10,8 @@ export const RPC_ENDPOINTS: Record<string, string> = {
 	base: process.env.BASE_RPC_URL || (alchemyKey ? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}` : 'https://base.llamarpc.com'),
 	bsc: process.env.BSC_RPC_URL || 'https://bsc.llamarpc.com',
 	solana: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+	tempo: process.env.TEMPO_RPC_URL || 'https://tempo-mainnet.drpc.org',
+	plasma: process.env.PLASMA_RPC_URL || 'https://rpc.plasma.to/',
 }
 
 export const NATIVE_TOKENS: Record<string, { symbol: string; name: string; decimals: number }> = {
@@ -20,6 +22,8 @@ export const NATIVE_TOKENS: Record<string, { symbol: string; name: string; decim
 	base: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
 	bsc: { symbol: 'BNB', name: 'BNB Chain', decimals: 18 },
 	solana: { symbol: 'SOL', name: 'Solana', decimals: 9 },
+	tempo: { symbol: 'USD', name: 'USD Stablecoin', decimals: 6 },
+	plasma: { symbol: 'XPL', name: 'Plasma', decimals: 18 },
 }
 
 export const CHAIN_ID_TO_KEY: Record<number, string> = {
@@ -30,6 +34,8 @@ export const CHAIN_ID_TO_KEY: Record<number, string> = {
 	8453: 'base',
 	42161: 'arbitrum',
 	43114: 'avalanche',
+	4217: 'tempo',
+	9745: 'plasma',
 }
 
 const EXPLORER_URLS: Record<number, string> = {
@@ -40,6 +46,8 @@ const EXPLORER_URLS: Record<number, string> = {
 	8453: 'https://basescan.org',
 	42161: 'https://arbiscan.io',
 	43114: 'https://snowscan.xyz',
+	4217: 'https://explore.tempo.xyz',
+	9745: 'https://plasmascan.to',
 }
 
 export function getRpcUrl(chainId: number): string | null {

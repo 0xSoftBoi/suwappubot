@@ -76,6 +76,79 @@ export function createApp(config: AppConfig) {
 	app.get('/.well-known/agent.json', (c) => c.json(agentCard))
 	app.get('/agent-card.json', (c) => c.json(agentCard))
 
+	// llms.txt — machine-readable API summary for LLM/agent discovery
+	app.get('/llms.txt', (c) => {
+		return c.text(`# Suwappu API
+
+> Cross-chain DEX API for AI agents. Swap tokens across 15 chains.
+
+## Base URL
+https://api.suwappu.bot/v1/agent
+
+## Auth
+Bearer token via \`Authorization: Bearer suwappu_sk_...\`
+Get key: POST /register (no auth needed)
+
+## Quick Start
+1. POST /register {"name":"my-agent"} → get api_key
+2. POST /quote {"from_token":"ETH","to_token":"USDC","amount":"0.5","chain":"base"} → get quote_id
+3. POST /swap/execute {"quote_id":"..."} → swap executed
+4. GET /swap/status/{id} → check result
+
+## Endpoints
+
+### Public (no auth)
+- POST /register — Register agent, get API key
+- GET /chains — List supported chains
+- GET /openapi — OpenAPI 3.1 spec
+
+### Authenticated
+- GET /me — Agent profile
+- PATCH /me — Update profile
+- DELETE /me — Delete agent
+- POST /me/deactivate — Deactivate
+- POST /reactivate — Reactivate
+- POST /keys/rotate — Rotate API key
+- GET /tokens?chain=base — List tokens
+- GET /prices?symbols=ETH,SOL — Token prices (USD)
+- GET /portfolio?wallet_address=0x... — Wallet balances
+- POST /quote — Get swap quote (returns quote_id)
+- POST /swap — Get unsigned tx (client signing)
+- POST /swap/execute — Execute swap (server signing, managed wallets)
+- GET /swap/status/{id} — Swap status
+- GET /swaps — Swap history
+- GET /wallets — List managed wallets
+- POST /wallets — Create managed wallet
+- POST /execute — Natural language command
+- GET /webhooks — Webhook events
+- POST /webhooks/test — Test webhook delivery
+
+## Protocols
+- REST: https://api.suwappu.bot/v1/agent/*
+- MCP: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0, tools: get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens)
+- A2A: POST https://api.suwappu.bot/a2a (JSON-RPC 2.0, methods: message/send, tasks/get, tasks/cancel)
+- Agent Card: GET https://api.suwappu.bot/.well-known/agent.json
+- OpenAPI: GET https://api.suwappu.bot/v1/agent/openapi
+
+## Chains
+Ethereum (1), Optimism (10), BSC (56), Polygon (137), Arbitrum (42161), Base (8453), Avalanche (43114), Fantom (250), Linea (59144), Mantle (5000), Gnosis (100), Scroll (534352), Solana, Sui, TON
+
+## Response Format
+{"success": true, ...data} or {"success": false, "error": "message"}
+
+## Rate Limits
+free: 30/min, agent: 100/min, pro: 500/min
+Headers: X-RateLimit-Limit, X-RateLimit-Remaining, Retry-After (on 429)
+
+## SDK
+npm: @suwappu/sdk | PyPI: suwappu
+MCP Server: npx @suwappu/mcp-server
+
+## Docs
+https://docs.suwappu.bot
+`)
+	})
+
 	// Internal API routes - service-to-service (Python bot → api-ts)
 	app.use('/internal/*', internalAuth(config.internalApiKey))
 	app.route('/internal', internalRoutes)

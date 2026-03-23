@@ -42,10 +42,11 @@ async def quickswap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not args or len(args) < 3:
         await update.message.reply_text(
             "🔄 *Quick Swap*\n\n"
-            "Usage: `/s <amount> <from_token> <to_token>`\n\n"
+            "Usage: `/s <amount> <from_token> [from_chain] <to_token> [to_chain]`\n\n"
             "Examples:\n"
             "• `/s 100 USDC ETH` - Swap 100 USDC to ETH\n"
-            "• `/s 50 ETH USDC` - Swap 50 ETH to USDC\n\n"
+            "• `/s 0.004 ETH base USDC base` - Same-chain swap on Base\n"
+            "• `/s 50 USDC polygon ETH ethereum` - Cross-chain swap\n\n"
             "For full swap wizard, tap the button below.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([
@@ -53,16 +54,43 @@ async def quickswap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             ])
         )
         return
-    
-    # Parse arguments
+
+    # Parse arguments - smart detection of chains vs tokens
     try:
         amount_str = args[0]
-        from_token = args[1].upper()
-        to_token = args[2].upper()
-        
-        # Optional chain specification
-        from_chain = args[3].lower() if len(args) > 3 else None
-        to_chain = args[4].lower() if len(args) > 4 else None
+        remaining = list(args[1:])
+
+        from_token = remaining.pop(0).upper()
+        from_chain = None
+        to_token = None
+        to_chain = None
+
+        # Next arg: if it's a chain name but NOT a token, treat as from_chain
+        if remaining:
+            next_arg = remaining[0]
+            if get_chain_by_name(next_arg) and not get_token_by_symbol(next_arg.upper()):
+                from_chain = remaining.pop(0).lower()
+            elif get_chain_by_name(next_arg) and get_token_by_symbol(next_arg.upper()):
+                # Ambiguous (e.g. could be chain or token). If 3+ remaining args,
+                # user specified both chains, so this is from_chain.
+                if len(remaining) >= 3:
+                    from_chain = remaining.pop(0).lower()
+                # else fall through to treat as to_token
+
+        if remaining:
+            to_token = remaining.pop(0).upper()
+
+        if remaining:
+            next_arg = remaining[0]
+            if get_chain_by_name(next_arg):
+                to_chain = remaining.pop(0).lower()
+
+        if not to_token:
+            await update.message.reply_text(
+                "❌ Invalid command format. Use `/s 100 USDC ETH`",
+                parse_mode="Markdown",
+            )
+            return
     except Exception:
         await update.message.reply_text("❌ Invalid command format. Use `/s 100 USDC ETH`", parse_mode="Markdown")
         return

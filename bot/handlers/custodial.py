@@ -361,8 +361,11 @@ async def withdraw_select_chain(update: Update, context: ContextTypes.DEFAULT_TY
     
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.edit_message_text("❌ Please use /start first.")
+            return SELECT_CHAIN
         user_id = db_user.id
-    
+
     balances = hot_wallet_service.get_all_custodial_balances(user_id)
     chain_balances = balances.get(chain, {})
     

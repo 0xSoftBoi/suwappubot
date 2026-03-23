@@ -21,6 +21,7 @@ import { UserServiceLive } from './UserService'
 import { HyperliquidServiceLive } from './HyperliquidService'
 import { MorphoServiceLive } from './MorphoService'
 import { PolymarketServiceLive } from './PolymarketService'
+import { PolymarketCredentialServiceLive } from './PolymarketCredentialService'
 import { WalletServiceLive } from './WalletService'
 
 // Base configuration layer
@@ -40,6 +41,12 @@ export const RedisLayer = RedisServiceLive.pipe(Layer.provide(ConfigLayer))
 
 // Event bus layer depends on config (uses Redis for pub/sub)
 export const EventBusLayer = EventBusLive.pipe(Layer.provide(ConfigLayer))
+
+// Polymarket credential layer depends on config + database
+export const PolymarketCredentialLayer = PolymarketCredentialServiceLive.pipe(
+	Layer.provide(ConfigLayer),
+	Layer.provide(DatabaseLayer),
+)
 
 // Service layers (stateless, no dependencies on other services)
 export const ServicesLayer = Layer.mergeAll(
@@ -71,6 +78,7 @@ export const MainLayer = Layer.mergeAll(
 	RedisLayer,
 	EventBusLayer,
 	ServicesLayer,
+	PolymarketCredentialLayer,
 )
 
 // Type alias for the full context

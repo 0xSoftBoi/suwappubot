@@ -240,7 +240,11 @@ async def perps_leverage_callback(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
 
-    leverage = int(query.data.replace("perps_lev_", ""))
+    try:
+        leverage = int(query.data.replace("perps_lev_", ""))
+    except ValueError:
+        await query.edit_message_text("❌ Invalid leverage.")
+        return PERPS_MENU
     context.user_data["perps_leverage"] = leverage
 
     market = context.user_data.get("perps_market", "ETH-USD")
@@ -373,7 +377,11 @@ async def perps_close_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
 
-    position_id = int(query.data.replace("perps_close_", ""))
+    try:
+        position_id = int(query.data.replace("perps_close_", ""))
+    except ValueError:
+        await query.edit_message_text("❌ Invalid position.")
+        return PERPS_MENU
 
     keyboard = [
         [
@@ -397,9 +405,13 @@ async def perps_close_amount_callback(update: Update, context: ContextTypes.DEFA
     query = update.callback_query
     await query.answer("Closing position...")
 
-    parts = query.data.replace("perps_closeamt_", "").split("_")
-    position_id = int(parts[0])
-    percent = float(parts[1])
+    try:
+        parts = query.data.replace("perps_closeamt_", "").split("_")
+        position_id = int(parts[0])
+        percent = float(parts[1])
+    except (IndexError, ValueError):
+        await query.edit_message_text("❌ Invalid action. Please try again.")
+        return PERPS_MENU
 
     try:
         result = await perps_service.close_position(

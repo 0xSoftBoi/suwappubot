@@ -8,6 +8,7 @@ import { logger } from '../lib/logger'
 import { DrizzleService, requireDb, wallets } from '../db'
 import { mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
 import { fetchWithRetry } from '../lib/retry'
+import { withSigningFallback } from '../services/FallbackSigningService'
 import { type AuthUser, flexAuth } from '../middleware/flexAuth'
 import { ipRateLimit } from '../middleware/ipRateLimit'
 import { runEffectEither } from '../runtime'
@@ -453,13 +454,7 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 				chainId: txRequest.chainId,
 			}, '[PublicSwap] Signing transaction')
 
-			const signResult = yield* Effect.tryPromise({
-				try: async () => {
-					const signedTx = await turnkeyClient.apiClient().signTransaction({
-						organizationId: wallet.turnkeySubOrgId!,
-						signWith: wallet.address,
-						type: 'TRANSACTION_TYPE_ETHEREUM',
-						unsignedTransaction: JSON.stringify({
+			const publicSwapUnsignedTx = {
 							type: '0x2',
 							chainId: `0x${txRequest.chainId.toString(16)}`,
 							nonce: '0x0',
@@ -469,9 +464,22 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 							maxFeePerGas: txRequest.gasPrice || '0x0',
 							maxPriorityFeePerGas: '0x0',
 							gas: txRequest.gasLimit || '0x0',
-						}),
-					})
-					return signedTx
+						}
+			const signResult = yield* Effect.tryPromise({
+				try: async () => {
+					return await withSigningFallback(
+						async () => {
+							const result = await turnkeyClient.apiClient().signTransaction({
+								organizationId: wallet.turnkeySubOrgId!,
+								signWith: wallet.address,
+								type: 'TRANSACTION_TYPE_ETHEREUM',
+								unsignedTransaction: JSON.stringify(publicSwapUnsignedTx),
+							})
+							return result.signedTransaction
+						},
+						wallet.id,
+						publicSwapUnsignedTx,
+					)
 				},
 				catch: (e) => new Error(`Failed to sign transaction: ${e}`),
 			})

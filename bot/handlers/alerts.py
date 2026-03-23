@@ -131,9 +131,12 @@ async def alert_select_type(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     alert_type = query.data.replace("alert_type_", "")
     context.user_data["alert_type"] = alert_type
     
-    token = context.user_data["alert_token"]
-    current_price = context.user_data["alert_current_price"]
-    
+    token = context.user_data.get("alert_token")
+    current_price = context.user_data.get("alert_current_price")
+    if not token or current_price is None:
+        await query.edit_message_text("❌ Session expired. Start again with /a")
+        return ConversationHandler.END
+
     if alert_type == "above":
         text = f"Enter the price above which you want to be alerted:\n\nCurrent {token}: ${current_price:.4f}"
     elif alert_type == "below":
@@ -157,10 +160,16 @@ async def alert_enter_price(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await update.message.reply_text("❌ Please use /start first.")
+            return ConversationHandler.END
         user_id = db_user.id
-    
-    token = context.user_data["alert_token"]
-    alert_type_key = context.user_data["alert_type"]
+
+    token = context.user_data.get("alert_token")
+    alert_type_key = context.user_data.get("alert_type")
+    if not token or not alert_type_key:
+        await update.message.reply_text("❌ Session expired. Start again with /a")
+        return ConversationHandler.END
     
     # Map to AlertType
     type_map = {

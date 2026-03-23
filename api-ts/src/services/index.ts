@@ -89,7 +89,7 @@ export {
 	TokenService,
 	TokenServiceLive,
 } from './TokenService'
-export { TurnkeyService, TurnkeyServiceLive, type TurnkeyWallet } from './TurnkeyService'
+export { TurnkeyService, TurnkeyServiceLive, type TurnkeyWallet, type RawSignatureResult } from './TurnkeyService'
 export { UserService, UserServiceLive } from './UserService'
 export { WalletService, WalletServiceLive } from './WalletService'
 export {
@@ -100,11 +100,19 @@ export {
 	HyperliquidServiceLive,
 } from './HyperliquidService'
 export {
+	type ClobApiCredentials,
+	type ClobOrder,
+	type ClobPosition,
+	type PlaceOrderParams,
 	type PredictionMarket,
 	type PredictionMarketDetail,
 	PolymarketService,
 	PolymarketServiceLive,
 } from './PolymarketService'
+export {
+	PolymarketCredentialService,
+	PolymarketCredentialServiceLive,
+} from './PolymarketCredentialService'
 export {
 	type LendingMarket,
 	type LendingMarketDetail,

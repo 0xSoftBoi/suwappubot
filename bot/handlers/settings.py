@@ -276,7 +276,8 @@ async def recovery_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     if recovery_email:
-        masked = recovery_email[:3] + "***" + recovery_email[recovery_email.index("@"):]
+        local, sep, domain = recovery_email.partition("@")
+        masked = local[:3] + "***" + sep + domain if sep else recovery_email
         text = (
             "🔑 *Wallet Recovery*\n\n"
             f"*Status:* Recovery set up\n"
@@ -341,7 +342,8 @@ async def recovery_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
 
     if recovery_email:
-        masked = recovery_email[:3] + "***" + recovery_email[recovery_email.index("@"):]
+        local, sep, domain = recovery_email.partition("@")
+        masked = local[:3] + "***" + sep + domain if sep else recovery_email
         text = (
             "🔑 *Wallet Recovery*\n\n"
             f"*Status:* Recovery set up\n"
@@ -408,7 +410,8 @@ async def recovery_email_set(update: Update, context: ContextTypes.DEFAULT_TYPE)
     success = await recovery_service.setup_email_recovery(user.id, email)
 
     if success:
-        masked = email[:3] + "***" + email[email.index("@"):]
+        local, sep, domain = email.partition("@")
+        masked = local[:3] + "***" + sep + domain if sep else email
         await update.message.reply_text(
             f"Recovery email set to `{masked}`\n\n"
             "You can now recover your wallet using this email if you lose access.",

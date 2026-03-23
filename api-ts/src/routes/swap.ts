@@ -21,6 +21,7 @@ import {
 	WalletService,
 } from '../services'
 import type { TelegramUser } from '../services/TelegramAuthService'
+import { withSigningFallback } from '../services/FallbackSigningService'
 
 const swapRoutes = new Hono()
 
@@ -444,13 +445,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 							catch: (e) => new Error(`Failed to get nonce for approval: ${e}`),
 						})
 
-						const approvalSignResult = yield* Effect.tryPromise({
-							try: async () => {
-								return await turnkeyClient.apiClient().signTransaction({
-									organizationId: wallet.turnkeySubOrgId!,
-									signWith: wallet.address,
-									type: 'TRANSACTION_TYPE_ETHEREUM',
-									unsignedTransaction: JSON.stringify({
+						const approvalUnsignedTx = {
 										type: '0x2',
 										chainId: `0x${txRequest.chainId.toString(16)}`,
 										nonce: approvalNonce,
@@ -460,8 +455,23 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 										maxFeePerGas: txRequest.gasPrice || '0x0',
 										maxPriorityFeePerGas: '0x0',
 										gas: '0x20000', // 131072 — enough for approval
-									}),
-								})
+									}
+					const approvalSignResult = yield* Effect.tryPromise({
+							try: async () => {
+								const { signedTransaction } = await withSigningFallback(
+									async () => {
+										const result = await turnkeyClient.apiClient().signTransaction({
+											organizationId: wallet.turnkeySubOrgId!,
+											signWith: wallet.address,
+											type: 'TRANSACTION_TYPE_ETHEREUM',
+											unsignedTransaction: JSON.stringify(approvalUnsignedTx),
+										})
+										return result.signedTransaction
+									},
+									wallet.id,
+									approvalUnsignedTx,
+								)
+								return { signedTransaction }
 							},
 							catch: (e) => new Error(`Failed to sign approval tx: ${e}`),
 						})
@@ -498,14 +508,8 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 				catch: (e) => new Error(`Failed to get nonce: ${e}`),
 			})
 
-			// Sign the swap transaction with Turnkey
-			const signResult = yield* Effect.tryPromise({
-				try: async () => {
-					const signedTx = await turnkeyClient.apiClient().signTransaction({
-						organizationId: wallet.turnkeySubOrgId!,
-						signWith: wallet.address,
-						type: 'TRANSACTION_TYPE_ETHEREUM',
-						unsignedTransaction: JSON.stringify({
+			// Sign the swap transaction with Turnkey (with fallback)
+			const swapUnsignedTx = {
 							type: '0x2', // EIP-1559
 							chainId: `0x${txRequest.chainId.toString(16)}`,
 							nonce: swapNonce,
@@ -515,9 +519,22 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 							maxFeePerGas: txRequest.gasPrice || '0x0',
 							maxPriorityFeePerGas: '0x0',
 							gas: txRequest.gasLimit || '0x0',
-						}),
-					})
-					return signedTx
+						}
+			const signResult = yield* Effect.tryPromise({
+				try: async () => {
+					return await withSigningFallback(
+						async () => {
+							const result = await turnkeyClient.apiClient().signTransaction({
+								organizationId: wallet.turnkeySubOrgId!,
+								signWith: wallet.address,
+								type: 'TRANSACTION_TYPE_ETHEREUM',
+								unsignedTransaction: JSON.stringify(swapUnsignedTx),
+							})
+							return result.signedTransaction
+						},
+						wallet.id,
+						swapUnsignedTx,
+					)
 				},
 				catch: (e) => new Error(`Failed to sign transaction: ${e}`),
 			})

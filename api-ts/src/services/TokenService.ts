@@ -120,6 +120,13 @@ export const CHAINS: Record<string, ChainInfo> = {
 		nativeToken: 'USD',
 		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
 	},
+	plasma: {
+		id: 9745,
+		key: 'plasma',
+		name: 'Plasma',
+		nativeToken: 'XPL',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
 }
 
 // Common token addresses by chain
@@ -189,6 +196,12 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		AlphaUSD: '0x20c0000000000000000000000000000000000001',
 		BetaUSD: '0x20c0000000000000000000000000000000000002',
 		ThetaUSD: '0x20c0000000000000000000000000000000000003',
+	},
+	// Plasma (zero-fee stablecoin L1)
+	9745: {
+		XPL: '0x0000000000000000000000000000000000000000',
+		USDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+		USDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
 	},
 }
 

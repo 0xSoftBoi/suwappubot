@@ -84,6 +84,31 @@ export const WebhookEventsQuerySchema = z.object({
 	offset: z.coerce.number().min(0).default(0),
 })
 
+export const PlaceOrderSchema = z.object({
+	tokenId: z.string().min(1, 'tokenId is required'),
+	price: z
+		.string()
+		.min(1, 'price is required')
+		.refine((v) => {
+			const n = parseFloat(v)
+			return !isNaN(n) && n > 0 && n <= 1
+		}, 'price must be between 0 and 1'),
+	size: z
+		.string()
+		.min(1, 'size is required')
+		.refine((v) => {
+			const n = parseFloat(v)
+			return !isNaN(n) && n > 0
+		}, 'size must be a positive number'),
+	side: z.enum(['BUY', 'SELL']),
+	expiration: z.number().optional(),
+	feeRateBps: z.number().min(0).max(500).optional(),
+})
+
+export const CancelOrderSchema = z.object({
+	orderId: z.string().min(1, 'orderId is required'),
+})
+
 export function formatZodErrors(error: z.ZodError): Record<string, string> {
 	const fields: Record<string, string> = {}
 	for (const issue of error.issues) {

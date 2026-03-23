@@ -143,12 +143,19 @@ async def dca_interval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     query = update.callback_query
     await query.answer()
     
-    interval = int(query.data.replace("dcai_", ""))
+    try:
+        interval = int(query.data.replace("dcai_", ""))
+    except ValueError:
+        await query.edit_message_text("❌ Invalid interval.")
+        return ConversationHandler.END
     context.user_data["dca_interval"] = interval
     
-    token = context.user_data["dca_token"]
-    amount = context.user_data["dca_amount"]
-    
+    token = context.user_data.get("dca_token")
+    amount = context.user_data.get("dca_amount")
+    if not token or amount is None:
+        await query.edit_message_text("❌ Session expired. Please start again with /dca")
+        return ConversationHandler.END
+
     keyboard = [[InlineKeyboardButton("🚀 Start DCA", callback_data="dca_confirm")],
                 [InlineKeyboardButton("❌ Cancel", callback_data="dca_cancel")]]
     
@@ -167,25 +174,35 @@ async def dca_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     query = update.callback_query
     await query.answer()
     
+    dca_token = context.user_data.get("dca_token")
+    dca_amount = context.user_data.get("dca_amount")
+    dca_interval = context.user_data.get("dca_interval")
+    if not all([dca_token, dca_amount is not None, dca_interval is not None]):
+        await query.edit_message_text("❌ Session expired. Please start again with /dca")
+        return ConversationHandler.END
+
     user = update.effective_user
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.edit_message_text("❌ Please use /start first.")
+            return ConversationHandler.END
         user_id = db_user.id
-        
+
     wallet = wallet_service.get_default_wallet(user_id, "evm")
     if not wallet:
         await query.edit_message_text("❌ No EVM wallet found.")
         return ConversationHandler.END
-        
+
     order_service.create_dca_order(
         user_id=user_id,
         wallet_id=wallet.id,
-        from_chain="ethereum", # Defaulting to ethereum for now
+        from_chain="ethereum",
         from_token="USDC",
         to_chain="ethereum",
-        to_token=context.user_data["dca_token"],
-        amount_per_execution=str(int(context.user_data["dca_amount"] * 10**18)), # Raw 18 decimals
-        interval_hours=context.user_data["dca_interval"]
+        to_token=dca_token,
+        amount_per_execution=str(int(dca_amount * 10**18)),
+        interval_hours=dca_interval
     )
     
     await query.edit_message_text("✅ *DCA Plan Started!*\n\nYou can manage it anytime with /dca",
@@ -199,7 +216,11 @@ async def dca_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     query = update.callback_query
     await query.answer()
     
-    dca_id = int(query.data.replace("dca_view_", ""))
+    try:
+        dca_id = int(query.data.replace("dca_view_", ""))
+    except ValueError:
+        await query.edit_message_text("❌ Invalid order.")
+        return
     with get_session() as session:
         from bot.models.advanced import DCAOrder
         order = session.query(DCAOrder).filter(DCAOrder.id == dca_id).first()
@@ -238,20 +259,27 @@ async def dca_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     user = update.effective_user
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.edit_message_text("❌ Please use /start first.")
+            return
         user_id = db_user.id
-        
-    if query.data.startswith("dca_pause_"):
-        dca_id = int(query.data.replace("dca_pause_", ""))
-        order_service.pause_dca(dca_id, user_id)
-        await query.edit_message_text("⏸ DCA Paused.")
-    elif query.data.startswith("dca_resume_"):
-        dca_id = int(query.data.replace("dca_resume_", ""))
-        order_service.resume_dca(dca_id, user_id)
-        await query.edit_message_text("▶️ DCA Resumed.")
-    elif query.data.startswith("dca_cancel_plan_"):
-        dca_id = int(query.data.replace("dca_cancel_plan_", ""))
-        order_service.cancel_dca(dca_id, user_id)
-        await query.edit_message_text("🗑 DCA Plan Cancelled.")
+
+    try:
+        if query.data.startswith("dca_pause_"):
+            dca_id = int(query.data.replace("dca_pause_", ""))
+            order_service.pause_dca(dca_id, user_id)
+            await query.edit_message_text("⏸ DCA Paused.")
+        elif query.data.startswith("dca_resume_"):
+            dca_id = int(query.data.replace("dca_resume_", ""))
+            order_service.resume_dca(dca_id, user_id)
+            await query.edit_message_text("▶️ DCA Resumed.")
+        elif query.data.startswith("dca_cancel_plan_"):
+            dca_id = int(query.data.replace("dca_cancel_plan_", ""))
+            order_service.cancel_dca(dca_id, user_id)
+            await query.edit_message_text("🗑 DCA Plan Cancelled.")
+    except ValueError:
+        await query.edit_message_text("❌ Invalid order.")
+        return
         
     # Re-show menu after action
     # For now, just back to main DCA command text
@@ -362,9 +390,11 @@ async def lo_to_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     await query.answer()
     
     token_symbol = query.data.replace("lott_", "")
-    context.user_data["lo"]["to_token"] = token_symbol
-    
-    lo = context.user_data["lo"]
+    lo = context.user_data.get("lo")
+    if not lo:
+        await query.edit_message_text("❌ Order session expired. Start again with /o")
+        return ConversationHandler.END
+    lo["to_token"] = token_symbol
     await query.edit_message_text(
         f"Pair: *{lo['from_token']} ({lo['from_chain'].upper()})* → *{lo['to_token']} ({lo['to_chain'].upper()})*\n\n"
         "Enter the amount to swap:",
@@ -392,7 +422,11 @@ async def lo_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle amount entry."""
     try:
         amount = float(update.message.text.strip())
-        context.user_data["lo"]["amount_human"] = amount
+        lo = context.user_data.get("lo")
+        if not lo:
+            await update.message.reply_text("❌ Order session expired. Start again with /o")
+            return ConversationHandler.END
+        lo["amount_human"] = amount
     except ValueError:
         await update.message.reply_text("❌ Invalid number.")
         return LO_AMOUNT
@@ -405,12 +439,15 @@ async def lo_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle price entry."""
     try:
         price = float(update.message.text.strip().replace("$", ""))
-        context.user_data["lo"]["trigger_price"] = price
+        lo = context.user_data.get("lo")
+        if not lo:
+            await update.message.reply_text("❌ Order session expired. Start again with /o")
+            return ConversationHandler.END
+        lo["trigger_price"] = price
     except ValueError:
         await update.message.reply_text("❌ Invalid price.")
         return LO_PRICE
-    
-    lo = context.user_data["lo"]
+
     keyboard = [[InlineKeyboardButton("✅ Confirm Order", callback_data="lo_confirm"),
                  InlineKeyboardButton("❌ Cancel", callback_data="lo_cancel")]]
     
@@ -432,8 +469,11 @@ async def lo_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await query.answer()
     
     user = update.effective_user
-    lo = context.user_data["lo"]
-    
+    lo = context.user_data.get("lo")
+    if not lo:
+        await query.edit_message_text("❌ Order session expired. Start again with /o")
+        return ConversationHandler.END
+
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
         user_id = db_user.id
