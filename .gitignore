@@ -15,6 +15,7 @@ lib/
 !mobile/lib/
 !showcase/src/lib/
 !terminal/src/lib/
+!api-ts/src/lib/
 lib64/
 parts/
 sdist/
