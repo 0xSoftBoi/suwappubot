@@ -246,7 +246,12 @@ class RPCManager:
         """Weighted random selection by health score."""
         endpoints = self._endpoints.get(chain_name, [])
         if not endpoints:
-            raise ValueError(f"No RPC endpoints for {chain_name}")
+            # Lazy-load if start() hasn't been called yet (import-time access)
+            if not self._endpoints:
+                self._load_configured_endpoints()
+                endpoints = self._endpoints.get(chain_name, [])
+            if not endpoints:
+                raise ValueError(f"No RPC endpoints for {chain_name}")
 
         available = [ep for ep in endpoints if not ep.is_circuit_open]
 
