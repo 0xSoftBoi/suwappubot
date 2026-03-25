@@ -18,7 +18,11 @@ from typing import Dict, List, Optional
 
 import aiohttp
 from web3 import Web3
-from web3.middleware import geth_poa_middleware
+
+try:
+    from web3.middleware import ExtraDataToPOAMiddleware as poa_middleware
+except ImportError:
+    from web3.middleware import geth_poa_middleware as poa_middleware
 
 from bot.config.settings import settings
 
@@ -345,7 +349,7 @@ class RPCManager:
             request_kwargs={"timeout": 15, "headers": {"Content-Type": "application/json"}},
         ))
         if chain_name in POA_CHAINS:
-            web3.middleware_onion.inject(geth_poa_middleware, layer=0)
+            web3.middleware_onion.inject(poa_middleware, layer=0)
         return web3
 
     # === BACKGROUND HEALTH CHECKER ===
