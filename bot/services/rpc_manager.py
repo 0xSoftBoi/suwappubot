@@ -33,10 +33,20 @@ CHAINLIST_IDS: Dict[str, int] = {
     "ethereum": 1, "bsc": 56, "polygon": 137, "arbitrum": 42161,
     "optimism": 10, "base": 8453, "avalanche": 43114, "fantom": 250,
     "linea": 59144, "mantle": 5000, "gnosis": 100, "scroll": 534352,
+    # New Li.Fi-supported chains (2025-2026)
+    "flare": 14, "unichain": 130, "sonic": 146, "opbnb": 204,
+    "fraxtal": 252, "zksync": 324, "worldchain": 480, "flow": 747,
+    "hyperevm": 999, "lisk": 1135, "sei": 1329, "soneium": 1868,
+    "swellchain": 1923, "abstract": 2741, "kaia": 8217, "apechain": 33139,
+    "mode": 34443, "hemi": 43111, "bob": 60808, "berachain": 80094,
+    "taiko": 167000,
 }
 
 # Chains needing PoA middleware
-POA_CHAINS = {"bsc", "polygon", "arbitrum", "optimism", "base", "gnosis", "scroll", "linea", "mantle"}
+POA_CHAINS = {
+    "bsc", "polygon", "arbitrum", "optimism", "base", "gnosis", "scroll",
+    "linea", "mantle", "opbnb", "zksync", "mode", "bob",
+}
 
 
 class RPCTier(Enum):

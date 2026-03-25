@@ -112,6 +112,10 @@ class LiFiAPI:
         slippage: float = 0.5,
         integrator: Optional[str] = None,
         fee: float = 0.008,  # 0.8% integrator fee (80 bips)
+        from_amount_for_gas: Optional[str] = None,
+        max_price_impact: Optional[float] = None,
+        prefer_bridges: Optional[list[str]] = None,
+        prefer_exchanges: Optional[list[str]] = None,
     ) -> LiFiQuote:
         """
         Get a quote for a cross-chain swap.
@@ -148,6 +152,18 @@ class LiFiAPI:
             "integrator": integrator or settings.lifi_integrator_id,
             "fee": fee,  # Integrator fee collected by LiFi FeeCollection contract
         }
+
+        # LI.Fuel: receive native gas tokens on destination chain
+        if from_amount_for_gas:
+            params["fromAmountForGas"] = str(from_amount_for_gas)
+
+        # Route quality controls
+        if max_price_impact is not None:
+            params["maxPriceImpact"] = max_price_impact
+        if prefer_bridges:
+            params["preferBridges"] = ",".join(prefer_bridges)
+        if prefer_exchanges:
+            params["preferExchanges"] = ",".join(prefer_exchanges)
         
         data = await self._request("GET", "/quote", params=params)
         

@@ -219,6 +219,133 @@ CHAINS: dict[str, ChainConfig] = {
         logo_emoji="🟪",
         lifi_chain_id=9745,
     ),
+    # === New Li.Fi-supported chains (2025-2026) ===
+    "sonic": ChainConfig(
+        chain_id=146, name="sonic", display_name="Sonic",
+        chain_type=ChainType.EVM, native_token="S", native_decimals=18,
+        rpc_url_env="SONIC_RPC_URL", explorer_url="https://sonicscan.org",
+        logo_emoji="🔵", lifi_chain_id=146,
+    ),
+    "opbnb": ChainConfig(
+        chain_id=204, name="opbnb", display_name="opBNB",
+        chain_type=ChainType.EVM, native_token="BNB", native_decimals=18,
+        rpc_url_env="OPBNB_RPC_URL", explorer_url="https://opbnb.bscscan.com",
+        logo_emoji="🟡", lifi_chain_id=204,
+    ),
+    "fraxtal": ChainConfig(
+        chain_id=252, name="fraxtal", display_name="Fraxtal",
+        chain_type=ChainType.EVM, native_token="FRAX", native_decimals=18,
+        rpc_url_env="FRAXTAL_RPC_URL", explorer_url="https://fraxscan.com",
+        logo_emoji="⚫", lifi_chain_id=252,
+    ),
+    "zksync": ChainConfig(
+        chain_id=324, name="zksync", display_name="zkSync Era",
+        chain_type=ChainType.EVM, native_token="ETH", native_decimals=18,
+        rpc_url_env="ZKSYNC_RPC_URL", explorer_url="https://explorer.zksync.io",
+        logo_emoji="🔷", lifi_chain_id=324,
+    ),
+    "worldchain": ChainConfig(
+        chain_id=480, name="worldchain", display_name="World Chain",
+        chain_type=ChainType.EVM, native_token="ETH", native_decimals=18,
+        rpc_url_env="WORLDCHAIN_RPC_URL", explorer_url="https://worldscan.org",
+        logo_emoji="🌍", lifi_chain_id=480,
+    ),
+    "flow": ChainConfig(
+        chain_id=747, name="flow", display_name="Flow",
+        chain_type=ChainType.EVM, native_token="FLOW", native_decimals=18,
+        rpc_url_env="FLOW_RPC_URL", explorer_url="https://evm.flowscan.io",
+        logo_emoji="🟢", lifi_chain_id=747,
+    ),
+    "hyperevm": ChainConfig(
+        chain_id=999, name="hyperevm", display_name="HyperEVM",
+        chain_type=ChainType.EVM, native_token="HYPE", native_decimals=18,
+        rpc_url_env="HYPEREVM_RPC_URL", explorer_url="https://explorer.hyperliquid.xyz",
+        logo_emoji="⚡", lifi_chain_id=999,
+    ),
+    "lisk": ChainConfig(
+        chain_id=1135, name="lisk", display_name="Lisk",
+        chain_type=ChainType.EVM, native_token="ETH", native_decimals=18,
+        rpc_url_env="LISK_RPC_URL", explorer_url="https://blockscout.lisk.com",
+        logo_emoji="🔵", lifi_chain_id=1135,
+    ),
+    "sei": ChainConfig(
+        chain_id=1329, name="sei", display_name="Sei",
+        chain_type=ChainType.EVM, native_token="SEI", native_decimals=18,
+        rpc_url_env="SEI_RPC_URL", explorer_url="https://seitrace.com",
+        logo_emoji="🔴", lifi_chain_id=1329,
+    ),
+    "soneium": ChainConfig(
+        chain_id=1868, name="soneium", display_name="Soneium",
+        chain_type=ChainType.EVM, native_token="ETH", native_decimals=18,
+        rpc_url_env="SONEIUM_RPC_URL", explorer_url="https://soneium.blockscout.com",
+        logo_emoji="🟦", lifi_chain_id=1868,
+    ),
+    "swellchain": ChainConfig(
+        chain_id=1923, name="swellchain", display_name="Swellchain",
+        chain_type=ChainType.EVM, native_token="ETH", native_decimals=18,
+        rpc_url_env="SWELLCHAIN_RPC_URL", explorer_url="https://explorer.swellnetwork.io",
+        logo_emoji="🌊", lifi_chain_id=1923,
+    ),
+    "abstract": ChainConfig(
+        chain_id=2741, name="abstract", display_name="Abstract",
+        chain_type=ChainType.EVM, native_token="ETH", native_decimals=18,
+        rpc_url_env="ABSTRACT_RPC_URL", explorer_url="https://abscan.org",
+        logo_emoji="🟪", lifi_chain_id=2741,
+    ),
+    "kaia": ChainConfig(
+        chain_id=8217, name="kaia", display_name="Kaia",
+        chain_type=ChainType.EVM, native_token="KAIA", native_decimals=18,
+        rpc_url_env="KAIA_RPC_URL", explorer_url="https://kaiascan.io",
+        logo_emoji="🟠", lifi_chain_id=8217,
+    ),
+    "apechain": ChainConfig(
+        chain_id=33139, name="apechain", display_name="Apechain",
+        chain_type=ChainType.EVM, native_token="APE", native_decimals=18,
+        rpc_url_env="APECHAIN_RPC_URL", explorer_url="https://apescan.io",
+        logo_emoji="🦍", lifi_chain_id=33139,
+    ),
+    "mode": ChainConfig(
+        chain_id=34443, name="mode", display_name="Mode",
+        chain_type=ChainType.EVM, native_token="ETH", native_decimals=18,
+        rpc_url_env="MODE_RPC_URL", explorer_url="https://modescan.io",
+        logo_emoji="🟡", lifi_chain_id=34443,
+    ),
+    "hemi": ChainConfig(
+        chain_id=43111, name="hemi", display_name="Hemi",
+        chain_type=ChainType.EVM, native_token="ETH", native_decimals=18,
+        rpc_url_env="HEMI_RPC_URL", explorer_url="https://explorer.hemi.xyz",
+        logo_emoji="🟠", lifi_chain_id=43111,
+    ),
+    "bob": ChainConfig(
+        chain_id=60808, name="bob", display_name="BOB",
+        chain_type=ChainType.EVM, native_token="ETH", native_decimals=18,
+        rpc_url_env="BOB_RPC_URL", explorer_url="https://explorer.gobob.xyz",
+        logo_emoji="🟡", lifi_chain_id=60808,
+    ),
+    "berachain": ChainConfig(
+        chain_id=80094, name="berachain", display_name="Berachain",
+        chain_type=ChainType.EVM, native_token="BERA", native_decimals=18,
+        rpc_url_env="BERACHAIN_RPC_URL", explorer_url="https://berascan.com",
+        logo_emoji="🐻", lifi_chain_id=80094,
+    ),
+    "taiko": ChainConfig(
+        chain_id=167000, name="taiko", display_name="Taiko",
+        chain_type=ChainType.EVM, native_token="ETH", native_decimals=18,
+        rpc_url_env="TAIKO_RPC_URL", explorer_url="https://taikoscan.io",
+        logo_emoji="🥁", lifi_chain_id=167000,
+    ),
+    "unichain": ChainConfig(
+        chain_id=130, name="unichain", display_name="Unichain",
+        chain_type=ChainType.EVM, native_token="ETH", native_decimals=18,
+        rpc_url_env="UNICHAIN_RPC_URL", explorer_url="https://uniscan.xyz",
+        logo_emoji="🦄", lifi_chain_id=130,
+    ),
+    "flare": ChainConfig(
+        chain_id=14, name="flare", display_name="Flare",
+        chain_type=ChainType.EVM, native_token="FLR", native_decimals=18,
+        rpc_url_env="FLARE_RPC_URL", explorer_url="https://flarescan.com",
+        logo_emoji="🔥", lifi_chain_id=14,
+    ),
 }
 
 

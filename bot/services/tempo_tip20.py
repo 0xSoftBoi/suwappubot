@@ -7,9 +7,12 @@ Standard ERC-20 calls work, but TIP-20 extensions provide richer functionality.
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 
+from eth_account import Account
+from eth_account.messages import encode_typed_data
 from web3 import Web3
 
 from bot.services.tempo_dex_api import _get_tempo_web3
@@ -82,6 +85,58 @@ TIP20_ABI = [
             {"name": "amount", "type": "uint256"},
         ],
         "name": "transfer",
+        "outputs": [{"name": "", "type": "bool"}],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+    # EIP-2612 Permit (TIP-1004, Tempo T2 upgrade)
+    {
+        "inputs": [
+            {"name": "owner", "type": "address"},
+            {"name": "spender", "type": "address"},
+            {"name": "value", "type": "uint256"},
+            {"name": "deadline", "type": "uint256"},
+            {"name": "v", "type": "uint8"},
+            {"name": "r", "type": "bytes32"},
+            {"name": "s", "type": "bytes32"},
+        ],
+        "name": "permit",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+    {
+        "inputs": [{"name": "owner", "type": "address"}],
+        "name": "nonces",
+        "outputs": [{"name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [],
+        "name": "DOMAIN_SEPARATOR",
+        "outputs": [{"name": "", "type": "bytes32"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    # ERC-20 allowance (needed for permit flow)
+    {
+        "inputs": [
+            {"name": "owner", "type": "address"},
+            {"name": "spender", "type": "address"},
+        ],
+        "name": "allowance",
+        "outputs": [{"name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    # ERC-20 approve
+    {
+        "inputs": [
+            {"name": "spender", "type": "address"},
+            {"name": "amount", "type": "uint256"},
+        ],
+        "name": "approve",
         "outputs": [{"name": "", "type": "bool"}],
         "stateMutability": "nonpayable",
         "type": "function",
@@ -208,6 +263,89 @@ class TempoTIP20:
             "data": data,
             "value": 0,
         }
+
+
+    async def build_permit_signature(
+        self,
+        token_address: str,
+        owner_key: str,
+        spender: str,
+        value: int,
+        deadline: Optional[int] = None,
+    ) -> Tuple[int, bytes, bytes, int]:
+        """Build an EIP-2612 permit signature for gasless approval.
+
+        Args:
+            token_address: TIP-20 token contract
+            owner_key: Owner's private key (hex)
+            spender: Address being approved to spend
+            value: Amount to approve
+            deadline: Unix timestamp (defaults to 1 hour from now)
+
+        Returns:
+            (v, r, s, deadline) tuple for use in permit() call
+        """
+        if deadline is None:
+            deadline = int(time.time()) + 3600
+
+        web3 = _get_tempo_web3()
+        addr = Web3.to_checksum_address(token_address)
+        token = web3.eth.contract(address=addr, abi=TIP20_ABI)
+
+        loop = asyncio.get_event_loop()
+        owner = Account.from_key(owner_key).address
+
+        nonce = await loop.run_in_executor(
+            None, token.functions.nonces(owner).call
+        )
+        domain_separator = await loop.run_in_executor(
+            None, token.functions.DOMAIN_SEPARATOR().call
+        )
+        name = await loop.run_in_executor(
+            None, token.functions.name().call
+        )
+        chain_id = await loop.run_in_executor(
+            None, lambda: web3.eth.chain_id
+        )
+
+        typed_data = {
+            "types": {
+                "EIP712Domain": [
+                    {"name": "name", "type": "string"},
+                    {"name": "version", "type": "string"},
+                    {"name": "chainId", "type": "uint256"},
+                    {"name": "verifyingContract", "type": "address"},
+                ],
+                "Permit": [
+                    {"name": "owner", "type": "address"},
+                    {"name": "spender", "type": "address"},
+                    {"name": "value", "type": "uint256"},
+                    {"name": "nonce", "type": "uint256"},
+                    {"name": "deadline", "type": "uint256"},
+                ],
+            },
+            "primaryType": "Permit",
+            "domain": {
+                "name": name,
+                "version": "1",
+                "chainId": chain_id,
+                "verifyingContract": addr,
+            },
+            "message": {
+                "owner": owner,
+                "spender": Web3.to_checksum_address(spender),
+                "value": value,
+                "nonce": nonce,
+                "deadline": deadline,
+            },
+        }
+
+        signed = Account.sign_typed_data(
+            owner_key,
+            full_message=typed_data,
+        )
+
+        return (signed.v, signed.r, signed.s, deadline)
 
 
 # Global instance

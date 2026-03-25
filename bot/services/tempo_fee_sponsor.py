@@ -125,6 +125,11 @@ class TempoFeeSponsor:
             sponsor_address: Address that will pay the fee
             fee_token_address: TIP-20 token address to pay fee in
         """
+        # T2 breaking change: fee payer cannot equal sender
+        sender = tx.get("from", "")
+        if sender and sponsor_address.lower() == sender.lower():
+            raise ValueError("Tempo T2: fee payer cannot equal sender")
+
         sponsored = dict(tx)
         sponsored["feePayer"] = sponsor_address
         if fee_token_address:

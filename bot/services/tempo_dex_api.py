@@ -246,5 +246,84 @@ class TempoDexAPI:
         return result
 
 
+    def build_permit_swap_tx(
+        self,
+        token_in: str,
+        token_out: str,
+        amount_in: int,
+        min_amount_out: int,
+        sender: str,
+        permit_v: int,
+        permit_r: bytes,
+        permit_s: bytes,
+        permit_deadline: int,
+    ) -> dict:
+        """Build a permit + swap transaction bundle for gasless approval.
+
+        Uses Tempo's native transaction batching (type 0x76) to combine
+        the EIP-2612 permit and swap into a single atomic transaction.
+        Eliminates the separate approve() tx.
+
+        Returns dict with:
+            - permit_tx: EIP-2612 permit call data
+            - swap_tx: The swap transaction data
+            - batch: Combined call data for Tempo batch tx
+        """
+        addr_in = get_token_address(token_in, "tempo")
+        addr_out = get_token_address(token_out, "tempo")
+        if not addr_in or not addr_out:
+            raise ValueError(f"Token pair {token_in}/{token_out} not available on Tempo")
+
+        web3 = _get_tempo_web3()
+
+        # Build permit call
+        from bot.services.tempo_tip20 import TIP20_ABI
+        token_contract = web3.eth.contract(
+            address=Web3.to_checksum_address(addr_in),
+            abi=TIP20_ABI,
+        )
+        permit_data = token_contract.encode_abi(
+            "permit",
+            args=[
+                Web3.to_checksum_address(sender),
+                Web3.to_checksum_address(self.dex_address),
+                amount_in,
+                permit_deadline,
+                permit_v,
+                permit_r,
+                permit_s,
+            ],
+        )
+
+        # Build swap call
+        dex = web3.eth.contract(
+            address=Web3.to_checksum_address(self.dex_address),
+            abi=TEMPO_DEX_ABI,
+        )
+        swap_data = dex.encode_abi(
+            "swapExactAmountIn",
+            args=[
+                Web3.to_checksum_address(addr_in),
+                Web3.to_checksum_address(addr_out),
+                amount_in,
+                min_amount_out,
+                Web3.to_checksum_address(sender),
+            ],
+        )
+
+        return {
+            "permit_tx": {
+                "to": Web3.to_checksum_address(addr_in),
+                "data": permit_data,
+                "value": 0,
+            },
+            "swap_tx": {
+                "to": Web3.to_checksum_address(self.dex_address),
+                "data": swap_data,
+                "value": 0,
+            },
+        }
+
+
 # Global instance
 tempo_dex_api = TempoDexAPI()

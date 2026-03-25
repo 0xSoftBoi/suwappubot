@@ -209,6 +209,29 @@ class Settings(BaseSettings):
         description="Tempo mainnet RPC URL(s)"
     )
 
+    # New Li.Fi chains (RPCManager auto-discovers from chainlist.org)
+    sonic_rpc_url: str = Field(default="https://rpc.soniclabs.com", description="Sonic RPC")
+    opbnb_rpc_url: str = Field(default="https://opbnb-mainnet-rpc.bnbchain.org", description="opBNB RPC")
+    fraxtal_rpc_url: str = Field(default="https://rpc.frax.com", description="Fraxtal RPC")
+    zksync_rpc_url: str = Field(default="https://mainnet.era.zksync.io", description="zkSync Era RPC")
+    worldchain_rpc_url: str = Field(default="https://worldchain-mainnet.g.alchemy.com/public", description="World Chain RPC")
+    flow_rpc_url: str = Field(default="https://mainnet.evm.nodes.onflow.org", description="Flow RPC")
+    hyperevm_rpc_url: str = Field(default="https://rpc.hyperliquid.xyz/evm", description="HyperEVM RPC")
+    lisk_rpc_url: str = Field(default="https://rpc.api.lisk.com", description="Lisk RPC")
+    sei_rpc_url: str = Field(default="https://evm-rpc.sei-apis.com", description="Sei RPC")
+    soneium_rpc_url: str = Field(default="https://rpc.soneium.org", description="Soneium RPC")
+    swellchain_rpc_url: str = Field(default="https://swell-mainnet.alt.technology", description="Swellchain RPC")
+    abstract_rpc_url: str = Field(default="https://api.mainnet.abs.xyz", description="Abstract RPC")
+    kaia_rpc_url: str = Field(default="https://public-en.node.kaia.io", description="Kaia RPC")
+    apechain_rpc_url: str = Field(default="https://rpc.apechain.com/http", description="Apechain RPC")
+    mode_rpc_url: str = Field(default="https://mainnet.mode.network", description="Mode RPC")
+    hemi_rpc_url: str = Field(default="https://rpc.hemi.network/rpc", description="Hemi RPC")
+    bob_rpc_url: str = Field(default="https://rpc.gobob.xyz", description="BOB RPC")
+    berachain_rpc_url: str = Field(default="https://rpc.berachain.com", description="Berachain RPC")
+    taiko_rpc_url: str = Field(default="https://rpc.mainnet.taiko.xyz", description="Taiko RPC")
+    unichain_rpc_url: str = Field(default="https://mainnet.unichain.org", description="Unichain RPC")
+    flare_rpc_url: str = Field(default="https://flare-api.flare.network/ext/C/rpc", description="Flare RPC")
+
     # Solana RPC
     solana_rpc_url: str = Field(
         default="https://api.mainnet-beta.solana.com,https://solana-mainnet.rpc.extrnode.com",
