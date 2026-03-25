@@ -18,15 +18,8 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-14
-            platform: macos
-            arch: arm64
-          - os: macos-13
-            platform: macos
-            arch: x64
-          - os: windows-latest
-            platform: windows
-            arch: x64
+          # macOS/Windows removed — 10x cost multiplier on private repo
+          # Trigger manually via workflow_dispatch for release builds
           - os: ubuntu-22.04
             platform: linux
             arch: x64

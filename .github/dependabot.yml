@@ -4,7 +4,7 @@ updates:
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
@@ -25,7 +25,7 @@ updates:
   - package-ecosystem: "npm"
     directory: "/dashboard"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
@@ -42,7 +42,7 @@ updates:
   - package-ecosystem: "npm"
     directory: "/webapp"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
@@ -52,7 +52,7 @@ updates:
   - package-ecosystem: "npm"
     directory: "/api-ts"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     open-pull-requests-limit: 3
     labels:
       - "dependencies"
@@ -62,7 +62,7 @@ updates:
   - package-ecosystem: "npm"
     directory: "/tui"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     open-pull-requests-limit: 3
     labels:
       - "dependencies"

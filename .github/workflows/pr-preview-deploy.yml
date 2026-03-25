@@ -1,9 +1,9 @@
 name: PR Preview Deployment
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: [main, develop]
+  # Disabled — was running on every PR sync, burning minutes on unused previews
+  # Use workflow_dispatch to manually trigger if needed
+  workflow_dispatch:
 
 env:
   PREVIEW_PREFIX: pr-${{ github.event.pull_request.number }}

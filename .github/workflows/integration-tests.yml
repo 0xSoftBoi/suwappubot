@@ -5,9 +5,8 @@ on:
     branches: [main, dev]
   push:
     branches: [main, dev]
-  schedule:
-    # Run integration tests daily at 3 AM UTC
-    - cron: '0 3 * * *'
+  # schedule disabled — was burning 300 min/month on daily runs
+  workflow_dispatch:
 
 env:
   PYTHON_VERSION: '3.11'

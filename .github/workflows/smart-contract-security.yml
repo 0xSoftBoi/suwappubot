@@ -11,9 +11,8 @@ on:
     paths:
       - '**/*.sol'
       - 'contracts/**'
-  schedule:
-    # Run security scans daily at 2 AM UTC
-    - cron: '0 2 * * *'
+  # schedule disabled — was burning 450 min/month on daily runs
+  workflow_dispatch:
 
 jobs:
   slither-analysis:
