@@ -66,6 +66,11 @@ class BalanceRefresher:
         if not self._running:
             return
 
+        from bot.services.alchemy_client import alchemy_circuit
+        if alchemy_circuit.is_open:
+            logger.debug("Skipping balance refresh — Alchemy circuit breaker is open")
+            return
+
         # Get all unique (address, chain_type) pairs from active wallets
         seen: set[tuple[str, str]] = set()
         targets: list[tuple[str, str]] = []

@@ -963,7 +963,7 @@ class SwapEngine:
         socket_tx = await self.socket.build_tx(route)
 
         chain = get_chain_by_name(quote.from_chain)
-        web3 = Web3(Web3.HTTPProvider(chain.rpc_url))
+        web3 = Web3(Web3.HTTPProvider(settings.get_rpc_url(quote.from_chain)))
 
         # Check if approval is needed
         if socket_tx.approval_data:
@@ -1113,7 +1113,7 @@ class SwapEngine:
         )
 
         chain = get_chain_by_name(quote.from_chain)
-        web3 = Web3(Web3.HTTPProvider(chain.rpc_url))
+        web3 = Web3(Web3.HTTPProvider(settings.get_rpc_url(quote.from_chain)))
 
         # First, check if we need to approve the token
         token_address = transfer_data.token_address
@@ -1289,7 +1289,7 @@ class SwapEngine:
             raise SwapError("Wallet not found for signing")
 
         chain = get_chain_by_name(quote.from_chain)
-        web3 = Web3(Web3.HTTPProvider(chain.rpc_url))
+        web3 = Web3(Web3.HTTPProvider(settings.get_rpc_url(quote.from_chain)))
 
         # Step 1: Approve USDC for TokenMessenger
         cctp_quote = await self.cctp.get_quote(
@@ -1339,7 +1339,7 @@ class SwapEngine:
             raise SwapError("Wallet not found for signing")
 
         chain = get_chain_by_name(quote.from_chain)
-        web3 = Web3(Web3.HTTPProvider(chain.rpc_url))
+        web3 = Web3(Web3.HTTPProvider(settings.get_rpc_url(quote.from_chain)))
 
         # Get fresh quote with deposit data
         across_quote = await self.across.get_quote(
@@ -1432,7 +1432,7 @@ class SwapEngine:
 
         # EVM -> Solana or EVM -> EVM
         chain = get_chain_by_name(quote.from_chain)
-        web3 = Web3(Web3.HTTPProvider(chain.rpc_url))
+        web3 = Web3(Web3.HTTPProvider(settings.get_rpc_url(quote.from_chain)))
 
         # Get Wormhole quote
         wormhole_quote = await self.wormhole.get_quote(

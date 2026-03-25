@@ -57,9 +57,9 @@ jobs:
             echo "=== Health check ==="
             for i in 1 2 3 4 5; do
               HEALTH=$(curl -sf http://localhost:10000/health 2>/dev/null || echo '{}')
-              STATUS=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null || echo "unknown")
-              BOT=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('bot','unknown'))" 2>/dev/null || echo "unknown")
-              DB=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('database','unknown'))" 2>/dev/null || echo "unknown")
+              STATUS=$(echo "$HEALTH" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("status","unknown"))' 2>/dev/null || echo "unknown")
+              BOT=$(echo "$HEALTH" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("bot","unknown"))' 2>/dev/null || echo "unknown")
+              DB=$(echo "$HEALTH" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("database","unknown"))' 2>/dev/null || echo "unknown")
               echo "Attempt $i: status=$STATUS bot=$BOT db=$DB"
               if [ "$STATUS" = "healthy" ] && [ "$BOT" = "polling" ]; then
                 echo "Deploy successful!"

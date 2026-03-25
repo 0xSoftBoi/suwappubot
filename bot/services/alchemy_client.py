@@ -10,6 +10,7 @@ Provides access to Alchemy's full suite:
 """
 
 import logging
+import time
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from decimal import Decimal
@@ -18,6 +19,45 @@ import aiohttp
 from bot.config.settings import settings
 
 logger = logging.getLogger(__name__)
+
+
+class AlchemyRateLimitError(Exception):
+    """Raised when Alchemy returns 429 or circuit breaker is open."""
+    pass
+
+
+class _CircuitBreaker:
+    """Simple circuit breaker for Alchemy API rate limits."""
+
+    def __init__(self):
+        self._open_until: float = 0.0
+        self._consecutive_429s: int = 0
+
+    @property
+    def is_open(self) -> bool:
+        return time.monotonic() < self._open_until
+
+    def record_429(self):
+        self._consecutive_429s += 1
+        backoff = min(300, 30 * (2 ** (self._consecutive_429s - 1)))
+        self._open_until = time.monotonic() + backoff
+        logger.warning(
+            f"Alchemy circuit breaker OPEN for {backoff}s "
+            f"(consecutive 429s: {self._consecutive_429s})"
+        )
+
+    def record_success(self):
+        if self._consecutive_429s > 0:
+            logger.info("Alchemy circuit breaker CLOSED (successful request)")
+        self._consecutive_429s = 0
+        self._open_until = 0.0
+
+    def check(self):
+        if self.is_open:
+            raise AlchemyRateLimitError("Alchemy circuit breaker is open — rate limited")
+
+
+alchemy_circuit = _CircuitBreaker()
 
 
 # Alchemy network mappings
@@ -302,6 +342,8 @@ class AlchemyClient:
         Returns:
             Balance in native units (e.g., ETH not wei)
         """
+        alchemy_circuit.check()
+
         base_url = self._get_base_url(chain)
         if not base_url:
             return None
@@ -317,6 +359,9 @@ class AlchemyClient:
 
         try:
             async with session.post(base_url, json=payload) as response:
+                if response.status == 429:
+                    alchemy_circuit.record_429()
+                    raise AlchemyRateLimitError(f"Alchemy 429: {await response.text()}")
                 if response.status != 200:
                     return None
 
@@ -325,9 +370,12 @@ class AlchemyClient:
             if "error" in result:
                 return None
 
+            alchemy_circuit.record_success()
             balance_wei = int(result.get("result", "0x0"), 16)
             return balance_wei / (10 ** 18)
 
+        except AlchemyRateLimitError:
+            raise
         except Exception as e:
             logger.error(f"Failed to get native balance: {e}")
             return None
@@ -646,6 +694,8 @@ class AlchemyClient:
         token, avoiding an N+1 API round-trip.  The caller is expected to map
         contract addresses back to known symbols via its own config (e.g. TOKENS).
         """
+        alchemy_circuit.check()
+
         base_url = self._get_base_url(chain)
         if not base_url:
             return {}
@@ -661,6 +711,9 @@ class AlchemyClient:
 
         try:
             async with session.post(base_url, json=payload) as response:
+                if response.status == 429:
+                    alchemy_circuit.record_429()
+                    raise AlchemyRateLimitError(f"Alchemy 429: {await response.text()}")
                 if response.status != 200:
                     logger.error(f"Alchemy raw token balances failed: {await response.text()}")
                     return {}
@@ -670,6 +723,8 @@ class AlchemyClient:
             if "error" in result:
                 logger.error(f"Alchemy error: {result['error']}")
                 return {}
+
+            alchemy_circuit.record_success()
 
             token_data = result.get("result", {}).get("tokenBalances", [])
 
@@ -685,6 +740,8 @@ class AlchemyClient:
 
             return balances
 
+        except AlchemyRateLimitError:
+            raise
         except Exception as e:
             logger.error(f"Failed to get raw token balances: {e}")
             return {}
