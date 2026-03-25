@@ -47,7 +47,7 @@
     "@vitest/coverage-v8": "^4.0.17",
     "autoprefixer": "^10.4.20",
     "happy-dom": "^20.4.0",
-    "jsdom": "^27.4.0",
+    "jsdom": "^29.0.1",
     "playwright": "^1.57.0",
     "postcss": "^8.4.47",
     "storybook": "^10.1.11",
