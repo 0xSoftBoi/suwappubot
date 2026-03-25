@@ -26,6 +26,7 @@ import aiohttp
 import base64
 
 from bot.config.settings import settings
+from bot.services.rpc_manager import rpc_manager
 from bot.utils.cache import quote_cache
 from bot.utils.performance import track_time, MetricNames
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
@@ -990,7 +991,7 @@ class SwapEngine:
                         {"encoding": "base64", "skipPreflight": False}
                     ]
                 }
-                async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
+                async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                     result = await resp.json()
                     if "error" in result:
                         raise SwapError(f"Transaction failed: {result['error']}")
@@ -1091,7 +1092,7 @@ class SwapEngine:
                     {"encoding": "base64", "skipPreflight": False}
                 ]
             }
-            async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
+            async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                 result = await resp.json()
                 if "error" in result:
                     raise SwapError(f"Transaction failed: {result['error']}")
@@ -1209,7 +1210,7 @@ class SwapEngine:
         socket_tx = await self.socket.build_tx(route)
 
         chain = get_chain_by_name(quote.from_chain)
-        web3 = Web3(Web3.HTTPProvider(settings.get_rpc_url(quote.from_chain)))
+        web3 = rpc_manager.get_web3(quote.from_chain)
 
         # Check if approval is needed
         if socket_tx.approval_data:
@@ -1318,7 +1319,7 @@ class SwapEngine:
                         {"encoding": "base64", "skipPreflight": False}
                     ]
                 }
-                async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
+                async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                     result = await resp.json()
                     if "error" in result:
                         raise SwapError(f"Transaction failed: {result['error']}")
@@ -1359,7 +1360,7 @@ class SwapEngine:
         )
 
         chain = get_chain_by_name(quote.from_chain)
-        web3 = Web3(Web3.HTTPProvider(settings.get_rpc_url(quote.from_chain)))
+        web3 = rpc_manager.get_web3(quote.from_chain)
 
         # First, check if we need to approve the token
         token_address = transfer_data.token_address
@@ -1405,25 +1406,9 @@ class SwapEngine:
         return tx_hash.hex()
     
     def _get_web3_with_fallback(self, chain_name: str) -> Web3:
-        """Get a Web3 instance, trying all configured RPCs until one works."""
-        rpc_str = getattr(settings, f"{chain_name.lower().replace('-', '_')}_rpc_url", "")
-        urls = [u.strip() for u in rpc_str.split(",") if u.strip()]
-        if not urls:
-            raise SwapError(f"No RPC URLs configured for {chain_name}")
-
-        # Shuffle to spread load, then try each
-        import random
-        random.shuffle(urls)
-        last_error = None
-        for url in urls:
-            try:
-                w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 15}))
-                w3.eth.block_number  # connectivity check
-                return w3
-            except Exception as e:
-                last_error = e
-                logger.debug(f"RPC {url[:40]} failed: {e}, trying next...")
-        raise SwapError(f"All RPCs failed for {chain_name}: {last_error}")
+        """Get a Web3 instance via RPCManager (health-tracked, auto-failover)."""
+        from bot.services.rpc_manager import rpc_manager
+        return rpc_manager.get_web3(chain_name)
 
     async def _execute_layerzero_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a cross-chain transfer via LayerZero/Stargate V2.
@@ -1535,7 +1520,7 @@ class SwapEngine:
             raise SwapError("Wallet not found for signing")
 
         chain = get_chain_by_name(quote.from_chain)
-        web3 = Web3(Web3.HTTPProvider(settings.get_rpc_url(quote.from_chain)))
+        web3 = rpc_manager.get_web3(quote.from_chain)
 
         # Step 1: Approve USDC for TokenMessenger
         cctp_quote = await self.cctp.get_quote(
@@ -1585,7 +1570,7 @@ class SwapEngine:
             raise SwapError("Wallet not found for signing")
 
         chain = get_chain_by_name(quote.from_chain)
-        web3 = Web3(Web3.HTTPProvider(settings.get_rpc_url(quote.from_chain)))
+        web3 = rpc_manager.get_web3(quote.from_chain)
 
         # Get fresh quote with deposit data
         across_quote = await self.across.get_quote(
@@ -1678,7 +1663,7 @@ class SwapEngine:
 
         # EVM -> Solana or EVM -> EVM
         chain = get_chain_by_name(quote.from_chain)
-        web3 = Web3(Web3.HTTPProvider(settings.get_rpc_url(quote.from_chain)))
+        web3 = rpc_manager.get_web3(quote.from_chain)
 
         # Get Wormhole quote
         wormhole_quote = await self.wormhole.get_quote(
@@ -1855,7 +1840,7 @@ class SwapEngine:
                     {"encoding": "base64", "skipPreflight": False}
                 ]
             }
-            async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
+            async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                 result = await resp.json()
                 if "error" in result:
                     raise SwapError(f"OKX DEX Solana tx failed: {result['error']}")
@@ -1976,7 +1961,7 @@ class SwapEngine:
                     {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}
                 ]
             }
-            async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
+            async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                 result = await resp.json()
                 
                 if "error" in result:
@@ -1994,7 +1979,7 @@ class SwapEngine:
     async def _check_tron_tx_status(self, tx_hash: str) -> str:
         """Check TRON transaction status via TronGrid."""
         try:
-            rpc_url = settings.get_rpc_url("tron") or "https://api.trongrid.io"
+            rpc_url = rpc_manager.get_rpc_url("tron") or "https://api.trongrid.io"
             headers = {"Content-Type": "application/json"}
             if hasattr(settings, "trongrid_api_key") and settings.trongrid_api_key:
                 headers["TRON-PRO-API-KEY"] = settings.trongrid_api_key

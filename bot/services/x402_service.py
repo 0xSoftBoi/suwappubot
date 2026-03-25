@@ -373,8 +373,8 @@ class X402Service:
             if not chain_config:
                 return False, f"Unsupported chain: {chain}"
 
-            rpc_url = chain_config.rpc_url
-            web3 = Web3(Web3.HTTPProvider(rpc_url))
+            from bot.services.rpc_manager import rpc_manager
+            web3 = rpc_manager.get_web3(chain)
 
             # Fetch transaction receipt
             try:

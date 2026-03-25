@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from enum import Enum
 
 from bot.config.settings import settings
+from bot.services.rpc_manager import rpc_manager
 from bot.services.token_security.honeypot_detector import honeypot_detector
 from bot.services.token_security.authority_checker import authority_checker
 from bot.services.token_security.blacklist_service import blacklist_service, BlacklistType
@@ -362,7 +363,7 @@ class TokenAnalyzer:
         try:
             await api_limiter.wait_and_acquire("solana")
             session = await get_session()
-            rpc_url = settings.get_rpc_url("solana")
+            rpc_url = rpc_manager.get_rpc_url("solana")
 
             # This would query DEX pools for liquidity
             # Simplified implementation
@@ -385,7 +386,7 @@ class TokenAnalyzer:
         try:
             await api_limiter.wait_and_acquire("solana")
             session = await get_session()
-            rpc_url = settings.get_rpc_url("solana")
+            rpc_url = rpc_manager.get_rpc_url("solana")
 
             # Get largest token accounts
             async with session.post(

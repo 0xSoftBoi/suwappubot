@@ -10,6 +10,7 @@ import websockets
 from solders.pubkey import Pubkey
 
 from bot.config.settings import settings
+from bot.services.rpc_manager import rpc_manager
 from bot.services.jito_api import jito_api, TipPriority
 from bot.services.swap_engine import SwapEngine
 from bot.services.wallet import WalletService
@@ -31,7 +32,7 @@ class RugService:
         self._ws_task = None
         self._swap_engine = None
         self._wallet_service = WalletService()
-        self._ws_url = settings.get_rpc_url("solana").replace("https://", "wss://").replace("http://", "ws://")
+        self._ws_url = rpc_manager.get_rpc_url("solana").replace("https://", "wss://").replace("http://", "ws://")
 
     async def start(self, swap_engine: SwapEngine):
         """Start the rug monitoring service."""

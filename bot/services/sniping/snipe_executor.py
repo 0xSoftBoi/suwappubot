@@ -28,6 +28,7 @@ from solders.system_program import transfer, TransferParams
 from solders.compute_budget import set_compute_unit_limit, set_compute_unit_price
 
 from bot.config.settings import settings
+from bot.services.rpc_manager import rpc_manager
 from bot.services.jito_api import jito_api, TipPriority, JitoError
 from bot.services.sniping.pump_fun_api import pump_fun_api, PumpFunQuote
 from bot.services.sniping.launch_detector import TokenLaunch, LaunchPlatform
@@ -343,7 +344,7 @@ class SnipeExecutor:
 
         # Get recent blockhash
         session = await get_session()
-        rpc_url = settings.get_rpc_url("solana")
+        rpc_url = rpc_manager.get_rpc_url("solana")
 
         async with session.post(
             rpc_url,
@@ -522,7 +523,7 @@ class SnipeExecutor:
 
         while retries <= max_retries:
             try:
-                rpc_url = settings.get_rpc_url("solana")
+                rpc_url = rpc_manager.get_rpc_url("solana")
 
                 # Encode transaction
                 if is_versioned:
@@ -615,7 +616,7 @@ class SnipeExecutor:
 
         while (asyncio.get_event_loop().time() - start) < timeout:
             try:
-                rpc_url = settings.get_rpc_url("solana")
+                rpc_url = rpc_manager.get_rpc_url("solana")
 
                 async with session.post(
                     rpc_url,

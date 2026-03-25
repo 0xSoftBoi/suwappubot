@@ -13,6 +13,7 @@ import base58
 import aiohttp
 
 from bot.config.settings import settings
+from bot.services.rpc_manager import rpc_manager
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
 from bot.config.tokens import get_token_address, get_token_decimals
 from bot.utils.encryption import encrypt_private_key, decrypt_private_key
@@ -53,50 +54,22 @@ class WalletService:
     """Service for managing user wallets across chains."""
     
     def __init__(self):
-        self._web3_instances: dict[str, Web3] = {}
         self._solana_client: Optional[SolanaClient] = None
-    
+
     def _get_web3(self, chain_name: str) -> Web3:
-        """Get or create a Web3 instance for a chain, with RPC fallback."""
-        if chain_name not in self._web3_instances:
-            chain = get_chain_by_name(chain_name)
-            if not chain or chain.chain_type != ChainType.EVM:
-                raise ValueError(f"Invalid EVM chain: {chain_name}")
-
-            rpc_attr = f"{chain_name.lower().replace('-', '_')}_rpc_url"
-            rpc_str = getattr(settings, rpc_attr, "") or ""
-            urls = [u.strip() for u in rpc_str.split(",") if u.strip()]
-            if not urls:
-                raise ValueError(f"RPC URL not configured for {chain_name}")
-
-            import random
-            random.shuffle(urls)
-            for url in urls:
-                try:
-                    w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 10}))
-                    w3.eth.block_number  # verify connectivity
-                    self._web3_instances[chain_name] = w3
-                    break
-                except Exception as e:
-                    logger.debug(f"Web3 provider {url[:30]}... failed for {chain_name}: {e}")
-                    continue
-
-            if chain_name not in self._web3_instances:
-                # Last resort: use first URL without connectivity check
-                self._web3_instances[chain_name] = Web3(
-                    Web3.HTTPProvider(urls[0], request_kwargs={"timeout": 10})
-                )
-
-        return self._web3_instances[chain_name]
+        """Get Web3 instance for a chain via RPCManager."""
+        from bot.services.rpc_manager import rpc_manager
+        return rpc_manager.get_web3(chain_name)
 
     def _invalidate_web3(self, chain_name: str):
-        """Remove cached Web3 instance so next call picks a fresh RPC."""
-        self._web3_instances.pop(chain_name, None)
+        """Invalidate cached Web3 so next call picks a fresh RPC."""
+        from bot.services.rpc_manager import rpc_manager
+        rpc_manager.invalidate(chain_name)
     
     async def _get_solana_client(self) -> SolanaClient:
         """Get or create a Solana RPC client."""
         if self._solana_client is None:
-            rpc_url = settings.get_rpc_url("solana")
+            rpc_url = rpc_manager.get_rpc_url("solana")
             self._solana_client = SolanaClient(rpc_url)
         return self._solana_client
     
@@ -624,7 +597,7 @@ class WalletService:
                         {"encoding": "jsonParsed"}
                     ]
                 }
-                async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
+                async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                     result = await resp.json()
                     
                     if "result" in result and result["result"]["value"]:
@@ -652,7 +625,7 @@ class WalletService:
                     "method": "getBalance",
                     "params": [address]
                 }
-                async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
+                async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                     result = await resp.json()
                     
                     if "result" in result:
@@ -667,7 +640,7 @@ class WalletService:
     async def get_tron_native_balance(self, address: str) -> float:
         """Get TRX balance for a TRON address."""
         try:
-            rpc_url = settings.get_rpc_url("tron") or "https://api.trongrid.io"
+            rpc_url = rpc_manager.get_rpc_url("tron") or "https://api.trongrid.io"
             async with aiohttp.ClientSession() as session:
                 url = f"{rpc_url}/v1/accounts/{address}"
                 async with session.get(url) as resp:
@@ -687,7 +660,7 @@ class WalletService:
             return 0.0
 
         try:
-            rpc_url = settings.get_rpc_url("tron") or "https://api.trongrid.io"
+            rpc_url = rpc_manager.get_rpc_url("tron") or "https://api.trongrid.io"
             async with aiohttp.ClientSession() as session:
                 url = f"{rpc_url}/v1/accounts/{address}/tokens"
                 async with session.get(url) as resp:
@@ -1166,7 +1139,7 @@ class WalletService:
             private_key_hex = self.get_private_key(wallet)
         pk = TronPrivateKey(bytes.fromhex(private_key_hex.replace("0x", "")))
 
-        rpc_url = settings.get_rpc_url("tron") or "https://api.trongrid.io"
+        rpc_url = rpc_manager.get_rpc_url("tron") or "https://api.trongrid.io"
 
         # Li.Fi provides the raw TRON transaction in tx_request
         raw_txn = tx_request.get("rawTransaction") or tx_request

@@ -11,6 +11,7 @@ from solders.transaction import VersionedTransaction
 from solana.rpc.async_api import AsyncClient as SolanaClient
 
 from bot.config.settings import settings
+from bot.services.rpc_manager import rpc_manager
 from bot.services.jupiter_api import JupiterAPI
 from bot.utils.http_client import get_session
 
@@ -31,7 +32,7 @@ class SimulationService:
 
     async def _get_client(self) -> SolanaClient:
         if self._solana_client is None:
-            self._solana_client = SolanaClient(settings.get_rpc_url("solana"))
+            self._solana_client = SolanaClient(rpc_manager.get_rpc_url("solana"))
         return self._solana_client
 
     async def simulate_swap_cycle(

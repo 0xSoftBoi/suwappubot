@@ -12,6 +12,7 @@ from bot.config.chains import get_chain_by_name, ChainType
 from bot.utils.http_client import get_session
 from database.db import get_session as get_db_session
 from bot.config.settings import settings
+from bot.services.rpc_manager import rpc_manager
 from bot.services.lifi_api import LiFiAPI
 
 logger = logging.getLogger(__name__)
@@ -120,7 +121,7 @@ class TransactionPoller:
             return await self._check_lifi_status(tx)
 
         if chain.chain_type == ChainType.EVM:
-            rpc_url = settings.get_rpc_url(chain.name)
+            rpc_url = rpc_manager.get_rpc_url(chain.name)
             return await self._check_evm_tx(tx.tx_hash, rpc_url)
         elif chain.chain_type == ChainType.SOLANA:
             return await self._check_solana_tx(tx.tx_hash)
@@ -200,7 +201,7 @@ class TransactionPoller:
                 "id": 1,
             }
             
-            async with http_session.post(settings.get_rpc_url("solana"), json=payload) as response:
+            async with http_session.post(rpc_manager.get_rpc_url("solana"), json=payload) as response:
                 if response.status != 200:
                     return None
                 

@@ -36,6 +36,7 @@ from bot.services.balance_refresher import balance_refresher
 from bot.services.event_bus import event_bus
 from bot.services.api_client import api_client
 from bot.utils.preload import preload_config
+from bot.services.rpc_manager import rpc_manager
 from database.db import init_db, engine, get_session, DATABASE_AVAILABLE
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction
@@ -60,6 +61,7 @@ async def lifespan(app: FastAPI):
 
     # 1. Initialize DB & Config
     preload_config()
+    await rpc_manager.start()
 
     # Initialize database with error handling
     db_success = False
@@ -226,6 +228,9 @@ async def lifespan(app: FastAPI):
         await tx_poller.stop()
         await health_monitor.stop()
         await balance_refresher.stop()
+
+    # Stop RPC manager
+    await rpc_manager.stop()
 
     # Stop cross-service integrations
     await event_bus.close()

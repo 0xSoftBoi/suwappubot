@@ -27,6 +27,7 @@ from enum import Enum
 from solders.pubkey import Pubkey
 
 from bot.config.settings import settings
+from bot.services.rpc_manager import rpc_manager
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
 
@@ -159,7 +160,7 @@ class RaydiumMonitor:
 
         try:
             session = await get_session()
-            rpc_url = settings.get_rpc_url("solana")
+            rpc_url = rpc_manager.get_rpc_url("solana")
 
             # Get account info
             async with session.post(
@@ -209,7 +210,7 @@ class RaydiumMonitor:
         pools = []
         try:
             session = await get_session()
-            rpc_url = settings.get_rpc_url("solana")
+            rpc_url = rpc_manager.get_rpc_url("solana")
 
             # Get recent signatures for Raydium programs
             program = RAYDIUM_AMM_V4
@@ -283,7 +284,7 @@ class RaydiumMonitor:
 
         try:
             session = await get_session()
-            rpc_url = settings.get_rpc_url("solana")
+            rpc_url = rpc_manager.get_rpc_url("solana")
 
             # Get recent signatures for AMM program
             params = {"limit": 10}
@@ -329,7 +330,7 @@ class RaydiumMonitor:
         """Check if a transaction is a pool creation."""
         try:
             session = await get_session()
-            rpc_url = settings.get_rpc_url("solana")
+            rpc_url = rpc_manager.get_rpc_url("solana")
 
             async with session.post(
                 rpc_url,

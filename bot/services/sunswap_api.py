@@ -17,6 +17,7 @@ from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
 from bot.utils.performance import track_time, MetricNames
 from bot.config.settings import settings
+from bot.services.rpc_manager import rpc_manager
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +109,7 @@ class SunSwapAPI:
     def __init__(self):
         self.router = SUNSWAP_V2_ROUTER
         self.wtrx = WTRX_ADDRESS
-        self.base_url = settings.get_rpc_url("tron") or TRONGRID_BASE
+        self.base_url = rpc_manager.get_rpc_url("tron") or TRONGRID_BASE
 
     def _get_headers(self) -> dict:
         """Get request headers, including API key if configured."""

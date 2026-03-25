@@ -11,6 +11,7 @@ import aiohttp
 import base58
 
 from bot.config.settings import settings
+from bot.services.rpc_manager import rpc_manager
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
 from bot.config.tokens import get_token_address, get_token_decimals, NATIVE_TOKEN_ADDRESS
 from bot.utils.encryption import encrypt_private_key, decrypt_private_key
@@ -29,24 +30,11 @@ logger = logging.getLogger(__name__)
 
 class HotWalletService:
     """Service for managing hot wallets and custodial balances."""
-    
-    def __init__(self):
-        self._web3_instances: dict[str, Web3] = {}
-    
+
     def _get_web3(self, chain_name: str) -> Web3:
-        """Get or create Web3 instance for a chain."""
-        if chain_name not in self._web3_instances:
-            chain = get_chain_by_name(chain_name)
-            if not chain or chain.chain_type != ChainType.EVM:
-                raise ValueError(f"Invalid EVM chain: {chain_name}")
-            
-            rpc_url = getattr(settings, chain.rpc_url_env.lower(), None)
-            if not rpc_url:
-                raise ValueError(f"RPC URL not configured for {chain_name}")
-            
-            self._web3_instances[chain_name] = Web3(Web3.HTTPProvider(rpc_url))
-        
-        return self._web3_instances[chain_name]
+        """Get Web3 instance for a chain via RPCManager."""
+        from bot.services.rpc_manager import rpc_manager
+        return rpc_manager.get_web3(chain_name)
     
     # === Hot Wallet Management ===
     
@@ -517,7 +505,7 @@ class HotWalletService:
                     "method": "getBalance",
                     "params": [wallet.address]
                 }
-                async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
+                async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                     result = await resp.json()
                     if "result" in result:
                         lamports = result["result"]["value"]

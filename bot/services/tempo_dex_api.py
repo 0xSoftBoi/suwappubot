@@ -80,20 +80,9 @@ TEMPO_DEX_ABI = [
 
 
 def _get_tempo_web3() -> Web3:
-    """Get a Web3 instance connected to Tempo with RPC fallback."""
-    rpc_str = getattr(settings, "tempo_rpc_url", "") or ""
-    rpc_urls = [u.strip() for u in rpc_str.split(",") if u.strip()]
-    random.shuffle(rpc_urls)
-
-    for url in rpc_urls:
-        try:
-            w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 10}))
-            w3.eth.block_number
-            return w3
-        except Exception as e:
-            logger.debug(f"Tempo RPC {url[:40]}... failed: {e}")
-            continue
-    raise ConnectionError("All Tempo RPCs failed")
+    """Get a Web3 instance connected to Tempo via RPCManager."""
+    from bot.services.rpc_manager import rpc_manager
+    return rpc_manager.get_web3("tempo")
 
 
 @dataclass

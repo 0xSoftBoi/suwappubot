@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 from bot.config.settings import settings
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
+from bot.services.rpc_manager import rpc_manager
 from bot.utils.cache import gas_cache, cached
 from bot.utils.retry import async_retry
 
@@ -61,7 +62,7 @@ class GasTracker:
             return None
         
         try:
-            rpc_url = settings.get_rpc_url(chain_name)
+            rpc_url = rpc_manager.get_rpc_url(chain_name)
             if not rpc_url:
                 return None
             
@@ -130,7 +131,7 @@ class GasTracker:
                     "params": [],
                     "id": 1
                 }
-                async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
+                async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                     result = await resp.json()
                     if "result" in result and result["result"]:
                         # Get median fee

@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from enum import Enum
 
 from bot.config.settings import settings
+from bot.services.rpc_manager import rpc_manager
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
 
@@ -318,7 +319,7 @@ class HoneypotDetector:
         try:
             await api_limiter.wait_and_acquire("solana")
             session = await get_session()
-            rpc_url = settings.get_rpc_url("solana")
+            rpc_url = rpc_manager.get_rpc_url("solana")
 
             # Get recent signatures for the token
             async with session.post(

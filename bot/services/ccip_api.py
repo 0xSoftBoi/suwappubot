@@ -196,17 +196,10 @@ class ChainlinkCCIPAPI:
         }
     ]
     
-    def __init__(self):
-        self._web3_cache: Dict[str, Web3] = {}
-    
     def _get_web3(self, chain: str) -> Web3:
-        """Get Web3 instance for chain."""
-        if chain not in self._web3_cache:
-            chain_config = get_chain_by_name(chain)
-            if not chain_config:
-                raise CCIPError(f"Unknown chain: {chain}")
-            self._web3_cache[chain] = Web3(Web3.HTTPProvider(chain_config.rpc_url))
-        return self._web3_cache[chain]
+        """Get Web3 instance for chain via RPCManager."""
+        from bot.services.rpc_manager import rpc_manager
+        return rpc_manager.get_web3(chain)
     
     def is_supported_route(self, from_chain: str, to_chain: str, token: str) -> bool:
         """Check if a route is supported by CCIP."""
