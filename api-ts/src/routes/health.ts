@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { Effect, Option } from 'effect'
 import { Hono } from 'hono'
+import { logger } from '../lib/logger'
 import packageJson from '../../package.json'
 import { DrizzleService } from '../db'
 import { runEffectEither } from '../runtime'
@@ -119,7 +120,7 @@ healthRoutes.get('/tokens', async (c) => {
 			})),
 		})
 	} catch (error) {
-		console.error('[Tokens] Failed to fetch:', error)
+		logger.error({ err: error }, '[Tokens] Failed to fetch')
 		return c.json({ error: 'Failed to fetch tokens' }, 500)
 	}
 })

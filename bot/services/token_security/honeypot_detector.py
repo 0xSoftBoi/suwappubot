@@ -17,7 +17,7 @@ import logging
 import asyncio
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from bot.config.settings import settings
@@ -101,7 +101,7 @@ class HoneypotDetector:
         # Check cache
         if use_cache and token_mint in self._cache:
             result, cached_at = self._cache[token_mint]
-            if (datetime.utcnow() - cached_at).total_seconds() < self._cache_ttl:
+            if (datetime.now(timezone.utc) - cached_at).total_seconds() < self._cache_ttl:
                 return result
 
         result = HoneypotResult(
@@ -122,7 +122,7 @@ class HoneypotDetector:
             self._calculate_verdict(result)
 
             # Cache result
-            self._cache[token_mint] = (result, datetime.utcnow())
+            self._cache[token_mint] = (result, datetime.now(timezone.utc))
 
         except Exception as e:
             logger.error(f"Honeypot detection error for {token_mint}: {e}")
@@ -144,7 +144,7 @@ class HoneypotDetector:
         # Check cache first
         if use_cache and token_mint in self._cache:
             result, cached_at = self._cache[token_mint]
-            if (datetime.utcnow() - cached_at).total_seconds() < self._cache_ttl:
+            if (datetime.now(timezone.utc) - cached_at).total_seconds() < self._cache_ttl:
                 return result
 
         result = HoneypotResult(

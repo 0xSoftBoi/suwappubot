@@ -9,7 +9,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bot.models.user import User
 from bot.models.favorites import FavoriteSwapPair
@@ -164,28 +164,32 @@ async def use_favorite_callback(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
     
-    fav_id = int(query.data.split("_")[-1])
+    try:
+        fav_id = int(query.data.split("_")[-1])
+    except (ValueError, IndexError):
+        await query.edit_message_text("❌ Invalid favorite.")
+        return
     user = update.effective_user
-    
+
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        
+
         if not db_user:
             await query.edit_message_text("❌ Please use /start first.")
             return
-        
+
         fav = session.query(FavoriteSwapPair).filter(
             FavoriteSwapPair.id == fav_id,
             FavoriteSwapPair.user_id == db_user.id,
         ).first()
-        
+
         if not fav:
             await query.edit_message_text("❌ Favorite not found.")
             return
-        
+
         # Update usage stats
         fav.use_count += 1
-        fav.last_used_at = datetime.utcnow()
+        fav.last_used_at = datetime.now(timezone.utc)
         
         # Store swap data in context
         context.user_data["swap"] = {
@@ -212,21 +216,25 @@ async def delete_favorite_callback(update: Update, context: ContextTypes.DEFAULT
     query = update.callback_query
     await query.answer()
     
-    fav_id = int(query.data.split("_")[-1])
+    try:
+        fav_id = int(query.data.split("_")[-1])
+    except (ValueError, IndexError):
+        await query.edit_message_text("❌ Invalid favorite.")
+        return
     user = update.effective_user
-    
+
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        
+
         if not db_user:
             await query.edit_message_text("❌ Please use /start first.")
             return
-        
+
         fav = session.query(FavoriteSwapPair).filter(
             FavoriteSwapPair.id == fav_id,
             FavoriteSwapPair.user_id == db_user.id,
         ).first()
-        
+
         if fav:
             session.delete(fav)
     

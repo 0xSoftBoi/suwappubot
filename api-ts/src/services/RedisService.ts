@@ -1,6 +1,7 @@
 import { Context, Effect, Either, Layer } from 'effect'
 import Redis from 'ioredis'
 import { EnvService } from '../config/EnvService'
+import { logger } from '../lib/logger'
 
 // TTL constants
 export const QUOTE_TTL = 30 // 30 seconds for quotes
@@ -68,11 +69,11 @@ export const RedisServiceLive = Layer.effect(
 		const env = yield* EnvService
 
 		if (!env.REDIS_URL) {
-			console.log('[RedisService] REDIS_URL not configured, using in-memory fallback')
+			logger.info('[RedisService] REDIS_URL not configured, using in-memory fallback')
 			return createNoOpService()
 		}
 
-		console.log('[RedisService] Connecting to Redis...')
+		logger.info('[RedisService] Connecting to Redis...')
 
 		const client = new Redis(env.REDIS_URL, {
 			maxRetriesPerRequest: 3,
@@ -87,22 +88,22 @@ export const RedisServiceLive = Layer.effect(
 		}).pipe(Effect.either)
 
 		if (Either.isLeft(connectResult)) {
-			console.warn(
-				'[RedisService] Failed to connect to Redis, using no-op fallback:',
-				connectResult.left,
+			logger.warn(
+				{ err: connectResult.left },
+				'[RedisService] Failed to connect to Redis, using no-op fallback',
 			)
 			return createNoOpService()
 		}
 
-		console.log('[RedisService] Connected to Redis')
+		logger.info('[RedisService] Connected to Redis')
 
 		// Handle connection errors gracefully
 		client.on('error', (err) => {
-			console.error('[RedisService] Redis error:', err.message)
+			logger.error('[RedisService] Redis error: %s', err.message)
 		})
 
 		client.on('reconnecting', () => {
-			console.log('[RedisService] Reconnecting to Redis...')
+			logger.info('[RedisService] Reconnecting to Redis...')
 		})
 
 		return createRedisService(client)

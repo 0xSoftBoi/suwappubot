@@ -1,7 +1,7 @@
 """Service for managing Terms of Service acceptance."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy.orm import Session
 
@@ -56,7 +56,7 @@ class TosService:
                 user = session.query(User).filter(User.id == user_id).first()
                 if user:
                     user.tos_accepted = True
-                    user.tos_accepted_at = datetime.utcnow()
+                    user.tos_accepted_at = datetime.now(timezone.utc)
                     return True
                 return False
         except Exception as e:

@@ -33,16 +33,25 @@ export class DatabaseError extends Data.TaggedError('DatabaseError')<{
 	readonly status = 500 as const
 }
 
+export class ExternalServiceError extends Data.TaggedError('ExternalServiceError')<{
+	readonly message: string
+	readonly service?: string
+	readonly cause?: unknown
+}> {
+	readonly status = 502 as const
+}
+
 export type AppError =
 	| ValidationError
 	| UnauthorizedError
 	| ForbiddenError
 	| NotFoundError
 	| DatabaseError
+	| ExternalServiceError
 
 interface ErrorResponse {
 	status: number
-	body: { error: string; message?: string; fields?: Record<string, string> }
+	body: { error: string; message?: string; fields?: Record<string, string>; service?: string; resource?: string }
 }
 
 export const mapErrorToResponse = (error: AppError | Error | unknown): ErrorResponse => {
@@ -84,6 +93,14 @@ export const mapErrorToResponse = (error: AppError | Error | unknown): ErrorResp
 		Match.tag('DatabaseError', (e) => ({
 			status: e.status,
 			body: { error: 'Database Error', message: e.message },
+		})),
+		Match.tag('ExternalServiceError', (e) => ({
+			status: e.status,
+			body: {
+				error: 'External Service Error',
+				message: e.message,
+				...(e.service && { service: e.service }),
+			},
 		})),
 		Match.exhaustive,
 	)

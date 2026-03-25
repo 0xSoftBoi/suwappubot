@@ -6,6 +6,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
 from bot.models.user import User, Wallet
+from bot.models.predict import PredictionPosition
 from bot.services.wallet import WalletService
 from bot.services.price_service import PriceService
 from bot.utils.formatters import format_amount, format_usd, format_chain_name
@@ -20,7 +21,7 @@ wallet_service = WalletService()
 price_service = PriceService()
 
 
-async def _build_portfolio_text(wallet_infos):
+async def _build_portfolio_text(wallet_infos, user_id=None):
     """Fetch balances and build portfolio display text and total USD value."""
     all_balances = {}
     total_usd = 0.0
@@ -69,6 +70,38 @@ async def _build_portfolio_text(wallet_infos):
                 )
             else:
                 lines.append(f"  {format_amount(amount, symbol=token)}")
+
+    # Prediction market positions
+    if user_id:
+        try:
+            with get_session() as session:
+                positions = session.query(PredictionPosition).filter(
+                    PredictionPosition.user_id == user_id,
+                    PredictionPosition.total_shares > 0,
+                    PredictionPosition.is_resolved == False,
+                ).all()
+
+                if positions:
+                    lines.append("\n*Predictions*")
+                    for pos in positions:
+                        shares = float(pos.total_shares or 0)
+                        cost = float(pos.total_cost_usdc or 0)
+                        current = float(pos.current_price or 0)
+                        value = shares * current
+                        pnl_pct = ((value - cost) / cost * 100) if cost > 0 else 0
+
+                        outcome_emoji = "\U0001f7e2" if pos.outcome == "Yes" else "\U0001f534"
+                        question = pos.market_question or "Unknown"
+                        if len(question) > 40:
+                            question = question[:37] + "..."
+
+                        lines.append(
+                            f"  {outcome_emoji} {question}\n"
+                            f"    {format_usd(value)} ({pnl_pct:+.1f}%)"
+                        )
+                        total_usd += value
+        except Exception as e:
+            logger.debug(f"Could not load prediction positions: {e}")
 
     lines.append(f"\n\U0001f4b0 *Total Value:* {format_usd(total_usd)}")
 
@@ -122,11 +155,12 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return
 
         wallet_infos = [(w.id, w.address, w.chain_type, w.name) for w in wallets]
+        db_user_id = db_user.id
 
     loading_msg = await update.message.reply_text("\U0001f4ca Loading portfolio...")
 
     try:
-        text = await _build_portfolio_text(wallet_infos)
+        text = await _build_portfolio_text(wallet_infos, user_id=db_user_id)
         await loading_msg.edit_text(
             text,
             parse_mode="Markdown",
@@ -170,11 +204,12 @@ async def portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
 
         wallet_infos = [(w.id, w.address, w.chain_type, w.name) for w in wallets]
+        db_user_id = db_user.id
 
     await query.edit_message_text("\U0001f4ca Loading portfolio...")
 
     try:
-        text = await _build_portfolio_text(wallet_infos)
+        text = await _build_portfolio_text(wallet_infos, user_id=db_user_id)
         await query.edit_message_text(
             text,
             parse_mode="Markdown",

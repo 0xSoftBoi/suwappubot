@@ -46,7 +46,7 @@ class SimulationService:
         # Check cache
         if token_mint in self._cache:
             res, ts = self._cache[token_mint]
-            if (datetime.utcnow() - ts).total_seconds() < self._cache_ttl:
+            if (datetime.now(timezone.utc) - ts).total_seconds() < self._cache_ttl:
                 return res
 
         try:
@@ -134,7 +134,7 @@ class SimulationService:
                 "price_impact": buy_quote.price_impact_pct + sell_quote.price_impact_pct,
             }
             
-            self._cache[token_mint] = (result, datetime.utcnow())
+            self._cache[token_mint] = (result, datetime.now(timezone.utc))
             return result
             
         except Exception as e:

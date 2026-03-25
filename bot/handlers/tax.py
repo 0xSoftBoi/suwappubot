@@ -111,9 +111,13 @@ async def tax_download_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer("Generating export...")
     
     # Parse callback data
-    parts = query.data.split("_")
-    format_type = parts[1]  # csv, koinly, or cointracker
-    year = int(parts[2])
+    try:
+        parts = query.data.split("_")
+        format_type = parts[1]
+        year = int(parts[2])
+    except (IndexError, ValueError):
+        await query.edit_message_text("❌ Invalid export request.")
+        return
     
     user = update.effective_user
     

@@ -5,7 +5,7 @@ import asyncio
 import json
 import base64
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import websockets
 from solders.pubkey import Pubkey
 
@@ -160,7 +160,7 @@ class RugService:
                 quote=quote,
                 wallet_id=wallet_id,
                 user_id=user_id,
-                idempotency_key=f"panic_sell:{token_mint}:{datetime.utcnow().strftime('%Y%m%d%H%M')}"
+                idempotency_key=f"panic_sell:{token_mint}:{datetime.now(timezone.utc).strftime('%Y%m%d%H%M')}"
             )
             
             logger.info(f"✅ Panic Sell SUCCESS for user {user_id}")

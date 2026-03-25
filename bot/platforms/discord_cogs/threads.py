@@ -128,12 +128,12 @@ class Threads(commands.Cog):
         embed.set_footer(text="Share your thoughts, charts, and analysis below.")
 
         # Get the trade volume for this token from the last 24h
-        from datetime import datetime, timedelta
+        from datetime import datetime, timezone, timedelta
 
         with get_session() as session:
             from sqlalchemy import func
 
-            cutoff = datetime.utcnow() - timedelta(hours=24)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
             vol_result = (
                 session.query(func.coalesce(func.sum(SwapTransaction.from_amount_usd), 0))
                 .filter(

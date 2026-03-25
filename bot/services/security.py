@@ -1,8 +1,10 @@
 """Security utilities: spending limits, 2FA, transaction simulation."""
 
+import asyncio
 import hashlib
 import secrets
 import time
+import logging
 from typing import Optional
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -10,6 +12,8 @@ from datetime import datetime, timedelta
 from bot.config.settings import settings
 from bot.models.user import User
 from database.db import get_session
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -23,11 +27,12 @@ class SpendingLimits:
 
 class SpendingTracker:
     """Track user spending for limit enforcement."""
-    
+
     def __init__(self):
         # In-memory tracking (could be Redis in production)
         self._hourly_spending: dict[int, list[tuple[float, float]]] = {}  # user_id -> [(timestamp, amount)]
         self._daily_spending: dict[int, list[tuple[float, float]]] = {}
+        self._lock = asyncio.Lock()
     
     def _cleanup_old_entries(self, entries: list, cutoff: float) -> list:
         """Remove entries older than cutoff."""

@@ -23,7 +23,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir psycopg2-binary gunicorn
 
 COPY . .
-RUN pip install --no-cache-dir .
 
 # Stage 2: Runtime
 FROM python:3.11-slim

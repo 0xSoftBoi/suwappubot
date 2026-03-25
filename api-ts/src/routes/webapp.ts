@@ -2,6 +2,7 @@ import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import jwt from 'jsonwebtoken'
 import { EnvService } from '../config/EnvService'
+import { logger } from '../lib/logger'
 import { mapErrorToResponse } from '../errors'
 import { telegramAuth } from '../middleware'
 import { runEffect, runEffectEither } from '../runtime'
@@ -49,12 +50,12 @@ webappRoutes.post('/telegram/auth', async (c) => {
 	const initData = body.initData || c.req.header('X-Telegram-Init-Data')
 
 	// Debug logging
-	console.log('Telegram auth request:', {
+	logger.info({
 		hasBody: !!body,
 		hasInitData: !!initData,
 		initDataLength: initData?.length,
 		initDataPreview: initData?.substring(0, 100),
-	})
+	}, 'Telegram auth request')
 
 	if (!initData) {
 		return c.json({ success: false, error: 'Missing initData' }, 400)
@@ -108,7 +109,7 @@ webappRoutes.post('/telegram/auth', async (c) => {
 					walletAddress = wallet.address
 				} else {
 					// Log error but don't fail auth - wallet can be created later
-					console.error('Failed to create Turnkey wallet:', turnkeyResult.left)
+					logger.error({ err: turnkeyResult.left }, 'Failed to create Turnkey wallet')
 				}
 			} else {
 				walletAddress = existingWallets[0].address
@@ -144,7 +145,7 @@ webappRoutes.post('/telegram/auth', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const error = result.left
-		console.error('Telegram auth error:', error)
+		logger.error({ err: error }, 'Telegram auth error')
 		return c.json({ success: false, error: error.message || 'Authentication failed' }, 401)
 	}
 
@@ -196,7 +197,7 @@ webappRoutes.post('/turnkey/oauth-wallet', async (c) => {
 	)
 
 	if (Either.isLeft(result)) {
-		console.error('OAuth wallet creation error:', result.left)
+		logger.error({ err: result.left }, 'OAuth wallet creation error')
 		return c.json({ error: result.left.message || 'Failed to create OAuth wallet' }, 500)
 	}
 
@@ -268,7 +269,7 @@ protectedWebapp.get('/portfolio', async (c) => {
 		}).pipe(
 			// Gracefully handle any errors by returning empty portfolio
 			Effect.catchAll((error) => {
-				console.error('Portfolio fetch error:', error)
+				logger.error({ err: error }, 'Portfolio fetch error')
 				return Effect.succeed(emptyPortfolio)
 			}),
 		),
@@ -894,7 +895,7 @@ protectedWebapp.get('/copy/trades', async (c) => {
 				return yield* Effect.fail(new Error('User not found'))
 			}
 
-			return yield* copyService.getCopyTrades(userOption.value.id, limit, offset)
+			return yield* copyService.getCopyTrades(userOption.value.id, { limit })
 		}),
 	)
 
@@ -925,7 +926,9 @@ protectedWebapp.post('/copy/follow/:traderId', async (c) => {
 				return yield* Effect.fail(new Error('User not found'))
 			}
 
-			return yield* copyService.followTrader(userOption.value.id, traderId, {
+			return yield* copyService.followTrader({
+				followerId: userOption.value.id,
+				traderId,
 				copyMode: body.copyMode,
 				copyAmountUsd: body.copyAmountUsd,
 				maxTradeUsd: body.maxTradeUsd,
@@ -1013,6 +1016,194 @@ protectedWebapp.put('/copy/follow/:traderId', async (c) => {
 	return c.json(result.right)
 })
 
+// === Prediction Market Routes ===
+import { PolymarketService } from '../services/PolymarketService'
+
+// GET /webapp/me/predict/markets — search/browse markets
+protectedWebapp.get('/predict/markets', async (c) => {
+	const query = c.req.query('query') || c.req.query('category')
+	const limit = Math.min(parseInt(c.req.query('limit') ?? '20', 10), 100)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			return yield* pm.getMarkets(query, limit)
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json({ markets: result.right })
+})
+
+// GET /webapp/me/predict/events — browse events
+protectedWebapp.get('/predict/events', async (c) => {
+	const query = c.req.query('query')
+	const limit = Math.min(parseInt(c.req.query('limit') ?? '20', 10), 100)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			return yield* pm.getEvents(query, limit)
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json({ events: result.right })
+})
+
+// GET /webapp/me/predict/market/:id — market detail
+protectedWebapp.get('/predict/market/:id', async (c) => {
+	const id = c.req.param('id')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			return yield* pm.getMarket(id)
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json(result.right)
+})
+
+// GET /webapp/me/predict/market/:id/book — orderbook for all outcomes
+protectedWebapp.get('/predict/market/:id/book', async (c) => {
+	const id = c.req.param('id')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			const market = yield* pm.getMarket(id)
+
+			if (market.tokens.length === 0) {
+				return { marketId: id, question: market.question, outcomes: [] }
+			}
+
+			const books = yield* Effect.all(
+				market.tokens.map((t) =>
+					Effect.map(pm.getOrderbook(t.tokenId), (book) => ({
+						outcome: t.outcome,
+						tokenId: t.tokenId,
+						...book,
+					}))
+				),
+				{ concurrency: 'unbounded' },
+			)
+
+			return { marketId: id, question: market.question, outcomes: books }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json(result.right)
+})
+
+// GET /webapp/me/predict/market/:id/price — live CLOB midpoint prices
+protectedWebapp.get('/predict/market/:id/price', async (c) => {
+	const id = c.req.param('id')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			const market = yield* pm.getMarket(id)
+
+			if (market.tokens.length === 0) {
+				return { marketId: id, question: market.question, prices: [] }
+			}
+
+			const prices = yield* Effect.all(
+				market.tokens.map((t) =>
+					Effect.map(pm.getMidpoint(t.tokenId), (midData) => ({
+						outcome: t.outcome,
+						tokenId: t.tokenId,
+						mid: midData.mid,
+					}))
+				),
+				{ concurrency: 'unbounded' },
+			)
+
+			return { marketId: id, question: market.question, prices }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json(result.right)
+})
+
+// GET /webapp/me/predict/market/:id/trades — recent trades across outcomes
+protectedWebapp.get('/predict/market/:id/trades', async (c) => {
+	const id = c.req.param('id')
+	const limit = Math.min(parseInt(c.req.query('limit') ?? '20', 10), 100)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			const market = yield* pm.getMarket(id)
+
+			if (market.tokens.length === 0) {
+				return { marketId: id, question: market.question, trades: [] }
+			}
+
+			const allTrades = yield* Effect.all(
+				market.tokens.map((t) =>
+					Effect.map(pm.getTrades(t.tokenId, limit), (trades) =>
+						trades.map((tr) => ({ ...tr, outcome: t.outcome, tokenId: t.tokenId }))
+					)
+				),
+				{ concurrency: 'unbounded' },
+			)
+
+			const merged = allTrades
+				.flat()
+				.sort((a, b) => (b.timestamp > a.timestamp ? 1 : -1))
+				.slice(0, limit)
+
+			return { marketId: id, question: market.question, trades: merged }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json(result.right)
+})
+
+// GET /webapp/me/predict/positions — user positions (placeholder)
+protectedWebapp.get('/predict/positions', async (c) => {
+	// Positions require on-chain state from Polymarket — placeholder until Workstream A
+	return c.json({ positions: [] })
+})
+
+// POST /webapp/me/predict/order — place order (501 placeholder)
+protectedWebapp.post('/predict/order', async (c) => {
+	return c.json(
+		{ error: 'Order placement not yet implemented. Coming in Workstream A.' },
+		501,
+	)
+})
+
 // === Token Discovery Routes (public) ===
 
 // GET /webapp/tokens/trending - Get trending tokens
@@ -1074,7 +1265,7 @@ webappRoutes.get('/tokens/trending', async (c) => {
 
 		return c.json({ tokens: enriched.filter(Boolean) })
 	} catch (error) {
-		console.error('Trending tokens error:', error)
+		logger.error({ err: error }, 'Trending tokens error')
 		return c.json({ tokens: [] })
 	}
 })
@@ -1090,7 +1281,7 @@ webappRoutes.get('/tokens/:chain/:address/info', async (c) => {
 		}
 		return c.json(await response.json())
 	} catch (error) {
-		console.error('Token info error:', error)
+		logger.error({ err: error }, 'Token info error')
 		return c.json({ pairs: [] })
 	}
 })
@@ -1145,7 +1336,7 @@ webappRoutes.get('/tokens/:chain/:address/chart', async (c) => {
 
 		return c.json({ candles, pair })
 	} catch (error) {
-		console.error('Token chart error:', error)
+		logger.error({ err: error }, 'Token chart error')
 		return c.json({ candles: [], pair: null })
 	}
 })

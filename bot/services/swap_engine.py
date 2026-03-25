@@ -1,22 +1,26 @@
-"""Swap engine that orchestrates multiple swap providers for best execution.
+"""Swap engine with multi-aggregator best-quote comparison.
 
-Provider Priority:
-1. CoW Protocol - Same-chain EVM swaps with MEV protection and P2P matching
-2. Socket - Super-aggregated cross-chain and same-chain swaps
-3. Jupiter + Jito - Solana swaps with MEV protection via bundle submission
-4. Circle CCTP - Native USDC cross-chain (zero bridge fee)
-5. Across Protocol - Fast EVM bridges (~0.04% fee)
-6. Wormhole - Solana <-> EVM bridging
-7. Li.Fi - Aggregated fallback
-8. LayerZero/Stargate - Same-token cross-chain bridges
-9. Chainlink CCIP - Cross-chain token transfers
+Eligible providers are raced in parallel — the best output amount wins.
+
+Providers:
+- Jupiter + Jito: Solana swaps with MEV protection
+- SunSwap V2: TRON on-chain DEX
+- OKX DEX: Multi-chain aggregator (TRON, EVM, Solana) — 400+ DEXes
+- Li.Fi: Cross-chain & EVM aggregator
+- LayerZero/Stargate: Same-token cross-chain bridges
+- CoW Protocol: MEV-protected EVM batch auctions
+- Socket: Super-aggregated cross-chain routing
+- Circle CCTP: Native USDC bridging
+- Across Protocol: Fast EVM bridges
+- Wormhole: Solana <-> EVM bridging
+- Chainlink CCIP: Cross-chain messaging
 """
 
 import asyncio
 import logging
 from typing import Optional, List
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from web3 import Web3
 import aiohttp
 import base64
@@ -36,6 +40,10 @@ from bot.services.wormhole_api import WormholeAPI, WormholeQuote, WormholeError
 from bot.services.cow_api import CoWProtocolAPI, cow_api, CoWError
 from bot.services.socket_api import SocketAPI, socket_api, SocketError
 from bot.services.jito_api import JitoAPI, jito_api, JitoError, TipPriority
+from bot.services.sunswap_api import SunSwapAPI, SunSwapQuote, SunSwapError
+from bot.services.tempo_dex_api import TempoDexAPI, tempo_dex_api
+from bot.services.okx_dex_api import OKXDEXAPI, OKXDEXQuote, OKXDEXError, OKX_CHAIN_IDS
+from bot.utils.http_client import get_session as get_http_session
 from bot.services.tax_export import TaxExportService
 from bot.services.token_security.simulation import simulation_service
 from bot.services.x402_service import x402_service
@@ -80,7 +88,7 @@ class SwapQuote:
     price_impact: float
     exchange_rate: float
     raw_quote: dict  # Original quote data for execution
-    timestamp: datetime = field(default_factory=datetime.utcnow)  # When quote was created
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))  # When quote was created
     expires_in: int = 30  # Quote expires in seconds
 
 
@@ -103,11 +111,12 @@ def _parse_int(value, default: int = 0) -> int:
 
 class SwapEngine:
     """Engine for executing swaps via multiple providers with intelligent routing.
-    
+
     Supports:
     - CoW Protocol: MEV-protected batch auctions with P2P matching
     - Socket: Super-aggregated routing across all bridges + DEXes
     - Jito: Solana MEV protection via bundle submission
+    - SunSwap V2: TRON on-chain DEX swaps
     - Li.Fi: Cross-chain aggregator
     - Jupiter: Solana DEX aggregator
     - Circle CCTP: Native USDC bridging (zero fee)
@@ -131,6 +140,8 @@ class SwapEngine:
         self.cctp = CircleCCTPAPI()
         self.across = AcrossAPI()
         self.wormhole = WormholeAPI()
+        self.sunswap = SunSwapAPI()
+        self.okx_dex = OKXDEXAPI()
         self.wallet_service = WalletService()
         self._wallet_locks: dict[int, asyncio.Lock] = {}  # Per-wallet locks
 
@@ -156,7 +167,20 @@ class SwapEngine:
     def _is_solana_only_swap(self, from_chain: str, to_chain: str) -> bool:
         """Check if this is a Solana-to-Solana swap (use Jupiter)."""
         return from_chain == "solana" and to_chain == "solana"
-    
+
+    def _is_tron_only_swap(self, from_chain: str, to_chain: str) -> bool:
+        """Check if this is a TRON-to-TRON swap (use SunSwap V2)."""
+        return from_chain.lower() == "tron" and to_chain.lower() == "tron"
+
+    def _is_tempo_only_swap(self, from_chain: str, to_chain: str) -> bool:
+        """Check if this is a Tempo-to-Tempo swap (use Tempo Enshrined DEX)."""
+        return from_chain.lower() == "tempo" and to_chain.lower() == "tempo"
+
+    def _is_tron_cross_chain(self, from_chain: str, to_chain: str) -> bool:
+        """Check if TRON is involved in a cross-chain swap (not yet supported)."""
+        chains = (from_chain.lower(), to_chain.lower())
+        return "tron" in chains and chains[0] != chains[1]
+
     def _is_ccip_route(self, from_chain: str, to_chain: str, from_token: str, to_token: str) -> bool:
         """Check if this route can use Chainlink CCIP (same token cross-chain EVM)."""
         # CCIP is for same-token transfers across EVM chains
@@ -190,6 +214,17 @@ class SwapEngine:
             return suwappu_core.to_human_amount(amount_raw, decimals)
         return int(amount_raw) / (10 ** decimals)
     
+    async def _gather_quotes(self, tasks: list) -> list:
+        """Run quote tasks in parallel, return successful SwapQuote results."""
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        quotes = []
+        for r in results:
+            if isinstance(r, SwapQuote):
+                quotes.append(r)
+            elif isinstance(r, Exception):
+                logger.warning(f"Quote provider failed: {r}")
+        return quotes
+
     @track_time(MetricNames.SWAP_QUOTE)
     async def get_quote(
         self,
@@ -203,7 +238,7 @@ class SwapEngine:
         slippage: float = 0.5,
     ) -> SwapQuote:
         """
-        Get a swap quote from the appropriate provider.
+        Get the best swap quote by racing all eligible providers in parallel.
 
         Args:
             from_chain: Source chain name
@@ -216,7 +251,7 @@ class SwapEngine:
             slippage: Slippage tolerance as percentage
 
         Returns:
-            SwapQuote with unified quote data
+            SwapQuote with best output amount from all providers
         """
         # Check quote cache
         cache_key = f"quote:{from_chain}:{to_chain}:{from_token}:{to_token}:{amount}:{slippage}"
@@ -224,35 +259,66 @@ class SwapEngine:
         if cached is not None:
             return cached
 
+        if self._is_tron_cross_chain(from_chain, to_chain):
+            raise SwapError("Cross-chain swaps from/to TRON are not yet supported. Phase 2 will add TRON bridging.")
+
         amount_raw = self._get_token_amount_raw(amount, from_token, from_chain)
+        slippage_bps = int(slippage * 100)
+
+        # Build list of eligible quote fetchers to race in parallel
+        tasks = []
+
+        if self._is_tempo_only_swap(from_chain, to_chain):
+            tasks.append(self._get_tempo_dex_quote(
+                from_token, to_token, amount, amount_raw
+            ))
 
         if self._is_solana_only_swap(from_chain, to_chain):
-            quote = await self._get_jupiter_quote(
-                from_token, to_token, amount, amount_raw, from_address, int(slippage * 100)
-            )
-        elif self._is_layerzero_route(from_chain, to_chain, from_token, to_token):
-            # Stargate V2: direct on-chain bridge for same-token cross-chain
-            # Try Stargate first (cheaper, no aggregator middleman), fall back to LiFi
-            try:
-                quote = await self._get_layerzero_quote(
+            tasks.append(self._get_jupiter_quote(
+                from_token, to_token, amount, amount_raw, from_address, slippage_bps
+            ))
+
+        if self._is_tron_only_swap(from_chain, to_chain):
+            tasks.append(self._get_sunswap_quote(
+                from_token, to_token, amount, amount_raw, slippage_bps
+            ))
+
+        # OKX DEX covers TRON, EVM, and Solana (same-chain only) — add if configured
+        if self.okx_dex.is_configured and from_chain.lower() == to_chain.lower():
+            tasks.append(self._get_okx_dex_quote(
+                from_chain, to_chain, from_token, to_token,
+                amount, amount_raw, from_address, slippage
+            ))
+
+        # EVM routing: Li.Fi + LayerZero (not for Solana-only, TRON-only, or Tempo-only)
+        if not self._is_solana_only_swap(from_chain, to_chain) and not self._is_tron_only_swap(from_chain, to_chain) and not self._is_tempo_only_swap(from_chain, to_chain):
+            if self._is_layerzero_route(from_chain, to_chain, from_token, to_token):
+                tasks.append(self._get_layerzero_quote(
                     from_chain, to_chain, from_token, amount, amount_raw,
                     from_address, slippage
-                )
-                logger.info(f"Stargate V2 quote: {from_chain}→{to_chain} {from_token} fee=${quote.gas_cost_usd:.2f}")
-            except Exception as e:
-                logger.warning(f"Stargate V2 quote failed, falling back to LiFi: {e}")
-                quote = await self._get_lifi_quote(
-                    from_chain, to_chain, from_token, to_token,
-                    amount, amount_raw, from_address, to_address, slippage
-                )
-        else:
-            quote = await self._get_lifi_quote(
+                ))
+            tasks.append(self._get_lifi_quote(
                 from_chain, to_chain, from_token, to_token,
                 amount, amount_raw, from_address, to_address, slippage
+            ))
+
+        # Race all providers in parallel with a timeout
+        quotes = await self._gather_quotes([
+            asyncio.wait_for(t, timeout=8.0) for t in tasks
+        ])
+
+        if not quotes:
+            raise SwapError("No provider returned a valid quote. Please try again.")
+
+        best = max(quotes, key=lambda q: q.to_amount_human)
+        if len(quotes) > 1:
+            logger.info(
+                f"Best quote: {best.provider} ({best.to_amount_human:.6f} {best.to_token}) "
+                f"from {len(quotes)} providers"
             )
 
-        await quote_cache.set(cache_key, quote)
-        return quote
+        await quote_cache.set(cache_key, best)
+        return best
     
     async def _get_lifi_quote(
         self,
@@ -357,7 +423,172 @@ class SwapEngine:
             exchange_rate=exchange_rate,
             raw_quote=quote.raw_response,
         )
-    
+
+    async def _get_sunswap_quote(
+        self,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: str,
+        slippage_bps: int,
+    ) -> SwapQuote:
+        """Get quote from SunSwap V2 for TRON on-chain swaps."""
+        from_token_address = get_token_address(from_token, "tron")
+        to_token_address = get_token_address(to_token, "tron")
+
+        if not from_token_address or not to_token_address:
+            raise SwapError(f"Token not supported on TRON: {from_token} or {to_token}")
+
+        quote = await self.sunswap.get_quote(
+            from_token=from_token_address,
+            to_token=to_token_address,
+            amount_raw=amount_raw,
+            slippage_bps=slippage_bps,
+        )
+
+        to_amount_human = self._get_token_amount_human(quote.amount_out, to_token, "tron")
+        exchange_rate = to_amount_human / amount if amount > 0 else 0
+
+        return SwapQuote(
+            provider="sunswap",
+            from_chain="tron",
+            to_chain="tron",
+            from_token=from_token,
+            to_token=to_token,
+            from_amount=amount_raw,
+            from_amount_human=amount,
+            to_amount=quote.amount_out,
+            to_amount_human=to_amount_human,
+            to_amount_min=quote.amount_out_min,
+            gas_cost_usd=6.0,  # ~20 TRX energy cost for swap
+            fee_cost_usd=0,
+            total_cost_usd=6.0,
+            estimated_time=6,  # TRON block time ~3s, 2 confirmations
+            price_impact=quote.price_impact,
+            exchange_rate=exchange_rate,
+            raw_quote=quote.raw_response,
+        )
+
+    async def _get_tempo_dex_quote(
+        self,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: str,
+    ) -> SwapQuote:
+        """Get quote from Tempo Enshrined DEX for same-chain stablecoin swaps."""
+        if not tempo_dex_api.is_supported_pair(from_token, to_token):
+            raise SwapError(f"Tempo DEX does not support pair: {from_token}/{to_token}")
+
+        quote = await tempo_dex_api.get_quote(
+            token_in=from_token,
+            token_out=to_token,
+            amount_in=int(amount_raw),
+        )
+
+        to_amount_human = quote.amount_out_human
+        exchange_rate = to_amount_human / amount if amount > 0 else 0
+
+        return SwapQuote(
+            provider="tempo_dex",
+            from_chain="tempo",
+            to_chain="tempo",
+            from_token=from_token,
+            to_token=to_token,
+            from_amount=amount_raw,
+            from_amount_human=amount,
+            to_amount=str(quote.amount_out),
+            to_amount_human=to_amount_human,
+            to_amount_min=str(quote.amount_out),  # enshrined DEX has minimal slippage
+            gas_cost_usd=0.01,  # Tempo payment lane has near-zero gas
+            fee_cost_usd=0,
+            total_cost_usd=0.01,
+            estimated_time=2,  # Tempo block time ~2s
+            price_impact=quote.price_impact,
+            exchange_rate=exchange_rate,
+            raw_quote={
+                "token_in": quote.token_in_address,
+                "token_out": quote.token_out_address,
+                "amount_in": quote.amount_in,
+                "amount_out": quote.amount_out,
+            },
+        )
+
+    async def _get_okx_dex_quote(
+        self,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: str,
+        from_address: str,
+        slippage: float,
+    ) -> SwapQuote:
+        """Get quote from OKX DEX Aggregator (TRON, EVM, Solana)."""
+        chain_id = OKX_CHAIN_IDS.get(from_chain.lower())
+        if not chain_id:
+            raise SwapError(f"OKX DEX does not support chain: {from_chain}")
+
+        # Same-chain only for now
+        if from_chain.lower() != to_chain.lower():
+            raise SwapError("OKX DEX only supports same-chain swaps")
+
+        from_token_address = get_token_address(from_token, from_chain)
+        to_token_address = get_token_address(to_token, to_chain)
+
+        if not from_token_address or not to_token_address:
+            raise SwapError(f"Token not supported: {from_token} on {from_chain} or {to_token} on {to_chain}")
+
+        # Use lightweight /quote endpoint (tx data fetched at execution time)
+        quote = await self.okx_dex.get_quote(
+            chain_id=chain_id,
+            from_token=from_token_address,
+            to_token=to_token_address,
+            amount=amount_raw,
+            slippage=slippage,
+        )
+
+        to_amount_human = self._get_token_amount_human(quote.to_amount, to_token, to_chain)
+        exchange_rate = to_amount_human / amount if amount > 0 else 0
+
+        # Estimate gas cost in USD (rough: gas units * gas price)
+        gas_cost_usd = 0.0
+        try:
+            gas_cost_usd = float(quote.estimated_gas) * 1e-9 * 2000  # Very rough ETH estimate
+            if from_chain.lower() in ("bsc", "polygon", "fantom", "gnosis"):
+                gas_cost_usd *= 0.01  # Much cheaper chains
+            elif from_chain.lower() == "tron":
+                gas_cost_usd = 6.0  # Flat estimate for TRON energy
+            elif from_chain.lower() == "solana":
+                gas_cost_usd = 0.001
+        except (ValueError, TypeError):
+            pass
+
+        return SwapQuote(
+            provider="okx_dex",
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=from_token,
+            to_token=to_token,
+            from_amount=amount_raw,
+            from_amount_human=amount,
+            to_amount=quote.to_amount,
+            to_amount_human=to_amount_human,
+            to_amount_min=quote.to_amount_min,
+            gas_cost_usd=gas_cost_usd,
+            fee_cost_usd=0,
+            total_cost_usd=gas_cost_usd,
+            estimated_time=15,  # OKX quotes are fast
+            price_impact=quote.price_impact,
+            exchange_rate=exchange_rate,
+            raw_quote={
+                "okx_quote": quote.raw_response,
+                "tx_data": quote.tx_data,
+                "chain_id": chain_id,
+            },
+        )
+
     async def _get_layerzero_quote(
         self,
         from_chain: str,
@@ -458,47 +689,58 @@ class SwapEngine:
     ) -> List[SwapQuote]:
         """
         Get quotes from all available providers for comparison.
-        
+
         Returns:
             List of SwapQuotes sorted by best output amount
         """
-        quotes = []
         amount_raw = self._get_token_amount_raw(amount, from_token, from_chain)
-        
-        # Get Li.Fi quote
-        try:
-            lifi_quote = await self._get_lifi_quote(
+        slippage_bps = int(slippage * 100)
+        tasks = []
+
+        # Always try Li.Fi for EVM
+        if not self._is_solana_only_swap(from_chain, to_chain) and not self._is_tron_only_swap(from_chain, to_chain):
+            tasks.append(self._get_lifi_quote(
                 from_chain, to_chain, from_token, to_token,
                 amount, amount_raw, from_address, to_address, slippage
-            )
-            quotes.append(lifi_quote)
-        except Exception as e:
-            logger.debug(f"Li.Fi quote failed: {e}")
-        
-        # Get LayerZero/Stargate V2 quote if applicable (same token cross-chain)
+            ))
+
+        # LayerZero for same-token cross-chain
         if self._is_layerzero_route(from_chain, to_chain, from_token, to_token):
-            try:
-                lz_quote = await self._get_layerzero_quote(
-                    from_chain, to_chain, from_token, amount, amount_raw,
-                    from_address, slippage
-                )
-                quotes.append(lz_quote)
-            except Exception as e:
-                logger.debug(f"LayerZero quote failed: {e}")
-        
-        # Get Chainlink CCIP quote if applicable (same token cross-chain EVM)
+            tasks.append(self._get_layerzero_quote(
+                from_chain, to_chain, from_token, amount, amount_raw,
+                from_address, slippage
+            ))
+
+        # CCIP for same-token cross-chain EVM
         if self._is_ccip_route(from_chain, to_chain, from_token, to_token):
-            try:
-                ccip_quote = await self._get_ccip_quote(
-                    from_chain, to_chain, from_token, amount, from_address, to_address
-                )
-                quotes.append(ccip_quote)
-            except Exception as e:
-                logger.debug(f"CCIP quote failed: {e}")
-        
-        # Sort by best output (highest to_amount_human)
+            tasks.append(self._get_ccip_quote(
+                from_chain, to_chain, from_token, amount, from_address, to_address
+            ))
+
+        # Jupiter for Solana
+        if self._is_solana_only_swap(from_chain, to_chain):
+            tasks.append(self._get_jupiter_quote(
+                from_token, to_token, amount, amount_raw, from_address, slippage_bps
+            ))
+
+        # SunSwap for TRON
+        if self._is_tron_only_swap(from_chain, to_chain):
+            tasks.append(self._get_sunswap_quote(
+                from_token, to_token, amount, amount_raw, slippage_bps
+            ))
+
+        # OKX DEX for all chains
+        if self.okx_dex.is_configured and from_chain.lower() == to_chain.lower():
+            tasks.append(self._get_okx_dex_quote(
+                from_chain, to_chain, from_token, to_token,
+                amount, amount_raw, from_address, slippage
+            ))
+
+        quotes = await self._gather_quotes([
+            asyncio.wait_for(t, timeout=8.0) for t in tasks
+        ])
+
         quotes.sort(key=lambda q: q.to_amount_human, reverse=True)
-        
         return quotes
     
     @track_time(MetricNames.SWAP_EXECUTE)
@@ -650,6 +892,10 @@ class SwapEngine:
                     tx_hash = await self._execute_across_swap(quote, wallet)
                 elif quote.provider == "wormhole":
                     tx_hash = await self._execute_wormhole_swap(quote, wallet)
+                elif quote.provider == "sunswap":
+                    tx_hash = await self._execute_sunswap_swap(quote, wallet)
+                elif quote.provider == "okx_dex":
+                    tx_hash = await self._execute_okx_dex_swap(quote, wallet)
                 else:
                     tx_hash = await self._execute_lifi_swap(quote, wallet)
                 
@@ -664,8 +910,8 @@ class SwapEngine:
                 try:
                     from bot.utils.cache import balance_cache
                     await balance_cache.delete(f"bal:{wallet_address}:{wallet_chain_type}")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to invalidate balance cache: {e}")
 
                 # Publish swap.submitted event
                 await event_bus.publish("swap.submitted", {
@@ -1505,7 +1751,183 @@ class SwapEngine:
 
         logger.info(f"Wormhole transfer tx: {transfer_hash.hex()}")
         return transfer_hash.hex()
-    
+
+    async def _execute_sunswap_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a swap via SunSwap V2 on TRON.
+
+        Steps:
+        1. Check & send TRC20 approval if needed (token -> token or token -> TRX)
+        2. Build swap transaction via SunSwap V2 Router
+        3. Sign and broadcast via TronGrid
+        """
+        wallet = self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
+        from_address = wallet_data["address"]
+        from_token_address = get_token_address(quote.from_token, "tron")
+        private_key_hex = self.wallet_service.get_tron_private_key(wallet)
+
+        raw = quote.raw_quote
+        path = raw.get("path", [])
+        amount_in = int(quote.from_amount)
+        amount_out_min = int(quote.to_amount_min)
+
+        # Step 1: TRC20 approval if swapping a token (not native TRX)
+        is_from_native = from_token_address.lower() in ("native", "trx", "")
+        if not is_from_native:
+            current_allowance = await self.sunswap.get_allowance(
+                token_address=from_token_address,
+                owner_address=from_address,
+            )
+            if current_allowance < amount_in:
+                logger.info(f"SunSwap: approving {from_token_address} for Router")
+                approve_tx = await self.sunswap.build_approve_transaction(
+                    token_address=from_token_address,
+                    owner_address=from_address,
+                )
+                approve_hash = await self.sunswap.sign_and_broadcast(approve_tx, private_key_hex)
+                logger.info(f"SunSwap approval tx: {approve_hash}")
+                # Wait briefly for approval to propagate
+                await asyncio.sleep(3)
+
+        # Step 2: Build swap transaction
+        swap_tx = await self.sunswap.build_swap_transaction(
+            from_address=from_address,
+            from_token=from_token_address,
+            to_token=get_token_address(quote.to_token, "tron"),
+            amount_in=amount_in,
+            amount_out_min=amount_out_min,
+            path=path,
+        )
+
+        # Step 3: Sign and broadcast
+        tx_hash = await self.sunswap.sign_and_broadcast(swap_tx, private_key_hex)
+        logger.info(f"SunSwap swap tx: {tx_hash} ({quote.from_token}→{quote.to_token})")
+
+        return tx_hash
+
+    async def _execute_okx_dex_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a swap via OKX DEX Aggregator.
+
+        OKX returns transaction calldata — we sign and broadcast like Li.Fi.
+        Supports EVM, Solana, and TRON chains.
+        """
+        wallet = self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
+        raw = quote.raw_quote
+        tx_data = raw.get("tx_data")
+        if not tx_data:
+            # Need to fetch swap data with tx calldata
+            chain_id = raw.get("chain_id") or OKX_CHAIN_IDS.get(quote.from_chain.lower())
+            from_token_address = get_token_address(quote.from_token, quote.from_chain)
+            to_token_address = get_token_address(quote.to_token, quote.to_chain)
+
+            swap_result = await self.okx_dex.get_swap(
+                chain_id=chain_id,
+                from_token=from_token_address,
+                to_token=to_token_address,
+                amount=quote.from_amount,
+                user_address=wallet_data["address"],
+                slippage=0.5,
+            )
+            tx_data = swap_result.tx_data
+
+        if not tx_data:
+            raise SwapError("OKX DEX did not return transaction data")
+
+        chain = get_chain_by_name(quote.from_chain)
+
+        if chain.chain_type == ChainType.SOLANA:
+            # Solana: OKX returns base64-encoded transaction
+            tx_bytes = base64.b64decode(tx_data.get("data", ""))
+            signed_tx = await self.wallet_service.sign_solana_transaction(wallet, tx_bytes)
+
+            session = await get_http_session()
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "sendTransaction",
+                "params": [
+                    base64.b64encode(signed_tx).decode(),
+                    {"encoding": "base64", "skipPreflight": False}
+                ]
+            }
+            async with session.post(settings.get_rpc_url("solana"), json=payload) as resp:
+                result = await resp.json()
+                if "error" in result:
+                    raise SwapError(f"OKX DEX Solana tx failed: {result['error']}")
+                return result["result"]
+
+        elif chain.chain_type == ChainType.TRON:
+            # TRON: sign and broadcast via TronGrid
+            private_key_hex = self.wallet_service.get_tron_private_key(wallet)
+            # OKX returns transaction data that needs to be broadcast
+            tx_hash = await self.sunswap.sign_and_broadcast(tx_data, private_key_hex)
+            logger.info(f"OKX DEX TRON swap tx: {tx_hash}")
+            return tx_hash
+
+        else:
+            # EVM: standard tx signing
+            web3 = self.wallet_service._get_web3(quote.from_chain)
+            sender = Web3.to_checksum_address(wallet_data["address"])
+
+            # Handle ERC20 approval if needed
+            from_token_address = get_token_address(quote.from_token, quote.from_chain)
+            spender = Web3.to_checksum_address(tx_data.get("to", ""))
+
+            if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
+                token_addr = Web3.to_checksum_address(from_token_address)
+                erc20_abi = [
+                    {"inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "type": "function", "stateMutability": "view"},
+                    {"inputs": [{"name": "spender", "type": "address"}, {"name": "amount", "type": "uint256"}], "name": "approve", "outputs": [{"name": "", "type": "bool"}], "type": "function", "stateMutability": "nonpayable"},
+                ]
+                token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
+                amount_needed = int(quote.from_amount)
+                current_allowance = token_contract.functions.allowance(sender, spender).call()
+
+                if current_allowance < amount_needed:
+                    nonce = web3.eth.get_transaction_count(sender)
+                    max_approval = 2**256 - 1
+                    approve_data = token_contract.functions.approve(spender, max_approval).build_transaction({
+                        "from": sender,
+                        "nonce": nonce,
+                        "chainId": chain.chain_id,
+                        "gasPrice": web3.eth.gas_price,
+                    })
+                    approve_tx = {
+                        "to": token_addr,
+                        "data": approve_data["data"],
+                        "value": 0,
+                        "gas": approve_data.get("gas", 60000),
+                        "gasPrice": approve_data["gasPrice"],
+                        "nonce": nonce,
+                        "chainId": chain.chain_id,
+                    }
+                    signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
+                    approve_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approve.replace("0x", "")))
+                    logger.info(f"OKX DEX approval tx: {approve_hash.hex()}")
+                    web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+
+            nonce = web3.eth.get_transaction_count(sender)
+            tx = {
+                "to": spender,
+                "data": tx_data.get("data", ""),
+                "value": _parse_int(tx_data.get("value"), 0),
+                "gas": _parse_int(tx_data.get("gas"), 500000),
+                "gasPrice": _parse_int(tx_data.get("gasPrice"), web3.eth.gas_price),
+                "nonce": nonce,
+                "chainId": chain.chain_id,
+            }
+
+            signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
+            tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+
+            logger.info(f"OKX DEX swap tx: {tx_hash.hex()}")
+            return tx_hash.hex()
+
     async def check_status(self, swap_tx: SwapTransaction) -> SwapTransaction:
         """
         Check the status of a swap transaction.
@@ -1518,6 +1940,9 @@ class SwapEngine:
         if swap_tx.route_provider == "jupiter":
             # Check Solana transaction status
             status = await self._check_solana_tx_status(swap_tx.tx_hash)
+        elif swap_tx.route_provider == "sunswap":
+            # Check TRON transaction status
+            status = await self._check_tron_tx_status(swap_tx.tx_hash)
         else:
             # Check via Li.Fi status API
             if swap_tx.from_chain != swap_tx.to_chain:
@@ -1533,8 +1958,8 @@ class SwapEngine:
             ).first()
             tx.status = status
             if status == SwapStatus.COMPLETED.value:
-                from datetime import datetime
-                tx.completed_at = datetime.utcnow()
+                from datetime import datetime, timezone
+                tx.completed_at = datetime.now(timezone.utc)
         
         swap_tx.status = status
         return swap_tx
@@ -1565,7 +1990,38 @@ class SwapEngine:
                     return SwapStatus.FAILED.value
                 
                 return SwapStatus.COMPLETED.value
-    
+
+    async def _check_tron_tx_status(self, tx_hash: str) -> str:
+        """Check TRON transaction status via TronGrid."""
+        try:
+            rpc_url = settings.get_rpc_url("tron") or "https://api.trongrid.io"
+            headers = {"Content-Type": "application/json"}
+            if hasattr(settings, "trongrid_api_key") and settings.trongrid_api_key:
+                headers["TRON-PRO-API-KEY"] = settings.trongrid_api_key
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{rpc_url}/wallet/gettransactioninfobyid",
+                    json={"value": tx_hash},
+                    headers=headers,
+                ) as resp:
+                    data = await resp.json()
+
+                    if not data or not data.get("id"):
+                        return SwapStatus.PENDING.value
+
+                    receipt = data.get("receipt", {})
+                    result = receipt.get("result", "")
+
+                    if result == "SUCCESS":
+                        return SwapStatus.COMPLETED.value
+                    elif result in ("REVERT", "OUT_OF_ENERGY", "FAILED"):
+                        return SwapStatus.FAILED.value
+                    else:
+                        return SwapStatus.PENDING.value
+        except Exception:
+            return SwapStatus.PENDING.value
+
     async def _check_evm_tx_status(self, swap_tx: SwapTransaction) -> str:
         """Check EVM transaction status."""
         try:

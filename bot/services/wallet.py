@@ -77,7 +77,8 @@ class WalletService:
                     w3.eth.block_number  # verify connectivity
                     self._web3_instances[chain_name] = w3
                     break
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Web3 provider {url[:30]}... failed for {chain_name}: {e}")
                     continue
 
             if chain_name not in self._web3_instances:
@@ -499,6 +500,18 @@ class WalletService:
 
         return get_private_key_with_auto_migrate(wallet, auto_migrate=False)
 
+    def get_tron_private_key(self, wallet: Wallet) -> str:
+        """Get the private key for a TRON wallet (handles Turnkey backup fallback).
+
+        Returns:
+            Hex-encoded private key string (without 0x prefix)
+        """
+        if wallet.is_turnkey_wallet:
+            pk = self.get_backup_private_key(wallet)
+        else:
+            pk = self.get_private_key(wallet)
+        return pk.replace("0x", "")
+
     # === Balance Checking ===
 
     async def get_evm_token_balance(
@@ -625,9 +638,10 @@ class WalletService:
                         return total_balance
             
             return 0.0
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to fetch Solana token balance: {e}")
             return 0.0
-    
+
     async def get_solana_native_balance(self, address: str) -> float:
         """Get SOL balance for an address."""
         try:
@@ -646,9 +660,10 @@ class WalletService:
                         return lamports / 1e9  # Convert lamports to SOL
             
             return 0.0
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to fetch SOL balance for {address[:8]}...: {e}")
             return 0.0
-    
+
     async def get_tron_native_balance(self, address: str) -> float:
         """Get TRX balance for a TRON address."""
         try:
@@ -661,7 +676,8 @@ class WalletService:
                         balance = result["data"][0].get("balance", 0)
                         return balance / 1e6
             return 0.0
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to fetch TRX balance for {address[:8]}...: {e}")
             return 0.0
 
     async def get_tron_token_balance(self, token_symbol: str, address: str) -> float:
@@ -683,7 +699,8 @@ class WalletService:
                                 balance = int(token_data.get("balance", 0))
                                 return balance / (10 ** decimals)
             return 0.0
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to fetch TRC20 token balance for {address[:8]}...: {e}")
             return 0.0
 
     async def get_all_balances(self, wallet: Wallet) -> dict[str, dict[str, float]]:

@@ -16,7 +16,7 @@ import asyncio
 import re
 from typing import Optional, Dict, Any, List, Set
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from bot.config.settings import settings
@@ -48,7 +48,7 @@ class BlacklistEntry:
     entry_type: BlacklistType
     value: str
     reason: BlacklistReason
-    added_at: datetime = field(default_factory=datetime.utcnow)
+    added_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     added_by: Optional[str] = None
     description: Optional[str] = None
     severity: int = 1  # 1-3, higher = worse

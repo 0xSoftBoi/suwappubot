@@ -3,7 +3,7 @@
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bot import __version__
 from bot.models.user import User, Wallet
@@ -141,7 +141,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             session.add(db_user)
             session.commit()  # Commit to get db_user.id
         else:
-            db_user.last_active_at = datetime.utcnow()
+            db_user.last_active_at = datetime.now(timezone.utc)
             if user.username:
                 db_user.username = user.username
 
@@ -200,7 +200,7 @@ async def tos_accept_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
         if db_user:
             db_user.tos_accepted = True
-            db_user.tos_accepted_at = datetime.utcnow()
+            db_user.tos_accepted_at = datetime.now(timezone.utc)
             user_id = db_user.id
 
     # Auto-create wallets immediately after TOS acceptance

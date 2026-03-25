@@ -148,8 +148,8 @@ export function useSwapForm() {
       { quoteId: quote.id },
       {
         onSuccess: (result) => {
-          setActiveTxHash(result.signedTransaction)
-          if (result.signedTransaction) {
+          setActiveTxHash(result.txHash ?? null)
+          if (result.txHash) {
             setActiveSwapId(result.swapId)
           } else {
             setIsSuccess(true)

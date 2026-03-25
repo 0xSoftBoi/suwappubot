@@ -82,6 +82,7 @@ from bot.handlers.copy import (
 )
 # Token Sniping handlers
 from bot.handlers.snipe import snipe_conversation_handler
+from bot.handlers.predict import predict_conversation_handler
 from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
 from bot.handlers.dashboard import dashboard_handler, dashboard_menu_callback
 from bot.services.sniping import launch_detector
@@ -196,6 +197,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(profile_edit_conversation)  # Copy trading profile editing
     application.add_handler(snipe_conversation_handler)  # Token sniping /snipe
     application.add_handler(perps_conversation_handler)  # Perps trading /perps
+    application.add_handler(predict_conversation_handler)  # Prediction markets /predict
 
     # ============ CALLBACK QUERY HANDLERS ============
     
@@ -365,6 +367,7 @@ async def post_init(application) -> None:
             BotCommand("checkin", "Daily check-in"),
             BotCommand("traders", "Copy trading"),
             BotCommand("perps", "Perpetual trading"),
+            BotCommand("predict", "Prediction markets"),
             BotCommand("following", "Copy trading follows"),
             BotCommand("profile", "Your trader profile"),
             BotCommand("c", "Custodial wallet"),
@@ -512,7 +515,7 @@ def main() -> None:
     
     # Log available commands
     logger.info("User commands: /start, /h, /w, /b, /s, /hx, /p, /g, /f, /set, /c")
-    logger.info("Trading commands: /a, /o, /dca, /ref, /tax, /sub, /snipe, /perps, /dashboard")
+    logger.info("Trading commands: /a, /o, /dca, /ref, /tax, /sub, /snipe, /perps, /predict, /dashboard")
     logger.info("Growth commands: /xp, /checkin, /lb, /traders, /following, /profile")
     logger.info("Admin commands: /st, /hw, /fee, /m")
     logger.info("Background services: Fee sweeper, Price alerts, Limit orders/DCA, Tx poller, Health monitor, Launch detector")

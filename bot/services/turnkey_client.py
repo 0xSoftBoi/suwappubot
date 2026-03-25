@@ -74,15 +74,23 @@ class TurnkeyClient:
         self._api_private_key = api_private_key
         self._base_url = base_url.rstrip("/")
         
-        # Import ecdsa for signing
-        try:
-            from ecdsa import SigningKey, NIST256p
-            self._signing_key = SigningKey.from_string(
-                bytes.fromhex(api_private_key),
-                curve=NIST256p
-            )
-        except ImportError:
-            raise ImportError("ecdsa package required. Install with: pip install ecdsa")
+        # Build P-256 signing key from raw private key hex
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.backends import default_backend
+        private_value = int(api_private_key, 16)
+        # Derive public numbers from private key
+        pub_key_bytes = bytes.fromhex(api_public_key)
+        if pub_key_bytes[0] == 0x04 and len(pub_key_bytes) == 65:
+            x = int.from_bytes(pub_key_bytes[1:33], 'big')
+            y = int.from_bytes(pub_key_bytes[33:65], 'big')
+        else:
+            # If public key format is unexpected, derive from private key
+            tmp_key = ec.derive_private_key(private_value, ec.SECP256R1(), default_backend())
+            pub_numbers = tmp_key.public_key().public_numbers()
+            x, y = pub_numbers.x, pub_numbers.y
+        pub_numbers = ec.EllipticCurvePublicNumbers(x, y, ec.SECP256R1())
+        priv_numbers = ec.EllipticCurvePrivateNumbers(private_value, pub_numbers)
+        self._signing_key = priv_numbers.private_key(default_backend())
     
     def _create_stamp(self, body: str) -> str:
         """
@@ -92,20 +100,19 @@ class TurnkeyClient:
         is signed with the API key pair. The stamp is base64-encoded JSON
         with hex-encoded signature.
         """
-        from ecdsa.util import sigencode_der
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import ec as ec_module
+        from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
         import base64
-        
-        # Create hash of request body
-        body_hash = hashlib.sha256(body.encode()).digest()
-        
-        # Sign the hash with P-256 (DER encoded)
-        signature = self._signing_key.sign_digest(
-            body_hash,
-            sigencode=sigencode_der
+
+        # Sign the body with ECDSA P-256 (SHA-256)
+        signature_der = self._signing_key.sign(
+            body.encode(),
+            ec_module.ECDSA(hashes.SHA256())
         )
-        
+
         # Encode signature as hex (Turnkey's required format)
-        signature_hex = signature.hex()
+        signature_hex = signature_der.hex()
         
         stamp_obj = {
             "publicKey": self._api_public_key,
@@ -483,9 +490,10 @@ class TurnkeyClient:
         to sign the hash with Turnkey's secure enclave.
         """
         from eth_account.messages import encode_typed_data
+        from eth_utils import keccak
 
         signable = encode_typed_data(full_message=typed_data)
-        message_hash = signable.body.hex()
+        message_hash = keccak(signable.body).hex()
 
         result = await self.sign_raw_payload(
             payload=message_hash,
@@ -879,7 +887,7 @@ class TurnkeyClient:
 # === Authentication Helpers ===
 
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 # Store for auth challenges (in production, use Redis/DB)
 _auth_challenges: Dict[str, Dict[str, Any]] = {}
@@ -897,7 +905,7 @@ def generate_auth_challenge(address: str, domain: str = "app.suwappu.com") -> Di
         Dict with 'challenge', 'nonce', and 'expiresAt' fields
     """
     nonce = secrets.token_urlsafe(32)
-    issued_at = datetime.utcnow()
+    issued_at = datetime.now(timezone.utc)
     expires_at = issued_at + timedelta(minutes=10)
 
     # EIP-4361 SIWE-style message
@@ -946,7 +954,7 @@ def verify_auth_signature(address: str, signature: str, nonce: str) -> bool:
         return False
 
     # Check expiration
-    if datetime.utcnow() > challenge_data["expires_at"]:
+    if datetime.now(timezone.utc) > challenge_data["expires_at"]:
         del _auth_challenges[nonce]
         logger.warning(f"Auth verification failed: challenge expired")
         return False
@@ -989,7 +997,7 @@ def cleanup_expired_challenges() -> int:
     Returns:
         Number of challenges removed
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     expired = [
         nonce for nonce, data in _auth_challenges.items()
         if now > data["expires_at"]

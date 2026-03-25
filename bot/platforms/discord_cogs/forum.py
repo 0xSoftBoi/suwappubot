@@ -210,10 +210,10 @@ class Forum(commands.Cog):
             embed.add_field(name="Price", value=format_usd(current_price), inline=True)
 
         # Suwappu volume
-        from datetime import datetime, timedelta
+        from datetime import datetime, timezone, timedelta
 
         with get_session() as session:
-            cutoff = datetime.utcnow() - timedelta(hours=24)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
             vol = float(
                 session.query(func.coalesce(func.sum(SwapTransaction.from_amount_usd), 0))
                 .filter(
@@ -238,7 +238,7 @@ class Forum(commands.Cog):
             inline=False,
         )
         embed.set_footer(text=f"Requested by {interaction.user.display_name}")
-        embed.timestamp = datetime.utcnow()
+        embed.timestamp = datetime.now(timezone.utc)
 
         # Resolve or create forum tags
         applied_tags: list[discord.ForumTag] = []

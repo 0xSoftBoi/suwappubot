@@ -63,6 +63,18 @@
         "check balance",
         "show portfolio"
       ]
+    },
+    {
+      "id": "predict",
+      "name": "Prediction Markets",
+      "description": "Trade on Polymarket prediction markets — browse markets, place orders, track positions",
+      "tags": ["prediction", "polymarket", "betting", "markets"],
+      "examples": [
+        "show trending prediction markets",
+        "buy YES on 'Will BTC hit $150K by July?' at 35 cents",
+        "check my prediction positions",
+        "cancel all prediction orders"
+      ]
     }
   ],
   "provider": {

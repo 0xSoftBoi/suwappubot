@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from bot.services.hyperliquid_client import hyperliquid_client
@@ -134,7 +134,7 @@ class PerpsMonitor:
                 else:
                     # Position closed/liquidated on exchange
                     local_pos.status = "liquidated"
-                    local_pos.closed_at = datetime.utcnow()
+                    local_pos.closed_at = datetime.now(timezone.utc)
 
                     await self._notify_user(
                         user_id,

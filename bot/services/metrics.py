@@ -1,7 +1,7 @@
 """Admin metrics and analytics service."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 from decimal import Decimal
 from collections import defaultdict
@@ -24,12 +24,12 @@ class MetricsService:
             # User counts
             total_users = session.query(User).count()
             
-            today = datetime.utcnow().date()
+            today = datetime.now(timezone.utc).date()
             active_today = session.query(User).filter(
                 User.updated_at >= datetime(today.year, today.month, today.day)
             ).count()
             
-            week_ago = datetime.utcnow() - timedelta(days=7)
+            week_ago = datetime.now(timezone.utc) - timedelta(days=7)
             active_week = session.query(User).filter(
                 User.updated_at >= week_ago
             ).count()
@@ -70,7 +70,7 @@ class MetricsService:
     def get_volume_stats(self, days: int = 30) -> dict:
         """Get volume statistics."""
         with get_session() as session:
-            cutoff = datetime.utcnow() - timedelta(days=days)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
             
             transactions = session.query(SwapTransaction).filter(
                 SwapTransaction.created_at >= cutoff,
@@ -107,7 +107,7 @@ class MetricsService:
     def get_fee_stats(self, days: int = 30) -> dict:
         """Get fee collection statistics."""
         with get_session() as session:
-            cutoff = datetime.utcnow() - timedelta(days=days)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
             
             fees = session.query(FeeTransaction).filter(
                 FeeTransaction.created_at >= cutoff,
@@ -210,7 +210,7 @@ class MetricsService:
         """Get health metrics for each chain."""
         with get_session() as session:
             # Get recent transactions by chain
-            cutoff = datetime.utcnow() - timedelta(hours=24)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
             
             transactions = session.query(SwapTransaction).filter(
                 SwapTransaction.created_at >= cutoff

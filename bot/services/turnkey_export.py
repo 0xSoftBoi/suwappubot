@@ -6,7 +6,7 @@ encrypt with KMS envelope encryption → store in DB.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from bot.utils.envelope_crypto import encrypt_private_key_v2, encode_for_db, zeroize
@@ -53,7 +53,7 @@ async def export_and_backup_wallet(wallet_row, turnkey_client, session) -> bool:
         wallet_row.aesgcm_nonce = db_fields["aesgcm_nonce"]
         wallet_row.kms_key_id = db_fields["kms_key_id"]
         wallet_row.key_version = db_fields["key_version"]
-        wallet_row.backup_key_exported_at = datetime.utcnow()
+        wallet_row.backup_key_exported_at = datetime.now(timezone.utc)
 
         session.flush()
         logger.info(f"Stored encrypted backup key for wallet {wallet_row.id} ({wallet_row.address[:10]}...)")

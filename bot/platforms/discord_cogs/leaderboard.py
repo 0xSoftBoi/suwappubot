@@ -1,7 +1,7 @@
 """Discord Cog for leaderboard with scheduled posts and role rewards."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import discord
@@ -44,7 +44,7 @@ def _query_volume_leaders(session, limit: int = 10, days: Optional[int] = None):
         .filter(SwapTransaction.status == "completed")
     )
     if days:
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         query = query.filter(SwapTransaction.created_at >= cutoff)
 
     return query.group_by(User.id).order_by(desc("volume")).limit(limit).all()
@@ -64,7 +64,7 @@ def _query_pnl_leaders(session, limit: int = 10, days: Optional[int] = None):
         .filter(SwapTransaction.status == "completed")
     )
     if days:
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         query = query.filter(SwapTransaction.created_at >= cutoff)
 
     return query.group_by(User.id).order_by(desc("pnl")).limit(limit).all()
@@ -226,7 +226,7 @@ class Leaderboard(commands.Cog):
             title=title_map.get(category, "\U0001F3C6 Leaderboard"),
             category=category,
         )
-        embed.timestamp = datetime.utcnow()
+        embed.timestamp = datetime.now(timezone.utc)
 
         await interaction.followup.send(embed=embed)
 
@@ -270,7 +270,7 @@ class Leaderboard(commands.Cog):
                 title=title_map[category],
                 category=category,
             )
-            embed.timestamp = datetime.utcnow()
+            embed.timestamp = datetime.now(timezone.utc)
 
             try:
                 await channel.send(embed=embed)

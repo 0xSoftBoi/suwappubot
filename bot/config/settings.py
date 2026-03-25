@@ -185,11 +185,11 @@ class Settings(BaseSettings):
         description="Avalanche C-Chain RPC URL(s)"
     )
     fantom_rpc_url: str = Field(
-        default="https://rpcapi.fantom.network,https://1rpc.io/ftm,https://fantom.drpc.org",
+        default="https://rpcapi.fantom.network,https://fantom-rpc.publicnode.com,https://1rpc.io/ftm,https://fantom.drpc.org,https://rpc.ftm.tools",
         description="Fantom mainnet RPC URL(s)"
     )
     linea_rpc_url: str = Field(
-        default="https://rpc.linea.build,https://linea-rpc.publicnode.com,https://1rpc.io/linea,https://linea.drpc.org",
+        default="https://rpc.linea.build,https://linea-rpc.publicnode.com,https://1rpc.io/linea,https://linea.drpc.org,https://linea.blockpi.network/v1/rpc/public",
         description="Linea mainnet RPC URL(s)"
     )
     mantle_rpc_url: str = Field(
@@ -201,8 +201,12 @@ class Settings(BaseSettings):
         description="Gnosis Chain RPC URL(s)"
     )
     scroll_rpc_url: str = Field(
-        default="https://rpc.scroll.io,https://scroll-rpc.publicnode.com,https://1rpc.io/scroll,https://scroll.drpc.org",
+        default="https://rpc.scroll.io,https://scroll-rpc.publicnode.com,https://1rpc.io/scroll,https://scroll.drpc.org,https://scroll.blockpi.network/v1/rpc/public",
         description="Scroll mainnet RPC URL(s)"
+    )
+    tempo_rpc_url: str = Field(
+        default="https://tempo-mainnet.drpc.org,https://rpc.tempo.xyz",
+        description="Tempo mainnet RPC URL(s)"
     )
 
     # Solana RPC
@@ -314,11 +318,20 @@ class Settings(BaseSettings):
         import hashlib
         return hashlib.sha256(self.telegram_bot_token.encode()).hexdigest()
     
+    # TronGrid API Key (optional for higher rate limits)
+    trongrid_api_key: Optional[str] = Field(default=None, description="TronGrid API key for higher rate limits")
+
     # API Keys (optional for higher rate limits)
     lifi_api_key: Optional[str] = Field(default=None, description="Li.Fi API key")
     lifi_integrator_id: str = Field(default="SuwappuProduction", description="Li.Fi integrator ID for fee collection")
     jupiter_api_key: Optional[str] = Field(default=None, description="Jupiter API key")
     socket_api_key: Optional[str] = Field(default=None, description="Socket/Bungee API key for super-aggregation")
+
+    # OKX DEX Aggregator
+    okx_dex_api_key: Optional[str] = Field(default=None, description="OKX DEX API key")
+    okx_dex_secret_key: Optional[str] = Field(default=None, description="OKX DEX secret key for HMAC signing")
+    okx_dex_passphrase: Optional[str] = Field(default=None, description="OKX DEX API passphrase")
+    okx_dex_project_id: Optional[str] = Field(default=None, description="OKX DEX project ID")
     
     # WhatsApp Business API (Optional)
     whatsapp_phone_number_id: Optional[str] = Field(default=None, description="WhatsApp Business Phone Number ID")
@@ -364,6 +377,11 @@ class Settings(BaseSettings):
     max_swap_amount: float = Field(default=100000, description="Maximum swap amount in USD")
     default_slippage: float = Field(default=0.5, description="Default slippage tolerance in %")
     
+    # Polymarket API (optional — for pre-configured CLOB credentials)
+    polymarket_clob_api_key: Optional[str] = Field(default=None, description="Polymarket CLOB API key (optional)")
+    polymarket_clob_secret: Optional[str] = Field(default=None, description="Polymarket CLOB API secret (optional)")
+    polymarket_clob_passphrase: Optional[str] = Field(default=None, description="Polymarket CLOB API passphrase (optional)")
+
     # Fee Configuration (competitive pricing)
     swap_fee_percentage: float = Field(default=0.8, description="Swap fee percentage (0.8% = competitive rate)")
     referral_reward_percentage: float = Field(default=30, description="Referral reward percentage (30% of fees)")

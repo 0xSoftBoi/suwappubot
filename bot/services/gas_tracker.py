@@ -2,8 +2,11 @@
 
 import asyncio
 import aiohttp
+import logging
 from typing import Optional
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 from bot.config.settings import settings
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
@@ -99,17 +102,18 @@ class GasTracker:
                                     base_fee_hex = block_result["result"].get("baseFeePerGas")
                                     if base_fee_hex:
                                         gas_price.base_fee = int(base_fee_hex, 16) / 1e9
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"Failed to fetch base fee for {chain_name}: {e}")
                         
                         # Cache the result
                         await gas_cache.set(cache_key, gas_price, ttl=15)
                         return gas_price
             
             return None
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to fetch gas price for {chain_name}: {e}")
             return None
-    
+
     async def get_solana_fee(self) -> Optional[float]:
         """Get current Solana transaction fee in SOL."""
         cache_key = "gas_solana"
@@ -139,7 +143,8 @@ class GasTracker:
             
             # Default fee if API fails
             return 0.000005  # 5000 lamports
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to fetch Solana fee: {e}")
             return 0.000005
     
     async def get_all_gas_prices(self) -> dict[str, GasPrice]:

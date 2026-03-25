@@ -1,5 +1,6 @@
 import { Context, Effect, Layer } from 'effect'
 import { ValidationError } from '../errors'
+import { logger } from '../lib/logger'
 
 // Jupiter API base URL
 const JUPITER_API_BASE = 'https://quote-api.jup.ag/v6'
@@ -130,7 +131,7 @@ export const JupiterServiceLive = Layer.succeed(JupiterService, {
 
 			const url = `${JUPITER_API_BASE}/quote?${queryParams.toString()}`
 
-			console.log('[JupiterService] Fetching quote:', url)
+			logger.info('[JupiterService] Fetching quote: %s', url)
 
 			const response = yield* Effect.tryPromise({
 				try: async () => {
@@ -182,7 +183,7 @@ export const JupiterServiceLive = Layer.succeed(JupiterService, {
 
 			const url = `${JUPITER_API_BASE}/swap`
 
-			console.log('[JupiterService] Getting swap transaction for:', userPublicKey)
+			logger.info('[JupiterService] Getting swap transaction for: %s', userPublicKey)
 
 			const response = yield* Effect.tryPromise({
 				try: async () => {

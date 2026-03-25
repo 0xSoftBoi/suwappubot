@@ -5,7 +5,7 @@ and a real-time trade feed to configured Discord channels.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 import discord
@@ -129,7 +129,7 @@ class DiscordAlertService:
         embed.add_field(name="Chain", value=trade.from_chain, inline=True)
         if trade.is_cross_chain:
             embed.add_field(name="Dest Chain", value=trade.to_chain, inline=True)
-        embed.timestamp = datetime.utcnow()
+        embed.timestamp = datetime.now(timezone.utc)
 
         try:
             await channel.send(embed=embed)
@@ -161,7 +161,7 @@ class DiscordAlertService:
             short_addr = f"{address[:6]}...{address[-4:]}" if len(address) > 12 else address
             embed.add_field(name="Contract", value=f"`{short_addr}`", inline=True)
         embed.add_field(name="Source", value=source, inline=True)
-        embed.timestamp = datetime.utcnow()
+        embed.timestamp = datetime.now(timezone.utc)
 
         try:
             await channel.send(embed=embed)
@@ -194,7 +194,7 @@ class DiscordAlertService:
             color=0x00BFFF,
         )
         embed.set_footer(text=f"{username} \u2022 {trade.from_chain}")
-        embed.timestamp = datetime.utcnow()
+        embed.timestamp = datetime.now(timezone.utc)
 
         try:
             await channel.send(embed=embed)
@@ -214,7 +214,7 @@ class DiscordAlertService:
 
         # Aggregate most-traded tokens in the last hour
         with get_session() as session:
-            cutoff = datetime.utcnow() - timedelta(hours=1)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
             rows = (
                 session.query(
                     SwapTransaction.to_token,
@@ -245,7 +245,7 @@ class DiscordAlertService:
             description="\n".join(lines),
             color=COLOR_INFO,
         )
-        embed.timestamp = datetime.utcnow()
+        embed.timestamp = datetime.now(timezone.utc)
 
         try:
             await channel.send(embed=embed)
@@ -266,7 +266,7 @@ class DiscordAlertService:
 
         # Top 10 by 24h volume
         with get_session() as session:
-            cutoff = datetime.utcnow() - timedelta(hours=24)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
             rows = (
                 session.query(
                     User,
@@ -297,7 +297,7 @@ class DiscordAlertService:
             )
 
         embed = build_leaderboard_embed(leaders, title="\U0001F3C6 Daily Leaderboard", category="volume")
-        embed.timestamp = datetime.utcnow()
+        embed.timestamp = datetime.now(timezone.utc)
 
         try:
             await channel.send(embed=embed)

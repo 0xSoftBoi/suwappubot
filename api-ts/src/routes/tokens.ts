@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { logger } from '../lib/logger'
 
 const tokenRoutes = new Hono()
 
@@ -71,7 +72,7 @@ tokenRoutes.get('/search', async (c) => {
 
 		return c.json(responseData)
 	} catch (error) {
-		console.error('[TokenRoutes] Search error:', error)
+		logger.error({ err: error }, '[TokenRoutes] Search error')
 		return c.json({ error: 'Failed to search tokens' }, 500)
 	}
 })
@@ -134,7 +135,7 @@ tokenRoutes.get('/prices', async (c) => {
 		pricesCache.set(cacheKey, { data: prices, expiry: Date.now() + PRICE_CACHE_TTL })
 		return c.json({ prices })
 	} catch (error) {
-		console.error('[TokenRoutes] Price fetch error:', error)
+		logger.error({ err: error }, '[TokenRoutes] Price fetch error')
 		return c.json({ error: 'Failed to fetch prices' }, 500)
 	}
 })

@@ -18,8 +18,10 @@ except ImportError:
 
 
 def validate_evm_address(address: str) -> bool:
-    """Validate an EVM (Ethereum-compatible) address."""
+    """Validate an EVM (Ethereum-compatible) address. Requires 0x prefix."""
     try:
+        if not address.startswith("0x"):
+            return False
         return is_evm_address(address)
     except Exception:
         return False

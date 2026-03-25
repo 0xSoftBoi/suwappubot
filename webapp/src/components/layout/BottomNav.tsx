@@ -1,7 +1,7 @@
 import React from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 
-export type NavItem = 'home' | 'wallet' | 'swap' | 'history' | 'settings'
+export type NavItem = 'home' | 'wallet' | 'swap' | 'history' | 'settings' | 'earn' | 'discover' | 'portfolio'
 
 export interface BottomNavProps {
   active?: NavItem

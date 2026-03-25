@@ -76,7 +76,11 @@ function cleanupTasks() {
 	}
 }
 
-setInterval(cleanupTasks, 10 * 60 * 1000)
+const cleanupInterval = setInterval(cleanupTasks, 10 * 60 * 1000)
+
+export function stopA2aCleanup() {
+	clearInterval(cleanupInterval)
+}
 
 function isoNow(): string {
 	return new Date().toISOString()

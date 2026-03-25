@@ -11,6 +11,7 @@
 import { Hono } from 'hono'
 import { Effect, Either, Option } from 'effect'
 import { AgentService, TokenService, SwapService, BalanceService, JupiterService, CHAINS, COMMON_TOKENS, SOLANA_TOKENS, type QuoteParams } from '../services'
+import { PolymarketService } from '../services/PolymarketService'
 import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
 import { agentBearerAuth } from '../middleware'
@@ -116,6 +117,28 @@ const TOOLS = [
 				category: { type: 'string', description: 'Filter by category (e.g. "defi", "ai", "data"). Optional.' },
 				limit: { type: 'number', description: 'Max results to return (default 20, max 100)' },
 			},
+		},
+	},
+	{
+		name: 'predict_markets',
+		description: 'Search and browse prediction markets on Polymarket. Returns active markets with live prices, volumes, and CLOB token IDs.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				query: { type: 'string', description: 'Search query or category tag (e.g. "bitcoin", "crypto", "politics")' },
+				limit: { type: 'number', description: 'Max results (default 10, max 50)' },
+			},
+		},
+	},
+	{
+		name: 'predict_market_detail',
+		description: 'Get detailed prediction market info including live CLOB midpoint prices for each outcome. Requires a market condition ID.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
+			},
+			required: ['market_id'],
 		},
 	},
 ]
@@ -405,6 +428,51 @@ function handleListTokens(args: Record<string, unknown>) {
 	return { content: [{ type: 'text', text: JSON.stringify({ available_chains: chainList, hint: 'Pass chain parameter for token list' }) }] }
 }
 
+async function handlePredictMarkets(args: Record<string, unknown>) {
+	const query = args.query as string | undefined
+	const limit = Math.min(Math.max((args.limit as number) || 10, 1), 50)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			return yield* pm.getMarkets(query, limit)
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: `Polymarket error: ${result.left.message}` }] }
+	return { content: [{ type: 'text', text: JSON.stringify({ markets: result.right }) }] }
+}
+
+async function handlePredictMarketDetail(args: Record<string, unknown>) {
+	const marketId = args.market_id as string
+	if (!marketId) return { isError: true, content: [{ type: 'text', text: 'market_id is required' }] }
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const pm = yield* PolymarketService
+			const market = yield* pm.getMarket(marketId)
+
+			if (market.tokens.length === 0) {
+				return { ...market, livePrices: [] }
+			}
+
+			const prices = yield* Effect.all(
+				market.tokens.map((t) =>
+					Effect.map(pm.getMidpoint(t.tokenId), (midData) => ({
+						outcome: t.outcome,
+						tokenId: t.tokenId,
+						mid: midData.mid,
+					}))
+				),
+				{ concurrency: 'unbounded' },
+			)
+
+			return { ...market, livePrices: prices }
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: `Polymarket error: ${result.left.message}` }] }
+	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
+}
+
 async function handleExecuteSwap(args: Record<string, unknown>) {
 	const { quote_id, wallet_address } = args as { quote_id: string; wallet_address: string }
 	const cached = getCachedQuote(quote_id)
@@ -504,6 +572,12 @@ mcpRoutes.post('/', async (c) => {
 					break
 				case 'browse_mpp_directory':
 					result = await handleBrowseMppDirectory(args || {})
+					break
+				case 'predict_markets':
+					result = await handlePredictMarkets(args || {})
+					break
+				case 'predict_market_detail':
+					result = await handlePredictMarketDetail(args || {})
 					break
 				default:
 					return c.json(rpcErr(req.id, -32601, `Unknown tool: ${name}`), 200)

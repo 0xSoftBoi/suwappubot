@@ -17,7 +17,7 @@ import logging
 import base64
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bot.config.settings import settings
 from bot.utils.http_client import get_session
@@ -129,12 +129,12 @@ class AuthorityChecker:
         # Check cache
         if use_cache and token_mint in self._cache:
             result, cached_at = self._cache[token_mint]
-            if (datetime.utcnow() - cached_at).total_seconds() < self._cache_ttl:
+            if (datetime.now(timezone.utc) - cached_at).total_seconds() < self._cache_ttl:
                 return result
 
         result = AuthorityResult(
             token_mint=token_mint,
-            checked_at=datetime.utcnow(),
+            checked_at=datetime.now(timezone.utc),
         )
 
         try:
@@ -183,7 +183,7 @@ class AuthorityChecker:
             self._calculate_risk(result)
 
             # Cache result
-            self._cache[token_mint] = (result, datetime.utcnow())
+            self._cache[token_mint] = (result, datetime.now(timezone.utc))
 
         except AuthorityCheckerError:
             raise
@@ -299,7 +299,7 @@ class AuthorityChecker:
             if isinstance(result, Exception):
                 results[mint] = AuthorityResult(
                     token_mint=mint,
-                    checked_at=datetime.utcnow(),
+                    checked_at=datetime.now(timezone.utc),
                     risk_level="unknown",
                 )
             else:

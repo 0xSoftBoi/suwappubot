@@ -9,6 +9,13 @@ export interface TurnkeyWallet {
 	address: string
 }
 
+export interface RawSignatureResult {
+	r: string
+	s: string
+	v: string
+	signature: string
+}
+
 export interface TurnkeyServiceInterface {
 	readonly createSubOrgForTelegramUser: (
 		telegramUserId: number,
@@ -25,6 +32,13 @@ export interface TurnkeyServiceInterface {
 		signWith: string,
 		chainType: 'evm' | 'solana'
 	) => Effect.Effect<string, Error>
+	readonly signRawPayload: (
+		subOrgId: string,
+		payload: string,
+		signWith: string,
+		hashFunction: 'HASH_FUNCTION_NO_OP' | 'HASH_FUNCTION_SHA256' | 'HASH_FUNCTION_KECCAK256',
+		encoding: 'PAYLOAD_ENCODING_HEXADECIMAL' | 'PAYLOAD_ENCODING_TEXT_UTF8'
+	) => Effect.Effect<RawSignatureResult, Error>
 	readonly createAgentWallet: (
 		agentId: number,
 		chainType: 'evm' | 'solana'
@@ -131,6 +145,8 @@ export const TurnkeyServiceLive = Layer.effect(
 							subOrganizationName: `suwappu-${telegramUserId}-oauth`,
 							rootUsers: [{
 								userName: `user-${telegramUserId}`,
+								apiKeys: [],
+								authenticators: [],
 								oauthProviders: [{
 									providerName: provider,
 									oidcToken: oauthToken,
@@ -267,7 +283,7 @@ export const TurnkeyServiceLive = Layer.effect(
 						const response = await turnkeyClient.apiClient().createPolicy({
 							organizationId: subOrgId,
 							policyName,
-							effect: policyEffect,
+							effect: policyEffect as 'EFFECT_ALLOW' | 'EFFECT_DENY',
 							condition,
 							notes: `Created via Suwappu Agent API`,
 						})
@@ -299,6 +315,42 @@ export const TurnkeyServiceLive = Layer.effect(
 				}))
 			})
 
+		const signRawPayload = (
+			subOrgId: string,
+			payload: string,
+			signWith: string,
+			hashFunction: 'HASH_FUNCTION_NO_OP' | 'HASH_FUNCTION_SHA256' | 'HASH_FUNCTION_KECCAK256',
+			encoding: 'PAYLOAD_ENCODING_HEXADECIMAL' | 'PAYLOAD_ENCODING_TEXT_UTF8'
+		) =>
+			Effect.gen(function* () {
+				const signResult = yield* Effect.tryPromise({
+					try: async () => {
+						const response = await turnkeyClient.apiClient().signRawPayload({
+							organizationId: subOrgId,
+							signWith,
+							payload,
+							encoding,
+							hashFunction,
+						})
+						return response
+					},
+					catch: (err) => new Error(`Failed to sign raw payload: ${err}`),
+				})
+
+				const r = signResult.r
+				const s = signResult.s
+				const v = signResult.v
+
+				// Combine into 65-byte hex signature: r (32 bytes) + s (32 bytes) + v (1 byte)
+				const rHex = r.startsWith('0x') ? r.slice(2) : r
+				const sHex = s.startsWith('0x') ? s.slice(2) : s
+				const vInt = parseInt(v, 16) || parseInt(v, 10)
+				const vHex = (vInt < 27 ? vInt + 27 : vInt).toString(16).padStart(2, '0')
+				const signature = '0x' + rHex.padStart(64, '0') + sHex.padStart(64, '0') + vHex
+
+				return { r, s, v, signature }
+			})
+
 		const deletePolicy = (subOrgId: string, policyId: string) =>
 			Effect.gen(function* () {
 				yield* Effect.tryPromise({
@@ -318,6 +370,7 @@ export const TurnkeyServiceLive = Layer.effect(
 			createSubOrgForTelegramUser,
 			createSubOrgWithOAuth,
 			signTransactionForAgent,
+			signRawPayload,
 			createAgentWallet,
 			createPolicy,
 			listPolicies,

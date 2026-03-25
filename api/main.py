@@ -542,20 +542,22 @@ async def health_check():
     """Health check endpoint for load balancers, monitoring, and orchestration."""
     from database.db import DATABASE_AVAILABLE
 
-    # Check if bot is actually polling
+    # Check if bot is running (polling or webhook mode)
     bot_status = "unknown"
     try:
         bot_app = getattr(app.state, "bot_app", None)
         if bot_app and bot_app.updater and bot_app.updater.running:
             bot_status = "polling"
+        elif bot_app and bot_app.running:
+            bot_status = "webhook"
         elif bot_app:
-            bot_status = "not_polling"
+            bot_status = "not_running"
         else:
             bot_status = "no_bot_app"
     except Exception:
         bot_status = "error"
 
-    is_healthy = DATABASE_AVAILABLE and bot_status == "polling"
+    is_healthy = DATABASE_AVAILABLE and bot_status in ("polling", "webhook")
 
     return JSONResponse(
         status_code=200 if is_healthy else 503,

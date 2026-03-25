@@ -7,7 +7,7 @@ to Suwappu user accounts.
 
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, Index
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from database.db import Base
 
 
@@ -101,7 +101,7 @@ class OAuthToken(Base):
         """Check if access token is expired."""
         if not self.expires_at:
             return False
-        return datetime.utcnow() >= self.expires_at
+        return datetime.now(timezone.utc) >= self.expires_at
 
     @property
     def needs_refresh(self) -> bool:
@@ -109,7 +109,7 @@ class OAuthToken(Base):
         if not self.expires_at:
             return False
         from datetime import timedelta
-        return datetime.utcnow() >= (self.expires_at - timedelta(minutes=5))
+        return datetime.now(timezone.utc) >= (self.expires_at - timedelta(minutes=5))
 
 
 class OAuthState(Base):
@@ -145,4 +145,4 @@ class OAuthState(Base):
     @property
     def is_expired(self) -> bool:
         """Check if state has expired."""
-        return datetime.utcnow() >= self.expires_at
+        return datetime.now(timezone.utc) >= self.expires_at

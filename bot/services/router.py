@@ -1,6 +1,7 @@
 """Smart routing service - compares providers and finds best routes.
 
 Routing Priority (for maximum user value):
+0. Tempo Enshrined DEX - Same-chain Tempo stablecoin swaps (protocol-native, lowest fees)
 1. CoW Protocol - Same-chain EVM swaps (MEV protection, P2P matching = zero fees)
 2. Socket - Super-aggregator (compares ALL bridges + DEXes)
 3. Jupiter + Jito - Solana swaps with MEV protection
@@ -18,6 +19,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from datetime import datetime
 
+from bot.services.tempo_dex_api import TempoDexAPI, tempo_dex_api
 from bot.services.lifi_api import LiFiAPI
 from bot.services.jupiter_api import JupiterAPI
 from bot.services.layerzero_api import LayerZeroAPI
@@ -37,7 +39,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RouteOption:
     """A single route option from a provider."""
-    provider: str  # cow, socket, jito, lifi, jupiter, layerzero, cctp, across, wormhole
+    provider: str  # tempo_dex, cow, socket, jito, lifi, jupiter, layerzero, cctp, across, wormhole
     provider_display: str  # "CoW", "Socket", "Jito", "Li.Fi", "Jupiter", etc.
     
     from_chain: str
@@ -69,8 +71,9 @@ class RouteOption:
 
 class SmartRouter:
     """Smart routing engine that compares multiple providers.
-    
+
     Route selection priority (optimized for user value):
+    0. Tempo Enshrined DEX - Same-chain Tempo stablecoin swaps (protocol-native)
     1. CoW Protocol - Same-chain EVM (MEV protection, P2P matching = zero fees!)
     2. Socket - Super-aggregator (compares ALL bridges + DEXes)
     3. Jupiter + Jito - Solana swaps with MEV protection
@@ -80,8 +83,11 @@ class SmartRouter:
     7. Li.Fi - Aggregated fallback
     8. LayerZero/Stargate - Same-token bridges
     """
-    
+
     def __init__(self):
+        # Tempo native DEX (highest priority for on-chain stablecoin swaps)
+        self.tempo_dex = tempo_dex_api
+
         # New high-value providers
         self.cow = cow_api
         self.socket = socket_api
@@ -118,6 +124,16 @@ class SmartRouter:
         is_same_token = from_token.upper() == to_token.upper()
         is_usdc = from_token.upper() == "USDC" and to_token.upper() == "USDC"
         
+        # ============================================================
+        # PRIORITY 0: Tempo Enshrined DEX (protocol-native stablecoin swaps)
+        # For same-chain Tempo stablecoin-to-stablecoin swaps — lowest fees possible
+        # ============================================================
+        if (is_same_chain and from_chain.lower() == "tempo"
+                and self.tempo_dex.is_supported_pair(from_token, to_token)):
+            tasks.append(self._get_tempo_dex_route(
+                from_token, to_token, from_amount, from_address
+            ))
+
         # ============================================================
         # PRIORITY 1: CoW Protocol (MEV protection + P2P matching)
         # For same-chain EVM swaps - potential ZERO fees with P2P matching!
@@ -216,6 +232,58 @@ class SmartRouter:
         
         return routes
     
+    async def _get_tempo_dex_route(
+        self,
+        from_token: str,
+        to_token: str,
+        from_amount: str,
+        from_address: str,
+    ) -> Optional[RouteOption]:
+        """Get route from Tempo's enshrined stablecoin DEX.
+
+        This is the highest-priority route for same-chain Tempo stablecoin swaps.
+        The enshrined DEX is protocol-native with minimal fees and sub-second finality.
+        """
+        try:
+            amount_int = int(from_amount)
+            quote = await self.tempo_dex.get_quote(
+                token_in=from_token,
+                token_out=to_token,
+                amount_in=amount_int,
+            )
+
+            # Stablecoins are ~$1 each
+            output_usd = quote.amount_out_human
+            # Tempo gas is sub-$0.001 in stablecoins
+            gas_cost_usd = 0.0005
+
+            return RouteOption(
+                provider="tempo_dex",
+                provider_display="Tempo DEX",
+                from_chain="tempo",
+                from_token=from_token,
+                from_amount=from_amount,
+                from_amount_human=quote.amount_in_human,
+                to_chain="tempo",
+                to_token=to_token,
+                to_amount=str(quote.amount_out),
+                to_amount_human=quote.amount_out_human,
+                gas_cost_usd=gas_cost_usd,
+                bridge_fee_usd=0,
+                total_cost_usd=gas_cost_usd,
+                output_usd=output_usd,
+                net_output_usd=output_usd - gas_cost_usd,
+                execution_time_seconds=1,  # Sub-second finality
+                raw_quote={
+                    "provider": "tempo_enshrined_dex",
+                    "dex_address": self.tempo_dex.dex_address,
+                    "price_impact": quote.price_impact,
+                },
+            )
+        except Exception as e:
+            logger.debug(f"Tempo DEX route error: {e}")
+            return None
+
     async def _get_cow_route(
         self,
         chain: str,
@@ -746,6 +814,7 @@ class SmartRouter:
         
         # Provider reliability scores (based on uptime and success rates)
         reliability = {
+            "tempo_dex": 0.99,  # Tempo enshrined DEX - protocol-native
             "cow": 0.95,        # CoW Protocol - battle-tested
             "socket": 0.92,     # Socket aggregator
             "jito": 0.97,       # Jito - Solana MEV protection
@@ -759,6 +828,7 @@ class SmartRouter:
         
         # MEV protection scores
         mev_protection = {
+            "tempo_dex": 1.0,   # Protocol-native, no MEV exposure
             "cow": 1.0,         # Full MEV protection (batch auctions)
             "jito": 1.0,        # Full MEV protection (bundles)
             "socket": 0.3,      # Some routes may have MEV exposure
@@ -818,7 +888,9 @@ class SmartRouter:
             
             # Show special badge for route features
             feature_badge = ""
-            if route.provider == "cow":
+            if route.provider == "tempo_dex":
+                feature_badge = " ⚡ Protocol-Native"
+            elif route.provider == "cow":
                 feature_badge = " 🛡️ MEV Protected"
             elif route.provider == "jito":
                 feature_badge = " 🛡️ MEV Protected"

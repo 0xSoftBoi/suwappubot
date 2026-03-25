@@ -7,23 +7,34 @@
     @apply border-terminal-border;
   }
 
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background: #050508;
+    color: #e8e6e3;
+  }
+
+  ::selection {
+    background: rgba(255, 45, 120, 0.3);
+  }
+
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 2px;
+    height: 2px;
   }
   ::-webkit-scrollbar-track {
-    background: transparent;
+    background: rgba(255, 255, 255, 0.05);
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-terminal-border rounded-full;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-terminal-border-active;
+    background: rgba(255, 255, 255, 0.3);
   }
 
   /* Allotment sash styling */
   .sash-container .sash {
-    @apply bg-terminal-border hover:bg-sakura-600 transition-colors;
+    @apply bg-terminal-border hover:bg-sakura-500 transition-colors;
   }
 }
 
@@ -40,7 +51,8 @@
 
   .terminal-button {
     @apply px-4 py-2 rounded font-medium transition-all duration-150
-           bg-sakura-600 text-white hover:bg-sakura-500
+           bg-sakura-500 text-white hover:bg-sakura-600
+           hover:shadow-[0_0_20px_rgba(255,45,120,0.2)]
            active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
   }
 

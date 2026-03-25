@@ -208,108 +208,22 @@ class PolymarketClient:
             logger.error(f"get_midpoint error: {e}")
             return None
 
-    # ============ CLOB API (Authenticated Trading) ============
+    # ============ CLOB API (Authenticated Trading via Official SDK) ============
 
-    # EIP-712 domain and types for CLOB order signing
-    CLOB_EXCHANGE_ADDRESS = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
-    ORDER_DOMAIN = {
-        "name": "ClobExchange",
-        "version": "1",
-        "chainId": 137,
-        "verifyingContract": CLOB_EXCHANGE_ADDRESS,
-    }
-    ORDER_TYPES = {
-        "Order": [
-            {"name": "salt", "type": "uint256"},
-            {"name": "maker", "type": "address"},
-            {"name": "signer", "type": "address"},
-            {"name": "taker", "type": "address"},
-            {"name": "tokenId", "type": "uint256"},
-            {"name": "makerAmount", "type": "uint256"},
-            {"name": "takerAmount", "type": "uint256"},
-            {"name": "expiration", "type": "uint256"},
-            {"name": "nonce", "type": "uint256"},
-            {"name": "feeRateBps", "type": "uint256"},
-            {"name": "side", "type": "uint8"},
-            {"name": "signatureType", "type": "uint8"},
-        ],
-    }
+    def _get_clob_client(self, private_key: str):
+        """Create an authenticated ClobClient using the official Polymarket SDK."""
+        from py_clob_client.client import ClobClient
+        from py_clob_client.clob_types import ApiCreds
 
-    async def create_api_credentials(self, private_key: str) -> CLOBCredentials:
-        """Create CLOB API credentials by signing auth message and registering with server."""
-        account = Account.from_key(private_key)
-        address = account.address
-
-        timestamp = int(time.time())
-        nonce = 0
-
-        domain_data = {
-            "name": "ClobAuthDomain",
-            "version": "1",
-            "chainId": 137,
-        }
-        message_types = {
-            "ClobAuth": [
-                {"name": "address", "type": "address"},
-                {"name": "timestamp", "type": "string"},
-                {"name": "nonce", "type": "uint256"},
-                {"name": "message", "type": "string"},
-            ],
-        }
-        message_data = {
-            "address": address,
-            "timestamp": str(timestamp),
-            "nonce": nonce,
-            "message": "This message attests that I control the given wallet",
-        }
-
-        signable = encode_typed_data(domain_data, message_types, message_data)
-        signed = account.sign_message(signable)
-
-        # POST to CLOB API to register credentials (not local derivation)
-        session = await self._get_session()
-        req_body = {
-            "address": address,
-            "timestamp": str(timestamp),
-            "nonce": str(nonce),
-            "signature": "0x" + signed.signature.hex(),
-        }
-        async with session.post(
-            f"{CLOB_BASE_URL}/auth/api-key",
-            json=req_body,
-        ) as resp:
-            if resp.status not in (200, 201):
-                text = await resp.text()
-                raise Exception(f"CLOB auth/api-key failed ({resp.status}): {text}")
-            data = await resp.json()
-
-        return CLOBCredentials(
-            api_key=data["apiKey"],
-            secret=data["secret"],
-            passphrase=data["passphrase"],
+        pk = private_key if private_key.startswith("0x") else "0x" + private_key
+        client = ClobClient(
+            host=CLOB_BASE_URL,
+            key=pk,
+            chain_id=137,
         )
-
-    def _sign_clob_request(self, creds: CLOBCredentials, wallet_address: str, method: str, path: str, body: str = "") -> dict:
-        """Create HMAC headers for authenticated CLOB requests."""
-        timestamp = str(int(time.time()))
-        message = f"{timestamp}{method}{path}{body}"
-        signature = base64.b64encode(
-            hmac.new(
-                creds.secret.encode(),
-                message.encode(),
-                hashlib.sha256,
-            ).digest()
-        ).decode()
-
-        return {
-            "POLY_ADDRESS": wallet_address,
-            "POLY_SIGNATURE": signature,
-            "POLY_TIMESTAMP": timestamp,
-            "POLY_NONCE": "0",
-            "POLY_API_KEY": creds.api_key,
-            "POLY_PASSPHRASE": creds.passphrase,
-            "Content-Type": "application/json",
-        }
+        # Create or derive API credentials
+        client.set_api_creds(client.create_or_derive_api_creds())
+        return client
 
     async def place_order(
         self,
@@ -319,85 +233,35 @@ class PolymarketClient:
         amount: float,
         price: float,
     ) -> OrderResult:
-        """Place an EIP-712 signed order on the CLOB.
-
-        Args:
-            private_key: Wallet private key for signing.
-            token_id: Polymarket token ID.
-            side: "BUY" or "SELL".
-            amount: USDC amount to spend (for BUY) or shares to sell (for SELL).
-            price: Limit price per share.
-        """
+        """Place an order using the official py-clob-client SDK."""
         try:
-            account = Account.from_key(private_key)
-            wallet_address = account.address
+            from py_clob_client.clob_types import OrderArgs, OrderType
+            from py_clob_client.order_builder.constants import BUY, SELL
 
-            creds = await self.create_api_credentials(private_key)
+            client = self._get_clob_client(private_key)
 
             size = amount / price if side == "BUY" else amount
-            salt = secrets.randbelow(10**18)
-            maker_amount = int(size * price * 1e6) if side == "BUY" else int(size * 1e6)
-            taker_amount = int(size * 1e6) if side == "BUY" else int(size * price * 1e6)
+            order_side = BUY if side == "BUY" else SELL
 
-            order_data = {
-                "salt": salt,
-                "maker": wallet_address,
-                "signer": wallet_address,
-                "taker": "0x0000000000000000000000000000000000000000",
-                "tokenId": int(token_id),
-                "makerAmount": maker_amount,
-                "takerAmount": taker_amount,
-                "expiration": 0,
-                "nonce": 0,
-                "feeRateBps": 0,
-                "side": 0 if side == "BUY" else 1,
-                "signatureType": 0,
-            }
-
-            # Sign the EIP-712 order
-            signable = encode_typed_data(
-                self.ORDER_DOMAIN,
-                self.ORDER_TYPES,
-                order_data,
+            order_args = OrderArgs(
+                price=price,
+                size=size,
+                side=order_side,
+                token_id=token_id,
             )
-            signed = account.sign_message(signable)
 
-            order_payload = {
-                "tokenID": token_id,
-                "price": str(price),
-                "size": str(size),
-                "side": side,
-                "type": "GTC",
-                "feeRateBps": 0,
-                "nonce": "0",
-                "signature": "0x" + signed.signature.hex(),
-                "owner": wallet_address,
-                "orderType": "GTC",
-            }
+            signed_order = client.create_order(order_args)
+            resp = client.post_order(signed_order, OrderType.GTC)
 
-            body = json.dumps(order_payload)
-            path = "/order"
-            headers = self._sign_clob_request(creds, wallet_address, "POST", path, body)
-
-            session = await self._get_session()
-            async with session.post(
-                f"{CLOB_BASE_URL}{path}",
-                data=body,
-                headers=headers,
-            ) as resp:
-                data = await resp.json()
-
-                if resp.status in (200, 201):
-                    return OrderResult(
-                        success=True,
-                        order_id=data.get("orderID", data.get("id", "")),
-                        status=data.get("status", "placed"),
-                    )
-                else:
-                    return OrderResult(
-                        success=False,
-                        error=data.get("error", data.get("message", f"HTTP {resp.status}")),
-                    )
+            if resp and resp.get("success"):
+                return OrderResult(
+                    success=True,
+                    order_id=resp.get("orderID", resp.get("id", "")),
+                    status=resp.get("status", "placed"),
+                )
+            else:
+                error_msg = resp.get("errorMsg", resp.get("error", "Unknown error")) if resp else "No response"
+                return OrderResult(success=False, error=str(error_msg))
 
         except Exception as e:
             logger.error(f"place_order error: {e}")

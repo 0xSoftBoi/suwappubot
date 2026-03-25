@@ -1,5 +1,3 @@
-'use client';
-
 import { forwardRef } from 'react';
 
 interface PanelProps {
@@ -8,17 +6,20 @@ interface PanelProps {
   children: React.ReactNode;
 }
 
-const Panel = forwardRef<HTMLElement, PanelProps>(({ id, className = '', children }, ref) => {
-  return (
-    <section
-      ref={ref}
-      id={id}
-      className={`gsap-panel ${className}`}
-    >
-      {children}
-    </section>
-  );
-});
+const Panel = forwardRef<HTMLDivElement, PanelProps>(
+  ({ id, className = '', children }, ref) => {
+    return (
+      <div
+        ref={ref}
+        id={id}
+        className={`gsap-panel ${className}`}
+      >
+        {children}
+      </div>
+    );
+  }
+);
 
 Panel.displayName = 'Panel';
+
 export default Panel;

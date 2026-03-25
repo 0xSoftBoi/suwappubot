@@ -6,7 +6,7 @@ Enables social trading where users can:
 - Copy trades automatically or with notifications
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, JSON, Index
 from sqlalchemy.orm import relationship
 
@@ -134,10 +134,10 @@ class CopyFollow(Base):
     
     def check_daily_limit(self, amount_usd: float) -> bool:
         """Check if amount fits within daily limit."""
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         if not self.last_daily_reset or self.last_daily_reset.date() < today:
             self.daily_copied_usd = 0.0
-            self.last_daily_reset = datetime.utcnow()
+            self.last_daily_reset = datetime.now(timezone.utc)
         
         return (self.daily_copied_usd + amount_usd) <= self.daily_limit_usd
     

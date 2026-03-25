@@ -1,166 +1,95 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import gsap from 'gsap';
-import { ScrollToPlugin } from 'gsap/ScrollToPlugin';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useScrollContext } from './HorizontalScroll';
 
-gsap.registerPlugin(ScrollToPlugin, ScrollTrigger);
-
-const NAV_LINKS = [
-  { label: 'Infra', panel: 1 },
-  { label: 'Interfaces', panel: 2 },
-  { label: 'Terminal', href: 'https://terminal.suwappu.bot' },
-];
+const NUM_PANELS = 4;
 
 export default function Navigation() {
   const [scrolled, setScrolled] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [activePanel, setActivePanel] = useState(0);
+  const { progressRef } = useScrollContext();
+  const rafRef = useRef<number>(0);
+
+  // Track vertical scroll for background change
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 50);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // RAF loop to read progressRef and determine active dot
+  const updateActivePanel = useCallback(() => {
+    const progress = progressRef.current ?? 0;
+    const panel = Math.min(
+      NUM_PANELS - 1,
+      Math.floor(progress * NUM_PANELS)
+    );
+    setActivePanel(panel);
+    rafRef.current = requestAnimationFrame(updateActivePanel);
+  }, [progressRef]);
 
   useEffect(() => {
-    const fn = () => setScrolled(window.scrollY > 40);
-    window.addEventListener('scroll', fn, { passive: true });
-    return () => window.removeEventListener('scroll', fn);
-  }, []);
-
-  // Track scroll progress for the progress bar
-  useEffect(() => {
-    const updateProgress = () => {
-      const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
-      if (scrollHeight > 0) {
-        setProgress(window.scrollY / scrollHeight);
-      }
-    };
-    window.addEventListener('scroll', updateProgress, { passive: true });
-    return () => window.removeEventListener('scroll', updateProgress);
-  }, []);
-
-  const scrollToPanel = useCallback((panelIndex: number) => {
-    const panels = document.querySelectorAll('.gsap-panel');
-    if (panels[panelIndex]) {
-      // Calculate where to scroll based on horizontal scroll setup
-      const container = panels[0]?.parentElement?.parentElement;
-      if (!container) return;
-
-      const st = ScrollTrigger.getAll().find(t => t.vars.trigger === container);
-      if (st) {
-        // Horizontal scroll mode: calculate scroll position
-        const totalPanels = panels.length;
-        const scrollRange = st.end - st.start;
-        const targetScroll = st.start + (panelIndex / (totalPanels - 1)) * scrollRange;
-        gsap.to(window, { scrollTo: targetScroll, duration: 1.2, ease: 'back.inOut(1.2)' });
-      } else {
-        // Mobile / vertical fallback: scroll to element
-        panels[panelIndex].scrollIntoView({ behavior: 'smooth' });
-      }
-    }
-    setMobileOpen(false);
-  }, []);
+    rafRef.current = requestAnimationFrame(updateActivePanel);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [updateActivePanel]);
 
   return (
     <nav
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled ? 'glass shadow-md py-3' : 'py-5 bg-transparent'
+        scrolled
+          ? 'bg-[#07070e]/80 backdrop-blur-xl border-b border-white/[0.04]'
+          : 'bg-transparent'
       }`}
       aria-label="Main navigation"
     >
-      {/* Progress bar */}
-      <div className="absolute bottom-0 left-0 h-[2px] bg-gradient-to-r from-suwappu-magenta to-suwappu-purple transition-all duration-150" style={{ width: `${progress * 100}%` }} />
-
-      <div className="max-w-6xl mx-auto px-6 flex items-center justify-between">
-        <button
-          onClick={() => scrollToPanel(0)}
-          className="font-heading font-bold text-xl gradient-text"
+      <div className="max-w-none mx-auto px-6 lg:px-10 py-4 flex items-center justify-between">
+        {/* Logo */}
+        <a
+          href="#hero"
+          className="font-display font-bold text-lg text-noir-text hover:text-white transition-colors"
         >
-          Suwappu<sup className="ml-1 text-suwappu-dark-text-muted font-normal text-[9px]">すわっぷ</sup>
-        </button>
+          Suwappu
+        </a>
 
-        <div className="hidden md:flex items-center gap-8">
-          {NAV_LINKS.map((l) => (
-            'href' in l ? (
-              <a
-                key={l.label}
-                href={l.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="nav-link font-heading text-sm font-medium text-suwappu-dark-text-secondary hover:text-suwappu-magenta transition-colors"
-              >
-                {l.label}
-              </a>
-            ) : (
-              <button
-                key={l.label}
-                onClick={() => scrollToPanel(l.panel)}
-                className="nav-link font-heading text-sm font-medium text-suwappu-dark-text-secondary hover:text-suwappu-magenta transition-colors"
-              >
-                {l.label}
-              </button>
-            )
+        {/* Center: Panel indicator lines (hidden on mobile) */}
+        <div className="hidden md:flex items-center gap-1.5">
+          {Array.from({ length: NUM_PANELS }).map((_, i) => (
+            <span
+              key={i}
+              className={`h-[2px] rounded-full transition-all duration-500 ease-out ${
+                activePanel === i
+                  ? 'w-8 bg-[#ff2d78]'
+                  : activePanel > i
+                    ? 'w-3 bg-[#ff2d78]/30'
+                    : 'w-3 bg-white/[0.08]'
+              }`}
+            />
           ))}
-          <a
-            href="https://t.me/suwappu_bot"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-suwappu bg-suwappu-gradient text-white font-heading font-medium text-sm px-5 py-2 rounded-suwappu-pill shadow-suwappu-button hover:shadow-suwappu-button-hover"
-          >
-            Open @suwappu_bot
-          </a>
-          <a
-            href="https://docs.suwappu.bot"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-heading font-medium text-sm text-suwappu-dark-text-secondary hover:text-suwappu-magenta transition-colors font-mono"
-          >
-            Get SDK
-          </a>
         </div>
 
-        <button
-          onClick={() => setMobileOpen((v) => !v)}
-          className="md:hidden p-2 -mr-2"
-          aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
-          aria-expanded={mobileOpen}
-        >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d={mobileOpen ? 'M6 18L18 6M6 6l12 12' : 'M4 6h16M4 12h16M4 18h16'} />
-          </svg>
-        </button>
-      </div>
+        {/* Right: Links + CTA */}
+        <div className="flex items-center gap-6">
+          {/* Text links (hidden on mobile) */}
+          <a
+            href="#sdk"
+            className="hidden md:inline text-sm text-[#8a8a9c] hover:text-[#e8e6e3] transition-colors"
+          >
+            SDK
+          </a>
+          <a
+            href="#how-it-works"
+            className="hidden md:inline text-sm text-[#8a8a9c] hover:text-[#e8e6e3] transition-colors"
+          >
+            How it works
+          </a>
 
-      {/* Mobile menu — CSS transition instead of AnimatePresence */}
-      <div
-        className={`md:hidden overflow-hidden transition-all duration-300 ${
-          mobileOpen ? 'max-h-80 opacity-100' : 'max-h-0 opacity-0'
-        }`}
-      >
-        <div className="glass mx-4 mt-2 rounded-2xl p-6 space-y-3">
-          {NAV_LINKS.map((l) => (
-            'href' in l ? (
-              <a
-                key={l.label}
-                href={l.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block w-full text-left font-heading text-base font-medium py-2 text-suwappu-dark-text hover:text-suwappu-magenta transition-colors"
-              >
-                {l.label}
-              </a>
-            ) : (
-              <button
-                key={l.label}
-                onClick={() => scrollToPanel(l.panel)}
-                className="block w-full text-left font-heading text-base font-medium py-2 text-suwappu-dark-text hover:text-suwappu-magenta transition-colors"
-              >
-                {l.label}
-              </button>
-            )
-          ))}
+          {/* Pill CTA */}
           <a
             href="https://t.me/suwappu_bot"
             target="_blank"
             rel="noopener noreferrer"
-            className="block text-center btn-suwappu bg-suwappu-gradient text-white font-heading font-medium px-5 py-3 rounded-suwappu-pill mt-4"
+            className="bg-[#ff2d78] text-white rounded-full px-5 py-2 text-sm font-medium hover:bg-[#ff2d78]/90 transition-colors"
           >
             Open @suwappu_bot
           </a>

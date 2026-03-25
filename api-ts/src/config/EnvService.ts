@@ -58,6 +58,9 @@ export const EnvSchema = Schema.Struct({
 		default: () => '4Xxbeusi6NL46AtZQHJrPREtYFCByKE48oxrpLvWEWJh',
 	}),
 	FEE_BPS: Schema.optionalWith(Schema.NumberFromString, { default: () => 30 }), // 0.3% default
+
+	// Polymarket
+	POLYMARKET_CREDENTIAL_KEY: Schema.optional(Schema.String),
 })
 
 export type Env = Schema.Schema.Type<typeof EnvSchema>

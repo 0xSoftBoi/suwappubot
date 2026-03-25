@@ -18,7 +18,7 @@ import logging
 import asyncio
 import re
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -47,8 +47,9 @@ from bot.services.sniping import (
     snipe_executor,
     pump_fun_api,
 )
-from bot.services.sniping.snipe_executor import SnipeConfig as ExecutorConfig
+from bot.services.sniping.snipe_executor import SnipeConfig as ExecutorConfig, SnipeMode as ExecutorSnipeMode
 from bot.services.sniping.launch_detector import TokenLaunch, LaunchPlatform
+from bot.services.wallet import WalletService
 from bot.utils.rate_limiter import UserRateLimiter
 from bot.utils.tos_utils import enforce_tos
 from database.db import get_session
@@ -124,7 +125,7 @@ async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
         wallet = session.query(Wallet).filter(
             Wallet.user_id == db_user.id,
-            Wallet.chain == "solana",
+            Wallet.chain_type == "solana",
             Wallet.is_default == True,
         ).first()
 
@@ -330,8 +331,16 @@ async def amount_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     query = update.callback_query
     await query.answer()
 
-    amount = float(query.data.replace("snipe_amount_", ""))
-    context.user_data["snipe"]["sol_amount"] = amount
+    try:
+        amount = float(query.data.replace("snipe_amount_", ""))
+    except ValueError:
+        await query.edit_message_text("❌ Invalid amount.")
+        return ConversationHandler.END
+    snipe_data = context.user_data.get("snipe")
+    if not snipe_data:
+        await query.edit_message_text("❌ Session expired. Start again with /snipe")
+        return ConversationHandler.END
+    snipe_data["sol_amount"] = amount
 
     return await show_snipe_confirmation(update, context)
 
@@ -477,9 +486,27 @@ async def confirm_snipe_callback(update: Update, context: ContextTypes.DEFAULT_T
         session.commit()
         order_id = order.id
 
-    # Get wallet keypair (simplified - real implementation needs secure key retrieval)
-    # This would use the wallet service to decrypt the private key
     try:
+        # Get wallet and decrypt private key for signing
+        import base58
+        from solders.keypair import Keypair
+
+        wallet_service = WalletService()
+        with get_session() as session:
+            wallet = session.query(Wallet).filter(Wallet.id == wallet_id).first()
+            if not wallet:
+                raise Exception("Wallet not found")
+
+            private_key = wallet_service.get_private_key(wallet)
+
+        try:
+            key_bytes = base58.b58decode(private_key)
+        except Exception:
+            import json as _json
+            key_bytes = bytes(_json.loads(private_key))
+
+        keypair = Keypair.from_bytes(key_bytes)
+
         # Create launch object for the executor
         token = await pump_fun_api.get_token(token_mint)
         if token:
@@ -490,7 +517,7 @@ async def confirm_snipe_callback(update: Update, context: ContextTypes.DEFAULT_T
                 symbol=token.symbol,
                 creator=token.creator,
                 initial_liquidity_sol=0,
-                detected_at=datetime.utcnow(),
+                detected_at=datetime.now(timezone.utc),
                 bonding_curve=token.bonding_curve,
             )
         else:
@@ -501,39 +528,41 @@ async def confirm_snipe_callback(update: Update, context: ContextTypes.DEFAULT_T
                 symbol="",
                 creator="",
                 initial_liquidity_sol=0,
-                detected_at=datetime.utcnow(),
+                detected_at=datetime.now(timezone.utc),
             )
 
-        # TODO: Integrate actual snipe execution with wallet service
-        # result = await snipe_executor.execute_snipe(launch, keypair, config)
-        logger.warning(f"Snipe execution for {token_mint} is using SIMULATED results - not yet production-ready")
+        # Execute snipe via the executor
+        config = ExecutorConfig(
+            sol_amount=sol_amount,
+            slippage_bps=1000,
+            mode=ExecutorSnipeMode.INSTANT,
+            use_jito=True,
+        )
 
-        # Simulated success - replace with actual execution
-        result_success = True
-        result_signature = "simulated_signature_" + token_mint[:8]
-        result_tokens = 1000000000  # Simulated
+        result = await snipe_executor.execute_snipe(launch, keypair, config)
 
         # Update order in database
         with get_session() as session:
             order = session.query(SnipeOrder).filter(SnipeOrder.id == order_id).first()
             if order:
-                if result_success:
+                if result.success:
                     order.status = SnipeStatus.CONFIRMED.value
-                    order.tx_signature = result_signature
-                    order.tokens_received = str(result_tokens)
-                    order.executed_at = datetime.utcnow()
+                    order.tx_signature = result.signature or ""
+                    order.tokens_received = str(int(result.tokens_received))
+                    order.executed_at = datetime.now(timezone.utc)
                 else:
                     order.status = SnipeStatus.FAILED.value
-                    order.error_message = "Execution failed"
+                    order.error_message = result.error or "Execution failed"
                 session.commit()
 
-        if result_success:
+        if result.success:
             await query.edit_message_text(
                 f"*Snipe Successful!*\n\n"
                 f"Token: `{token_mint[:8]}...{token_mint[-4:]}`\n"
-                f"Spent: {format_sol(sol_amount)} SOL\n"
-                f"Received: ~{format_token_amount(result_tokens)} tokens\n\n"
-                f"[View on Solscan](https://solscan.io/tx/{result_signature})",
+                f"Spent: {format_sol(result.sol_spent)} SOL\n"
+                f"Received: ~{format_token_amount(int(result.tokens_received))} tokens\n"
+                f"Execution: {result.execution_time_ms:.0f}ms\n\n"
+                f"[View on Solscan](https://solscan.io/tx/{result.signature})",
                 parse_mode="Markdown",
                 disable_web_page_preview=True,
             )
@@ -541,7 +570,7 @@ async def confirm_snipe_callback(update: Update, context: ContextTypes.DEFAULT_T
             await query.edit_message_text(
                 f"*Snipe Failed*\n\n"
                 f"Token: `{token_mint[:8]}...{token_mint[-4:]}`\n"
-                f"Error: Transaction failed\n\n"
+                f"Error: {result.error or 'Transaction failed'}\n\n"
                 f"Your SOL has not been spent.",
                 parse_mode="Markdown",
             )

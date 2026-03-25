@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, mock, spyOn } from 'bun:test'
-import { WebappApiClient } from './api'
+import { ApiClient } from './api'
 
 // Mock the telegram and auth modules
 import * as telegram from './telegram'
@@ -23,11 +23,11 @@ const mockFetch = mock(() => Promise.resolve({ ok: true, json: () => Promise.res
 // @ts-ignore
 globalThis.fetch = mockFetch
 
-describe('WebappApiClient', () => {
-  let api: WebappApiClient
+describe('ApiClient', () => {
+  let api: ApiClient
 
   beforeEach(() => {
-    api = new WebappApiClient('https://api.test.com')
+    api = new ApiClient('https://api.test.com')
     mockFetch.mockReset()
     mockFetch.mockImplementation(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }))
   })
@@ -231,7 +231,7 @@ describe('WebappApiClient', () => {
       expect(url).toContain('toChain=polygon')
       expect(url).toContain('fromToken=0xabc')
       expect(url).toContain('toToken=0xdef')
-      expect(url).toContain('fromAmount=1.5')
+      expect(url).toContain('fromAmount=1500000000000000000')
     })
   })
 

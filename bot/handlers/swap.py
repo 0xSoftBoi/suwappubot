@@ -218,7 +218,11 @@ async def quick_swap_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
 
-    idx = int(query.data.replace("quick_swap_", ""))
+    try:
+        idx = int(query.data.replace("quick_swap_", ""))
+    except ValueError:
+        await query.edit_message_text("❌ Invalid selection.")
+        return ConversationHandler.END
     quick_swaps = context.user_data.get("quick_swaps", [])
 
     if idx >= len(quick_swaps):
@@ -345,9 +349,13 @@ async def select_from_token(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await query.answer()
     
     token_symbol = query.data.replace("from_token_", "")
-    context.user_data["swap"]["from_token"] = token_symbol
-    
-    from_chain = context.user_data["swap"]["from_chain"]
+    swap_data = context.user_data.get("swap")
+    if not swap_data:
+        await query.edit_message_text("❌ Session expired. Start again with /s")
+        return ConversationHandler.END
+    swap_data["from_token"] = token_symbol
+
+    from_chain = swap_data["from_chain"]
     from_chain_config = get_chain_by_name(from_chain)
     
     text = (
@@ -411,13 +419,17 @@ async def select_to_chain(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text("❌ Invalid chain. Please try again.")
         return ConversationHandler.END
     
-    context.user_data["swap"]["to_chain"] = chain_name
-    
+    swap_data = context.user_data.get("swap")
+    if not swap_data:
+        await query.edit_message_text("❌ Session expired. Start again with /s")
+        return ConversationHandler.END
+    swap_data["to_chain"] = chain_name
+
     # Get available tokens
     tokens = get_tokens_for_chain(chain_name)
 
-    from_chain = context.user_data["swap"]["from_chain"]
-    from_token = context.user_data["swap"]["from_token"]
+    from_chain = swap_data["from_chain"]
+    from_token = swap_data["from_token"]
     from_chain_config = get_chain_by_name(from_chain)
 
     # Fetch user balances on destination chain to sort tokens
@@ -485,9 +497,11 @@ async def select_to_token(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await query.answer()
     
     token_symbol = query.data.replace("to_token_", "")
-    context.user_data["swap"]["to_token"] = token_symbol
-    
-    swap_data = context.user_data["swap"]
+    swap_data = context.user_data.get("swap")
+    if not swap_data:
+        await query.edit_message_text("❌ Session expired. Start again with /s")
+        return ConversationHandler.END
+    swap_data["to_token"] = token_symbol
     from_chain_config = get_chain_by_name(swap_data["from_chain"])
     to_chain_config = get_chain_by_name(swap_data["to_chain"])
     
@@ -599,18 +613,25 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 async def show_wallet_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show multi-wallet selection screen."""
-    swap_data = context.user_data["swap"]
-    user_id = context.user_data["user_id"]
+    swap_data = context.user_data.get("swap")
+    user_id = context.user_data.get("user_id")
+    if not swap_data or not user_id:
+        msg = "❌ Session expired. Start again with /s"
+        if update.callback_query:
+            await update.callback_query.edit_message_text(msg)
+        else:
+            await update.message.reply_text(msg)
+        return ConversationHandler.END
     from_chain_config = get_chain_by_name(swap_data["from_chain"])
     chain_type = from_chain_config.chain_type.value
-    
+
     with get_session() as session:
         wallets = session.query(Wallet).filter(
             Wallet.user_id == user_id,
             Wallet.chain_type == chain_type,
             Wallet.is_active == True,
         ).all()
-        
+
         if not wallets:
             await update.message.reply_text("❌ No wallets found. Please add one first.")
             return ConversationHandler.END
@@ -653,8 +674,15 @@ async def toggle_wallet_callback(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
     
-    wallet_id = int(query.data.replace("swap_toggle_wallet_", ""))
-    swap_data = context.user_data["swap"]
+    try:
+        wallet_id = int(query.data.replace("swap_toggle_wallet_", ""))
+    except ValueError:
+        await query.edit_message_text("❌ Invalid wallet.")
+        return ConversationHandler.END
+    swap_data = context.user_data.get("swap")
+    if not swap_data:
+        await query.edit_message_text("❌ Session expired. Start again with /s")
+        return ConversationHandler.END
     
     if "selected_wallets" not in swap_data:
         swap_data["selected_wallets"] = []
@@ -674,8 +702,11 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
     query = update.callback_query
     await query.answer()
     
-    swap_data = context.user_data["swap"]
-    user_id = context.user_data["user_id"]
+    swap_data = context.user_data.get("swap")
+    user_id = context.user_data.get("user_id")
+    if not swap_data or not user_id:
+        await query.edit_message_text("❌ Session expired. Start again with /s")
+        return ConversationHandler.END
     selected_wallet_ids = swap_data.get("selected_wallets", [])
     
     if not selected_wallet_ids:
@@ -720,7 +751,7 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         num_wallets = len(selected_wallet_ids)
         total_fee_usd = fee_usd * num_wallets
         total_from_human = quote.from_amount_human * num_wallets
-        _provider_names = {"layerzero": "Stargate V2", "lifi": "LI.FI", "jupiter": "Jupiter", "cow": "CoW Protocol", "cctp": "Circle CCTP", "ccip": "Chainlink CCIP"}
+        _provider_names = {"layerzero": "Stargate V2", "lifi": "LI.FI", "jupiter": "Jupiter", "cow": "CoW Protocol", "cctp": "Circle CCTP", "ccip": "Chainlink CCIP", "sunswap": "SunSwap V2", "okx_dex": "OKX DEX"}
         provider_display = _provider_names.get(quote.provider, quote.provider.upper())
 
         # NEW: Token Security Analysis
@@ -765,6 +796,7 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         return CONFIRM_SWAP
         
     except SwapError as e:
+        logger.error(f"Quote failed for user {context.user_data.get('user_id')}: {e}", exc_info=True)
         await query.edit_message_text(
             f"❌ Error getting quote: {str(e)}",
             reply_markup=InlineKeyboardMarkup([
@@ -774,6 +806,7 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         )
         return ConversationHandler.END
     except Exception as e:
+        logger.error(f"Quote unexpected error for user {context.user_data.get('user_id')}: {e}", exc_info=True)
         await query.edit_message_text(
             f"❌ Unexpected error: {str(e)}",
             reply_markup=InlineKeyboardMarkup([
@@ -950,6 +983,7 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         
     except SwapError as e:
+        logger.error(f"Swap execution failed for user {context.user_data.get('user_id')}: {e}", exc_info=True)
         await query.edit_message_text(
             f"❌ Swap failed: {str(e)}",
             reply_markup=InlineKeyboardMarkup([
@@ -958,6 +992,7 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             ]),
         )
     except Exception as e:
+        logger.error(f"Swap unexpected error for user {context.user_data.get('user_id')}: {e}", exc_info=True)
         await query.edit_message_text(
             f"❌ Unexpected error: {str(e)}",
             reply_markup=InlineKeyboardMarkup([
@@ -1082,7 +1117,11 @@ async def check_swap_status(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not allowed:
         return
     
-    swap_id = int(query.data.replace("swap_status_", ""))
+    try:
+        swap_id = int(query.data.replace("swap_status_", ""))
+    except ValueError:
+        await query.edit_message_text("❌ Invalid swap reference.")
+        return
     
     with get_session() as session:
         swap_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()

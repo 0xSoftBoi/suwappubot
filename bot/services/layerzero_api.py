@@ -37,6 +37,7 @@ LZ_ENDPOINT_IDS = {
     "mantle": 30181,
     "scroll": 30214,
     "gnosis": 30145,
+    "tempo": 0,  # TODO: Update when LayerZero deploys on Tempo mainnet
 }
 
 # Stargate V2 pool addresses per chain (USDC, USDT, ETH)
@@ -79,6 +80,11 @@ STARGATE_V2_POOLS = {
         "USDC": "0xAc290Ad4e0c891FDc295ca4F0a6214cf6dC6acDC",
         "USDT": "0xB715B85682B731dB9D5063187C450095c91C57FC",
         "ETH": "0x4c1d3Fc3fC3c177c3b633427c2F769276c547463",
+    },
+    "tempo": {
+        # TODO: Add Stargate V2 pool addresses when deployed on Tempo
+        # "USDC": "0x...",
+        # "USDT": "0x...",
     },
 }
 
@@ -293,7 +299,8 @@ class LayerZeroAPI:
                 w3.eth.block_number  # quick connectivity test
                 web3 = w3
                 break
-            except Exception:
+            except Exception as e:
+                logger.debug(f"LayerZero RPC failed: {e}")
                 continue
         if web3 is None:
             raise LayerZeroError(f"All RPCs failed for {src_chain}")
@@ -334,6 +341,7 @@ class LayerZeroAPI:
             "arbitrum": 2000, "optimism": 2000, "base": 2000,
             "avalanche": 35, "fantom": 0.5, "linea": 2000,
             "mantle": 0.5, "scroll": 2000, "gnosis": 1,
+            "tempo": 1,  # Gas is in USD stablecoins, so 1 USD = 1 USD
         }
         native_price = native_prices.get(src_chain.lower(), 2000)
         native_fee_eth = float(web3.from_wei(native_fee, "ether"))
