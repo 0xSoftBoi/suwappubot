@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { motion, useInView } from 'framer-motion';
+import Terminal from './Terminal';
 
 /* ================================================================
    Data
@@ -251,34 +252,7 @@ export default function Overlay() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.2, ease: [0.25, 0.4, 0.25, 1] }}
           >
-            <div className="code-block">
-              <div className="code-block__header">
-                <span className="code-block__dot code-block__dot--red" />
-                <span className="code-block__dot code-block__dot--yellow" />
-                <span className="code-block__dot code-block__dot--green" />
-                <span className="code-block__filename">index.ts</span>
-                <div className="code-block__tabs">
-                  {SDK_TABS.map((tab) => (
-                    <button
-                      key={tab.key}
-                      onClick={() => setActiveTab(tab.key)}
-                      className={`code-block__tab ${activeTab === tab.key ? 'code-block__tab--active' : ''}`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <motion.pre
-                key={activeTab}
-                className="code-block__body"
-                initial={{ opacity: 0, x: 8 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.25 }}
-              >
-                {SDK_EXAMPLES[activeTab]}
-              </motion.pre>
-            </div>
+            <Terminal />
           </motion.div>
         </div>
       </section>
@@ -328,7 +302,41 @@ export default function Overlay() {
             </p>
           </Reveal>
 
-          <Reveal delay={0.2}>
+          {/* SDK code examples */}
+          <Reveal delay={0.15}>
+            <div className="code-block" style={{ marginTop: '2rem', background: '#111' }}>
+              <div className="code-block__header" style={{ borderColor: '#222' }}>
+                <span className="code-block__dot code-block__dot--red" />
+                <span className="code-block__dot code-block__dot--yellow" />
+                <span className="code-block__dot code-block__dot--green" />
+                <span className="code-block__filename">index.ts</span>
+                <div className="code-block__tabs">
+                  {SDK_TABS.map((tab) => (
+                    <button
+                      key={tab.key}
+                      onClick={() => setActiveTab(tab.key)}
+                      className={`code-block__tab ${activeTab === tab.key ? 'code-block__tab--active' : ''}`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <motion.pre
+                key={activeTab}
+                className="code-block__body"
+                initial={{ opacity: 0, x: 8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.25 }}
+              >
+                {SDK_EXAMPLES[activeTab]}
+              </motion.pre>
+            </div>
+          </Reveal>
+
+          {/* All tools grid */}
+          <Reveal delay={0.3}>
+            <h3 style={{ color: '#999', fontSize: '0.8125rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '3rem', marginBottom: '0.5rem' }}>All 13 tools</h3>
             <div className="tools-grid">
               {TOOLS.map((tool) => (
                 <div key={tool.name} className="tool">
