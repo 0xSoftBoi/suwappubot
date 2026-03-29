@@ -59,7 +59,7 @@ jobs:
           # Test SSH
           echo "Testing SSH..."
           ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
-            -i /tmp/key.pem ubuntu@23.21.184.77 "echo SSH_SUCCESS; uptime" 2>&1 || echo "SSH not ready yet"
+            -i /tmp/key.pem ubuntu@${{ secrets.EC2_HOST_PROD }} "echo SSH_SUCCESS; uptime" 2>&1 || echo "SSH not ready yet"
 
       - name: Save key to GitHub secrets
         env:

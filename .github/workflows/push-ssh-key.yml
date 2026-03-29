@@ -35,4 +35,4 @@ jobs:
 
           echo "Waiting for command..."
           sleep 10
-          echo "Done. Try: ssh -i ~/.ssh/suwappu-bot-key ubuntu@23.21.184.77"
+          echo "Done. Try: ssh -i ~/.ssh/suwappu-bot-key ubuntu@\$EC2_HOST_PROD"
