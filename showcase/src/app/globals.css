@@ -18,7 +18,7 @@ body {
 }
 
 ::selection {
-  background: #ff6b2b;
+  background: #f472b6;
   color: white;
 }
 
@@ -75,7 +75,7 @@ body {
   font-size: 0.875rem;
   font-weight: 600;
   color: white;
-  background: #ff6b2b;
+  background: #f472b6;
   padding: 0.5rem 1.25rem;
   border-radius: 50px;
   text-decoration: none;
@@ -83,8 +83,8 @@ body {
 }
 
 .nav__cta:hover {
-  background: #e85a1e;
-  box-shadow: 0 4px 16px rgba(255, 107, 43, 0.3);
+  background: #ec4899;
+  box-shadow: 0 4px 16px rgba(244, 114, 182, 0.3);
 }
 
 /* ================================================================
@@ -102,7 +102,7 @@ body {
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #ff6b2b;
+  color: #f472b6;
   margin-bottom: 0.75rem;
 }
 
@@ -154,7 +154,7 @@ body {
 }
 
 .hero__title-accent {
-  color: #ff6b2b;
+  color: #f472b6;
 }
 
 .hero__subtitle {
@@ -190,14 +190,14 @@ body {
 }
 
 .btn--primary {
-  background: #ff6b2b;
+  background: #f472b6;
   color: white;
-  box-shadow: 0 2px 8px rgba(255, 107, 43, 0.25);
+  box-shadow: 0 2px 8px rgba(244, 114, 182, 0.25);
 }
 
 .btn--primary:hover {
-  background: #e85a1e;
-  box-shadow: 0 4px 16px rgba(255, 107, 43, 0.35);
+  background: #ec4899;
+  box-shadow: 0 4px 16px rgba(244, 114, 182, 0.35);
   transform: translateY(-1px);
 }
 
@@ -284,8 +284,8 @@ body {
 }
 
 .code-block__tab--active {
-  color: #ff6b2b;
-  background: rgba(255, 107, 43, 0.1);
+  color: #f472b6;
+  background: rgba(244, 114, 182, 0.1);
 }
 
 .code-block__body {
@@ -347,8 +347,8 @@ body {
 }
 
 .step-card:hover {
-  border-color: #ff6b2b;
-  box-shadow: 0 4px 20px rgba(255, 107, 43, 0.08);
+  border-color: #f472b6;
+  box-shadow: 0 4px 20px rgba(244, 114, 182, 0.08);
   transform: translateY(-4px);
 }
 
@@ -356,7 +356,7 @@ body {
   font-family: var(--font-display);
   font-size: 2.5rem;
   font-weight: 700;
-  color: #ff6b2b;
+  color: #f472b6;
   line-height: 1;
   margin-bottom: 1rem;
 }
@@ -536,7 +536,7 @@ body {
 }
 
 .footer__list a:hover {
-  color: #ff6b2b;
+  color: #f472b6;
 }
 
 .footer__bottom {
@@ -570,7 +570,7 @@ body {
 .tool__name {
   font-family: var(--font-mono);
   font-size: 0.8125rem;
-  color: #ff6b2b;
+  color: #f472b6;
   white-space: nowrap;
 }
 

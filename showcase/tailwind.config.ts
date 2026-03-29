@@ -14,9 +14,9 @@ const config: Config = {
           text: '#1a1a1a',
           'text-2': '#6b6560',
           'text-3': '#9a9590',
-          accent: '#ff6b2b',
-          'accent-hover': '#e85a1e',
-          'accent-light': '#fff0e8',
+          accent: '#f472b6',
+          'accent-hover': '#ec4899',
+          'accent-light': '#fdf2f8',
           green: '#1a5c38',
           'green-light': '#e8f5ee',
           dark: '#1a1a1a',
@@ -36,8 +36,8 @@ const config: Config = {
       boxShadow: {
         'card': '0 1px 3px rgba(0,0,0,0.04), 0 4px 20px rgba(0,0,0,0.03)',
         'card-hover': '0 4px 12px rgba(0,0,0,0.06), 0 12px 40px rgba(0,0,0,0.04)',
-        'button': '0 2px 8px rgba(255,107,43,0.25)',
-        'button-hover': '0 4px 16px rgba(255,107,43,0.35)',
+        'button': '0 2px 8px rgba(244,114,182,0.25)',
+        'button-hover': '0 4px 16px rgba(244,114,182,0.35)',
       },
       keyframes: {
         'fade-up': {
