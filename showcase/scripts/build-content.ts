@@ -6,8 +6,9 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join, basename } from 'path';
 import matter from 'gray-matter';
 
-const GITBOOK_DIR = join(import.meta.dir, '../../gitbook');
-const OUTPUT_FILE = join(import.meta.dir, '../src/data/docs.json');
+const scriptDir = typeof import.meta.dir === 'string' ? import.meta.dir : new URL('.', import.meta.url).pathname;
+const GITBOOK_DIR = join(scriptDir, '../../gitbook');
+const OUTPUT_FILE = join(scriptDir, '../src/data/docs.json');
 
 type DocPage = {
   slug: string;
@@ -124,6 +125,16 @@ function parseSummary(): DocsData {
   if (currentSection) sections.push(currentSection);
 
   return { intro: introContent, sections };
+}
+
+// Skip if gitbook dir doesn't exist (e.g., Docker build with committed docs.json)
+if (!existsSync(GITBOOK_DIR)) {
+  if (existsSync(OUTPUT_FILE)) {
+    console.log('Gitbook not found, using committed docs.json');
+    process.exit(0);
+  }
+  console.error('Error: gitbook/ not found and no docs.json exists');
+  process.exit(1);
 }
 
 const data = parseSummary();
