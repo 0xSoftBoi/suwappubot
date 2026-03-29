@@ -208,52 +208,83 @@ export default function Overlay() {
   return (
     <main>
       {/* ── HERO ── */}
-      <section className="hero">
-        <div className="hero__inner">
-          <div>
-            <motion.div
-              initial={{ opacity: 0, y: 40 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.7, ease: [0.25, 0.4, 0.25, 1] }}
-            >
-              <p className="section__label">Cross-chain DEX infrastructure</p>
-              <h1 className="hero__title">
-                Swap anything.<br />
-                <span className="hero__title-accent">Everywhere.</span>
-              </h1>
-              <p className="hero__subtitle">
-                One SDK. Fifteen chains. Three lines of code. Install it, get a quote, swap. That&apos;s the whole thing.
-              </p>
-              <div className="hero__actions">
-                <motion.a
-                  href="https://t.me/suwappu_bot"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn btn--primary"
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.97 }}
-                >
-                  Open @suwappu_bot
-                </motion.a>
-                <motion.button
-                  className="btn btn--code"
-                  onClick={() => navigator.clipboard.writeText('bun add @suwappu/sdk')}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.97 }}
-                >
-                  <span className="prompt">$</span> bun add @suwappu/sdk
-                </motion.button>
-              </div>
-            </motion.div>
-          </div>
-
+      <section style={{ paddingTop: '7rem' }}>
+        <div className="section" style={{ textAlign: 'center', paddingBottom: '3rem' }}>
           <motion.div
             initial={{ opacity: 0, y: 40 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.2, ease: [0.25, 0.4, 0.25, 1] }}
+            transition={{ duration: 0.7, ease: [0.25, 0.4, 0.25, 1] }}
           >
-            <Terminal />
+            <p className="section__label">Cross-chain DEX infrastructure</p>
+            <h1 className="hero__title" style={{ textAlign: 'center', maxWidth: 700, margin: '0 auto 1.5rem' }}>
+              Swap anything.<br />
+              <span className="hero__title-accent">Everywhere.</span>
+            </h1>
+            <p className="hero__subtitle" style={{ textAlign: 'center', maxWidth: 560, margin: '0 auto 2rem' }}>
+              One SDK. Fifteen chains. Trading terminal, Telegram bot, REST API, MCP server — all in one platform.
+            </p>
+            <div className="hero__actions" style={{ justifyContent: 'center' }}>
+              <motion.a
+                href="https://terminal.suwappu.bot"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn--primary"
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+              >
+                Launch Terminal
+              </motion.a>
+              <motion.a
+                href="https://t.me/suwappu_bot"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn--secondary"
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+              >
+                Open @suwappu_bot
+              </motion.a>
+              <motion.button
+                className="btn btn--code"
+                onClick={() => navigator.clipboard.writeText('bun add @suwappu/sdk')}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+              >
+                <span className="prompt">$</span> bun add @suwappu/sdk
+              </motion.button>
+            </div>
           </motion.div>
+        </div>
+
+        {/* Live Terminal Embed */}
+        <motion.div
+          initial={{ opacity: 0, y: 60 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.3, ease: [0.25, 0.4, 0.25, 1] }}
+          className="terminal-embed"
+        >
+          <iframe
+            src="https://terminal.suwappu.bot"
+            title="Suwappu Trading Terminal"
+            className="terminal-embed__iframe"
+          />
+          <div className="terminal-embed__fade" />
+        </motion.div>
+      </section>
+
+      {/* ── SDK DEMO (terminal typewriter) ── */}
+      <section className="section" style={{ paddingTop: '2rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3rem', alignItems: 'center' }}>
+          <Reveal>
+            <p className="section__label">SDK in action</p>
+            <h2 className="section__heading">Three calls. Done.</h2>
+            <p className="section__body">
+              Install the SDK, get a quote, execute the swap. Non-custodial, MEV-shielded, across 15 chains.
+            </p>
+          </Reveal>
+          <Reveal delay={0.2}>
+            <Terminal />
+          </Reveal>
         </div>
       </section>
 

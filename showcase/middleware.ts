@@ -21,6 +21,7 @@ export function middleware(request: NextRequest) {
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: blob:",
     "connect-src 'self'",
+    "frame-src 'self' https://terminal.suwappu.bot",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
