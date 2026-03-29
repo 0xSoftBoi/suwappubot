@@ -1017,38 +1017,26 @@ body {
   font-family: var(--font-mono);
   font-size: 0.875em;
   background: #f5f0ea;
-  padding: 0.125rem 0.375rem;
+  padding: 0.2rem 0.4rem;
   border-radius: 4px;
-  color: #c2185b;
+  color: #7c3aed;
+  border: 1px solid #e5e0d8;
 }
 
 .doc-reader pre {
-  background: #0f0f11;
-  border-radius: 16px;
-  padding: 3rem 1.25rem 1.25rem;
+  background: #faf8f4;
+  border-radius: 12px;
+  padding: 1.25rem;
   overflow-x: auto;
   margin: 1.5rem 0;
   position: relative;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
-  border: 1px solid #222;
-}
-
-.doc-reader pre::before {
-  content: '';
-  position: absolute;
-  top: 12px;
-  left: 16px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #ff5f57;
-  box-shadow: 16px 0 0 #ffbd2e, 32px 0 0 #28c840;
+  border: 1px solid #e5e0d8;
 }
 
 .doc-reader pre code {
   background: none;
   padding: 0;
-  color: #d4d0c8;
+  color: #1a1a1a;
   font-size: 0.8125rem;
   line-height: 1.8;
 }
@@ -1057,11 +1045,11 @@ body {
 .doc-reader pre .copy-btn {
   position: absolute;
   top: 8px;
-  right: 12px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  right: 8px;
+  background: white;
+  border: 1px solid #e5e0d8;
   border-radius: 6px;
-  color: #888;
+  color: #9a9590;
   font-size: 0.6875rem;
   font-family: var(--font-mono);
   padding: 0.25rem 0.625rem;
@@ -1071,25 +1059,26 @@ body {
 }
 
 .doc-reader pre .copy-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ccc;
+  background: #f5f0ea;
+  color: #1a1a1a;
+  border-color: #d4cec4;
 }
 
 .doc-reader pre .copy-btn--copied {
-  color: #28c840;
-  border-color: rgba(40, 200, 64, 0.3);
+  color: #16a34a;
+  border-color: rgba(22, 163, 74, 0.3);
 }
 
-/* Syntax highlighting — brighter for dark bg */
-.hl-kw { color: #d4a0ff; }
-.hl-str { color: #a5d6a7; }
-.hl-num { color: #ffab70; }
-.hl-bool { color: #ff6b8a; }
-.hl-comment { color: #7a8099; font-style: italic; }
-.hl-key { color: #80deea; }
-.hl-flag { color: #90caf9; }
-.hl-url { color: #80cbc4; }
-.hl-suwappu { color: #f472b6; font-weight: 600; }
+/* Syntax highlighting — light bg */
+.hl-kw { color: #7c3aed; }
+.hl-str { color: #16a34a; }
+.hl-num { color: #ea580c; }
+.hl-bool { color: #dc2626; }
+.hl-comment { color: #9a9590; font-style: italic; }
+.hl-key { color: #0891b2; }
+.hl-flag { color: #2563eb; }
+.hl-url { color: #0d9488; }
+.hl-suwappu { color: #ec4899; font-weight: 600; }
 
 .doc-reader table {
   width: 100%;
