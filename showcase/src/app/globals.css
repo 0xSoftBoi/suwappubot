@@ -981,8 +981,10 @@ body {
   font-size: 1.5rem;
   font-weight: 700;
   letter-spacing: -0.02em;
-  margin-top: 2.5rem;
+  margin-top: 3rem;
   margin-bottom: 1rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e5e0d8;
   color: #1a1a1a;
 }
 
@@ -1022,10 +1024,24 @@ body {
 
 .doc-reader pre {
   background: #1a1a1a;
-  border-radius: 12px;
-  padding: 1.25rem;
+  border-radius: 16px;
+  padding: 2.75rem 1.25rem 1.25rem;
   overflow-x: auto;
   margin: 1.5rem 0;
+  position: relative;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+.doc-reader pre::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow: 16px 0 0 #ffbd2e, 32px 0 0 #28c840;
 }
 
 .doc-reader pre code {
@@ -1052,20 +1068,41 @@ body {
   border-collapse: collapse;
   margin: 1.5rem 0;
   font-size: 0.875rem;
+  background: white;
+  border: 1px solid #e5e0d8;
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 .doc-reader th {
   text-align: left;
   font-weight: 600;
   padding: 0.75rem 1rem;
-  border-bottom: 2px solid #e5e0d8;
+  background: #f5f0ea;
+  border-bottom: 1px solid #e5e0d8;
   color: #1a1a1a;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .doc-reader td {
   padding: 0.625rem 1rem;
-  border-bottom: 1px solid #e5e0d8;
+  border-bottom: 1px solid #f0ebe4;
   color: #3a3530;
+}
+
+.doc-reader tr:last-child td {
+  border-bottom: none;
+}
+
+.doc-reader td code {
+  font-size: 0.8125rem;
+  background: #f5f0ea;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  color: #f472b6;
+  font-weight: 500;
 }
 
 .doc-reader ul,

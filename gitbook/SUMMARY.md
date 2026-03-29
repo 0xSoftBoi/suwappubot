@@ -31,6 +31,9 @@
 * [POST /keys/rotate](api-reference/keys.md)
 * [Webhooks](api-reference/webhooks.md)
 * [POST /execute](api-reference/execute.md)
+* [Perpetual Futures](api-reference/perps.md)
+* [Prediction Markets](api-reference/predict.md)
+* [Lending Markets](api-reference/lend.md)
 * [Error Codes](api-reference/errors.md)
 
 ## Protocols
@@ -58,3 +61,6 @@
 * [Trading CLI](guides/trading-cli.md)
 * [Natural Language Trade CLI](guides/natural-language-cli.md)
 * [MCP Portfolio Advisor](guides/mcp-portfolio-advisor.md)
+* [Perpetual Futures Trading](guides/perps-trading.md)
+* [Prediction Markets](guides/prediction-markets.md)
+* [Limit Orders](guides/limit-orders-dca.md)

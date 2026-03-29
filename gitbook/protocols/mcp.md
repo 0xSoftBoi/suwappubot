@@ -50,7 +50,7 @@ Before calling any tools, initialize the MCP session:
     },
     "serverInfo": {
       "name": "suwappu",
-      "version": "0.4.0"
+      "version": "0.5.0"
     }
   }
 }
@@ -73,7 +73,7 @@ List all available tools and their input schemas:
 
 **Response:**
 
-Returns an array of tool definitions. See the tool reference below for all six tools.
+Returns an array of tool definitions. See the tool reference below for all eleven tools.
 
 ## Available Tools
 
@@ -231,6 +231,115 @@ Search and list available tokens.
 }
 ```
 
+### 7. get_tempo_tokens
+
+Get the TIP-20 token list on Tempo mainnet (chain ID 4217). Includes USD-denominated stablecoins.
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 9,
+  "method": "tools/call",
+  "params": {
+    "name": "get_tempo_tokens",
+    "arguments": {}
+  }
+}
+```
+
+### 8. browse_mpp_directory
+
+Browse the Micropayment Protocol (MPP) service directory. Discover available services and their payment requirements.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `category` | string | No | Filter by service category |
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "method": "tools/call",
+  "params": {
+    "name": "browse_mpp_directory",
+    "arguments": {
+      "category": "ai"
+    }
+  }
+}
+```
+
+### 9. predict_markets
+
+Search and browse prediction markets on Polymarket with live prices and volumes.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | No | Search term |
+| `category` | string | No | Filter by category |
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "method": "tools/call",
+  "params": {
+    "name": "predict_markets",
+    "arguments": {
+      "category": "crypto"
+    }
+  }
+}
+```
+
+### 10. predict_market_detail
+
+Get detailed market information with live CLOB midpoint prices for each outcome.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `market_id` | string | Yes | Polymarket condition ID |
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 12,
+  "method": "tools/call",
+  "params": {
+    "name": "predict_market_detail",
+    "arguments": {
+      "market_id": "0x1234abcd..."
+    }
+  }
+}
+```
+
+### 11. perps_markets
+
+List available perpetual futures markets on HyperLiquid with current prices and funding rates.
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 13,
+  "method": "tools/call",
+  "params": {
+    "name": "perps_markets",
+    "arguments": {}
+  }
+}
+```
+
 ## Response Format
 
 All `tools/call` responses return content as an array of parts:
@@ -266,7 +375,7 @@ Run directly:
 SUWAPPU_API_KEY=suwappu_sk_YOUR_KEY npx @suwappu/mcp-server
 ```
 
-The stdio server connects to the Suwappu API and exposes the same six tools as the remote endpoint. Use this when your MCP client requires a local process (e.g., Claude Desktop with stdio transport).
+The stdio server connects to the Suwappu API and exposes the same eleven tools as the remote endpoint. Use this when your MCP client requires a local process (e.g., Claude Desktop with stdio transport).
 
 ## Claude Desktop Configuration
 
