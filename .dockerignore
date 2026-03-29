@@ -63,7 +63,7 @@ api-ts/
 packages/
 .claude/
 desktop/
-terminal/
+# terminal/ — needed for terminal Docker build from root context
 dashboard/
 cpp/
 examples/
