@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { prepare, layoutWithLines, type PreparedTextWithSegments } from '@chenglou/pretext';
 import { FONTS } from '../../lib/pretext/pretextFonts';
@@ -12,15 +12,13 @@ type Props = {
 
 export default function DocsReader({ html, title }: Props) {
   const readerRef = useRef<HTMLDivElement>(null);
-  const [pretextReady, setPretextReady] = useState(false);
 
-  // Use pretext to measure and optimize code block heights
+  // Enhance code blocks with pretext-measured heights (progressive enhancement)
   useEffect(() => {
     const el = readerRef.current;
     if (!el) return;
 
     document.fonts.ready.then(() => {
-      // Measure all code blocks for accurate height
       const codeBlocks = el.querySelectorAll('pre code');
       codeBlocks.forEach((block) => {
         const text = block.textContent ?? '';
@@ -29,19 +27,17 @@ export default function DocsReader({ html, title }: Props) {
         const parentPre = block.parentElement;
         if (!parentPre) return;
 
-        const width = parentPre.clientWidth - 40; // subtract padding
+        const width = parentPre.clientWidth - 40;
         if (width <= 0) return;
 
         try {
           const prepared = prepare(text, FONTS.mono.small);
           const result = layoutWithLines(prepared as PreparedTextWithSegments, width, 22);
-          parentPre.style.minHeight = `${result.height + 40}px`; // add padding
+          parentPre.style.minHeight = `${result.height + 40}px`;
         } catch {
-          // Pretext may fail on some content — gracefully degrade
+          // Graceful degradation — content shows fine without pretext
         }
       });
-
-      setPretextReady(true);
     });
   }, [html]);
 
@@ -49,9 +45,9 @@ export default function DocsReader({ html, title }: Props) {
     <motion.div
       ref={readerRef}
       className="doc-reader"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: pretextReady ? 1 : 0.6 }}
-      transition={{ duration: 0.3 }}
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: [0.25, 0.4, 0.25, 1] }}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
