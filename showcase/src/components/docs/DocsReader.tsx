@@ -1,9 +1,6 @@
 'use client';
 
-import { useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { prepare, layoutWithLines, type PreparedTextWithSegments } from '@chenglou/pretext';
-import { FONTS } from '../../lib/pretext/pretextFonts';
 
 type Props = {
   html: string;
@@ -11,39 +8,8 @@ type Props = {
 };
 
 export default function DocsReader({ html, title }: Props) {
-  const readerRef = useRef<HTMLDivElement>(null);
-
-  // Enhance code blocks with pretext-measured heights (progressive enhancement)
-  useEffect(() => {
-    const el = readerRef.current;
-    if (!el) return;
-
-    document.fonts.ready.then(() => {
-      const codeBlocks = el.querySelectorAll('pre code');
-      codeBlocks.forEach((block) => {
-        const text = block.textContent ?? '';
-        if (!text) return;
-
-        const parentPre = block.parentElement;
-        if (!parentPre) return;
-
-        const width = parentPre.clientWidth - 40;
-        if (width <= 0) return;
-
-        try {
-          const prepared = prepare(text, FONTS.mono.small);
-          const result = layoutWithLines(prepared as PreparedTextWithSegments, width, 22);
-          parentPre.style.minHeight = `${result.height + 40}px`;
-        } catch {
-          // Graceful degradation — content shows fine without pretext
-        }
-      });
-    });
-  }, [html]);
-
   return (
     <motion.div
-      ref={readerRef}
       className="doc-reader"
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}

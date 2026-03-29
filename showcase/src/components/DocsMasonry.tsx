@@ -1,9 +1,7 @@
 'use client';
 
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef } from 'react';
 import { motion, useInView } from 'framer-motion';
-import { usePretextMasonry } from '../lib/pretext/usePretextMasonry';
-import { FONTS } from '../lib/pretext/pretextFonts';
 import docsData from '../data/docs.json';
 
 const SECTION_ICONS: Record<string, string> = {
@@ -14,8 +12,6 @@ const SECTION_ICONS: Record<string, string> = {
   'chains-reference': 'CH',
   'guides': 'GD',
 };
-
-const CARD_PADDING = 32;
 
 const staggerContainer = {
   hidden: {},
@@ -30,33 +26,6 @@ const staggerItem = {
 export default function DocsMasonry() {
   const containerRef = useRef<HTMLDivElement>(null);
   const inView = useInView(containerRef, { once: true, margin: '-80px' });
-  const [containerWidth, setContainerWidth] = useState(0);
-
-  // Measure container width
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const observer = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width ?? 0;
-      // Approximate single card width in a 3-col grid
-      const gap = 24;
-      const cols = width > 768 ? 3 : width > 480 ? 2 : 1;
-      const cardWidth = (width - gap * (cols - 1)) / cols;
-      setContainerWidth(cardWidth);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  const masonryItems = docsData.sections.map((section) => ({
-    title: section.title,
-    description: section.pages.length > 0 ? section.pages[0].description : '',
-    titleFont: FONTS.display.regular,
-    bodyFont: FONTS.body.regular,
-  }));
-
-  const { measurements, ready } = usePretextMasonry(masonryItems, containerWidth, CARD_PADDING);
 
   return (
     <section className="section">
@@ -76,33 +45,29 @@ export default function DocsMasonry() {
         ref={containerRef}
         className="docs-masonry"
         initial="hidden"
-        animate={inView && ready ? 'visible' : 'hidden'}
+        animate={inView ? 'visible' : 'hidden'}
         variants={staggerContainer}
       >
-        {docsData.sections.map((section, i) => {
-          const height = measurements[i]?.totalHeight;
-          return (
-            <motion.a
-              key={section.id}
-              href={`/docs#${section.id}`}
-              className="docs-masonry__card"
-              variants={staggerItem}
-              whileHover={{ y: -4, borderColor: '#f472b6' }}
-              style={height ? { minHeight: height } : undefined}
-            >
-              <div className="docs-masonry__icon">
-                {SECTION_ICONS[section.id] || section.title[0]}
-              </div>
-              <h3 className="docs-masonry__title">{section.title}</h3>
-              <p className="docs-masonry__desc">
-                {section.pages.length > 0 ? section.pages[0].description : ''}
-              </p>
-              <span className="docs-masonry__count">
-                {section.pages.length} {section.pages.length === 1 ? 'page' : 'pages'}
-              </span>
-            </motion.a>
-          );
-        })}
+        {docsData.sections.map((section) => (
+          <motion.a
+            key={section.id}
+            href={`/docs#${section.id}`}
+            className="docs-masonry__card"
+            variants={staggerItem}
+            whileHover={{ y: -4, borderColor: '#f472b6' }}
+          >
+            <div className="docs-masonry__icon">
+              {SECTION_ICONS[section.id] || section.title[0]}
+            </div>
+            <h3 className="docs-masonry__title">{section.title}</h3>
+            <p className="docs-masonry__desc">
+              {section.pages.length > 0 ? section.pages[0].description : ''}
+            </p>
+            <span className="docs-masonry__count">
+              {section.pages.length} {section.pages.length === 1 ? 'page' : 'pages'}
+            </span>
+          </motion.a>
+        ))}
       </motion.div>
     </section>
   );
