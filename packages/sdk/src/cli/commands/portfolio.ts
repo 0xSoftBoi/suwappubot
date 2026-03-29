@@ -7,12 +7,13 @@ export function registerPortfolio(program: Command) {
   program
     .command("portfolio")
     .description("Show portfolio balances")
+    .requiredOption("--wallet <address>", "Wallet address")
     .option("--chain <chain>", "Filter by chain")
     .option("--json", "Output raw JSON")
     .action(async (opts) => {
       const client = getClient();
       const balances = await withSpinner("Fetching portfolio", () =>
-        client.getPortfolio(opts.chain)
+        client.getPortfolio(opts.wallet, opts.chain)
       );
       if (opts.json) {
         console.log(JSON.stringify(balances, null, 2));

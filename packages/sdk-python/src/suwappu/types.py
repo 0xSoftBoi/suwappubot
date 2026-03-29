@@ -42,9 +42,11 @@ class TokenPrice(BaseModel):
 
 
 class Chain(BaseModel):
+    id: int | str
+    key: str
     name: str
-    chain_id: int
-    status: Literal["active", "degraded", "down"]
+    native_token: str
+    type: str
 
 
 class Token(BaseModel):

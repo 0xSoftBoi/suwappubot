@@ -8,7 +8,7 @@ import type {
   PerpPosition,
   Quote,
 } from "@suwappu/openclaw";
-import { theme, statusColor, changeColor } from "./colors.js";
+import { theme, changeColor } from "./colors.js";
 import {
   formatUsd,
   formatPercent,
@@ -18,11 +18,11 @@ import {
 
 export function chainTable(chains: Chain[]): string {
   const table = new Table({
-    head: ["Chain", "Chain ID", "Status"],
+    head: ["Chain", "Chain ID", "Type", "Native Token"],
     style: { head: ["cyan"] },
   });
   for (const c of chains) {
-    table.push([c.name, c.chainId, statusColor(c.status)(c.status)]);
+    table.push([c.name, c.id, c.type, c.native_token]);
   }
   return table.toString();
 }

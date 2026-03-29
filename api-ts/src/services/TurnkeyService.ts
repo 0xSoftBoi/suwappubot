@@ -95,7 +95,18 @@ export const TurnkeyServiceLive = Layer.effect(
 						const response = await turnkeyClient.apiClient().createSubOrganization({
 							organizationId: env.TURNKEY_ORGANIZATION_ID!,
 							subOrganizationName: subOrgName,
-							rootUsers: [],
+							rootUsers: [
+								{
+									userName: `user-${telegramUserId}`,
+									apiKeys: [
+										{
+											apiKeyName: `key-${telegramUserId}`,
+											publicKey: env.TURNKEY_API_PUBLIC_KEY!,
+										},
+									],
+									authenticators: [],
+								},
+							],
 							rootQuorumThreshold: 1,
 							wallet: {
 								walletName: 'Default Wallet',
@@ -228,7 +239,18 @@ export const TurnkeyServiceLive = Layer.effect(
 						const response = await turnkeyClient.apiClient().createSubOrganization({
 							organizationId: env.TURNKEY_ORGANIZATION_ID!,
 							subOrganizationName: subOrgName,
-							rootUsers: [],
+							rootUsers: [
+								{
+									userName: `agent-${agentId}`,
+									apiKeys: [
+										{
+											apiKeyName: `agent-${agentId}-key`,
+											publicKey: env.TURNKEY_API_PUBLIC_KEY!,
+										},
+									],
+									authenticators: [],
+								},
+							],
 							rootQuorumThreshold: 1,
 							wallet: {
 								walletName: `agent-${agentId}-wallet`,

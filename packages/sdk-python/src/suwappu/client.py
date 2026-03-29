@@ -77,9 +77,9 @@ class SuwappuClient:
             "POST",
             "/v1/agent/quote",
             json={
-                "fromToken": from_token,
-                "toToken": to_token,
-                "amount": amount,
+                "from_token": from_token,
+                "to_token": to_token,
+                "amount": str(amount),
                 "chain": chain,
             },
         )
@@ -99,7 +99,7 @@ class SuwappuClient:
         data = await self._request(
             "POST",
             "/v1/agent/swap",
-            json={"quoteId": quote_id},
+            json={"quote_id": quote_id},
         )
         return SwapResult(
             tx_hash=data.get("txHash", ""),
@@ -107,8 +107,10 @@ class SuwappuClient:
             chain=data.get("chain", ""),
         )
 
-    async def get_portfolio(self, chain: str | None = None) -> list[TokenBalance]:
-        params = {"chain": chain} if chain else None
+    async def get_portfolio(self, wallet_address: str, chain: str | None = None) -> list[TokenBalance]:
+        params: dict[str, str] = {"wallet_address": wallet_address}
+        if chain:
+            params["chain"] = chain
         data = await self._request("GET", "/v1/agent/portfolio", params=params)
         return [
             TokenBalance(
@@ -117,31 +119,36 @@ class SuwappuClient:
                 usd_value=b.get("usdValue", ""),
                 chain=b.get("chain", ""),
             )
-            for b in data
+            for b in data.get("balances", [])
         ]
 
     async def get_prices(
-        self, token: str, chain: str | None = None
-    ) -> TokenPrice:
-        params: dict[str, str] = {"token": token}
+        self, symbols: str, chain: str | None = None
+    ) -> list[TokenPrice]:
+        params: dict[str, str] = {"symbols": symbols}
         if chain:
             params["chain"] = chain
         data = await self._request("GET", "/v1/agent/prices", params=params)
-        return TokenPrice(
-            token=data.get("token", ""),
-            price_usd=data.get("priceUsd", ""),
-            change_24h=data.get("change24h", ""),
-        )
+        return [
+            TokenPrice(
+                token=token,
+                price_usd=str(info.get("usd", "")),
+                change_24h=str(info.get("change_24h", 0)),
+            )
+            for token, info in data.get("prices", {}).items()
+        ]
 
     async def list_chains(self) -> list[Chain]:
         data = await self._request("GET", "/v1/agent/chains")
         return [
             Chain(
+                id=c.get("id", 0),
+                key=c.get("key", ""),
                 name=c.get("name", ""),
-                chain_id=c.get("chainId", 0),
-                status=c.get("status", "active"),
+                native_token=c.get("native_token", ""),
+                type=c.get("type", ""),
             )
-            for c in data
+            for c in data.get("chains", [])
         ]
 
     async def list_tokens(self, chain: str) -> list[Token]:

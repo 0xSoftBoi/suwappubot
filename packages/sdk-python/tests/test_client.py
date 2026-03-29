@@ -86,9 +86,9 @@ class TestGetQuote:
             "/v1/agent/quote",
             params=None,
             json={
-                "fromToken": "ETH",
-                "toToken": "USDC",
-                "amount": 1.0,
+                "from_token": "ETH",
+                "to_token": "USDC",
+                "amount": "1.0",
                 "chain": "arbitrum",
             },
         )
@@ -112,7 +112,7 @@ class TestExecuteSwap:
             "POST",
             "/v1/agent/swap",
             params=None,
-            json={"quoteId": "q1"},
+            json={"quote_id": "q1"},
         )
         assert isinstance(result, SwapResult)
         assert result.tx_hash == "0xabc"
@@ -122,18 +122,18 @@ class TestExecuteSwap:
 class TestGetPortfolio:
     @pytest.mark.asyncio
     async def test_gets_without_chain(self, client: SuwappuClient) -> None:
-        mock_data = [
+        mock_data = {"balances": [
             {"token": "ETH", "balance": "1.5", "usdValue": "4270", "chain": "arbitrum"}
-        ]
+        ]}
 
         with patch.object(
             client._client, "request", new_callable=AsyncMock
         ) as mock_req:
             mock_req.return_value = _mock_response(mock_data)
-            portfolio = await client.get_portfolio()
+            portfolio = await client.get_portfolio("0xabc123")
 
         mock_req.assert_called_once_with(
-            "GET", "/v1/agent/portfolio", params=None, json=None
+            "GET", "/v1/agent/portfolio", params={"wallet_address": "0xabc123"}, json=None
         )
         assert len(portfolio) == 1
         assert isinstance(portfolio[0], TokenBalance)
@@ -144,34 +144,35 @@ class TestGetPortfolio:
         with patch.object(
             client._client, "request", new_callable=AsyncMock
         ) as mock_req:
-            mock_req.return_value = _mock_response([])
-            await client.get_portfolio("solana")
+            mock_req.return_value = _mock_response({"balances": []})
+            await client.get_portfolio("0xabc123", "solana")
 
         mock_req.assert_called_once_with(
-            "GET", "/v1/agent/portfolio", params={"chain": "solana"}, json=None
+            "GET", "/v1/agent/portfolio", params={"wallet_address": "0xabc123", "chain": "solana"}, json=None
         )
 
 
 class TestGetPrices:
     @pytest.mark.asyncio
-    async def test_gets_with_token(self, client: SuwappuClient) -> None:
-        mock_data = {"token": "ETH", "priceUsd": "2847.32", "change24h": "-1.2"}
+    async def test_gets_with_symbols(self, client: SuwappuClient) -> None:
+        mock_data = {"prices": {"ETH": {"usd": 2847.32, "change_24h": -1.2}}}
 
         with patch.object(
             client._client, "request", new_callable=AsyncMock
         ) as mock_req:
             mock_req.return_value = _mock_response(mock_data)
-            price = await client.get_prices("ETH")
+            prices = await client.get_prices("ETH")
 
         mock_req.assert_called_once_with(
-            "GET", "/v1/agent/prices", params={"token": "ETH"}, json=None
+            "GET", "/v1/agent/prices", params={"symbols": "ETH"}, json=None
         )
-        assert isinstance(price, TokenPrice)
-        assert price.price_usd == "2847.32"
+        assert len(prices) == 1
+        assert isinstance(prices[0], TokenPrice)
+        assert prices[0].price_usd == "2847.32"
 
     @pytest.mark.asyncio
     async def test_gets_with_chain_filter(self, client: SuwappuClient) -> None:
-        mock_data = {"token": "ETH", "priceUsd": "2847", "change24h": "0"}
+        mock_data = {"prices": {"ETH": {"usd": 2847, "change_24h": 0}}}
 
         with patch.object(
             client._client, "request", new_callable=AsyncMock
@@ -182,7 +183,7 @@ class TestGetPrices:
         mock_req.assert_called_once_with(
             "GET",
             "/v1/agent/prices",
-            params={"token": "ETH", "chain": "arbitrum"},
+            params={"symbols": "ETH", "chain": "arbitrum"},
             json=None,
         )
 
@@ -190,7 +191,7 @@ class TestGetPrices:
 class TestListChains:
     @pytest.mark.asyncio
     async def test_gets_correct_path(self, client: SuwappuClient) -> None:
-        mock_data = [{"name": "arbitrum", "chainId": 42161, "status": "active"}]
+        mock_data = {"chains": [{"id": 42161, "key": "arbitrum", "name": "Arbitrum", "native_token": "ETH", "type": "evm"}]}
 
         with patch.object(
             client._client, "request", new_callable=AsyncMock
@@ -203,8 +204,8 @@ class TestListChains:
         )
         assert len(chains) == 1
         assert isinstance(chains[0], Chain)
-        assert chains[0].name == "arbitrum"
-        assert chains[0].chain_id == 42161
+        assert chains[0].name == "Arbitrum"
+        assert chains[0].id == 42161
 
 
 class TestListTokens:
@@ -264,8 +265,8 @@ class TestTypes:
         assert s.status == "confirmed"
 
     def test_chain_model(self) -> None:
-        c = Chain(name="arb", chain_id=42161, status="active")
-        assert c.chain_id == 42161
+        c = Chain(id=42161, key="arbitrum", name="Arbitrum", native_token="ETH", type="evm")
+        assert c.id == 42161
 
     def test_token_model(self) -> None:
         t = Token(symbol="ETH", address="0x0", decimals=18, chain="arb")

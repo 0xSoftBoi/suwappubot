@@ -49,9 +49,11 @@ export interface TokenPrice {
 }
 
 export interface Chain {
+  id: number | string;
+  key: string;
   name: string;
-  chainId: number;
-  status: "active" | "degraded" | "down";
+  native_token: string;
+  type: string;
 }
 
 export interface Token {
@@ -210,17 +212,27 @@ export function createClient(config?: SuwappuConfig) {
       });
     },
 
-    async getPortfolio(chain?: string): Promise<TokenBalance[]> {
-      const q = chain ? `?chain=${chain}` : "";
-      return request<TokenBalance[]>(`/v1/agent/portfolio${q}`, config);
-    },
-
-    async getPrices(token: string, chain?: string): Promise<TokenPrice> {
-      const q = chain ? `&chain=${chain}` : "";
-      return request<TokenPrice>(
-        `/v1/agent/prices?token=${token}${q}`,
+    async getPortfolio(walletAddress: string, chain?: string): Promise<TokenBalance[]> {
+      const params = new URLSearchParams({ wallet_address: walletAddress });
+      if (chain) params.set("chain", chain);
+      const res = await request<{ balances: TokenBalance[] }>(
+        `/v1/agent/portfolio?${params.toString()}`,
         config
       );
+      return res.balances;
+    },
+
+    async getPrices(symbols: string, chain?: string): Promise<TokenPrice[]> {
+      const q = chain ? `&chain=${chain}` : "";
+      const res = await request<{ prices: Record<string, { usd: number; change_24h: number | null }> }>(
+        `/v1/agent/prices?symbols=${encodeURIComponent(symbols)}${q}`,
+        config
+      );
+      return Object.entries(res.prices).map(([token, data]) => ({
+        token,
+        priceUsd: String(data.usd),
+        change24h: String(data.change_24h ?? 0),
+      }));
     },
 
     async listChains(): Promise<Chain[]> {

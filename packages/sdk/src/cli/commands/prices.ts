@@ -11,7 +11,7 @@ export function registerPrices(program: Command) {
     .action(async (tokens: string[], opts) => {
       const client = getClient();
       const prices = await withSpinner("Fetching prices", () =>
-        Promise.all(tokens.map((t) => client.getPrices(t)))
+        client.getPrices(tokens.join(","))
       );
       if (opts.json) {
         console.log(JSON.stringify(prices, null, 2));
