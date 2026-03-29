@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import { motion, useInView } from 'framer-motion';
 import Terminal from './Terminal';
+import DocsMasonry from './DocsMasonry';
 
 /* ================================================================
    Data
@@ -444,6 +445,9 @@ export default function Overlay() {
         </StaggerReveal>
       </section>
 
+      {/* ── DOCS MASONRY ── */}
+      <DocsMasonry />
+
       {/* ── CTA ── */}
       <section className="section cta-section">
         <Reveal>
@@ -466,9 +470,7 @@ export default function Overlay() {
               Open @suwappu_bot
             </motion.a>
             <motion.a
-              href="https://docs.suwappu.bot"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="/docs"
               className="btn btn--secondary"
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
@@ -502,9 +504,9 @@ export default function Overlay() {
           <div>
             <h3 className="footer__heading">Developers</h3>
             <ul className="footer__list">
-              <li><a href="https://docs.suwappu.bot" target="_blank" rel="noopener noreferrer">Documentation</a></li>
+              <li><a href="/docs">Documentation</a></li>
               <li><a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer">GitHub</a></li>
-              <li><a href="#">API Reference</a></li>
+              <li><a href="/docs/api-reference/overview">API Reference</a></li>
               <li><a href="#">Changelog</a></li>
             </ul>
           </div>

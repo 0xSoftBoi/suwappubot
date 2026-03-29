@@ -70,6 +70,7 @@ htmlcov/
 # User data backups
 backups/
 data/
+!showcase/src/data/
 
 # C++ Build artifacts
 *.dylib

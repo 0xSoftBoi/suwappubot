@@ -17,7 +17,7 @@ export default function Navigation() {
       <div className="nav__links">
         <a href="#how-it-works" className="nav__link">How it works</a>
         <a href="#features" className="nav__link">Features</a>
-        <a href="https://docs.suwappu.bot" target="_blank" rel="noopener noreferrer" className="nav__link">Docs</a>
+        <a href="/docs" className="nav__link">Docs</a>
         <a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer" className="nav__link">GitHub</a>
         <a href="https://t.me/suwappu_bot" target="_blank" rel="noopener noreferrer" className="nav__cta">
           Open Bot
