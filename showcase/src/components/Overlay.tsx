@@ -2,8 +2,6 @@
 
 import { useState, useRef } from 'react';
 import { motion, useInView } from 'framer-motion';
-import { usePlay } from '@/contexts/Play';
-import Terminal from './Terminal';
 
 /* ================================================================
    Data
@@ -88,73 +86,74 @@ const STATS = [
 
 const FEATURES = [
   {
+    icon: '🌐',
     title: 'Cross-chain by default',
     description:
-      'Ethereum, Base, Arbitrum, Polygon, Solana, BSC, Avalanche, and more. One SDK handles routing across all of them.',
+      'Ethereum, Base, Arbitrum, Solana, Polygon, BSC, Avalanche, and 8 more. One SDK handles routing across all of them.',
   },
   {
+    icon: '🛡️',
     title: 'MEV-shielded routing',
     description:
-      'Every swap is protected from sandwich attacks and front-running. Your agent gets the price it was quoted.',
+      'Every swap is protected from sandwich attacks. Your agent gets the price it was quoted — no front-running, no funny business.',
   },
   {
+    icon: '🔑',
     title: 'Non-custodial execution',
     description:
-      'Keys never leave your agent. Suwappu routes the trade — your agent signs and submits.',
+      'Keys never leave your agent. Suwappu routes the trade — your agent signs and submits. We never touch your funds.',
   },
   {
+    icon: '🔌',
     title: 'Multi-platform access',
     description:
-      'SDK, Telegram bot, MCP server, REST API. Your agent picks the interface that fits.',
+      'TypeScript SDK, Telegram bot, MCP server, REST API. Pick the interface that fits your workflow.',
   },
 ];
 
 const STEPS = [
   {
-    num: '01',
+    num: '1',
     title: 'Install',
-    desc: 'One command. Your agent connects to 15 chains instantly.',
+    desc: 'One command. Fifteen chains. Zero config.',
     code: `$ bun add @suwappu/sdk\n✓ installed @suwappu/sdk@0.1.0`,
-    color: '#ff2d78',
   },
   {
-    num: '02',
+    num: '2',
     title: 'Quote',
-    desc: 'Best route. MEV-shielded. Gas optimized across 9 routers.',
+    desc: 'Best route across 9 routers. MEV-shielded. Gas optimized.',
     code: `const quote = await client.getQuote({
   from: 'USDC', to: 'ETH',
   chain: 'base', amount: '1000'
 })
 // → 1 ETH via Uniswap V3 | Gas ~$0.12`,
-    color: '#a855f7',
   },
   {
-    num: '03',
+    num: '3',
     title: 'Swap',
-    desc: 'Non-custodial. On-chain. Confirmed in seconds.',
+    desc: 'Non-custodial. On-chain. Done.',
     code: `const tx = await client.swap(quote)
 // ✓ Tx 0x3f8a...c291 confirmed
 // status: success`,
-    color: '#6366f1',
   },
 ];
 
 /* ================================================================
-   Scroll-triggered reveal — Framer Motion
+   Scroll-triggered reveal
    ================================================================ */
 const revealVariants = {
-  hidden: { opacity: 0, y: 40, filter: 'blur(8px)' },
-  visible: { opacity: 1, y: 0, filter: 'blur(0px)' },
+  hidden: { opacity: 0, y: 32 },
+  visible: { opacity: 1, y: 0 },
 };
 
 const staggerContainer = {
   hidden: {},
-  visible: { transition: { staggerChildren: 0.12 } },
+  visible: { transition: { staggerChildren: 0.1 } },
 };
 
 const staggerItem = {
-  hidden: { opacity: 0, y: 30, filter: 'blur(6px)' },
-  visible: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.7, ease: [0.25, 0.4, 0.25, 1] } },
+  hidden: { opacity: 0, y: 24 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.25, 0.4, 0.25, 1] } },
 };
 
 function Reveal({ children, className = '', delay = 0 }: {
@@ -163,7 +162,7 @@ function Reveal({ children, className = '', delay = 0 }: {
   delay?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const inView = useInView(ref, { margin: '-80px' });
+  const inView = useInView(ref, { once: true, margin: '-80px' });
 
   return (
     <motion.div
@@ -172,7 +171,7 @@ function Reveal({ children, className = '', delay = 0 }: {
       initial="hidden"
       animate={inView ? 'visible' : 'hidden'}
       variants={revealVariants}
-      transition={{ duration: 0.8, delay, ease: [0.25, 0.4, 0.25, 1] }}
+      transition={{ duration: 0.6, delay, ease: [0.25, 0.4, 0.25, 1] }}
     >
       {children}
     </motion.div>
@@ -184,7 +183,7 @@ function StaggerReveal({ children, className = '' }: {
   className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const inView = useInView(ref, { margin: '-60px' });
+  const inView = useInView(ref, { once: true, margin: '-60px' });
 
   return (
     <motion.div
@@ -200,316 +199,251 @@ function StaggerReveal({ children, className = '' }: {
 }
 
 /* ================================================================
-   Overlay
+   Main content
    ================================================================ */
 export default function Overlay() {
-  const { play, setPlay } = usePlay();
   const [activeTab, setActiveTab] = useState<TabKey>('swap');
 
   return (
-    <div className="overlay">
-      {/* Loader */}
-      <div className="loader loader--disappear" />
-
-      {/* ──────────── INTRO ──────────── */}
-      <div className={`intro ${play ? 'intro--disappear' : ''}`}>
-        <motion.h1
-          className="logo"
-          initial={{ opacity: 0, y: 60, filter: 'blur(12px)' }}
-          animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-          transition={{ duration: 1.8, ease: [0.25, 0.4, 0.25, 1] }}
-        >
-          suwappu
-        </motion.h1>
-        <motion.p
-          className="intro__scroll"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1.2, duration: 1 }}
-        >
-          Cross-chain DEX infrastructure
-        </motion.p>
-        <motion.button
-          className="explore"
-          onClick={() => setPlay(true)}
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 2, duration: 0.8, ease: [0.25, 0.4, 0.25, 1] }}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-        >
-          Explore
-        </motion.button>
-      </div>
-
-      {/* ──────────── SCROLLABLE CONTENT ──────────── */}
-      {play && (
-        <motion.div
-          className="scroll-content"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.8 }}
-        >
-
-          {/* ── HERO ── */}
-          <section className="sc-section sc-hero">
-            <Reveal className="sc-hero__left">
-              <span className="sc-label">Agent-driven DEX</span>
-              <h2 className="sc-hero__title">
-                Install the SDK,<br />get a quote, swap.
-              </h2>
-              <p className="sc-body">
-                Three calls. Non-custodial. Fifteen chains.
+    <main>
+      {/* ── HERO ── */}
+      <section className="hero">
+        <div className="hero__inner">
+          <div>
+            <motion.div
+              initial={{ opacity: 0, y: 40 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, ease: [0.25, 0.4, 0.25, 1] }}
+            >
+              <p className="section__label">Cross-chain DEX infrastructure</p>
+              <h1 className="hero__title">
+                Swap anything.<br />
+                <span className="hero__title-accent">Everywhere.</span>
+              </h1>
+              <p className="hero__subtitle">
+                One SDK. Fifteen chains. Three lines of code. Install it, get a quote, swap. That&apos;s the whole thing.
               </p>
-              <div className="sc-hero__actions">
+              <div className="hero__actions">
                 <motion.a
                   href="https://t.me/suwappu_bot"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="sc-btn sc-btn--primary"
-                  whileHover={{ scale: 1.04, boxShadow: '0 0 30px rgba(255, 45, 120, 0.4)' }}
+                  className="btn btn--primary"
+                  whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
                 >
                   Open @suwappu_bot
                 </motion.a>
                 <motion.button
-                  className="sc-btn sc-btn--code"
+                  className="btn btn--code"
                   onClick={() => navigator.clipboard.writeText('bun add @suwappu/sdk')}
-                  whileHover={{ scale: 1.02, borderColor: 'rgba(255,255,255,0.2)' }}
+                  whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.97 }}
                 >
-                  <span className="sc-btn__prompt">$</span> bun add @suwappu/sdk
+                  <span className="prompt">$</span> bun add @suwappu/sdk
                 </motion.button>
               </div>
-            </Reveal>
-            <Reveal className="sc-hero__right" delay={0.3}>
-              <Terminal />
-            </Reveal>
-          </section>
+            </motion.div>
+          </div>
 
-          {/* ── INFRASTRUCTURE ── */}
-          <section className="sc-section sc-infra">
-            <Reveal>
-              <span className="sc-label">Infrastructure</span>
-              <h2 className="sc-heading">
-                13 Tools. <span className="sc-gradient-text">One SDK.</span>
-              </h2>
-            </Reveal>
-
-            <div className="sc-bento">
-              {/* Code editor */}
-              <Reveal className="sc-bento__code" delay={0.1}>
-                <div className="sc-code-header">
-                  <span className="sc-dot sc-dot--red" />
-                  <span className="sc-dot sc-dot--yellow" />
-                  <span className="sc-dot sc-dot--green" />
-                  <span className="sc-code-filename">index.ts</span>
-                  <div className="sc-code-tabs">
-                    {SDK_TABS.map((tab) => (
-                      <button
-                        key={tab.key}
-                        onClick={() => setActiveTab(tab.key)}
-                        className={`sc-code-tab ${activeTab === tab.key ? 'sc-code-tab--active' : ''}`}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <motion.pre
-                  key={activeTab}
-                  className="sc-code-body"
-                  initial={{ opacity: 0, x: 8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  {SDK_EXAMPLES[activeTab]}
-                </motion.pre>
-              </Reveal>
-
-              {/* Stats */}
-              <StaggerReveal className="sc-bento__stats">
-                {STATS.map((stat) => (
-                  <motion.div key={stat.label} className="sc-stat" variants={staggerItem}>
-                    <span className="sc-stat__label">{stat.label}</span>
-                    <span className="sc-stat__value">{stat.value}</span>
-                  </motion.div>
-                ))}
-              </StaggerReveal>
-
-              {/* Install bar */}
-              <Reveal className="sc-bento__install" delay={0.3}>
-                <code>
-                  <span className="text-noir-text-3">$ </span>
-                  <span className="text-noir-text">bun add @suwappu/sdk</span>
-                </code>
-                <button
-                  onClick={() => navigator.clipboard.writeText('bun add @suwappu/sdk')}
-                  className="sc-copy-btn"
-                  aria-label="Copy install command"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75" />
-                  </svg>
-                </button>
-              </Reveal>
-
-              {/* Tools grid */}
-              <Reveal className="sc-bento__tools" delay={0.4}>
-                <h3 className="sc-tools-heading">All 13 tools</h3>
-                <StaggerReveal className="sc-tools-grid">
-                  {TOOLS.map((tool) => (
-                    <motion.div key={tool.name} className="sc-tool" variants={staggerItem}>
-                      <code className="sc-tool__name">{tool.name}</code>
-                      <span className="sc-tool__desc">{tool.desc}</span>
-                    </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, delay: 0.2, ease: [0.25, 0.4, 0.25, 1] }}
+          >
+            <div className="code-block">
+              <div className="code-block__header">
+                <span className="code-block__dot code-block__dot--red" />
+                <span className="code-block__dot code-block__dot--yellow" />
+                <span className="code-block__dot code-block__dot--green" />
+                <span className="code-block__filename">index.ts</span>
+                <div className="code-block__tabs">
+                  {SDK_TABS.map((tab) => (
+                    <button
+                      key={tab.key}
+                      onClick={() => setActiveTab(tab.key)}
+                      className={`code-block__tab ${activeTab === tab.key ? 'code-block__tab--active' : ''}`}
+                    >
+                      {tab.label}
+                    </button>
                   ))}
-                </StaggerReveal>
-              </Reveal>
+                </div>
+              </div>
+              <motion.pre
+                key={activeTab}
+                className="code-block__body"
+                initial={{ opacity: 0, x: 8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.25 }}
+              >
+                {SDK_EXAMPLES[activeTab]}
+              </motion.pre>
             </div>
-          </section>
+          </motion.div>
+        </div>
+      </section>
 
-          {/* ── HOW IT WORKS ── */}
-          <section className="sc-section sc-steps">
-            <Reveal>
-              <span className="sc-label" style={{ color: '#a855f7' }}>How it works</span>
-              <h2 className="sc-heading">Three calls. That&apos;s it.</h2>
-              <p className="sc-body sc-body--wide">
-                From zero to cross-chain swaps in under a minute.
-              </p>
-            </Reveal>
+      {/* ── STATS ── */}
+      <div className="section">
+        <div className="stats-bar">
+          {STATS.map((stat) => (
+            <div key={stat.label} className="stat">
+              <div className="stat__value">{stat.value}</div>
+              <div className="stat__label">{stat.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
 
-            <StaggerReveal className="sc-steps__grid">
-              {STEPS.map((step) => (
-                <motion.div
-                  key={step.num}
-                  className="sc-step"
-                  variants={staggerItem}
-                  whileHover={{ borderColor: `${step.color}33`, y: -4 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  <div className="sc-step__num" style={{ color: step.color }}>{step.num}</div>
-                  <h3 className="sc-step__title">{step.title}</h3>
-                  <p className="sc-step__desc">{step.desc}</p>
-                  <pre className="sc-step__code">{step.code}</pre>
-                </motion.div>
+      {/* ── HOW IT WORKS ── */}
+      <section id="how-it-works" className="section">
+        <Reveal>
+          <p className="section__label">How it works</p>
+          <h2 className="section__heading">Three calls. That&apos;s it.</h2>
+          <p className="section__body">
+            From zero to cross-chain swaps in under a minute. No config files, no provider setup, no chain management.
+          </p>
+        </Reveal>
+
+        <StaggerReveal className="steps-grid">
+          {STEPS.map((step) => (
+            <motion.div key={step.num} className="step-card" variants={staggerItem}>
+              <div className="step-card__num">{step.num}</div>
+              <h3 className="step-card__title">{step.title}</h3>
+              <p className="step-card__desc">{step.desc}</p>
+              <pre className="step-card__code">{step.code}</pre>
+            </motion.div>
+          ))}
+        </StaggerReveal>
+      </section>
+
+      {/* ── INFRASTRUCTURE (dark section) ── */}
+      <div className="dark-section">
+        <div className="section">
+          <Reveal>
+            <p className="section__label">Infrastructure</p>
+            <h2 className="section__heading">13 tools. One import.</h2>
+            <p className="section__body">
+              Swaps, quotes, portfolios, limit orders, DCA, perps, predictions, lending — all from a single SDK.
+            </p>
+          </Reveal>
+
+          <Reveal delay={0.2}>
+            <div className="tools-grid">
+              {TOOLS.map((tool) => (
+                <div key={tool.name} className="tool">
+                  <code className="tool__name">{tool.name}</code>
+                  <span className="tool__desc">{tool.desc}</span>
+                </div>
               ))}
-            </StaggerReveal>
-          </section>
+            </div>
+          </Reveal>
+        </div>
+      </div>
 
-          {/* ── FEATURES ── */}
-          <section className="sc-section sc-features">
-            <Reveal>
-              <span className="sc-label">Features</span>
-              <h2 className="sc-heading">
-                Built for agents,<br />ready for humans
-              </h2>
-            </Reveal>
+      {/* ── FEATURES ── */}
+      <section id="features" className="section">
+        <Reveal>
+          <p className="section__label">Features</p>
+          <h2 className="section__heading">
+            Built for agents.<br />Ready for humans.
+          </h2>
+        </Reveal>
 
-            <StaggerReveal className="sc-features__grid">
-              {FEATURES.map((feat, i) => (
-                <motion.div
-                  key={feat.title}
-                  className="sc-feature"
-                  variants={staggerItem}
-                  whileHover={{ borderColor: 'rgba(255,255,255,0.12)', y: -3 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  <span className="sc-feature__num">
-                    {String(i + 1).padStart(2, '0')}
-                  </span>
-                  <h3 className="sc-feature__title">{feat.title}</h3>
-                  <p className="sc-feature__desc">{feat.description}</p>
-                </motion.div>
-              ))}
-            </StaggerReveal>
-          </section>
+        <StaggerReveal className="features-grid">
+          {FEATURES.map((feat) => (
+            <motion.div
+              key={feat.title}
+              className="feature-card"
+              variants={staggerItem}
+              whileHover={{ y: -3 }}
+            >
+              <div className="feature-card__icon">{feat.icon}</div>
+              <h3 className="feature-card__title">{feat.title}</h3>
+              <p className="feature-card__desc">{feat.description}</p>
+            </motion.div>
+          ))}
+        </StaggerReveal>
+      </section>
 
-          {/* ── CTA ── */}
-          <section className="sc-section sc-cta">
-            <Reveal className="sc-cta__inner">
-              <h2 className="sc-cta__title">Your next swap is one line away</h2>
-              <p className="sc-body" style={{ textAlign: 'center', maxWidth: 520 }}>
-                Install the SDK, connect your agent, and start swapping across 15+ chains in minutes.
-              </p>
-              <code className="sc-cta__code">bun add @suwappu/sdk</code>
-              <div className="sc-cta__buttons">
-                <motion.a
-                  href="https://t.me/suwappu_bot"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="sc-btn sc-btn--primary"
-                  whileHover={{ scale: 1.04, boxShadow: '0 0 30px rgba(255, 45, 120, 0.4)' }}
-                  whileTap={{ scale: 0.97 }}
-                >
-                  Open @suwappu_bot
-                </motion.a>
-                <motion.a
-                  href="https://docs.suwappu.bot"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="sc-btn sc-btn--ghost"
-                  whileHover={{ scale: 1.04 }}
-                  whileTap={{ scale: 0.97 }}
-                >
-                  Read the docs
-                </motion.a>
-              </div>
-            </Reveal>
-          </section>
+      {/* ── CTA ── */}
+      <section className="section cta-section">
+        <Reveal>
+          <h2 className="section__heading" style={{ textAlign: 'center' }}>
+            Your next swap is<br />one line away.
+          </h2>
+          <p className="section__body" style={{ textAlign: 'center', margin: '0 auto 2rem' }}>
+            Install the SDK, connect your agent, and start swapping across 15 chains.
+          </p>
+          <code className="cta__code">bun add @suwappu/sdk</code>
+          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <motion.a
+              href="https://t.me/suwappu_bot"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn--primary"
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+            >
+              Open @suwappu_bot
+            </motion.a>
+            <motion.a
+              href="https://docs.suwappu.bot"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn--secondary"
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+            >
+              Read the docs
+            </motion.a>
+          </div>
+        </Reveal>
+      </section>
 
-          {/* ── FOOTER ── */}
-          <footer className="sc-footer">
-            <Reveal>
-              <div className="sc-footer__grid">
-                <div>
-                  <h3 className="sc-footer__heading">Product</h3>
-                  <ul className="sc-footer__list">
-                    <li><a href="https://t.me/suwappu_bot" target="_blank" rel="noopener noreferrer">Telegram Bot</a></li>
-                    <li><a href="#">Mini App</a></li>
-                    <li><a href="#">SDK</a></li>
-                    <li><a href="#">MCP Server</a></li>
-                    <li><a href="#">REST API</a></li>
-                  </ul>
-                </div>
-                <div>
-                  <h3 className="sc-footer__heading">Chains</h3>
-                  <ul className="sc-footer__list">
-                    <li><span>Ethereum</span></li>
-                    <li><span>Base</span></li>
-                    <li><span>Arbitrum</span></li>
-                    <li><span>Solana</span></li>
-                    <li><span>Polygon</span></li>
-                    <li><span>BSC</span></li>
-                    <li><span>Avalanche</span></li>
-                  </ul>
-                </div>
-                <div>
-                  <h3 className="sc-footer__heading">Developers</h3>
-                  <ul className="sc-footer__list">
-                    <li><a href="https://docs.suwappu.bot" target="_blank" rel="noopener noreferrer">Documentation</a></li>
-                    <li><a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer">GitHub</a></li>
-                    <li><a href="#">API Reference</a></li>
-                    <li><a href="#">Changelog</a></li>
-                  </ul>
-                </div>
-                <div>
-                  <h3 className="sc-footer__heading">Community</h3>
-                  <ul className="sc-footer__list">
-                    <li><a href="https://t.me/suwappu_bot" target="_blank" rel="noopener noreferrer">Telegram</a></li>
-                    <li><a href="https://x.com/suwappubot" target="_blank" rel="noopener noreferrer">X (Twitter)</a></li>
-                    <li><a href="#">Discord</a></li>
-                  </ul>
-                </div>
-              </div>
-              <div className="sc-footer__bottom">
-                <span className="sc-footer__logo">Suwappu</span>
-                <span className="sc-footer__copy">&copy; 2026 Suwappu. All rights reserved.</span>
-              </div>
-            </Reveal>
-          </footer>
-        </motion.div>
-      )}
-    </div>
+      {/* ── FOOTER ── */}
+      <footer className="footer">
+        <div className="footer__grid">
+          <div>
+            <div className="footer__brand">suwappu</div>
+            <p className="footer__tagline">
+              Cross-chain DEX infrastructure.<br />
+              Swap anything. Everywhere.
+            </p>
+          </div>
+          <div>
+            <h3 className="footer__heading">Product</h3>
+            <ul className="footer__list">
+              <li><a href="https://t.me/suwappu_bot" target="_blank" rel="noopener noreferrer">Telegram Bot</a></li>
+              <li><a href="#">Mini App</a></li>
+              <li><a href="#">SDK</a></li>
+              <li><a href="#">MCP Server</a></li>
+              <li><a href="#">REST API</a></li>
+            </ul>
+          </div>
+          <div>
+            <h3 className="footer__heading">Developers</h3>
+            <ul className="footer__list">
+              <li><a href="https://docs.suwappu.bot" target="_blank" rel="noopener noreferrer">Documentation</a></li>
+              <li><a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer">GitHub</a></li>
+              <li><a href="#">API Reference</a></li>
+              <li><a href="#">Changelog</a></li>
+            </ul>
+          </div>
+          <div>
+            <h3 className="footer__heading">Community</h3>
+            <ul className="footer__list">
+              <li><a href="https://t.me/suwappu_bot" target="_blank" rel="noopener noreferrer">Telegram</a></li>
+              <li><a href="https://x.com/suwappubot" target="_blank" rel="noopener noreferrer">X (Twitter)</a></li>
+              <li><a href="#">Discord</a></li>
+            </ul>
+          </div>
+        </div>
+        <div className="footer__bottom">
+          <span>&copy; 2026 Suwappu. All rights reserved.</span>
+          <span>Built with care in Tokyo.</span>
+        </div>
+      </footer>
+    </main>
   );
 }

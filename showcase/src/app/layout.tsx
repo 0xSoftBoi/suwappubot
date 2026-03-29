@@ -1,21 +1,21 @@
 import type { Metadata } from 'next';
-import { Syne, Outfit, JetBrains_Mono } from 'next/font/google';
+import { Space_Grotesk, DM_Sans, Fira_Code } from 'next/font/google';
 import './globals.css';
 
-const syne = Syne({
+const spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
   variable: '--font-display',
   display: 'swap',
 });
 
-const outfit = Outfit({
+const dmSans = DM_Sans({
   subsets: ['latin'],
-  weight: ['300', '400', '500', '600'],
+  weight: ['400', '500', '600', '700'],
   variable: '--font-sans',
   display: 'swap',
 });
 
-const jetbrainsMono = JetBrains_Mono({
+const firaCode = Fira_Code({
   subsets: ['latin'],
   weight: ['400', '500'],
   variable: '--font-mono',
@@ -23,32 +23,30 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Suwappu — Cross-chain DEX infrastructure',
+  title: 'Suwappu — Swap anything. Everywhere.',
   description:
-    'SDK, REST API, and Telegram bot for swapping tokens across 15 chains. bun add @suwappu/sdk',
+    'One SDK. Fifteen chains. Install @suwappu/sdk and swap tokens across every major chain in three lines of code.',
   keywords: [
     'cross-chain swap',
     'DEX SDK',
     'Telegram bot',
     'agent tooling',
-    'bun',
     'DeFi',
     'non-custodial',
     'MCP',
-    'OpenClaw',
   ],
   openGraph: {
-    title: 'Suwappu — Cross-chain DEX infrastructure',
+    title: 'Suwappu — Swap anything. Everywhere.',
     description:
-      'Six tools. Fifteen chains. bun add @suwappu/sdk and start building.',
+      'One SDK. Fifteen chains. Three lines of code. Start swapping.',
     type: 'website',
     siteName: 'Suwappu',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Suwappu — Cross-chain DEX infrastructure',
+    title: 'Suwappu — Swap anything. Everywhere.',
     description:
-      'Six tools. Fifteen chains. bun add @suwappu/sdk and start building.',
+      'One SDK. Fifteen chains. Three lines of code. Start swapping.',
   },
 };
 
@@ -58,12 +56,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${syne.variable} ${outfit.variable} ${jetbrainsMono.variable}`}>
+    <html lang="en" className={`${spaceGrotesk.variable} ${dmSans.variable} ${firaCode.variable}`}>
       <head>
         <link rel="icon" href="/favicon.ico" />
         <link rel="author" type="text/plain" href="/llms.txt" />
       </head>
-      <body className="font-sans antialiased bg-[#07070e] text-[#e8e6e3]">{children}</body>
+      <body className="font-sans antialiased bg-[#faf8f4] text-[#1a1a1a]">{children}</body>
     </html>
   );
 }

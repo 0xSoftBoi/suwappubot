@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  poweredBy: false,
-  transpilePackages: ['three', '@react-three/fiber', '@react-three/drei'],
+  output: 'standalone',
+  poweredByHeader: false,
   headers: async () => [
     {
       // Apply security headers to all routes (belt-and-suspenders with middleware)
