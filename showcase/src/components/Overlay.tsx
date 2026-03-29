@@ -256,18 +256,57 @@ export default function Overlay() {
           </motion.div>
         </div>
 
-        {/* Live Terminal Embed */}
+        {/* Terminal Preview */}
         <motion.div
           initial={{ opacity: 0, y: 60 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.3, ease: [0.25, 0.4, 0.25, 1] }}
           className="terminal-embed"
         >
-          <iframe
-            src="https://terminal.suwappu.bot"
-            title="Suwappu Trading Terminal"
-            className="terminal-embed__iframe"
-          />
+          <a href="https://terminal.suwappu.bot" target="_blank" rel="noopener noreferrer" className="terminal-embed__link">
+            <div className="terminal-embed__mockup">
+              <div className="terminal-embed__bar">
+                <span className="code-block__dot code-block__dot--red" />
+                <span className="code-block__dot code-block__dot--yellow" />
+                <span className="code-block__dot code-block__dot--green" />
+                <span style={{ marginLeft: 12, fontSize: '0.75rem', color: '#666' }}>terminal.suwappu.bot</span>
+              </div>
+              <div className="terminal-embed__body">
+                <div className="terminal-embed__grid">
+                  <div className="terminal-embed__panel terminal-embed__panel--chart">
+                    <div style={{ fontSize: '0.6875rem', color: '#f472b6', marginBottom: 4 }}>ETH / USDC</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#fff' }}>$2,847.32</div>
+                    <div style={{ fontSize: '0.6875rem', color: '#86efac' }}>+3.2% 24h</div>
+                    <div style={{ marginTop: 16, height: 80, background: 'linear-gradient(180deg, rgba(244,114,182,0.15) 0%, transparent 100%)', borderRadius: 8, position: 'relative', overflow: 'hidden' }}>
+                      <svg viewBox="0 0 200 60" style={{ width: '100%', height: '100%' }} preserveAspectRatio="none">
+                        <polyline fill="none" stroke="#f472b6" strokeWidth="2" points="0,45 20,40 40,42 60,30 80,35 100,20 120,25 140,15 160,18 180,10 200,12" />
+                      </svg>
+                    </div>
+                  </div>
+                  <div className="terminal-embed__panel terminal-embed__panel--swap">
+                    <div style={{ fontSize: '0.6875rem', color: '#999', marginBottom: 8 }}>Swap</div>
+                    <div style={{ background: '#1a1a1a', borderRadius: 8, padding: '8px 10px', marginBottom: 6, fontSize: '0.75rem' }}>
+                      <span style={{ color: '#999' }}>From</span> <span style={{ color: '#fff', float: 'right' }}>1.0 ETH</span>
+                    </div>
+                    <div style={{ background: '#1a1a1a', borderRadius: 8, padding: '8px 10px', marginBottom: 10, fontSize: '0.75rem' }}>
+                      <span style={{ color: '#999' }}>To</span> <span style={{ color: '#fff', float: 'right' }}>2,847 USDC</span>
+                    </div>
+                    <div style={{ background: '#f472b6', borderRadius: 8, padding: '6px 0', textAlign: 'center', fontSize: '0.75rem', fontWeight: 600, color: '#fff' }}>Execute Swap</div>
+                  </div>
+                  <div className="terminal-embed__panel terminal-embed__panel--book">
+                    <div style={{ fontSize: '0.6875rem', color: '#999', marginBottom: 6 }}>Order Book</div>
+                    {[2849, 2848, 2847].map((p, i) => (
+                      <div key={p} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.625rem', padding: '2px 0', color: i < 2 ? '#f87171' : '#86efac' }}>
+                        <span>{p}.{10 + i * 20}</span>
+                        <span style={{ color: '#666' }}>{(0.5 + i * 0.3).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="terminal-embed__cta">Click to launch the full terminal</div>
+          </a>
           <div className="terminal-embed__fade" />
         </motion.div>
       </section>
