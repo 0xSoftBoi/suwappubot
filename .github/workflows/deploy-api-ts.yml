@@ -90,7 +90,6 @@ jobs:
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
-        continue-on-error: true
         with:
           image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}'
           format: 'table'
@@ -99,7 +98,6 @@ jobs:
           ignore-unfixed: true
 
       - name: Run pre-deploy database backup
-        continue-on-error: true
         run: |
           echo "Starting database backup before deploy..."
           TASK_ARN=$(aws ecs run-task \

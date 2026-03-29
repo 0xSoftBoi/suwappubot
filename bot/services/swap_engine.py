@@ -145,6 +145,7 @@ class SwapEngine:
         self.okx_dex = OKXDEXAPI()
         self.wallet_service = WalletService()
         self._wallet_locks: dict[int, asyncio.Lock] = {}  # Per-wallet locks
+        self._wallet_locks_max = 1000  # Cap to prevent unbounded growth
 
     def _get_wallet_for_signing(self, wallet_data) -> Wallet:
         """Get Wallet model object for signing operations."""
@@ -766,8 +767,13 @@ class SwapEngine:
         Raises:
             SwapError: If validation fails or swap execution fails
         """
-        # Prevent concurrent swaps from same wallet
+        # Prevent concurrent swaps from same wallet (with bounded growth)
         if wallet_id not in self._wallet_locks:
+            if len(self._wallet_locks) >= self._wallet_locks_max:
+                # Evict unlocked entries to prevent unbounded memory growth
+                to_remove = [k for k, v in self._wallet_locks.items() if not v.locked()]
+                for k in to_remove[:len(to_remove) // 2]:
+                    del self._wallet_locks[k]
             self._wallet_locks[wallet_id] = asyncio.Lock()
         
         async with self._wallet_locks[wallet_id]:
@@ -2004,8 +2010,12 @@ class SwapEngine:
                         return SwapStatus.FAILED.value
                     else:
                         return SwapStatus.PENDING.value
-        except Exception:
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            logger.debug(f"TRON status check transient error for {tx_hash}: {e}")
             return SwapStatus.PENDING.value
+        except Exception as e:
+            logger.error(f"TRON status check failed for {tx_hash}: {e}")
+            return SwapStatus.FAILED.value
 
     async def _check_evm_tx_status(self, swap_tx: SwapTransaction) -> str:
         """Check EVM transaction status."""
@@ -2020,9 +2030,13 @@ class SwapEngine:
                 return SwapStatus.COMPLETED.value
             else:
                 return SwapStatus.FAILED.value
-        except Exception:
+        except (ConnectionError, TimeoutError, OSError) as e:
+            logger.debug(f"EVM status check transient error for {swap_tx.tx_hash}: {e}")
             return SwapStatus.PENDING.value
-    
+        except Exception as e:
+            logger.error(f"EVM status check failed for {swap_tx.tx_hash}: {e}")
+            return SwapStatus.FAILED.value
+
     async def _check_lifi_status(self, swap_tx: SwapTransaction) -> str:
         """Check cross-chain swap status via Li.Fi."""
         try:
@@ -2046,8 +2060,13 @@ class SwapEngine:
                 return SwapStatus.FAILED.value
             else:
                 return SwapStatus.CONFIRMING.value
-        except Exception:
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            logger.debug(f"Li.Fi status check transient error for {swap_tx.tx_hash}: {e}")
             return SwapStatus.CONFIRMING.value
+        except Exception as e:
+            logger.error(f"Li.Fi status check failed for {swap_tx.tx_hash}: {e}")
+            return SwapStatus.FAILED.value
+
     async def execute_multi_swap(
         self,
         quotes_with_wallets: List[tuple[SwapQuote, int]],

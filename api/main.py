@@ -171,6 +171,20 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("⚠️ Background services NOT started - database unavailable")
 
+    # 5b. Periodic cleanup for auth challenge storage (prevents memory leak)
+    async def _cleanup_auth_challenges_loop():
+        from bot.services.turnkey_client import cleanup_expired_challenges
+        while True:
+            await asyncio.sleep(300)  # every 5 minutes
+            try:
+                removed = cleanup_expired_challenges()
+                if removed:
+                    logger.debug(f"Cleaned up {removed} expired auth challenges")
+            except Exception as e:
+                logger.warning(f"Auth challenge cleanup error: {e}")
+
+    auth_cleanup_task = asyncio.create_task(_cleanup_auth_challenges_loop())
+
     # 6. Start cross-service integrations
     try:
         await event_bus.connect()
@@ -228,6 +242,9 @@ async def lifespan(app: FastAPI):
         await tx_poller.stop()
         await health_monitor.stop()
         await balance_refresher.stop()
+
+    # Stop auth challenge cleanup
+    auth_cleanup_task.cancel()
 
     # Stop RPC manager
     await rpc_manager.stop()

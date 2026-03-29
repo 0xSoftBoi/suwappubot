@@ -9,7 +9,7 @@ services:
     container_name: suwappubot-local
     restart: unless-stopped
     env_file:
-      - .env.local
+      - .env.dev
     environment:
       - DATABASE_URL=postgresql://suwappubot:${DB_PASSWORD:-localdevpassword}@db:5432/suwappubot?sslmode=disable
       - REDIS_URL=redis://redis:6379/0

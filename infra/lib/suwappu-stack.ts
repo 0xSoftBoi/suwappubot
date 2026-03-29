@@ -17,7 +17,7 @@ export class SuwappuStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    const isProduction = true; // Toggle for environment-based scaling
+    const isProduction = this.node.tryGetContext('environment') !== 'dev'; // Pass -c environment=dev for dev stack
     const minCapacity = isProduction ? 2 : 1;
     const maxCapacity = isProduction ? 6 : 2;
 
@@ -104,7 +104,7 @@ export class SuwappuStack extends cdk.Stack {
         }),
       },
     });
-    appSecrets.applyRemovalPolicy(cdk.RemovalPolicy.DESTROY);
+    appSecrets.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN);
 
     // ─── RDS PostgreSQL ────────────────────────────────────────────────
     const database = new rds.DatabaseInstance(this, 'SuwappuDatabase', {
@@ -126,7 +126,7 @@ export class SuwappuStack extends cdk.Stack {
       allocatedStorage: 20,
       maxAllocatedStorage: 100,
       storageType: rds.StorageType.GP3,
-      multiAz: false,
+      multiAz: isProduction,
       publiclyAccessible: false,
       backupRetention: cdk.Duration.days(14),
       copyTagsToSnapshot: true,
@@ -157,8 +157,8 @@ export class SuwappuStack extends cdk.Stack {
     // ─── CloudWatch Log Group ──────────────────────────────────────────
     const logGroup = new logs.LogGroup(this, 'SuwappuLogs', {
       logGroupName: '/ecs/suwappu',
-      retention: logs.RetentionDays.TWO_WEEKS,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      retention: logs.RetentionDays.THREE_MONTHS,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
     // ─── Shared Task Role ──────────────────────────────────────────────
@@ -258,7 +258,9 @@ export class SuwappuStack extends cdk.Stack {
       protocol: elbv2.ApplicationProtocol.HTTPS,
       certificates: [
         elbv2.ListenerCertificate.fromArn(
-          'arn:aws:acm:us-east-1:905418423235:certificate/74e95aae-e397-44cc-9005-d964c97ebc41',
+          this.node.tryGetContext('certificateArn') ||
+            process.env.ACM_CERT_ARN ||
+            'arn:aws:acm:us-east-1:905418423235:certificate/74e95aae-e397-44cc-9005-d964c97ebc41',
         ),
       ],
       defaultAction: elbv2.ListenerAction.fixedResponse(404, {
@@ -382,7 +384,7 @@ export class SuwappuStack extends cdk.Stack {
       containerName: 'suwappu',
       cpu: 512,
       memoryMiB: 1024,
-      imageTag: 'latest',
+      imageTag: process.env.BOT_IMAGE_TAG || 'latest',
       pathPattern: ['/telegram/*', '/webhook'],
       priority: 10,
       healthCheckPath: '/health',
@@ -393,7 +395,7 @@ export class SuwappuStack extends cdk.Stack {
       containerName: 'suwappu-api-ts',
       cpu: 512,
       memoryMiB: 1024,
-      imageTag: 'api-ts-latest',
+      imageTag: process.env.API_TS_IMAGE_TAG || 'api-ts-latest',
       pathPattern: ['/v1/*', '/webapp/*', '/health/api-ts'],
       priority: 20,
       healthCheckPath: '/health',
@@ -407,7 +409,7 @@ export class SuwappuStack extends cdk.Stack {
       containerName: 'suwappu-webapp',
       cpu: 256,
       memoryMiB: 512,
-      imageTag: 'webapp-latest',
+      imageTag: process.env.WEBAPP_IMAGE_TAG || 'webapp-latest',
       pathPattern: ['/*'],
       priority: 100, // Lowest priority = catch-all
       healthCheckPath: '/health',

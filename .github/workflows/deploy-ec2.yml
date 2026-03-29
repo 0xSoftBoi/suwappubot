@@ -61,7 +61,7 @@ jobs:
               BOT=$(echo "$HEALTH" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("bot","unknown"))' 2>/dev/null || echo "unknown")
               DB=$(echo "$HEALTH" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("database","unknown"))' 2>/dev/null || echo "unknown")
               echo "Attempt $i: status=$STATUS bot=$BOT db=$DB"
-              if [ "$STATUS" = "healthy" ] && [ "$BOT" = "polling" ]; then
+              if [ "$STATUS" = "healthy" ] && [ "$BOT" = "polling" ] && [ "$DB" = "connected" ]; then
                 echo "Deploy successful!"
                 exit 0
               fi

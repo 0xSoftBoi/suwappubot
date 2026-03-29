@@ -116,7 +116,10 @@ webappRoutes.post('/telegram/auth', async (c) => {
 			}
 
 			// 4. Generate JWT
-			const jwtSecret = env.JWT_SECRET || 'development-secret-change-in-production'
+			const jwtSecret = env.JWT_SECRET
+			if (!jwtSecret) {
+				return yield* Effect.fail(new Error('JWT_SECRET not configured'))
+			}
 			const token = jwt.sign(
 				{
 					userId: user.id,

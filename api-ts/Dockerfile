@@ -1,5 +1,5 @@
 # Build stage
-FROM oven/bun:latest AS builder
+FROM oven/bun:1.2 AS builder
 
 WORKDIR /app
 
@@ -19,7 +19,7 @@ RUN mkdir -p drizzle
 # RUN bun run check
 
 # Production stage
-FROM oven/bun:latest AS runner
+FROM oven/bun:1.2 AS runner
 
 WORKDIR /app
 

@@ -108,7 +108,7 @@ async function verifyPayment(c: Context, next: Next, proofHeader: string, env: E
 	// Verify payment on-chain via internal Python API
 	try {
 		const internalUrl = env.INTERNAL_API_URL || 'http://localhost:8000'
-		const verifyRes = await fetch(`${internalUrl}/internal/verify-payment`, {
+		const verifyRes = await fetch(`${internalUrl}/internal/x402/verify`, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',

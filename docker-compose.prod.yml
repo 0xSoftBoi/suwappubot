@@ -1,5 +1,6 @@
 version: '3.8'
 
+# NOTE: Copy .env.prod.template to .env.prod and fill in values before using this file
 services:
   bot:
     build: .

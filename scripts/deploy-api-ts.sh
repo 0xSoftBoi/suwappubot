@@ -7,9 +7,9 @@ ENV="${1:-prod}"
 KEY="$HOME/.ssh/suwappu-bot-key"
 
 if [ "$ENV" = "prod" ]; then
-  HOST="23.21.184.77"
+  HOST="${EC2_HOST_PROD:?Set EC2_HOST_PROD env var or GitHub secret}"
 elif [ "$ENV" = "dev" ]; then
-  HOST="54.224.128.32"
+  HOST="${EC2_HOST_DEV:?Set EC2_HOST_DEV env var or GitHub secret}"
 else
   echo "Usage: ./scripts/deploy-api-ts.sh [prod|dev]"
   exit 1
