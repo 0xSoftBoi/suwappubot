@@ -1,8 +1,0 @@
-{
-  "name": "suwappu-prediction-bot",
-  "version": "1.0.0",
-  "type": "module",
-  "dependencies": {
-    "@suwappu/sdk": "^0.1.0"
-  }
-}

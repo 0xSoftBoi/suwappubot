@@ -570,21 +570,21 @@ class WalletService:
     ) -> float:
         """
         Get SPL token balance for a Solana address.
-        
+
         Returns:
-            Token balance as float
+            Token balance as float, or raises on RPC error
         """
         token_mint = get_token_address(token_symbol, "solana")
         if not token_mint:
             return 0.0
-        
+
         client = await self._get_solana_client()
-        
+
         try:
             # Get token accounts for the wallet
             pubkey = Pubkey.from_string(address)
             mint_pubkey = Pubkey.from_string(token_mint)
-            
+
             # Use getTokenAccountsByOwner RPC method
             async with aiohttp.ClientSession() as session:
                 payload = {
@@ -598,8 +598,19 @@ class WalletService:
                     ]
                 }
                 async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
+                    if resp.status == 429:
+                        logger.warning(f"Solana RPC rate limited (429) fetching {token_symbol} for {address[:8]}...")
+                        raise ConnectionError("Solana RPC rate limited")
+                    if resp.status >= 400:
+                        logger.warning(f"Solana RPC HTTP {resp.status} fetching {token_symbol}")
+                        raise ConnectionError(f"Solana RPC HTTP {resp.status}")
+
                     result = await resp.json()
-                    
+
+                    if "error" in result:
+                        logger.warning(f"Solana RPC error fetching {token_symbol}: {result['error']}")
+                        raise ConnectionError(f"Solana RPC error: {result['error']}")
+
                     if "result" in result and result["result"]["value"]:
                         accounts = result["result"]["value"]
                         total_balance = 0
@@ -609,14 +620,16 @@ class WalletService:
                             decimals = info["tokenAmount"]["decimals"]
                             total_balance += amount / (10 ** decimals)
                         return total_balance
-            
+
             return 0.0
+        except ConnectionError:
+            raise  # Let RPC errors propagate to _safe_call
         except Exception as e:
             logger.warning(f"Failed to fetch Solana token balance: {e}")
             return 0.0
 
     async def get_solana_native_balance(self, address: str) -> float:
-        """Get SOL balance for an address."""
+        """Get SOL balance for an address. Raises on RPC error."""
         try:
             async with aiohttp.ClientSession() as session:
                 payload = {
@@ -626,13 +639,26 @@ class WalletService:
                     "params": [address]
                 }
                 async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
+                    if resp.status == 429:
+                        logger.warning(f"Solana RPC rate limited (429) fetching SOL for {address[:8]}...")
+                        raise ConnectionError("Solana RPC rate limited")
+                    if resp.status >= 400:
+                        logger.warning(f"Solana RPC HTTP {resp.status} fetching SOL balance")
+                        raise ConnectionError(f"Solana RPC HTTP {resp.status}")
+
                     result = await resp.json()
-                    
+
+                    if "error" in result:
+                        logger.warning(f"Solana RPC error for {address[:8]}...: {result['error']}")
+                        raise ConnectionError(f"Solana RPC error: {result['error']}")
+
                     if "result" in result:
                         lamports = result["result"]["value"]
                         return lamports / 1e9  # Convert lamports to SOL
-            
+
             return 0.0
+        except ConnectionError:
+            raise  # Let RPC errors propagate to _safe_call
         except Exception as e:
             logger.warning(f"Failed to fetch SOL balance for {address[:8]}...: {e}")
             return 0.0
@@ -770,8 +796,13 @@ class WalletService:
         # --- Cache miss → live fetch ---
         balances = await self._fetch_balances_live(address, chain_type)
 
-        # Store in cache (60s TTL via default)
-        await balance_cache.set(cache_key, balances)
+        # Don't cache empty results caused by RPC failures
+        rpc_failed = balances.pop("_solana_rpc_failed", False)
+        if not rpc_failed:
+            await balance_cache.set(cache_key, balances)
+        else:
+            logger.warning(f"Skipping cache for {chain_type}:{address[:8]}... due to RPC failures")
+
         return balances
 
     async def _fetch_balances_live(self, address: str, chain_type: str) -> dict[str, dict[str, float]]:
@@ -784,10 +815,17 @@ class WalletService:
         balances: dict[str, dict[str, float]] = {}
 
         async def _safe_call(coro, default=0.0):
-            """Wrap an RPC call with a timeout."""
+            """Wrap an RPC call with a timeout. Returns None on RPC errors (not 0.0)."""
             try:
                 return await asyncio.wait_for(coro, timeout=CALL_TIMEOUT)
-            except (asyncio.TimeoutError, Exception):
+            except asyncio.TimeoutError:
+                logger.warning("RPC call timed out")
+                return None  # Distinguish timeout from zero balance
+            except ConnectionError as e:
+                logger.warning(f"RPC connection error: {e}")
+                return None  # RPC failed — don't report as zero
+            except Exception as e:
+                logger.warning(f"Unexpected RPC error: {e}")
                 return default
 
         async def _fetch_evm_chain_alchemy(chain_name, chain):
@@ -909,12 +947,18 @@ class WalletService:
 
                     results = await asyncio.gather(*tasks, return_exceptions=True)
 
+                    any_rpc_failed = False
                     for key, result in zip(task_keys, results):
-                        if isinstance(result, (int, float)) and result > 0:
+                        if result is None:
+                            any_rpc_failed = True  # RPC error — don't treat as zero
+                        elif isinstance(result, (int, float)) and result > 0:
                             chain_balances[key] = result
 
                     if chain_balances:
                         balances["solana"] = chain_balances
+                    elif any_rpc_failed:
+                        # Mark that Solana fetch failed — prevents caching empty as truth
+                        balances["_solana_rpc_failed"] = True
 
                 elif chain_type == "tron":
                     chain_balances: dict[str, float] = {}
