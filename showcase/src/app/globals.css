@@ -1023,13 +1023,14 @@ body {
 }
 
 .doc-reader pre {
-  background: #1a1a1a;
+  background: #0f0f11;
   border-radius: 16px;
-  padding: 2.75rem 1.25rem 1.25rem;
+  padding: 3rem 1.25rem 1.25rem;
   overflow-x: auto;
   margin: 1.5rem 0;
   position: relative;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  border: 1px solid #222;
 }
 
 .doc-reader pre::before {
@@ -1047,19 +1048,46 @@ body {
 .doc-reader pre code {
   background: none;
   padding: 0;
-  color: #c8c2ba;
+  color: #d4d0c8;
   font-size: 0.8125rem;
-  line-height: 1.7;
+  line-height: 1.8;
 }
 
-/* Syntax highlighting */
-.hl-kw { color: #c792ea; }
-.hl-str { color: #c3e88d; }
-.hl-num { color: #f78c6c; }
-.hl-bool { color: #ff5370; }
-.hl-comment { color: #676e95; font-style: italic; }
-.hl-key { color: #89ddff; }
-.hl-flag { color: #82aaff; }
+/* Copy button on code blocks */
+.doc-reader pre .copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #888;
+  font-size: 0.6875rem;
+  font-family: var(--font-mono);
+  padding: 0.25rem 0.625rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  z-index: 2;
+}
+
+.doc-reader pre .copy-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ccc;
+}
+
+.doc-reader pre .copy-btn--copied {
+  color: #28c840;
+  border-color: rgba(40, 200, 64, 0.3);
+}
+
+/* Syntax highlighting — brighter for dark bg */
+.hl-kw { color: #d4a0ff; }
+.hl-str { color: #a5d6a7; }
+.hl-num { color: #ffab70; }
+.hl-bool { color: #ff6b8a; }
+.hl-comment { color: #7a8099; font-style: italic; }
+.hl-key { color: #80deea; }
+.hl-flag { color: #90caf9; }
 .hl-url { color: #80cbc4; }
 .hl-suwappu { color: #f472b6; font-weight: 600; }
 
