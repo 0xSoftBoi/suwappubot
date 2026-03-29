@@ -379,7 +379,7 @@ body {
   padding: 1.25rem;
   font-size: 0.8125rem;
   line-height: 1.7;
-  color: #e0e0e0;
+  color: #c8c2ba;
   overflow-x: auto;
   white-space: pre;
 }
@@ -1031,10 +1031,21 @@ body {
 .doc-reader pre code {
   background: none;
   padding: 0;
-  color: #e0e0e0;
+  color: #c8c2ba;
   font-size: 0.8125rem;
   line-height: 1.7;
 }
+
+/* Syntax highlighting */
+.hl-kw { color: #c792ea; }
+.hl-str { color: #c3e88d; }
+.hl-num { color: #f78c6c; }
+.hl-bool { color: #ff5370; }
+.hl-comment { color: #676e95; font-style: italic; }
+.hl-key { color: #89ddff; }
+.hl-flag { color: #82aaff; }
+.hl-url { color: #80cbc4; }
+.hl-suwappu { color: #f472b6; font-weight: 600; }
 
 .doc-reader table {
   width: 100%;

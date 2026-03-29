@@ -28,15 +28,79 @@ export function generateMetadata({ params }: { params: Params }): Metadata {
   };
 }
 
+function highlightCode(code: string, lang: string): string {
+  let escaped = code
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  if (lang === 'json') {
+    // JSON: strings, numbers, booleans, null, keys
+    escaped = escaped
+      .replace(/(&quot;|")((?:(?!\1)[^\\]|\\.)*)(\1)\s*:/g, '<span class="hl-key">$1$2$3</span>:')
+      .replace(/(&quot;|")((?:(?!\1)[^\\]|\\.)*)(\1)/g, '<span class="hl-str">$1$2$3</span>')
+      .replace(/\b(true|false|null)\b/g, '<span class="hl-bool">$1</span>')
+      .replace(/\b(\d+\.?\d*)\b/g, '<span class="hl-num">$1</span>');
+    return escaped;
+  }
+
+  if (lang === 'bash' || lang === 'sh') {
+    // Bash: comments, strings, variables, commands
+    escaped = escaped
+      .replace(/(#[^\n]*)/g, '<span class="hl-comment">$1</span>')
+      .replace(/"([^"]*?)"/g, '<span class="hl-str">"$1"</span>')
+      .replace(/'([^']*?)'/g, '<span class="hl-str">\'$1\'</span>')
+      .replace(/\b(curl|npm|bun|pip|export|echo|cd)\b/g, '<span class="hl-kw">$1</span>')
+      .replace(/(-[A-Za-z]+|--[a-z-]+)/g, '<span class="hl-flag">$1</span>')
+      .replace(/(https?:\/\/[^\s"'&]+)/g, '<span class="hl-url">$1</span>');
+    return escaped;
+  }
+
+  // JS/TS/Python: keywords, strings, comments, numbers, then Suwappu SDK highlights
+  // Comments
+  escaped = escaped
+    .replace(/(\/\/[^\n]*)/g, '<span class="hl-comment">$1</span>')
+    .replace(/(#[^\n]*)/g, '<span class="hl-comment">$1</span>');
+
+  // Strings (double and single quoted)
+  escaped = escaped
+    .replace(/"([^"]*?)"/g, '<span class="hl-str">"$1"</span>')
+    .replace(/'([^']*?)'/g, '<span class="hl-str">\'$1\'</span>');
+
+  // Keywords
+  escaped = escaped.replace(
+    /\b(import|from|const|let|var|async|await|function|return|if|else|new|export|class|type|interface|def|print|for|in|try|except)\b/g,
+    '<span class="hl-kw">$1</span>',
+  );
+
+  // Numbers
+  escaped = escaped.replace(/\b(\d+\.?\d*)\b/g, '<span class="hl-num">$1</span>');
+
+  // Booleans / null
+  escaped = escaped.replace(/\b(true|false|null|None|True|False)\b/g, '<span class="hl-bool">$1</span>');
+
+  // Suwappu SDK — highlight key identifiers in pink
+  escaped = escaped.replace(
+    /\b(Suwappu|suwappu|client\.(swap|getQuote|getBalance|getPortfolio|getPrice|getTokens|getChains|createWallet|limitOrder|dcaOrder|perps|predict|lend|execute)|@suwappu\/sdk|suwappu_sk_\w+|suwappu\.bot)\b/g,
+    '<span class="hl-suwappu">$1</span>',
+  );
+
+  // API paths
+  escaped = escaped.replace(
+    /(\/v1\/agent\/[a-z/:-]*)/g,
+    '<span class="hl-url">$1</span>',
+  );
+
+  return escaped;
+}
+
 function markdownToHtml(md: string): string {
-  // Lightweight markdown-to-HTML for static rendering
-  // Handles: headings, code blocks, inline code, bold, links, tables, lists, blockquotes, paragraphs
   let html = md;
 
-  // Code blocks (must be before inline code)
+  // Code blocks with syntax highlighting (must be before inline code)
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_match, lang, code) => {
-    const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return `<pre><code class="language-${lang || 'text'}">${escaped}</code></pre>`;
+    const highlighted = highlightCode(code, lang || 'text');
+    return `<pre><code class="language-${lang || 'text'}">${highlighted}</code></pre>`;
   });
 
   // Tables

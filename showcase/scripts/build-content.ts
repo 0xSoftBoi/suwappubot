@@ -4,7 +4,6 @@
  */
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join, basename } from 'path';
-import matter from 'gray-matter';
 
 const scriptDir = typeof import.meta.dir === 'string' ? import.meta.dir : new URL('.', import.meta.url).pathname;
 const GITBOOK_DIR = join(scriptDir, '../../gitbook');
@@ -59,18 +58,16 @@ function extractCodeBlocks(content: string): string[] {
   return blocks;
 }
 
-function readMarkdown(filePath: string): { content: string; data: Record<string, unknown> } {
-  if (!existsSync(filePath)) return { content: '', data: {} };
-  const raw = readFileSync(filePath, 'utf-8');
-  const { content, data } = matter(raw);
-  return { content, data };
+function readMarkdown(filePath: string): string {
+  if (!existsSync(filePath)) return '';
+  return readFileSync(filePath, 'utf-8');
 }
 
 function parseSummary(): DocsData {
   const summaryPath = join(GITBOOK_DIR, 'SUMMARY.md');
   const summaryContent = readFileSync(summaryPath, 'utf-8');
 
-  const introContent = readMarkdown(join(GITBOOK_DIR, 'README.md')).content;
+  const introContent = readMarkdown(join(GITBOOK_DIR, 'README.md'));
 
   const sections: DocSection[] = [];
   let currentSection: DocSection | null = null;
@@ -94,7 +91,7 @@ function parseSummary(): DocsData {
     if (pageMatch && currentSection) {
       const [, linkTitle, linkPath] = pageMatch;
       const filePath = join(GITBOOK_DIR, linkPath);
-      const { content } = readMarkdown(filePath);
+      const content = readMarkdown(filePath);
 
       if (!content) continue;
 
