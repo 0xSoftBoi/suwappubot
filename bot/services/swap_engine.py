@@ -155,19 +155,15 @@ class SwapEngine:
 
         wallet_id = wallet_data.get("id") or wallet_data.get("wallet_id")
         if wallet_id:
-            def _get_by_id():
-                with get_session() as session:
-                    return session.query(Wallet).filter(Wallet.id == wallet_id).first()
-            wallet = await run_in_db(_get_by_id)
-            if wallet:
-                return wallet
+            with get_session() as session:
+                wallet = session.query(Wallet).filter(Wallet.id == wallet_id).first()
+                if wallet:
+                    return wallet
         # Fallback: lookup by address
         address = wallet_data.get("address")
         if address:
-            def _get_by_addr():
-                with get_session() as session:
-                    return session.query(Wallet).filter(Wallet.address == address).first()
-            return await run_in_db(_get_by_addr)
+            with get_session() as session:
+                return session.query(Wallet).filter(Wallet.address == address).first()
         return None
 
     def _is_solana_only_swap(self, from_chain: str, to_chain: str) -> bool:
