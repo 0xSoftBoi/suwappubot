@@ -23,15 +23,15 @@ FROM oven/bun:1.2 AS runner
 
 WORKDIR /app
 
-# Copy only necessary files
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/src ./src
-COPY --from=builder /app/drizzle ./drizzle
-COPY --from=builder /app/drizzle.config.ts ./
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/start.sh ./
-COPY --from=builder /app/agent-card.json ./
-COPY --from=builder /app/openapi-agent.json ./
+# Copy only necessary files (--chown=bun:bun so USER bun can read them)
+COPY --from=builder --chown=bun:bun /app/node_modules ./node_modules
+COPY --from=builder --chown=bun:bun /app/src ./src
+COPY --from=builder --chown=bun:bun /app/drizzle ./drizzle
+COPY --from=builder --chown=bun:bun /app/drizzle.config.ts ./
+COPY --from=builder --chown=bun:bun /app/package.json ./
+COPY --from=builder --chown=bun:bun /app/start.sh ./
+COPY --from=builder --chown=bun:bun /app/agent-card.json ./
+COPY --from=builder --chown=bun:bun /app/openapi-agent.json ./
 RUN chmod +x start.sh
 
 # Use existing bun user
