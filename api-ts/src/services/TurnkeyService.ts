@@ -102,6 +102,7 @@ export const TurnkeyServiceLive = Layer.effect(
 										{
 											apiKeyName: `key-${telegramUserId}`,
 											publicKey: env.TURNKEY_API_PUBLIC_KEY!,
+											curveType: 'API_KEY_CURVE_P256' as const,
 										},
 									],
 									authenticators: [],
@@ -156,7 +157,13 @@ export const TurnkeyServiceLive = Layer.effect(
 							subOrganizationName: `suwappu-${telegramUserId}-oauth`,
 							rootUsers: [{
 								userName: `user-${telegramUserId}`,
-								apiKeys: [],
+								apiKeys: [
+									{
+										apiKeyName: `server-key-${telegramUserId}`,
+										publicKey: env.TURNKEY_API_PUBLIC_KEY!,
+										curveType: 'API_KEY_CURVE_P256' as const,
+									},
+								],
 								authenticators: [],
 								oauthProviders: [{
 									providerName: provider,
@@ -246,6 +253,7 @@ export const TurnkeyServiceLive = Layer.effect(
 										{
 											apiKeyName: `agent-${agentId}-key`,
 											publicKey: env.TURNKEY_API_PUBLIC_KEY!,
+											curveType: 'API_KEY_CURVE_P256' as const,
 										},
 									],
 									authenticators: [],

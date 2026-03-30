@@ -70,27 +70,55 @@ class TurnkeyClient:
             base_url: Turnkey API base URL
         """
         self._org_id = organization_id
-        self._api_public_key = api_public_key
         self._api_private_key = api_private_key
         self._base_url = base_url.rstrip("/")
-        
+
         # Build P-256 signing key from raw private key hex
         from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
         from cryptography.hazmat.backends import default_backend
         private_value = int(api_private_key, 16)
-        # Derive public numbers from private key
+
+        # Parse or derive public key
         pub_key_bytes = bytes.fromhex(api_public_key)
         if pub_key_bytes[0] == 0x04 and len(pub_key_bytes) == 65:
+            # Uncompressed format
             x = int.from_bytes(pub_key_bytes[1:33], 'big')
             y = int.from_bytes(pub_key_bytes[33:65], 'big')
+        elif pub_key_bytes[0] in (0x02, 0x03) and len(pub_key_bytes) == 33:
+            # Compressed format — decompress via cryptography lib
+            from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
+            tmp_pub = EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), pub_key_bytes)
+            nums = tmp_pub.public_numbers()
+            x, y = nums.x, nums.y
         else:
-            # If public key format is unexpected, derive from private key
+            # Derive from private key as fallback
             tmp_key = ec.derive_private_key(private_value, ec.SECP256R1(), default_backend())
             pub_numbers = tmp_key.public_key().public_numbers()
             x, y = pub_numbers.x, pub_numbers.y
+
         pub_numbers = ec.EllipticCurvePublicNumbers(x, y, ec.SECP256R1())
         priv_numbers = ec.EllipticCurvePrivateNumbers(private_value, pub_numbers)
         self._signing_key = priv_numbers.private_key(default_backend())
+
+        # Store compressed public key (Turnkey's expected format for stamps and rootUsers)
+        pub_key_obj = self._signing_key.public_key()
+        compressed = pub_key_obj.public_bytes(Encoding.X962, PublicFormat.CompressedPoint)
+        self._api_public_key = compressed.hex()
+        # Also store uncompressed for compatibility
+        self._api_public_key_uncompressed = api_public_key
+
+        # Validate key pair: sign and verify a test payload
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import ec as ec_mod
+        test_msg = b"turnkey-key-validation"
+        test_sig = self._signing_key.sign(test_msg, ec_mod.ECDSA(hashes.SHA256()))
+        try:
+            pub_key_obj.verify(test_sig, test_msg, ec_mod.ECDSA(hashes.SHA256()))
+        except Exception as e:
+            raise ValueError(f"Turnkey API key pair validation failed — public key does not match private key: {e}")
+
+        logger.info(f"TurnkeyClient initialized (org={organization_id[:8]}..., pubkey={self._api_public_key[:16]}... [{len(compressed)}B compressed])")
     
     def _create_stamp(self, body: str) -> str:
         """
@@ -279,12 +307,12 @@ class TurnkeyClient:
         Returns:
             TurnkeySubOrganization with the new sub-org details
         """
-        # V7 requires at least one root user with our API key for signing
+        # V8 requires at least one root user with our API key for signing
         root_user = {
             "userName": name,
             "apiKeys": [{
                 "apiKeyName": f"{name}_api_key",
-                "publicKey": self._api_public_key,
+                "publicKey": self._api_public_key,  # Compressed hex P-256 key
                 "curveType": "API_KEY_CURVE_P256",
             }],
             "authenticators": [],
@@ -299,12 +327,15 @@ class TurnkeyClient:
             "rootQuorumThreshold": 1,
         }
 
+        logger.info(f"Creating sub-org '{name}' with rootUser publicKey={self._api_public_key[:16]}...")
+
         result = await self._submit_activity(
-            "ACTIVITY_TYPE_CREATE_SUB_ORGANIZATION_V7",
+            "ACTIVITY_TYPE_CREATE_SUB_ORGANIZATION_V8",
             params,
         )
 
-        sub_org = result.get("createSubOrganizationResultV7", {})
+        # Try V8 result key first, fallback to V7 for backward compatibility
+        sub_org = result.get("createSubOrganizationResultV8") or result.get("createSubOrganizationResultV7", {})
         
         return TurnkeySubOrganization(
             sub_org_id=sub_org.get("subOrganizationId", ""),
@@ -366,11 +397,21 @@ class TurnkeyClient:
         )
         
         wallet_result = result.get("createWalletResult", {})
-        
+        addresses = wallet_result.get("addresses", [])
+
+        if not addresses:
+            raise TurnkeyAPIError(
+                status_code=500,
+                message=f"Turnkey created wallet '{wallet_name}' but returned no addresses. "
+                        f"walletId={wallet_result.get('walletId')}, raw result: {wallet_result}"
+            )
+
+        logger.info(f"Turnkey wallet created: {wallet_result.get('walletId')} with {len(addresses)} account(s)")
+
         return TurnkeyWallet(
             wallet_id=wallet_result.get("walletId", ""),
             wallet_name=wallet_name,
-            accounts=wallet_result.get("addresses", []),
+            accounts=addresses,
         )
     
     async def get_wallet(

@@ -88,7 +88,20 @@ export const TurnkeyServiceLive = Layer.effect(
 								turnkeyClient!.apiClient().createSubOrganization({
 									organizationId,
 									subOrganizationName: name,
-									rootUsers: [],
+									rootUsers: [
+										{
+											userName: name,
+											apiKeys: [
+												{
+													apiKeyName: `${name}_api_key`,
+													publicKey: env.TURNKEY_API_PUBLIC_KEY!,
+													curveType: 'API_KEY_CURVE_P256' as const,
+												},
+											],
+											authenticators: [],
+											oauthProviders: [],
+										},
+									],
 									rootQuorumThreshold: 1,
 								}),
 							catch: (e) => new Error(`Failed to create sub-organization: ${e}`),

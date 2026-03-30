@@ -196,17 +196,27 @@ class WalletService:
         
         logger.info(f"Created Turnkey wallet for user {user_id}: {turnkey_wallet.address}")
 
-        # Export and backup private key from Turnkey
-        try:
-            wallet_obj = self.get_wallet_by_id(wallet_id)
-            if wallet_obj:
-                from bot.services.turnkey_export import export_and_backup_wallet
-                with get_session() as session:
-                    attached = session.query(Wallet).filter(Wallet.id == wallet_id).first()
-                    if attached:
-                        await export_and_backup_wallet(attached, client, session)
-        except Exception as e:
-            logger.warning(f"Backup key export failed for wallet {wallet_id} (non-fatal): {e}")
+        # Export and backup private key from Turnkey (with retry)
+        export_success = False
+        for attempt in range(2):
+            try:
+                wallet_obj = self.get_wallet_by_id(wallet_id)
+                if wallet_obj:
+                    from bot.services.turnkey_export import export_and_backup_wallet
+                    with get_session() as session:
+                        attached = session.query(Wallet).filter(Wallet.id == wallet_id).first()
+                        if attached:
+                            await export_and_backup_wallet(attached, client, session)
+                            export_success = True
+                            break
+            except Exception as e:
+                logger.warning(f"Backup key export attempt {attempt + 1}/2 failed for wallet {wallet_id}: {e}")
+                if attempt == 0:
+                    import asyncio
+                    await asyncio.sleep(2)
+
+        if not export_success:
+            logger.error(f"Backup key export FAILED for wallet {wallet_id} after 2 attempts — fallback signing will NOT work for this wallet")
 
         return self.get_wallet_by_id(wallet_id)
     
