@@ -344,7 +344,7 @@ class X402Service:
         
         return payment
     
-    def _verify_transaction_on_chain(
+    def _verify_transaction_on_chain_sync(
         self,
         tx_hash: str,
         chain: str,
@@ -352,21 +352,8 @@ class X402Service:
         expected_amount: float,
         token_address: Optional[str] = None,
     ) -> tuple[bool, str]:
-        """
-        Verify a transaction on-chain.
-
-        Args:
-            tx_hash: Transaction hash to verify
-            chain: Chain name (e.g., "base", "ethereum")
-            expected_recipient: Expected recipient address
-            expected_amount: Expected amount (in token units, not wei)
-            token_address: Token contract address (None for native token)
-
-        Returns:
-            (success, message) tuple
-        """
+        """Synchronous on-chain verification (runs in thread pool)."""
         try:
-            # Get RPC URL for chain
             from bot.config.chains import get_chain_by_name
 
             chain_config = get_chain_by_name(chain)
@@ -392,10 +379,8 @@ class X402Service:
 
             # Verify native token transfer
             if not token_address or token_address == "0x0000000000000000000000000000000000000000":
-                # Get the full transaction to check value
                 tx = web3.eth.get_transaction(tx_hash)
 
-                # Check recipient
                 if not tx.get('to'):
                     return False, "Missing recipient address"
 
@@ -403,8 +388,7 @@ class X402Service:
                 if actual_recipient != expected_recipient:
                     return False, f"Recipient mismatch: expected {expected_recipient}, got {actual_recipient}"
 
-                # Check amount (with 1% tolerance for rounding)
-                actual_amount = Decimal(tx['value']) / Decimal(10**18)  # Convert wei to ETH
+                actual_amount = Decimal(tx['value']) / Decimal(10**18)
                 expected_decimal = Decimal(str(expected_amount))
                 min_amount = expected_decimal * Decimal("0.99")
 
@@ -415,35 +399,27 @@ class X402Service:
 
             # Verify ERC20 token transfer
             else:
-                # ERC20 Transfer event signature
                 transfer_topic = web3.keccak(text="Transfer(address,address,uint256)").hex()
                 token_address_checksum = Web3.to_checksum_address(token_address)
 
-                # Find Transfer event in logs
                 for log in receipt.get('logs', []):
                     log_address = Web3.to_checksum_address(log.get('address', ''))
 
-                    # Check if this log is from the expected token contract
                     if log_address != token_address_checksum:
                         continue
 
-                    # Check if this is a Transfer event
                     topics = log.get('topics', [])
                     if not topics or topics[0].hex() != transfer_topic:
                         continue
 
-                    # Decode Transfer event: Transfer(address indexed from, address indexed to, uint256 value)
                     if len(topics) < 3:
                         continue
 
-                    # Extract 'to' address from topics[2]
                     to_address = Web3.to_checksum_address("0x" + topics[2].hex()[-40:])
 
-                    # Check recipient matches
                     if to_address != expected_recipient:
                         continue
 
-                    # Extract amount from data
                     data = log.get('data', '0x')
                     if isinstance(data, str):
                         amount_wei = int(data, 16) if data != '0x' else 0
@@ -454,7 +430,6 @@ class X402Service:
                     decimals = 6  # USDC standard
                     actual_amount = Decimal(amount_wei) / Decimal(10**decimals)
 
-                    # Check amount (with 1% tolerance)
                     expected_decimal = Decimal(str(expected_amount))
                     min_amount = expected_decimal * Decimal("0.99")
 
@@ -468,6 +443,21 @@ class X402Service:
         except Exception as e:
             logger.error(f"On-chain verification error: {e}")
             return False, f"Verification failed: {str(e)}"
+
+    async def _verify_transaction_on_chain(
+        self,
+        tx_hash: str,
+        chain: str,
+        expected_recipient: str,
+        expected_amount: float,
+        token_address: Optional[str] = None,
+    ) -> tuple[bool, str]:
+        """Verify a transaction on-chain without blocking the event loop."""
+        import asyncio
+        return await asyncio.to_thread(
+            self._verify_transaction_on_chain_sync,
+            tx_hash, chain, expected_recipient, expected_amount, token_address,
+        )
 
     async def verify_payment(
         self,
@@ -489,7 +479,7 @@ class X402Service:
             # Verify transaction on-chain
             try:
                 # Verify the transaction matches payment parameters
-                success, message = self._verify_transaction_on_chain(
+                success, message = await self._verify_transaction_on_chain(
                     tx_hash=tx_hash,
                     chain=payment.chain,
                     expected_recipient=self.payment_recipient,

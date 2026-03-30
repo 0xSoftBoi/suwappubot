@@ -1,7 +1,9 @@
 from sqlalchemy import create_engine, event, text, inspect
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session
 from contextlib import contextmanager
-from typing import Generator
+from typing import Generator, TypeVar, Callable
+from concurrent.futures import ThreadPoolExecutor
+import asyncio
 import logging
 import time
 
@@ -63,9 +65,10 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
                 connect_args=connect_args,
                 echo=False,
                 pool_pre_ping=True,  # Check connections before use
-                pool_size=5 if not is_sqlite else 5,  # Reduced for multi-instance (3×15=45 < 66 max)
-                max_overflow=10 if not is_sqlite else 5,  # Extra connections
+                pool_size=10 if not is_sqlite else 5,  # 10 base connections per instance
+                max_overflow=15 if not is_sqlite else 5,  # 25 max per instance (3×25=75 < 100 default)
                 pool_recycle=3600,  # Recycle connections hourly
+                pool_timeout=10,  # Fail fast instead of hanging when pool exhausted
             )
             
             # Test the connection
@@ -199,12 +202,13 @@ def _ensure_schema(db_engine) -> None:
         _add_encryption_columns(db_engine, inspector, "hot_wallets", is_sqlite)
         _add_turnkey_columns(db_engine, inspector, "hot_wallets", is_sqlite, include_sub_org=False)
 
-    # --- registered_agents: unique index on api_key ---
-    if "registered_agents" in tables:
+    # --- agents: unique index on api_key ---
+    agents_table = "agents" if "agents" in tables else "registered_agents" if "registered_agents" in tables else None
+    if agents_table:
         with db_engine.begin() as conn:
             conn.execute(text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ux_registered_agents_api_key "
-                "ON registered_agents(api_key)"
+                f"CREATE UNIQUE INDEX IF NOT EXISTS ux_agents_api_key "
+                f"ON {agents_table}(api_key)"
             ))
 
     # --- swap_transactions: agent linkage columns ---
@@ -263,6 +267,37 @@ def _ensure_schema(db_engine) -> None:
     if "users" in tables:
         _add_discord_columns(db_engine, inspector, is_sqlite)
 
+    # --- subscriptions: started_at column ---
+    if "subscriptions" in tables:
+        _add_subscription_started_at(db_engine, inspector, is_sqlite)
+
+    # --- rename registered_agents -> agents ---
+    if "registered_agents" in tables and "agents" not in tables:
+        with db_engine.begin() as conn:
+            conn.execute(text("ALTER TABLE registered_agents RENAME TO agents"))
+            logger.info("Renamed registered_agents -> agents")
+
+    # --- performance indexes ---
+    _add_performance_indexes(db_engine, inspector, is_sqlite)
+
+
+def _add_performance_indexes(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add indexes for high-traffic query patterns."""
+    indexes = [
+        ("ix_swap_transactions_user_id", "swap_transactions", "user_id"),
+        ("ix_swap_transactions_user_created", "swap_transactions", "user_id, created_at DESC"),
+        ("ix_swap_transactions_status", "swap_transactions", "status"),
+        ("ix_agents_is_active", "agents", "is_active"),
+    ]
+    for idx_name, table, columns in indexes:
+        try:
+            tables = set(inspector.get_table_names())
+            if table in tables:
+                with db_engine.begin() as conn:
+                    conn.execute(text(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table}({columns})"))
+        except Exception:
+            pass  # Index may already exist or table missing
+
 
 def _add_security_tables(db_engine, inspector, is_sqlite: bool) -> None:
     """Create security tables (audit_logs, withdrawal_whitelist, backup_codes) idempotently."""
@@ -290,6 +325,18 @@ def _add_phase4_tables(db_engine, inspector, is_sqlite: bool) -> None:
                 logger.info(f"Created {model.__tablename__} table")
     except Exception as e:
         logger.warning(f"Failed to create Phase 4 tables: {e}")
+
+
+def _add_subscription_started_at(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add started_at column to subscriptions table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("subscriptions")}
+    if "started_at" not in cols:
+        if is_sqlite:
+            ddl = "ALTER TABLE subscriptions ADD COLUMN started_at TIMESTAMP"
+        else:
+            ddl = "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS started_at TIMESTAMP"
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
 
 
 def _add_discord_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -790,7 +837,7 @@ def get_session() -> Generator[Session, None, None]:
     """Get a database session with automatic cleanup."""
     if SessionLocal is None:
         raise RuntimeError("Database not initialized. Call init_db first.")
-    
+
     session = SessionLocal()
     try:
         yield session
@@ -800,4 +847,33 @@ def get_session() -> Generator[Session, None, None]:
         raise
     finally:
         session.close()
+
+
+# --- Async DB helpers (avoid blocking the event loop) ---
+
+T = TypeVar("T")
+
+# Dedicated thread pool for DB operations — avoids starving the default executor
+_db_executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="db")
+
+
+async def run_in_db(fn: Callable[..., T], *args, **kwargs) -> T:
+    """Run a synchronous DB operation in a thread pool to avoid blocking the event loop.
+
+    Usage:
+        result = await run_in_db(lambda: _do_db_work(user_id, data))
+
+    Or with a named function:
+        def _update_status(swap_id, status):
+            with get_session() as session:
+                tx = session.query(SwapTransaction).filter_by(id=swap_id).first()
+                if tx:
+                    tx.status = status
+
+        await run_in_db(_update_status, swap_id, new_status)
+    """
+    loop = asyncio.get_running_loop()
+    if kwargs:
+        return await loop.run_in_executor(_db_executor, lambda: fn(*args, **kwargs))
+    return await loop.run_in_executor(_db_executor, fn, *args)
 

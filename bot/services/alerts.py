@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from bot.models.advanced import AdvancedPriceAlert as PriceAlert, AlertType
 from bot.services.price_service import price_service
-from database.db import get_session
+from database.db import get_session, run_in_db
 
 logger = logging.getLogger(__name__)
 
@@ -91,63 +91,86 @@ class AlertService:
     # === Alert Checking ===
     
     async def check_alerts(self) -> List[dict]:
-        """Check all active alerts and return triggered ones."""
-        triggered = []
-        
-        with get_session() as session:
-            alerts = session.query(PriceAlert).filter(
-                PriceAlert.is_active == True,
-                PriceAlert.is_triggered == False,
-            ).all()
-            
-            if not alerts:
-                return []
-            
-            # Get unique tokens
-            tokens = list(set(a.token_symbol for a in alerts))
-            
-            # Fetch prices
-            prices = await price_service.get_prices(tokens)
-            
-            for alert in alerts:
-                current_price = prices.get(alert.token_symbol)
-                if current_price is None:
-                    continue
-                
-                should_trigger = False
-                
-                if alert.alert_type == AlertType.PRICE_ABOVE.value:
-                    should_trigger = current_price >= alert.target_price
-                    
-                elif alert.alert_type == AlertType.PRICE_BELOW.value:
-                    should_trigger = current_price <= alert.target_price
-                    
-                elif alert.alert_type == AlertType.PERCENT_CHANGE.value:
-                    if alert.base_price is None or alert.base_price == 0:
-                        alert.base_price = current_price
-                    else:
-                        change_pct = ((current_price - alert.base_price) / alert.base_price) * 100
-                        should_trigger = abs(change_pct) >= alert.percent_threshold
-                
-                if should_trigger:
-                    alert.is_triggered = True
-                    alert.triggered_at = datetime.now(timezone.utc)
-                    alert.triggered_price = current_price
-                    
-                    if alert.notify_once:
-                        alert.is_active = False
-                    
-                    triggered.append({
-                        "alert_id": alert.id,
-                        "user_id": alert.user_id,
-                        "token": alert.token_symbol,
-                        "alert_type": alert.alert_type,
-                        "target_price": alert.target_price,
-                        "current_price": current_price,
-                        "percent_threshold": alert.percent_threshold,
-                    })
-        
-        return triggered
+        """Check all active alerts and return triggered ones.
+
+        Refactored: DB reads/writes run in thread pool, async price fetch
+        happens outside the DB session to avoid blocking the event loop.
+        """
+        # Phase 1: Read active alerts from DB (non-blocking)
+        def _fetch_active():
+            with get_session() as session:
+                alerts = session.query(PriceAlert).filter(
+                    PriceAlert.is_active == True,
+                    PriceAlert.is_triggered == False,
+                ).all()
+                return [
+                    {
+                        "id": a.id, "user_id": a.user_id,
+                        "token_symbol": a.token_symbol,
+                        "alert_type": a.alert_type,
+                        "target_price": a.target_price,
+                        "base_price": a.base_price,
+                        "percent_threshold": a.percent_threshold,
+                        "notify_once": a.notify_once,
+                    }
+                    for a in alerts
+                ]
+
+        alert_data = await run_in_db(_fetch_active)
+        if not alert_data:
+            return []
+
+        # Phase 2: Fetch prices (async, non-blocking)
+        tokens = list(set(a["token_symbol"] for a in alert_data))
+        prices = await price_service.get_prices(tokens)
+
+        # Phase 3: Evaluate triggers
+        triggered_updates = []  # (alert_id, triggered_price, deactivate)
+        triggered_results = []
+
+        for ad in alert_data:
+            current_price = prices.get(ad["token_symbol"])
+            if current_price is None:
+                continue
+
+            should_trigger = False
+            if ad["alert_type"] == AlertType.PRICE_ABOVE.value:
+                should_trigger = current_price >= ad["target_price"]
+            elif ad["alert_type"] == AlertType.PRICE_BELOW.value:
+                should_trigger = current_price <= ad["target_price"]
+            elif ad["alert_type"] == AlertType.PERCENT_CHANGE.value:
+                bp = ad["base_price"]
+                if bp and bp > 0:
+                    change_pct = ((current_price - bp) / bp) * 100
+                    should_trigger = abs(change_pct) >= (ad["percent_threshold"] or 0)
+
+            if should_trigger and current_price > 0:
+                triggered_updates.append((ad["id"], current_price, ad["notify_once"]))
+                triggered_results.append({
+                    "alert_id": ad["id"],
+                    "user_id": ad["user_id"],
+                    "token": ad["token_symbol"],
+                    "alert_type": ad["alert_type"],
+                    "target_price": ad["target_price"],
+                    "current_price": current_price,
+                    "percent_threshold": ad["percent_threshold"],
+                })
+
+        # Phase 4: Write trigger updates to DB (non-blocking)
+        if triggered_updates:
+            def _mark_triggered():
+                with get_session() as session:
+                    for aid, tprice, notify_once in triggered_updates:
+                        alert = session.query(PriceAlert).filter(PriceAlert.id == aid).first()
+                        if alert:
+                            alert.is_triggered = True
+                            alert.triggered_at = datetime.now(timezone.utc)
+                            alert.triggered_price = tprice
+                            if notify_once:
+                                alert.is_active = False
+            await run_in_db(_mark_triggered)
+
+        return triggered_results
     
     # === Background Task ===
     

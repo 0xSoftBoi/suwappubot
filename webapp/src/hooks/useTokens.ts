@@ -33,6 +33,7 @@ export function useTokens(chain = '1', includeBalances = true) {
     gcTime: 5 * 60 * 1000, // Keep in cache 5 minutes
     refetchOnWindowFocus: true,
     refetchInterval: 60 * 1000, // Auto-refresh every minute
+    refetchIntervalInBackground: false,
   })
 }
 

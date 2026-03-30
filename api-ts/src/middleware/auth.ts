@@ -1,8 +1,37 @@
 import { Effect, Either, Option } from 'effect'
 import type { Context, Next } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { runEffectEither } from '../runtime'
+import { inArray } from 'drizzle-orm'
+import { requireDb } from '../db/DrizzleService'
+import { agents } from '../db/schema'
+import { runEffect, runEffectEither } from '../runtime'
 import { AgentService } from '../services'
+
+// Batch agent activity updates: collect IDs and flush every 60s
+const pendingActivityUpdates = new Set<number>()
+
+setInterval(async () => {
+	if (pendingActivityUpdates.size === 0) return
+	const ids = [...pendingActivityUpdates]
+	pendingActivityUpdates.clear()
+	try {
+		await runEffect(
+			Effect.gen(function* () {
+				const db = yield* requireDb
+				yield* Effect.tryPromise({
+					try: () =>
+						db
+							.update(agents)
+							.set({ lastActiveAt: new Date(), updatedAt: new Date() })
+							.where(inArray(agents.id, ids)),
+					catch: () => new Error('batch activity update failed'),
+				})
+			}).pipe(Effect.catchAll(() => Effect.succeed(undefined))),
+		)
+	} catch {
+		// silently ignore - activity tracking is non-critical
+	}
+}, 60_000)
 
 /**
  * Middleware to validate X-Admin-Key header
@@ -76,10 +105,8 @@ export function agentBearerAuth() {
 
 				const agent = agentOption.value
 
-				// Update last active timestamp (fire and forget)
-				yield* agentService
-					.updateAgentActivity(agent.id)
-					.pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+				// Batch activity update instead of per-request DB write
+				pendingActivityUpdates.add(agent.id)
 
 				return agent
 			}),

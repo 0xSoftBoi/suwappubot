@@ -1,5 +1,6 @@
 import {
 	boolean,
+	index,
 	integer,
 	jsonb,
 	pgTable,
@@ -45,7 +46,9 @@ export const agents = pgTable('agents', {
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at').defaultNow().notNull(),
 	lastActiveAt: timestamp('last_active_at'),
-})
+}, (table) => ({
+	isActiveIdx: index('ix_agents_is_active').on(table.isActive),
+}))
 
 export type Agent = typeof agents.$inferSelect
 export type NewAgent = typeof agents.$inferInsert

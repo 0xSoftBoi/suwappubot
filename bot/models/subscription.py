@@ -32,6 +32,7 @@ class Subscription(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)
     tier = Column(SQLEnum(SubscriptionTier), default=SubscriptionTier.FREE)
     
+    started_at = Column(DateTime, nullable=True)   # When subscription was activated
     expires_at = Column(DateTime, nullable=True)  # Duration-based expiry
     
     # Usage tracking

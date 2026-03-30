@@ -9,5 +9,6 @@ export function usePredictionOrderbook(id: string | null) {
     staleTime: 5 * 1000,
     gcTime: 30 * 1000,
     refetchInterval: 10 * 1000,
+    refetchIntervalInBackground: false,
   })
 }

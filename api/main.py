@@ -151,11 +151,17 @@ async def lifespan(app: FastAPI):
     admin_ids = getattr(settings, 'admin_ids', [])
 
     if db_success:
+        # Stagger service starts to avoid thundering herd on DB
         await fee_sweeper.start()
+        await asyncio.sleep(2)
         await alert_service.start(bot=bot_app.bot if bot_initialized else None)
+        await asyncio.sleep(2)
         await order_service.start(bot=bot_app.bot if bot_initialized else None)
+        await asyncio.sleep(2)
         await tx_poller.start(bot=bot_app.bot if bot_initialized else None)
+        await asyncio.sleep(2)
         await health_monitor.start(bot=bot_app.bot if bot_initialized else None, admin_ids=admin_ids)
+        await asyncio.sleep(2)
         await balance_refresher.start()
 
         # Start Discord alert service if Discord bot is available
@@ -278,6 +284,11 @@ api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 ADMIN_KEY_NAME = "X-Admin-Key"
 admin_key_header = APIKeyHeader(name=ADMIN_KEY_NAME, auto_error=False)
 
+# Agent key cache: api_key -> (agent_id, cached_at)
+_agent_key_cache: dict[str, tuple[int, float]] = {}
+_AGENT_KEY_CACHE_TTL = 300  # 5 minutes
+
+
 async def get_agent_key(
     api_key: str = Security(api_key_header),
 ):
@@ -292,18 +303,30 @@ async def get_agent_key(
     if api_key == valid_key:
         return api_key
 
+    # Check in-memory cache first (avoids DB hit on every request)
+    import time as _time
+    if api_key in _agent_key_cache:
+        _, cached_at = _agent_key_cache[api_key]
+        if _time.time() - cached_at < _AGENT_KEY_CACHE_TTL:
+            return api_key
+
     # Check registered agent keys in DB
     if api_key and DATABASE_AVAILABLE:
         try:
-            with get_session() as session:
-                agent = session.query(RegisteredAgent).filter(
-                    RegisteredAgent.api_key == api_key,
-                    RegisteredAgent.is_active == True,
-                ).first()
-                if agent:
-                    agent.last_seen_at = datetime.utcnow()
-                    session.commit()
-                    return api_key
+            from database.db import run_in_db
+
+            def _lookup_agent():
+                with get_session() as session:
+                    agent = session.query(RegisteredAgent).filter(
+                        RegisteredAgent.api_key == api_key,
+                        RegisteredAgent.is_active == True,
+                    ).first()
+                    return agent.id if agent else None
+
+            agent_id = await run_in_db(_lookup_agent)
+            if agent_id:
+                _agent_key_cache[api_key] = (agent_id, _time.time())
+                return api_key
         except Exception:
             pass
 

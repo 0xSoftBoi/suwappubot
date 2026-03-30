@@ -68,6 +68,7 @@ export function Swap() {
     queryFn: () => api.getSwapStatus(swapResult!.swapId),
     enabled: !!swapResult?.swapId && swapResult.status === 'submitted',
     refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   })
 
   const handleSwapTokens = () => {

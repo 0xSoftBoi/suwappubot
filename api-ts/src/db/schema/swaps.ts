@@ -1,4 +1,4 @@
-import { integer, pgTable, real, serial, text, timestamp, varchar } from 'drizzle-orm/pg-core'
+import { index, integer, pgTable, real, serial, text, timestamp, varchar } from 'drizzle-orm/pg-core'
 import { users } from './users'
 
 export const swapTransactions = pgTable('swap_transactions', {
@@ -48,7 +48,10 @@ export const swapTransactions = pgTable('swap_transactions', {
 	// Agent linkage (nullable -- only set for agent-initiated swaps)
 	agentId: integer('agent_id'),
 	agentUuid: varchar('agent_uuid', { length: 36 }),
-})
+}, (table) => ({
+	userIdIdx: index('ix_swap_transactions_user_id').on(table.userId),
+	userIdCreatedAtIdx: index('ix_swap_transactions_user_id_created_at').on(table.userId, table.createdAt),
+}))
 
 export type SwapTransaction = typeof swapTransactions.$inferSelect
 export type NewSwapTransaction = typeof swapTransactions.$inferInsert

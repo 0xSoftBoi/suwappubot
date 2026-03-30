@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AnimatePresence, motion, type Variants } from 'framer-motion'
@@ -6,12 +6,42 @@ import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useTelegram } from './hooks/useTelegram'
 import { useDesktopHotkeys } from './hooks/useDesktopHotkeys'
-import { Welcome, Home, Swap, Wallet, Portfolio, History, Points, DCA, DCACreate, LimitOrders, PriceAlerts, Referrals, CopyTrading, Subscriptions, Settings, Recovery, PredictionMarkets, PredictionMarketDetail, PerpsMarkets, PerpsMarketDetail } from './pages'
+// Critical pages: static imports for instant first paint
+import { Welcome } from './pages/Welcome'
+import { Home } from './pages/Home'
+// All other pages: lazy-loaded for code splitting
+const Swap = lazy(() => import('./pages/Swap').then(m => ({ default: m.Swap })))
+const Wallet = lazy(() => import('./pages/Wallet').then(m => ({ default: m.Wallet })))
+const Portfolio = lazy(() => import('./pages/Portfolio').then(m => ({ default: m.Portfolio })))
+const History = lazy(() => import('./pages/History').then(m => ({ default: m.History })))
+const Points = lazy(() => import('./pages/Points').then(m => ({ default: m.Points })))
+const DCA = lazy(() => import('./pages/DCA').then(m => ({ default: m.DCA })))
+const DCACreate = lazy(() => import('./pages/DCACreate').then(m => ({ default: m.DCACreate })))
+const LimitOrders = lazy(() => import('./pages/LimitOrders').then(m => ({ default: m.LimitOrders })))
+const PriceAlerts = lazy(() => import('./pages/PriceAlerts').then(m => ({ default: m.PriceAlerts })))
+const Referrals = lazy(() => import('./pages/Referrals').then(m => ({ default: m.Referrals })))
+const CopyTrading = lazy(() => import('./pages/CopyTrading').then(m => ({ default: m.CopyTrading })))
+const Subscriptions = lazy(() => import('./pages/Subscriptions').then(m => ({ default: m.Subscriptions })))
+const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
+const Recovery = lazy(() => import('./pages/Recovery').then(m => ({ default: m.Recovery })))
+const PredictionMarkets = lazy(() => import('./pages/PredictionMarkets').then(m => ({ default: m.PredictionMarkets })))
+const PredictionMarketDetail = lazy(() => import('./pages/PredictionMarketDetail').then(m => ({ default: m.PredictionMarketDetail })))
+const PerpsMarkets = lazy(() => import('./pages/PerpsMarkets').then(m => ({ default: m.PerpsMarkets })))
+const PerpsMarketDetail = lazy(() => import('./pages/PerpsMarketDetail').then(m => ({ default: m.PerpsMarketDetail })))
 import { DesktopLayout } from './components/layout'
 import { HotkeyOverlay } from './components/desktop/HotkeyOverlay'
 import './theme/suwappu.css'
 
 const isDesktop = !!(typeof window !== 'undefined' && (window as any).__SUWAPPU_DESKTOP__?.isDesktop)
+
+// Suspense fallback for lazy-loaded pages
+function LazyFallback() {
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-suwappu-bg">
+      <div className="animate-pulse text-suwappu-text-secondary">Loading...</div>
+    </div>
+  )
+}
 
 // Page transition variants
 const pageVariants: Variants = {
@@ -131,6 +161,7 @@ function AppContent() {
   const location = useLocation()
 
   const content = (
+    <Suspense fallback={<LazyFallback />}>
     <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
         {/* Public routes */}
@@ -341,6 +372,7 @@ function AppContent() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AnimatePresence>
+    </Suspense>
   )
 
   return isDesktop ? (

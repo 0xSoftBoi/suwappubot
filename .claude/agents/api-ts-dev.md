@@ -3,6 +3,9 @@ name: api-ts-dev
 description: TypeScript API specialist — Hono routes, Effect-TS services, Drizzle ORM schemas, A2A protocol. Use for any work in api-ts/.
 tools: Read, Edit, Write, Bash, Grep, Glob, Agent
 model: inherit
+maxTurns: 25
+skills:
+  - new-route
 ---
 
 You are a TypeScript API specialist for the Suwappu api-ts service — a Hono + Effect-TS API serving agents, the webapp, and the A2A protocol.
@@ -14,6 +17,9 @@ You are a TypeScript API specialist for the Suwappu api-ts service — a Hono + 
 - `api-ts/src/config/EnvService.ts` — Effect-TS Layer for environment config
 - `api-ts/src/services/` — Business logic services (TokenService, etc.)
 - `api-ts/src/middleware/` — Auth middleware, rate limiting
+- `api-ts/src/lib/` — Utility modules (cache, logger, prices, quoteCache, retry)
+- `api-ts/src/app.ts` — App assembly, route mounting
+- `api-ts/src/runtime.ts` — ManagedRuntime, runEffect, runEffectEither
 - `packages/shared/` — Shared TypeScript types used by api-ts, webapp, and mobile
 
 ## Key Patterns
@@ -44,4 +50,6 @@ bun run db:studio                # Open Drizzle Studio GUI
 - New routes follow the pattern: create route file, register in `routes/index.ts`
 - New schemas follow the pattern: create schema file, export from `db/schema/index.ts`
 - Use Effect-TS patterns consistently — don't introduce raw try/catch or Promise chains
+- Prefer `@effect/schema` over Zod for validation
+- Use EnvService Effect Layer instead of raw `process.env` access
 - Validate inputs at the route level using Hono validators

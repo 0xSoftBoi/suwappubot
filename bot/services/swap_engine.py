@@ -55,7 +55,7 @@ from bot.models.swap import SwapTransaction, SwapStatus
 from bot.utils.quote_validator import quote_validator
 from bot.utils.exceptions import SwapError
 from bot.services.event_bus import event_bus
-from database.db import get_session
+from database.db import get_session, run_in_db
 
 logger = logging.getLogger(__name__)
 
@@ -155,15 +155,19 @@ class SwapEngine:
 
         wallet_id = wallet_data.get("id") or wallet_data.get("wallet_id")
         if wallet_id:
-            with get_session() as session:
-                wallet = session.query(Wallet).filter(Wallet.id == wallet_id).first()
-                if wallet:
-                    return wallet
+            def _get_by_id():
+                with get_session() as session:
+                    return session.query(Wallet).filter(Wallet.id == wallet_id).first()
+            wallet = await run_in_db(_get_by_id)
+            if wallet:
+                return wallet
         # Fallback: lookup by address
         address = wallet_data.get("address")
         if address:
-            with get_session() as session:
-                return session.query(Wallet).filter(Wallet.address == address).first()
+            def _get_by_addr():
+                with get_session() as session:
+                    return session.query(Wallet).filter(Wallet.address == address).first()
+            return await run_in_db(_get_by_addr)
         return None
 
     def _is_solana_only_swap(self, from_chain: str, to_chain: str) -> bool:
@@ -779,33 +783,41 @@ class SwapEngine:
         async with self._wallet_locks[wallet_id]:
             # Idempotency: if we already created/submitted this attempt, return it
             if idempotency_key:
-                with get_session() as session:
-                    existing = session.query(SwapTransaction).filter(
-                        SwapTransaction.idempotency_key == idempotency_key
-                    ).first()
-                    if existing and existing.status not in [
-                        SwapStatus.FAILED.value,
-                        SwapStatus.CANCELLED.value,
-                    ]:
-                        return existing
+                def _check_idempotency():
+                    with get_session() as session:
+                        existing = session.query(SwapTransaction).filter(
+                            SwapTransaction.idempotency_key == idempotency_key
+                        ).first()
+                        if existing and existing.status not in [
+                            SwapStatus.FAILED.value,
+                            SwapStatus.CANCELLED.value,
+                        ]:
+                            return existing
+                        return None
+                existing = await run_in_db(_check_idempotency)
+                if existing:
+                    return existing
 
             # Get wallet data within session
-            with get_session() as session:
-                wallet_obj = session.query(Wallet).filter(Wallet.id == wallet_id).first()
-                if not wallet_obj:
-                    raise SwapError("Wallet not found")
+            def _get_wallet():
+                with get_session() as session:
+                    wallet_obj = session.query(Wallet).filter(Wallet.id == wallet_id).first()
+                    if not wallet_obj:
+                        return None
+                    return {
+                        "id": wallet_obj.id,
+                        "wallet_id": wallet_obj.id,
+                        "address": wallet_obj.address,
+                        "chain_type": wallet_obj.chain_type,
+                        "encrypted_private_key": wallet_obj.encrypted_private_key,
+                    }
+            wallet = await run_in_db(_get_wallet)
+            if not wallet:
+                raise SwapError("Wallet not found")
 
-                wallet_address = wallet_obj.address
-                wallet_chain_type = wallet_obj.chain_type
-                wallet_encrypted_key = wallet_obj.encrypted_private_key
-                # Convert to dict for execution methods
-                wallet = {
-                    "id": wallet_obj.id,
-                    "wallet_id": wallet_obj.id,
-                    "address": wallet_obj.address,
-                    "chain_type": wallet_obj.chain_type,
-                    "encrypted_private_key": wallet_obj.encrypted_private_key,
-                }
+            wallet_address = wallet["address"]
+            wallet_chain_type = wallet["chain_type"]
+            wallet_encrypted_key = wallet["encrypted_private_key"]
             
             # Validate quote freshness
             quote_validator.validate_quote_freshness(quote)
@@ -821,26 +833,28 @@ class SwapEngine:
             # in cross-chain routes. On-chain failures are caught below.
 
             # Create transaction record
-            with get_session() as session:
-                swap_tx = SwapTransaction(
-                    user_id=user_id,
-                    from_chain=quote.from_chain,
-                    from_token=quote.from_token,
-                    from_amount=quote.from_amount,
-                    from_amount_usd=quote.from_amount_human,  # Assuming stablecoin
-                    to_chain=quote.to_chain,
-                    to_token=quote.to_token,
-                    to_amount=quote.to_amount,
-                    to_amount_usd=quote.to_amount_human,
-                    status=SwapStatus.EXECUTING.value,
-                    route_provider=quote.provider,
-                    gas_fee=quote.gas_cost_usd,
-                    bridge_fee=quote.fee_cost_usd,
-                    idempotency_key=idempotency_key,
-                )
-                session.add(swap_tx)
-                session.flush()
-                swap_id = swap_tx.id
+            def _create_swap_record():
+                with get_session() as session:
+                    swap_tx = SwapTransaction(
+                        user_id=user_id,
+                        from_chain=quote.from_chain,
+                        from_token=quote.from_token,
+                        from_amount=quote.from_amount,
+                        from_amount_usd=quote.from_amount_human,
+                        to_chain=quote.to_chain,
+                        to_token=quote.to_token,
+                        to_amount=quote.to_amount,
+                        to_amount_usd=quote.to_amount_human,
+                        status=SwapStatus.EXECUTING.value,
+                        route_provider=quote.provider,
+                        gas_fee=quote.gas_cost_usd,
+                        bridge_fee=quote.fee_cost_usd,
+                        idempotency_key=idempotency_key,
+                    )
+                    session.add(swap_tx)
+                    session.flush()
+                    return swap_tx.id
+            swap_id = await run_in_db(_create_swap_record)
             
             # Create a simple wallet data object for signing
             wallet_data = {
@@ -869,12 +883,13 @@ class SwapEngine:
                         error_msg = f"Deep Simulation Blocked: {sim_res.get('reason')} - {sim_res.get('error')}"
                         logger.warning(error_msg)
                         
-                        with get_session() as session:
-                            db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
-                            db_tx.status = SwapStatus.FAILED.value
-                            db_tx.error_message = error_msg
-                            session.commit() # Commit the status update
-                        
+                        def _mark_sim_failed():
+                            with get_session() as session:
+                                db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
+                                db_tx.status = SwapStatus.FAILED.value
+                                db_tx.error_message = error_msg
+                        await run_in_db(_mark_sim_failed)
+
                         raise SwapError(f"⚠️ Safety simulation FAILED: {sim_res.get('reason')}. Trade blocked to protect your funds.")
                     
                     logger.info(f"Deep Simulation PASSED for {quote.to_token}. Proceeding with trade.")
@@ -907,11 +922,13 @@ class SwapEngine:
                     tx_hash = await self._execute_lifi_swap(quote, wallet)
                 
                 # Persist tx_hash to the database record
-                with get_session() as session:
-                    db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
-                    if db_tx:
-                        db_tx.tx_hash = tx_hash
-                        db_tx.status = SwapStatus.SUBMITTED.value
+                def _update_tx_hash():
+                    with get_session() as session:
+                        db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
+                        if db_tx:
+                            db_tx.tx_hash = tx_hash
+                            db_tx.status = SwapStatus.SUBMITTED.value
+                await run_in_db(_update_tx_hash)
 
                 # Invalidate balance cache so user sees updated balance
                 try:
@@ -934,19 +951,23 @@ class SwapEngine:
                 wallet_encrypted_key = None
 
                 # Re-fetch the updated record to return
-                with get_session() as session:
-                    swap_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
+                def _refetch():
+                    with get_session() as session:
+                        return session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
+                swap_tx = await run_in_db(_refetch)
 
                 return swap_tx
 
             except Exception as e:
                 logger.error(f"Swap execution failed: {e}", exc_info=True)
                 # Mark as failed
-                with get_session() as session:
-                    db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
-                    if db_tx:
-                        db_tx.status = SwapStatus.FAILED.value
-                        db_tx.error_message = str(e)
+                def _mark_failed():
+                    with get_session() as session:
+                        db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
+                        if db_tx:
+                            db_tx.status = SwapStatus.FAILED.value
+                            db_tx.error_message = str(e)
+                await run_in_db(_mark_failed)
 
                 # Publish swap.failed event
                 await event_bus.publish("swap.failed", {
@@ -1943,15 +1964,17 @@ class SwapEngine:
                 status = await self._check_evm_tx_status(swap_tx)
         
         # Update database
-        with get_session() as session:
-            tx = session.query(SwapTransaction).filter(
-                SwapTransaction.id == swap_tx.id
-            ).first()
-            tx.status = status
-            if status == SwapStatus.COMPLETED.value:
-                from datetime import datetime, timezone
-                tx.completed_at = datetime.now(timezone.utc)
-        
+        def _update_status():
+            with get_session() as session:
+                tx = session.query(SwapTransaction).filter(
+                    SwapTransaction.id == swap_tx.id
+                ).first()
+                tx.status = status
+                if status == SwapStatus.COMPLETED.value:
+                    from datetime import datetime, timezone
+                    tx.completed_at = datetime.now(timezone.utc)
+        await run_in_db(_update_status)
+
         swap_tx.status = status
         return swap_tx
     
@@ -2049,11 +2072,13 @@ class SwapEngine:
             if status.status == "DONE":
                 # Update destination tx hash
                 if status.receiving_tx_hash:
-                    with get_session() as session:
-                        tx = session.query(SwapTransaction).filter(
-                            SwapTransaction.id == swap_tx.id
-                        ).first()
-                        tx.destination_tx_hash = status.receiving_tx_hash
+                    def _update_dest_hash():
+                        with get_session() as session:
+                            tx = session.query(SwapTransaction).filter(
+                                SwapTransaction.id == swap_tx.id
+                            ).first()
+                            tx.destination_tx_hash = status.receiving_tx_hash
+                    await run_in_db(_update_dest_hash)
                 
                 return SwapStatus.COMPLETED.value
             elif status.status == "FAILED":

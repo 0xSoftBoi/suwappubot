@@ -3,6 +3,9 @@ name: db-migrate
 description: Database migration specialist — add columns, tables, indexes to both Python SQLAlchemy models and TypeScript Drizzle schemas. Use for any database schema changes.
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: inherit
+maxTurns: 20
+skills:
+  - migrations
 ---
 
 You are a database migration specialist for Suwappu. The project has TWO ORMs that must stay in sync:
@@ -69,13 +72,14 @@ export const myTable = pgTable("my_table", {
 
 | File | Purpose |
 |------|---------|
-| `database/db.py` | Runtime migrations, `_ensure_schema()` (23 migration functions) |
+| `database/db.py` | Runtime migrations, `_ensure_schema()` (20+ migration functions) |
 | `bot/models/user.py` | User accounts, wallets, settings |
 | `bot/models/swap.py` | Swap transactions |
 | `bot/models/subscription.py` | Subscriptions, payments, API credits |
 | `bot/models/fees.py` | Fee configs & transactions |
 | `bot/models/points.py` | XP, points, milestones |
 | `api-ts/src/db/schema/` | 25 Drizzle schema files (mirror of Python models) |
+| `scripts/validate-schema-sync.ts` | Detect schema drift between Python and Drizzle |
 
 ## Rules
 
@@ -85,3 +89,4 @@ export const myTable = pgTable("my_table", {
 - Always update BOTH Python models AND TypeScript schemas
 - Test migrations by checking they're idempotent (run twice without error)
 - Use PostgreSQL-compatible types (TEXT, INTEGER, BOOLEAN, TIMESTAMP, JSONB, etc.)
+- Run schema drift check when adding new tables: `bun run scripts/validate-schema-sync.ts`

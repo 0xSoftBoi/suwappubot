@@ -137,7 +137,7 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		WETH: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
 		USDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
 		USDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-		DAI: '0x6B175474E89094C44Da98b954EesadfdD3710d3Cb',
+		DAI: '0x6B175474E89094C44Da98b954EedeAC495271d0F',
 		WBTC: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
 	},
 	// Optimism
@@ -205,6 +205,10 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 	},
 }
 
+// In-memory cache for Li.Fi token resolution results
+const tokenResolutionCache = new Map<string, { result: TokenInfo | null; expiry: number }>()
+const TOKEN_RESOLUTION_TTL = 10 * 60 * 1000 // 10 minutes
+
 export interface TokenServiceInterface {
 	readonly resolveChain: (chainInput: string) => ChainInfo | null
 	readonly resolveToken: (symbol: string, chainId: number) => Effect.Effect<TokenInfo | null, Error>
@@ -266,6 +270,13 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 				}
 			}
 
+			// Check in-memory cache before hitting Li.Fi
+			const cacheKey = `${chainId}:${normalized}`
+			const cached = tokenResolutionCache.get(cacheKey)
+			if (cached && cached.expiry > Date.now()) {
+				return cached.result
+			}
+
 			// If not found locally, fetch from Li.Fi
 			const response = yield* Effect.tryPromise({
 				try: async () => {
@@ -290,6 +301,11 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 			const tokens = response.tokens[String(chainId)] || []
 			const found = tokens.find((t) => t.symbol.toUpperCase() === normalized)
 
-			return found || null
+			const result = found || null
+
+			// Cache the result (even null to avoid repeated lookups for unknown tokens)
+			tokenResolutionCache.set(cacheKey, { result, expiry: Date.now() + TOKEN_RESOLUTION_TTL })
+
+			return result
 		}),
 })

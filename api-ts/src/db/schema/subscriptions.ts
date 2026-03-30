@@ -10,6 +10,7 @@ export const subscriptions = pgTable('subscriptions', {
 	id: serial('id').primaryKey(),
 	userId: integer('user_id').notNull().unique(),
 	tier: varchar('tier', { length: 20 }).default('free'),
+	startedAt: timestamp('started_at'),
 	expiresAt: timestamp('expires_at'),
 	apiCallsToday: integer('api_calls_today').default(0),
 	apiCallsTotal: integer('api_calls_total').default(0),

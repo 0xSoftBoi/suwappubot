@@ -145,25 +145,12 @@ swapRoutes.get('/quote', ipRateLimit(30), telegramAuth(), async (c) => {
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const redis = yield* RedisService
-			const userService = yield* UserService
-			const walletService = yield* WalletService
 			const swapService = yield* SwapService
 
-			// Get user and wallet - use placeholder if not found (for quotes only)
-			// Use a real address as placeholder since Li.Fi rejects zero address
-			let walletAddress = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045' // vitalik.eth as placeholder
-
-			const userResult = yield* Effect.either(userService.getUserByTelegramId(telegramUser.id))
-			if (Either.isRight(userResult) && Option.isSome(userResult.right)) {
-				const user = userResult.right.value
-				const walletsResult = yield* Effect.either(walletService.getActiveWallets(user.id))
-				if (Either.isRight(walletsResult) && walletsResult.right.length > 0) {
-					walletAddress = walletsResult.right[0].address
-				}
-			}
-
-			// For backward compat - allow quotes without wallet
-			const wallet = { address: walletAddress }
+			// For quotes, skip user+wallet DB lookups — Li.Fi only needs a valid
+			// fromAddress and the quote is never executed with this address.
+			// Use a well-known placeholder since Li.Fi rejects the zero address.
+			const wallet = { address: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045' } // vitalik.eth placeholder
 
 			// Validate required params
 			if (!fromChain || !toChain || !fromToken || !toToken || !fromAmount) {

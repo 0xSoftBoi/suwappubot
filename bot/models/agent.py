@@ -5,7 +5,7 @@ from database.db import Base
 
 class RegisteredAgent(Base):
     """External A2A agent registered via the public registration endpoint."""
-    __tablename__ = "registered_agents"
+    __tablename__ = "agents"
 
     id = Column(Integer, primary_key=True)
     name = Column(String(255), nullable=False)

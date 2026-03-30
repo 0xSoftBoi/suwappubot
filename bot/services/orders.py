@@ -14,7 +14,7 @@ from bot.models.advanced import (
 from bot.models.swap import SwapStatus
 from bot.services.price_service import price_service
 from bot.services.swap_engine import SwapEngine
-from database.db import get_session
+from database.db import get_session, run_in_db
 
 logger = logging.getLogger(__name__)
 
@@ -104,73 +104,90 @@ class OrderService:
             return False
     
     async def check_limit_orders(self) -> List[LimitOrder]:
-        """Check all pending limit orders and return triggered ones."""
-        triggered = []
-        
-        with get_session() as session:
-            # Get pending orders
-            orders = session.query(LimitOrder).filter(
-                LimitOrder.status == OrderStatus.PENDING.value,
-            ).all()
-            
-            if not orders:
-                return []
-            
-            # Check expiration
-            now = datetime.now(timezone.utc)
-            for order in orders:
-                if order.expires_at and order.expires_at < now:
-                    order.status = OrderStatus.EXPIRED.value
-                    continue
-            
-            # Get unique tokens to check
-            tokens = set()
-            for order in orders:
-                if order.order_type in [OrderType.LIMIT_BUY.value, OrderType.STOP_LOSS.value]:
-                    tokens.add(order.to_token)  # Buying to_token
-                else:
-                    tokens.add(order.from_token)  # Selling from_token
-            
-            # Fetch prices
-            prices = await price_service.get_prices(list(tokens))
-            
-            for order in orders:
-                if order.status != OrderStatus.PENDING.value:
-                    continue
-                
-                # Determine which token price to check
-                if order.order_type == OrderType.LIMIT_BUY.value:
-                    # Buy when price drops to target
-                    check_token = order.to_token
-                    current_price = prices.get(check_token, 0)
-                    should_trigger = current_price <= order.trigger_price
-                    
-                elif order.order_type == OrderType.LIMIT_SELL.value:
-                    # Sell when price rises to target
-                    check_token = order.from_token
-                    current_price = prices.get(check_token, 0)
-                    should_trigger = current_price >= order.trigger_price
-                    
-                elif order.order_type == OrderType.STOP_LOSS.value:
-                    # Sell when price drops to stop
-                    check_token = order.from_token
-                    current_price = prices.get(check_token, 0)
-                    should_trigger = current_price <= order.trigger_price
-                    
-                elif order.order_type == OrderType.TAKE_PROFIT.value:
-                    # Sell when price rises to target
-                    check_token = order.from_token
-                    current_price = prices.get(check_token, 0)
-                    should_trigger = current_price >= order.trigger_price
-                else:
-                    continue
-                
-                if should_trigger and current_price > 0:
-                    order.status = OrderStatus.TRIGGERED.value
-                    order.execution_price = current_price
-                    triggered.append(order)
-        
-        return triggered
+        """Check all pending limit orders and return triggered ones.
+
+        Refactored to avoid holding a DB session across await boundaries.
+        Phase 1: read from DB (thread pool). Phase 2: async price fetch.
+        Phase 3: write updates back (thread pool).
+        """
+        # Phase 1: Read pending orders from DB (non-blocking)
+        def _fetch_pending():
+            with get_session() as session:
+                orders = session.query(LimitOrder).filter(
+                    LimitOrder.status == OrderStatus.PENDING.value,
+                ).all()
+                # Detach from session by extracting needed fields
+                result = []
+                now = datetime.now(timezone.utc)
+                expired_ids = []
+                for o in orders:
+                    if o.expires_at and o.expires_at < now:
+                        expired_ids.append(o.id)
+                        continue
+                    result.append({
+                        "id": o.id, "order_type": o.order_type,
+                        "from_token": o.from_token, "to_token": o.to_token,
+                        "trigger_price": o.trigger_price,
+                    })
+                # Mark expired in same session
+                if expired_ids:
+                    for oid in expired_ids:
+                        order = session.query(LimitOrder).filter(LimitOrder.id == oid).first()
+                        if order:
+                            order.status = OrderStatus.EXPIRED.value
+                return result
+
+        order_data = await run_in_db(_fetch_pending)
+        if not order_data:
+            return []
+
+        # Phase 2: Fetch prices (async, non-blocking)
+        tokens = set()
+        for od in order_data:
+            if od["order_type"] in [OrderType.LIMIT_BUY.value, OrderType.STOP_LOSS.value]:
+                tokens.add(od["to_token"])
+            else:
+                tokens.add(od["from_token"])
+
+        prices = await price_service.get_prices(list(tokens))
+
+        # Phase 3: Evaluate triggers and write back (non-blocking)
+        triggered_ids = []
+        for od in order_data:
+            otype = od["order_type"]
+            if otype == OrderType.LIMIT_BUY.value:
+                price = prices.get(od["to_token"], 0)
+                should_trigger = price <= od["trigger_price"]
+            elif otype == OrderType.LIMIT_SELL.value:
+                price = prices.get(od["from_token"], 0)
+                should_trigger = price >= od["trigger_price"]
+            elif otype == OrderType.STOP_LOSS.value:
+                price = prices.get(od["from_token"], 0)
+                should_trigger = price <= od["trigger_price"]
+            elif otype == OrderType.TAKE_PROFIT.value:
+                price = prices.get(od["from_token"], 0)
+                should_trigger = price >= od["trigger_price"]
+            else:
+                continue
+
+            if should_trigger and price > 0:
+                triggered_ids.append((od["id"], price))
+
+        if not triggered_ids:
+            return []
+
+        def _mark_triggered():
+            with get_session() as session:
+                triggered = []
+                for oid, exec_price in triggered_ids:
+                    order = session.query(LimitOrder).filter(LimitOrder.id == oid).first()
+                    if order:
+                        order.status = OrderStatus.TRIGGERED.value
+                        order.execution_price = exec_price
+                        triggered.append(order)
+                return triggered
+
+        return await run_in_db(_mark_triggered)
     
     # === DCA Orders ===
     
@@ -271,29 +288,30 @@ class OrderService:
     
     async def check_dca_orders(self) -> List[DCAOrder]:
         """Check DCA orders due for execution."""
-        due_orders = []
-        now = datetime.now(timezone.utc)
-        
-        with get_session() as session:
-            orders = session.query(DCAOrder).filter(
-                DCAOrder.status == DCAStatus.ACTIVE.value,
-                DCAOrder.next_execution_at <= now,
-            ).all()
-            
-            for order in orders:
-                # Check if ended
-                if order.ends_at and order.ends_at < now:
-                    order.status = DCAStatus.COMPLETED.value
-                    continue
-                
-                # Check if max executions reached
-                if order.max_executions and order.executions_completed >= order.max_executions:
-                    order.status = DCAStatus.COMPLETED.value
-                    continue
-                
-                due_orders.append(order)
-        
-        return due_orders
+        def _check():
+            due_orders = []
+            now = datetime.now(timezone.utc)
+
+            with get_session() as session:
+                orders = session.query(DCAOrder).filter(
+                    DCAOrder.status == DCAStatus.ACTIVE.value,
+                    DCAOrder.next_execution_at <= now,
+                ).all()
+
+                for order in orders:
+                    if order.ends_at and order.ends_at < now:
+                        order.status = DCAStatus.COMPLETED.value
+                        continue
+
+                    if order.max_executions and order.executions_completed >= order.max_executions:
+                        order.status = DCAStatus.COMPLETED.value
+                        continue
+
+                    due_orders.append(order)
+
+            return due_orders
+
+        return await run_in_db(_check)
     
     # === Swap Templates ===
     
