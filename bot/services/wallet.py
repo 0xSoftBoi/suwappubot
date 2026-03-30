@@ -705,71 +705,109 @@ class WalletService:
     async def get_all_balances(self, wallet: Wallet) -> dict[str, dict[str, float]]:
         """
         Get all token balances for a wallet.
-        
+
         Returns:
             Dict of chain_name -> {token_symbol: balance}
+
+        Uses asyncio.gather to fetch all chains/tokens in parallel instead of
+        sequentially, reducing latency from O(chains * tokens) to O(max_rpc_latency).
         """
+        import asyncio
         from bot.config.tokens import TOKENS
-        
+
+        # Limit concurrency to avoid RPC rate limits
+        sem = asyncio.Semaphore(10)
+
+        async def _safe_fetch(coro):
+            async with sem:
+                try:
+                    return await coro
+                except Exception:
+                    return 0.0
+
         balances: dict[str, dict[str, float]] = {}
-        
+
         if wallet.chain_type == "evm":
-            # Check balances on all EVM chains
-            for chain_name, chain in CHAINS.items():
-                if chain.chain_type != ChainType.EVM:
-                    continue
-                
+            # Build all fetch tasks across all EVM chains in parallel
+            async def _fetch_evm_chain(chain_name, chain):
                 chain_balances: dict[str, float] = {}
-                
-                # Native balance
-                native_balance = await self.get_evm_native_balance(chain_name, wallet.address)
-                if native_balance > 0:
-                    chain_balances[chain.native_token] = native_balance
-                
-                # Token balances
+
+                # Build tasks: native + all tokens for this chain
+                tasks = []
+                task_labels = []
+
+                tasks.append(_safe_fetch(self.get_evm_native_balance(chain_name, wallet.address)))
+                task_labels.append(chain.native_token)
+
                 for token_symbol, token in TOKENS.items():
                     if chain_name in token.addresses:
-                        balance = await self.get_evm_token_balance(
+                        tasks.append(_safe_fetch(self.get_evm_token_balance(
                             chain_name, token_symbol, wallet.address
-                        )
-                        if balance > 0:
-                            chain_balances[token_symbol] = balance
-                
-                if chain_balances:
-                    balances[chain_name] = chain_balances
-        
+                        )))
+                        task_labels.append(token_symbol)
+
+                results = await asyncio.gather(*tasks)
+                for label, bal in zip(task_labels, results):
+                    if isinstance(bal, (int, float)) and bal > 0:
+                        chain_balances[label] = bal
+
+                return chain_name, chain_balances
+
+            # Launch all chains in parallel
+            chain_tasks = [
+                _fetch_evm_chain(chain_name, chain)
+                for chain_name, chain in CHAINS.items()
+                if chain.chain_type == ChainType.EVM
+            ]
+            chain_results = await asyncio.gather(*chain_tasks, return_exceptions=True)
+            for result in chain_results:
+                if isinstance(result, tuple):
+                    name, chain_bal = result
+                    if chain_bal:
+                        balances[name] = chain_bal
+
         elif wallet.chain_type == "solana":
             chain_balances: dict[str, float] = {}
-            
-            # SOL balance
-            sol_balance = await self.get_solana_native_balance(wallet.address)
-            if sol_balance > 0:
-                chain_balances["SOL"] = sol_balance
-            
-            # Token balances
+
+            # Parallel: SOL native + all SPL tokens
+            tasks = []
+            task_labels = []
+
+            tasks.append(_safe_fetch(self.get_solana_native_balance(wallet.address)))
+            task_labels.append("SOL")
+
             for token_symbol, token in TOKENS.items():
                 if "solana" in token.addresses:
-                    balance = await self.get_solana_token_balance(token_symbol, wallet.address)
-                    if balance > 0:
-                        chain_balances[token_symbol] = balance
-            
+                    tasks.append(_safe_fetch(self.get_solana_token_balance(token_symbol, wallet.address)))
+                    task_labels.append(token_symbol)
+
+            results = await asyncio.gather(*tasks)
+            for label, bal in zip(task_labels, results):
+                if isinstance(bal, (int, float)) and bal > 0:
+                    chain_balances[label] = bal
+
             if chain_balances:
                 balances["solana"] = chain_balances
 
         elif wallet.chain_type == "tron":
             chain_balances: dict[str, float] = {}
 
-            # TRX balance
-            trx_balance = await self.get_tron_native_balance(wallet.address)
-            if trx_balance > 0:
-                chain_balances["TRX"] = trx_balance
+            # Parallel: TRX native + all TRC20 tokens
+            tasks = []
+            task_labels = []
 
-            # Token balances
+            tasks.append(_safe_fetch(self.get_tron_native_balance(wallet.address)))
+            task_labels.append("TRX")
+
             for token_symbol, token in TOKENS.items():
                 if "tron" in token.addresses and token.addresses["tron"] != "native":
-                    balance = await self.get_tron_token_balance(token_symbol, wallet.address)
-                    if balance > 0:
-                        chain_balances[token_symbol] = balance
+                    tasks.append(_safe_fetch(self.get_tron_token_balance(token_symbol, wallet.address)))
+                    task_labels.append(token_symbol)
+
+            results = await asyncio.gather(*tasks)
+            for label, bal in zip(task_labels, results):
+                if isinstance(bal, (int, float)) and bal > 0:
+                    chain_balances[label] = bal
 
             if chain_balances:
                 balances["tron"] = chain_balances
