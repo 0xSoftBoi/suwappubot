@@ -293,7 +293,7 @@ class Settings(BaseSettings):
         """
         Get the Alchemy network identifier for a chain.
 
-        Returns None for chains not supported by Alchemy (BSC, Solana).
+        Returns None for chains not supported by Alchemy (e.g. BSC).
         """
         # Default Alchemy network mappings
         alchemy_networks = {
@@ -302,6 +302,7 @@ class Settings(BaseSettings):
             "arbitrum": "arb-mainnet",
             "optimism": "opt-mainnet",
             "base": "base-mainnet",
+            "solana": "solana-mainnet",
         }
 
         # Apply custom overrides if configured
