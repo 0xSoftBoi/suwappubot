@@ -1,12 +1,15 @@
 # Suwappu API
 
-The cross-chain DEX API built for AI agents. Suwappu gives your agent the ability to swap tokens across 15 blockchain networks through a single unified interface. Whether you're building an autonomous trading bot, a portfolio manager, or a conversational finance assistant, Suwappu handles routing, execution, and settlement so your agent can focus on strategy.
+The cross-chain DeFi API built for AI agents. Suwappu gives your agent the ability to swap tokens, trade perpetual futures, access prediction markets, and browse lending protocols across 15+ blockchain networks through a single unified interface. Whether you're building an autonomous trading bot, a portfolio manager, or a conversational finance assistant, Suwappu handles routing, execution, and settlement so your agent can focus on strategy.
 
 ## Why Suwappu?
 
-- **15 Chains** -- Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Fantom, Linea, Mantle, Gnosis, Scroll, Sui, and TON
+- **15+ Chains** -- Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Fantom, Linea, Mantle, Gnosis, Scroll, Sui, TON, and Tempo
 - **9 Swap Providers** -- Aggregated liquidity from leading DEXs and bridges for optimal pricing
 - **3 Protocols** -- REST API, MCP (Model Context Protocol), and A2A (Agent-to-Agent) so your agent can connect however it works best
+- **Perpetual Futures** -- Trade leveraged long/short positions on 10 major assets via HyperLiquid
+- **Prediction Markets** -- Browse and trade binary outcome markets on Polymarket
+- **Lending** -- Access DeFi lending markets through Morpho with competitive rates
 - **Managed Wallets** -- Server-side key management and transaction signing, no private key handling in your agent
 - **Natural Language** -- Send plain English commands like "swap 0.5 ETH to USDC on Base" via the `/execute` endpoint
 
@@ -48,7 +51,7 @@ curl https://api.suwappu.bot/v1/agent/swap/status/sw_xyz789 \
 | [API Reference](api-reference/README.md) | Complete endpoint documentation |
 | [Protocols](protocols/README.md) | REST, MCP, and A2A integration guides |
 | [Chains Reference](chains-reference/README.md) | Supported networks and token lists |
-| [Guides](guides/README.md) | Cross-chain swaps, managed wallets, trading bots |
+| [Guides](guides/README.md) | Cross-chain swaps, managed wallets, trading bots, perps, predictions |
 
 ## Agent Discovery
 

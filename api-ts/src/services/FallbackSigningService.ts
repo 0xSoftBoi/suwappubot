@@ -9,7 +9,7 @@ import { logger } from '../lib/logger'
 import { fetchWithRetry } from '../lib/retry'
 
 const PYTHON_API_URL = process.env.PYTHON_API_URL || 'http://localhost:8000'
-const INTERNAL_API_KEY = process.env.AGENT_API_KEY || ''
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || process.env.AGENT_API_KEY || ''
 
 interface FallbackSignResult {
 	signedTransaction: string

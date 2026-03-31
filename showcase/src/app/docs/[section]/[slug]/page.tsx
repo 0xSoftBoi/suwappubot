@@ -22,9 +22,19 @@ export function generateMetadata({ params }: { params: Params }): Metadata {
     return { title: 'Not Found — Suwappu Docs' };
   }
 
+  const desc = page.description || `${page.title} documentation for the Suwappu cross-chain DeFi API.`;
   return {
     title: `${page.title} — Suwappu Docs`,
-    description: page.description || `${page.title} documentation for the Suwappu cross-chain DEX API.`,
+    description: desc,
+    openGraph: {
+      title: `${page.title} — Suwappu Docs`,
+      description: desc,
+      type: 'article',
+      url: `https://suwappu.bot/docs/${params.section}/${params.slug}`,
+    },
+    alternates: {
+      canonical: `https://suwappu.bot/docs/${params.section}/${params.slug}`,
+    },
   };
 }
 

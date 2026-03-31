@@ -981,8 +981,10 @@ body {
   font-size: 1.5rem;
   font-weight: 700;
   letter-spacing: -0.02em;
-  margin-top: 2.5rem;
+  margin-top: 3rem;
   margin-bottom: 1rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e5e0d8;
   color: #1a1a1a;
 }
 
@@ -1015,57 +1017,109 @@ body {
   font-family: var(--font-mono);
   font-size: 0.875em;
   background: #f5f0ea;
-  padding: 0.125rem 0.375rem;
+  padding: 0.2rem 0.4rem;
   border-radius: 4px;
-  color: #c2185b;
+  color: #7c3aed;
+  border: 1px solid #e5e0d8;
 }
 
 .doc-reader pre {
-  background: #1a1a1a;
+  background: #faf8f4;
   border-radius: 12px;
   padding: 1.25rem;
   overflow-x: auto;
   margin: 1.5rem 0;
+  position: relative;
+  border: 1px solid #e5e0d8;
 }
 
 .doc-reader pre code {
   background: none;
   padding: 0;
-  color: #c8c2ba;
+  color: #1a1a1a;
   font-size: 0.8125rem;
-  line-height: 1.7;
+  line-height: 1.8;
 }
 
-/* Syntax highlighting */
-.hl-kw { color: #c792ea; }
-.hl-str { color: #c3e88d; }
-.hl-num { color: #f78c6c; }
-.hl-bool { color: #ff5370; }
-.hl-comment { color: #676e95; font-style: italic; }
-.hl-key { color: #89ddff; }
-.hl-flag { color: #82aaff; }
-.hl-url { color: #80cbc4; }
-.hl-suwappu { color: #f472b6; font-weight: 600; }
+/* Copy button on code blocks */
+.doc-reader pre .copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: white;
+  border: 1px solid #e5e0d8;
+  border-radius: 6px;
+  color: #9a9590;
+  font-size: 0.6875rem;
+  font-family: var(--font-mono);
+  padding: 0.25rem 0.625rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  z-index: 2;
+}
+
+.doc-reader pre .copy-btn:hover {
+  background: #f5f0ea;
+  color: #1a1a1a;
+  border-color: #d4cec4;
+}
+
+.doc-reader pre .copy-btn--copied {
+  color: #16a34a;
+  border-color: rgba(22, 163, 74, 0.3);
+}
+
+/* Syntax highlighting — light bg */
+.hl-kw { color: #7c3aed; }
+.hl-str { color: #16a34a; }
+.hl-num { color: #ea580c; }
+.hl-bool { color: #dc2626; }
+.hl-comment { color: #9a9590; font-style: italic; }
+.hl-key { color: #0891b2; }
+.hl-flag { color: #2563eb; }
+.hl-url { color: #0d9488; }
+.hl-suwappu { color: #ec4899; font-weight: 600; }
 
 .doc-reader table {
   width: 100%;
   border-collapse: collapse;
   margin: 1.5rem 0;
   font-size: 0.875rem;
+  background: white;
+  border: 1px solid #e5e0d8;
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 .doc-reader th {
   text-align: left;
   font-weight: 600;
   padding: 0.75rem 1rem;
-  border-bottom: 2px solid #e5e0d8;
+  background: #f5f0ea;
+  border-bottom: 1px solid #e5e0d8;
   color: #1a1a1a;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .doc-reader td {
   padding: 0.625rem 1rem;
-  border-bottom: 1px solid #e5e0d8;
+  border-bottom: 1px solid #f0ebe4;
   color: #3a3530;
+}
+
+.doc-reader tr:last-child td {
+  border-bottom: none;
+}
+
+.doc-reader td code {
+  font-size: 0.8125rem;
+  background: #f5f0ea;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  color: #f472b6;
+  font-weight: 500;
 }
 
 .doc-reader ul,

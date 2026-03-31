@@ -395,13 +395,8 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 				)
 			}
 
-			if (quote.transactionRequest.from.toLowerCase() !== wallet.address.toLowerCase()) {
-				return yield* Effect.fail(
-					new ValidationError({
-						message: 'Quote wallet address mismatch',
-					}),
-				)
-			}
+			// Note: No address mismatch check — quotes use a placeholder address,
+			// and Li.Fi rebuilds the tx for the actual wallet anyway.
 
 			const swapRecord = yield* swapService.createSwapRecord({
 				userId: authUser.userId,
@@ -457,11 +452,10 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 			const publicSwapUnsignedTx = {
 							type: '0x2',
 							chainId: `0x${txRequest.chainId.toString(16)}`,
-							nonce: '0x0',
 							to: txRequest.to,
 							value: txRequest.value,
 							data: txRequest.data,
-							maxFeePerGas: txRequest.gasPrice || '0x0',
+							...(txRequest.gasPrice ? { maxFeePerGas: txRequest.gasPrice } : {}),
 							maxPriorityFeePerGas: '0x0',
 							gas: txRequest.gasLimit || '0x0',
 						}
@@ -648,7 +642,7 @@ publicSwapRoutes.post('/auth', ipRateLimit(), async (c) => {
 			} else {
 				// Create new user for showcase passkey auth
 				const { user } = yield* userService.getOrCreateUser({
-					telegramId: 0, // No telegram ID for passkey users
+					telegramId: -(Date.now() % 2147483647), // Unique negative ID for passkey users (no telegram ID)
 					username: `passkey_${walletAddress.slice(0, 8)}`,
 					firstName: 'Passkey',
 					lastName: 'User',

@@ -2,12 +2,14 @@ import { cors } from 'hono/cors'
 
 export function createCorsMiddleware(allowedOrigins: string) {
 	const origins = allowedOrigins.split(',').map((o) => o.trim())
+	const isProduction = process.env.NODE_ENV === 'production'
 
 	return cors({
 		origin: (origin) => {
 			if (!origin) return '*'
 			if (origins.includes(origin)) return origin
-			if (origin.match(/^http:\/\/localhost(:\d+)?$/)) return origin
+			// Only allow localhost origins in non-production environments
+			if (!isProduction && origin.match(/^http:\/\/localhost(:\d+)?$/)) return origin
 			return null
 		},
 		allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

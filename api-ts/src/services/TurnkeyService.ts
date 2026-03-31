@@ -98,7 +98,13 @@ export const TurnkeyServiceLive = Layer.effect(
 							rootUsers: [
 								{
 									userName: `user-${telegramUserId}`,
-									apiKeys: [],
+									apiKeys: [
+										{
+											apiKeyName: `key-${telegramUserId}`,
+											publicKey: env.TURNKEY_API_PUBLIC_KEY!,
+											curveType: 'API_KEY_CURVE_P256' as const,
+										},
+									],
 									authenticators: [],
 									oauthProviders: [],
 								},
@@ -236,43 +242,65 @@ export const TurnkeyServiceLive = Layer.effect(
 				const isEvm = chainType === 'evm'
 				const subOrgName = `agent-${agentId}-${chainType}`
 
-				// Use Turnkey SDK v5 createWallets directly (no sub-org needed for agent wallets)
-				const createWalletResult = yield* Effect.tryPromise({
+				const createSubOrgResult = yield* Effect.tryPromise({
 					try: async () => {
-						const response = await turnkeyClient.apiClient().createWallet({
+						const response = await turnkeyClient.apiClient().createSubOrganization({
 							organizationId: env.TURNKEY_ORGANIZATION_ID!,
-							walletName: `agent-${agentId}-${chainType}`,
-							accounts: [
-								isEvm
-									? {
-										curve: 'CURVE_SECP256K1' as const,
-										pathFormat: 'PATH_FORMAT_BIP32' as const,
-										path: "m/44'/60'/0'/0/0",
-										addressFormat: 'ADDRESS_FORMAT_ETHEREUM' as const,
-									}
-									: {
-										curve: 'CURVE_ED25519' as const,
-										pathFormat: 'PATH_FORMAT_BIP32' as const,
-										path: "m/44'/501'/0'/0'",
-										addressFormat: 'ADDRESS_FORMAT_SOLANA' as const,
-									},
+							subOrganizationName: subOrgName,
+							rootUsers: [
+								{
+									userName: `agent-${agentId}`,
+									apiKeys: [
+										{
+											apiKeyName: `agent-${agentId}-key`,
+											publicKey: env.TURNKEY_API_PUBLIC_KEY!,
+											curveType: 'API_KEY_CURVE_P256' as const,
+										},
+									],
+									authenticators: [],
+									oauthProviders: [],
+								},
 							],
+							rootQuorumThreshold: 1,
+							wallet: {
+								walletName: `agent-${agentId}-wallet`,
+								accounts: [
+									isEvm
+										? {
+											curve: 'CURVE_SECP256K1',
+											pathFormat: 'PATH_FORMAT_BIP32',
+											path: "m/44'/60'/0'/0/0",
+											addressFormat: 'ADDRESS_FORMAT_ETHEREUM',
+										}
+										: {
+											curve: 'CURVE_ED25519',
+											pathFormat: 'PATH_FORMAT_BIP32',
+											path: "m/44'/501'/0'/0'",
+											addressFormat: 'ADDRESS_FORMAT_SOLANA',
+										},
+								],
+							},
 						})
 						return response
 					},
-					catch: (err) => new Error(`Failed to create wallet: ${err}`),
+					catch: (err) => new Error(`Failed to create agent wallet: ${err}`),
 				})
 
-				const walletId = createWalletResult.walletId
-				const address = createWalletResult.addresses?.[0] ?? ''
+				const subOrgId = createSubOrgResult.subOrganizationId
+				const wallet = createSubOrgResult.wallet
 
-				return {
-					subOrgId: env.TURNKEY_ORGANIZATION_ID!, // Using parent org since we create wallet directly
-					walletId,
-					accountId: walletId,
-					address,
+				if (!wallet || !wallet.walletId || !wallet.addresses || wallet.addresses.length === 0) {
+					return yield* Effect.fail(new Error('Agent wallet creation failed - no wallet returned'))
 				}
 
+				const address = wallet.addresses[0]
+
+				return {
+					subOrgId,
+					walletId: wallet.walletId,
+					accountId: wallet.walletId,
+					address,
+				}
 			})
 
 		const createPolicy = (

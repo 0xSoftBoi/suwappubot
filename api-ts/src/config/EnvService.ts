@@ -81,6 +81,13 @@ export const EnvServiceLive = Layer.effect(
 				throw new Error(`Missing required env vars for production: ${missing.join(', ')}`)
 			}
 		}
+		// Warn if using default fee wallet addresses
+		if (!process.env.FEE_WALLET_EVM) {
+			console.warn('[EnvService] WARNING: FEE_WALLET_EVM not set, using default address. Set this in production!')
+		}
+		if (!process.env.FEE_WALLET_SOLANA) {
+			console.warn('[EnvService] WARNING: FEE_WALLET_SOLANA not set, using default address. Set this in production!')
+		}
 		return env
 	}),
 )
