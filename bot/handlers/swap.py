@@ -316,20 +316,28 @@ async def select_from_chain(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     token_buttons = []
 
+    text = f"🔄 *New Swap*\n\n{chain.logo_emoji} From: *{chain.display_name}*\n\nSelect the token to swap:"
+
     if tokens_with_bal:
-        text = f"🔄 *New Swap*\n\n{chain.logo_emoji} From: *{chain.display_name}*\n\nSelect the token to swap:"
-        # Only show tokens the user holds
+        # Tokens with known balance first
         for token, bal in tokens_with_bal:
             label = f"{token.logo_emoji} {token.symbol} — {format_amount(bal)}"
             token_buttons.append([InlineKeyboardButton(
                 label, callback_data=f"from_token_{token.symbol}"
             )])
+        # Then remaining tokens (no balance shown)
+        for token in tokens_without_bal:
+            label = f"{token.logo_emoji} {token.symbol}"
+            token_buttons.append([InlineKeyboardButton(
+                label, callback_data=f"from_token_{token.symbol}"
+            )])
     else:
-        text = (
-            f"🔄 *New Swap*\n\n{chain.logo_emoji} From: *{chain.display_name}*\n\n"
-            f"You don't hold any tokens on this chain.\n"
-            f"Deposit funds first or select a different chain."
-        )
+        # Balance fetch failed or empty — show all tokens
+        for token in tokens:
+            label = f"{token.logo_emoji} {token.symbol}"
+            token_buttons.append([InlineKeyboardButton(
+                label, callback_data=f"from_token_{token.symbol}"
+            )])
 
     token_buttons.append([
         InlineKeyboardButton("« Back", callback_data="swap_start"),

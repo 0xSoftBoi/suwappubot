@@ -231,13 +231,9 @@ async def lifespan(app: FastAPI):
     if polling_task:
         await bot_app.updater.stop()
 
-    # Delete webhook if it was set
-    if using_webhook:
-        try:
-            await bot_app.bot.delete_webhook()
-            logger.info("✓ Telegram webhook deleted")
-        except Exception as e:
-            logger.warning(f"Failed to delete webhook: {e}")
+    # NOTE: Do NOT delete the webhook on shutdown. In ECS rolling deployments the new
+    # task sets the webhook before the old task shuts down, so deleting it here would
+    # silently kill the bot until the next restart.
 
     # Only stop/shutdown bot if it was initialized
     if bot_initialized:
@@ -1238,10 +1234,30 @@ async def internal_provision_wallet(request: Request):
             session.flush()
         user_id = user.id
 
-    ws = WalletService()
-    wallet = await ws.create_wallet(user_id=user_id, name=f"agent_{agent_uuid[:8]}", chain_type=chain_type)
+    # Create Turnkey-managed wallet row — no local key encryption
+    turnkey_wallet_id = body.get("turnkey_wallet_id")
+    turnkey_sub_org_id = body.get("turnkey_sub_org_id")
 
-    return {"internal_user_id": user_id, "internal_wallet_id": wallet.id, "address": wallet.address}
+    with get_session() as session:
+        wallet = Wallet(
+            user_id=user_id,
+            name=f"agent_{agent_uuid[:8]}",
+            address="pending",
+            encrypted_private_key="turnkey_managed",
+            encryption_scheme="turnkey",
+            wallet_provider="turnkey",
+            turnkey_wallet_id=turnkey_wallet_id,
+            turnkey_sub_org_id=turnkey_sub_org_id,
+            chain_type=chain_type,
+            is_active=True,
+            is_default=True,
+            created_at=datetime.utcnow(),
+        )
+        session.add(wallet)
+        session.flush()
+        wallet_id = wallet.id
+
+    return {"internal_user_id": user_id, "internal_wallet_id": wallet_id}
 
 
 @app.post("/internal/agent/execute-swap", tags=["Internal"])
@@ -1253,7 +1269,8 @@ async def internal_execute_swap(request: Request):
         raise HTTPException(status_code=401, detail="Invalid internal key")
 
     body = await request.json()
-    from bot.services.swap_engine import swap_engine, SwapQuote
+    from bot.services.swap_engine import SwapEngine, SwapQuote
+    swap_engine = SwapEngine()
 
     qd = body.get("quote_data", {})
     quote = SwapQuote(
@@ -1274,7 +1291,7 @@ async def internal_execute_swap(request: Request):
         price_impact=float(qd.get("price_impact", 0)),
         exchange_rate=float(qd.get("exchange_rate", 0)),
         raw_quote=qd.get("raw_quote", {}),
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(),
     )
 
     swap_tx = await swap_engine.execute_swap(

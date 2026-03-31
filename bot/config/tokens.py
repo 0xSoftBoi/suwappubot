@@ -204,7 +204,7 @@ TOKENS: dict[str, TokenConfig] = {
     "PATHUSD": TokenConfig(
         symbol="pathUSD",
         name="Path USD",
-        decimals=6,
+        decimals=18,
         addresses={
             "tempo": "0x20c0000000000000000000000000000000000000",
         },
@@ -214,7 +214,7 @@ TOKENS: dict[str, TokenConfig] = {
     "ALPHAUSD": TokenConfig(
         symbol="AlphaUSD",
         name="Alpha USD",
-        decimals=6,
+        decimals=18,
         addresses={
             "tempo": "0x20c0000000000000000000000000000000000001",
         },
@@ -224,7 +224,7 @@ TOKENS: dict[str, TokenConfig] = {
     "BETAUSD": TokenConfig(
         symbol="BetaUSD",
         name="Beta USD",
-        decimals=6,
+        decimals=18,
         addresses={
             "tempo": "0x20c0000000000000000000000000000000000002",
         },
@@ -234,7 +234,7 @@ TOKENS: dict[str, TokenConfig] = {
     "THETAUSD": TokenConfig(
         symbol="ThetaUSD",
         name="Theta USD",
-        decimals=6,
+        decimals=18,
         addresses={
             "tempo": "0x20c0000000000000000000000000000000000003",
         },
