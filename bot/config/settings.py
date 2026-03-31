@@ -71,6 +71,9 @@ class Settings(BaseSettings):
         default=None,
         description="Turnkey API keypair private key (hex-encoded)"
     )
+    # Internal API (service-to-service between TS API and Python)
+    internal_api_key: str = Field(default="", description="Shared secret for internal API calls")
+
     turnkey_base_url: str = Field(
         default="https://api.turnkey.com",
         description="Turnkey API base URL"
