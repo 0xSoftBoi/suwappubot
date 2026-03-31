@@ -959,19 +959,14 @@ class WalletService:
         try:
             async with asyncio.timeout(GLOBAL_TIMEOUT):
                 if chain_type == "evm":
-                    from bot.services.alchemy_client import get_alchemy_client
-                    alchemy = get_alchemy_client()
-
-                    # Fetch ALL chains in parallel
+                    # Always use RPC rotator — Alchemy token batch API has monthly caps
+                    # that take down ALL balance fetching when exceeded. The RPC manager
+                    # handles failover across chainlist.org + configured endpoints.
                     chain_tasks = []
                     for chain_name, chain in CHAINS.items():
                         if chain.chain_type != ChainType.EVM:
                             continue
-                        # Use Alchemy for supported chains, RPC for the rest
-                        if alchemy.is_configured and alchemy.supports_chain(chain_name):
-                            chain_tasks.append(_fetch_evm_chain_alchemy(chain_name, chain))
-                        else:
-                            chain_tasks.append(_fetch_evm_chain_rpc(chain_name, chain))
+                        chain_tasks.append(_fetch_evm_chain_rpc(chain_name, chain))
 
                     results = await asyncio.gather(*chain_tasks, return_exceptions=True)
 
