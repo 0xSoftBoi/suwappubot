@@ -361,7 +361,7 @@ agentRoutes.get('/chains', async (c) => {
 			type: 'evm',
 		}))
 
-	// Add Solana
+	// Add Solana, Sui, TON
 	const chains = [
 		...evmChains,
 		{
@@ -370,6 +370,20 @@ agentRoutes.get('/chains', async (c) => {
 			name: 'Solana',
 			native_token: 'SOL',
 			type: 'solana',
+		},
+		{
+			id: 'sui',
+			key: 'sui',
+			name: 'Sui',
+			native_token: 'SUI',
+			type: 'move',
+		},
+		{
+			id: 'ton',
+			key: 'ton',
+			name: 'TON',
+			native_token: 'TON',
+			type: 'ton',
 		},
 	]
 
@@ -1307,6 +1321,8 @@ agentRoutes.post('/wallets', async (c) => {
 							body: JSON.stringify({
 								agent_uuid: agent.uuid,
 								chain_type: 'evm',
+								turnkey_wallet_id: wallet.walletId,
+								turnkey_sub_org_id: wallet.subOrgId,
 							}),
 						})
 						if (res.ok) {

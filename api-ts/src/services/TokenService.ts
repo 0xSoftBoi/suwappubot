@@ -127,6 +127,55 @@ export const CHAINS: Record<string, ChainInfo> = {
 		nativeToken: 'XPL',
 		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
 	},
+	fantom: {
+		id: 250,
+		key: 'fantom',
+		name: 'Fantom',
+		nativeToken: 'FTM',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	ftm: {
+		id: 250,
+		key: 'fantom',
+		name: 'Fantom',
+		nativeToken: 'FTM',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	linea: {
+		id: 59144,
+		key: 'linea',
+		name: 'Linea',
+		nativeToken: 'ETH',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	mantle: {
+		id: 5000,
+		key: 'mantle',
+		name: 'Mantle',
+		nativeToken: 'MNT',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	mnt: {
+		id: 5000,
+		key: 'mantle',
+		name: 'Mantle',
+		nativeToken: 'MNT',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	gnosis: {
+		id: 100,
+		key: 'gnosis',
+		name: 'Gnosis',
+		nativeToken: 'xDAI',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	scroll: {
+		id: 534352,
+		key: 'scroll',
+		name: 'Scroll',
+		nativeToken: 'ETH',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
 }
 
 // Common token addresses by chain
