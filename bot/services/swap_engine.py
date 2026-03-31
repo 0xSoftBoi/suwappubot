@@ -147,7 +147,7 @@ class SwapEngine:
         self._wallet_locks: dict[int, asyncio.Lock] = {}  # Per-wallet locks
         self._wallet_locks_max = 1000  # Cap to prevent unbounded growth
 
-    def _get_wallet_for_signing(self, wallet_data) -> Wallet:
+    async def _get_wallet_for_signing(self, wallet_data) -> Wallet:
         """Get Wallet model object for signing operations."""
         # Already a Wallet object
         if isinstance(wallet_data, Wallet):
