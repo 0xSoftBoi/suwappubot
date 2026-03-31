@@ -1,0 +1,20 @@
+{
+  "name": "@suwappu/design-tokens",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tailwind": "./src/tailwind-preset.ts",
+    "./css": "./src/css-vars.ts",
+    "./react-native": "./src/react-native.ts",
+    "./terminal": "./src/terminal.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}
