@@ -9,12 +9,11 @@ from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 
 from typing import Optional, Dict, Any
-from datetime import datetime
 
 from bot.config.settings import settings
 from bot.services.wallet import WalletService
 from bot.services.x402_service import x402_service
-from bot.models.user import Wallet, User
+from bot.models.user import Wallet
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -173,6 +172,7 @@ async def provision_agent_wallet(
     _verify_internal_key(x_internal_api_key)
 
     try:
+        from bot.models.user import User
         agent_int_id = abs(hash(request.agent_uuid)) % (2**31 - 1)
 
         with get_session() as session:
@@ -231,6 +231,7 @@ async def execute_agent_swap(
 
     try:
         from bot.services.swap_engine import swap_engine, SwapQuote
+        from datetime import datetime
 
         qd = request.quote_data
 
