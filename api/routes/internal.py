@@ -34,18 +34,17 @@ class SignTransactionResponse(BaseModel):
     used_fallback: bool = False
 
 
-def _verify_internal_key(x_internal_api_key: str = Header(None)):
+def _verify_internal_key(x_internal_key: str = Header(None)):
     import os
-    # Check INTERNAL_API_KEY env var first, then settings.agent_api_key as fallback
-    expected = os.environ.get("INTERNAL_API_KEY") or getattr(settings, 'agent_api_key', None) or getattr(settings, 'internal_api_key', None)
-    if not expected or x_internal_api_key != expected:
+    expected = os.environ.get("INTERNAL_API_KEY") or getattr(settings, 'internal_api_key', None) or getattr(settings, 'agent_api_key', None)
+    if not expected or x_internal_key != expected:
         raise HTTPException(status_code=401, detail="Invalid internal API key")
 
 
 @router.post("/sign-transaction", response_model=SignTransactionResponse)
 async def sign_transaction(
     request: SignTransactionRequest,
-    x_internal_api_key: str = Header(None),
+    x_internal_key: str = Header(None, alias="X-Internal-Key"),
 ):
     """
     Sign a transaction using a wallet's backup key.
@@ -105,7 +104,7 @@ class VerifyPaymentResponse(BaseModel):
 @router.post("/x402/verify", response_model=VerifyPaymentResponse)
 async def verify_x402_payment(
     request: VerifyPaymentRequest,
-    x_internal_api_key: str = Header(None),
+    x_internal_key: str = Header(None, alias="X-Internal-Key"),
 ):
     """
     Verify an on-chain payment for MPP/x402 402 flow.
@@ -166,7 +165,7 @@ class AgentProvisionRequest(BaseModel):
 @router.post("/agent/provision-wallet")
 async def provision_agent_wallet(
     request: AgentProvisionRequest,
-    x_internal_api_key: str = Header(None),
+    x_internal_key: str = Header(None, alias="X-Internal-Key"),
 ):
     """Create a User + Wallet row for an agent. Called by TS API after Turnkey wallet creation."""
     _verify_internal_key(x_internal_api_key)
@@ -224,7 +223,7 @@ class AgentSwapRequest(BaseModel):
 @router.post("/agent/execute-swap")
 async def execute_agent_swap(
     request: AgentSwapRequest,
-    x_internal_api_key: str = Header(None),
+    x_internal_key: str = Header(None, alias="X-Internal-Key"),
 ):
     """Execute a swap using the full Python swap pipeline. Called by TS API."""
     _verify_internal_key(x_internal_api_key)
