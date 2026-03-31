@@ -463,7 +463,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 							catch: (e) => new Error(`Failed to sign approval tx: ${e}`),
 						})
 
-						// Broadcast approval tx
+						// Broadcast approval tx and poll for nonce increment in parallel
 						yield* Effect.tryPromise({
 							try: async () => {
 								const res = await fetch(rpcUrlForChain, {
@@ -479,8 +479,23 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 								const data = (await res.json()) as { result?: string; error?: { message: string; code: number } }
 								if (data.error) throw new Error(`Approval RPC error: ${data.error.message}`)
 								logger.info('[SwapRoute] Approval tx broadcast: %s', data.result)
-								// Wait a bit for the approval to be included
-								await new Promise((r) => setTimeout(r, 3000))
+
+								// Poll for nonce to increment (approval tx mined) instead of fixed 3s wait
+								// Max 6 attempts * 500ms = 3s, but returns early if nonce increments
+								const startNonce = parseInt(approvalNonce, 16)
+								for (let i = 0; i < 6; i++) {
+									await new Promise((r) => setTimeout(r, 500))
+									try {
+										const currentNonce = parseInt(await fetchNonce(wallet.address), 16)
+										if (currentNonce > startNonce) {
+											logger.info('[SwapRoute] Approval confirmed after %dms', (i + 1) * 500)
+											break
+										}
+									} catch (pollErr) {
+										logger.debug('[SwapRoute] Nonce poll attempt %d failed: %s', i + 1, pollErr)
+									}
+								}
+
 								return data.result
 							},
 							catch: (e) => new Error(`Failed to broadcast approval: ${e}`),

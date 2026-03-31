@@ -231,6 +231,22 @@ class SwapEngine:
                 logger.warning(f"Quote provider failed: {r}")
         return quotes
 
+    @staticmethod
+    def _extract_quotes(done_set) -> list:
+        """Extract successful SwapQuote results from asyncio.wait done-set."""
+        results = []
+        for t in done_set:
+            if t.cancelled():
+                continue
+            exc = t.exception()
+            if exc:
+                logger.warning(f"Quote provider failed: {exc}")
+                continue
+            r = t.result()
+            if isinstance(r, SwapQuote):
+                results.append(r)
+        return results
+
     @track_time(MetricNames.SWAP_QUOTE)
     async def get_quote(
         self,
@@ -308,10 +324,31 @@ class SwapEngine:
                 amount, amount_raw, from_address, to_address, slippage
             ))
 
-        # Race all providers in parallel with a timeout
-        quotes = await self._gather_quotes([
-            asyncio.wait_for(t, timeout=8.0) for t in tasks
-        ])
+        # Adaptive timeout: 3s fast path, extend to 8s total if no fast results
+        FAST_TIMEOUT = 3.0
+        EXTENDED_TIMEOUT = 5.0  # additional seconds (8s total)
+
+        wrapped_tasks = [asyncio.ensure_future(t) for t in tasks]
+        quotes = []
+
+        if wrapped_tasks:
+            done, pending = await asyncio.wait(wrapped_tasks, timeout=FAST_TIMEOUT)
+            quotes = self._extract_quotes(done)
+
+            if not quotes and pending:
+                logger.info("No quotes in %.0fs fast path, extending to %.0fs for %d pending providers",
+                            FAST_TIMEOUT, FAST_TIMEOUT + EXTENDED_TIMEOUT, len(pending))
+                done2, still_pending = await asyncio.wait(pending, timeout=EXTENDED_TIMEOUT)
+                quotes = self._extract_quotes(done2)
+                # Cancel and await remaining tasks to prevent connection leaks
+                for t in still_pending:
+                    t.cancel()
+                if still_pending:
+                    await asyncio.gather(*still_pending, return_exceptions=True)
+            elif pending:
+                for t in pending:
+                    t.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
 
         if not quotes:
             raise SwapError("No provider returned a valid quote. Please try again.")

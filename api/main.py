@@ -1,6 +1,7 @@
 import sys
 import os
 import asyncio
+import time
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
@@ -59,8 +60,10 @@ async def lifespan(app: FastAPI):
     """Lifecycle manager for the consolidated API + Bot service."""
     logger.info("🚀 Starting consolidated Suwappu Monolith...")
 
-    # 1. Initialize DB & Config
+    # 1. Initialize DB, Cache & Config
     preload_config()
+    from bot.utils.redis_cache import redis_cache
+    await redis_cache.connect()
     await rpc_manager.start()
 
     # Initialize database with error handling
@@ -211,6 +214,7 @@ async def lifespan(app: FastAPI):
 
     # --- Shutdown ---
     logger.info("🛑 Shutting down Suwappu Monolith...")
+    await redis_cache.close()
 
     # Stop Discord bot
     if discord_bot:
@@ -371,6 +375,23 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Agent-Key", "X-Admin-Key", "X-Telegram-Init-Data"],
 )
 
+
+# --- Request Timing Middleware ---
+@app.middleware("http")
+async def timing_middleware(request: Request, call_next):
+    """Log request duration for performance profiling."""
+    start = time.monotonic()
+    response = await call_next(request)
+    duration_ms = (time.monotonic() - start) * 1000
+    path = request.url.path
+    method = request.method
+    status = response.status_code
+    if duration_ms > 100:  # Only log slow requests (>100ms)
+        logger.info(f"⏱ {method} {path} → {status} in {duration_ms:.0f}ms")
+    response.headers["X-Response-Time"] = f"{duration_ms:.0f}ms"
+    return response
+
+
 wallet_service = WalletService()
 
 # Mount .well-known for Apple App Site Association
@@ -428,8 +449,11 @@ except ImportError as e:
 try:
     from api.routes.internal import router as internal_router
     app.include_router(internal_router)
-except ImportError as e:
-    print(f"Warning: Could not load internal_router: {e}")
+    print(f"✓ Internal router loaded ({len(internal_router.routes)} routes)")
+except Exception as e:
+    import traceback
+    print(f"WARNING: Could not load internal_router: {e}")
+    traceback.print_exc()
 
 # --- Pydantic Models (Aligned with Mobile/Web) ---
 
@@ -1181,6 +1205,83 @@ async def provision_agent_wallet(
         isDefault=wallet.is_default,
         createdAt=wallet.created_at
     )
+
+# ==========================================
+# Internal API — service-to-service only
+# ==========================================
+
+@app.post("/internal/agent/provision-wallet", tags=["Internal"])
+async def internal_provision_wallet(request: Request):
+    """Create User + Wallet for an agent. Called by TS API during wallet creation."""
+    key = request.headers.get("X-Internal-Key", "")
+    expected = os.environ.get("INTERNAL_API_KEY", "")
+    if not expected or key != expected:
+        raise HTTPException(status_code=401, detail="Invalid internal key")
+
+    body = await request.json()
+    agent_uuid = body.get("agent_uuid", "")
+    chain_type = body.get("chain_type", "evm")
+    if not agent_uuid:
+        raise HTTPException(status_code=400, detail="agent_uuid required")
+
+    agent_int_id = abs(hash(agent_uuid)) % (2**31 - 1)
+
+    with get_session() as session:
+        user = session.query(User).filter(User.telegram_id == agent_int_id).first()
+        if not user:
+            user = User(telegram_id=agent_int_id, username=f"agent_{agent_uuid[:8]}", first_name="Agent")
+            session.add(user)
+            session.flush()
+        user_id = user.id
+
+    ws = WalletService()
+    wallet = await ws.create_wallet(user_id=user_id, name=f"agent_{agent_uuid[:8]}", chain_type=chain_type)
+
+    return {"internal_user_id": user_id, "internal_wallet_id": wallet.id, "address": wallet.address}
+
+
+@app.post("/internal/agent/execute-swap", tags=["Internal"])
+async def internal_execute_swap(request: Request):
+    """Execute swap via Python pipeline. Called by TS API."""
+    key = request.headers.get("X-Internal-Key", "")
+    expected = os.environ.get("INTERNAL_API_KEY", "")
+    if not expected or key != expected:
+        raise HTTPException(status_code=401, detail="Invalid internal key")
+
+    body = await request.json()
+    from bot.services.swap_engine import swap_engine, SwapQuote
+
+    qd = body.get("quote_data", {})
+    quote = SwapQuote(
+        provider=qd.get("provider", "lifi"),
+        from_chain=str(qd.get("from_chain", "base")),
+        to_chain=str(qd.get("to_chain", "base")),
+        from_token=str(qd.get("from_token", "")),
+        to_token=str(qd.get("to_token", "")),
+        from_amount=str(qd.get("from_amount", "0")),
+        from_amount_human=float(qd.get("from_amount_human", 0)),
+        to_amount=str(qd.get("to_amount", "0")),
+        to_amount_human=float(qd.get("to_amount_human", 0)),
+        to_amount_min=str(qd.get("to_amount_min", qd.get("to_amount", "0"))),
+        gas_cost_usd=float(qd.get("gas_cost_usd", 0)),
+        fee_cost_usd=float(qd.get("fee_cost_usd", 0)),
+        total_cost_usd=float(qd.get("total_cost_usd", 0)),
+        estimated_time=int(qd.get("estimated_time", 60)),
+        price_impact=float(qd.get("price_impact", 0)),
+        exchange_rate=float(qd.get("exchange_rate", 0)),
+        raw_quote=qd.get("raw_quote", {}),
+        timestamp=datetime.utcnow(),
+    )
+
+    swap_tx = await swap_engine.execute_swap(
+        quote=quote,
+        wallet_id=body.get("internal_wallet_id"),
+        user_id=body.get("internal_user_id"),
+        idempotency_key=body.get("idempotency_key"),
+    )
+
+    return {"swap_id": swap_tx.id, "tx_hash": swap_tx.tx_hash, "status": swap_tx.status}
+
 
 # --- Dependencies ---
 async def health():
