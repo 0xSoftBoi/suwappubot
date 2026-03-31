@@ -12,8 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-# Import webapp router
-from api.webapp import router as webapp_router
+# Import webapp router (may be removed in some branches)
+try:
+    from api.webapp import router as webapp_router
+except ImportError:
+    webapp_router = None
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict
 import secrets
@@ -413,7 +416,8 @@ if _docs_portal_dir.is_dir():
     )
 
 # Include webapp router for Telegram Mini App
-app.include_router(webapp_router)
+if webapp_router:
+    app.include_router(webapp_router)
 
 # --- Import and register OAuth routes ---
 from api.routes.oauth import router as oauth_router
