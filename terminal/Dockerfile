@@ -1,13 +1,18 @@
 # Build stage
-FROM oven/bun:1.2 AS builder
+FROM public.ecr.aws/docker/library/node:20-slim AS builder
+RUN npm install -g bun
 
 WORKDIR /app
 
-# Copy package files
+# Copy design-tokens dependency first (referenced as file:../packages/design-tokens)
+COPY packages/design-tokens/ /packages/design-tokens/
+
+# Copy package files with adjusted path for design-tokens
 COPY terminal/package.json terminal/bun.lock* ./
+RUN sed -i 's|file:../packages/design-tokens|file:/packages/design-tokens|' package.json
 
 # Install dependencies
-RUN bun install --frozen-lockfile
+RUN bun install --no-frozen-lockfile
 
 # Copy source files
 COPY terminal/ .
@@ -20,7 +25,7 @@ ENV VITE_API_URL=$VITE_API_URL
 RUN bun run build
 
 # Production stage - nginx to serve static files
-FROM nginx:alpine
+FROM public.ecr.aws/nginx/nginx:alpine
 
 # Copy custom nginx config
 COPY terminal/nginx.conf /etc/nginx/conf.d/default.conf
