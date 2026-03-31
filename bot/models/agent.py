@@ -17,7 +17,7 @@ class RegisteredAgent(Base):
     last_seen_at = Column(DateTime, nullable=True)
     uuid = Column(String(36), unique=True, nullable=True)
     api_key_hash = Column(String(128), nullable=True)
-    metadata = Column(Text, nullable=True)  # JSON
+    agent_metadata = Column("metadata", Text, nullable=True)  # JSON — "metadata" is reserved by SQLAlchemy
     rate_limit_tier = Column(String(20), default="free")
     total_requests = Column(Integer, default=0)
     total_swaps = Column(Integer, default=0)
