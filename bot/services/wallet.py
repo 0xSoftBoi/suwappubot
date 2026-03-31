@@ -554,7 +554,7 @@ class WalletService:
                 "eth_call",
                 [{"to": checksum_contract, "data": data}, "latest"],
             )
-            if not result or result == "0x":
+            if not result or not str(result).startswith("0x"):
                 return 0.0
             balance_raw = int(result, 16)
             decimals = get_token_decimals(token_symbol, chain_name)
@@ -579,7 +579,7 @@ class WalletService:
                 "eth_getBalance",
                 [checksum, "latest"],
             )
-            if not result:
+            if not result or not str(result).startswith("0x"):
                 return 0.0
             return int(result, 16) / (10 ** chain.native_decimals)
         except Exception:

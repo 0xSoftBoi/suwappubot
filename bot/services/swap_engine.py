@@ -1029,7 +1029,7 @@ class SwapEngine:
         if not tx_request:
             raise SwapError("No transaction request in quote")
 
-        wallet = self._get_wallet_for_signing(wallet_data)
+        wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
@@ -1131,7 +1131,7 @@ class SwapEngine:
     
     async def _execute_jupiter_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via Jupiter."""
-        wallet = self._get_wallet_for_signing(wallet_data)
+        wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
@@ -1168,7 +1168,7 @@ class SwapEngine:
         CoW swaps are gasless for the user - they sign an order and CoW submits it.
         Orders may be matched P2P (zero fees) or via solvers (protocol fee from output).
         """
-        wallet = self._get_wallet_for_signing(wallet_data)
+        wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
@@ -1243,7 +1243,7 @@ class SwapEngine:
         """
         from bot.services.socket_api import SocketRoute
 
-        wallet = self._get_wallet_for_signing(wallet_data)
+        wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
@@ -1335,7 +1335,7 @@ class SwapEngine:
         2. Adding a Jito tip instruction
         3. Submitting as a bundle to Jito block engine
         """
-        wallet = self._get_wallet_for_signing(wallet_data)
+        wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
@@ -1393,7 +1393,7 @@ class SwapEngine:
         """Execute a cross-chain transfer via Chainlink CCIP."""
         from bot.services.ccip_api import CCIPQuote
 
-        wallet = self._get_wallet_for_signing(wallet_data)
+        wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
@@ -1482,7 +1482,7 @@ class SwapEngine:
         2. Approve ERC20 spend to Stargate pool (wait for receipt)
         3. Call sendToken() on the Stargate pool contract
         """
-        wallet = self._get_wallet_for_signing(wallet_data)
+        wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
@@ -1579,7 +1579,7 @@ class SwapEngine:
     
     async def _execute_cctp_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a USDC transfer via Circle CCTP (cheapest for USDC)."""
-        wallet = self._get_wallet_for_signing(wallet_data)
+        wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
@@ -1629,7 +1629,7 @@ class SwapEngine:
     
     async def _execute_across_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a bridge via Across Protocol (cheap EVM bridges)."""
-        wallet = self._get_wallet_for_signing(wallet_data)
+        wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
@@ -1721,7 +1721,7 @@ class SwapEngine:
                 "Please bridge manually at portal.wormhole.com"
             )
 
-        wallet = self._get_wallet_for_signing(wallet_data)
+        wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
@@ -1809,7 +1809,7 @@ class SwapEngine:
         2. Build swap transaction via SunSwap V2 Router
         3. Sign and broadcast via TronGrid
         """
-        wallet = self._get_wallet_for_signing(wallet_data)
+        wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
@@ -1862,7 +1862,7 @@ class SwapEngine:
         OKX returns transaction calldata — we sign and broadcast like Li.Fi.
         Supports EVM, Solana, and TRON chains.
         """
-        wallet = self._get_wallet_for_signing(wallet_data)
+        wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
