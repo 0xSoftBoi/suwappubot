@@ -1,5 +1,11 @@
+import crypto from 'crypto'
 import type { Context, Next } from 'hono'
 import { HTTPException } from 'hono/http-exception'
+
+function safeCompare(a: string, b: string): boolean {
+	if (a.length !== b.length) return false
+	return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b))
+}
 
 /**
  * Middleware for internal service-to-service authentication.
@@ -18,7 +24,7 @@ export function internalAuth(validKey: string | undefined) {
 			throw new HTTPException(401, { message: 'Missing X-Internal-Key header' })
 		}
 
-		if (apiKey !== validKey) {
+		if (!safeCompare(apiKey, validKey)) {
 			throw new HTTPException(401, { message: 'Invalid internal key' })
 		}
 

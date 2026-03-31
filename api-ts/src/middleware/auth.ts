@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import { Effect, Either, Option } from 'effect'
 import type { Context, Next } from 'hono'
 import { HTTPException } from 'hono/http-exception'
@@ -33,6 +34,11 @@ setInterval(async () => {
 	}
 }, 60_000)
 
+function safeCompare(a: string, b: string): boolean {
+	if (a.length !== b.length) return false
+	return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b))
+}
+
 /**
  * Middleware to validate X-Admin-Key header
  */
@@ -48,7 +54,7 @@ export function adminKeyAuth(validKey: string | undefined) {
 			throw new HTTPException(401, { message: 'Missing X-Admin-Key header' })
 		}
 
-		if (apiKey !== validKey) {
+		if (!safeCompare(apiKey, validKey)) {
 			throw new HTTPException(401, { message: 'Invalid admin key' })
 		}
 
