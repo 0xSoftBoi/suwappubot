@@ -318,6 +318,16 @@ body {
 }
 
 /* ================================================================
+   SDK Demo grid
+   ================================================================ */
+.sdk-demo-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3rem;
+  align-items: center;
+}
+
+/* ================================================================
    Code block (dark sections)
    ================================================================ */
 .code-block {
@@ -1249,5 +1259,54 @@ body {
     flex-direction: column;
     gap: 0.5rem;
     text-align: center;
+  }
+
+  .sdk-demo-grid {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  .terminal-body {
+    min-height: auto !important;
+  }
+
+  .stats-bar {
+    gap: 1.5rem;
+  }
+
+  .stat__value {
+    font-size: 1.5rem;
+  }
+
+  .code-block__body {
+    max-height: 200px;
+    overflow-y: auto;
+    font-size: 0.75rem;
+  }
+
+  .code-block__tabs {
+    gap: 0.25rem;
+  }
+
+  .code-block__tab {
+    font-size: 0.6875rem;
+    padding: 0.25rem 0.5rem;
+  }
+
+  .tools-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+
+  .tool {
+    padding: 0.5rem;
+  }
+
+  .tool__name {
+    font-size: 0.6875rem;
+  }
+
+  .tool__desc {
+    font-size: 0.625rem;
   }
 }
