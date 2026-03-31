@@ -61,6 +61,11 @@ class WalletService:
         from bot.services.rpc_manager import rpc_manager
         return rpc_manager.get_web3(chain_name)
 
+    def _web3_cache_url(self, chain_name: str) -> str:
+        """Get the URL currently cached for a chain (for failure reporting)."""
+        cached = rpc_manager._web3_cache.get(chain_name.lower())
+        return cached[1] if cached else ""
+
     def _invalidate_web3(self, chain_name: str):
         """Invalidate cached Web3 so next call picks a fresh RPC."""
         from bot.services.rpc_manager import rpc_manager
@@ -523,6 +528,7 @@ class WalletService:
             abi=ERC20_ABI
         )
 
+        current_url = self._web3_cache_url(chain_name)
         for attempt in range(2):
             try:
                 loop = asyncio.get_event_loop()
@@ -534,17 +540,18 @@ class WalletService:
                 decimals = get_token_decimals(token_symbol, chain_name)
                 return balance_raw / (10 ** decimals)
             except Exception as e:
+                if current_url:
+                    rpc_manager.report_failure(chain_name, current_url, str(e))
                 if attempt == 0:
                     # Retry with a fresh RPC
-                    logger.warning(f"Balance check failed on {chain_name}, retrying with new RPC: {e}")
                     self._invalidate_web3(chain_name)
                     web3 = self._get_web3(chain_name)
+                    current_url = self._web3_cache_url(chain_name)
                     contract = web3.eth.contract(
                         address=Web3.to_checksum_address(token_address),
                         abi=ERC20_ABI,
                     )
                 else:
-                    logger.error(f"Balance check failed on {chain_name} after retry: {e}")
                     return 0.0
         return 0.0
 
@@ -862,7 +869,7 @@ class WalletService:
         """Fetch balances from RPCs / Alchemy (no caching)."""
         from bot.config.tokens import TOKENS
 
-        CALL_TIMEOUT = 5  # seconds per RPC call
+        CALL_TIMEOUT = 4  # seconds per RPC call (must exceed HTTPProvider timeout of 3s)
         GLOBAL_TIMEOUT = 20  # seconds for entire balance fetch
 
         balances: dict[str, dict[str, float]] = {}

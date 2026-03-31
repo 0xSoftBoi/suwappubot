@@ -361,7 +361,7 @@ class RPCManager:
     def _create_web3(self, chain_name: str, rpc_url: str) -> Web3:
         web3 = Web3(Web3.HTTPProvider(
             rpc_url,
-            request_kwargs={"timeout": 15, "headers": {"Content-Type": "application/json"}},
+            request_kwargs={"timeout": 3, "headers": {"Content-Type": "application/json"}},
         ))
         if chain_name in POA_CHAINS:
             web3.middleware_onion.inject(poa_middleware, layer=0)
