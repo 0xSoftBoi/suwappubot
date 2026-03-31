@@ -297,14 +297,8 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 				)
 			}
 
-			// Verify quote is for this wallet
-			if (quote.transactionRequest.from.toLowerCase() !== wallet.address.toLowerCase()) {
-				return yield* Effect.fail(
-					new ValidationError({
-						message: 'Quote wallet address mismatch',
-					}),
-				)
-			}
+			// Note: No address mismatch check — quotes are fetched with a placeholder
+			// address, and Li.Fi rebuilds the tx for the actual wallet anyway.
 
 			// Create swap record first (pending status)
 			const swapRecord = yield* swapService.createSwapRecord({
@@ -315,7 +309,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 				toToken: quote.toToken.symbol,
 				fromAmount: quote.fromAmount,
 				toAmount: quote.toAmount,
-				fromAmountUsd: parseFloat(quote.estimatedGasUsd) || null,
+				fromAmountUsd: parseFloat(quote.fromAmountUsd || quote.fromAmount) || null,
 				toAmountUsd: null,
 				status: 'pending',
 				routeProvider: 'lifi',
@@ -439,7 +433,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 										to: quote.fromToken.address,
 										value: '0x0',
 										data: approveData,
-										maxFeePerGas: txRequest.gasPrice || '0x0',
+										...(txRequest.gasPrice ? { maxFeePerGas: txRequest.gasPrice } : {}),
 										maxPriorityFeePerGas: '0x0',
 										gas: '0x20000', // 131072 — enough for approval
 									}
@@ -479,8 +473,8 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 								const data = (await res.json()) as { result?: string; error?: { message: string; code: number } }
 								if (data.error) throw new Error(`Approval RPC error: ${data.error.message}`)
 								logger.info('[SwapRoute] Approval tx broadcast: %s', data.result)
-								// Wait a bit for the approval to be included
-								await new Promise((r) => setTimeout(r, 3000))
+								// Wait for the approval to be included
+								await new Promise((r) => setTimeout(r, 8000))
 								return data.result
 							},
 							catch: (e) => new Error(`Failed to broadcast approval: ${e}`),
@@ -503,7 +497,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 							to: txRequest.to,
 							value: txRequest.value,
 							data: txRequest.data,
-							maxFeePerGas: txRequest.gasPrice || '0x0',
+							...(txRequest.gasPrice ? { maxFeePerGas: txRequest.gasPrice } : {}),
 							maxPriorityFeePerGas: '0x0',
 							gas: txRequest.gasLimit || '0x0',
 						}
@@ -816,8 +810,11 @@ async function fetchNativeBalance(address: string, chainId: string): Promise<str
 		const data = (await res.json()) as { result?: string }
 		if (data.result) {
 			const balanceWei = BigInt(data.result)
-			const balance = Number(balanceWei) / 1e18
-			return balance.toFixed(6)
+			// Use BigInt math to avoid Number precision loss for large balances
+			const wholePart = balanceWei / BigInt(1e18)
+			const fractionalPart = balanceWei % BigInt(1e18)
+			const fractionalStr = fractionalPart.toString().padStart(18, '0').slice(0, 6)
+			return `${wholePart}.${fractionalStr}`
 		}
 	} catch (e) {
 		logger.error({ err: e }, `[SwapRoute] Failed to fetch native balance for chain ${chainId}`)

@@ -21,7 +21,8 @@ export function telegramAuth() {
 
 		// Development mode: allow bypass with dev user ID
 		// SECURITY: Only allowed when BOTH NODE_ENV=development AND DEV_AUTH_ENABLED=true
-		if (process.env.NODE_ENV === 'development' && process.env.DEV_AUTH_ENABLED === 'true') {
+		if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV === 'development' && process.env.DEV_AUTH_ENABLED === 'true') {
+			console.warn('DEV AUTH BYPASS ACTIVE')
 			const devUserId = c.req.header('X-Dev-User-Id')
 			if (devUserId) {
 				c.set('telegramUser', {

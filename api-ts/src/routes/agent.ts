@@ -265,7 +265,9 @@ agentRoutes.post('/sponge/callback', async (c) => {
 				.update(rawBody)
 				.digest('hex')
 
-			if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+			const sigBuf = Buffer.from(signature, 'hex')
+			const expBuf = Buffer.from(expected, 'hex')
+			if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
 				return c.json({ error: 'Invalid signature' }, 401)
 			}
 
@@ -316,9 +318,8 @@ async function handleSpongeCallback(c: any, body: any) {
 			// Check if already registered
 			const existing = yield* agentService.getAgentByName(name)
 			if (Option.isSome(existing)) {
-				// Return existing agent info (rotate key for security)
-				const rotated = yield* agentService.rotateApiKey(existing.value.id)
-				return { agent: existing.value, apiKey: rotated.apiKey, isNew: false }
+				// Reuse existing agent and key on reconnect (don't rotate — breaks existing sessions)
+				return { agent: existing.value, apiKey: existing.value.apiKey, isNew: false }
 			}
 
 			const { agent, apiKey } = yield* agentService.registerAgent({

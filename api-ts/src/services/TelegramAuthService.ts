@@ -1,3 +1,4 @@
+import nodeCrypto from 'crypto'
 import { Context, Effect, Layer, Option } from 'effect'
 import { EnvService } from '../config/EnvService'
 import { UnauthorizedError } from '../errors'
@@ -91,7 +92,9 @@ export const TelegramAuthServiceLive = Layer.effect(
 						.join('')
 
 					// Constant-time comparison
-					if (calculatedHash !== receivedHash) {
+					const isValid = calculatedHash.length === receivedHash.length &&
+						nodeCrypto.timingSafeEqual(Buffer.from(calculatedHash, 'hex'), Buffer.from(receivedHash, 'hex'))
+					if (!isValid) {
 						logger.info({
 							receivedHash: receivedHash.substring(0, 16) + '...',
 							calculatedHash: calculatedHash.substring(0, 16) + '...',

@@ -202,7 +202,7 @@ def _ensure_schema(db_engine) -> None:
         _add_encryption_columns(db_engine, inspector, "hot_wallets", is_sqlite)
         _add_turnkey_columns(db_engine, inspector, "hot_wallets", is_sqlite, include_sub_org=False)
 
-    # --- agents: unique index on api_key ---
+    # --- agents: unique index on api_key + Drizzle schema alignment ---
     agents_table = "agents" if "agents" in tables else "registered_agents" if "registered_agents" in tables else None
     if agents_table:
         with db_engine.begin() as conn:
@@ -210,6 +210,7 @@ def _ensure_schema(db_engine) -> None:
                 f"CREATE UNIQUE INDEX IF NOT EXISTS ux_agents_api_key "
                 f"ON {agents_table}(api_key)"
             ))
+        _add_agent_drizzle_columns(db_engine, inspector, agents_table, is_sqlite)
 
     # --- swap_transactions: agent linkage columns ---
     if "swap_transactions" in tables:
@@ -279,6 +280,37 @@ def _ensure_schema(db_engine) -> None:
 
     # --- performance indexes ---
     _add_performance_indexes(db_engine, inspector, is_sqlite)
+
+
+def _add_agent_drizzle_columns(db_engine, inspector, table_name: str, is_sqlite: bool) -> None:
+    """Add columns to agents table to match Drizzle schema."""
+    cols = {c["name"] for c in inspector.get_columns(table_name)}
+
+    new_columns = [
+        ("uuid", "VARCHAR(36)", "NULL"),
+        ("api_key_hash", "VARCHAR(128)", "NULL"),
+        ("metadata", "TEXT", "NULL"),
+        ("rate_limit_tier", "VARCHAR(20)", "'free'"),
+        ("total_requests", "INTEGER", "0"),
+        ("total_swaps", "INTEGER", "0"),
+        ("updated_at", "TIMESTAMP", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+    # Unique index on uuid
+    with db_engine.begin() as conn:
+        conn.execute(text(
+            f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{table_name}_uuid "
+            f"ON {table_name}(uuid)"
+        ))
 
 
 def _add_performance_indexes(db_engine, inspector, is_sqlite: bool) -> None:
