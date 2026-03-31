@@ -636,8 +636,8 @@ def get_token_decimals(symbol: str, chain_name: str) -> int:
     """Get token decimals. Note: Some tokens have different decimals on different chains."""
     token = TOKENS.get(symbol.upper())
     if token:
-        # USDC on BSC has 18 decimals
-        if symbol.upper() == "USDC" and chain_name.lower() == "bsc":
+        # USDC and USDT on BSC have 18 decimals (BEP-20 standard)
+        if symbol.upper() in ("USDC", "USDT") and chain_name.lower() == "bsc":
             return 18
         return token.decimals
     return 18  # Default
@@ -651,7 +651,7 @@ def get_decimals_by_address(address: str, chain_name: str) -> int:
     for token in TOKENS.values():
         chain_addr = token.addresses.get(chain_name.lower())
         if chain_addr and chain_addr.lower() == addr_lower:
-            if token.symbol == "USDC" and chain_name.lower() == "bsc":
+            if token.symbol in ("USDC", "USDT") and chain_name.lower() == "bsc":
                 return 18
             return token.decimals
     return 18

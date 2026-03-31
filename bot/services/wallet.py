@@ -550,6 +550,11 @@ class WalletService:
 
     async def get_evm_native_balance(self, chain_name: str, address: str) -> float:
         """Get native token balance (ETH, BNB, etc.) for an address."""
+        # Tempo has no native gas token — fees are paid in TIP-20 stablecoins.
+        # eth.get_balance() returns garbage on Tempo; skip it entirely.
+        if chain_name == "tempo":
+            return 0.0
+
         chain = get_chain_by_name(chain_name)
         if not chain:
             return 0.0
