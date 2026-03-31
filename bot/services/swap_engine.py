@@ -1077,6 +1077,20 @@ class SwapEngine:
             spender = Web3.to_checksum_address(tx_request.get("to"))
 
             if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
+                # Check native balance before attempting approval — need ETH for gas
+                native_balance_wei = web3.eth.get_balance(sender)
+                gas_price = web3.eth.gas_price
+                # Approval costs ~50k gas; swap ~200k gas; require enough for both
+                min_gas_wei = gas_price * 300_000
+                if native_balance_wei < min_gas_wei:
+                    native_symbol = chain.native_token if chain else "ETH"
+                    min_eth = min_gas_wei / 1e18
+                    raise SwapError(
+                        f"Insufficient gas. You need at least {min_eth:.5f} {native_symbol} "
+                        f"on {quote.from_chain.title()} to cover transaction fees. "
+                        f"Send some {native_symbol} to your wallet first."
+                    )
+
                 token_addr = Web3.to_checksum_address(from_token_address)
                 erc20_abi = [
                     {"inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "type": "function", "stateMutability": "view"},
@@ -1088,11 +1102,13 @@ class SwapEngine:
 
                 if current_allowance < amount_needed:
                     max_approval = 2**256 - 1
+                    # Pass gas explicitly to skip eth_estimateGas simulation
                     approve_data = token_contract.functions.approve(spender, max_approval).build_transaction({
                         "from": sender,
                         "nonce": nonce,
                         "chainId": chain.chain_id,
-                        "gasPrice": web3.eth.gas_price,
+                        "gasPrice": gas_price,
+                        "gas": 100_000,
                     })
                     approve_tx = {
                         "to": token_addr,
