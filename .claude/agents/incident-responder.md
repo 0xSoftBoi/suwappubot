@@ -31,7 +31,7 @@ curl -s https://api.suwappu.bot/health
 curl -s https://devapi.suwappu.bot/health
 
 # ECS services status
-aws ecs describe-services --cluster suwappu \
+aws ecs describe-services --cluster suwappu-cluster \
   --services suwappu-api-ts-prod suwappu-webapp-prod suwappu-showcase \
   --query 'services[].{name:serviceName,status:status,running:runningCount,desired:desiredCount}' --output table
 
@@ -62,7 +62,7 @@ aws ssm get-command-invocation --command-id COMMAND_ID \
 ### 3. Restore
 ```bash
 # Restart ECS service
-aws ecs update-service --cluster suwappu --service SERVICE_NAME --force-new-deployment
+aws ecs update-service --cluster suwappu-cluster --service SERVICE_NAME --force-new-deployment
 
 # Restart EC2 bot via SSM (CRITICAL: set HOME and safe.directory)
 aws ssm send-command --instance-ids i-087a3657720f6f450 \
@@ -71,7 +71,7 @@ aws ssm send-command --instance-ids i-087a3657720f6f450 \
   --query 'Command.CommandId' --output text
 
 # Rollback ECS to previous task definition
-aws ecs describe-services --cluster suwappu --services SERVICE_NAME \
+aws ecs describe-services --cluster suwappu-cluster --services SERVICE_NAME \
   --query 'services[0].taskDefinition' --output text
 # Then update to previous revision
 ```

@@ -54,19 +54,19 @@ curl https://devapi.suwappu.bot/health     # Development API
 
 ### Check ECS Service Status
 ```bash
-aws ecs describe-services --cluster suwappu --services suwappu-bot suwappu-api-ts --query 'services[].{name:serviceName,status:status,running:runningCount,desired:desiredCount}'
+aws ecs describe-services --cluster suwappu-cluster --services suwappu-bot-prod suwappu-api-ts-dev --query 'services[].{name:serviceName,status:status,running:runningCount,desired:desiredCount}'
 ```
 
 ### Tail CloudWatch Logs
 ```bash
-aws logs tail /ecs/suwappu-bot --follow --since 5m
-aws logs tail /ecs/suwappu-api-ts --follow --since 5m
+aws logs tail /ecs/suwappu-bot --region us-east-1 --follow --since 5m
+aws logs tail /ecs/suwappu-api-ts --region us-east-1 --follow --since 5m
 ```
 
 ### Force New Deployment
 ```bash
-aws ecs update-service --cluster suwappu --service suwappu-bot --force-new-deployment
-aws ecs update-service --cluster suwappu --service suwappu-api-ts --force-new-deployment
+aws ecs update-service --cluster suwappu-cluster --service suwappu-bot-prod --force-new-deployment
+aws ecs update-service --cluster suwappu-cluster --service suwappu-api-ts-dev --force-new-deployment
 ```
 
 ## Pre-Deploy Checklist
