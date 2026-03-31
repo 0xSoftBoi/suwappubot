@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import time
 from typing import Optional
 from web3 import Web3
 from eth_account import Account
@@ -70,6 +71,30 @@ class WalletService:
         """Invalidate cached Web3 so next call picks a fresh RPC."""
         from bot.services.rpc_manager import rpc_manager
         rpc_manager.invalidate(chain_name)
+
+    async def _evm_rpc_call(self, chain_name: str, method: str, params: list, timeout: float = 3.5):
+        """Make a JSON-RPC call via aiohttp — fully async, no thread pool blocking."""
+        url = rpc_manager.get_rpc_url(chain_name)
+        payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
+        t0 = time.monotonic()
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url, json=payload,
+                    timeout=aiohttp.ClientTimeout(total=timeout),
+                ) as resp:
+                    if resp.status == 429:
+                        raise ConnectionError("rate_limited_429")
+                    if resp.status != 200:
+                        raise ConnectionError(f"http_{resp.status}")
+                    data = await resp.json()
+                    if "error" in data:
+                        raise ConnectionError(f"rpc_error: {str(data['error'])[:60]}")
+                    rpc_manager.report_success(chain_name, url, (time.monotonic() - t0) * 1000)
+                    return data.get("result")
+        except Exception as e:
+            rpc_manager.report_failure(chain_name, url, str(e)[:80])
+            raise
     
     async def _get_solana_client(self) -> SolanaClient:
         """Get or create a Solana RPC client."""
@@ -508,57 +533,38 @@ class WalletService:
         token_symbol: str,
         address: str,
     ) -> float:
-        """
-        Get ERC20 token balance for an address.
-
-        Returns:
-            Token balance as float
-        """
+        """Get ERC20 token balance via direct aiohttp JSON-RPC (no executor)."""
         token_address = get_token_address(token_symbol, chain_name)
         if not token_address:
             return 0.0
 
-        # Skip zero/null addresses (native tokens like BNB listed with 0x000...0)
+        # Skip zero/null addresses (native tokens listed as 0x000...0)
         if token_address.replace("0x", "").strip("0") == "":
             return await self.get_evm_native_balance(chain_name, address)
 
-        web3 = self._get_web3(chain_name)
-        contract = web3.eth.contract(
-            address=Web3.to_checksum_address(token_address),
-            abi=ERC20_ABI
-        )
+        # ABI-encode balanceOf(address): selector + 32-byte padded address
+        selector = "70a08231"
+        padded_addr = address.lower().replace("0x", "").zfill(64)
+        data = f"0x{selector}{padded_addr}"
+        checksum_contract = Web3.to_checksum_address(token_address)
 
-        current_url = self._web3_cache_url(chain_name)
-        for attempt in range(2):
-            try:
-                loop = asyncio.get_event_loop()
-                balance_raw = await loop.run_in_executor(
-                    None,
-                    contract.functions.balanceOf(Web3.to_checksum_address(address)).call,
-                )
-
-                decimals = get_token_decimals(token_symbol, chain_name)
-                return balance_raw / (10 ** decimals)
-            except Exception as e:
-                if current_url:
-                    rpc_manager.report_failure(chain_name, current_url, str(e))
-                if attempt == 0:
-                    # Retry with a fresh RPC
-                    self._invalidate_web3(chain_name)
-                    web3 = self._get_web3(chain_name)
-                    current_url = self._web3_cache_url(chain_name)
-                    contract = web3.eth.contract(
-                        address=Web3.to_checksum_address(token_address),
-                        abi=ERC20_ABI,
-                    )
-                else:
-                    return 0.0
-        return 0.0
+        try:
+            result = await self._evm_rpc_call(
+                chain_name,
+                "eth_call",
+                [{"to": checksum_contract, "data": data}, "latest"],
+            )
+            if not result or result == "0x":
+                return 0.0
+            balance_raw = int(result, 16)
+            decimals = get_token_decimals(token_symbol, chain_name)
+            return balance_raw / (10 ** decimals)
+        except Exception:
+            return 0.0
 
     async def get_evm_native_balance(self, chain_name: str, address: str) -> float:
-        """Get native token balance (ETH, BNB, etc.) for an address."""
-        # Tempo has no native gas token — fees are paid in TIP-20 stablecoins.
-        # eth.get_balance() returns garbage on Tempo; skip it entirely.
+        """Get native token balance (ETH, BNB, etc.) via direct aiohttp JSON-RPC."""
+        # Tempo has no native gas token — skip entirely.
         if chain_name == "tempo":
             return 0.0
 
@@ -566,24 +572,18 @@ class WalletService:
         if not chain:
             return 0.0
 
-        for attempt in range(2):
-            web3 = self._get_web3(chain_name)
-            try:
-                loop = asyncio.get_event_loop()
-                balance_wei = await loop.run_in_executor(
-                    None,
-                    web3.eth.get_balance,
-                    Web3.to_checksum_address(address),
-                )
-                return balance_wei / (10 ** chain.native_decimals)
-            except Exception as e:
-                if attempt == 0:
-                    logger.warning(f"Native balance check failed on {chain_name}, retrying: {e}")
-                    self._invalidate_web3(chain_name)
-                else:
-                    logger.error(f"Native balance check failed on {chain_name} after retry: {e}")
-                    return 0.0
-        return 0.0
+        checksum = Web3.to_checksum_address(address)
+        try:
+            result = await self._evm_rpc_call(
+                chain_name,
+                "eth_getBalance",
+                [checksum, "latest"],
+            )
+            if not result:
+                return 0.0
+            return int(result, 16) / (10 ** chain.native_decimals)
+        except Exception:
+            return 0.0
     
     async def get_solana_token_balance(
         self,
