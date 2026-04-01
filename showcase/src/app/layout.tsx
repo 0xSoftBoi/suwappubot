@@ -102,7 +102,10 @@ export default function RootLayout({
         <link rel="author" type="text/plain" href="/llms.txt" />
         <link rel="canonical" href="https://suwappu.bot" />
       </head>
-      <body className="font-sans antialiased bg-[#faf8f4] text-[#1a1a1a]">{children}</body>
+      <body className="font-sans antialiased bg-[#faf8f4] text-[#1a1a1a]">
+        <a href="#main-content" className="skip-to-content">Skip to content</a>
+        {children}
+      </body>
     </html>
   );
 }

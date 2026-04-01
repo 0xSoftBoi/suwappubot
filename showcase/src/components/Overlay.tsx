@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { motion, useInView } from 'framer-motion';
+import { motion, useInView, useReducedMotion } from 'framer-motion';
 import Terminal from './Terminal';
+import TerminalErrorBoundary from './TerminalErrorBoundary';
 import DocsMasonry from './DocsMasonry';
 
 /* ================================================================
@@ -165,15 +166,16 @@ function Reveal({ children, className = '', delay = 0 }: {
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, margin: '-80px' });
+  const prefersReduced = useReducedMotion();
 
   return (
     <motion.div
       ref={ref}
       className={className}
-      initial="hidden"
+      initial={prefersReduced ? 'visible' : 'hidden'}
       animate={inView ? 'visible' : 'hidden'}
       variants={revealVariants}
-      transition={{ duration: 0.6, delay, ease: [0.25, 0.4, 0.25, 1] }}
+      transition={prefersReduced ? { duration: 0 } : { duration: 0.6, delay, ease: [0.25, 0.4, 0.25, 1] }}
     >
       {children}
     </motion.div>
@@ -186,14 +188,15 @@ function StaggerReveal({ children, className = '' }: {
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, margin: '-60px' });
+  const prefersReduced = useReducedMotion();
 
   return (
     <motion.div
       ref={ref}
       className={className}
-      initial="hidden"
+      initial={prefersReduced ? 'visible' : 'hidden'}
       animate={inView ? 'visible' : 'hidden'}
-      variants={staggerContainer}
+      variants={prefersReduced ? {} : staggerContainer}
     >
       {children}
     </motion.div>
@@ -207,7 +210,7 @@ export default function Overlay() {
   const [activeTab, setActiveTab] = useState<TabKey>('swap');
 
   return (
-    <main>
+    <main id="main-content">
       {/* ── HERO ── */}
       <section style={{ paddingTop: '7rem' }}>
         <div className="section" style={{ textAlign: 'center', paddingBottom: '3rem' }}>
@@ -226,14 +229,14 @@ export default function Overlay() {
             </p>
             <div className="hero__actions" style={{ justifyContent: 'center' }}>
               <motion.a
-                href="https://terminal.suwappu.bot"
+                href="https://t.me/suwappu_bot"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn btn--primary"
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
               >
-                Launch Terminal
+                Start Trading
               </motion.a>
               <motion.a
                 href="https://t.me/suwappu_bot"
@@ -323,7 +326,9 @@ export default function Overlay() {
             </p>
           </Reveal>
           <Reveal delay={0.2}>
-            <Terminal />
+            <TerminalErrorBoundary>
+              <Terminal />
+            </TerminalErrorBoundary>
           </Reveal>
         </div>
       </section>
@@ -495,10 +500,10 @@ export default function Overlay() {
             <h3 className="footer__heading">Product</h3>
             <ul className="footer__list">
               <li><a href="https://t.me/suwappu_bot" target="_blank" rel="noopener noreferrer">Telegram Bot</a></li>
-              <li><a href="#">Mini App</a></li>
-              <li><a href="#">SDK</a></li>
-              <li><a href="#">MCP Server</a></li>
-              <li><a href="#">REST API</a></li>
+              <li><a href="/docs/quick-start/telegram-mini-app">Mini App</a></li>
+              <li><a href="/docs/quick-start/sdk-quickstart">SDK</a></li>
+              <li><a href="/docs/protocols/mcp-server">MCP Server</a></li>
+              <li><a href="/docs/api-reference/overview">REST API</a></li>
             </ul>
           </div>
           <div>
@@ -507,7 +512,6 @@ export default function Overlay() {
               <li><a href="/docs">Documentation</a></li>
               <li><a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer">GitHub</a></li>
               <li><a href="/docs/api-reference/overview">API Reference</a></li>
-              <li><a href="#">Changelog</a></li>
             </ul>
           </div>
           <div>
@@ -515,7 +519,6 @@ export default function Overlay() {
             <ul className="footer__list">
               <li><a href="https://t.me/suwappu_bot" target="_blank" rel="noopener noreferrer">Telegram</a></li>
               <li><a href="https://x.com/suwappubot" target="_blank" rel="noopener noreferrer">X (Twitter)</a></li>
-              <li><a href="#">Discord</a></li>
             </ul>
           </div>
         </div>
