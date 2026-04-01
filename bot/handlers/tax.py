@@ -78,8 +78,11 @@ async def tax_year_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.edit_message_text("❌ Please use /start first.")
+            return
         user_id = db_user.id
-    
+
     summary = tax_export_service.generate_summary(user_id, year=year)
     
     text = (
@@ -123,8 +126,11 @@ async def tax_download_callback(update: Update, context: ContextTypes.DEFAULT_TY
     
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.answer("❌ Please use /start first.", show_alert=True)
+            return
         user_id = db_user.id
-    
+
     # Generate CSV
     if format_type == "csv":
         csv_output = tax_export_service.generate_csv(user_id, year=year, format_type="standard")
@@ -155,31 +161,34 @@ async def tax_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await query.answer()
     
     user = update.effective_user
-    
+
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.edit_message_text("❌ Please use /start first.")
+            return
         user_id = db_user.id
-    
+
     years = tax_export_service.get_available_years(user_id)
     current_year = datetime.now().year
-    
+
     if not years:
         years = [current_year]
-    
+
     summary = tax_export_service.generate_summary(user_id, year=years[0])
-    
+
     text = (
         f"📊 *Tax Export Center*\n\n"
         f"*{summary['year']} Summary*\n"
         f"📈 Transactions: *{summary['total_transactions']}*\n"
         f"💰 Volume: *{format_usd(summary['total_volume_usd'])}*"
     )
-    
+
     keyboard = [
         [InlineKeyboardButton("📥 Download CSV", callback_data=f"tax_csv_{years[0]}")],
         [InlineKeyboardButton("« Back", callback_data="main_menu")],
     ]
-    
+
     await query.edit_message_text(
         text,
         parse_mode="Markdown",

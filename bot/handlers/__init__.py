@@ -9,6 +9,7 @@ from .favorites import favorites_handler, favorites_callback
 from .settings import settings_handler, settings_callback, slippage_conversation
 from .admin import status_handler, clear_cache_handler, broadcast_handler
 from .quickswap import quickswap_handler, quickswap_confirm_callback
+from .tax import tax_handler, tax_year_callback_handler, tax_download_callback_handler, tax_menu_callback_handler
 
 __all__ = [
     # Core handlers
@@ -43,6 +44,11 @@ __all__ = [
     "settings_handler",
     "settings_callback",
     "slippage_conversation",
+    # Tax
+    "tax_handler",
+    "tax_year_callback_handler",
+    "tax_download_callback_handler",
+    "tax_menu_callback_handler",
     # Admin
     "status_handler",
     "clear_cache_handler",
