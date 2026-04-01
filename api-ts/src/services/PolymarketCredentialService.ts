@@ -2,7 +2,7 @@ import crypto from 'crypto'
 import { eq } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { EnvService } from '../config/EnvService'
-import { requireDb, polymarketAccounts } from '../db'
+import { type DrizzleService, requireDb, polymarketAccounts } from '../db'
 import type { ClobApiCredentials } from './PolymarketService'
 
 const ALGORITHM = 'aes-256-gcm'
@@ -35,9 +35,9 @@ function deriveKey(secret: string): Buffer {
 }
 
 export interface PolymarketCredentialServiceInterface {
-	readonly getCredentials: (agentId: string) => Effect.Effect<ClobApiCredentials | null, Error>
-	readonly storeCredentials: (agentId: string, walletAddress: string, credentials: ClobApiCredentials) => Effect.Effect<void, Error>
-	readonly deleteCredentials: (agentId: string) => Effect.Effect<void, Error>
+	readonly getCredentials: (agentId: string) => Effect.Effect<ClobApiCredentials | null, Error, DrizzleService>
+	readonly storeCredentials: (agentId: string, walletAddress: string, credentials: ClobApiCredentials) => Effect.Effect<void, Error, DrizzleService>
+	readonly deleteCredentials: (agentId: string) => Effect.Effect<void, Error, DrizzleService>
 }
 
 export class PolymarketCredentialService extends Context.Tag('PolymarketCredentialService')<

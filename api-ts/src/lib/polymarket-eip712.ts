@@ -83,7 +83,7 @@ function hashStruct(primaryType: string, data: ClobOrderData, types: Record<stri
 	const encodedValues: Buffer[] = [tHash]
 
 	for (const field of fields) {
-		const value = (data as Record<string, unknown>)[field.name]
+		const value = (data as unknown as Record<string, unknown>)[field.name]
 		if (field.type === 'address') {
 			encodedValues.push(encodeAddress(value as string))
 		} else if (field.type === 'uint256') {
