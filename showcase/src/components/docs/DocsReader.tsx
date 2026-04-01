@@ -1,8 +1,7 @@
 'use client';
 
-import { useRef, useEffect, useMemo } from 'react';
+import { useRef, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import DOMPurify from 'dompurify';
 
 type Props = {
   html: string;
@@ -11,11 +10,14 @@ type Props = {
 
 export default function DocsReader({ html, title }: Props) {
   const readerRef = useRef<HTMLDivElement>(null);
+  const [safeHtml, setSafeHtml] = useState(html);
 
-  const sanitizedHtml = useMemo(
-    () => DOMPurify.sanitize(html, { ADD_TAGS: ['code'], ADD_ATTR: ['class'] }),
-    [html],
-  );
+  useEffect(() => {
+    import('dompurify').then((mod) => {
+      const DOMPurify = mod.default || mod;
+      setSafeHtml(DOMPurify.sanitize(html, { ADD_TAGS: ['code'], ADD_ATTR: ['class'] }));
+    });
+  }, [html]);
 
   // Add copy buttons to all <pre> code blocks after mount
   useEffect(() => {
@@ -41,7 +43,7 @@ export default function DocsReader({ html, title }: Props) {
       });
       pre.appendChild(btn);
     });
-  }, [sanitizedHtml]);
+  }, [safeHtml]);
 
   return (
     <motion.div
@@ -50,7 +52,7 @@ export default function DocsReader({ html, title }: Props) {
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: [0.25, 0.4, 0.25, 1] }}
-      dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+      dangerouslySetInnerHTML={{ __html: safeHtml }}
     />
   );
 }
