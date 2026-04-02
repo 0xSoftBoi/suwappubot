@@ -1,6 +1,6 @@
 # Suwappu
 
-> Cross-chain DEX infrastructure. SDK, REST API, Telegram bot, and agent tooling for swaps, perps, predictions, and lending across 15 chains.
+> Cross-chain DEX infrastructure. SDK, REST API, Telegram bot, and agent tooling for swaps, perps, predictions, and lending across 14 chains.
 
 ## Install
 
