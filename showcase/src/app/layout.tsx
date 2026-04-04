@@ -98,7 +98,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${spaceGrotesk.variable} ${dmSans.variable} ${firaCode.variable}`}>
       <head>
-        <link rel="icon" href="/favicon.ico" />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="author" type="text/plain" href="/llms.txt" />
         <link rel="canonical" href="https://suwappu.bot" />
       </head>

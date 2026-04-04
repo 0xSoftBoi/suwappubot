@@ -167,7 +167,18 @@ export const suwappuPreset = {
       colors: {
         ...domainColors,
         suwappu: {
-          // Sakura scale
+          // Persimmon scale
+          'persimmon-50': t.colors.brand.persimmon[50],
+          'persimmon-100': t.colors.brand.persimmon[100],
+          'persimmon-200': t.colors.brand.persimmon[200],
+          'persimmon-300': t.colors.brand.persimmon[300],
+          'persimmon-400': t.colors.brand.persimmon[400],
+          'persimmon-500': t.colors.brand.persimmon[500],
+          'persimmon-600': t.colors.brand.persimmon[600],
+          'persimmon-700': t.colors.brand.persimmon[700],
+          'persimmon-800': t.colors.brand.persimmon[800],
+          'persimmon-900': t.colors.brand.persimmon[900],
+          // Legacy sakura alias
           'sakura-50': t.colors.brand.sakura[50],
           'sakura-100': t.colors.brand.sakura[100],
           'sakura-200': t.colors.brand.sakura[200],
@@ -182,6 +193,12 @@ export const suwappuPreset = {
           'sakura-light': t.colors.brand.sakuraPinkLight,
           'sakura-mid': t.colors.brand.sakuraPinkMid,
           // Primary palette
+          'cream': t.colors.brand.persimmonCream,
+          'sunlit-flesh': t.colors.brand.sunlitFlesh,
+          'core': t.colors.brand.persimmonCore,
+          'golden-calyx': t.colors.brand.goldenCalyx,
+          'burnt-stem': t.colors.brand.burntStem,
+          'ink-brown': t.colors.brand.inkBrown,
           'magenta': t.colors.brand.magentaCore,
           'rose': t.colors.brand.roseGradientStart,
           'magenta-mid': t.colors.brand.magentaGradientMid,
@@ -202,8 +219,8 @@ export const suwappuPreset = {
           'bg': t.colors.neutral.background,
           'text': t.colors.neutral.textPrimary,
           'text-secondary': t.colors.neutral.textSecondary,
-          'text-muted': '#9A9AB0',
-          'magenta-dark': '#B8185C',
+          'text-muted': '#AD987E',
+          'magenta-dark': '#864521',
         },
       },
       fontFamily: {
@@ -249,6 +266,7 @@ export const professionalPreset = {
           'text-secondary': t.colors.surface.professional.textSecondary,
           'text-muted': t.colors.surface.professional.textMuted,
         },
+        persimmon: t.colors.brand.persimmon,
         sakura: t.colors.brand.sakura,
         bull: t.colors.trading.bull,
         bear: t.colors.trading.bear,

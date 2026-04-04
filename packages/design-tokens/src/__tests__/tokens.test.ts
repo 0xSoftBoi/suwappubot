@@ -33,18 +33,19 @@ console.log('=== Design Tokens Tests ===\n')
 
 // --- Token structure completeness ---
 console.log('Token structure:')
-assert(designTokens.colors.brand.magentaCore === '#E91E8C', 'brand magenta')
-assert(designTokens.colors.brand.sakura[500] === '#FF839B', 'sakura 500')
+assert(designTokens.colors.brand.magentaCore === '#E58D2B', 'brand core')
+assert(designTokens.colors.brand.sakura[500] === '#E58D2B', 'sakura 500 alias')
 assert(Object.keys(designTokens.colors.chain).length >= 15, 'all 15 chains')
 assert(Object.keys(designTokens.colors.provider).length >= 9, 'all 9 providers')
 assert(designTokens.colors.impact.severe === '#EF4444', 'impact severe')
 assert(designTokens.colors.txState.pending === '#F59E0B', 'tx pending')
-assert(designTokens.colors.surface.sakura.background === '#1A1625', 'sakura bg')
-assert(designTokens.colors.surface.professional.background === '#0A0A0F', 'professional bg')
+assert(designTokens.colors.surface.sakura.background === '#FFFDF9', 'sakura bg')
+assert(designTokens.colors.surface.professional.background === '#FFFDF9', 'professional bg')
 assert(designTokens.colors.trading.bull === '#22C55E', 'trading bull')
+assert(designTokens.colors.trading.bullDim === '#EAF8EF', 'trading bull dim')
 
 // Token values match original webapp tokens
-eq(designTokens.colors.brand.sakuraPinkLight, '#FFD1DC', 'matches webapp primary.sakuraPinkLight')
+eq(designTokens.colors.brand.sakuraPinkLight, '#FFF8EE', 'compat light alias maps to persimmon cream')
 eq(designTokens.colors.chain.ethereum, '#627EEA', 'matches webapp chain.ethereum')
 eq(designTokens.colors.chain.solana, '#9945FF', 'matches webapp chain.solana')
 eq(designTokens.spacing.scale.md, 16, 'spacing md')
@@ -54,16 +55,18 @@ eq(designTokens.typography.fontWeights.bold, 700, 'font weight bold')
 // --- Tailwind presets ---
 console.log('Tailwind presets:')
 const sColors = (suwappuPreset.theme.extend.colors as any)
-assert(sColors.suwappu['sakura-500'] === '#FF839B', 'suwappu preset sakura-500')
-assert(sColors.suwappu.magenta === '#E91E8C', 'suwappu preset magenta')
+assert(sColors.suwappu['sakura-500'] === '#E58D2B', 'suwappu preset sakura-500')
+assert(sColors.suwappu.magenta === '#E58D2B', 'suwappu preset magenta alias')
+assert(sColors.suwappu['golden-calyx'] === '#F4C963', 'suwappu preset golden calyx')
 assert(sColors.chain.ethereum === '#627EEA', 'suwappu preset chain')
 assert(sColors.impact.severe === '#EF4444', 'suwappu preset impact')
 
 const pColors = (professionalPreset.theme.extend.colors as any)
-assert(pColors.terminal.bg === '#0A0A0F', 'professional terminal bg')
+assert(pColors.terminal.bg === '#FFFDF9', 'professional terminal bg')
 assert(pColors.bull === '#22C55E', 'professional bull')
 assert(pColors.chain.ethereum === '#627EEA', 'professional shares chains')
-assert(pColors.sakura[500] === '#FF839B', 'professional has sakura scale')
+assert(pColors.sakura[500] === '#E58D2B', 'professional has sakura alias scale')
+assert(pColors.persimmon[500] === '#E58D2B', 'professional exposes persimmon scale')
 
 // Animations exist
 const sAnim = (suwappuPreset.theme.extend.animation as any)
@@ -74,11 +77,11 @@ assert(typeof sAnim['price-up'] === 'string', 'suwappu has price-up')
 console.log('CSS vars:')
 const cssVars = generateCssVars()
 assert(cssVars.includes('--suwappu-'), 'has suwappu prefix')
-assert(cssVars.includes('#E91E8C') || cssVars.includes('#e91e8c'), 'has magenta color')
+assert(cssVars.includes('#E58D2B') || cssVars.includes('#e58d2b'), 'has persimmon core')
 assert(cssVars.includes(':root'), 'has :root selector')
 
 const proCss = generateCssVars('professional')
-assert(proCss.includes('#0A0A0F') || proCss.includes('#0a0a0f'), 'professional has dark bg')
+assert(proCss.includes('#FFFDF9') || proCss.includes('#fffdf9'), 'professional has studio bg')
 
 // --- React Native themes ---
 console.log('React Native themes:')
@@ -103,6 +106,7 @@ assert(typeof professionalTheme.colors === 'object', 'professional has colors')
 // Chain colors available in RN
 assert(sakuraTheme.colors.chain.ethereum === '#627EEA', 'RN chain ethereum')
 assert(sakuraTheme.colors.chain.solana === '#9945FF', 'RN chain solana')
+assert(professionalTheme.colors.surface.panel === '#FFFFFF', 'RN professional panel')
 
 // --- Terminal ANSI ---
 console.log('Terminal ANSI:')
@@ -111,6 +115,7 @@ assert(ansiColors.magenta.includes('\x1b[38;2;'), 'magenta is 24-bit')
 const colored = colorize('hello', 'magenta')
 assert(colored.includes('hello'), 'colorize includes text')
 assert(colored.includes('\x1b[0m'), 'colorize includes reset')
+assert(ansiColors.terminalText === '\x1b[38;2;47;34;26m', 'terminal text matches studio palette')
 
 // --- Summary ---
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`)

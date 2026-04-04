@@ -12,26 +12,26 @@
  */
 export const ansiColors = {
   // Brand
-  sakuraPinkLight: '\x1b[38;2;255;209;220m',
-  sakuraPink: '\x1b[38;2;255;183;197m',
-  magenta: '\x1b[38;2;233;30;140m',
-  rose: '\x1b[38;2;248;165;194m',
-  magentaMid: '\x1b[38;2;196;69;105m',
-  purple: '\x1b[38;2;108;52;131m',
-  purpleDeep: '\x1b[38;2;74;35;90m',
+  sakuraPinkLight: '\x1b[38;2;255;248;238m',
+  sakuraPink: '\x1b[38;2;246;207;133m',
+  magenta: '\x1b[38;2;229;141;43m',
+  rose: '\x1b[38;2;244;201;99m',
+  magentaMid: '\x1b[38;2;211;115;34m',
+  purple: '\x1b[38;2;183;93;33m',
+  purpleDeep: '\x1b[38;2;91;58;36m',
 
   // Secondary
-  sky: '\x1b[38;2;232;244;253m',
-  cyan: '\x1b[38;2;179;229;252m',
-  blue: '\x1b[38;2;135;206;235m',
-  navy: '\x1b[38;2;26;35;126m',
-  ocean: '\x1b[38;2;13;27;76m',
+  sky: '\x1b[38;2;234;244;255m',
+  cyan: '\x1b[38;2;216;238;248m',
+  blue: '\x1b[38;2;165;203;238m',
+  navy: '\x1b[38;2;52;80;106m',
+  ocean: '\x1b[38;2;107;152;191m',
 
   // Semantic
-  success: '\x1b[38;2;168;230;163m',
-  warning: '\x1b[38;2;255;228;160m',
-  error: '\x1b[38;2;248;160;160m',
-  info: '\x1b[38;2;144;202;249m',
+  success: '\x1b[38;2;115;195;143m',
+  warning: '\x1b[38;2;231;199;106m',
+  error: '\x1b[38;2;217;120;99m',
+  info: '\x1b[38;2;127;182;232m',
 
   // Impact
   impactNegligible: '\x1b[38;2;74;222;128m',
@@ -53,9 +53,9 @@ export const ansiColors = {
   bear: '\x1b[38;2;239;68;68m',
 
   // Terminal surface
-  terminalText: '\x1b[38;2;226;226;240m',
-  terminalTextSecondary: '\x1b[38;2;136;136;160m',
-  terminalTextMuted: '\x1b[38;2;85;85;106m',
+  terminalText: '\x1b[38;2;47;34;26m',
+  terminalTextSecondary: '\x1b[38;2;123;106;87m',
+  terminalTextMuted: '\x1b[38;2;173;152;126m',
 
   // Chain brands
   chainEthereum: '\x1b[38;2;98;126;234m',

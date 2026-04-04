@@ -1,3 +1,16 @@
+const persimmonScale = {
+  50: '#FFFCF7',
+  100: '#FFF6EA',
+  200: '#FCE6C2',
+  300: '#F6CF85',
+  400: '#EDA650',
+  500: '#E58D2B',
+  600: '#D37322',
+  700: '#B75D21',
+  800: '#864521',
+  900: '#5B3A24',
+}
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -8,36 +21,26 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Terminal dark theme — aligned with showcase noir palette
+        // Bright studio terminal theme
         terminal: {
-          bg: '#050508',
-          'bg-secondary': '#0a0a12',
-          'bg-tertiary': '#12121e',
-          panel: '#07070e',
-          border: '#1a1a2a',
-          'border-active': '#2a2a40',
-          text: '#e8e6e3',
-          'text-secondary': '#8a8a9c',
-          'text-muted': '#4a4a5e',
+          bg: '#FFFDF9',
+          'bg-secondary': '#FFF8EE',
+          'bg-tertiary': '#F7EEDA',
+          panel: '#FFFFFF',
+          border: '#E6D9C3',
+          'border-active': '#D8BE90',
+          text: '#2F221A',
+          'text-secondary': '#7B6A57',
+          'text-muted': '#AD987E',
         },
-        // Suwappu accent — matched to showcase #ff2d78 pink + purple
-        sakura: {
-          50: '#FFF0F4',
-          100: '#FFE0EA',
-          200: '#FFC1D5',
-          300: '#FF8AAF',
-          400: '#FF5C91',
-          500: '#ff2d78',
-          600: '#e6286c',
-          700: '#cc2360',
-          800: '#b31e54',
-          900: '#991948',
-        },
+        // Persimmon brand accent; `sakura` remains as a compatibility alias.
+        persimmon: persimmonScale,
+        sakura: persimmonScale,
         // Trading colors
         bull: '#22c55e',
         bear: '#ef4444',
-        'bull-dim': '#16351f',
-        'bear-dim': '#351616',
+        'bull-dim': '#EAF8EF',
+        'bear-dim': '#FCEDEA',
         // Chain brand colors
         chain: {
           ethereum: '#627EEA',

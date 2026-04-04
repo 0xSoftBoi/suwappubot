@@ -7,29 +7,38 @@
     @apply border-terminal-border;
   }
 
+  :root {
+    color-scheme: light;
+  }
+
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
   body {
-    background: #050508;
-    color: #e8e6e3;
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at top right, rgba(244, 201, 99, 0.18), transparent 28%),
+      radial-gradient(circle at left center, rgba(248, 228, 190, 0.4), transparent 22%),
+      linear-gradient(180deg, #fffefb 0%, #fff9f0 100%);
+    color: #2f221a;
   }
 
   ::selection {
-    background: rgba(255, 45, 120, 0.3);
+    background: rgba(244, 201, 99, 0.28);
   }
 
   ::-webkit-scrollbar {
-    width: 2px;
-    height: 2px;
+    width: 8px;
+    height: 8px;
   }
   ::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(246, 207, 133, 0.16);
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.3);
+    background: rgba(183, 93, 33, 0.3);
+    border-radius: 9999px;
   }
 
   /* Allotment sash styling */
@@ -40,27 +49,45 @@
 
 @layer components {
   .terminal-panel {
-    @apply bg-terminal-panel border border-terminal-border rounded-sm;
+    @apply bg-terminal-panel border border-terminal-border rounded-3xl;
+    box-shadow:
+      0 24px 60px rgba(246, 207, 133, 0.18),
+      0 10px 24px rgba(216, 200, 166, 0.22),
+      inset 0 1px 0 rgba(255, 255, 255, 0.84);
   }
 
   .terminal-input {
-    @apply bg-terminal-bg border border-terminal-border rounded px-3 py-2
+    @apply bg-white border border-terminal-border rounded-2xl px-3 py-2
            text-terminal-text placeholder-terminal-text-muted
            focus:outline-none focus:border-sakura-600 transition-colors;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.92),
+      0 1px 2px rgba(216, 200, 166, 0.2);
   }
 
   .terminal-button {
-    @apply px-4 py-2 rounded font-medium transition-all duration-150
-           bg-sakura-500 text-white hover:bg-sakura-600
-           hover:shadow-[0_0_20px_rgba(255,45,120,0.2)]
+    @apply px-4 py-2 rounded-2xl font-medium transition-all duration-150
+           text-white
            active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
+    background: linear-gradient(180deg, #f1bf57 0%, #e58d2b 100%);
+    box-shadow:
+      0 12px 24px rgba(229, 141, 43, 0.22),
+      inset 0 1px 0 rgba(255, 255, 255, 0.36);
+  }
+
+  .terminal-button:hover {
+    background: linear-gradient(180deg, #f4c963 0%, #d37322 100%);
+    box-shadow:
+      0 16px 30px rgba(229, 141, 43, 0.26),
+      inset 0 1px 0 rgba(255, 255, 255, 0.4);
   }
 
   .terminal-button-secondary {
-    @apply px-4 py-2 rounded font-medium transition-all duration-150
-           bg-terminal-bg-tertiary text-terminal-text border border-terminal-border
-           hover:border-terminal-border-active hover:bg-terminal-bg-secondary
+    @apply px-4 py-2 rounded-2xl font-medium transition-all duration-150
+           bg-terminal-bg-secondary text-terminal-text border border-terminal-border
+           hover:border-terminal-border-active hover:bg-white
            active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
   }
 
   .terminal-tab {
@@ -70,6 +97,6 @@
   }
 
   .terminal-tab-active {
-    @apply text-sakura-400 border-sakura-500;
+    @apply text-sakura-700 border-sakura-500;
   }
 }

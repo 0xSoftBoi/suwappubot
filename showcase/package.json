@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "brand:generate": "node scripts/generate-persimmon-brand.mjs",
     "prebuild": "bun scripts/build-content.ts",
     "build": "next build",
     "start": "next start",
