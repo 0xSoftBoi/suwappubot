@@ -5,6 +5,8 @@ Authenticated via INTERNAL_API_KEY (shared secret between Python and TS services
 """
 
 import logging
+import os
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 
@@ -52,7 +54,42 @@ async def sign_transaction(
     Used by the TS API when Turnkey is unavailable and it needs to delegate
     signing to the Python service (which has KMS access for backup keys).
     """
-    _verify_internal_key(x_internal_api_key)
+    _verify_internal_key(x_internal_key)
+
+    # Spending limit check
+    max_usd = float(os.environ.get("MAX_SIGNING_AMOUNT_USD", "10000"))
+    tx_value_raw = request.unsigned_transaction.get("value") or request.unsigned_transaction.get("amount")
+    tx_amount_usd: Optional[float] = None
+    try:
+        if tx_value_raw is not None:
+            tx_amount_usd = float(tx_value_raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "sign-transaction: unparseable value field — rejecting",
+            extra={"wallet_id": request.wallet_id, "value_raw": str(tx_value_raw)[:64]},
+        )
+        raise HTTPException(status_code=422, detail="Transaction value could not be parsed; signing rejected")
+
+    logger.info(
+        "sign-transaction request",
+        extra={
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "wallet_id": request.wallet_id,
+            "chain_type": request.chain_type,
+            "amount_usd": tx_amount_usd,
+            "destination": request.unsigned_transaction.get("to") or request.unsigned_transaction.get("destination"),
+        },
+    )
+
+    if tx_amount_usd is not None and tx_amount_usd > max_usd:
+        logger.warning(
+            "sign-transaction: amount exceeds MAX_SIGNING_AMOUNT_USD — rejected",
+            extra={"amount_usd": tx_amount_usd, "limit_usd": max_usd, "wallet_id": request.wallet_id},
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=f"Transaction value ${tx_amount_usd} exceeds signing limit ${max_usd}",
+        )
 
     with get_session() as session:
         wallet = session.query(Wallet).filter(Wallet.id == request.wallet_id).first()
@@ -112,7 +149,7 @@ async def verify_x402_payment(
     Called by the TS API mppAuth middleware to confirm that a payment
     transaction matches the expected amount, token, and recipient.
     """
-    _verify_internal_key(x_internal_api_key)
+    _verify_internal_key(x_internal_key)
 
     # Resolve token address from symbol
     chain_tokens = x402_service.payment_tokens.get(request.chain, {})
@@ -160,6 +197,8 @@ async def verify_x402_payment(
 class AgentProvisionRequest(BaseModel):
     agent_uuid: str
     chain_type: str = "evm"
+    turnkey_wallet_id: Optional[str] = None
+    turnkey_sub_org_id: Optional[str] = None
 
 
 @router.post("/agent/provision-wallet")
@@ -168,7 +207,7 @@ async def provision_agent_wallet(
     x_internal_key: str = Header(None, alias="X-Internal-Key"),
 ):
     """Create a User + Wallet row for an agent. Called by TS API after Turnkey wallet creation."""
-    _verify_internal_key(x_internal_api_key)
+    _verify_internal_key(x_internal_key)
 
     try:
         from bot.models.user import User
@@ -187,18 +226,32 @@ async def provision_agent_wallet(
                 logger.info(f"Created agent user: id={user.id}, telegram_id={agent_int_id}")
             user_id = user.id
 
-        wallet = await wallet_service.create_wallet(
-            user_id=user_id,
-            name=f"agent_{request.agent_uuid[:8]}",
-            chain_type=request.chain_type,
-        )
+        # Create Turnkey-managed wallet row directly — no local key encryption needed
+        from datetime import datetime as dt
+        with get_session() as session:
+            wallet = Wallet(
+                user_id=user_id,
+                name=f"agent_{request.agent_uuid[:8]}",
+                address="pending",
+                encrypted_private_key="turnkey_managed",
+                encryption_scheme="turnkey",
+                wallet_provider="turnkey",
+                turnkey_wallet_id=request.turnkey_wallet_id,
+                turnkey_sub_org_id=request.turnkey_sub_org_id,
+                chain_type=request.chain_type,
+                is_active=True,
+                is_default=True,
+                created_at=dt.utcnow(),
+            )
+            session.add(wallet)
+            session.flush()
+            wallet_id = wallet.id
 
-        logger.info(f"Provisioned wallet for agent {request.agent_uuid[:8]}: user_id={user_id}, wallet_id={wallet.id}")
+        logger.info(f"Provisioned wallet for agent {request.agent_uuid[:8]}: user_id={user_id}, wallet_id={wallet_id}")
 
         return {
             "internal_user_id": user_id,
-            "internal_wallet_id": wallet.id,
-            "address": wallet.address,
+            "internal_wallet_id": wallet_id,
         }
 
     except Exception as e:
@@ -226,11 +279,12 @@ async def execute_agent_swap(
     x_internal_key: str = Header(None, alias="X-Internal-Key"),
 ):
     """Execute a swap using the full Python swap pipeline. Called by TS API."""
-    _verify_internal_key(x_internal_api_key)
+    _verify_internal_key(x_internal_key)
 
     try:
-        from bot.services.swap_engine import swap_engine, SwapQuote
-        from datetime import datetime
+        from bot.services.swap_engine import SwapEngine, SwapQuote
+        swap_engine = SwapEngine()
+        from datetime import datetime, timezone
 
         qd = request.quote_data
 
@@ -252,7 +306,7 @@ async def execute_agent_swap(
             price_impact=float(qd.get("price_impact", 0)),
             exchange_rate=float(qd.get("exchange_rate", 0)),
             raw_quote=qd.get("raw_quote", {}),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
 
         logger.info(f"Executing swap for agent {request.agent_uuid[:8]}: {quote.from_amount} {quote.from_token} → {quote.to_token}")

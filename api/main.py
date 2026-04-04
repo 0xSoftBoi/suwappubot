@@ -349,7 +349,7 @@ async def get_admin_key(
         logging.getLogger(__name__).warning("ADMIN_API_KEY not set — all admin endpoints locked. Set ADMIN_API_KEY env var.")
         raise HTTPException(status_code=403, detail="Admin API key not configured. Set ADMIN_API_KEY environment variable.")
 
-    if api_key == valid_key:
+    if secrets.compare_digest(api_key, valid_key):
         return api_key
 
     raise HTTPException(status_code=403, detail="Invalid or missing Admin API Key")
@@ -557,7 +557,7 @@ if not JWT_SECRET:
     _jwt_log.getLogger(__name__).warning("SECRET_KEY not set — generating ephemeral JWT secret (tokens will not survive restarts)")
     JWT_SECRET = secrets.token_hex(32)
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRY_HOURS = 24 * 7  # 7 days
+JWT_EXPIRY_HOURS = 1  # 1 hour
 
 def create_jwt_token(address: str, user_id: int) -> str:
     """Create a JWT token for authenticated user."""
@@ -1309,9 +1309,16 @@ async def health():
     """Returns the operational status of the Suwappu Monolith. Agents should check this before trade batches."""
     return {"status": "ok", "timestamp": datetime.utcnow()}
 
+def _verify_user_access(user_id: str, current_user_id: str, is_admin: bool):
+    """Raise 403 if a non-admin caller tries to access another user's data."""
+    if not is_admin and str(user_id) != str(current_user_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+
 @app.get("/users/{user_id}/wallets", response_model=List[WalletResponse], tags=["Wallets"], summary="List user wallets")
 async def get_wallets(
-    user_id: int, 
+    user_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     agent_key: str = Depends(get_agent_key)
 ):
@@ -1319,6 +1326,12 @@ async def get_wallets(
     Retrieve all active wallets for a specific user.
     Agents use this to identify target addresses for deposit/swap operations.
     """
+    # IDOR guard: caller must own this user_id unless using the global service key
+    global_key = getattr(settings, "agent_api_key", None)
+    is_global = global_key and secrets.compare_digest(agent_key, global_key)
+    caller_user_id = request.headers.get("X-Agent-User-ID")
+    if not is_global and caller_user_id is not None:
+        _verify_user_access(user_id, caller_user_id, is_admin=False)
     wallets = db.query(Wallet).filter(Wallet.user_id == user_id, Wallet.is_active == True).all()
     # Map camelCase for iOS compatibility
     res = []
@@ -1337,7 +1350,8 @@ async def get_wallets(
 
 @app.get("/users/{user_id}/portfolio", response_model=PortfolioResponse, tags=["Portfolio"], summary="Get user portfolio balances")
 async def get_portfolio(
-    user_id: int, 
+    user_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     agent_key: str = Depends(get_agent_key)
 ):
@@ -1345,6 +1359,12 @@ async def get_portfolio(
     Fetches a real-time consolidated balance sheet for a user across all supported chains.
     Agents must call this to verify sufficient liquidity before initiating swap orders.
     """
+    # IDOR guard: caller must own this user_id unless using the global service key
+    global_key = getattr(settings, "agent_api_key", None)
+    is_global = global_key and secrets.compare_digest(agent_key, global_key)
+    caller_user_id = request.headers.get("X-Agent-User-ID")
+    if not is_global and caller_user_id is not None:
+        _verify_user_access(user_id, caller_user_id, is_admin=False)
     wallets = db.query(Wallet).filter(Wallet.user_id == user_id, Wallet.is_active == True).all()
     
     total_usd = 0.0
@@ -1386,10 +1406,19 @@ async def get_portfolio(
 @app.get("/users/{user_id}/swaps", response_model=List[SwapResponse], tags=["Swaps"], summary="Get user swap history")
 async def get_swaps(
     user_id: int,
+    request: Request,
     limit: int = 50,
     db: Session = Depends(get_db),
     _key: str = Depends(get_agent_or_admin_key),
 ):
+    # IDOR guard: admin key allows any user_id; agent key restricted to caller's user
+    admin_key = getattr(settings, "admin_api_key", None)
+    is_admin = bool(admin_key and secrets.compare_digest(_key, admin_key))
+    global_key = getattr(settings, "agent_api_key", None)
+    is_global = bool(global_key and secrets.compare_digest(_key, global_key))
+    caller_user_id = request.headers.get("X-Agent-User-ID")
+    if not is_admin and not is_global and caller_user_id is not None:
+        _verify_user_access(user_id, caller_user_id, is_admin=False)
     swaps = db.query(SwapTransaction).filter(
         SwapTransaction.user_id == user_id
     ).order_by(SwapTransaction.created_at.desc()).limit(limit).all()
