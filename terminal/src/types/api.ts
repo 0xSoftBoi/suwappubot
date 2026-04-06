@@ -348,7 +348,7 @@ export interface CreateAlertParams {
 // === DCA ===
 
 export type DCAFrequency = 'hourly' | 'daily' | 'weekly'
-export type DCAStatus = 'active' | 'paused' | 'completed' | 'cancelled'
+export type DCAStatus = 'active' | 'paused' | 'completed' | 'cancelled' | 'failed'
 
 export interface DCAOrder {
   id: string

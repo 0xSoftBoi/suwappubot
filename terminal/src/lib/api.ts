@@ -109,7 +109,7 @@ function mapDcaOrder(raw: {
     frequency: raw.interval,
     totalOrders,
     completedOrders,
-    status: raw.status === 'failed' ? 'cancelled' : raw.status,
+    status: raw.status,
     nextExecution: raw.nextExecutionAt ?? undefined,
     createdAt: raw.createdAt ?? new Date().toISOString(),
   }

@@ -5,6 +5,7 @@ import { runEffect } from '../runtime'
 import { EnvService } from '../config/EnvService'
 import type { DCAOrder } from '../db'
 import { DCAService } from '../services/DCAService'
+import { SwapService, type SwapQuote as ExecutableSwapQuote } from '../services/SwapService'
 import { WalletService } from '../services/WalletService'
 
 const PYTHON_API_URL = process.env.PYTHON_API_URL || 'http://localhost:8000'
@@ -13,25 +14,26 @@ const CHECK_INTERVAL_MS = Number(process.env.DCA_CHECK_INTERVAL_MS || 60_000)
 let monitorTimer: ReturnType<typeof setInterval> | null = null
 let monitorInFlight = false
 
-function buildQuoteData(order: DCAOrder) {
+export function buildQuoteDataFromQuote(order: DCAOrder, quote: ExecutableSwapQuote) {
 	return {
-		provider: 'scheduled_dca',
+		provider: 'lifi',
 		from_chain: order.fromChain,
 		to_chain: order.toChain,
 		from_token: order.fromToken,
 		to_token: order.toToken,
-		from_amount: order.amountPerExecution,
-		from_amount_human: 0,
-		to_amount: '0',
-		to_amount_human: 0,
-		to_amount_min: '0',
-		gas_cost_usd: 0,
-		fee_cost_usd: 0,
-		total_cost_usd: 0,
-		estimated_time: 60,
-		price_impact: 0,
-		exchange_rate: 0,
+		from_amount: quote.fromAmount,
+		from_amount_human: Number(quote.fromAmountUsd || 0),
+		to_amount: quote.toAmount,
+		to_amount_human: Number(quote.toAmountUsd || 0),
+		to_amount_min: quote.toAmountMin,
+		gas_cost_usd: Number(quote.estimatedGasUsd || 0),
+		fee_cost_usd: Number(quote.bridgeFeeUsd || 0),
+		total_cost_usd: Number(quote.estimatedGasUsd || 0) + Number(quote.bridgeFeeUsd || 0),
+		estimated_time: quote.estimatedDuration || 60,
+		price_impact: Number(quote.priceImpact || 0),
+		exchange_rate: Number(quote.exchangeRate || 0),
 		raw_quote: {
+			...quote._rawQuote,
 			trigger: 'dca_monitor',
 			order_id: order.id,
 			interval: order.interval,
@@ -46,6 +48,7 @@ async function executeDueOrder(order: DCAOrder): Promise<void> {
 			const env = yield* EnvService
 			const walletService = yield* WalletService
 			const dcaService = yield* DCAService
+			const swapService = yield* SwapService
 
 			const wallet = yield* walletService.getActiveWalletByAddress(order.userId, order.walletAddress)
 			if (!wallet) {
@@ -59,6 +62,18 @@ async function executeDueOrder(order: DCAOrder): Promise<void> {
 				return
 			}
 
+			const quote = yield* swapService.getQuote({
+				fromChain: order.fromChain,
+				toChain: order.toChain,
+				fromToken: order.fromToken,
+				toToken: order.toToken,
+				fromAmount: order.amountPerExecution,
+				fromAddress: order.walletAddress,
+				toAddress: order.walletAddress,
+				slippage: (order.maxSlippage ?? 50) / 10_000,
+				order: 'RECOMMENDED',
+			})
+
 			const response = yield* Effect.tryPromise({
 				try: () =>
 					fetchWithRetry(`${PYTHON_API_URL}/internal/agent/execute-swap`, {
@@ -67,14 +82,14 @@ async function executeDueOrder(order: DCAOrder): Promise<void> {
 							'Content-Type': 'application/json',
 							'X-Internal-Key': internalKey,
 						},
-						body: JSON.stringify({
-							agent_uuid: `dca-order-${order.id}`,
-							internal_user_id: order.userId,
-							internal_wallet_id: wallet.id,
-							idempotency_key: `dca:${order.id}:${order.nextExecutionAt?.toISOString() ?? Date.now()}`,
-							quote_data: buildQuoteData(order),
+							body: JSON.stringify({
+								agent_uuid: `dca-order-${order.id}`,
+								internal_user_id: order.userId,
+								internal_wallet_id: wallet.id,
+								idempotency_key: `dca:${order.id}:${order.nextExecutionAt?.toISOString() ?? Date.now()}`,
+								quote_data: buildQuoteDataFromQuote(order, quote),
+							}),
 						}),
-					}),
 				catch: (error) => new Error(`Failed to call Python swap executor: ${error}`),
 			})
 
