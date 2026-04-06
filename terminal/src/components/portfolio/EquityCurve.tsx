@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from 'react'
-import { createChart, type IChartApi, type ISeriesApi, ColorType } from 'lightweight-charts'
+import { createChart, type IChartApi, type ISeriesApi, type UTCTimestamp, ColorType } from 'lightweight-charts'
 import { usePortfolioHistory, type HistoryPeriod } from '../../hooks/usePortfolioHistory'
 
 const PERIODS: { id: HistoryPeriod; label: string }[] = [
@@ -78,7 +78,12 @@ export function EquityCurve() {
   // Update data
   useEffect(() => {
     if (!seriesRef.current || !data.length) return
-    seriesRef.current.setData(data)
+    seriesRef.current.setData(
+      data.map((point) => ({
+        ...point,
+        time: point.time as UTCTimestamp,
+      })),
+    )
     chartRef.current?.timeScale().fitContent()
   }, [data])
 

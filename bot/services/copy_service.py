@@ -21,6 +21,7 @@ from bot.models.copy_trading import (
     TraderProfile, CopyFollow, CopyTrade, CopyNotification, TraderTrade
 )
 from bot.services.points_service import points_service, POINT_ACTIONS
+from bot.config.chains import get_chain_by_name
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,11 @@ DEFAULT_COPY_AMOUNT = 10.0  # Default fixed copy amount in USD
 
 class CopyService:
     """Service for managing copy trading functionality."""
+
+    def __init__(self):
+        self._bot = None
+        self._started = False
+        self._processing_swap_ids: set[int] = set()
     
     # ==================== Profile Management ====================
     
@@ -295,6 +301,14 @@ class CopyService:
         Returns:
             List of follower user IDs that were notified/copied
         """
+        with get_session() as session:
+            existing_trade = session.query(TraderTrade).filter(
+                TraderTrade.swap_id == swap.id
+            ).first()
+            if existing_trade:
+                logger.debug(f"Copy trade already recorded for swap {swap.id}")
+                return []
+
         # Update trader profile stats
         with get_session() as session:
             profile = session.query(TraderProfile).filter(
@@ -375,6 +389,161 @@ class CopyService:
                 })
         
         return notified_users
+
+    async def start(self, bot=None):
+        """Start copy-trading integrations."""
+        if self._started:
+            return
+
+        self._bot = bot
+        self._started = True
+        logger.info("Copy service started")
+
+    async def stop(self):
+        """Stop copy-trading integrations."""
+        self._started = False
+        self._bot = None
+        self._processing_swap_ids.clear()
+        logger.info("Copy service stopped")
+
+    async def handle_swap_submitted(self, envelope: dict):
+        """Handle swap.submitted events for automatic trade mirroring."""
+        data = envelope.get("event", {}).get("data", {})
+        swap_id = data.get("swapId")
+        trader_id = data.get("userId")
+
+        if not swap_id or not trader_id:
+            return
+
+        if swap_id in self._processing_swap_ids:
+            logger.debug(f"Copy service already processing swap {swap_id}")
+            return
+
+        self._processing_swap_ids.add(swap_id)
+
+        try:
+            with get_session() as session:
+                swap = session.query(SwapTransaction).filter(
+                    SwapTransaction.id == swap_id,
+                    SwapTransaction.user_id == trader_id,
+                ).first()
+
+            if not swap:
+                logger.warning(f"Swap {swap_id} not found for copy trading")
+                return
+
+            amount_usd = swap.from_amount_usd or swap.to_amount_usd or 0.0
+            followers_to_notify = await self.record_trade(trader_id, swap, amount_usd)
+            if not followers_to_notify:
+                return
+
+            await self._dispatch_followers(followers_to_notify, swap, amount_usd)
+        except Exception as e:
+            logger.error(f"Failed to process copy trade for swap {swap_id}: {e}")
+        finally:
+            self._processing_swap_ids.discard(swap_id)
+
+    async def _dispatch_followers(
+        self,
+        followers_to_notify: List[dict],
+        swap: SwapTransaction,
+        amount_usd: float,
+    ) -> None:
+        """Execute auto-copy followers and notify when possible."""
+        swap_data = {
+            "user_id": swap.user_id,
+            "from_chain": swap.from_chain,
+            "to_chain": swap.to_chain,
+            "from_token": swap.from_token,
+            "to_token": swap.to_token,
+            "amount_usd": amount_usd,
+        }
+
+        for follower_info in followers_to_notify:
+            try:
+                follower_id = follower_info["user_id"]
+                copy_trade_id = follower_info["copy_trade_id"]
+                copy_mode = follower_info["copy_mode"]
+                copy_amount = follower_info["copy_amount"]
+
+                auto_copy_success = None
+                if copy_mode == "auto":
+                    auto_copy_success, _, _ = await self.execute_copy(follower_id, copy_trade_id)
+
+                if self._bot:
+                    await self._notify_follower(
+                        follower_id=follower_id,
+                        copy_trade_id=copy_trade_id,
+                        copy_mode=copy_mode,
+                        copy_amount=copy_amount,
+                        swap_data=swap_data,
+                        auto_copy_success=auto_copy_success,
+                    )
+            except Exception as e:
+                logger.error(f"Copy follower dispatch failed: {e}")
+
+    async def _notify_follower(
+        self,
+        follower_id: int,
+        copy_trade_id: int,
+        copy_mode: str,
+        copy_amount: float,
+        swap_data: dict,
+        auto_copy_success: Optional[bool] = None,
+    ) -> None:
+        """Send Telegram notification for a copied trader action."""
+        if not self._bot:
+            return
+
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        with get_session() as session:
+            follower = session.query(User).filter(User.id == follower_id).first()
+            if not follower or not follower.telegram_id:
+                return
+
+            trader_profile = self.get_or_create_profile(swap_data.get("user_id"))
+            trader_name = trader_profile.display_name if trader_profile else "Trader"
+
+        from_chain_config = get_chain_by_name(swap_data["from_chain"])
+        to_chain_config = get_chain_by_name(swap_data["to_chain"])
+
+        msg = (
+            f"🔔 *{trader_name} just traded!*\n\n"
+            f"{from_chain_config.logo_emoji} *{swap_data['from_token']}* → "
+            f"{to_chain_config.logo_emoji} *{swap_data['to_token']}*\n\n"
+            f"💰 Amount: ${swap_data.get('amount_usd', 0):.2f}\n"
+            f"📋 Your copy: ${copy_amount:.2f}\n"
+        )
+
+        if copy_mode == "auto":
+            if auto_copy_success is True:
+                msg += "\n✅ *Auto-copied successfully!*"
+            elif auto_copy_success is False:
+                msg += "\n❌ Auto-copy failed"
+            else:
+                msg += "\nℹ️ Auto-copy submitted"
+
+            await self._bot.send_message(
+                chat_id=follower.telegram_id,
+                text=msg,
+                parse_mode="Markdown",
+            )
+            return
+
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("📋 Copy Trade", callback_data=f"copy_execute_{copy_trade_id}"),
+                InlineKeyboardButton("⏭️ Skip", callback_data=f"copy_skip_{copy_trade_id}"),
+            ]
+        ])
+
+        await self._bot.send_message(
+            chat_id=follower.telegram_id,
+            text=msg,
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
     
     async def execute_copy(
         self,
@@ -653,4 +822,3 @@ class CopyService:
 
 # Global instance
 copy_service = CopyService()
-

@@ -232,7 +232,7 @@ def _sign_solana_local(wallet_service, wallet, transaction_bytes: bytes) -> byte
     import json
     import base58
     from solders.keypair import Keypair
-    from solders.transaction import VersionedTransaction
+    from solders.transaction import Transaction, VersionedTransaction
 
     private_key = _get_backup_private_key(wallet)
 
@@ -243,6 +243,11 @@ def _sign_solana_local(wallet_service, wallet, transaction_bytes: bytes) -> byte
 
     logger.info(f"Signing Solana tx locally (fallback) for wallet {wallet.address[:10]}...")
     keypair = Keypair.from_bytes(key_bytes)
-    tx = VersionedTransaction.from_bytes(transaction_bytes)
-    tx.sign([keypair])
-    return bytes(tx)
+    try:
+        tx = VersionedTransaction.from_bytes(transaction_bytes)
+        tx.sign([keypair])
+        return bytes(tx)
+    except Exception:
+        tx = Transaction.from_bytes(transaction_bytes)
+        tx.partial_sign([keypair], tx.message.recent_blockhash)
+        return bytes(tx)

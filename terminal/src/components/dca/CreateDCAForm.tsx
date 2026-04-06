@@ -3,11 +3,16 @@ import type { DCAFrequency } from '../../types/api'
 
 interface Props {
   onSubmit: (data: {
+    fromChain: string
     fromToken: string
+    fromTokenSymbol: string
+    toChain: string
     toToken: string
-    totalAmount: number
+    toTokenSymbol: string
+    amountPerExecution: string
     frequency: DCAFrequency
-    numberOfOrders: number
+    totalExecutions: number
+    walletAddress: string
   }) => void
   isLoading: boolean
 }
@@ -16,15 +21,17 @@ const frequencies: { value: DCAFrequency; label: string }[] = [
   { value: 'hourly', label: 'Hourly' },
   { value: 'daily', label: 'Daily' },
   { value: 'weekly', label: 'Weekly' },
-  { value: 'monthly', label: 'Monthly' },
 ]
 
 export function CreateDCAForm({ onSubmit, isLoading }: Props) {
+  const [fromChain, setFromChain] = useState('base')
   const [fromToken, setFromToken] = useState('USDC')
+  const [toChain, setToChain] = useState('base')
   const [toToken, setToToken] = useState('ETH')
   const [totalAmount, setTotalAmount] = useState('')
   const [frequency, setFrequency] = useState<DCAFrequency>('daily')
   const [numberOfOrders, setNumberOfOrders] = useState('7')
+  const [walletAddress, setWalletAddress] = useState('')
 
   const perOrder = useMemo(() => {
     const total = parseFloat(totalAmount)
@@ -37,11 +44,16 @@ export function CreateDCAForm({ onSubmit, isLoading }: Props) {
     e.preventDefault()
     if (!fromToken || !toToken || !totalAmount || !numberOfOrders) return
     onSubmit({
+      fromChain,
       fromToken: fromToken.toUpperCase(),
+      fromTokenSymbol: fromToken.toUpperCase(),
+      toChain,
       toToken: toToken.toUpperCase(),
-      totalAmount: parseFloat(totalAmount),
+      toTokenSymbol: toToken.toUpperCase(),
+      amountPerExecution: perOrder.toFixed(2),
       frequency,
-      numberOfOrders: parseInt(numberOfOrders),
+      totalExecutions: parseInt(numberOfOrders),
+      walletAddress,
     })
     setTotalAmount('')
     setNumberOfOrders('7')
@@ -51,6 +63,14 @@ export function CreateDCAForm({ onSubmit, isLoading }: Props) {
     <form onSubmit={handleSubmit} className="space-y-3">
       <div className="flex gap-2">
         <div className="flex-1">
+          <label className="text-[10px] text-terminal-text-muted uppercase tracking-wider">From Chain</label>
+          <input
+            type="text"
+            value={fromChain}
+            onChange={e => setFromChain(e.target.value)}
+            placeholder="base"
+            className="terminal-input text-sm w-full mt-0.5 mb-2"
+          />
           <label className="text-[10px] text-terminal-text-muted uppercase tracking-wider">From</label>
           <input
             type="text"
@@ -62,6 +82,14 @@ export function CreateDCAForm({ onSubmit, isLoading }: Props) {
         </div>
         <div className="flex items-end pb-1.5 text-terminal-text-muted text-sm">→</div>
         <div className="flex-1">
+          <label className="text-[10px] text-terminal-text-muted uppercase tracking-wider">To Chain</label>
+          <input
+            type="text"
+            value={toChain}
+            onChange={e => setToChain(e.target.value)}
+            placeholder="base"
+            className="terminal-input text-sm w-full mt-0.5 mb-2"
+          />
           <label className="text-[10px] text-terminal-text-muted uppercase tracking-wider">To</label>
           <input
             type="text"
@@ -98,6 +126,17 @@ export function CreateDCAForm({ onSubmit, isLoading }: Props) {
       </div>
 
       <div>
+        <label className="text-[10px] text-terminal-text-muted uppercase tracking-wider">Wallet Address</label>
+        <input
+          type="text"
+          value={walletAddress}
+          onChange={e => setWalletAddress(e.target.value)}
+          placeholder="0x..."
+          className="terminal-input text-sm w-full mt-0.5"
+        />
+      </div>
+
+      <div>
         <label className="text-[10px] text-terminal-text-muted uppercase tracking-wider">Frequency</label>
         <div className="flex gap-1 mt-0.5" role="radiogroup" aria-label="DCA frequency">
           {frequencies.map(f => (
@@ -127,7 +166,7 @@ export function CreateDCAForm({ onSubmit, isLoading }: Props) {
 
       <button
         type="submit"
-        disabled={isLoading || !fromToken || !toToken || !totalAmount || !numberOfOrders}
+        disabled={isLoading || !fromToken || !toToken || !totalAmount || !numberOfOrders || !walletAddress}
         className="terminal-button text-sm w-full py-2 disabled:opacity-50"
       >
         {isLoading ? 'Creating...' : 'Start DCA'}

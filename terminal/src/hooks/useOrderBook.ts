@@ -120,7 +120,6 @@ function generateInitialBook(step: PrecisionStep): OrderBookData {
 
 export function useOrderBook(precision: PrecisionStep = 0.01) {
   const [book, setBook] = useState<OrderBookData>(() => generateInitialBook(precision))
-  const [isConnected, setIsConnected] = useState(true)
   const bookRef = useRef(book)
 
   // Regenerate when precision changes
@@ -146,5 +145,5 @@ export function useOrderBook(precision: PrecisionStep = 0.01) {
     book.asks.length > 0 ? book.asks[book.asks.length - 1].total : 0,
   )
 
-  return { book, isConnected, maxTotal }
+  return { book, isConnected: true, maxTotal }
 }

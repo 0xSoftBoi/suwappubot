@@ -1,13 +1,15 @@
 """HyperLiquid API client for perpetual trading."""
 
 import logging
-import json
 import time
-import hashlib
 from typing import Optional
 from dataclasses import dataclass
+from decimal import Decimal
 
 import httpx
+from eth_account import Account
+from eth_account.messages import encode_structured_data
+from eth_utils import keccak
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,8 @@ class HyperLiquidClient:
     BASE_URL = "https://api.hyperliquid.xyz"
     INFO_URL = f"{BASE_URL}/info"
     EXCHANGE_URL = f"{BASE_URL}/exchange"
+    ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+    ASSET_CACHE_TTL_SECONDS = 3600
 
     # Supported markets
     MARKETS = {
@@ -51,9 +55,23 @@ class HyperLiquidClient:
         "SUI-USD": "SUI",
         "APT-USD": "APT",
     }
+    FALLBACK_ASSET_INDICES = {
+        "BTC": 0,
+        "ETH": 1,
+        "SOL": 2,
+        "ARB": 3,
+        "AVAX": 4,
+        "DOGE": 5,
+        "MATIC": 6,
+        "OP": 7,
+        "SUI": 8,
+        "APT": 9,
+    }
 
     def __init__(self):
         self._client: Optional[httpx.AsyncClient] = None
+        self._asset_indices_cache: dict[str, int] = {}
+        self._asset_indices_cache_ts = 0.0
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -187,10 +205,11 @@ class HyperLiquidClient:
             client = await self._get_client()
 
             is_buy = (side == "long" and not reduce_only) or (side == "short" and reduce_only)
+            asset_index = await self._get_asset_index(asset)
 
             # Build order
             order = {
-                "a": self._get_asset_index(asset),  # Asset index
+                "a": asset_index,
                 "b": is_buy,
                 "p": str(price) if price else "0",
                 "s": str(size),
@@ -265,11 +284,12 @@ class HyperLiquidClient:
         try:
             asset = self.MARKETS.get(market, market.split("-")[0])
             client = await self._get_client()
+            asset_index = await self._get_asset_index(asset)
 
             action = {
                 "type": "cancel",
                 "cancels": [{
-                    "a": self._get_asset_index(asset),
+                    "a": asset_index,
                     "o": int(order_id),
                 }],
             }
@@ -305,7 +325,7 @@ class HyperLiquidClient:
         try:
             action = {
                 "type": "updateLeverage",
-                "asset": self._get_asset_index(asset),
+                "asset": await self._get_asset_index(asset),
                 "isCross": True,
                 "leverage": leverage,
             }
@@ -325,22 +345,197 @@ class HyperLiquidClient:
         except Exception as e:
             logger.warning(f"Failed to set leverage: {e}")
 
-    def _get_asset_index(self, asset: str) -> int:
-        """Get the numeric asset index for HyperLiquid."""
-        # HyperLiquid assigns sequential indices to assets
-        # This is a simplified mapping — in production, fetch from /info endpoint
-        asset_indices = {
-            "BTC": 0, "ETH": 1, "SOL": 2, "ARB": 3, "AVAX": 4,
-            "DOGE": 5, "MATIC": 6, "OP": 7, "SUI": 8, "APT": 9,
-        }
-        return asset_indices.get(asset, 0)
+    async def _get_asset_index(self, asset: str) -> int:
+        """Get the numeric asset index for HyperLiquid with a TTL cache."""
+        normalized = asset.upper()
+        now = time.time()
+
+        if self._asset_indices_cache and now - self._asset_indices_cache_ts < self.ASSET_CACHE_TTL_SECONDS:
+            return self._asset_indices_cache.get(normalized, self.FALLBACK_ASSET_INDICES.get(normalized, 0))
+
+        dynamic_indices = await self._fetch_asset_indices()
+        if dynamic_indices:
+            self._asset_indices_cache = dynamic_indices
+            self._asset_indices_cache_ts = now
+
+            for symbol, fallback_index in self.FALLBACK_ASSET_INDICES.items():
+                dynamic_index = dynamic_indices.get(symbol)
+                if dynamic_index is not None and dynamic_index != fallback_index:
+                    logger.warning(
+                        "HyperLiquid asset index drift detected for %s: fallback=%s dynamic=%s",
+                        symbol,
+                        fallback_index,
+                        dynamic_index,
+                    )
+
+            return dynamic_indices.get(normalized, self.FALLBACK_ASSET_INDICES.get(normalized, 0))
+
+        return self.FALLBACK_ASSET_INDICES.get(normalized, 0)
+
+    async def _fetch_asset_indices(self) -> dict[str, int]:
+        """Fetch asset metadata from HyperLiquid and derive current indices."""
+        try:
+            client = await self._get_client()
+            response = await client.post(self.INFO_URL, json={"type": "meta"})
+            if response.status_code != 200:
+                logger.warning("Failed to fetch HyperLiquid meta for asset indices: %s", response.status_code)
+                return {}
+
+            data = response.json()
+            universe = data.get("universe", [])
+            return {
+                asset_info.get("name", "").upper(): idx
+                for idx, asset_info in enumerate(universe)
+                if asset_info.get("name")
+            }
+        except Exception as e:
+            logger.warning(f"Failed to refresh HyperLiquid asset indices: {e}")
+            return {}
 
     def _sign_action(self, action: dict, nonce: int, api_secret: str) -> dict:
-        """Sign an action for HyperLiquid API."""
-        # Simplified signing — actual implementation uses EIP-712 typed data signing
-        message = json.dumps(action, sort_keys=True) + str(nonce)
-        signature = hashlib.sha256((message + api_secret).encode()).hexdigest()
-        return {"r": "0x" + signature[:64], "s": "0x" + signature[64:], "v": 27}
+        """Sign an action for HyperLiquid API using the official EIP-712 flow."""
+        account = Account.from_key(api_secret)
+        payload = {
+            "domain": {
+                "chainId": 1337,
+                "name": "Exchange",
+                "verifyingContract": self.ZERO_ADDRESS,
+                "version": "1",
+            },
+            "types": {
+                "Agent": [
+                    {"name": "source", "type": "string"},
+                    {"name": "connectionId", "type": "bytes32"},
+                ],
+                "EIP712Domain": [
+                    {"name": "name", "type": "string"},
+                    {"name": "version", "type": "string"},
+                    {"name": "chainId", "type": "uint256"},
+                    {"name": "verifyingContract", "type": "address"},
+                ],
+            },
+            "primaryType": "Agent",
+            "message": {
+                "source": "a" if self._is_mainnet() else "b",
+                "connectionId": self._action_hash(action, nonce),
+            },
+        }
+        signable = encode_structured_data(payload)
+        signed = account.sign_message(signable)
+        return {"r": hex(signed.r), "s": hex(signed.s), "v": signed.v}
+
+    def _action_hash(self, action: dict, nonce: int, vault_address: Optional[str] = None, expires_after: Optional[int] = None) -> bytes:
+        """Hash an action exactly as HyperLiquid expects before EIP-712 signing."""
+        data = self._msgpack_pack(action)
+        data += int(nonce).to_bytes(8, "big")
+        if vault_address is None:
+            data += b"\x00"
+        else:
+            data += b"\x01" + self._address_to_bytes(vault_address)
+        if expires_after is not None:
+            data += b"\x00" + int(expires_after).to_bytes(8, "big")
+        return keccak(data)
+
+    def _is_mainnet(self) -> bool:
+        """Return whether the client is configured for mainnet semantics."""
+        return "api.hyperliquid.xyz" in self.BASE_URL and "testnet" not in self.BASE_URL
+
+    def _address_to_bytes(self, address: str) -> bytes:
+        """Convert a hex address string to raw bytes."""
+        normalized = address[2:] if address.startswith("0x") else address
+        return bytes.fromhex(normalized.lower())
+
+    def _msgpack_pack(self, value) -> bytes:
+        """Pack a minimal deterministic MessagePack subset for HyperLiquid actions."""
+        if value is None:
+            return b"\xc0"
+        if value is False:
+            return b"\xc2"
+        if value is True:
+            return b"\xc3"
+        if isinstance(value, int):
+            return self._pack_int(value)
+        if isinstance(value, float):
+            raise TypeError("HyperLiquid action hashing expects normalized strings instead of floats")
+        if isinstance(value, Decimal):
+            return self._pack_str(self._normalize_decimal(value))
+        if isinstance(value, str):
+            return self._pack_str(value)
+        if isinstance(value, bytes):
+            return self._pack_bytes(value)
+        if isinstance(value, list):
+            return self._pack_array(value)
+        if isinstance(value, dict):
+            return self._pack_map(value)
+        raise TypeError(f"Unsupported type for HyperLiquid msgpack encoding: {type(value)!r}")
+
+    def _pack_int(self, value: int) -> bytes:
+        if 0 <= value <= 0x7F:
+            return bytes([value])
+        if -32 <= value < 0:
+            return (256 + value).to_bytes(1, "big")
+        if 0 <= value <= 0xFF:
+            return b"\xcc" + value.to_bytes(1, "big")
+        if 0 <= value <= 0xFFFF:
+            return b"\xcd" + value.to_bytes(2, "big")
+        if 0 <= value <= 0xFFFFFFFF:
+            return b"\xce" + value.to_bytes(4, "big")
+        if 0 <= value <= 0xFFFFFFFFFFFFFFFF:
+            return b"\xcf" + value.to_bytes(8, "big")
+        if -128 <= value < 0:
+            return b"\xd0" + value.to_bytes(1, "big", signed=True)
+        if -32768 <= value < -128:
+            return b"\xd1" + value.to_bytes(2, "big", signed=True)
+        if -2147483648 <= value < -32768:
+            return b"\xd2" + value.to_bytes(4, "big", signed=True)
+        return b"\xd3" + value.to_bytes(8, "big", signed=True)
+
+    def _pack_str(self, value: str) -> bytes:
+        data = value.encode("utf-8")
+        length = len(data)
+        if length <= 31:
+            return bytes([0xA0 | length]) + data
+        if length <= 0xFF:
+            return b"\xd9" + length.to_bytes(1, "big") + data
+        if length <= 0xFFFF:
+            return b"\xda" + length.to_bytes(2, "big") + data
+        return b"\xdb" + length.to_bytes(4, "big") + data
+
+    def _pack_bytes(self, value: bytes) -> bytes:
+        length = len(value)
+        if length <= 0xFF:
+            return b"\xc4" + length.to_bytes(1, "big") + value
+        if length <= 0xFFFF:
+            return b"\xc5" + length.to_bytes(2, "big") + value
+        return b"\xc6" + length.to_bytes(4, "big") + value
+
+    def _pack_array(self, value: list) -> bytes:
+        length = len(value)
+        if length <= 15:
+            prefix = bytes([0x90 | length])
+        elif length <= 0xFFFF:
+            prefix = b"\xdc" + length.to_bytes(2, "big")
+        else:
+            prefix = b"\xdd" + length.to_bytes(4, "big")
+        return prefix + b"".join(self._msgpack_pack(item) for item in value)
+
+    def _pack_map(self, value: dict) -> bytes:
+        length = len(value)
+        if length <= 15:
+            prefix = bytes([0x80 | length])
+        elif length <= 0xFFFF:
+            prefix = b"\xde" + length.to_bytes(2, "big")
+        else:
+            prefix = b"\xdf" + length.to_bytes(4, "big")
+        encoded = []
+        for key, item in value.items():
+            encoded.append(self._msgpack_pack(key))
+            encoded.append(self._msgpack_pack(item))
+        return prefix + b"".join(encoded)
+
+    def _normalize_decimal(self, value: Decimal) -> str:
+        """Normalize decimal text for consistent wire encoding."""
+        return f"{value.normalize():f}"
 
     async def close(self):
         """Close HTTP client."""

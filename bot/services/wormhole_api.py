@@ -11,6 +11,7 @@ Key features:
 
 import logging
 import asyncio
+import base64
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from decimal import Decimal
@@ -230,6 +231,7 @@ class WormholeAPI:
         to_chain: str,
         token: str,
         amount: str,
+        to_address: Optional[str] = None,
     ) -> WormholeQuote:
         """
         Get a quote for Wormhole transfer.
@@ -325,8 +327,21 @@ class WormholeAPI:
                 "provider": "wormhole",
                 "from_wh_chain": self.get_wormhole_chain_id(from_chain),
                 "to_wh_chain": wh_chain_id,
+                "to_address": to_address,
             }
         )
+
+    def _normalize_vaa_bytes(self, vaa_value: str) -> str:
+        """Normalize a Wormhole VAA payload into a hex string."""
+        if not vaa_value:
+            return ""
+        if vaa_value.startswith("0x"):
+            return vaa_value
+        try:
+            bytes.fromhex(vaa_value)
+            return "0x" + vaa_value
+        except ValueError:
+            return "0x" + base64.b64decode(vaa_value).hex()
     
     async def get_vaa(
         self,
@@ -373,7 +388,7 @@ class WormholeAPI:
                     if vaas:
                         vaa_data = vaas[0]
                         return WormholeVAA(
-                            vaa_bytes=vaa_data.get("vaa", ""),
+                            vaa_bytes=self._normalize_vaa_bytes(vaa_data.get("vaa", "")),
                             emitter_chain=vaa_data.get("emitterChain", 0),
                             emitter_address=vaa_data.get("emitterAddress", ""),
                             sequence=vaa_data.get("sequence", 0),
@@ -429,7 +444,7 @@ class WormholeAPI:
                 
                 vaa_data = vaas[0]
                 vaa = WormholeVAA(
-                    vaa_bytes=vaa_data.get("vaa", ""),
+                    vaa_bytes=self._normalize_vaa_bytes(vaa_data.get("vaa", "")),
                     emitter_chain=vaa_data.get("emitterChain", 0),
                     emitter_address=vaa_data.get("emitterAddress", ""),
                     sequence=vaa_data.get("sequence", 0),
@@ -570,4 +585,3 @@ class WormholeAPI:
 
 # Global instance
 wormhole_api = WormholeAPI()
-

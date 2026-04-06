@@ -48,7 +48,6 @@ function generateInitialTrades(count: number): Trade[] {
 
 export function useRecentTrades() {
   const [trades, setTrades] = useState<Trade[]>(() => generateInitialTrades(25))
-  const [isConnected, setIsConnected] = useState(true)
   const lastPriceRef = useRef(BASE_PRICE)
 
   useEffect(() => {
@@ -83,5 +82,5 @@ export function useRecentTrades() {
     return () => clearTimeout(timeout)
   }, [])
 
-  return { trades, isConnected }
+  return { trades, isConnected: true }
 }

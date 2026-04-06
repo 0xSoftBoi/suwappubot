@@ -24,6 +24,7 @@ import type {
   RewardStoreResponse,
   RedeemRewardResponse,
   LeaderboardEntry,
+  TierName,
   Alert,
   CreateAlertParams,
   DCAOrder,
@@ -54,6 +55,145 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw { detail: body.detail || body.message || res.statusText, status: res.status }
   }
   return res.json()
+}
+
+function mapAlert(raw: {
+  id: number
+  tokenSymbol: string
+  tokenAddress?: string
+  chain?: string
+  condition: 'above' | 'below'
+  threshold: number
+  active: boolean
+  triggered: boolean
+  createdAt: string | null
+  triggeredAt?: string | null
+}): Alert {
+  return {
+    id: String(raw.id),
+    tokenSymbol: raw.tokenSymbol,
+    tokenAddress: raw.tokenAddress,
+    chain: raw.chain,
+    alertType: raw.condition === 'below' ? 'price_below' : 'price_above',
+    targetValue: raw.threshold,
+    status: raw.triggered ? 'triggered' : raw.active ? 'active' : 'inactive',
+    createdAt: raw.createdAt ?? new Date().toISOString(),
+    triggeredAt: raw.triggeredAt ?? undefined,
+  }
+}
+
+function mapDcaOrder(raw: {
+  id: number
+  fromToken: string
+  fromTokenSymbol?: string
+  toToken: string
+  toTokenSymbol?: string
+  amountPerExecution: string
+  interval: 'hourly' | 'daily' | 'weekly'
+  totalExecutions: number | null
+  executionsCompleted: number
+  status: 'active' | 'paused' | 'completed' | 'cancelled' | 'failed'
+  nextExecutionAt?: string | null
+  createdAt: string | null
+}): DCAOrder {
+  const amountPerOrder = Number(raw.amountPerExecution || 0)
+  const totalOrders = raw.totalExecutions ?? 0
+  const completedOrders = raw.executionsCompleted ?? 0
+  return {
+    id: String(raw.id),
+    fromToken: raw.fromTokenSymbol || raw.fromToken,
+    toToken: raw.toTokenSymbol || raw.toToken,
+    amountPerOrder,
+    totalAmount: totalOrders > 0 ? amountPerOrder * totalOrders : amountPerOrder,
+    totalInvested: amountPerOrder * completedOrders,
+    frequency: raw.interval,
+    totalOrders,
+    completedOrders,
+    status: raw.status === 'failed' ? 'cancelled' : raw.status,
+    nextExecution: raw.nextExecutionAt ?? undefined,
+    createdAt: raw.createdAt ?? new Date().toISOString(),
+  }
+}
+
+function mapPointsProfile(raw: {
+  xp: number
+  level: string
+  levelName?: string
+  xpToNextLevel: number | null
+  dailyStreak: number
+  longestStreak: number
+  lastCheckin: string | null
+  rank: number | null
+}): PointsProfile {
+  const levelOrder = ['bronze', 'silver', 'gold', 'platinum', 'diamond']
+  const numericLevel = Math.max(levelOrder.indexOf(String(raw.level).toLowerCase()) + 1, 1)
+  const nextLevelXp = raw.xpToNextLevel != null ? raw.xp + raw.xpToNextLevel : raw.xp
+  return {
+    xp: raw.xp,
+    level: numericLevel,
+    tier: (raw.levelName || raw.level || 'Bronze') as PointsProfile['tier'],
+    nextLevelXp,
+    currentLevelXp: raw.xp,
+    streak: raw.dailyStreak,
+    longestStreak: raw.longestStreak,
+    lastCheckin: raw.lastCheckin,
+    rank: raw.rank ?? 0,
+  }
+}
+
+function mapRewardStore(raw: Array<{
+  id: number
+  name: string
+  description: string
+  pointsCost: number
+  stock: number
+  rewardType: string
+}>): RewardStoreResponse {
+  return {
+    rewards: raw.map((reward) => ({
+      id: String(reward.id),
+      name: reward.name,
+      description: reward.description,
+      cost: reward.pointsCost,
+      stock: reward.stock,
+      category: reward.rewardType,
+    })),
+    userXp: 0,
+  }
+}
+
+function mapLeaderboard(entries: Array<{
+  rank: number
+  username: string | null
+  xp: number
+  level: string
+}>): LeaderboardEntry[] {
+  const tierMap: Record<string, TierName> = {
+    bronze: 'Bronze',
+    silver: 'Silver',
+    gold: 'Gold',
+    platinum: 'Platinum',
+    diamond: 'Diamond',
+  }
+  return entries.map((entry) => ({
+    rank: entry.rank,
+    address: entry.username || `user-${entry.rank}`,
+    xp: entry.xp,
+    level: Math.max(['bronze', 'silver', 'gold', 'platinum', 'diamond'].indexOf(entry.level) + 1, 1),
+    tier: tierMap[String(entry.level).toLowerCase()] || 'Bronze',
+  }))
+}
+
+function mapCheckinResponse(raw: {
+  pointsEarned: number
+  newStreak: number
+}): CheckinResponse {
+  return {
+    success: true,
+    xpEarned: raw.pointsEarned,
+    newStreak: raw.newStreak,
+    totalXp: 0,
+  }
 }
 
 export const api = {
@@ -115,7 +255,7 @@ export const api = {
 
   // Portfolio
   getPortfolio() {
-    return request<Portfolio>('/webapp/portfolio')
+    return request<Portfolio>('/webapp/me/portfolio')
   },
 
   // Discovery
@@ -149,108 +289,200 @@ export const api = {
   // Copy Trading
   getTopTraders(timeframe?: string, limit?: number) {
     const params = new URLSearchParams()
-    if (timeframe) params.set('timeframe', timeframe)
+    if (timeframe) params.set('sortBy', timeframe)
     if (limit) params.set('limit', String(limit))
     const qs = params.toString()
-    return request<TopTrader[]>(`/webapp/copy-trading/top-traders${qs ? `?${qs}` : ''}`)
+    return request<TopTrader[]>(`/webapp/me/copy/top-traders${qs ? `?${qs}` : ''}`)
   },
 
   getTraderProfile(traderId: string) {
-    return request<TraderProfile>(`/webapp/copy-trading/traders/${traderId}`)
+    return request<TraderProfile>(`/webapp/me/copy/trader/${traderId}`)
   },
 
   followTrader(traderId: string, settings: FollowSettings) {
-    return request<void>(`/webapp/copy-trading/follow/${traderId}`, {
+    return request<void>(`/webapp/me/copy/follow/${traderId}`, {
       method: 'POST',
       body: JSON.stringify(settings),
     })
   },
 
   unfollowTrader(traderId: string) {
-    return request<void>(`/webapp/copy-trading/unfollow/${traderId}`, { method: 'POST' })
+    return request<void>(`/webapp/me/copy/follow/${traderId}`, { method: 'DELETE' })
   },
 
   getFollowing() {
-    return request<FollowedTrader[]>('/webapp/copy-trading/following')
+    return request<FollowedTrader[]>('/webapp/me/copy/following')
   },
 
   getCopyTrades(limit?: number) {
     const params = limit ? `?limit=${limit}` : ''
-    return request<CopyTrade[]>(`/webapp/copy-trading/trades${params}`)
+    return request<CopyTrade[]>(`/webapp/me/copy/trades${params}`)
   },
 
   updateFollowSettings(traderId: string, settings: FollowSettings) {
-    return request<void>(`/webapp/copy-trading/follow/${traderId}/settings`, {
+    return request<void>(`/webapp/me/copy/follow/${traderId}`, {
       method: 'PUT',
       body: JSON.stringify(settings),
     })
   },
 
   // Alerts
-  getAlerts() {
-    return request<Alert[]>('/webapp/alerts')
+  async getAlerts() {
+    const alerts = await request<Array<{
+      id: number
+      tokenSymbol: string
+      tokenAddress?: string
+      chain?: string
+      condition: 'above' | 'below'
+      threshold: number
+      active: boolean
+      triggered: boolean
+      createdAt: string | null
+      triggeredAt?: string | null
+    }>>('/webapp/me/price-alerts')
+    return alerts.map(mapAlert)
   },
 
-  createAlert(params: CreateAlertParams) {
-    return request<Alert>('/webapp/alerts', {
+  async createAlert(params: CreateAlertParams) {
+    const alert = await request<{
+      id: number
+      tokenSymbol: string
+      tokenAddress?: string
+      chain?: string
+      condition: 'above' | 'below'
+      threshold: number
+      active: boolean
+      triggered: boolean
+      createdAt: string | null
+      triggeredAt?: string | null
+    }>('/webapp/me/price-alerts', {
       method: 'POST',
-      body: JSON.stringify(params),
+      body: JSON.stringify({
+        chain: params.chain || 'base',
+        tokenAddress: params.tokenAddress || params.tokenSymbol,
+        tokenSymbol: params.tokenSymbol,
+        condition: params.alertType === 'price_below' ? 'below' : 'above',
+        threshold: params.targetValue,
+      }),
     })
+    return mapAlert(alert)
   },
 
   deleteAlert(alertId: string) {
-    return request<void>(`/webapp/alerts/${alertId}`, { method: 'DELETE' })
+    return request<void>(`/webapp/me/price-alerts/${alertId}`, { method: 'DELETE' })
   },
 
   // DCA
-  getDCAOrders() {
-    return request<DCAOrder[]>('/webapp/dca/orders')
+  async getDCAOrders() {
+    const orders = await request<Array<{
+      id: number
+      fromToken: string
+      fromTokenSymbol?: string
+      toToken: string
+      toTokenSymbol?: string
+      amountPerExecution: string
+      interval: 'hourly' | 'daily' | 'weekly'
+      totalExecutions: number | null
+      executionsCompleted: number
+      status: 'active' | 'paused' | 'completed' | 'cancelled' | 'failed'
+      nextExecutionAt?: string | null
+      createdAt: string | null
+    }>>('/webapp/me/dca')
+    return orders.map(mapDcaOrder)
   },
 
-  createDCAOrder(params: CreateDCAParams) {
-    return request<DCAOrder>('/webapp/dca/orders', {
+  async createDCAOrder(params: CreateDCAParams) {
+    const order = await request<{
+      id: number
+      fromToken: string
+      fromTokenSymbol?: string
+      toToken: string
+      toTokenSymbol?: string
+      amountPerExecution: string
+      interval: 'hourly' | 'daily' | 'weekly'
+      totalExecutions: number | null
+      executionsCompleted: number
+      status: 'active' | 'paused' | 'completed' | 'cancelled' | 'failed'
+      nextExecutionAt?: string | null
+      createdAt: string | null
+    }>('/webapp/me/dca', {
       method: 'POST',
       body: JSON.stringify(params),
     })
+    return mapDcaOrder(order)
   },
 
   cancelDCAOrder(orderId: string) {
-    return request<void>(`/webapp/dca/orders/${orderId}/cancel`, { method: 'POST' })
+    return request<void>(`/webapp/me/dca/${orderId}`, { method: 'DELETE' })
   },
 
   pauseDCAOrder(orderId: string) {
-    return request<void>(`/webapp/dca/orders/${orderId}/pause`, { method: 'POST' })
+    return request<void>(`/webapp/me/dca/${orderId}/pause`, { method: 'POST' })
   },
 
   // Points / Gamification
-  getPoints() {
-    return request<PointsProfile>('/webapp/points/profile')
+  async getPoints() {
+    const stats = await request<{
+      xp: number
+      level: string
+      levelName?: string
+      xpToNextLevel: number | null
+      dailyStreak: number
+      longestStreak: number
+      lastCheckin: string | null
+      rank: number | null
+    }>('/webapp/me/points/stats')
+    return mapPointsProfile(stats)
   },
 
-  checkin() {
-    return request<CheckinResponse>('/webapp/points/checkin', { method: 'POST' })
+  async checkin() {
+    const result = await request<{ pointsEarned: number; newStreak: number }>(
+      '/webapp/me/points/checkin',
+      { method: 'POST' },
+    )
+    return mapCheckinResponse(result)
   },
 
   getMilestones() {
-    return request<Milestone[]>('/webapp/points/milestones')
+    return request<Milestone[]>('/webapp/me/points/milestones')
   },
 
-  getRewardStore() {
-    return request<RewardStoreResponse>('/webapp/points/rewards')
+  async getRewardStore() {
+    const [rewards, stats] = await Promise.all([
+      request<Array<{
+        id: number
+        name: string
+        description: string
+        pointsCost: number
+        stock: number
+        rewardType: string
+      }>>('/webapp/me/points/rewards'),
+      request<{ currentPoints?: number; xp?: number }>('/webapp/me/points/stats'),
+    ])
+    return {
+      ...mapRewardStore(rewards),
+      userXp: stats.currentPoints ?? stats.xp ?? 0,
+    }
   },
 
   redeemReward(rewardId: string) {
-    return request<RedeemRewardResponse>(`/webapp/points/rewards/${rewardId}/redeem`, {
+    return request<RedeemRewardResponse>(`/webapp/me/points/redeem/${rewardId}`, {
       method: 'POST',
     })
   },
 
-  getPointsLeaderboard(timeframe?: string, limit?: number) {
+  async getPointsLeaderboard(timeframe?: string, limit?: number) {
+    void timeframe
     const params = new URLSearchParams()
-    if (timeframe) params.set('timeframe', timeframe)
     if (limit) params.set('limit', String(limit))
     const qs = params.toString()
-    return request<LeaderboardEntry[]>(`/webapp/points/leaderboard${qs ? `?${qs}` : ''}`)
+    const leaderboard = await request<Array<{
+      rank: number
+      username: string | null
+      xp: number
+      level: string
+    }>>(`/webapp/me/points/leaderboard${qs ? `?${qs}` : ''}`)
+    return mapLeaderboard(leaderboard)
   },
 
   // Lending

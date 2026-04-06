@@ -127,6 +127,7 @@ function applyFilters(tokens: PulseToken[], filters: PulseFilters): PulseToken[]
 export function usePulse() {
   const [activeStage, setActiveStage] = useState<PulseStage>('new')
   const [filters, setFilters] = useState<PulseFilters>(DEFAULT_FILTERS)
+  const [soundEnabled, setSoundEnabled] = useState(false)
   const [newTokens, setNewTokens] = useState<PulseToken[]>(() => generateBatch('new', 15))
   const [finalStretchTokens, setFinalStretchTokens] = useState<PulseToken[]>(() => generateBatch('final_stretch', 12))
   const [migratedTokens, setMigratedTokens] = useState<PulseToken[]>(() => generateBatch('migrated', 10))
@@ -182,5 +183,7 @@ export function usePulse() {
     setFilters,
     resetFilters,
     lastUpdated,
+    soundEnabled,
+    setSoundEnabled,
   }
 }

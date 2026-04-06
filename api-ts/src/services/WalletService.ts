@@ -18,6 +18,10 @@ export interface WalletServiceInterface {
 	readonly getActiveWallets: (
 		userId: number,
 	) => Effect.Effect<Wallet[], DatabaseError, DrizzleService>
+	readonly getActiveWalletByAddress: (
+		userId: number,
+		address: string,
+	) => Effect.Effect<Wallet | null, DatabaseError, DrizzleService>
 	readonly createTurnkeyWallet: (
 		params: CreateTurnkeyWalletParams,
 	) => Effect.Effect<Wallet, DatabaseError, DrizzleService>
@@ -60,6 +64,29 @@ export const WalletServiceLive = Layer.succeed(WalletService, {
 			})
 
 			return result
+		}),
+
+	getActiveWalletByAddress: (userId: number, address: string) =>
+		Effect.gen(function* () {
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
+
+			const normalizedAddress = address.toLowerCase()
+
+			const result = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(wallets)
+						.where(and(eq(wallets.userId, userId), eq(wallets.isActive, true))),
+				catch: (e) =>
+					new DatabaseError({ message: `Failed to get active wallet: ${e}`, cause: e }),
+			})
+
+			return (
+				result.find((wallet) => wallet.address.toLowerCase() === normalizedAddress) ?? null
+			)
 		}),
 
 	createTurnkeyWallet: (params: CreateTurnkeyWalletParams) =>

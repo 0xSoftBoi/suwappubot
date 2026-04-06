@@ -23,6 +23,7 @@ from bot.services.tempo_dex_api import TempoDexAPI, tempo_dex_api
 from bot.services.lifi_api import LiFiAPI
 from bot.services.jupiter_api import JupiterAPI
 from bot.services.layerzero_api import LayerZeroAPI
+from bot.services.ccip_api import ChainlinkCCIPAPI
 from bot.services.cctp_api import CircleCCTPAPI
 from bot.services.across_api import AcrossAPI
 from bot.services.wormhole_api import WormholeAPI
@@ -39,7 +40,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RouteOption:
     """A single route option from a provider."""
-    provider: str  # tempo_dex, cow, socket, jito, lifi, jupiter, layerzero, cctp, across, wormhole
+    provider: str  # tempo_dex, cow, socket, jito, lifi, jupiter, layerzero, ccip, cctp, across, wormhole
     provider_display: str  # "CoW", "Socket", "Jito", "Li.Fi", "Jupiter", etc.
     
     from_chain: str
@@ -97,6 +98,7 @@ class SmartRouter:
         self.lifi = LiFiAPI()
         self.jupiter = JupiterAPI()
         self.layerzero = LayerZeroAPI()
+        self.ccip = ChainlinkCCIPAPI()
         self.cctp = CircleCCTPAPI()
         self.across = AcrossAPI()
         self.wormhole = WormholeAPI()
@@ -170,6 +172,15 @@ class SmartRouter:
             tasks.append(self._get_cctp_route(
                 from_chain, to_chain, from_amount
             ))
+
+        # ============================================================
+        # PRIORITY 4.5: Chainlink CCIP (reliable same-token cross-chain EVM)
+        # ============================================================
+        if is_same_token and not is_same_chain and not is_solana_route:
+            if self.ccip.is_supported_route(from_chain, to_chain, from_token):
+                tasks.append(self._get_ccip_route(
+                    from_chain, to_chain, from_token, from_amount, from_address, to_address
+                ))
         
         # ============================================================
         # PRIORITY 5: Across Protocol (cheapest for EVM-to-EVM)
@@ -186,7 +197,7 @@ class SmartRouter:
         if is_solana_route and not is_same_chain:
             if self.wormhole.is_supported_route(from_chain, to_chain, from_token):
                 tasks.append(self._get_wormhole_route(
-                    from_chain, to_chain, from_token, from_amount
+                    from_chain, to_chain, from_token, from_amount, to_address
                 ))
         
         # ============================================================
@@ -532,6 +543,59 @@ class SmartRouter:
         except Exception as e:
             logger.debug(f"CCTP route error: {e}")
             return None
+
+    async def _get_ccip_route(
+        self,
+        from_chain: str,
+        to_chain: str,
+        token: str,
+        from_amount: str,
+        from_address: str,
+        to_address: Optional[str],
+    ) -> Optional[RouteOption]:
+        """Get route from Chainlink CCIP."""
+        try:
+            quote = await self.ccip.get_quote(
+                from_chain=from_chain,
+                to_chain=to_chain,
+                token=token,
+                amount=int(from_amount) / (10 ** (get_token_decimals(token, from_chain) or 18)),
+                from_address=from_address,
+                to_address=to_address,
+            )
+
+            output_usd = quote.to_amount_human
+            if token.upper() not in {"USDC", "USDT", "DAI"}:
+                prices = await price_service.get_prices([token])
+                output_usd = quote.to_amount_human * prices.get(token.upper(), 1)
+
+            raw_quote = quote.raw_data.copy()
+            raw_quote["router_address"] = quote.router_address
+            raw_quote["destination_chain_selector"] = quote.destination_chain_selector
+            raw_quote["fee_token"] = quote.fee_token
+
+            return RouteOption(
+                provider="ccip",
+                provider_display="Chainlink CCIP",
+                from_chain=from_chain,
+                from_token=token,
+                from_amount=quote.from_amount,
+                from_amount_human=quote.from_amount_human,
+                to_chain=to_chain,
+                to_token=token,
+                to_amount=quote.to_amount,
+                to_amount_human=quote.to_amount_human,
+                gas_cost_usd=quote.fee_usd,
+                bridge_fee_usd=0,
+                total_cost_usd=quote.fee_usd,
+                output_usd=output_usd,
+                net_output_usd=output_usd - quote.fee_usd,
+                execution_time_seconds=quote.estimated_time,
+                raw_quote=raw_quote,
+            )
+        except Exception as e:
+            logger.debug(f"CCIP route error: {e}")
+            return None
     
     async def _get_across_route(
         self,
@@ -587,6 +651,7 @@ class SmartRouter:
         to_chain: str,
         token: str,
         from_amount: str,
+        to_address: Optional[str],
     ) -> Optional[RouteOption]:
         """Get route from Wormhole (Solana <-> EVM bridges)."""
         try:
@@ -595,6 +660,7 @@ class SmartRouter:
                 to_chain=to_chain,
                 token=token,
                 amount=from_amount,
+                to_address=to_address,
             )
             
             # Get USD value
@@ -819,6 +885,7 @@ class SmartRouter:
             "socket": 0.92,     # Socket aggregator
             "jito": 0.97,       # Jito - Solana MEV protection
             "cctp": 0.98,       # Circle's native protocol - very reliable
+            "ccip": 0.97,       # Chainlink messaging rails
             "across": 0.95,     # Intent-based, relayer-backed
             "wormhole": 0.90,   # Guardian network
             "lifi": 0.88,       # Aggregator
@@ -833,6 +900,7 @@ class SmartRouter:
             "jito": 1.0,        # Full MEV protection (bundles)
             "socket": 0.3,      # Some routes may have MEV exposure
             "cctp": 0.8,        # Protocol-level, less MEV exposure
+            "ccip": 0.8,        # Protocol-level, less MEV exposure
             "across": 0.7,      # Intent-based, partial protection
             "wormhole": 0.5,    # Cross-chain, moderate exposure
             "lifi": 0.3,        # Depends on underlying route

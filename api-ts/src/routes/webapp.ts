@@ -7,7 +7,9 @@ import { mapErrorToResponse } from '../errors'
 import { telegramAuth } from '../middleware'
 import { runEffect, runEffectEither } from '../runtime'
 import {
+	AlertService,
 	BalanceService,
+	DCAService,
 	PointsService,
 	SwapService,
 	TelegramAuthService,
@@ -487,6 +489,189 @@ protectedWebapp.put('/preferences', async (c) => {
 	return c.json(result.right)
 })
 
+// === DCA Routes ===
+
+protectedWebapp.get('/dca', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const status = c.req.query('status')
+	const limit = Math.min(Number(c.req.query('limit') || 20), 100)
+	const offset = Number(c.req.query('offset') || 0)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const dcaService = yield* DCAService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			const orders = yield* dcaService.getUserOrders(userOption.value.id, status, limit, offset)
+			return orders.map((order) => ({
+				id: order.id,
+				userId: order.userId,
+				fromChain: order.fromChain,
+				fromToken: order.fromToken,
+				fromTokenSymbol: order.fromTokenSymbol,
+				toChain: order.toChain,
+				toToken: order.toToken,
+				toTokenSymbol: order.toTokenSymbol,
+				amountPerExecution: order.amountPerExecution,
+				interval: order.interval,
+				totalExecutions: order.totalExecutions,
+				executionsCompleted: order.executionsCompleted,
+				maxSlippage: order.maxSlippage,
+				walletAddress: order.walletAddress,
+				status: order.status,
+				nextExecutionAt: order.nextExecutionAt?.toISOString() ?? null,
+				lastExecutedAt: order.lastExecutedAt?.toISOString() ?? null,
+				createdAt: order.createdAt?.toISOString() ?? null,
+				updatedAt: order.updatedAt?.toISOString() ?? null,
+			}))
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+protectedWebapp.post('/dca', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const body = await c.req.json().catch(() => ({}))
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const dcaService = yield* DCAService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			return yield* dcaService.createOrder({
+				userId: userOption.value.id,
+				fromChain: body.fromChain,
+				fromToken: body.fromToken,
+				fromTokenSymbol: body.fromTokenSymbol,
+				toChain: body.toChain,
+				toToken: body.toToken,
+				toTokenSymbol: body.toTokenSymbol,
+				amountPerExecution: body.amountPerExecution,
+				frequency: body.frequency,
+				totalExecutions: body.totalExecutions,
+				walletAddress: body.walletAddress,
+				slippage: body.slippage,
+			})
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 400)
+	}
+	return c.json(result.right, 201)
+})
+
+protectedWebapp.post('/dca/:orderId/pause', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const orderId = Number(c.req.param('orderId'))
+	if (Number.isNaN(orderId)) return c.json({ error: 'Invalid order ID' }, 400)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const dcaService = yield* DCAService
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) return yield* Effect.fail(new Error('User not found'))
+			return yield* dcaService.pauseOrder(orderId, userOption.value.id)
+		}),
+	)
+
+	if (Either.isLeft(result)) return c.json({ error: result.left.message }, 400)
+	return c.json(result.right)
+})
+
+protectedWebapp.post('/dca/:orderId/resume', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const orderId = Number(c.req.param('orderId'))
+	if (Number.isNaN(orderId)) return c.json({ error: 'Invalid order ID' }, 400)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const dcaService = yield* DCAService
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) return yield* Effect.fail(new Error('User not found'))
+			return yield* dcaService.resumeOrder(orderId, userOption.value.id)
+		}),
+	)
+
+	if (Either.isLeft(result)) return c.json({ error: result.left.message }, 400)
+	return c.json(result.right)
+})
+
+protectedWebapp.delete('/dca/:orderId', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const orderId = Number(c.req.param('orderId'))
+	if (Number.isNaN(orderId)) return c.json({ error: 'Invalid order ID' }, 400)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const dcaService = yield* DCAService
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) return yield* Effect.fail(new Error('User not found'))
+			return yield* dcaService.cancelOrder(orderId, userOption.value.id)
+		}),
+	)
+
+	if (Either.isLeft(result)) return c.json({ error: result.left.message }, 400)
+	return c.json(result.right)
+})
+
+protectedWebapp.get('/dca/:orderId/executions', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const orderId = Number(c.req.param('orderId'))
+	if (Number.isNaN(orderId)) return c.json({ error: 'Invalid order ID' }, 400)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const dcaService = yield* DCAService
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) return yield* Effect.fail(new Error('User not found'))
+			const executions = yield* dcaService.getExecutions(orderId, userOption.value.id)
+			return executions.map((execution) => ({
+				...execution,
+				executedAt: execution.executedAt?.toISOString() ?? null,
+			}))
+		}),
+	)
+
+	if (Either.isLeft(result)) return c.json({ error: result.left.message }, 400)
+	return c.json(result.right)
+})
+
+protectedWebapp.get('/dca/stats', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const dcaService = yield* DCAService
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) return yield* Effect.fail(new Error('User not found'))
+			return yield* dcaService.getStats(userOption.value.id)
+		}),
+	)
+
+	if (Either.isLeft(result)) return c.json({ error: result.left.message }, 400)
+	return c.json(result.right)
+})
+
 // === Points Routes ===
 
 // GET /webapp/me/points/stats - Get user's points stats
@@ -809,6 +994,107 @@ protectedWebapp.delete('/limit-orders/:orderId', async (c) => {
 	if (Either.isLeft(result)) {
 		return c.json({ error: result.left.message }, 400)
 	}
+	return c.json(result.right)
+})
+
+// === Price Alert Routes ===
+
+protectedWebapp.get('/price-alerts', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const activeOnly = c.req.query('activeOnly') === 'true'
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const alertService = yield* AlertService
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) return yield* Effect.fail(new Error('User not found'))
+			return yield* alertService.getUserAlerts(userOption.value.id, activeOnly)
+		}),
+	)
+
+	if (Either.isLeft(result)) return c.json({ error: result.left.message }, 500)
+	return c.json(
+		result.right.map((alert) => ({
+			id: alert.id,
+			userId: alert.userId,
+			tokenAddress: alert.tokenAddress,
+			tokenSymbol: alert.tokenSymbol,
+			chain: alert.chain,
+			alertType: alert.alertType,
+			condition: alert.condition,
+			threshold: alert.threshold,
+			active: alert.active,
+			triggered: alert.triggered,
+			triggeredAt: alert.triggeredAt?.toISOString() ?? null,
+			createdAt: alert.createdAt?.toISOString() ?? null,
+			updatedAt: alert.updatedAt?.toISOString() ?? null,
+		})),
+	)
+})
+
+protectedWebapp.post('/price-alerts', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const body = await c.req.json().catch(() => ({}))
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const alertService = yield* AlertService
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) return yield* Effect.fail(new Error('User not found'))
+			return yield* alertService.createAlert({
+				userId: userOption.value.id,
+				alertType: body.alertType ?? 'price',
+				chain: body.chain,
+				tokenAddress: body.tokenAddress,
+				tokenSymbol: body.tokenSymbol,
+				condition: body.condition,
+				threshold: body.threshold,
+			})
+		}),
+	)
+
+	if (Either.isLeft(result)) return c.json({ error: result.left.message }, 400)
+	return c.json(result.right, 201)
+})
+
+protectedWebapp.post('/price-alerts/:alertId/toggle', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const alertId = Number(c.req.param('alertId'))
+	if (Number.isNaN(alertId)) return c.json({ error: 'Invalid alert ID' }, 400)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const alertService = yield* AlertService
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) return yield* Effect.fail(new Error('User not found'))
+			return yield* alertService.toggleAlert(alertId, userOption.value.id)
+		}),
+	)
+
+	if (Either.isLeft(result)) return c.json({ error: result.left.message }, 400)
+	return c.json(result.right)
+})
+
+protectedWebapp.delete('/price-alerts/:alertId', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const alertId = Number(c.req.param('alertId'))
+	if (Number.isNaN(alertId)) return c.json({ error: 'Invalid alert ID' }, 400)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const alertService = yield* AlertService
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) return yield* Effect.fail(new Error('User not found'))
+			yield* alertService.deleteAlert(alertId, userOption.value.id)
+			return { success: true }
+		}),
+	)
+
+	if (Either.isLeft(result)) return c.json({ error: result.left.message }, 400)
 	return c.json(result.right)
 })
 

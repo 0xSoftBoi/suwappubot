@@ -1,0 +1,16 @@
+{
+  "name": "suwappu-wormhole-helper",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build-solana-transfer": "tsx src/buildSolanaTransfer.ts"
+  },
+  "dependencies": {
+    "@wormhole-foundation/sdk": "^1.13.1",
+    "@wormhole-foundation/sdk-evm": "^1.13.1",
+    "@wormhole-foundation/sdk-solana": "^1.13.1",
+    "@wormhole-foundation/sdk-solana-tokenbridge": "^1.13.1",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.3"
+  }
+}

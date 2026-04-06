@@ -91,6 +91,7 @@ from bot.services.alerts import alert_service
 from bot.services.orders import order_service
 from bot.services.tx_poller import tx_poller
 from bot.services.health_monitor import health_monitor
+from bot.services.perps_monitor import perps_monitor
 from bot.services.token_security.rug_service import rug_service
 from bot.services.swap_engine import SwapEngine
 from bot.utils.errors import handle_swap_error
@@ -417,6 +418,9 @@ async def post_init(application) -> None:
     await rug_service.start(swap_engine=SwapEngine())
     logger.info("✓ Rug protection service started")
 
+    await perps_monitor.start(bot=application.bot)
+    logger.info("✓ Perps monitor started")
+
 
 async def post_shutdown(application) -> None:
     """Called when the application shuts down."""
@@ -427,6 +431,7 @@ async def post_shutdown(application) -> None:
     await order_service.stop()
     await tx_poller.stop()
     await health_monitor.stop()
+    await perps_monitor.stop()
     await launch_detector.stop()
     
     logger.info("Closing HTTP session pool...")
@@ -450,6 +455,7 @@ async def run_headless() -> None:
     await tx_poller.start(bot=None)
     await health_monitor.start(bot=None, admin_ids=admin_ids)
     await rug_service.start(swap_engine=SwapEngine())
+    await perps_monitor.start(bot=None)
     
     logger.info("✅ Headless services are running. Press Ctrl+C to stop.")
     

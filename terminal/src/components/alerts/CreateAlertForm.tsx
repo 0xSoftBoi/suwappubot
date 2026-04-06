@@ -9,7 +9,6 @@ interface Props {
 const alertTypes: { value: AlertType; label: string }[] = [
   { value: 'price_above', label: 'Price Above' },
   { value: 'price_below', label: 'Price Below' },
-  { value: 'volume_spike', label: 'Volume Spike' },
 ]
 
 export function CreateAlertForm({ onSubmit, isLoading }: Props) {

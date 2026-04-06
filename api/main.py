@@ -37,7 +37,9 @@ from bot.services.orders import order_service
 from bot.services.tx_poller import tx_poller
 from bot.services.health_monitor import health_monitor
 from bot.services.balance_refresher import balance_refresher
+from bot.services.perps_monitor import perps_monitor
 from bot.services.event_bus import event_bus
+from bot.services.copy_service import copy_service
 from bot.services.api_client import api_client
 from bot.utils.preload import preload_config
 from bot.services.rpc_manager import rpc_manager
@@ -169,6 +171,10 @@ async def lifespan(app: FastAPI):
         await health_monitor.start(bot=bot_app.bot if bot_initialized else None, admin_ids=admin_ids)
         await asyncio.sleep(2)
         await balance_refresher.start()
+        await asyncio.sleep(2)
+        await copy_service.start(bot=bot_app.bot if bot_initialized else None)
+        await asyncio.sleep(2)
+        await perps_monitor.start(bot=bot_app.bot if bot_initialized else None)
 
         # Start Discord alert service if Discord bot is available
         if discord_bot:
@@ -201,6 +207,7 @@ async def lifespan(app: FastAPI):
     try:
         await event_bus.connect()
         if event_bus.connected:
+            event_bus.subscribe("swap.submitted", copy_service.handle_swap_submitted)
             logger.info("✓ Event bus connected (Redis pub/sub)")
         else:
             logger.info("ℹ Event bus not connected (Redis unavailable, events disabled)")
@@ -218,6 +225,8 @@ async def lifespan(app: FastAPI):
     # --- Shutdown ---
     logger.info("🛑 Shutting down Suwappu Monolith...")
     await redis_cache.close()
+    await copy_service.stop()
+    await perps_monitor.stop()
 
     # Stop Discord bot
     if discord_bot:

@@ -18,9 +18,11 @@ Providers:
 
 import asyncio
 import logging
+import json
 from typing import Optional, List
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from web3 import Web3
 import aiohttp
 import base64
@@ -202,6 +204,47 @@ class SwapEngine:
         if from_token != to_token:
             return False
         return self.layerzero.is_supported_route(from_chain, to_chain, from_token)
+
+    def _is_same_chain_evm_swap(self, from_chain: str, to_chain: str) -> bool:
+        """Check if this is a same-chain EVM route eligible for EVM-native providers."""
+        if from_chain.lower() != to_chain.lower():
+            return False
+        if self._is_solana_only_swap(from_chain, to_chain):
+            return False
+        if self._is_tron_only_swap(from_chain, to_chain):
+            return False
+        if self._is_tempo_only_swap(from_chain, to_chain):
+            return False
+        return True
+
+    def _is_cctp_route(self, from_chain: str, to_chain: str, from_token: str, to_token: str) -> bool:
+        """Check if this route can use Circle CCTP."""
+        return (
+            from_chain.lower() != to_chain.lower()
+            and from_token.upper() == "USDC"
+            and to_token.upper() == "USDC"
+            and self.cctp.is_supported_route(from_chain, to_chain, "USDC")
+        )
+
+    def _is_across_route(self, from_chain: str, to_chain: str, from_token: str, to_token: str) -> bool:
+        """Check if this route can use Across for same-token EVM bridging."""
+        if from_token != to_token:
+            return False
+        return self.across.is_supported_route(from_chain, to_chain, from_token)
+
+    def _is_socket_route(self, from_chain: str, to_chain: str) -> bool:
+        """Check if this route can use Socket."""
+        return self.socket.is_supported_chain(from_chain) and self.socket.is_supported_chain(to_chain)
+
+    def _is_cow_route(self, from_chain: str, to_chain: str) -> bool:
+        """Check if this route can use CoW for same-chain EVM swaps."""
+        return self._is_same_chain_evm_swap(from_chain, to_chain) and self.cow.is_supported_chain(from_chain)
+
+    def _is_wormhole_route(self, from_chain: str, to_chain: str, from_token: str, to_token: str) -> bool:
+        """Check if this route can use Wormhole for supported same-token bridging."""
+        if from_token != to_token:
+            return False
+        return self.wormhole.is_supported_route(from_chain, to_chain, from_token)
     
     def _get_token_amount_raw(self, amount: float, token_symbol: str, chain_name: str) -> str:
         """Convert human-readable amount to raw amount string."""
@@ -305,6 +348,11 @@ class SwapEngine:
                 from_token, to_token, amount, amount_raw, slippage_bps
             ))
 
+        if self._is_cow_route(from_chain, to_chain):
+            tasks.append(self._get_cow_quote(
+                from_chain, from_token, to_token, amount_raw, from_address, to_address
+            ))
+
         # OKX DEX covers TRON, EVM, and Solana (same-chain only) — add if configured
         if self.okx_dex.is_configured and from_chain.lower() == to_chain.lower():
             tasks.append(self._get_okx_dex_quote(
@@ -314,10 +362,30 @@ class SwapEngine:
 
         # EVM routing: Li.Fi + LayerZero (not for Solana-only, TRON-only, or Tempo-only)
         if not self._is_solana_only_swap(from_chain, to_chain) and not self._is_tron_only_swap(from_chain, to_chain) and not self._is_tempo_only_swap(from_chain, to_chain):
+            if self._is_cctp_route(from_chain, to_chain, from_token, to_token):
+                tasks.append(self._get_cctp_quote(
+                    from_chain, to_chain, amount_raw
+                ))
+            if self._is_across_route(from_chain, to_chain, from_token, to_token):
+                tasks.append(self._get_across_quote(
+                    from_chain, to_chain, from_token, amount_raw, from_address, to_address
+                ))
             if self._is_layerzero_route(from_chain, to_chain, from_token, to_token):
                 tasks.append(self._get_layerzero_quote(
                     from_chain, to_chain, from_token, amount, amount_raw,
                     from_address, slippage
+                ))
+            if self._is_ccip_route(from_chain, to_chain, from_token, to_token):
+                tasks.append(self._get_ccip_quote(
+                    from_chain, to_chain, from_token, amount, from_address, to_address
+                ))
+            if self._is_socket_route(from_chain, to_chain):
+                tasks.append(self._get_socket_quote(
+                    from_chain, to_chain, from_token, to_token, amount_raw, from_address, to_address
+                ))
+            if self._is_wormhole_route(from_chain, to_chain, from_token, to_token):
+                tasks.append(self._get_wormhole_quote(
+                    from_chain, to_chain, from_token, amount_raw, to_address
                 ))
             tasks.append(self._get_lifi_quote(
                 from_chain, to_chain, from_token, to_token,
@@ -673,6 +741,211 @@ class SwapEngine:
             exchange_rate=1.0,
             raw_quote=quote.raw_data,
         )
+
+    async def _get_cow_quote(
+        self,
+        chain: str,
+        from_token: str,
+        to_token: str,
+        amount_raw: str,
+        from_address: str,
+        to_address: Optional[str],
+    ) -> SwapQuote:
+        """Get quote from CoW Protocol for same-chain EVM swaps."""
+        from_token_address = get_token_address(from_token, chain)
+        to_token_address = get_token_address(to_token, chain)
+
+        quote = await self.cow.get_quote(
+            chain=chain,
+            from_token=from_token_address,
+            to_token=to_token_address,
+            amount=amount_raw,
+            from_address=from_address,
+            receiver=to_address,
+        )
+
+        decimals = get_token_decimals(from_token, chain) or 18
+        from_amount_human = int(quote.from_amount) / (10 ** decimals)
+
+        return SwapQuote(
+            provider="cow",
+            from_chain=chain,
+            to_chain=chain,
+            from_token=from_token,
+            to_token=to_token,
+            from_amount=quote.from_amount,
+            from_amount_human=from_amount_human,
+            to_amount=quote.to_amount,
+            to_amount_human=quote.to_amount_human,
+            to_amount_min=quote.to_amount,
+            gas_cost_usd=0,
+            fee_cost_usd=quote.fee_amount_human,
+            total_cost_usd=quote.fee_amount_human,
+            estimated_time=30,
+            price_impact=0,
+            exchange_rate=(quote.to_amount_human / from_amount_human) if from_amount_human else 0,
+            raw_quote=quote.raw_quote,
+        )
+
+    async def _get_socket_quote(
+        self,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount_raw: str,
+        from_address: str,
+        to_address: Optional[str],
+    ) -> SwapQuote:
+        """Get quote from Socket super-aggregator."""
+        from_token_address = get_token_address(from_token, from_chain)
+        to_token_address = get_token_address(to_token, to_chain)
+
+        quote = await self.socket.get_quote(
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=from_token_address,
+            to_token=to_token_address,
+            from_amount=amount_raw,
+            from_address=from_address,
+            to_address=to_address,
+        )
+
+        if not quote.best_route:
+            raise SwapError("Socket returned no viable routes")
+
+        route = quote.best_route
+        from_amount_human = self._get_token_amount_human(route.from_amount, from_token, from_chain)
+        exchange_rate = (route.to_amount_human / from_amount_human) if from_amount_human else 0
+
+        return SwapQuote(
+            provider="socket",
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=from_token,
+            to_token=to_token,
+            from_amount=route.from_amount,
+            from_amount_human=from_amount_human,
+            to_amount=route.to_amount,
+            to_amount_human=route.to_amount_human,
+            to_amount_min=route.to_amount,
+            gas_cost_usd=route.gas_usd,
+            fee_cost_usd=route.service_fee_usd,
+            total_cost_usd=route.total_fee_usd,
+            estimated_time=route.estimated_time_seconds,
+            price_impact=0,
+            exchange_rate=exchange_rate,
+            raw_quote=route.raw_route,
+        )
+
+    async def _get_cctp_quote(
+        self,
+        from_chain: str,
+        to_chain: str,
+        amount_raw: str,
+    ) -> SwapQuote:
+        """Get quote from Circle CCTP for USDC bridging."""
+        quote = await self.cctp.get_quote(
+            from_chain=from_chain,
+            to_chain=to_chain,
+            amount=amount_raw,
+        )
+
+        return SwapQuote(
+            provider="cctp",
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token="USDC",
+            to_token="USDC",
+            from_amount=quote.from_amount,
+            from_amount_human=quote.to_amount_human,
+            to_amount=quote.to_amount,
+            to_amount_human=quote.to_amount_human,
+            to_amount_min=quote.to_amount,
+            gas_cost_usd=quote.gas_cost_usd,
+            fee_cost_usd=quote.bridge_fee_usd,
+            total_cost_usd=quote.total_cost_usd,
+            estimated_time=quote.estimated_time,
+            price_impact=0,
+            exchange_rate=1.0,
+            raw_quote=quote.raw_data,
+        )
+
+    async def _get_across_quote(
+        self,
+        from_chain: str,
+        to_chain: str,
+        token: str,
+        amount_raw: str,
+        from_address: str,
+        to_address: Optional[str],
+    ) -> SwapQuote:
+        """Get quote from Across for supported same-token EVM bridges."""
+        quote = await self.across.get_quote(
+            from_chain=from_chain,
+            to_chain=to_chain,
+            token=token,
+            amount=amount_raw,
+            from_address=from_address,
+            to_address=to_address,
+        )
+
+        return SwapQuote(
+            provider="across",
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=token,
+            to_token=token,
+            from_amount=quote.from_amount,
+            from_amount_human=quote.from_amount_human,
+            to_amount=quote.to_amount,
+            to_amount_human=quote.to_amount_human,
+            to_amount_min=quote.to_amount,
+            gas_cost_usd=quote.gas_cost_usd,
+            fee_cost_usd=quote.relay_fee_usd,
+            total_cost_usd=quote.total_cost_usd,
+            estimated_time=quote.estimated_fill_time,
+            price_impact=0,
+            exchange_rate=(quote.to_amount_human / quote.from_amount_human) if quote.from_amount_human else 0,
+            raw_quote=quote.raw_quote,
+        )
+
+    async def _get_wormhole_quote(
+        self,
+        from_chain: str,
+        to_chain: str,
+        token: str,
+        amount_raw: str,
+        to_address: Optional[str],
+    ) -> SwapQuote:
+        """Get quote from Wormhole for supported same-token routes."""
+        quote = await self.wormhole.get_quote(
+            from_chain=from_chain,
+            to_chain=to_chain,
+            token=token,
+            amount=amount_raw,
+            to_address=to_address,
+        )
+
+        return SwapQuote(
+            provider="wormhole",
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=token,
+            to_token=token,
+            from_amount=quote.from_amount,
+            from_amount_human=quote.from_amount_human,
+            to_amount=quote.to_amount,
+            to_amount_human=quote.to_amount_human,
+            to_amount_min=quote.to_amount,
+            gas_cost_usd=quote.gas_cost_usd,
+            fee_cost_usd=quote.relayer_fee_usd,
+            total_cost_usd=quote.total_cost_usd,
+            estimated_time=quote.estimated_time,
+            price_impact=0,
+            exchange_rate=(quote.to_amount_human / quote.from_amount_human) if quote.from_amount_human else 0,
+            raw_quote=quote.raw_data,
+        )
     
     async def _get_ccip_quote(
         self,
@@ -747,6 +1020,11 @@ class SwapEngine:
                 amount, amount_raw, from_address, to_address, slippage
             ))
 
+        if self._is_cow_route(from_chain, to_chain):
+            tasks.append(self._get_cow_quote(
+                from_chain, from_token, to_token, amount_raw, from_address, to_address
+            ))
+
         # LayerZero for same-token cross-chain
         if self._is_layerzero_route(from_chain, to_chain, from_token, to_token):
             tasks.append(self._get_layerzero_quote(
@@ -758,6 +1036,26 @@ class SwapEngine:
         if self._is_ccip_route(from_chain, to_chain, from_token, to_token):
             tasks.append(self._get_ccip_quote(
                 from_chain, to_chain, from_token, amount, from_address, to_address
+            ))
+
+        if self._is_cctp_route(from_chain, to_chain, from_token, to_token):
+            tasks.append(self._get_cctp_quote(
+                from_chain, to_chain, amount_raw
+            ))
+
+        if self._is_across_route(from_chain, to_chain, from_token, to_token):
+            tasks.append(self._get_across_quote(
+                from_chain, to_chain, from_token, amount_raw, from_address, to_address
+            ))
+
+        if self._is_socket_route(from_chain, to_chain):
+            tasks.append(self._get_socket_quote(
+                from_chain, to_chain, from_token, to_token, amount_raw, from_address, to_address
+            ))
+
+        if self._is_wormhole_route(from_chain, to_chain, from_token, to_token):
+            tasks.append(self._get_wormhole_quote(
+                from_chain, to_chain, from_token, amount_raw, to_address
             ))
 
         # Jupiter for Solana
@@ -1731,11 +2029,65 @@ class SwapEngine:
         is_solana_source = quote.from_chain.lower() == "solana"
 
         if is_solana_source:
-            # Solana -> EVM: Not implemented yet (requires Solana signing)
-            raise SwapError(
-                "Solana to EVM bridging via Wormhole is not yet supported. "
-                "Please bridge manually at portal.wormhole.com"
+            wallet = await self._get_wallet_for_signing(wallet_data)
+            if not wallet:
+                raise SwapError("Wallet not found for signing")
+
+            helper_dir = Path(__file__).resolve().parents[2] / "tools" / "wormhole-helper"
+            helper_script = helper_dir / "src" / "buildSolanaTransfer.ts"
+            helper_bin = helper_dir / "node_modules" / ".bin" / "tsx"
+            solana_rpc = settings.solana_rpc_url.split(",")[0].strip() if settings.solana_rpc_url else ""
+            destination_chain_map = {
+                "ethereum": "Ethereum",
+                "arbitrum": "Arbitrum",
+                "optimism": "Optimism",
+                "polygon": "Polygon",
+                "base": "Base",
+                "avalanche": "Avalanche",
+                "bsc": "Bsc",
+                "solana": "Solana",
+            }
+            destination_chain = destination_chain_map.get(quote.to_chain.lower(), quote.to_chain)
+            destination_address = quote.raw_quote.get("to_address")
+            if not destination_address:
+                raise SwapError(
+                    "Wormhole Solana transfers require an explicit destination address for the target chain."
+                )
+
+            payload = json.dumps({
+                "sender": wallet_data["address"],
+                "token": self.wormhole.get_token_address(quote.from_token, quote.from_chain),
+                "amount": quote.from_amount,
+                "destinationChain": destination_chain,
+                "destinationAddress": destination_address,
+                "rpcUrl": solana_rpc,
+            })
+
+            proc = await asyncio.create_subprocess_exec(
+                str(helper_bin),
+                str(helper_script),
+                cwd=str(helper_dir),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
+            stdout, stderr = await proc.communicate(payload.encode())
+            if proc.returncode != 0:
+                raise SwapError(
+                    "Failed to build Solana Wormhole transfer transaction: "
+                    f"{stderr.decode().strip() or stdout.decode().strip()}"
+                )
+
+            helper_result = json.loads(stdout.decode())
+            unsigned_tx = base64.b64decode(helper_result["unsignedTxBase64"])
+            signed_tx = await self.wallet_service.sign_solana_transaction(wallet, unsigned_tx)
+
+            from solana.rpc.async_api import AsyncClient as SolanaClient
+
+            async with SolanaClient(solana_rpc) as client:
+                send_result = await client.send_raw_transaction(signed_tx)
+                tx_sig = getattr(send_result, "value", send_result)
+                return str(tx_sig)
 
         wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:

@@ -173,6 +173,8 @@ export interface TokenSecurity {
   lpBurned: number
   topHolderPercent: number
   mintAuthority: boolean
+  trustScore?: number
+  devHoldingsPercent?: number
   riskLevel: 'safe' | 'caution' | 'danger'
 }
 
@@ -319,7 +321,7 @@ export interface LeaderboardEntry {
 
 // === Alerts ===
 
-export type AlertType = 'price_above' | 'price_below' | 'volume_spike'
+export type AlertType = 'price_above' | 'price_below'
 export type AlertStatus = 'active' | 'inactive' | 'triggered'
 
 export interface Alert {
@@ -345,7 +347,7 @@ export interface CreateAlertParams {
 
 // === DCA ===
 
-export type DCAFrequency = 'hourly' | 'daily' | 'weekly' | 'monthly'
+export type DCAFrequency = 'hourly' | 'daily' | 'weekly'
 export type DCAStatus = 'active' | 'paused' | 'completed' | 'cancelled'
 
 export interface DCAOrder {
@@ -364,11 +366,17 @@ export interface DCAOrder {
 }
 
 export interface CreateDCAParams {
+  fromChain: string
   fromToken: string
+  fromTokenSymbol: string
+  toChain: string
   toToken: string
-  totalAmount: number
+  toTokenSymbol: string
+  amountPerExecution: string
   frequency: DCAFrequency
-  numberOfOrders: number
+  totalExecutions: number
+  walletAddress: string
+  slippage?: number
 }
 
 // === Lending ===

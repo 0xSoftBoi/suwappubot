@@ -1181,7 +1181,7 @@ class WalletService:
 
     def _sign_solana_local(self, wallet: Wallet, transaction_bytes: bytes) -> bytes:
         """Sign Solana transaction with local private key."""
-        from solders.transaction import VersionedTransaction
+        from solders.transaction import Transaction, VersionedTransaction
 
         private_key = self.get_private_key(wallet)
 
@@ -1191,9 +1191,14 @@ class WalletService:
             key_bytes = bytes(json.loads(private_key))
 
         keypair = Keypair.from_bytes(key_bytes)
-        tx = VersionedTransaction.from_bytes(transaction_bytes)
-        tx.sign([keypair])
-        return bytes(tx)
+        try:
+            tx = VersionedTransaction.from_bytes(transaction_bytes)
+            tx.sign([keypair])
+            return bytes(tx)
+        except Exception:
+            tx = Transaction.from_bytes(transaction_bytes)
+            tx.partial_sign([keypair], tx.message.recent_blockhash)
+            return bytes(tx)
     
     async def _sign_solana_via_turnkey(self, wallet: Wallet, transaction_bytes: bytes) -> bytes:
         """Sign Solana transaction via Turnkey API."""
@@ -1376,4 +1381,3 @@ class WalletService:
         tx.sign([keypair])
         
         return bytes(tx)
-

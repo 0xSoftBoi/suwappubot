@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, lt } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
 import { logger } from '../lib/logger'
 import {
@@ -382,8 +382,8 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 						.where(
 							and(
 								eq(limitOrders.status, 'active'),
-								// expiresAt is not null and is in the past
-								// Note: Drizzle doesn't have lt for timestamps directly in this pattern
+								isNotNull(limitOrders.expiresAt),
+								lt(limitOrders.expiresAt, now),
 							),
 						)
 						.returning()
