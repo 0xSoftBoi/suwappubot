@@ -5,7 +5,7 @@ import { AnimatePresence, motion, type Variants } from 'framer-motion'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useTelegram } from './hooks/useTelegram'
-import { Welcome, Home, Swap, Wallet, Portfolio, History, Points, DCA, DCACreate, LimitOrders, PriceAlerts, Referrals, CopyTrading, Subscriptions, Settings, Recovery } from './pages'
+import { Welcome, Home, Swap, Wallet, Portfolio, History, Points, DCA, DCACreate, LimitOrders, PriceAlerts, Referrals, CopyTrading, Subscriptions, Settings, Recovery, TokenDetail } from './pages'
 import './theme/suwappu.css'
 
 // Page transition variants
@@ -154,6 +154,16 @@ function AppContent() {
             <ProtectedRoute>
               <PageTransition>
                 <Swap />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/token/:symbol"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <TokenDetail />
               </PageTransition>
             </ProtectedRoute>
           }

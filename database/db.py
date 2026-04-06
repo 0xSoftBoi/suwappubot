@@ -202,6 +202,73 @@ def _ensure_schema(db_engine) -> None:
         _fix_user_nullability(db_engine, inspector, is_sqlite)
         _add_referral_columns(db_engine, inspector, is_sqlite)
         _add_push_token_column(db_engine, inspector, is_sqlite)
+        _add_mev_columns(db_engine, inspector, is_sqlite)
+
+    # --- limit_orders: trailing stop columns ---
+    if "limit_orders" in tables:
+        _add_trailing_stop_columns(db_engine, inspector, is_sqlite)
+
+    # --- referrals: KOL and tier columns ---
+    if "referrals" in tables:
+        _add_referral_tier_columns(db_engine, inspector, is_sqlite)
+
+
+def _add_mev_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add MEV protection columns to users table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("users")}
+
+    new_columns = [
+        ("mev_protection_enabled", "BOOLEAN", "TRUE"),
+        ("jito_tip_priority", "VARCHAR(20)", "'medium'"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE users ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+
+def _add_trailing_stop_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add trailing stop columns to limit_orders table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("limit_orders")}
+
+    new_columns = [
+        ("trailing_percent", "FLOAT", "NULL"),
+        ("peak_price", "FLOAT", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE limit_orders ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE limit_orders ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+
+def _add_referral_tier_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add KOL and tier columns to referrals table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("referrals")}
+
+    new_columns = [
+        ("referral_level", "INTEGER", "1"),
+        ("is_kol", "BOOLEAN", "FALSE"),
+        ("custom_l1_rate", "FLOAT", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE referrals ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE referrals ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
 
 
 def _fix_user_nullability(db_engine, inspector, is_sqlite: bool) -> None:

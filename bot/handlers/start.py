@@ -68,11 +68,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         # Core Trading
         [
             InlineKeyboardButton("🔄 Swap", callback_data="swap_start"),
-            InlineKeyboardButton("⚡ Quick Swap", callback_data="quickswap_menu"),
+            InlineKeyboardButton("\u26a1 Quick Swap", callback_data="quickswap_menu"),
         ],
         [
-            InlineKeyboardButton("📈 Limit Orders", callback_data="limit_orders_menu"),
-            InlineKeyboardButton("🎯 Snipe", callback_data="snipe_menu"),
+            InlineKeyboardButton("\u26a1 Quick Buy", callback_data="quickbuy_menu"),
+            InlineKeyboardButton("\U0001f50d Discover", callback_data="discover_menu"),
+        ],
+        [
+            InlineKeyboardButton("\U0001f4c8 Limit Orders", callback_data="limit_orders_menu"),
+            InlineKeyboardButton("\U0001f3af Snipe", callback_data="snipe_menu"),
         ],
         # Wallet & Portfolio
         [
@@ -206,11 +210,15 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # Core Trading
         [
             InlineKeyboardButton("🔄 Swap", callback_data="swap_start"),
-            InlineKeyboardButton("⚡ Quick Swap", callback_data="quickswap_menu"),
+            InlineKeyboardButton("\u26a1 Quick Swap", callback_data="quickswap_menu"),
         ],
         [
-            InlineKeyboardButton("📈 Limit Orders", callback_data="limit_orders_menu"),
-            InlineKeyboardButton("🎯 Snipe", callback_data="snipe_menu"),
+            InlineKeyboardButton("\u26a1 Quick Buy", callback_data="quickbuy_menu"),
+            InlineKeyboardButton("\U0001f50d Discover", callback_data="discover_menu"),
+        ],
+        [
+            InlineKeyboardButton("\U0001f4c8 Limit Orders", callback_data="limit_orders_menu"),
+            InlineKeyboardButton("\U0001f3af Snipe", callback_data="snipe_menu"),
         ],
         # Wallet & Portfolio
         [

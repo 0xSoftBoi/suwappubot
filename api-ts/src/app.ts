@@ -4,7 +4,7 @@ import { HTTPException } from 'hono/http-exception'
 import { serveStatic } from 'hono/bun'
 
 import { createCorsMiddleware, adminKeyAuth } from './middleware'
-import { healthRoutes, webappRoutes, agentRoutes, a2aRoutes, swapRoutes, publicSwapRoutes, adminRoutes, tokenRoutes } from './routes'
+import { healthRoutes, webappRoutes, agentRoutes, a2aRoutes, swapRoutes, publicSwapRoutes, adminRoutes, tokenRoutes, discoverRoutes, chartRoutes, walletSendRoutes } from './routes'
 import agentCard from '../agent-card.json'
 
 export interface AppConfig {
@@ -41,8 +41,20 @@ export function createApp(config: AppConfig) {
 	// Token search and prices
 	app.route('/webapp/tokens', tokenRoutes)
 
+	// Chart data and token detail for webapp
+	app.route('/webapp', chartRoutes)
+
 	// Webapp routes - Telegram auth
 	app.route('/webapp', webappRoutes)
+
+	// Discovery endpoints for mobile (trending, gainers, new, search)
+	app.route('/v1/discover', discoverRoutes)
+
+	// Token price data for mobile
+	app.route('/v1/tokens', discoverRoutes)
+
+	// Wallet send for mobile
+	app.route('/v1/wallet', walletSendRoutes)
 
 	// Agent A2A API routes (v1/agent/*) - uses Bearer token auth internally
 	// Registration is public, other endpoints require Bearer token

@@ -362,6 +362,7 @@ async def post_init(application) -> None:
             BotCommand("p", "Portfolio overview"),
             BotCommand("a", "Price alerts"),
             BotCommand("o", "Limit orders & DCA"),
+            BotCommand("discover", "Discover trending tokens"),
             BotCommand("snipe", "Token sniping"),
             BotCommand("hx", "Transaction history"),
             BotCommand("g", "Gas tracker"),
