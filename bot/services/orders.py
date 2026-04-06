@@ -67,6 +67,8 @@ class OrderService:
             )
 
             if trailing_percent is not None:
+                if trailing_percent <= 0 or trailing_percent >= 100:
+                    raise ValueError(f"trailing_percent must be between 0 and 100, got {trailing_percent}")
                 order.trailing_percent = trailing_percent
                 order.peak_price = trigger_price  # Start peak at current price
 

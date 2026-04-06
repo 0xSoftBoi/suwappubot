@@ -8,6 +8,8 @@ from bot.services.token_discovery import discovery_service
 
 logger = logging.getLogger(__name__)
 
+_BACK_MENU = [InlineKeyboardButton("\u2b05\ufe0f Back", callback_data="discover_menu")]
+
 
 async def discover_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /discover command - show token discovery menu."""
@@ -49,12 +51,17 @@ async def discover_trending_callback(update: Update, context: ContextTypes.DEFAU
 
     await query.edit_message_text("\u23f3 Loading trending tokens...")
 
-    tokens = await discovery_service.get_trending(limit=10)
-    text = discovery_service.format_discovery_message(tokens, "\U0001f525 Trending Tokens")
+    try:
+        tokens = await discovery_service.get_trending(limit=10)
+        text = discovery_service.format_discovery_message(tokens, "\U0001f525 Trending Tokens")
 
-    keyboard = _build_token_keyboard(tokens)
-    keyboard.append([InlineKeyboardButton("\U0001f504 Refresh", callback_data="discover_trending")])
-    keyboard.append([InlineKeyboardButton("\u2b05\ufe0f Back", callback_data="discover_menu")])
+        keyboard = _build_token_keyboard(tokens)
+        keyboard.append([InlineKeyboardButton("\U0001f504 Refresh", callback_data="discover_trending")])
+        keyboard.append(_BACK_MENU)
+    except Exception as e:
+        logger.error(f"Failed to load trending: {e}")
+        text = "\u274c Failed to load trending tokens. Try again."
+        keyboard = [_BACK_MENU]
 
     await query.edit_message_text(
         text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
@@ -68,12 +75,17 @@ async def discover_gainers_callback(update: Update, context: ContextTypes.DEFAUL
 
     await query.edit_message_text("\u23f3 Loading top gainers...")
 
-    tokens = await discovery_service.get_top_gainers(limit=10)
-    text = discovery_service.format_discovery_message(tokens, "\U0001f4c8 Top Gainers (24h)")
+    try:
+        tokens = await discovery_service.get_top_gainers(limit=10)
+        text = discovery_service.format_discovery_message(tokens, "\U0001f4c8 Top Gainers (24h)")
 
-    keyboard = _build_token_keyboard(tokens)
-    keyboard.append([InlineKeyboardButton("\U0001f504 Refresh", callback_data="discover_gainers")])
-    keyboard.append([InlineKeyboardButton("\u2b05\ufe0f Back", callback_data="discover_menu")])
+        keyboard = _build_token_keyboard(tokens)
+        keyboard.append([InlineKeyboardButton("\U0001f504 Refresh", callback_data="discover_gainers")])
+        keyboard.append(_BACK_MENU)
+    except Exception as e:
+        logger.error(f"Failed to load gainers: {e}")
+        text = "\u274c Failed to load gainers. Try again."
+        keyboard = [_BACK_MENU]
 
     await query.edit_message_text(
         text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
@@ -87,12 +99,17 @@ async def discover_losers_callback(update: Update, context: ContextTypes.DEFAULT
 
     await query.edit_message_text("\u23f3 Loading top losers...")
 
-    tokens = await discovery_service.get_top_losers(limit=10)
-    text = discovery_service.format_discovery_message(tokens, "\U0001f4c9 Top Losers (24h)")
+    try:
+        tokens = await discovery_service.get_top_losers(limit=10)
+        text = discovery_service.format_discovery_message(tokens, "\U0001f4c9 Top Losers (24h)")
 
-    keyboard = _build_token_keyboard(tokens)
-    keyboard.append([InlineKeyboardButton("\U0001f504 Refresh", callback_data="discover_losers")])
-    keyboard.append([InlineKeyboardButton("\u2b05\ufe0f Back", callback_data="discover_menu")])
+        keyboard = _build_token_keyboard(tokens)
+        keyboard.append([InlineKeyboardButton("\U0001f504 Refresh", callback_data="discover_losers")])
+        keyboard.append(_BACK_MENU)
+    except Exception as e:
+        logger.error(f"Failed to load losers: {e}")
+        text = "\u274c Failed to load losers. Try again."
+        keyboard = [_BACK_MENU]
 
     await query.edit_message_text(
         text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
@@ -106,22 +123,17 @@ async def discover_new_pools_callback(update: Update, context: ContextTypes.DEFA
 
     await query.edit_message_text("\u23f3 Loading new pools...")
 
-    tokens = await discovery_service.get_new_pools(limit=10)
+    try:
+        tokens = await discovery_service.get_new_pools(limit=10)
+        text = discovery_service.format_discovery_message(tokens, "\U0001f195 New Pools")
 
-    if tokens:
-        lines = ["*\U0001f195 New Pools*\n"]
-        for i, t in enumerate(tokens, 1):
-            age = f"{t.age_hours:.0f}h" if t.age_hours else "new"
-            liq = f"${t.liquidity_usd:,.0f}" if t.liquidity_usd else "?"
-            lines.append(f"{i}. *{t.symbol}* - {t.name[:20]} ({age} old, {liq} liq)")
-        text = "\n".join(lines)
-    else:
-        text = "*\U0001f195 New Pools*\n\n_No recent launches detected._"
-
-    keyboard = [
-        [InlineKeyboardButton("\U0001f504 Refresh", callback_data="discover_new_pools")],
-        [InlineKeyboardButton("\u2b05\ufe0f Back", callback_data="discover_menu")],
-    ]
+        keyboard = []
+        keyboard.append([InlineKeyboardButton("\U0001f504 Refresh", callback_data="discover_new_pools")])
+        keyboard.append(_BACK_MENU)
+    except Exception as e:
+        logger.error(f"Failed to load new pools: {e}")
+        text = "\u274c Failed to load new pools. Try again."
+        keyboard = [_BACK_MENU]
 
     await query.edit_message_text(
         text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
@@ -135,12 +147,17 @@ async def discover_smart_money_callback(update: Update, context: ContextTypes.DE
 
     await query.edit_message_text("\u23f3 Loading smart money activity...")
 
-    tokens = await discovery_service.get_smart_money_buys(limit=10)
-    text = discovery_service.format_discovery_message(tokens, "\U0001f9e0 Smart Money Buys")
+    try:
+        tokens = await discovery_service.get_smart_money_buys(limit=10)
+        text = discovery_service.format_discovery_message(tokens, "\U0001f9e0 Smart Money Buys")
 
-    keyboard = _build_token_keyboard(tokens)
-    keyboard.append([InlineKeyboardButton("\U0001f504 Refresh", callback_data="discover_smart_money")])
-    keyboard.append([InlineKeyboardButton("\u2b05\ufe0f Back", callback_data="discover_menu")])
+        keyboard = _build_token_keyboard(tokens)
+        keyboard.append([InlineKeyboardButton("\U0001f504 Refresh", callback_data="discover_smart_money")])
+        keyboard.append(_BACK_MENU)
+    except Exception as e:
+        logger.error(f"Failed to load smart money: {e}")
+        text = "\u274c Failed to load smart money data. Try again."
+        keyboard = [_BACK_MENU]
 
     await query.edit_message_text(
         text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)

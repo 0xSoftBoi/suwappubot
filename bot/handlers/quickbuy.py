@@ -9,6 +9,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler
 
 from bot.models.user import User, Wallet
+from bot.models.favorites import UserSettings
 from bot.services.swap_engine import SwapEngine
 from bot.services.price_service import price_service
 from bot.services.token_security.goplus_service import goplus_service
@@ -127,8 +128,8 @@ async def quickbuy_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         try:
             report = await goplus_service.get_token_security(token_addr, chain)
             safety_text = f"\n{goplus_service.format_safety_badge(report)}"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"GoPlus security check failed for {token} on {chain}: {e}")
 
     text = (
         f"\u26a1 *Quick Buy ${token}*\n\n"
@@ -168,11 +169,13 @@ async def quickbuy_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not allowed:
         return
 
-    # Parse: qb_exec_solana_BONK_0.5
-    parts = query.data.replace("qb_exec_", "").split("_")
-    chain = parts[0]
-    token = parts[1]
-    amount = float(parts[2])
+    # Parse: qb_exec_solana_BONK_0.5 — rsplit to handle tokens with underscores
+    payload = query.data.replace("qb_exec_", "")
+    parts = payload.rsplit("_", 1)  # Split off amount from the right
+    amount = float(parts[1])
+    chain_token = parts[0].split("_", 1)  # Split chain from token
+    chain = chain_token[0]
+    token = chain_token[1]
 
     is_solana = chain == "solana"
     native = "SOL" if is_solana else "ETH"
@@ -201,6 +204,12 @@ async def quickbuy_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         wallet_address = wallet.address
         user_id = db_user.id
 
+        # Get user's slippage preference
+        user_settings = session.query(UserSettings).filter(
+            UserSettings.user_id == db_user.id
+        ).first()
+        slippage = (user_settings.default_slippage_bps / 100) if user_settings else 0.5
+
     await query.edit_message_text(
         f"\u23f3 Getting quote for {amount} {native} \u2192 {token} on {chain.title()}..."
     )
@@ -213,7 +222,7 @@ async def quickbuy_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             to_token=token,
             amount=amount,
             from_address=wallet_address,
-            slippage=0.5,
+            slippage=slippage,
         )
 
         to_amount = getattr(quote, "to_amount_human", 0)

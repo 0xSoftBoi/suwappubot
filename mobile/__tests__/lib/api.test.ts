@@ -13,14 +13,16 @@ jest.mock('../../lib/auth', () => ({
   getAuthToken: jest.fn().mockReturnValue('test-jwt-token'),
 }))
 
-// Import after mocks
-const { MobileApiClient } = require('../../lib/api')
+// Mock authEvents
+jest.mock('../../lib/authEvents', () => ({
+  authEvents: { emit: jest.fn() },
+}))
+
+// Import the singleton — only `api` is exported, not the class
+const { api } = require('../../lib/api')
 
 describe('MobileApiClient', () => {
-  let client: any
-
   beforeEach(() => {
-    client = new MobileApiClient()
     mockFetch.mockReset()
   })
 
@@ -31,7 +33,7 @@ describe('MobileApiClient', () => {
         json: async () => ({ txHash: '0xabc123', status: 'pending' }),
       } as Response)
 
-      const result = await client.sendTokens({
+      const result = await api.sendTokens({
         recipient: '0x1234567890abcdef1234567890abcdef12345678',
         token: 'ETH',
         amount: 1.5,
@@ -57,7 +59,7 @@ describe('MobileApiClient', () => {
         json: async () => mockTokens,
       } as Response)
 
-      const result = await client.getDiscoverTrending('solana', 10)
+      const result = await api.getDiscoverTrending('solana', 10)
 
       expect(result).toHaveLength(2)
       expect(result[0].symbol).toBe('BONK')
@@ -75,7 +77,7 @@ describe('MobileApiClient', () => {
         json: async () => mockPortfolio,
       } as Response)
 
-      const result = await client.getPortfolio()
+      const result = await api.getPortfolio()
 
       expect(result.totalValue).toBe(1500.0)
       expect(result.tokens).toHaveLength(1)
@@ -90,13 +92,13 @@ describe('MobileApiClient', () => {
         json: async () => ({ error: 'Unauthorized' }),
       } as Response)
 
-      await expect(client.getPortfolio()).rejects.toThrow()
+      await expect(api.getPortfolio()).rejects.toThrow()
     })
 
     it('handles network errors', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network error'))
 
-      await expect(client.getPortfolio()).rejects.toThrow('Network error')
+      await expect(api.getPortfolio()).rejects.toThrow('Network error')
     })
   })
 })

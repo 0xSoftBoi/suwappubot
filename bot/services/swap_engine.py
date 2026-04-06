@@ -613,7 +613,16 @@ class SwapEngine:
                         _user = _sess.query(_U).filter(_U.id == user_id).first()
                         if _user and getattr(_user, "mev_protection_enabled", True):
                             effective_provider = "jito"
-                            logger.info(f"MEV protection: upgrading jupiter→jito for user {user_id}")
+                            # Wrap the Jupiter raw_quote in the format _execute_jito_swap expects
+                            tip_priority = getattr(_user, "jito_tip_priority", "medium")
+                            from bot.services.jito_api import TipPriority
+                            tip_map = {"low": TipPriority.LOW.value, "medium": TipPriority.MEDIUM.value,
+                                       "high": TipPriority.HIGH.value, "urgent": TipPriority.URGENT.value}
+                            quote.raw_quote = {
+                                "jupiter_quote": quote.raw_quote,
+                                "jito_tip": tip_map.get(tip_priority, TipPriority.MEDIUM.value),
+                            }
+                            logger.info(f"MEV protection: upgrading jupiter→jito for user {user_id} (tip={tip_priority})")
                 except Exception as _e:
                     logger.debug(f"MEV check failed, using default provider: {_e}")
 

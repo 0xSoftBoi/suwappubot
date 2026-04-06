@@ -161,9 +161,9 @@ class GoPlusService:
 
         await api_limiter.acquire("goplus")
 
-        async with get_session() as session:
-            resp = await session.get(url, params=params)
-            data = resp.json()
+        session = await get_session()
+        async with session.get(url, params=params) as resp:
+            data = await resp.json()
 
         if data.get("code") != 1 or not data.get("result"):
             return self._unknown_report(token_address, chain)
@@ -182,9 +182,9 @@ class GoPlusService:
 
         await api_limiter.acquire("goplus")
 
-        async with get_session() as session:
-            resp = await session.get(url, params=params)
-            data = resp.json()
+        session = await get_session()
+        async with session.get(url, params=params) as resp:
+            data = await resp.json()
 
         if data.get("code") != 1 or not data.get("result"):
             return self._unknown_report(token_address, "solana")
