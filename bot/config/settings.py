@@ -13,7 +13,10 @@ class Settings(BaseSettings):
     use_webhook: bool = Field(default=False, description="Use webhooks instead of polling (required for multiple replicas)")
     webhook_url: Optional[str] = Field(default=None, description="Public URL for Telegram webhook (e.g., https://api.example.com/telegram/webhook)")
     webhook_secret_token: Optional[str] = Field(default=None, description="Secret token for webhook verification")
-    
+
+    # Background Services Control
+    enable_background_services: bool = Field(default=True, description="Enable background services (fee sweeper, alerts, orders, tx poller, balance refresher). Set to false for API-only mode.")
+
     # Database
     database_url: str = Field(default="sqlite:///bot.db", description="Database connection URL")
     

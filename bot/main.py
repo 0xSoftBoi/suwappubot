@@ -388,46 +388,50 @@ async def post_init(application) -> None:
     
     # Get admin IDs from settings
     admin_ids = getattr(settings, 'admin_ids', [])
-    
-    # Start fee sweeper
-    await fee_sweeper.start()
-    logger.info("✓ Fee sweeper started")
-    
-    # Start price alert service
-    await alert_service.start(bot=application.bot)
-    logger.info("✓ Price alert service started")
-    
-    # Start order service (limit orders & DCA)
-    await order_service.start(bot=application.bot)
-    logger.info("✓ Order service started")
-    
-    # Start transaction poller
-    await tx_poller.start(bot=application.bot)
-    logger.info("✓ Transaction poller started")
-    
-    # Start health monitor
-    await health_monitor.start(bot=application.bot, admin_ids=admin_ids)
-    logger.info("✓ Health monitor started")
 
-    # Start token launch detector for sniping
-    await launch_detector.start()
-    logger.info("✓ Token launch detector started")
-    
-    # Start rug protection service
-    await rug_service.start(swap_engine=SwapEngine())
-    logger.info("✓ Rug protection service started")
+    if not settings.enable_background_services:
+        logger.info("⏭️ Background services DISABLED via ENABLE_BACKGROUND_SERVICES=false")
+    else:
+        # Start fee sweeper
+        await fee_sweeper.start()
+        logger.info("✓ Fee sweeper started")
+
+        # Start price alert service
+        await alert_service.start(bot=application.bot)
+        logger.info("✓ Price alert service started")
+
+        # Start order service (limit orders & DCA)
+        await order_service.start(bot=application.bot)
+        logger.info("✓ Order service started")
+
+        # Start transaction poller
+        await tx_poller.start(bot=application.bot)
+        logger.info("✓ Transaction poller started")
+
+        # Start health monitor
+        await health_monitor.start(bot=application.bot, admin_ids=admin_ids)
+        logger.info("✓ Health monitor started")
+
+        # Start token launch detector for sniping
+        await launch_detector.start()
+        logger.info("✓ Token launch detector started")
+
+        # Start rug protection service
+        await rug_service.start(swap_engine=SwapEngine())
+        logger.info("✓ Rug protection service started")
 
 
 async def post_shutdown(application) -> None:
     """Called when the application shuts down."""
     logger.info("Stopping background services...")
 
-    await fee_sweeper.stop()
-    await alert_service.stop()
-    await order_service.stop()
-    await tx_poller.stop()
-    await health_monitor.stop()
-    await launch_detector.stop()
+    if settings.enable_background_services:
+        await fee_sweeper.stop()
+        await alert_service.stop()
+        await order_service.stop()
+        await tx_poller.stop()
+        await health_monitor.stop()
+        await launch_detector.stop()
     
     logger.info("Closing HTTP session pool...")
     await close_http_session()
