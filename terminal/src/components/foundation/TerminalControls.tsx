@@ -137,7 +137,7 @@ export function TerminalSegmentedTabs({
   onChange: (id: string) => void;
 }) {
   return (
-    <div className="terminal-theme-inset inline-flex flex-wrap gap-0.5 p-0.5">
+    <div className="terminal-theme-inset inline-flex flex-wrap items-stretch gap-0.5 p-0.5">
       {options.map((option) => {
         const active = option.id === activeId;
 
@@ -146,15 +146,17 @@ export function TerminalSegmentedTabs({
             key={option.id}
             onClick={() => onChange(option.id)}
             className={joinClasses(
-              "rounded-[var(--terminal-radius-card)] px-2.5 py-1 text-left transition-colors",
+              "terminal-theme-control min-h-[36px] rounded-[var(--terminal-radius-card)] px-2.5 py-1 text-left transition-colors hover:translate-y-0 focus:translate-y-0",
               active
-                ? "terminal-theme-control terminal-theme-control-active text-terminal-text"
-                : "text-terminal-text-secondary hover:bg-white/70 hover:text-terminal-text",
+                ? "terminal-theme-control-active text-terminal-text"
+                : "text-terminal-text-secondary hover:text-terminal-text",
             )}
           >
-            <div className="text-[13px] font-medium">{option.label}</div>
+            <div className="text-[13px] font-medium leading-[1.05]">
+              {option.label}
+            </div>
             {option.meta ? (
-              <div className="terminal-theme-caption text-[9px] uppercase opacity-70">
+              <div className="terminal-theme-caption mt-0.5 text-[9px] uppercase leading-none opacity-70">
                 {option.meta}
               </div>
             ) : null}
