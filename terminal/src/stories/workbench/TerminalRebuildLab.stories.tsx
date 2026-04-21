@@ -63,13 +63,26 @@ function MarketTab({
         meta={`${interval} / ${chartType}`}
       >
         <div className="grid gap-3">
-          <div className="overflow-hidden rounded-[22px] border border-[#2A232A] bg-[#151217]">
+          <div className="terminal-theme-card p-[var(--terminal-space-card)]">
             <ChartToolbar
               interval={interval}
               onIntervalChange={onIntervalChange}
               chartType={chartType}
               onChartTypeChange={onChartTypeChange}
             />
+            <div className="terminal-theme-inset mt-2 flex h-36 items-center justify-center text-center">
+              <div>
+                <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
+                  Preview state
+                </div>
+                <div className="mt-2 font-mono text-xl text-terminal-text">
+                  {interval} / {chartType}
+                </div>
+                <div className="mt-1 text-[11px] text-terminal-text-secondary">
+                  Tight, provider-free control rail.
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="terminal-theme-inset p-[var(--terminal-space-inset)]">
@@ -108,7 +121,7 @@ function CopilotTab({
   return (
     <div className="grid gap-3 xl:grid-cols-[1.08fr_0.92fr]">
       <SummerBreezeSurface title="Conversation" meta="assistant + portfolio">
-        <div className="rounded-[22px] border border-[#2A232A] bg-[#151217] p-3">
+        <div className="terminal-theme-inset p-[var(--terminal-space-inset)]">
           <ChatMessage
             role="assistant"
             type="quote"
@@ -128,7 +141,7 @@ function CopilotTab({
 
       <SummerBreezeSurface title="Command pack" meta="prompt testing">
         <div className="grid gap-3">
-          <div className="rounded-[22px] border border-[#2A232A] bg-[#151217] p-2">
+          <div className="terminal-theme-inset p-[var(--terminal-space-inset)]">
             <SuggestedCommands onSelect={onSelectCommand} />
           </div>
           <div

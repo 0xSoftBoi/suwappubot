@@ -1,25 +1,38 @@
 interface PortfolioSummaryProps {
-  data: Record<string, unknown>
+  data: Record<string, unknown>;
 }
 
 export function PortfolioSummary({ data }: PortfolioSummaryProps) {
-  const totalUsdValue = (data.totalUsdValue as number) || 0
-  const tokens = (data.tokens as Array<{ symbol: string; balance: string; usdValue: number }>) || []
-  const top5 = tokens.slice(0, 5)
+  const totalUsdValue = (data.totalUsdValue as number) || 0;
+  const tokens =
+    (data.tokens as Array<{
+      symbol: string;
+      balance: string;
+      usdValue: number;
+    }>) || [];
+  const top5 = tokens.slice(0, 5);
 
   return (
-    <div className="rounded border border-terminal-border bg-terminal-bg-secondary p-3 text-xs space-y-2">
+    <div className="terminal-theme-inset space-y-2 p-[var(--terminal-space-inset)] text-[11px]">
       <div className="flex justify-between items-center">
-        <span className="text-terminal-text-muted">Total Value</span>
+        <span className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
+          Total Value
+        </span>
         <span className="text-terminal-text font-semibold text-sm">
-          {totalUsdValue.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
+          {totalUsdValue.toLocaleString("en-US", {
+            style: "currency",
+            currency: "USD",
+          })}
         </span>
       </div>
 
       {top5.length > 0 && (
-        <div className="border-t border-terminal-border pt-2 space-y-1">
+        <div className="space-y-1 border-t border-terminal-border pt-2">
           {top5.map((token) => (
-            <div key={token.symbol} className="flex justify-between text-terminal-text-secondary">
+            <div
+              key={token.symbol}
+              className="flex justify-between text-terminal-text-secondary"
+            >
               <span className="text-terminal-text">{token.symbol}</span>
               <div className="flex gap-3">
                 <span>{token.balance}</span>
@@ -32,5 +45,5 @@ export function PortfolioSummary({ data }: PortfolioSummaryProps) {
         </div>
       )}
     </div>
-  )
+  );
 }

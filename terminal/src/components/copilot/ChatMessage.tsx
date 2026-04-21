@@ -1,49 +1,65 @@
-import { QuoteCard } from './QuoteCard'
-import { PortfolioSummary } from './PortfolioSummary'
+import { QuoteCard } from "./QuoteCard";
+import { PortfolioSummary } from "./PortfolioSummary";
 
-export interface ChatMessageProps {
-  role: 'user' | 'assistant'
-  content: string
-  type: 'text' | 'quote' | 'portfolio' | 'error'
-  data?: Record<string, unknown>
-  timestamp: number
+function joinClasses(...values: Array<string | false | null | undefined>) {
+  return values.filter(Boolean).join(" ");
 }
 
-export function ChatMessage({ role, content, type, data, timestamp }: ChatMessageProps) {
-  const isUser = role === 'user'
-  const time = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+export interface ChatMessageProps {
+  role: "user" | "assistant";
+  content: string;
+  type: "text" | "quote" | "portfolio" | "error";
+  data?: Record<string, unknown>;
+  timestamp: number;
+}
+
+export function ChatMessage({
+  role,
+  content,
+  type,
+  data,
+  timestamp,
+}: ChatMessageProps) {
+  const isUser = role === "user";
+  const time = new Date(timestamp).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-3`}>
+    <div className={`mb-2.5 flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[85%] rounded-lg px-3 py-2 ${
+        className={joinClasses(
+          "max-w-[85%] px-3 py-2",
           isUser
-            ? 'bg-sakura-900/20 border border-sakura-800/30'
-            : 'bg-terminal-bg-tertiary border border-terminal-border'
-        }`}
+            ? "terminal-theme-card border-[#E9D8B8] bg-[linear-gradient(180deg,rgba(255,249,239,0.98)_0%,rgba(255,244,228,0.96)_100%)]"
+            : "terminal-theme-card",
+        )}
       >
-        {type === 'error' ? (
+        {type === "error" ? (
           <p className="text-sm text-red-400 whitespace-pre-wrap">{content}</p>
         ) : (
-          <p className="text-sm text-terminal-text whitespace-pre-wrap">{content}</p>
+          <p className="text-sm text-terminal-text whitespace-pre-wrap">
+            {content}
+          </p>
         )}
 
-        {type === 'quote' && data && (
+        {type === "quote" && data && (
           <div className="mt-2">
             <QuoteCard data={data} />
           </div>
         )}
 
-        {type === 'portfolio' && data && (
+        {type === "portfolio" && data && (
           <div className="mt-2">
             <PortfolioSummary data={data} />
           </div>
         )}
 
-        <span className="block text-[10px] text-terminal-text-muted mt-1 select-none">
+        <span className="mt-1 block select-none text-[10px] text-terminal-text-muted">
           {time}
         </span>
       </div>
     </div>
-  )
+  );
 }

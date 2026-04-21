@@ -1,53 +1,63 @@
-import { useState } from 'react'
-import type { Meta, StoryObj } from '@storybook/react'
-import { ChatMessage } from '../../components/copilot/ChatMessage'
-import { SuggestedCommands } from '../../components/copilot/SuggestedCommands'
-import { SummerBreezeStoryFrame, SummerBreezeSurface } from '../_components/SummerBreezeStoryFrame'
-import { copilotQuoteCardData, portfolioSummaryData } from '../_fixtures/terminal'
+import { useState } from "react";
+import type { Meta, StoryObj } from "@storybook/react";
+import { ChatMessage } from "../../components/copilot/ChatMessage";
+import { SuggestedCommands } from "../../components/copilot/SuggestedCommands";
+import {
+  SummerBreezeStoryFrame,
+  SummerBreezeSurface,
+} from "../_components/SummerBreezeStoryFrame";
+import {
+  copilotQuoteCardData,
+  portfolioSummaryData,
+} from "../_fixtures/terminal";
 
-type Focus = 'quote' | 'portfolio' | 'mixed'
+type Focus = "quote" | "portfolio" | "mixed";
 
 function messagesForFocus(focus: Focus) {
   const base = [
     {
-      role: 'user' as const,
-      type: 'text' as const,
-      content: 'Route 0.75 ETH into USDC with low slippage.',
+      role: "user" as const,
+      type: "text" as const,
+      content: "Route 0.75 ETH into USDC with low slippage.",
       timestamp: Date.now() - 1000 * 60 * 4,
     },
     {
-      role: 'assistant' as const,
-      type: 'quote' as const,
-      content: 'Best route found through the terminal stack. Execution quality looks clean.',
+      role: "assistant" as const,
+      type: "quote" as const,
+      content:
+        "Best route found through the terminal stack. Execution quality looks clean.",
       data: copilotQuoteCardData,
       timestamp: Date.now() - 1000 * 60 * 3,
     },
-  ]
+  ];
 
-  if (focus === 'quote') return base
+  if (focus === "quote") return base;
 
   const portfolioMessages = [
     {
-      role: 'user' as const,
-      type: 'text' as const,
-      content: 'Show my portfolio concentration.',
+      role: "user" as const,
+      type: "text" as const,
+      content: "Show my portfolio concentration.",
       timestamp: Date.now() - 1000 * 60 * 2,
     },
     {
-      role: 'assistant' as const,
-      type: 'portfolio' as const,
-      content: 'Your wallet is still ETH-heavy, with stablecoin depth available for routing and alerts.',
+      role: "assistant" as const,
+      type: "portfolio" as const,
+      content:
+        "Your wallet is still ETH-heavy, with stablecoin depth available for routing and alerts.",
       data: portfolioSummaryData,
       timestamp: Date.now() - 1000 * 60,
     },
-  ]
+  ];
 
-  return focus === 'portfolio' ? portfolioMessages : [...base, ...portfolioMessages]
+  return focus === "portfolio"
+    ? portfolioMessages
+    : [...base, ...portfolioMessages];
 }
 
 function ConversationBoard({ focus }: { focus: Focus }) {
-  const [selectedCommand, setSelectedCommand] = useState<string | null>(null)
-  const messages = messagesForFocus(focus)
+  const [selectedCommand, setSelectedCommand] = useState<string | null>(null);
+  const messages = messagesForFocus(focus);
 
   return (
     <SummerBreezeStoryFrame
@@ -63,7 +73,7 @@ function ConversationBoard({ focus }: { focus: Focus }) {
           description="A mixed feed of user prompts, quote responses, and portfolio summaries."
           meta={`${messages.length} messages`}
         >
-          <div className="rounded-[24px] border border-[#2A232A] bg-[#151217] p-3">
+          <div className="terminal-theme-inset p-[var(--terminal-space-inset)]">
             {messages.map((message, index) => (
               <ChatMessage
                 key={`${message.role}-${message.type}-${index}`}
@@ -80,45 +90,45 @@ function ConversationBoard({ focus }: { focus: Focus }) {
         <SummerBreezeSurface
           title="Prompt starters"
           description="Tap a command to preview which shortcut language feels right."
-          meta={selectedCommand ? 'selected' : 'idle'}
+          meta={selectedCommand ? "selected" : "idle"}
         >
-          <div className="rounded-[24px] border border-[#2A232A] bg-[#151217] p-2">
+          <div className="terminal-theme-inset p-[var(--terminal-space-inset)]">
             <SuggestedCommands onSelect={setSelectedCommand} />
           </div>
           <div className="mt-3 rounded-2xl border border-[#ECE0CB] bg-[#FFF9F0] px-3 py-2 text-xs text-[#6E5B49]">
             {selectedCommand
               ? `Selected: ${selectedCommand}`
-              : 'Choose a suggestion to test the command vocabulary in Storybook.'}
+              : "Choose a suggestion to test the command vocabulary in Storybook."}
           </div>
         </SummerBreezeSurface>
       </div>
     </SummerBreezeStoryFrame>
-  )
+  );
 }
 
 const meta = {
-  title: 'Organisms/Copilot Conversation',
-  tags: ['autodocs'],
+  title: "Organisms/Copilot Conversation",
+  tags: ["autodocs"],
   args: {
-    focus: 'mixed' as Focus,
+    focus: "mixed" as Focus,
   },
   render: ({ focus }) => <ConversationBoard focus={focus} />,
-} satisfies Meta<{ focus: Focus }>
+} satisfies Meta<{ focus: Focus }>;
 
-export default meta
+export default meta;
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<typeof meta>;
 
-export const Mixed: Story = {}
+export const Mixed: Story = {};
 
 export const QuoteAssist: Story = {
   args: {
-    focus: 'quote',
+    focus: "quote",
   },
-}
+};
 
 export const PortfolioAssist: Story = {
   args: {
-    focus: 'portfolio',
+    focus: "portfolio",
   },
-}
+};
