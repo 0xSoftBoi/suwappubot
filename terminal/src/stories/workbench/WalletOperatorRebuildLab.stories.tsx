@@ -1,11 +1,13 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
+import { TerminalKeyValueRow } from "../../components/foundation/TerminalDataDisplay";
 import {
   TerminalMetricCard,
   TerminalPage,
   TerminalPanel,
   TerminalPanelHeader,
   TerminalStatusPill,
+  TerminalInset,
 } from "../../components/foundation/TerminalPrimitives";
 import {
   TerminalWalletOperatorSurface,
@@ -18,7 +20,7 @@ import {
   walletStatsMap,
 } from "../_fixtures/terminal";
 
-function WalletTrackingDesk() {
+function WalletOperatorLab() {
   const [mode, setMode] = useState<TerminalWalletOperatorMode>("focused");
   const [query, setQuery] = useState("");
   const [selectedAddress, setSelectedAddress] = useState(trackedWallet.address);
@@ -32,8 +34,8 @@ function WalletTrackingDesk() {
             eyebrow={
               <TerminalStatusPill tone="warm">wallet slice</TerminalStatusPill>
             }
-            title="Terminal wallet operator surface"
-            description="A provider-free rebuild of wallet selection, holdings posture, and activity tape on the shared terminal theme layer."
+            title="Provider-free wallet operator rebuild lab"
+            description="This is the wallet slice rebuilt on the shared theme layer. It is where we tighten selection density, holdings posture, and activity flow before touching the live tracker panel."
             meta={
               <TerminalMetricCard
                 label="Mode"
@@ -43,7 +45,34 @@ function WalletTrackingDesk() {
             }
           />
 
-          <div className="grid gap-4">
+          <div className="grid gap-4 xl:grid-cols-[0.82fr_1.18fr]">
+            <TerminalInset className="grid gap-2 self-start">
+              <div className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
+                Port notes
+              </div>
+              <TerminalKeyValueRow
+                label="Replace first"
+                value="WalletTrackerPanel shell"
+                detail="The live panel should reuse this presentation layer instead of the old split list/profile layout."
+              />
+              <TerminalKeyValueRow
+                label="Keep isolated"
+                value="selection + query"
+                detail="Storybook should continue owning wallet selection and filtering state during visual iteration."
+              />
+              <TerminalKeyValueRow
+                label="Most important shift"
+                value="one operator desk"
+                detail="Wallet queue, posture, and tape belong in one tabbed lane instead of a nested dark subsystem."
+              />
+              <TerminalMetricCard
+                label="Last action"
+                value={lastAction}
+                detail="Test action wording here before wiring it to live routes or copilot."
+                tone="sky"
+              />
+            </TerminalInset>
+
             <TerminalWalletOperatorSurface
               wallets={trackedWallets}
               statsMap={walletStatsMap}
@@ -63,26 +92,6 @@ function WalletTrackingDesk() {
                 setLastAction(`open tape for ${wallet.label || wallet.address}`)
               }
             />
-
-            <div className="grid gap-3 md:grid-cols-3">
-              <TerminalMetricCard
-                label="What changed"
-                value="list + profile + tape"
-                detail="The wallet slice now composes selection, posture, and activity as one desk."
-              />
-              <TerminalMetricCard
-                label="Port target"
-                value="WalletTrackerPanel shell"
-                detail="Back-port this surface after the live hooks are separated from presentation."
-                tone="warm"
-              />
-              <TerminalMetricCard
-                label="Last action"
-                value={lastAction}
-                detail="Useful for tightening wallet action language before wiring to the live app."
-                tone="sky"
-              />
-            </div>
           </div>
         </TerminalPanel>
       </div>
@@ -91,12 +100,11 @@ function WalletTrackingDesk() {
 }
 
 const meta = {
-  title: "Organisms/Wallet Tracking Desk",
-  tags: ["autodocs"],
+  title: "Workbench/Wallet Operator Rebuild Lab",
   parameters: {
     layout: "fullscreen",
   },
-  render: () => <WalletTrackingDesk />,
+  render: () => <WalletOperatorLab />,
 } satisfies Meta;
 
 export default meta;
