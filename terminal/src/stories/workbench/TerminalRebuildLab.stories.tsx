@@ -169,7 +169,7 @@ function TerminalRebuildLab({ mode }: { mode: LabMode }) {
     <SummerBreezeStoryFrame
       eyebrow="Terminal workbench"
       title="Terminal rebuild lab"
-      description="Provider-free tabs for the slices that matter. Pick a lane and work it without the full app shell."
+      description="Tab through market, execution, wallet, and copilot without the full app shell."
       metricLabel="Tab"
       metricValue={activeTab}
     >
@@ -216,23 +216,37 @@ function TerminalRebuildLab({ mode }: { mode: LabMode }) {
               </div>
             </SummerBreezeSurface>
 
-            <SummerBreezeSurface
-              title="Execution direction"
-              meta="keep this dense"
-            >
+            <SummerBreezeSurface title="Execution state" meta="route + risk">
               <div className="terminal-theme-card p-[var(--terminal-space-inset)]">
-                <div className="mb-3 flex flex-wrap items-center gap-2">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <TierBadge tier="Gold" points={12840} />
                   <TrustScoreBadge score={91} level="safe" />
                   <SecurityBadge security={safeSecurity} compact />
                 </div>
-                <div className="grid gap-2 text-sm text-[#6F604D]">
-                  <div>
-                    Tabs should switch between live execution lanes, not between
-                    filler cards.
+                <div className="grid gap-2 md:grid-cols-3">
+                  <div className="terminal-theme-card px-[var(--terminal-space-card)] py-[var(--terminal-space-card)]">
+                    <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
+                      Intent
+                    </div>
+                    <div className="mt-0.5 text-[13px] font-semibold text-terminal-text">
+                      {orderTab}
+                    </div>
                   </div>
-                  <div>
-                    Swap, limit, and DCA belong under one desk shell with direct
-                    state transitions.
+                  <div className="terminal-theme-card px-[var(--terminal-space-card)] py-[var(--terminal-space-card)]">
+                    <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
+                      Slippage
+                    </div>
+                    <div className="mt-0.5 text-[13px] font-semibold text-terminal-text">
+                      {slippage.toFixed(2)}%
+                    </div>
+                  </div>
+                  <div className="terminal-theme-card px-[var(--terminal-space-card)] py-[var(--terminal-space-card)]">
+                    <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
+                      Route
+                    </div>
+                    <div className="mt-0.5 text-[13px] font-semibold text-terminal-text">
+                      clean
+                    </div>
                   </div>
                 </div>
               </div>

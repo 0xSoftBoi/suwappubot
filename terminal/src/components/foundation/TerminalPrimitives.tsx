@@ -31,7 +31,7 @@ export function TerminalEyebrow({
   return (
     <span
       className={joinClasses(
-        "terminal-theme-pill terminal-theme-caption inline-flex border px-3 py-1 text-[10px] uppercase",
+        "terminal-theme-pill terminal-theme-caption inline-flex border px-2.5 py-0.5 text-[9px] uppercase",
         toneClasses[tone],
       )}
     >
@@ -96,11 +96,11 @@ export function TerminalPanelHeader({
     <div className="mb-[var(--terminal-space-section)] flex items-start justify-between gap-3">
       <div className="max-w-3xl">
         {eyebrow ? <div className="mb-2">{eyebrow}</div> : null}
-        <h2 className="terminal-theme-heading text-[clamp(1.65rem,2vw,2.1rem)] font-semibold text-terminal-text">
+        <h2 className="terminal-theme-heading text-[clamp(1.35rem,1.7vw,1.75rem)] font-semibold text-terminal-text">
           {title}
         </h2>
         {description ? (
-          <p className="mt-1.5 max-w-[62ch] text-sm leading-6 text-terminal-text-secondary">
+          <p className="mt-1 max-w-[62ch] text-[13px] leading-5 text-terminal-text-secondary">
             {description}
           </p>
         ) : null}
@@ -131,11 +131,11 @@ export function TerminalMetricCard({
       <div className="terminal-theme-caption text-[10px] uppercase">
         {label}
       </div>
-      <div className="mt-1 text-[15px] font-semibold text-terminal-text">
+      <div className="mt-0.5 text-[14px] font-semibold text-terminal-text">
         {value}
       </div>
       {detail ? (
-        <div className="mt-1 text-xs text-terminal-text-secondary">
+        <div className="mt-0.5 text-[11px] leading-4 text-terminal-text-secondary">
           {detail}
         </div>
       ) : null}
@@ -153,7 +153,7 @@ export function TerminalStatusPill({
   return (
     <span
       className={joinClasses(
-        "terminal-theme-pill terminal-theme-caption inline-flex items-center border px-2.5 py-1 text-[10px] uppercase",
+        "terminal-theme-pill terminal-theme-caption inline-flex items-center border px-2.5 py-0.5 text-[9px] uppercase",
         toneClasses[tone],
       )}
     >
@@ -176,9 +176,9 @@ export function TerminalEmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="terminal-theme-inset flex min-h-[160px] flex-col items-center justify-center border-dashed px-[var(--terminal-space-panel)] text-center">
+    <div className="terminal-theme-inset flex min-h-[128px] flex-col items-center justify-center border-dashed px-[var(--terminal-space-panel)] text-center">
       <div className="text-base font-semibold text-terminal-text">{title}</div>
-      <p className="mt-2 max-w-md text-sm leading-6 text-terminal-text-secondary">
+      <p className="mt-1.5 max-w-md text-[13px] leading-5 text-terminal-text-secondary">
         {description}
       </p>
       {action ? <div className="mt-4">{action}</div> : null}

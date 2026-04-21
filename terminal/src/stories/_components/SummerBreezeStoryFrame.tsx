@@ -24,15 +24,15 @@ export function SummerBreezeStoryFrame({
       <div className="pointer-events-none absolute bottom-[-80px] left-1/3 h-44 w-44 rounded-full bg-[radial-gradient(circle,rgba(244,201,99,0.24)_0%,rgba(244,201,99,0)_74%)] blur-3xl" />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#E9D2A5] to-transparent" />
 
-      <div className="relative z-10 mb-[var(--terminal-space-section)] flex items-end justify-between gap-3">
+      <div className="relative z-10 mb-[var(--terminal-space-section)] flex items-end justify-between gap-2.5">
         <div className="max-w-3xl">
-          <div className="terminal-theme-pill terminal-theme-caption inline-flex border border-[#E8D8B8] bg-white/90 px-3 py-1 text-[10px] uppercase text-[#8F7652]">
+          <div className="terminal-theme-pill terminal-theme-caption inline-flex border border-[#E8D8B8] bg-white/90 px-2.5 py-0.5 text-[9px] uppercase text-[#8F7652]">
             {eyebrow}
           </div>
-          <h2 className="terminal-theme-heading mt-2.5 text-[clamp(1.7rem,2vw,2.25rem)] font-semibold text-[#2D211A]">
+          <h2 className="terminal-theme-heading mt-2 text-[clamp(1.45rem,1.8vw,1.9rem)] font-semibold text-[#2D211A]">
             {title}
           </h2>
-          <p className="mt-1.5 max-w-[62ch] text-sm leading-6 text-[#6F604D]">
+          <p className="mt-1 max-w-[62ch] text-[13px] leading-5 text-[#6F604D]">
             {description}
           </p>
         </div>
@@ -41,7 +41,7 @@ export function SummerBreezeStoryFrame({
             <div className="terminal-theme-caption uppercase">
               {metricLabel}
             </div>
-            <div className="mt-1 text-sm font-semibold text-[#3A281D]">
+            <div className="mt-0.5 text-[13px] font-semibold text-[#3A281D]">
               {metricValue}
             </div>
           </div>
@@ -68,19 +68,19 @@ export function SummerBreezeSurface({
 }: SummerBreezeSurfaceProps) {
   return (
     <section className="terminal-theme-card p-[var(--terminal-space-panel)]">
-      <div className="mb-[var(--terminal-space-section)] flex items-start justify-between gap-3">
+      <div className="mb-[var(--terminal-space-section)] flex items-start justify-between gap-2.5">
         <div>
-          <h3 className="terminal-theme-heading text-sm font-semibold text-[#302219]">
+          <h3 className="terminal-theme-heading text-[13px] font-semibold text-[#302219]">
             {title}
           </h3>
           {description ? (
-            <p className="mt-1 text-xs leading-5 text-[#85705A]">
+            <p className="mt-0.5 text-[11px] leading-4 text-[#85705A]">
               {description}
             </p>
           ) : null}
         </div>
         {meta ? (
-          <span className="terminal-theme-pill terminal-theme-caption border border-[#ECE0CB] bg-[#FFF9F0] px-2.5 py-1 text-[10px] uppercase text-[#8B775F]">
+          <span className="terminal-theme-pill terminal-theme-caption border border-[#ECE0CB] bg-[#FFF9F0] px-2.5 py-0.5 text-[9px] uppercase text-[#8B775F]">
             {meta}
           </span>
         ) : null}

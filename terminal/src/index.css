@@ -272,7 +272,7 @@
   }
 
   .terminal-input {
-    @apply bg-white border border-terminal-border px-3 py-2
+    @apply bg-white border border-terminal-border px-2.5 py-1.5
            text-terminal-text placeholder-terminal-text-muted
            focus:outline-none focus:border-sakura-600 transition-colors;
     border-radius: var(--terminal-radius-control);
@@ -281,7 +281,7 @@
   }
 
   .terminal-button {
-    @apply px-4 py-2 font-medium transition-all duration-150
+    @apply px-3 py-1.5 font-medium transition-all duration-150
            text-white
            active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
     border-radius: var(--terminal-radius-control);
@@ -295,7 +295,7 @@
   }
 
   .terminal-button-secondary {
-    @apply px-4 py-2 font-medium transition-all duration-150
+    @apply px-3 py-1.5 font-medium transition-all duration-150
            bg-terminal-bg-secondary text-terminal-text border border-terminal-border
            hover:border-terminal-border-active hover:bg-white
            active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
@@ -305,7 +305,7 @@
   }
 
   .terminal-tab {
-    @apply px-3 py-1.5 text-sm font-medium text-terminal-text-secondary
+    @apply px-2.5 py-1 text-[13px] font-medium text-terminal-text-secondary
            hover:text-terminal-text transition-colors cursor-pointer
            border-b-2 border-transparent;
   }

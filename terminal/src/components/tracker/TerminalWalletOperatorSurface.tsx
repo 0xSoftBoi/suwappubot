@@ -139,14 +139,14 @@ export function TerminalWalletOperatorSurface({
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[0.78fr_1.22fr]">
-      <TerminalInset className="grid gap-3 self-start">
-        <div className="flex items-start justify-between gap-3">
+    <div className="grid gap-3 xl:grid-cols-[0.82fr_1.18fr]">
+      <TerminalInset className="grid gap-2.5 self-start">
+        <div className="flex items-start justify-between gap-2.5">
           <div>
-            <div className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
+            <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
               Wallet queue
             </div>
-            <div className="mt-1 text-sm font-semibold text-terminal-text">
+            <div className="mt-0.5 text-[13px] font-semibold text-terminal-text">
               Operator shortlist
             </div>
           </div>
@@ -189,21 +189,21 @@ export function TerminalWalletOperatorSurface({
                       : "hover:border-terminal-border-active hover:[box-shadow:var(--terminal-shadow-raised)]",
                   )}
                 >
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start justify-between gap-2.5">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-terminal-text">
+                      <div className="truncate text-[13px] font-semibold text-terminal-text">
                         {wallet.label || truncateAddress(wallet.address)}
                       </div>
-                      <div className="mt-1 font-mono text-[11px] text-terminal-text-muted">
+                      <div className="mt-0.5 font-mono text-[10px] text-terminal-text-muted">
                         {truncateAddress(wallet.address)}
                       </div>
                     </div>
                     <TerminalChainBadge chain={wallet.chain} />
                   </div>
 
-                  <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-[10px]">
                     <div>
-                      <div className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
+                      <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
                         7d
                       </div>
                       <div
@@ -216,7 +216,7 @@ export function TerminalWalletOperatorSurface({
                       </div>
                     </div>
                     <div>
-                      <div className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
+                      <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
                         Win
                       </div>
                       <div className="mt-1 font-mono font-semibold text-terminal-text">
@@ -224,7 +224,7 @@ export function TerminalWalletOperatorSurface({
                       </div>
                     </div>
                     <div>
-                      <div className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
+                      <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
                         Trades
                       </div>
                       <div className="mt-1 font-mono font-semibold text-terminal-text">
@@ -244,23 +244,23 @@ export function TerminalWalletOperatorSurface({
         </div>
       </TerminalInset>
 
-      <div className="grid gap-4">
-        <TerminalInset className="grid gap-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="grid gap-3">
+        <TerminalInset className="grid gap-3">
+          <div className="flex flex-wrap items-start justify-between gap-2.5">
             <div className="max-w-3xl">
-              <div className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
+              <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
                 Wallet operator
               </div>
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <h3 className="terminal-theme-heading text-2xl font-semibold text-terminal-text">
+              <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                <h3 className="terminal-theme-heading text-[1.35rem] font-semibold text-terminal-text">
                   {selectedWallet.label || "Selected wallet"}
                 </h3>
                 <TerminalChainBadge chain={selectedWallet.chain} />
-                <span className="terminal-theme-japanese terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
+                <span className="terminal-theme-japanese terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
                   監視中
                 </span>
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-terminal-text-secondary">
+              <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-terminal-text-secondary">
                 <span className="font-mono">
                   {truncateAddress(selectedWallet.address)}
                 </span>
@@ -292,7 +292,7 @@ export function TerminalWalletOperatorSurface({
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-2 md:grid-cols-4">
             <TerminalMetricCard
               label="7d pnl"
               value={

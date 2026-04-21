@@ -12,8 +12,8 @@ type ButtonVariant = "primary" | "secondary" | "ghost";
 type ButtonSize = "sm" | "md";
 
 const buttonSizeClasses: Record<ButtonSize, string> = {
-  sm: "px-2.5 py-1.5 text-[11px]",
-  md: "px-3.5 py-2 text-[13px]",
+  sm: "px-2 py-1 text-[11px]",
+  md: "px-3 py-1.5 text-[12px]",
 };
 
 const buttonVariantClasses: Record<ButtonVariant, string> = {
@@ -62,7 +62,7 @@ export function TerminalIconButton({
       aria-label={label}
       title={label}
       className={joinClasses(
-        "terminal-theme-control inline-flex h-8 w-8 items-center justify-center text-terminal-text-secondary active:scale-[0.98]",
+        "terminal-theme-control inline-flex h-7 w-7 items-center justify-center text-terminal-text-secondary active:scale-[0.98]",
         active
           ? "terminal-theme-control-active text-terminal-text"
           : "hover:text-terminal-text",
@@ -97,20 +97,20 @@ export function TerminalTextField({
   mono?: boolean;
 }) {
   return (
-    <label className="grid gap-1">
+    <label className="grid gap-0.5">
       {label ? (
-        <span className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
+        <span className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
           {label}
         </span>
       ) : null}
-      <div className="terminal-theme-control flex items-center gap-2 px-3 py-1.5">
+      <div className="terminal-theme-control flex items-center gap-1.5 px-2.5 py-1">
         {prefix ? (
           <span className="shrink-0 text-terminal-text-muted">{prefix}</span>
         ) : null}
         <input
           className={joinClasses(
             "min-w-0 flex-1 bg-transparent text-terminal-text placeholder-terminal-text-muted outline-none",
-            mono ? "font-mono text-sm" : "text-sm",
+            mono ? "font-mono text-[13px]" : "text-[13px]",
             className,
           )}
           {...props}
@@ -146,15 +146,15 @@ export function TerminalSegmentedTabs({
             key={option.id}
             onClick={() => onChange(option.id)}
             className={joinClasses(
-              "rounded-[var(--terminal-radius-card)] px-3 py-1.5 text-left transition-colors",
+              "rounded-[var(--terminal-radius-card)] px-2.5 py-1 text-left transition-colors",
               active
                 ? "terminal-theme-control terminal-theme-control-active text-terminal-text"
                 : "text-terminal-text-secondary hover:bg-white/70 hover:text-terminal-text",
             )}
           >
-            <div className="text-sm font-medium">{option.label}</div>
+            <div className="text-[13px] font-medium">{option.label}</div>
             {option.meta ? (
-              <div className="terminal-theme-caption text-[10px] uppercase opacity-70">
+              <div className="terminal-theme-caption text-[9px] uppercase opacity-70">
                 {option.meta}
               </div>
             ) : null}
@@ -182,7 +182,7 @@ export function TerminalSelectPill({
     <button
       onClick={onClick}
       className={joinClasses(
-        "terminal-theme-pill inline-flex items-center gap-2 border px-3 py-1.5 text-left transition-colors active:scale-[0.98]",
+        "terminal-theme-pill inline-flex items-center gap-2 border px-2.5 py-1 text-left transition-colors active:scale-[0.98]",
         active
           ? "border-terminal-border-active bg-white text-terminal-text [box-shadow:var(--terminal-shadow-raised)]"
           : "border-terminal-border bg-terminal-bg-secondary text-terminal-text-secondary hover:bg-white hover:text-terminal-text",
@@ -190,9 +190,9 @@ export function TerminalSelectPill({
     >
       {leading ? <span className="shrink-0">{leading}</span> : null}
       <span>
-        <span className="block text-sm font-medium">{label}</span>
+        <span className="block text-[13px] font-medium">{label}</span>
         {detail ? (
-          <span className="terminal-theme-caption block text-[10px] uppercase opacity-70">
+          <span className="terminal-theme-caption block text-[9px] uppercase opacity-70">
             {detail}
           </span>
         ) : null}
@@ -224,15 +224,15 @@ export function TerminalTokenPill({
         toneClasses,
       )}
     >
-      <span className="inline-flex h-[22px] w-[22px] items-center justify-center rounded-full border border-white/70 bg-white font-mono text-[10px] font-semibold text-terminal-text shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+      <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/70 bg-white font-mono text-[9px] font-semibold text-terminal-text shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
         {symbol.slice(0, 2)}
       </span>
       <span>
-        <span className="block text-xs font-semibold text-terminal-text">
+        <span className="block text-[11px] font-semibold text-terminal-text">
           {symbol}
         </span>
         {label ? (
-          <span className="block text-[10px] text-terminal-text-muted">
+          <span className="block text-[9px] text-terminal-text-muted">
             {label}
           </span>
         ) : null}
