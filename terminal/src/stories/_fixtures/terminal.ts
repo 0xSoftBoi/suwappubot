@@ -37,6 +37,16 @@ export const solToken: SwapToken = {
   balanceUsd: 14988.61,
 }
 
+export const kazeToken: SwapToken = {
+  symbol: 'KAZE',
+  name: 'Kaze Finance',
+  address: '0x4f3b0f0edcd61ee3f6b8f7f7f6e35653ad9bdf11',
+  chain: 'ethereum',
+  decimals: 18,
+  balance: '0',
+  balanceUsd: 0,
+}
+
 export const ethToUsdcQuote: SwapQuote = {
   id: 'quote-eth-usdc',
   fromToken: ethToken,
@@ -72,6 +82,36 @@ export const solToUsdcQuote: SwapQuote = {
   minReceived: '3221.12',
   slippage: 1.0,
   estimatedDuration: 95,
+}
+
+export const ethToKazeQuote: SwapQuote = {
+  ...ethToUsdcQuote,
+  id: 'quote-eth-kaze',
+  toToken: kazeToken,
+  toAmount: '18420',
+  toAmountUsd: 2611.64,
+  exchangeRate: 24560,
+  priceImpact: 0.18,
+  gasUsd: 9.42,
+  route: 'Uniswap v3 -> Suwappu route guard',
+  minReceived: '18336',
+  slippage: 0.45,
+  estimatedDuration: 37,
+}
+
+export const solToKazeQuote: SwapQuote = {
+  ...solToUsdcQuote,
+  id: 'quote-sol-kaze',
+  toToken: kazeToken,
+  toAmount: '22780',
+  toAmountUsd: 3231.62,
+  exchangeRate: 1265.555556,
+  priceImpact: 1.62,
+  gasUsd: 2.04,
+  route: 'Jupiter -> Wormhole -> Suwappu route guard',
+  minReceived: '22411',
+  slippage: 1.2,
+  estimatedDuration: 92,
 }
 
 type StorySecurity = TokenSecurity & {
