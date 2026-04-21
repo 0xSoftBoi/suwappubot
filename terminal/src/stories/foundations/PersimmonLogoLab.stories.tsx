@@ -1451,25 +1451,34 @@ function SummerBreezeBoard() {
           <div
             className="absolute inset-y-5 left-5 w-[86px] rounded-[26px] border border-white/84 bg-white/88 shadow-[0_16px_40px_rgba(88,142,162,0.12)] md:inset-y-8 md:left-8 md:w-[132px] md:rounded-[30px]"
           />
-          <div className="absolute left-[18px] top-[30px] flex gap-1 md:left-[28px] md:top-[42px] md:gap-2">
-            <div
-              className="text-[42px] font-semibold leading-[0.82] tracking-[-0.08em] text-[#16b8d1] md:text-[60px]"
-              style={{ fontFamily: "'Inter', system-ui, sans-serif", writingMode: 'vertical-rl' }}
-            >
-              Summer
+          <div className="absolute left-[16px] top-[30px] md:left-[24px] md:top-[40px]">
+            <div className="rounded-full border border-[#bfe6ef] bg-white/82 px-2.5 py-1 text-[9px] uppercase tracking-[0.28em] text-[#57a9bc] md:px-3 md:text-[10px]">
+              summer breeze
             </div>
+          </div>
+          <div className="absolute inset-y-[76px] left-[20px] flex items-center md:inset-y-[90px] md:left-[34px]">
             <div
-              className="text-[42px] font-semibold leading-[0.82] tracking-[-0.08em] text-[#16b8d1] md:text-[60px]"
-              style={{ fontFamily: "'Inter', system-ui, sans-serif", writingMode: 'vertical-rl' }}
+              className="text-[52px] font-semibold leading-none tracking-[-0.05em] text-[#16b8d1] md:text-[74px]"
+              style={{
+                fontFamily: "'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', sans-serif",
+                writingMode: 'vertical-rl',
+                textOrientation: 'mixed',
+              }}
             >
-              Breeze
+              すわっぷ
             </div>
           </div>
           <div
-            className="absolute bottom-[164px] left-[30px] -rotate-12 text-[42px] text-[#f08ba6]/80 md:bottom-[112px] md:left-[60px] md:text-[56px]"
-            style={{ fontFamily: "'Snell Roundhand', 'Brush Script MT', cursive" }}
+            className="absolute bottom-[170px] left-[74px] text-[56px] leading-none text-white/28 md:bottom-[116px] md:left-[118px] md:text-[88px]"
+            style={{
+              fontFamily: "'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', sans-serif",
+              writingMode: 'vertical-rl',
+              textOrientation: 'mixed',
+              transform: 'rotate(8deg)',
+              filter: 'blur(0.2px)',
+            }}
           >
-            Suwappu
+            すわっぷ
           </div>
 
           <div
@@ -1556,13 +1565,13 @@ function SummerBreezeBoard() {
                   shell="fuyu"
                   frame="none"
                   cutoutMode="none"
-                  leafCount={4}
-                  leftGlyph="USDC"
-                  rightGlyph="CircleYEN"
-                  kanaMode="katakana"
-                  strapline={'cross-chain,\nagent-ready.'}
-                  showSwapPair={false}
-                />
+                leafCount={4}
+                leftGlyph="USDC"
+                rightGlyph="CircleYEN"
+                kanaMode="hiragana"
+                strapline={'cross-chain,\nagent-ready.'}
+                showSwapPair={false}
+              />
               </div>
             </div>
           </div>
