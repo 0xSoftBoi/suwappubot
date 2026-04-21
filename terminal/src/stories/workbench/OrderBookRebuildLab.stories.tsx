@@ -54,8 +54,8 @@ function generateSide(
 
 function buildBook(step: PrecisionStep) {
   const midPrice = roundToStep(3245.5, step);
-  const bids = generateSide(midPrice, 12, step, "bid");
-  const asks = generateSide(midPrice, 12, step, "ask");
+  const bids = generateSide(midPrice, 10, step, "bid");
+  const asks = generateSide(midPrice, 10, step, "ask");
   const spread = asks[0].price - bids[0].price;
   const spreadPercent = (spread / midPrice) * 100;
   const maxTotal = Math.max(
@@ -106,12 +106,17 @@ function TimeAndSales() {
   ];
 
   return (
-    <TerminalInset>
-      <div className="terminal-theme-caption mb-2 text-[9px] uppercase text-terminal-text-muted">
-        Time and sales
+    <TerminalInset className="grid gap-1 p-[var(--terminal-space-card)]">
+      <div className="flex items-center justify-between gap-2">
+        <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
+          Tape
+        </div>
+        <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-secondary">
+          Recent prints
+        </div>
       </div>
-      <div className="grid gap-0.5 font-mono text-[10px]">
-        <div className="terminal-theme-caption grid grid-cols-3 gap-2 px-2.5 text-[9px] uppercase text-terminal-text-muted">
+      <div className="grid gap-0.5 font-mono text-[9px]">
+        <div className="terminal-theme-caption grid grid-cols-3 gap-2 px-2 text-[9px] uppercase text-terminal-text-muted">
           <span>Price</span>
           <span className="text-right">Size</span>
           <span className="text-right">Time</span>
@@ -119,7 +124,7 @@ function TimeAndSales() {
         {trades.map((trade) => (
           <div
             key={trade.id}
-            className="terminal-theme-card grid grid-cols-3 gap-2 bg-white/90 px-2.5 py-1"
+            className="terminal-theme-card grid grid-cols-3 gap-2 bg-white/90 px-2 py-0.5"
           >
             <span className={trade.side === "buy" ? "text-bull" : "text-bear"}>
               {trade.price.toFixed(2)}
@@ -148,7 +153,7 @@ function OrderBookLab() {
 
   return (
     <TerminalPage>
-      <div className="mx-auto grid max-w-7xl gap-4">
+      <div className="mx-auto grid max-w-6xl gap-2.5">
         <TerminalPanel elevated>
           <TerminalPanelHeader
             eyebrow={
@@ -157,7 +162,7 @@ function OrderBookLab() {
               </TerminalStatusPill>
             }
             title="Provider-free order book rebuild lab"
-            description="This is the depth panel reconstructed in Storybook. It lets us redesign row rhythm, spread treatment, precision controls, and the relationship to recent trades without the live market hook."
+            description="Compact market depth, spread, and tape without the live hook noise."
             meta={
               <TerminalMetricCard
                 label="Spread"
@@ -167,9 +172,9 @@ function OrderBookLab() {
             }
           />
 
-          <div className="grid gap-3 xl:grid-cols-[1.26fr_0.74fr]">
-            <TerminalInset>
-              <div className="flex flex-col gap-2 border-b border-terminal-border pb-3 md:flex-row md:items-center md:justify-between">
+          <div className="grid gap-2.5 xl:grid-cols-[1.7fr_0.52fr] xl:items-start">
+            <TerminalInset className="p-[var(--terminal-space-card)]">
+              <div className="flex flex-col gap-1.5 border-b border-terminal-border pb-2 md:flex-row md:items-center md:justify-between">
                 <TerminalSegmentedTabs
                   activeId={viewMode}
                   onChange={(value) => setViewMode(value as ViewMode)}
@@ -207,8 +212,8 @@ function OrderBookLab() {
                 </div>
               </div>
 
-              <div className="mt-3 grid gap-0.5 font-mono text-[10px]">
-                <div className="terminal-theme-caption grid grid-cols-3 gap-2 px-2.5 text-[9px] uppercase text-terminal-text-muted">
+              <div className="mt-2 grid gap-0.5 font-mono text-[9px]">
+                <div className="terminal-theme-caption grid grid-cols-3 gap-2 px-2 text-[9px] uppercase text-terminal-text-muted">
                   <span>Price</span>
                   <span className="text-right">Size</span>
                   <span className="text-right">Total</span>
@@ -228,14 +233,14 @@ function OrderBookLab() {
                   </div>
                 ) : null}
 
-                <div className="my-0.5 border border-terminal-border-active bg-white px-2.5 py-1.5 [border-radius:var(--terminal-radius-inset)] [box-shadow:var(--terminal-shadow-raised)]">
+                <div className="my-0.5 border border-terminal-border-active bg-white px-2 py-1 [border-radius:var(--terminal-radius-inset)] [box-shadow:var(--terminal-shadow-raised)]">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-mono text-[13px] font-semibold text-terminal-text">
+                    <span className="font-mono text-[12px] font-semibold leading-none text-terminal-text">
                       {book.midPrice.toFixed(
                         Math.max(2, -Math.log10(precision)),
                       )}
                     </span>
-                    <span className="text-[11px] text-terminal-text-secondary">
+                    <span className="text-[10px] text-terminal-text-secondary">
                       Spread {book.spread.toFixed(2)} /{" "}
                       {book.spreadPercent.toFixed(3)}%
                     </span>
@@ -258,25 +263,34 @@ function OrderBookLab() {
               </div>
             </TerminalInset>
 
-            <div className="grid gap-3">
+            <div className="grid gap-2">
               <TimeAndSales />
-              <TerminalMetricCard
-                label="What changed"
-                value="row primitive + spread card"
-                detail="The live panel currently mixes controls, headers, spread, and rows in one component."
-              />
-              <TerminalMetricCard
-                label="What becomes reusable"
-                value="depth rows and table framing"
-                detail="These can be reused for ladders, liquidity views, and historical market tapes."
-                tone="warm"
-              />
-              <TerminalMetricCard
-                label="Next slice"
-                value="token detail inspector"
-                detail="After market depth, the right next move is the token detail panel using the same data-display primitives."
-                tone="sky"
-              />
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+                <TerminalMetricCard
+                  label="Rows"
+                  value={`${showAsks ? book.asks.length : 0} / ${showBids ? book.bids.length : 0}`}
+                  detail="ask / bid"
+                />
+                <TerminalMetricCard
+                  label="Tick"
+                  value={String(precision)}
+                  detail="active ladder precision"
+                  tone="sky"
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <TerminalMetricCard
+                  label="Port target"
+                  value="OrderBookPanel"
+                  detail="Compact tape and spread rail."
+                  tone="warm"
+                />
+                <TerminalMetricCard
+                  label="Use case"
+                  value="ladder first"
+                  detail="Depth, spread, then tape."
+                />
+              </div>
             </div>
           </div>
         </TerminalPanel>

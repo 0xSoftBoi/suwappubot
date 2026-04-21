@@ -82,18 +82,20 @@ export function TerminalKeyValueRow({
   detail?: ReactNode;
 }) {
   return (
-    <div className="terminal-theme-card flex items-center justify-between gap-4 px-[var(--terminal-space-card)] py-[var(--terminal-space-card)]">
+    <div className="terminal-theme-card flex items-center justify-between gap-3 px-[var(--terminal-space-card)] py-[calc(var(--terminal-space-card)-1px)]">
       <div className="min-w-0">
-        <div className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
+        <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
           {label}
         </div>
         {detail ? (
-          <div className="mt-1 text-xs text-terminal-text-secondary">
+          <div className="mt-0.5 text-[11px] leading-4 text-terminal-text-secondary">
             {detail}
           </div>
         ) : null}
       </div>
-      <div className="text-sm font-semibold text-terminal-text">{value}</div>
+      <div className="text-[13px] font-semibold leading-none text-terminal-text">
+        {value}
+      </div>
     </div>
   );
 }
