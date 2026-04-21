@@ -168,7 +168,7 @@ export function TerminalSelectPill({
     <button
       onClick={onClick}
       className={joinClasses(
-        'inline-flex items-center gap-2 rounded-full border px-3 py-2 text-left transition-colors active:scale-[0.98]',
+        'inline-flex items-center gap-2 rounded-suwappu-pill border px-3 py-2 text-left transition-colors active:scale-[0.98]',
         active
           ? 'border-terminal-border-active bg-white text-terminal-text shadow-suwappu-2'
           : 'border-terminal-border bg-terminal-bg-secondary text-terminal-text-secondary hover:bg-white hover:text-terminal-text',
@@ -202,7 +202,7 @@ export function TerminalTokenPill({
         : 'border-terminal-border bg-terminal-bg-secondary'
 
   return (
-    <span className={joinClasses('inline-flex items-center gap-2 rounded-full border px-2.5 py-1.5', toneClasses)}>
+    <span className={joinClasses('inline-flex items-center gap-2 rounded-suwappu-pill border px-2.5 py-1.5', toneClasses)}>
       <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/70 bg-white font-mono text-[10px] font-semibold text-terminal-text shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
         {symbol.slice(0, 2)}
       </span>

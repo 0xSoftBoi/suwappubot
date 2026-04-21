@@ -17,7 +17,7 @@ export function SuggestedCommands({ onSelect }: SuggestedCommandsProps) {
         <button
           key={cmd}
           onClick={() => onSelect(cmd)}
-          className="shrink-0 border border-terminal-border rounded-full px-3 py-1 text-xs
+          className="shrink-0 border border-terminal-border rounded-suwappu-pill px-3 py-1 text-xs
                      text-terminal-text-secondary hover:border-sakura-600 hover:text-terminal-text
                      transition-colors whitespace-nowrap"
         >

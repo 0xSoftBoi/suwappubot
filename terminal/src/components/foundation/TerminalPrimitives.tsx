@@ -30,7 +30,7 @@ export function TerminalEyebrow({
   return (
     <span
       className={joinClasses(
-        'inline-flex rounded-full border px-3 py-1 text-[10px] uppercase tracking-[0.32em]',
+        'inline-flex rounded-suwappu-pill border px-3 py-1 text-[10px] uppercase tracking-[0.32em]',
         toneClasses[tone],
       )}
     >
@@ -135,7 +135,7 @@ export function TerminalStatusPill({
   return (
     <span
       className={joinClasses(
-        'inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.18em]',
+        'inline-flex items-center rounded-suwappu-pill border px-2.5 py-1 text-[10px] uppercase tracking-[0.18em]',
         toneClasses[tone],
       )}
     >

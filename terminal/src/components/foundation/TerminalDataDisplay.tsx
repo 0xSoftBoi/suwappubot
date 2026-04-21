@@ -30,7 +30,7 @@ export function TerminalChainBadge({ chain }: { chain: string }) {
   return (
     <span
       className={joinClasses(
-        'inline-flex rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em]',
+        'inline-flex rounded-suwappu-pill px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em]',
         meta.className,
       )}
     >
