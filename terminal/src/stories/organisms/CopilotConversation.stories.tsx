@@ -95,7 +95,7 @@ function ConversationBoard({ focus }: { focus: Focus }) {
           <div className="terminal-theme-inset p-[var(--terminal-space-inset)]">
             <SuggestedCommands onSelect={setSelectedCommand} />
           </div>
-          <div className="mt-3 rounded-2xl border border-[#ECE0CB] bg-[#FFF9F0] px-3 py-2 text-xs text-[#6E5B49]">
+          <div className="terminal-theme-card mt-3 px-[var(--terminal-space-card)] py-[var(--terminal-space-card)] text-xs text-terminal-text-secondary">
             {selectedCommand
               ? `Selected: ${selectedCommand}`
               : "Choose a suggestion to test the command vocabulary in Storybook."}

@@ -1,36 +1,52 @@
-import { useState } from 'react'
-import type { ReactNode } from 'react'
-import type { Meta, StoryObj } from '@storybook/react-vite'
-import { AddWalletForm } from '../../components/tracker/AddWalletForm'
-import { CreateAlertForm } from '../../components/alerts/CreateAlertForm'
-import { AlertCard } from '../../components/alerts/AlertCard'
-import { WatchlistItem } from '../../components/watchlist/WatchlistItem'
-import { SuggestedCommands } from '../../components/copilot/SuggestedCommands'
-import { ChatMessage } from '../../components/copilot/ChatMessage'
-import { SlippageControl } from '../../components/swap/SlippageControl'
-import { QuoteCard } from '../../components/copilot/QuoteCard'
-import { PersimmonMark, SakuraBloomMotif } from '../../components/brand/PersimmonLogo'
-import type { Alert } from '../../types/api'
-import type { WatchlistToken } from '../../hooks/useWatchlist'
-import type { TokenPriceData } from '../../hooks/useWatchlistPrices'
+import { useState } from "react";
+import type { ReactNode } from "react";
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { AddWalletForm } from "../../components/tracker/AddWalletForm";
+import { CreateAlertForm } from "../../components/alerts/CreateAlertForm";
+import { AlertCard } from "../../components/alerts/AlertCard";
+import { WatchlistItem } from "../../components/watchlist/WatchlistItem";
+import { SuggestedCommands } from "../../components/copilot/SuggestedCommands";
+import { ChatMessage } from "../../components/copilot/ChatMessage";
+import { SlippageControl } from "../../components/swap/SlippageControl";
+import { QuoteCard } from "../../components/copilot/QuoteCard";
+import {
+  PersimmonMark,
+  SakuraBloomMotif,
+} from "../../components/brand/PersimmonLogo";
+import type { Alert } from "../../types/api";
+import type { WatchlistToken } from "../../hooks/useWatchlist";
+import type { TokenPriceData } from "../../hooks/useWatchlistPrices";
 
-type WalletSeed = {
-  address: string
-  label?: string
+function joinClasses(...values: Array<string | false | null | undefined>) {
+  return values.filter(Boolean).join(" ");
 }
 
-const walletSeeds: WalletSeed[] = [
-  { address: '0x3b6d7d2f8f6f3a9f2b4f7a1b3c6d8e9f1a2b3c4d', label: 'Treasury lane' },
-  { address: 'So11111111111111111111111111111111111111112', label: 'Solana float' },
-]
+type WalletSeed = {
+  address: string;
+  label?: string;
+};
 
-const watchlistRows: Array<{ token: WatchlistToken; priceData: TokenPriceData }> = [
+const walletSeeds: WalletSeed[] = [
+  {
+    address: "0x3b6d7d2f8f6f3a9f2b4f7a1b3c6d8e9f1a2b3c4d",
+    label: "Treasury lane",
+  },
+  {
+    address: "So11111111111111111111111111111111111111112",
+    label: "Solana float",
+  },
+];
+
+const watchlistRows: Array<{
+  token: WatchlistToken;
+  priceData: TokenPriceData;
+}> = [
   {
     token: {
-      symbol: 'ETH',
-      name: 'Ethereum',
-      address: '0x0000000000000000000000000000000000000001',
-      chain: 'ethereum',
+      symbol: "ETH",
+      name: "Ethereum",
+      address: "0x0000000000000000000000000000000000000001",
+      chain: "ethereum",
     },
     priceData: {
       price: 3488.11,
@@ -40,10 +56,10 @@ const watchlistRows: Array<{ token: WatchlistToken; priceData: TokenPriceData }>
   },
   {
     token: {
-      symbol: 'SOL',
-      name: 'Solana',
-      address: 'So11111111111111111111111111111111111111112',
-      chain: 'solana',
+      symbol: "SOL",
+      name: "Solana",
+      address: "So11111111111111111111111111111111111111112",
+      chain: "solana",
     },
     priceData: {
       price: 182.34,
@@ -53,10 +69,10 @@ const watchlistRows: Array<{ token: WatchlistToken; priceData: TokenPriceData }>
   },
   {
     token: {
-      symbol: 'JUP',
-      name: 'Jupiter',
-      address: 'JUP111111111111111111111111111111111111111',
-      chain: 'solana',
+      symbol: "JUP",
+      name: "Jupiter",
+      address: "JUP111111111111111111111111111111111111111",
+      chain: "solana",
     },
     priceData: {
       price: null,
@@ -64,32 +80,78 @@ const watchlistRows: Array<{ token: WatchlistToken; priceData: TokenPriceData }>
       loading: true,
     },
   },
-]
+];
 
 const alertSeeds: Alert[] = [
   {
-    id: 'alert-eth-1',
-    tokenSymbol: 'ETH',
-    tokenAddress: '0x0000000000000000000000000000000000000000',
-    chain: 'ethereum',
-    alertType: 'price_above',
+    id: "alert-eth-1",
+    tokenSymbol: "ETH",
+    tokenAddress: "0x0000000000000000000000000000000000000000",
+    chain: "ethereum",
+    alertType: "price_above",
     targetValue: 4200,
     currentPrice: 3985.22,
-    status: 'active',
+    status: "active",
     createdAt: new Date().toISOString(),
   },
   {
-    id: 'alert-sol-2',
-    tokenSymbol: 'SOL',
-    tokenAddress: 'So11111111111111111111111111111111111111112',
-    chain: 'solana',
-    alertType: 'volume_spike',
+    id: "alert-sol-2",
+    tokenSymbol: "SOL",
+    tokenAddress: "So11111111111111111111111111111111111111112",
+    chain: "solana",
+    alertType: "volume_spike",
     targetValue: 2500000,
     currentPrice: 182.5,
-    status: 'triggered',
+    status: "triggered",
     createdAt: new Date().toISOString(),
   },
-]
+];
+
+function MetaPill({ children }: { children: ReactNode }) {
+  return (
+    <span className="terminal-theme-pill terminal-theme-caption border border-terminal-border bg-terminal-bg-secondary px-2.5 py-1 text-[9px] uppercase text-terminal-text-muted">
+      {children}
+    </span>
+  );
+}
+
+function ContentInset({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={joinClasses(
+        "terminal-theme-inset p-[var(--terminal-space-inset)]",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+function ContentCard({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={joinClasses(
+        "terminal-theme-card p-[var(--terminal-space-card)]",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
 
 function SummerBreezeShell({
   eyebrow,
@@ -97,21 +159,23 @@ function SummerBreezeShell({
   description,
   children,
 }: {
-  eyebrow: string
-  title: string
-  description: string
-  children: ReactNode
+  eyebrow: string;
+  title: string;
+  description: string;
+  children: ReactNode;
 }) {
   return (
-    <div className="terminal-panel p-4">
-      <div className="mb-3 text-sm font-semibold text-terminal-text">{eyebrow}</div>
+    <div className="terminal-theme-panel terminal-theme-panel-elevated p-[var(--terminal-space-page)]">
+      <div className="terminal-theme-heading mb-3 text-sm font-semibold text-terminal-text">
+        {eyebrow}
+      </div>
       <div
         className="relative overflow-hidden rounded-[34px] border"
         style={{
           minHeight: 860,
-          borderColor: '#d7e6ef',
+          borderColor: "#d7e6ef",
           background:
-            'linear-gradient(180deg, #fdfcf8 0%, #fffefb 18%, #f7fcff 18%, #d9f1f3 52%, #bde0e6 100%)',
+            "linear-gradient(180deg, #fdfcf8 0%, #fffefb 18%, #f7fcff 18%, #d9f1f3 52%, #bde0e6 100%)",
         }}
       >
         <div className="absolute inset-y-5 left-5 w-[86px] rounded-[26px] border border-white/84 bg-white/88 shadow-[0_16px_40px_rgba(88,142,162,0.12)] md:inset-y-8 md:left-8 md:w-[132px] md:rounded-[30px]" />
@@ -124,9 +188,10 @@ function SummerBreezeShell({
           <div
             className="text-[52px] font-semibold leading-none tracking-[-0.05em] text-[#16b8d1] md:text-[74px]"
             style={{
-              fontFamily: "'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', sans-serif",
-              writingMode: 'vertical-rl',
-              textOrientation: 'mixed',
+              fontFamily:
+                "'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', sans-serif",
+              writingMode: "vertical-rl",
+              textOrientation: "mixed",
             }}
           >
             すわっぷ
@@ -135,11 +200,12 @@ function SummerBreezeShell({
         <div
           className="absolute bottom-[170px] left-[74px] text-[56px] leading-none text-white/28 md:bottom-[116px] md:left-[118px] md:text-[88px]"
           style={{
-            fontFamily: "'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', sans-serif",
-            writingMode: 'vertical-rl',
-            textOrientation: 'mixed',
-            transform: 'rotate(8deg)',
-            filter: 'blur(0.2px)',
+            fontFamily:
+              "'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', sans-serif",
+            writingMode: "vertical-rl",
+            textOrientation: "mixed",
+            transform: "rotate(8deg)",
+            filter: "blur(0.2px)",
           }}
         >
           すわっぷ
@@ -149,28 +215,28 @@ function SummerBreezeShell({
           className="absolute bottom-[18px] left-[100px] right-[18px] top-[18px] overflow-hidden rounded-[26px] border border-white/70 md:bottom-[28px] md:left-[160px] md:right-[28px] md:top-[28px] md:rounded-[30px]"
           style={{
             background:
-              'radial-gradient(circle at 75% 24%, rgba(255,214,182,0.52), transparent 12%), radial-gradient(circle at 68% 14%, rgba(255,192,162,0.36), transparent 8%), linear-gradient(180deg, rgba(153,214,228,0.9) 0%, rgba(144,208,223,0.92) 26%, rgba(209,242,239,0.72) 54%, rgba(196,235,230,0.86) 100%)',
+              "radial-gradient(circle at 75% 24%, rgba(255,214,182,0.52), transparent 12%), radial-gradient(circle at 68% 14%, rgba(255,192,162,0.36), transparent 8%), linear-gradient(180deg, rgba(153,214,228,0.9) 0%, rgba(144,208,223,0.92) 26%, rgba(209,242,239,0.72) 54%, rgba(196,235,230,0.86) 100%)",
           }}
         >
           <div
             className="absolute inset-0"
             style={{
               background:
-                'radial-gradient(circle at 22% 18%, rgba(255,255,255,0.48), transparent 18%), linear-gradient(180deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0) 38%, rgba(255,255,255,0.18) 52%, rgba(255,255,255,0.04) 100%)',
+                "radial-gradient(circle at 22% 18%, rgba(255,255,255,0.48), transparent 18%), linear-gradient(180deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0) 38%, rgba(255,255,255,0.18) 52%, rgba(255,255,255,0.04) 100%)",
             }}
           />
           <div
             className="absolute bottom-[-6%] right-[8%] h-[44%] w-[24%] rounded-[45%] md:bottom-[-2%] md:right-[10%] md:h-[54%] md:w-[28%]"
             style={{
               background:
-                'linear-gradient(180deg, rgba(198,245,246,0.94) 0%, rgba(149,219,224,0.98) 100%)',
-              filter: 'blur(0.4px)',
-              transform: 'rotate(14deg)',
+                "linear-gradient(180deg, rgba(198,245,246,0.94) 0%, rgba(149,219,224,0.98) 100%)",
+              filter: "blur(0.4px)",
+              transform: "rotate(14deg)",
             }}
           />
           <div
             className="absolute right-[18%] top-[30%] h-[10%] w-[7%] rounded-full border border-white/70 bg-white/18 md:right-[20%] md:top-[28%]"
-            style={{ transform: 'rotate(-6deg)' }}
+            style={{ transform: "rotate(-6deg)" }}
           />
           <div className="absolute left-[14%] top-[10%] opacity-18 md:left-[12%] md:top-[8%]">
             <SakuraBloomMotif size={110} tone="soft" rotation={-10} />
@@ -238,21 +304,30 @@ function SummerBreezeShell({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
-function GlassCard({ children, className = '' }: { children: ReactNode; className?: string }) {
+function GlassCard({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   return (
     <div
-      className={`rounded-[30px] border border-white/88 bg-white/84 p-4 shadow-[0_18px_48px_rgba(88,142,162,0.14)] backdrop-blur-md ${className}`}
+      className={joinClasses(
+        "terminal-theme-card p-[var(--terminal-space-panel)] supports-[backdrop-filter]:backdrop-blur-md",
+        className,
+      )}
     >
       {children}
     </div>
-  )
+  );
 }
 
 function ConciergeBoard() {
-  const [wallets, setWallets] = useState(walletSeeds)
+  const [wallets, setWallets] = useState(walletSeeds);
 
   return (
     <SummerBreezeShell
@@ -263,61 +338,59 @@ function ConciergeBoard() {
       <div className="grid gap-4 lg:grid-cols-[0.9fr_1.35fr]">
         <GlassCard className="lg:translate-y-4">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-[#2f221b]">Wallet intake</h3>
-            <span className="rounded-full border border-[#f0dfc8] bg-[#fff8ee] px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] text-[#8b775f]">
-              {wallets.length} tracked
-            </span>
+            <h3 className="terminal-theme-heading text-sm font-semibold text-terminal-text">
+              Wallet intake
+            </h3>
+            <MetaPill>{wallets.length} tracked</MetaPill>
           </div>
           <AddWalletForm
             onAdd={(address, label) => {
-              setWallets((current) => [...current, { address, label }])
+              setWallets((current) => [...current, { address, label }]);
             }}
           />
           <div className="mt-4 grid gap-2">
             {wallets.map((wallet) => (
-              <div
-                key={`${wallet.address}-${wallet.label ?? ''}`}
-                className="rounded-2xl border border-[#ece0cb] bg-[#fffdf9] p-3"
-              >
-                <div className="font-mono text-xs text-[#2f221b]">{wallet.address}</div>
+              <ContentCard key={`${wallet.address}-${wallet.label ?? ""}`}>
+                <div className="font-mono text-xs text-terminal-text">
+                  {wallet.address}
+                </div>
                 {wallet.label ? (
-                  <div className="mt-1 text-[11px] text-[#8b775f]">{wallet.label}</div>
+                  <div className="mt-1 text-[11px] text-terminal-text-secondary">
+                    {wallet.label}
+                  </div>
                 ) : null}
-              </div>
+              </ContentCard>
             ))}
           </div>
         </GlassCard>
 
         <GlassCard className="lg:translate-y-10">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-[#2f221b]">Watchlist breeze</h3>
-            <span className="rounded-full border border-[#f0dfc8] bg-[#fff8ee] px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] text-[#8b775f]">
-              market care
-            </span>
+            <h3 className="terminal-theme-heading text-sm font-semibold text-terminal-text">
+              Watchlist breeze
+            </h3>
+            <MetaPill>market care</MetaPill>
           </div>
-          <div className="grid gap-2 rounded-[24px] border border-[#f0e3d0] bg-[#fffdfb] p-2">
+          <ContentInset className="grid gap-2">
             {watchlistRows.map((row) => (
-              <div
-                key={row.token.address}
-                className="rounded-2xl border border-[#f0e3d0] bg-white/98 px-1"
-              >
+              <ContentCard key={row.token.address} className="px-1">
                 <WatchlistItem
                   token={row.token}
                   priceData={row.priceData}
                   onRemove={() => undefined}
                   onClick={() => undefined}
                 />
-              </div>
+              </ContentCard>
             ))}
-          </div>
+          </ContentInset>
         </GlassCard>
       </div>
     </SummerBreezeShell>
-  )
+  );
 }
 
 function SignalBoard() {
-  const [alerts, setAlerts] = useState(alertSeeds)
+  const [alerts, setAlerts] = useState(alertSeeds);
 
   return (
     <SummerBreezeShell
@@ -329,10 +402,10 @@ function SignalBoard() {
         <div className="grid gap-4">
           <GlassCard className="lg:translate-y-4">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-[#2f221b]">Create alert</h3>
-              <span className="rounded-full border border-[#f0dfc8] bg-[#fff8ee] px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] text-[#8b775f]">
-                trigger design
-              </span>
+              <h3 className="terminal-theme-heading text-sm font-semibold text-terminal-text">
+                Create alert
+              </h3>
+              <MetaPill>trigger design</MetaPill>
             </div>
             <CreateAlertForm
               isLoading={false}
@@ -342,50 +415,47 @@ function SignalBoard() {
                     id: `alert-${submission.tokenSymbol.toLowerCase()}-${current.length + 1}`,
                     tokenSymbol: submission.tokenSymbol,
                     tokenAddress: `draft-${submission.tokenSymbol.toLowerCase()}`,
-                    chain: 'ethereum',
+                    chain: "ethereum",
                     alertType: submission.alertType,
                     targetValue: submission.targetValue,
                     currentPrice: undefined,
-                    status: 'active',
+                    status: "active",
                     createdAt: new Date().toISOString(),
                   },
                   ...current,
-                ])
+                ]);
               }}
             />
           </GlassCard>
 
           <GlassCard className="lg:translate-y-8">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-[#2f221b]">Current rail</h3>
-              <span className="rounded-full border border-[#f0dfc8] bg-[#fff8ee] px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] text-[#8b775f]">
-                live context
-              </span>
+              <h3 className="terminal-theme-heading text-sm font-semibold text-terminal-text">
+                Current rail
+              </h3>
+              <MetaPill>live context</MetaPill>
             </div>
-            <div className="grid gap-2 rounded-[24px] border border-[#f0e3d0] bg-[#fffdfb] p-2">
+            <ContentInset className="grid gap-2">
               {watchlistRows.slice(0, 2).map((row) => (
-                <div
-                  key={row.token.address}
-                  className="rounded-2xl border border-[#f0e3d0] bg-white/98 px-1"
-                >
+                <ContentCard key={row.token.address} className="px-1">
                   <WatchlistItem
                     token={row.token}
                     priceData={row.priceData}
                     onRemove={() => undefined}
                     onClick={() => undefined}
                   />
-                </div>
+                </ContentCard>
               ))}
-            </div>
+            </ContentInset>
           </GlassCard>
         </div>
 
         <GlassCard className="lg:translate-y-12">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-[#2f221b]">Signal stack</h3>
-            <span className="rounded-full border border-[#f0dfc8] bg-[#fff8ee] px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] text-[#8b775f]">
-              {alerts.length} rules
-            </span>
+            <h3 className="terminal-theme-heading text-sm font-semibold text-terminal-text">
+              Signal stack
+            </h3>
+            <MetaPill>{alerts.length} rules</MetaPill>
           </div>
           <div className="grid gap-3">
             {alerts.map((alert) => (
@@ -393,7 +463,9 @@ function SignalBoard() {
                 key={alert.id}
                 alert={alert}
                 onDelete={(id) => {
-                  setAlerts((current) => current.filter((entry) => entry.id !== id))
+                  setAlerts((current) =>
+                    current.filter((entry) => entry.id !== id),
+                  );
                 }}
               />
             ))}
@@ -401,12 +473,12 @@ function SignalBoard() {
         </GlassCard>
       </div>
     </SummerBreezeShell>
-  )
+  );
 }
 
 function CopilotBoard() {
-  const [lastPrompt, setLastPrompt] = useState('Swap ETH to USDC')
-  const now = Date.now()
+  const [lastPrompt, setLastPrompt] = useState("Swap ETH to USDC");
+  const now = Date.now();
 
   return (
     <SummerBreezeShell
@@ -417,25 +489,27 @@ function CopilotBoard() {
       <div className="grid gap-4 xl:grid-cols-[0.92fr_1.18fr]">
         <GlassCard className="lg:translate-y-6">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-[#2f221b]">Prompt drift</h3>
-            <span className="rounded-full border border-[#f0dfc8] bg-[#fff8ee] px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] text-[#8b775f]">
-              suggestions
-            </span>
+            <h3 className="terminal-theme-heading text-sm font-semibold text-terminal-text">
+              Prompt drift
+            </h3>
+            <MetaPill>suggestions</MetaPill>
           </div>
           <SuggestedCommands onSelect={setLastPrompt} />
-          <div className="mt-4 rounded-[24px] border border-[#ece0cb] bg-[#fffdf9] p-4">
-            <div className="text-[10px] uppercase tracking-[0.2em] text-[#8b775f]">Selected</div>
-            <div className="mt-2 text-lg font-semibold tracking-[-0.03em] text-[#2f221b]">
+          <ContentCard className="mt-4 p-[var(--terminal-space-inset)]">
+            <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
+              Selected
+            </div>
+            <div className="mt-2 text-lg font-semibold tracking-[-0.03em] text-terminal-text">
               {lastPrompt}
             </div>
-          </div>
+          </ContentCard>
           <div className="mt-4">
             <QuoteCard
               data={{
-                fromToken: { symbol: 'ETH' },
-                toToken: { symbol: 'USDC' },
-                fromAmount: '1.5',
-                toAmount: '5232.18',
+                fromToken: { symbol: "ETH" },
+                toToken: { symbol: "USDC" },
+                fromAmount: "1.5",
+                toAmount: "5232.18",
                 exchangeRate: 3488.12,
                 priceImpact: 0.42,
                 gasUsd: 4.82,
@@ -446,12 +520,12 @@ function CopilotBoard() {
 
         <GlassCard className="lg:translate-y-12">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-[#2f221b]">Conversation stream</h3>
-            <span className="rounded-full border border-[#f0dfc8] bg-[#fff8ee] px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] text-[#8b775f]">
-              assisted
-            </span>
+            <h3 className="terminal-theme-heading text-sm font-semibold text-terminal-text">
+              Conversation stream
+            </h3>
+            <MetaPill>assisted</MetaPill>
           </div>
-          <div className="rounded-[24px] border border-[#ece0cb] bg-[#fffdf9] p-4">
+          <ContentInset>
             <ChatMessage
               role="user"
               type="text"
@@ -463,10 +537,10 @@ function CopilotBoard() {
               type="quote"
               content="Best route found through the summer breeze stack. Execution quality looks clean."
               data={{
-                fromToken: { symbol: 'ETH' },
-                toToken: { symbol: 'USDC' },
-                fromAmount: '1.5',
-                toAmount: '5232.18',
+                fromToken: { symbol: "ETH" },
+                toToken: { symbol: "USDC" },
+                fromAmount: "1.5",
+                toAmount: "5232.18",
                 exchangeRate: 3488.12,
                 priceImpact: 0.42,
                 gasUsd: 4.82,
@@ -480,22 +554,22 @@ function CopilotBoard() {
               data={{
                 totalUsdValue: 18234.11,
                 tokens: [
-                  { symbol: 'ETH', balance: '3.1', usdValue: 10813.14 },
-                  { symbol: 'USDC', balance: '2400', usdValue: 2400 },
-                  { symbol: 'SOL', balance: '18', usdValue: 3283.92 },
+                  { symbol: "ETH", balance: "3.1", usdValue: 10813.14 },
+                  { symbol: "USDC", balance: "2400", usdValue: 2400 },
+                  { symbol: "SOL", balance: "18", usdValue: 3283.92 },
                 ],
               }}
               timestamp={now}
             />
-          </div>
+          </ContentInset>
         </GlassCard>
       </div>
     </SummerBreezeShell>
-  )
+  );
 }
 
 function RouteBoard() {
-  const [slippage, setSlippage] = useState(0.5)
+  const [slippage, setSlippage] = useState(0.5);
 
   return (
     <SummerBreezeShell
@@ -506,44 +580,41 @@ function RouteBoard() {
       <div className="grid gap-4 xl:grid-cols-[0.92fr_1.18fr]">
         <GlassCard className="lg:translate-y-4">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-[#2f221b]">Execution tuning</h3>
-            <span className="rounded-full border border-[#f0dfc8] bg-[#fff8ee] px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] text-[#8b775f]">
-              {slippage.toFixed(2)}%
-            </span>
+            <h3 className="terminal-theme-heading text-sm font-semibold text-terminal-text">
+              Execution tuning
+            </h3>
+            <MetaPill>{slippage.toFixed(2)}%</MetaPill>
           </div>
-          <div className="rounded-[24px] border border-[#ece0cb] bg-[#fffdf9] p-4">
+          <ContentCard className="p-[var(--terminal-space-inset)]">
             <SlippageControl value={slippage} onChange={setSlippage} />
-          </div>
-          <div className="mt-4 grid gap-2 rounded-[24px] border border-[#f0e3d0] bg-[#fffdfb] p-2">
+          </ContentCard>
+          <ContentInset className="mt-4 grid gap-2">
             {watchlistRows.slice(0, 2).map((row) => (
-              <div
-                key={row.token.address}
-                className="rounded-2xl border border-[#f0e3d0] bg-white/98 px-1"
-              >
+              <ContentCard key={row.token.address} className="px-1">
                 <WatchlistItem
                   token={row.token}
                   priceData={row.priceData}
                   onRemove={() => undefined}
                   onClick={() => undefined}
                 />
-              </div>
+              </ContentCard>
             ))}
-          </div>
+          </ContentInset>
         </GlassCard>
 
         <GlassCard className="lg:translate-y-12">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-[#2f221b]">Route offer</h3>
-            <span className="rounded-full border border-[#f0dfc8] bg-[#fff8ee] px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] text-[#8b775f]">
-              agent ready
-            </span>
+            <h3 className="terminal-theme-heading text-sm font-semibold text-terminal-text">
+              Route offer
+            </h3>
+            <MetaPill>agent ready</MetaPill>
           </div>
           <QuoteCard
             data={{
-              fromToken: { symbol: 'ETH' },
-              toToken: { symbol: 'USDC' },
-              fromAmount: '1.5',
-              toAmount: '5232.18',
+              fromToken: { symbol: "ETH" },
+              toToken: { symbol: "USDC" },
+              fromAmount: "1.5",
+              toAmount: "5232.18",
               exchangeRate: 3488.12,
               priceImpact: 0.42,
               gasUsd: 4.82,
@@ -552,30 +623,30 @@ function RouteBoard() {
         </GlassCard>
       </div>
     </SummerBreezeShell>
-  )
+  );
 }
 
 const meta = {
-  title: 'Organisms/Summer Breeze Variants',
-  tags: ['autodocs'],
-} satisfies Meta
+  title: "Organisms/Summer Breeze Variants",
+  tags: ["autodocs"],
+} satisfies Meta;
 
-export default meta
+export default meta;
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<typeof meta>;
 
 export const DriftingConcierge: Story = {
   render: () => <ConciergeBoard />,
-}
+};
 
 export const SignalBreeze: Story = {
   render: () => <SignalBoard />,
-}
+};
 
 export const BreezeCopilot: Story = {
   render: () => <CopilotBoard />,
-}
+};
 
 export const DriftingRouteDeck: Story = {
   render: () => <RouteBoard />,
-}
+};

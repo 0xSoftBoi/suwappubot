@@ -1,35 +1,48 @@
-import { useState } from 'react'
-import type { ReactNode } from 'react'
-import type { Meta, StoryObj } from '@storybook/react-vite'
-import { AddWalletForm } from '../../components/tracker/AddWalletForm'
-import { CreateAlertForm } from '../../components/alerts/CreateAlertForm'
-import { AlertCard } from '../../components/alerts/AlertCard'
-import { WatchlistItem } from '../../components/watchlist/WatchlistItem'
-import { PersimmonMark } from '../../components/brand/PersimmonLogo'
-import { SlippageControl } from '../../components/swap/SlippageControl'
-import { TierBadge } from '../../components/points/TierBadge'
-import { TrustScoreBadge } from '../../components/discover/TrustScoreBadge'
-import type { Alert } from '../../types/api'
-import type { WatchlistToken } from '../../hooks/useWatchlist'
-import type { TokenPriceData } from '../../hooks/useWatchlistPrices'
+import { useState } from "react";
+import type { ReactNode } from "react";
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { AddWalletForm } from "../../components/tracker/AddWalletForm";
+import { CreateAlertForm } from "../../components/alerts/CreateAlertForm";
+import { AlertCard } from "../../components/alerts/AlertCard";
+import { WatchlistItem } from "../../components/watchlist/WatchlistItem";
+import { PersimmonMark } from "../../components/brand/PersimmonLogo";
+import { SlippageControl } from "../../components/swap/SlippageControl";
+import { TierBadge } from "../../components/points/TierBadge";
+import { TrustScoreBadge } from "../../components/discover/TrustScoreBadge";
+import type { Alert } from "../../types/api";
+import type { WatchlistToken } from "../../hooks/useWatchlist";
+import type { TokenPriceData } from "../../hooks/useWatchlistPrices";
 
-type WalletSeed = {
-  address: string
-  label?: string
+function joinClasses(...values: Array<string | false | null | undefined>) {
+  return values.filter(Boolean).join(" ");
 }
 
-const walletSeeds: WalletSeed[] = [
-  { address: '0x3b6d7d2f8f6f3a9f2b4f7a1b3c6d8e9f1a2b3c4d', label: 'Treasury lane' },
-  { address: 'So11111111111111111111111111111111111111112', label: 'Solana float' },
-]
+type WalletSeed = {
+  address: string;
+  label?: string;
+};
 
-const watchlistRows: Array<{ token: WatchlistToken; priceData: TokenPriceData }> = [
+const walletSeeds: WalletSeed[] = [
+  {
+    address: "0x3b6d7d2f8f6f3a9f2b4f7a1b3c6d8e9f1a2b3c4d",
+    label: "Treasury lane",
+  },
+  {
+    address: "So11111111111111111111111111111111111111112",
+    label: "Solana float",
+  },
+];
+
+const watchlistRows: Array<{
+  token: WatchlistToken;
+  priceData: TokenPriceData;
+}> = [
   {
     token: {
-      symbol: 'ETH',
-      name: 'Ethereum',
-      address: '0x0000000000000000000000000000000000000001',
-      chain: 'ethereum',
+      symbol: "ETH",
+      name: "Ethereum",
+      address: "0x0000000000000000000000000000000000000001",
+      chain: "ethereum",
     },
     priceData: {
       price: 3488.11,
@@ -39,10 +52,10 @@ const watchlistRows: Array<{ token: WatchlistToken; priceData: TokenPriceData }>
   },
   {
     token: {
-      symbol: 'SOL',
-      name: 'Solana',
-      address: 'So11111111111111111111111111111111111111112',
-      chain: 'solana',
+      symbol: "SOL",
+      name: "Solana",
+      address: "So11111111111111111111111111111111111111112",
+      chain: "solana",
     },
     priceData: {
       price: 182.34,
@@ -52,10 +65,10 @@ const watchlistRows: Array<{ token: WatchlistToken; priceData: TokenPriceData }>
   },
   {
     token: {
-      symbol: 'JUP',
-      name: 'Jupiter',
-      address: 'JUP111111111111111111111111111111111111111',
-      chain: 'solana',
+      symbol: "JUP",
+      name: "Jupiter",
+      address: "JUP111111111111111111111111111111111111111",
+      chain: "solana",
     },
     priceData: {
       price: null,
@@ -63,43 +76,89 @@ const watchlistRows: Array<{ token: WatchlistToken; priceData: TokenPriceData }>
       loading: true,
     },
   },
-]
+];
 
 const alertSeeds: Alert[] = [
   {
-    id: 'alert-eth-1',
-    tokenSymbol: 'ETH',
-    tokenAddress: '0x0000000000000000000000000000000000000000',
-    chain: 'ethereum',
-    alertType: 'price_above',
+    id: "alert-eth-1",
+    tokenSymbol: "ETH",
+    tokenAddress: "0x0000000000000000000000000000000000000000",
+    chain: "ethereum",
+    alertType: "price_above",
     targetValue: 4200,
     currentPrice: 3985.22,
-    status: 'active',
+    status: "active",
     createdAt: new Date().toISOString(),
   },
   {
-    id: 'alert-sol-2',
-    tokenSymbol: 'SOL',
-    tokenAddress: 'So11111111111111111111111111111111111111112',
-    chain: 'solana',
-    alertType: 'volume_spike',
+    id: "alert-sol-2",
+    tokenSymbol: "SOL",
+    tokenAddress: "So11111111111111111111111111111111111111112",
+    chain: "solana",
+    alertType: "volume_spike",
     targetValue: 2500000,
     currentPrice: 182.5,
-    status: 'triggered',
+    status: "triggered",
     createdAt: new Date().toISOString(),
   },
   {
-    id: 'alert-btc-3',
-    tokenSymbol: 'BTC',
-    tokenAddress: '0x0000000000000000000000000000000000000002',
-    chain: 'base',
-    alertType: 'price_below',
+    id: "alert-btc-3",
+    tokenSymbol: "BTC",
+    tokenAddress: "0x0000000000000000000000000000000000000002",
+    chain: "base",
+    alertType: "price_below",
     targetValue: 64000,
     currentPrice: 66240,
-    status: 'inactive',
+    status: "inactive",
     createdAt: new Date().toISOString(),
   },
-]
+];
+
+function MetaPill({ children }: { children: ReactNode }) {
+  return (
+    <span className="terminal-theme-pill terminal-theme-caption border border-terminal-border bg-terminal-bg-secondary px-2.5 py-1 text-[9px] uppercase text-terminal-text-muted">
+      {children}
+    </span>
+  );
+}
+
+function ContentInset({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={joinClasses(
+        "terminal-theme-inset p-[var(--terminal-space-inset)]",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+function ContentCard({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={joinClasses(
+        "terminal-theme-card p-[var(--terminal-space-card)]",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
 
 function StoryShell({
   eyebrow,
@@ -107,13 +166,13 @@ function StoryShell({
   description,
   children,
 }: {
-  eyebrow: string
-  title: string
-  description: string
-  children: ReactNode
+  eyebrow: string;
+  title: string;
+  description: string;
+  children: ReactNode;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-[40px] border border-[#e8dec9] bg-[#fffdf8] p-6 shadow-[0_24px_80px_rgba(67,43,28,0.08)]">
+    <div className="terminal-theme-panel terminal-theme-panel-elevated relative overflow-hidden p-[var(--terminal-space-page)]">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_8%_10%,rgba(244,218,162,0.28),transparent_18%),radial-gradient(circle_at_92%_16%,rgba(154,218,228,0.22),transparent_18%),linear-gradient(180deg,#fffefb_0%,#fff8ed_42%,#edf8fb_100%)]" />
       <div className="pointer-events-none absolute right-[-24px] top-[-18px] opacity-20">
         <PersimmonMark
@@ -130,17 +189,19 @@ function StoryShell({
         />
       </div>
       <div className="relative mb-6 max-w-3xl">
-        <div className="inline-flex rounded-full border border-[#e8d8b8] bg-white/90 px-3 py-1 text-[10px] uppercase tracking-[0.34em] text-[#a0814f]">
+        <div className="terminal-theme-pill terminal-theme-caption inline-flex border border-terminal-border bg-terminal-bg-secondary px-3 py-1 text-[9px] uppercase text-terminal-text-muted">
           {eyebrow}
         </div>
-        <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-[#2d211a]">
+        <h2 className="terminal-theme-heading mt-3 text-3xl font-semibold text-terminal-text">
           {title}
         </h2>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#7a6653]">{description}</p>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-terminal-text-secondary">
+          {description}
+        </p>
       </div>
       <div className="relative">{children}</div>
     </div>
-  )
+  );
 }
 
 function SurfaceCard({
@@ -148,36 +209,38 @@ function SurfaceCard({
   meta,
   children,
 }: {
-  title: string
-  meta?: string
-  children: ReactNode
+  title: string;
+  meta?: string;
+  children: ReactNode;
 }) {
   return (
-    <section className="rounded-[30px] border border-[#e7dcc8] bg-white/96 p-4 shadow-[0_10px_30px_rgba(67,43,28,0.05)]">
+    <section className="terminal-theme-card p-[var(--terminal-space-panel)]">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-[#302219]">{title}</h3>
-        {meta ? (
-          <span className="rounded-full border border-[#ece0cb] bg-[#fff9f0] px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] text-[#8b775f]">
-            {meta}
-          </span>
-        ) : null}
+        <h3 className="terminal-theme-heading text-sm font-semibold text-terminal-text">
+          {title}
+        </h3>
+        {meta ? <MetaPill>{meta}</MetaPill> : null}
       </div>
       {children}
     </section>
-  )
+  );
 }
 
 function MetricPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-[#ece0cb] bg-[#fff9f0] px-3 py-2">
-      <div className="text-[10px] uppercase tracking-[0.2em] text-[#8b775f]">{label}</div>
-      <div className="mt-1 text-sm font-semibold text-[#2f221b]">{value}</div>
+    <div className="terminal-theme-card px-[var(--terminal-space-card)] py-[var(--terminal-space-card)]">
+      <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
+        {label}
+      </div>
+      <div className="mt-1 text-sm font-semibold text-terminal-text">
+        {value}
+      </div>
     </div>
-  )
+  );
 }
 
 function TrackingGardenBoard() {
-  const [wallets, setWallets] = useState(walletSeeds)
+  const [wallets, setWallets] = useState(walletSeeds);
 
   return (
     <StoryShell
@@ -189,48 +252,46 @@ function TrackingGardenBoard() {
         <SurfaceCard title="Wallet intake" meta={`${wallets.length} tracked`}>
           <AddWalletForm
             onAdd={(address, label) => {
-              setWallets((current) => [...current, { address, label }])
+              setWallets((current) => [...current, { address, label }]);
             }}
           />
           <div className="mt-4 grid gap-2">
             {wallets.map((wallet) => (
-              <div
-                key={`${wallet.address}-${wallet.label ?? ''}`}
-                className="rounded-2xl border border-[#ece0cb] bg-[#fffdf9] p-3"
-              >
-                <div className="font-mono text-xs text-[#2f221b]">{wallet.address}</div>
+              <ContentCard key={`${wallet.address}-${wallet.label ?? ""}`}>
+                <div className="font-mono text-xs text-terminal-text">
+                  {wallet.address}
+                </div>
                 {wallet.label ? (
-                  <div className="mt-1 text-[11px] text-[#8b775f]">{wallet.label}</div>
+                  <div className="mt-1 text-[11px] text-terminal-text-secondary">
+                    {wallet.label}
+                  </div>
                 ) : null}
-              </div>
+              </ContentCard>
             ))}
           </div>
         </SurfaceCard>
 
         <SurfaceCard title="Watchlist rail" meta="3 market reads">
-          <div className="grid gap-2 rounded-[24px] border border-[#f0e3d0] bg-[#fffdfb] p-2">
+          <ContentInset className="grid gap-2">
             {watchlistRows.map((row) => (
-              <div
-                key={row.token.address}
-                className="rounded-2xl border border-[#f0e3d0] bg-white/98 px-1"
-              >
+              <ContentCard key={row.token.address} className="px-1">
                 <WatchlistItem
                   token={row.token}
                   priceData={row.priceData}
                   onRemove={() => undefined}
                   onClick={() => undefined}
                 />
-              </div>
+              </ContentCard>
             ))}
-          </div>
+          </ContentInset>
         </SurfaceCard>
       </div>
     </StoryShell>
-  )
+  );
 }
 
 function AlertAtelierBoard() {
-  const [alerts, setAlerts] = useState(alertSeeds)
+  const [alerts, setAlerts] = useState(alertSeeds);
 
   return (
     <StoryShell
@@ -248,15 +309,15 @@ function AlertAtelierBoard() {
                   id: `alert-${submission.tokenSymbol.toLowerCase()}-${current.length + 1}`,
                   tokenSymbol: submission.tokenSymbol,
                   tokenAddress: `draft-${submission.tokenSymbol.toLowerCase()}`,
-                  chain: 'ethereum',
+                  chain: "ethereum",
                   alertType: submission.alertType,
                   targetValue: submission.targetValue,
                   currentPrice: undefined,
-                  status: 'active',
+                  status: "active",
                   createdAt: new Date().toISOString(),
                 },
                 ...current,
-              ])
+              ]);
             }}
           />
         </SurfaceCard>
@@ -268,7 +329,9 @@ function AlertAtelierBoard() {
                 key={alert.id}
                 alert={alert}
                 onDelete={(id) => {
-                  setAlerts((current) => current.filter((entry) => entry.id !== id))
+                  setAlerts((current) =>
+                    current.filter((entry) => entry.id !== id),
+                  );
                 }}
               />
             ))}
@@ -276,12 +339,12 @@ function AlertAtelierBoard() {
         </SurfaceCard>
       </div>
     </StoryShell>
-  )
+  );
 }
 
 function OperatorBoard() {
-  const [wallets, setWallets] = useState(walletSeeds)
-  const [alerts, setAlerts] = useState(alertSeeds)
+  const [wallets, setWallets] = useState(walletSeeds);
+  const [alerts, setAlerts] = useState(alertSeeds);
 
   return (
     <StoryShell
@@ -293,40 +356,38 @@ function OperatorBoard() {
         <SurfaceCard title="Wallet lane" meta={`${wallets.length} tracked`}>
           <AddWalletForm
             onAdd={(address, label) => {
-              setWallets((current) => [...current, { address, label }])
+              setWallets((current) => [...current, { address, label }]);
             }}
           />
           <div className="mt-4 grid gap-2">
             {wallets.map((wallet) => (
-              <div
-                key={`${wallet.address}-${wallet.label ?? ''}`}
-                className="rounded-2xl border border-[#ece0cb] bg-[#fffdf9] p-3"
-              >
-                <div className="font-mono text-xs text-[#2f221b]">{wallet.address}</div>
+              <ContentCard key={`${wallet.address}-${wallet.label ?? ""}`}>
+                <div className="font-mono text-xs text-terminal-text">
+                  {wallet.address}
+                </div>
                 {wallet.label ? (
-                  <div className="mt-1 text-[11px] text-[#8b775f]">{wallet.label}</div>
+                  <div className="mt-1 text-[11px] text-terminal-text-secondary">
+                    {wallet.label}
+                  </div>
                 ) : null}
-              </div>
+              </ContentCard>
             ))}
           </div>
         </SurfaceCard>
 
         <SurfaceCard title="Watchlist pulse" meta="Live scan">
-          <div className="grid gap-2 rounded-[24px] border border-[#f0e3d0] bg-[#fffdfb] p-2">
+          <ContentInset className="grid gap-2">
             {watchlistRows.map((row) => (
-              <div
-                key={row.token.address}
-                className="rounded-2xl border border-[#f0e3d0] bg-white/98 px-1"
-              >
+              <ContentCard key={row.token.address} className="px-1">
                 <WatchlistItem
                   token={row.token}
                   priceData={row.priceData}
                   onRemove={() => undefined}
                   onClick={() => undefined}
                 />
-              </div>
+              </ContentCard>
             ))}
-          </div>
+          </ContentInset>
         </SurfaceCard>
 
         <SurfaceCard title="Alert flow" meta={`${alerts.length} queued`}>
@@ -338,15 +399,15 @@ function OperatorBoard() {
                   id: `alert-${submission.tokenSymbol.toLowerCase()}-${current.length + 1}`,
                   tokenSymbol: submission.tokenSymbol,
                   tokenAddress: `draft-${submission.tokenSymbol.toLowerCase()}`,
-                  chain: 'ethereum',
+                  chain: "ethereum",
                   alertType: submission.alertType,
                   targetValue: submission.targetValue,
                   currentPrice: undefined,
-                  status: 'active',
+                  status: "active",
                   createdAt: new Date().toISOString(),
                 },
                 ...current,
-              ])
+              ]);
             }}
           />
           <div className="mt-4 grid gap-3">
@@ -355,7 +416,9 @@ function OperatorBoard() {
                 key={alert.id}
                 alert={alert}
                 onDelete={(id) => {
-                  setAlerts((current) => current.filter((entry) => entry.id !== id))
+                  setAlerts((current) =>
+                    current.filter((entry) => entry.id !== id),
+                  );
                 }}
               />
             ))}
@@ -363,11 +426,11 @@ function OperatorBoard() {
         </SurfaceCard>
       </div>
     </StoryShell>
-  )
+  );
 }
 
 function ExecutionCabanaBoard() {
-  const [slippage, setSlippage] = useState(0.5)
+  const [slippage, setSlippage] = useState(0.5);
 
   return (
     <StoryShell
@@ -378,9 +441,9 @@ function ExecutionCabanaBoard() {
       <div className="grid gap-4 xl:grid-cols-[1.05fr_1.25fr]">
         <SurfaceCard title="Swap tuning" meta="Execution">
           <div className="grid gap-4">
-            <div className="rounded-[24px] border border-[#ece0cb] bg-[#fffdf9] p-4">
+            <ContentCard className="p-[var(--terminal-space-inset)]">
               <SlippageControl value={slippage} onChange={setSlippage} />
-            </div>
+            </ContentCard>
             <div className="grid gap-3 sm:grid-cols-3">
               <MetricPill label="Tolerance" value={`${slippage.toFixed(2)}%`} />
               <MetricPill label="Route" value="Circle USDC" />
@@ -396,29 +459,26 @@ function ExecutionCabanaBoard() {
         </SurfaceCard>
 
         <SurfaceCard title="Market rail" meta="3 active reads">
-          <div className="grid gap-2 rounded-[24px] border border-[#f0e3d0] bg-[#fffdfb] p-2">
+          <ContentInset className="grid gap-2">
             {watchlistRows.map((row) => (
-              <div
-                key={row.token.address}
-                className="rounded-2xl border border-[#f0e3d0] bg-white/98 px-1"
-              >
+              <ContentCard key={row.token.address} className="px-1">
                 <WatchlistItem
                   token={row.token}
                   priceData={row.priceData}
                   onRemove={() => undefined}
                   onClick={() => undefined}
                 />
-              </div>
+              </ContentCard>
             ))}
-          </div>
+          </ContentInset>
         </SurfaceCard>
       </div>
     </StoryShell>
-  )
+  );
 }
 
 function SignalConservatoryBoard() {
-  const [alerts, setAlerts] = useState(alertSeeds)
+  const [alerts, setAlerts] = useState(alertSeeds);
 
   return (
     <StoryShell
@@ -451,15 +511,15 @@ function SignalConservatoryBoard() {
                     id: `alert-${submission.tokenSymbol.toLowerCase()}-${current.length + 1}`,
                     tokenSymbol: submission.tokenSymbol,
                     tokenAddress: `draft-${submission.tokenSymbol.toLowerCase()}`,
-                    chain: 'ethereum',
+                    chain: "ethereum",
                     alertType: submission.alertType,
                     targetValue: submission.targetValue,
                     currentPrice: undefined,
-                    status: 'active',
+                    status: "active",
                     createdAt: new Date().toISOString(),
                   },
                   ...current,
-                ])
+                ]);
               }}
             />
           </SurfaceCard>
@@ -472,34 +532,33 @@ function SignalConservatoryBoard() {
                 key={alert.id}
                 alert={alert}
                 onDelete={(id) => {
-                  setAlerts((current) => current.filter((entry) => entry.id !== id))
+                  setAlerts((current) =>
+                    current.filter((entry) => entry.id !== id),
+                  );
                 }}
               />
             ))}
           </div>
-          <div className="mt-4 grid gap-2 rounded-[24px] border border-[#f0e3d0] bg-[#fffdfb] p-2">
+          <ContentInset className="mt-4 grid gap-2">
             {watchlistRows.slice(0, 2).map((row) => (
-              <div
-                key={row.token.address}
-                className="rounded-2xl border border-[#f0e3d0] bg-white/98 px-1"
-              >
+              <ContentCard key={row.token.address} className="px-1">
                 <WatchlistItem
                   token={row.token}
                   priceData={row.priceData}
                   onRemove={() => undefined}
                   onClick={() => undefined}
                 />
-              </div>
+              </ContentCard>
             ))}
-          </div>
+          </ContentInset>
         </SurfaceCard>
       </div>
     </StoryShell>
-  )
+  );
 }
 
 function MorningBriefBoard() {
-  const [slippage, setSlippage] = useState(1)
+  const [slippage, setSlippage] = useState(1);
 
   return (
     <StoryShell
@@ -512,35 +571,33 @@ function MorningBriefBoard() {
           <AddWalletForm onAdd={() => undefined} />
           <div className="mt-4 grid gap-2">
             {walletSeeds.map((wallet) => (
-              <div
-                key={`${wallet.address}-${wallet.label ?? ''}`}
-                className="rounded-2xl border border-[#ece0cb] bg-[#fffdf9] p-3"
-              >
-                <div className="font-mono text-xs text-[#2f221b]">{wallet.address}</div>
+              <ContentCard key={`${wallet.address}-${wallet.label ?? ""}`}>
+                <div className="font-mono text-xs text-terminal-text">
+                  {wallet.address}
+                </div>
                 {wallet.label ? (
-                  <div className="mt-1 text-[11px] text-[#8b775f]">{wallet.label}</div>
+                  <div className="mt-1 text-[11px] text-terminal-text-secondary">
+                    {wallet.label}
+                  </div>
                 ) : null}
-              </div>
+              </ContentCard>
             ))}
           </div>
         </SurfaceCard>
 
         <SurfaceCard title="Pulse rail" meta="Watchlist">
-          <div className="grid gap-2 rounded-[24px] border border-[#f0e3d0] bg-[#fffdfb] p-2">
+          <ContentInset className="grid gap-2">
             {watchlistRows.map((row) => (
-              <div
-                key={row.token.address}
-                className="rounded-2xl border border-[#f0e3d0] bg-white/98 px-1"
-              >
+              <ContentCard key={row.token.address} className="px-1">
                 <WatchlistItem
                   token={row.token}
                   priceData={row.priceData}
                   onRemove={() => undefined}
                   onClick={() => undefined}
                 />
-              </div>
+              </ContentCard>
             ))}
-          </div>
+          </ContentInset>
         </SurfaceCard>
 
         <SurfaceCard title="Readiness" meta="Risk">
@@ -549,9 +606,9 @@ function MorningBriefBoard() {
               <MetricPill label="Window" value="Asia open" />
               <MetricPill label="Mode" value="Agent ready" />
             </div>
-            <div className="rounded-[24px] border border-[#ece0cb] bg-[#fffdf9] p-4">
+            <ContentCard className="p-[var(--terminal-space-inset)]">
               <SlippageControl value={slippage} onChange={setSlippage} />
-            </div>
+            </ContentCard>
             <div className="flex flex-wrap gap-2">
               <TierBadge tier="Gold" points={12000} compact />
               <TrustScoreBadge score={92} level="safe" />
@@ -559,46 +616,50 @@ function MorningBriefBoard() {
             </div>
             <div className="grid gap-3">
               {alertSeeds.slice(0, 2).map((alert) => (
-                <AlertCard key={alert.id} alert={alert} onDelete={() => undefined} />
+                <AlertCard
+                  key={alert.id}
+                  alert={alert}
+                  onDelete={() => undefined}
+                />
               ))}
             </div>
           </div>
         </SurfaceCard>
       </div>
     </StoryShell>
-  )
+  );
 }
 
 const meta = {
-  title: 'Organisms/Summer Breeze Workspaces',
-  tags: ['autodocs'],
-} satisfies Meta
+  title: "Organisms/Summer Breeze Workspaces",
+  tags: ["autodocs"],
+} satisfies Meta;
 
-export default meta
+export default meta;
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<typeof meta>;
 
 export const TrackingGarden: Story = {
   render: () => <TrackingGardenBoard />,
-}
+};
 
 export const AlertAtelier: Story = {
   render: () => <AlertAtelierBoard />,
-}
+};
 
 export const OperatorBoardStory: Story = {
-  name: 'Operator Board',
+  name: "Operator Board",
   render: () => <OperatorBoard />,
-}
+};
 
 export const ExecutionCabana: Story = {
   render: () => <ExecutionCabanaBoard />,
-}
+};
 
 export const SignalConservatory: Story = {
   render: () => <SignalConservatoryBoard />,
-}
+};
 
 export const MorningBrief: Story = {
   render: () => <MorningBriefBoard />,
-}
+};
