@@ -107,15 +107,15 @@ function TokenInspectorLab() {
                     <button
                       key={token.address}
                       onClick={() => setSelectedSymbol(token.symbol)}
-                      className={`rounded-suwappu-xxl border px-3 py-3 text-left transition-colors ${
+                      className={`border px-3 py-3 text-left transition-colors [border-radius:var(--terminal-radius-inset)] ${
                         token.symbol === selectedSymbol
-                          ? 'border-terminal-border-active bg-white shadow-suwappu-2'
+                          ? 'border-terminal-border-active bg-white [box-shadow:var(--terminal-shadow-raised)]'
                           : 'border-terminal-border bg-terminal-bg-secondary hover:bg-white'
                       }`}
                     >
                       <div className="text-sm font-semibold text-terminal-text">{token.symbol}</div>
                       <div className="mt-1 text-xs text-terminal-text-secondary">{token.name}</div>
-                      <div className="mt-2 text-[10px] uppercase tracking-[0.18em] text-terminal-text-muted">
+                      <div className="terminal-theme-caption mt-2 text-[10px] uppercase text-terminal-text-muted">
                         {token.chain} · {token.stage.replace('_', ' ')}
                       </div>
                     </button>

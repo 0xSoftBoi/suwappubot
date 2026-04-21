@@ -37,7 +37,7 @@ export function TerminalTokenInspector({
           {onBack ? (
             <button
               onClick={onBack}
-              className="rounded-suwappu-xl border border-terminal-border bg-terminal-bg-secondary px-3 py-2 text-xs text-terminal-text-secondary transition-colors hover:bg-white hover:text-terminal-text"
+              className="terminal-theme-control bg-terminal-bg-secondary px-3 py-2 text-xs text-terminal-text-secondary hover:bg-white hover:text-terminal-text"
             >
               Back
             </button>
@@ -54,7 +54,7 @@ export function TerminalTokenInspector({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-2xl font-semibold tracking-[-0.04em] text-terminal-text">
+              <h2 className="terminal-theme-heading text-2xl font-semibold text-terminal-text">
                 {token.symbol}
               </h2>
               <TerminalTokenPill symbol={token.symbol} label={token.name} tone="neutral" />
@@ -89,7 +89,7 @@ export function TerminalTokenInspector({
 
       <div className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
         <TerminalInset className="grid gap-3">
-          <div className="text-[10px] uppercase tracking-[0.22em] text-terminal-text-muted">
+          <div className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
             Risk and ownership
           </div>
           <TerminalKeyValueRow
@@ -115,8 +115,8 @@ export function TerminalTokenInspector({
             />
           ) : null}
 
-          <div className="rounded-suwappu-xxl border border-terminal-border bg-white/90 p-3">
-            <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-terminal-text-muted">
+          <div className="terminal-theme-card bg-white/90 p-3">
+            <div className="terminal-theme-caption mb-2 text-[10px] uppercase text-terminal-text-muted">
               Holder distribution
             </div>
             <div className="flex h-3 overflow-hidden rounded-full border border-terminal-border">
@@ -145,7 +145,7 @@ export function TerminalTokenInspector({
         </TerminalInset>
 
         <TerminalInset className="grid gap-3">
-          <div className="text-[10px] uppercase tracking-[0.22em] text-terminal-text-muted">
+          <div className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
             Trading posture
           </div>
           <TerminalKeyValueRow
@@ -169,7 +169,7 @@ export function TerminalTokenInspector({
             <TerminalButton variant="secondary">Add to watchlist</TerminalButton>
           </div>
 
-          <div className="rounded-suwappu-xxl border border-terminal-border bg-white/90 p-4 text-sm leading-6 text-terminal-text-secondary">
+          <div className="terminal-theme-card bg-white/90 p-4 text-sm leading-6 text-terminal-text-secondary">
             The current live token-detail panel hand-builds rows, bars, and social placeholders. This inspector is intentionally narrower: shared metrics first, then shared actions, then any special-case token detail.
           </div>
         </TerminalInset>

@@ -140,7 +140,7 @@ export function TerminalCopilotMessageBubble({
     <div className={joinClasses('flex', isUser ? 'justify-end' : 'justify-start')}>
       <div
         className={joinClasses(
-          'max-w-[88%] rounded-suwappu-xxl border px-4 py-3 shadow-suwappu-2',
+          'max-w-[88%] border px-4 py-3 [border-radius:var(--terminal-radius-inset)] [box-shadow:var(--terminal-shadow-card)]',
           bubbleToneClasses[message.role],
         )}
       >
@@ -155,7 +155,7 @@ export function TerminalCopilotMessageBubble({
           />
         ))}
 
-        <div className="mt-3 flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.18em] text-terminal-text-muted">
+        <div className="terminal-theme-caption mt-3 flex items-center justify-between gap-3 text-[10px] uppercase text-terminal-text-muted">
           <span>{message.role === 'assistant' ? 'copilot' : 'operator'}</span>
           <span>{message.status ? `${message.status} · ${message.timestamp}` : message.timestamp}</span>
         </div>
@@ -167,7 +167,7 @@ export function TerminalCopilotMessageBubble({
 function TypingIndicator() {
   return (
     <div className="flex justify-start">
-      <div className="rounded-suwappu-xxl border border-terminal-border bg-white/95 px-4 py-3 shadow-suwappu-2">
+      <div className="terminal-theme-card bg-white/95 px-4 py-3">
         <div className="flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-terminal-text-muted animate-pulse" />
           <span className="h-2 w-2 rounded-full bg-terminal-text-muted animate-pulse [animation-delay:140ms]" />
@@ -233,7 +233,7 @@ export function TerminalCopilotSurface({
               />
             ) : null}
           </div>
-          <div className="mt-3 text-xl font-semibold tracking-[-0.04em] text-terminal-text">
+          <div className="terminal-theme-heading mt-3 text-xl font-semibold text-terminal-text">
             Terminal copilot surface
           </div>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-terminal-text-secondary">
@@ -298,7 +298,7 @@ export function TerminalCopilotSidebar({
 }) {
   return (
     <TerminalInset>
-      <div className="text-[10px] uppercase tracking-[0.22em] text-terminal-text-muted">{title}</div>
+      <div className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">{title}</div>
       <p className="mt-2 text-sm leading-6 text-terminal-text-secondary">{description}</p>
       <div className="mt-3 grid gap-2">{children}</div>
     </TerminalInset>

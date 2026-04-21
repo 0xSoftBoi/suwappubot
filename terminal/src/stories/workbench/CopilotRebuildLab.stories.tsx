@@ -298,10 +298,10 @@ function CopilotLab() {
                     <button
                       key={suggestion.id}
                       onClick={() => pushPrompt(suggestion.label)}
-                      className="rounded-suwappu-xxl border border-terminal-border bg-white px-3 py-3 text-left transition-colors hover:border-terminal-border-active hover:shadow-suwappu-2"
+                      className="border border-terminal-border bg-white px-3 py-3 text-left transition-colors hover:border-terminal-border-active hover:[box-shadow:var(--terminal-shadow-raised)] [border-radius:var(--terminal-radius-inset)]"
                     >
                       <div className="text-sm font-semibold text-terminal-text">{suggestion.label}</div>
-                      <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-terminal-text-muted">
+                      <div className="terminal-theme-caption mt-1 text-[10px] uppercase text-terminal-text-muted">
                         {suggestion.detail}
                       </div>
                     </button>

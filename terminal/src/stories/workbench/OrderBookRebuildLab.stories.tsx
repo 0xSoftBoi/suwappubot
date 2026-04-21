@@ -62,11 +62,11 @@ function TimeAndSales() {
 
   return (
     <TerminalInset>
-      <div className="mb-3 text-[10px] uppercase tracking-[0.22em] text-terminal-text-muted">
+      <div className="terminal-theme-caption mb-3 text-[10px] uppercase text-terminal-text-muted">
         Time and sales
       </div>
       <div className="grid gap-1 font-mono text-[11px]">
-        <div className="grid grid-cols-3 gap-3 px-3 text-[10px] uppercase tracking-[0.14em] text-terminal-text-muted">
+        <div className="terminal-theme-caption grid grid-cols-3 gap-3 px-3 text-[10px] uppercase text-terminal-text-muted">
           <span>Price</span>
           <span className="text-right">Size</span>
           <span className="text-right">Time</span>
@@ -74,7 +74,7 @@ function TimeAndSales() {
         {trades.map((trade) => (
           <div
             key={trade.id}
-            className="grid grid-cols-3 gap-3 rounded-suwappu-xl border border-terminal-border bg-white/90 px-3 py-1.5"
+            className="terminal-theme-card grid grid-cols-3 gap-3 bg-white/90 px-3 py-1.5"
           >
             <span className={trade.side === 'buy' ? 'text-bull' : 'text-bear'}>
               {trade.price.toFixed(2)}
@@ -139,7 +139,7 @@ function OrderBookLab() {
               </div>
 
               <div className="mt-4 grid gap-1 font-mono text-[11px]">
-                <div className="grid grid-cols-3 gap-3 px-3 text-[10px] uppercase tracking-[0.14em] text-terminal-text-muted">
+                <div className="terminal-theme-caption grid grid-cols-3 gap-3 px-3 text-[10px] uppercase text-terminal-text-muted">
                   <span>Price</span>
                   <span className="text-right">Size</span>
                   <span className="text-right">Total</span>
@@ -159,7 +159,7 @@ function OrderBookLab() {
                   </div>
                 ) : null}
 
-                <div className="my-1 rounded-suwappu-xxl border border-terminal-border-active bg-white px-3 py-2 shadow-suwappu-2">
+                <div className="my-1 border border-terminal-border-active bg-white px-3 py-2 [border-radius:var(--terminal-radius-inset)] [box-shadow:var(--terminal-shadow-raised)]">
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-mono text-sm font-semibold text-terminal-text">
                       {book.midPrice.toFixed(Math.max(2, -Math.log10(precision)))}

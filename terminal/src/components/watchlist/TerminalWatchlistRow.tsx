@@ -28,9 +28,9 @@ export function TerminalWatchlistRow({
 
   return (
     <div
-      className={`group grid cursor-pointer grid-cols-[auto_1fr_auto_auto_auto] items-center gap-3 rounded-suwappu-xxl border px-3 py-3 transition-colors ${
+      className={`group grid cursor-pointer grid-cols-[auto_1fr_auto_auto_auto] items-center gap-3 border px-3 py-3 transition-colors [border-radius:var(--terminal-radius-inset)] ${
         selected
-          ? 'border-terminal-border-active bg-white shadow-suwappu-2'
+          ? 'border-terminal-border-active bg-white [box-shadow:var(--terminal-shadow-raised)]'
           : 'border-terminal-border bg-terminal-bg-secondary hover:bg-white'
       }`}
       onClick={() => onOpen?.(token)}
@@ -72,7 +72,7 @@ export function TerminalWatchlistRow({
           event.stopPropagation()
           onRemove?.(token)
         }}
-        className="rounded-suwappu-xl border border-transparent px-2 py-2 text-terminal-text-muted opacity-0 transition-all hover:border-terminal-border hover:bg-white hover:text-bear group-hover:opacity-100"
+        className="border border-transparent px-2 py-2 text-terminal-text-muted opacity-0 transition-all hover:border-terminal-border hover:bg-white hover:text-bear group-hover:opacity-100 [border-radius:var(--terminal-radius-card)]"
         title="Remove token"
       >
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

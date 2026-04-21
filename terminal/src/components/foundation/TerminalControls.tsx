@@ -16,7 +16,7 @@ const buttonVariantClasses: Record<ButtonVariant, string> = {
   primary: 'terminal-button text-white',
   secondary: 'terminal-button-secondary',
   ghost:
-    'rounded-suwappu-xl border border-transparent bg-transparent text-terminal-text-secondary transition-colors hover:border-terminal-border hover:bg-terminal-bg-secondary hover:text-terminal-text active:scale-[0.98]',
+    'rounded-[var(--terminal-radius-control)] border border-transparent bg-transparent text-terminal-text-secondary transition-colors hover:border-terminal-border hover:bg-terminal-bg-secondary hover:text-terminal-text active:scale-[0.98]',
 }
 
 export function TerminalButton({
@@ -54,10 +54,10 @@ export function TerminalIconButton({
       aria-label={label}
       title={label}
       className={joinClasses(
-        'inline-flex h-9 w-9 items-center justify-center rounded-suwappu-xl border text-terminal-text-secondary transition-colors active:scale-[0.98]',
+        'terminal-theme-control inline-flex h-9 w-9 items-center justify-center text-terminal-text-secondary active:scale-[0.98]',
         active
-          ? 'border-terminal-border-active bg-terminal-bg-tertiary text-terminal-text shadow-suwappu-2'
-          : 'border-terminal-border bg-white/80 hover:bg-terminal-bg-secondary hover:text-terminal-text',
+          ? 'terminal-theme-control-active text-terminal-text'
+          : 'hover:text-terminal-text',
         className,
       )}
       {...props}
@@ -69,7 +69,7 @@ export function TerminalIconButton({
 
 export function TerminalKeyHint({ children }: { children: ReactNode }) {
   return (
-    <kbd className="rounded-suwappu-md border border-terminal-border bg-terminal-bg px-2 py-1 font-mono text-[10px] text-terminal-text-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+    <kbd className="terminal-theme-control rounded-[var(--terminal-radius-card)] px-2 py-1 font-mono text-[10px] text-terminal-text-muted">
       {children}
     </kbd>
   )
@@ -91,11 +91,11 @@ export function TerminalTextField({
   return (
     <label className="grid gap-1.5">
       {label ? (
-        <span className="text-[10px] uppercase tracking-[0.22em] text-terminal-text-muted">
+        <span className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
           {label}
         </span>
       ) : null}
-      <div className="flex items-center gap-2 rounded-suwappu-xxl border border-terminal-border bg-white px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] focus-within:border-terminal-border-active">
+      <div className="terminal-theme-control flex items-center gap-2 px-3 py-2">
         {prefix ? <span className="shrink-0 text-terminal-text-muted">{prefix}</span> : null}
         <input
           className={joinClasses(
@@ -127,7 +127,7 @@ export function TerminalSegmentedTabs({
   onChange: (id: string) => void
 }) {
   return (
-    <div className="inline-flex flex-wrap gap-1 rounded-suwappu-xxl border border-terminal-border bg-terminal-bg-secondary p-1">
+    <div className="terminal-theme-inset inline-flex flex-wrap gap-1 p-1">
       {options.map((option) => {
         const active = option.id === activeId
 
@@ -136,14 +136,14 @@ export function TerminalSegmentedTabs({
             key={option.id}
             onClick={() => onChange(option.id)}
             className={joinClasses(
-              'rounded-suwappu-xl px-3 py-2 text-left transition-colors',
+              'rounded-[var(--terminal-radius-card)] px-3 py-2 text-left transition-colors',
               active
-                ? 'bg-white text-terminal-text shadow-suwappu-2'
+                ? 'terminal-theme-control terminal-theme-control-active text-terminal-text'
                 : 'text-terminal-text-secondary hover:bg-white/70 hover:text-terminal-text',
             )}
           >
             <div className="text-sm font-medium">{option.label}</div>
-            {option.meta ? <div className="text-[10px] uppercase tracking-[0.16em] opacity-70">{option.meta}</div> : null}
+            {option.meta ? <div className="terminal-theme-caption text-[10px] uppercase opacity-70">{option.meta}</div> : null}
           </button>
         )
       })}
@@ -168,9 +168,9 @@ export function TerminalSelectPill({
     <button
       onClick={onClick}
       className={joinClasses(
-        'inline-flex items-center gap-2 rounded-suwappu-pill border px-3 py-2 text-left transition-colors active:scale-[0.98]',
+        'terminal-theme-pill inline-flex items-center gap-2 border px-3 py-2 text-left transition-colors active:scale-[0.98]',
         active
-          ? 'border-terminal-border-active bg-white text-terminal-text shadow-suwappu-2'
+          ? 'border-terminal-border-active bg-white text-terminal-text [box-shadow:var(--terminal-shadow-raised)]'
           : 'border-terminal-border bg-terminal-bg-secondary text-terminal-text-secondary hover:bg-white hover:text-terminal-text',
       )}
     >
@@ -178,7 +178,7 @@ export function TerminalSelectPill({
       <span>
         <span className="block text-sm font-medium">{label}</span>
         {detail ? (
-          <span className="block text-[10px] uppercase tracking-[0.18em] opacity-70">{detail}</span>
+          <span className="terminal-theme-caption block text-[10px] uppercase opacity-70">{detail}</span>
         ) : null}
       </span>
     </button>
@@ -202,7 +202,7 @@ export function TerminalTokenPill({
         : 'border-terminal-border bg-terminal-bg-secondary'
 
   return (
-    <span className={joinClasses('inline-flex items-center gap-2 rounded-suwappu-pill border px-2.5 py-1.5', toneClasses)}>
+    <span className={joinClasses('terminal-theme-pill inline-flex items-center gap-2 border px-2.5 py-1.5', toneClasses)}>
       <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/70 bg-white font-mono text-[10px] font-semibold text-terminal-text shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
         {symbol.slice(0, 2)}
       </span>

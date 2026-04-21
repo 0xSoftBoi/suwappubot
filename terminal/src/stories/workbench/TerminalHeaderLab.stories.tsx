@@ -54,11 +54,11 @@ function HeaderPrototype({ mode }: { mode: ViewMode }) {
             <div className="border-b border-terminal-border bg-white/90 px-4 py-3">
               <div className={`flex ${compact ? 'flex-col' : 'items-center justify-between'} gap-3`}>
                 <div className="flex items-center gap-3">
-                  <div className="rounded-suwappu-xxl border border-sakura-300 bg-sakura-50 px-3 py-2">
-                    <div className="text-sm font-semibold tracking-[-0.04em] text-terminal-text">
+                  <div className="border border-sakura-300 bg-sakura-50 px-3 py-2 [border-radius:var(--terminal-radius-inset)]">
+                    <div className="terminal-theme-heading text-sm font-semibold text-terminal-text">
                       SUWAPPU
                     </div>
-                    <div className="text-[10px] uppercase tracking-[0.22em] text-terminal-text-muted">
+                    <div className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
                       Terminal
                     </div>
                   </div>

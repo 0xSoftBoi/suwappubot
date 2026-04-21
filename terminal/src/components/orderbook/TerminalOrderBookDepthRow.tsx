@@ -24,7 +24,7 @@ export function TerminalOrderBookDepthRow({
   const width = maxTotal > 0 ? (level.total / maxTotal) * 100 : 0
 
   return (
-    <div className="relative grid grid-cols-3 items-center gap-3 overflow-hidden rounded-suwappu-xl px-3 py-1.5 font-mono text-[11px] leading-[18px] transition-colors hover:bg-white/70">
+    <div className="relative grid grid-cols-3 items-center gap-3 overflow-hidden px-3 py-1.5 font-mono text-[11px] leading-[18px] transition-colors hover:bg-white/70 [border-radius:var(--terminal-radius-card)]">
       <div
         className={`absolute inset-y-0 ${bid ? 'right-0 bg-bull/10' : 'right-0 bg-bear/10'}`}
         style={{ width: `${width}%` }}

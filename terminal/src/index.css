@@ -7,8 +7,56 @@
     @apply border-terminal-border;
   }
 
-  :root {
+  :root,
+  .terminal-theme-root {
     color-scheme: light;
+    --terminal-shell-background:
+      radial-gradient(circle at top right, rgba(229, 141, 43, 0.14), transparent 24%),
+      radial-gradient(circle at left center, rgba(248, 228, 190, 0.24), transparent 18%),
+      linear-gradient(180deg, #fffefb 0%, #fffaf3 100%);
+    --terminal-panel-background: rgba(255, 255, 255, 0.96);
+    --terminal-inset-background: rgba(255, 249, 240, 0.92);
+    --terminal-card-background: rgba(255, 255, 255, 0.94);
+    --terminal-control-background: rgba(255, 255, 255, 0.94);
+    --terminal-control-background-hover: #ffffff;
+    --terminal-control-background-active: #ffffff;
+    --terminal-border-color: #deceb3;
+    --terminal-border-active-color: #cfae78;
+    --terminal-radius-panel: 18px;
+    --terminal-radius-inset: 14px;
+    --terminal-radius-card: 12px;
+    --terminal-radius-control: 12px;
+    --terminal-radius-pill: 14px;
+    --terminal-shadow-panel:
+      0 18px 36px rgba(176, 126, 64, 0.12),
+      0 6px 14px rgba(216, 200, 166, 0.14),
+      inset 0 1px 0 rgba(255, 255, 255, 0.86);
+    --terminal-shadow-panel-elevated:
+      0 24px 52px rgba(176, 126, 64, 0.16),
+      0 10px 20px rgba(216, 200, 166, 0.16),
+      inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    --terminal-shadow-inset:
+      inset 0 1px 0 rgba(255, 255, 255, 0.84),
+      0 0 0 1px rgba(255, 255, 255, 0.24);
+    --terminal-shadow-card:
+      0 4px 12px rgba(176, 126, 64, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.62);
+    --terminal-shadow-control:
+      inset 0 1px 0 rgba(255, 255, 255, 0.88),
+      0 1px 2px rgba(216, 200, 166, 0.14);
+    --terminal-shadow-raised:
+      0 8px 18px rgba(176, 126, 64, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.88);
+    --terminal-button-background: linear-gradient(180deg, #efb84a 0%, #e58d2b 100%);
+    --terminal-button-background-hover: linear-gradient(180deg, #f4c963 0%, #d37322 100%);
+    --terminal-button-shadow:
+      0 10px 20px rgba(229, 141, 43, 0.18),
+      inset 0 1px 0 rgba(255, 255, 255, 0.34);
+    --terminal-button-shadow-hover:
+      0 14px 26px rgba(229, 141, 43, 0.24),
+      inset 0 1px 0 rgba(255, 255, 255, 0.38);
+    --terminal-heading-tracking: -0.045em;
+    --terminal-caption-tracking: 0.2em;
   }
 
   html {
@@ -18,10 +66,7 @@
 
   body {
     min-height: 100vh;
-    background:
-      radial-gradient(circle at top right, rgba(244, 201, 99, 0.18), transparent 28%),
-      radial-gradient(circle at left center, rgba(248, 228, 190, 0.4), transparent 22%),
-      linear-gradient(180deg, #fffefb 0%, #fff9f0 100%);
+    background: var(--terminal-shell-background);
     color: #2f221a;
   }
 
@@ -48,46 +93,115 @@
 }
 
 @layer components {
+  .terminal-theme-root {
+    min-height: 100%;
+  }
+
+  .terminal-theme-page {
+    min-height: 100vh;
+    background: var(--terminal-shell-background);
+    color: theme('colors.terminal.text');
+  }
+
+  .terminal-theme-panel {
+    border: 1px solid var(--terminal-border-color);
+    border-radius: var(--terminal-radius-panel);
+    background: var(--terminal-panel-background);
+    box-shadow: var(--terminal-shadow-panel);
+  }
+
+  .terminal-theme-panel-elevated {
+    box-shadow: var(--terminal-shadow-panel-elevated);
+  }
+
+  .terminal-theme-inset {
+    border: 1px solid var(--terminal-border-color);
+    border-radius: var(--terminal-radius-inset);
+    background: var(--terminal-inset-background);
+    box-shadow: var(--terminal-shadow-inset);
+  }
+
+  .terminal-theme-card {
+    border: 1px solid var(--terminal-border-color);
+    border-radius: var(--terminal-radius-card);
+    background: var(--terminal-card-background);
+    box-shadow: var(--terminal-shadow-card);
+  }
+
+  .terminal-theme-control {
+    border: 1px solid var(--terminal-border-color);
+    border-radius: var(--terminal-radius-control);
+    background: var(--terminal-control-background);
+    box-shadow: var(--terminal-shadow-control);
+    transition:
+      border-color 150ms ease,
+      background-color 150ms ease,
+      box-shadow 150ms ease,
+      transform 150ms ease,
+      color 150ms ease;
+  }
+
+  .terminal-theme-control:hover,
+  .terminal-theme-control:focus-within {
+    border-color: var(--terminal-border-active-color);
+    background: var(--terminal-control-background-hover);
+  }
+
+  .terminal-theme-control-active {
+    border-color: var(--terminal-border-active-color);
+    background: var(--terminal-control-background-active);
+    box-shadow: var(--terminal-shadow-raised);
+  }
+
+  .terminal-theme-pill {
+    border-radius: var(--terminal-radius-pill);
+  }
+
+  .terminal-theme-heading {
+    letter-spacing: var(--terminal-heading-tracking);
+  }
+
+  .terminal-theme-caption {
+    letter-spacing: var(--terminal-caption-tracking);
+  }
+
   .terminal-panel {
-    @apply bg-terminal-panel border border-terminal-border rounded-3xl;
-    box-shadow:
-      0 24px 60px rgba(246, 207, 133, 0.18),
-      0 10px 24px rgba(216, 200, 166, 0.22),
-      inset 0 1px 0 rgba(255, 255, 255, 0.84);
+    @apply bg-terminal-panel border border-terminal-border;
+    border-radius: var(--terminal-radius-panel);
+    box-shadow: var(--terminal-shadow-panel);
   }
 
   .terminal-input {
-    @apply bg-white border border-terminal-border rounded-2xl px-3 py-2
+    @apply bg-white border border-terminal-border px-3 py-2
            text-terminal-text placeholder-terminal-text-muted
            focus:outline-none focus:border-sakura-600 transition-colors;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.92),
-      0 1px 2px rgba(216, 200, 166, 0.2);
+    border-radius: var(--terminal-radius-control);
+    background: var(--terminal-control-background);
+    box-shadow: var(--terminal-shadow-control);
   }
 
   .terminal-button {
-    @apply px-4 py-2 rounded-2xl font-medium transition-all duration-150
+    @apply px-4 py-2 font-medium transition-all duration-150
            text-white
            active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
-    background: linear-gradient(180deg, #f1bf57 0%, #e58d2b 100%);
-    box-shadow:
-      0 12px 24px rgba(229, 141, 43, 0.22),
-      inset 0 1px 0 rgba(255, 255, 255, 0.36);
+    border-radius: var(--terminal-radius-control);
+    background: var(--terminal-button-background);
+    box-shadow: var(--terminal-button-shadow);
   }
 
   .terminal-button:hover {
-    background: linear-gradient(180deg, #f4c963 0%, #d37322 100%);
-    box-shadow:
-      0 16px 30px rgba(229, 141, 43, 0.26),
-      inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    background: var(--terminal-button-background-hover);
+    box-shadow: var(--terminal-button-shadow-hover);
   }
 
   .terminal-button-secondary {
-    @apply px-4 py-2 rounded-2xl font-medium transition-all duration-150
+    @apply px-4 py-2 font-medium transition-all duration-150
            bg-terminal-bg-secondary text-terminal-text border border-terminal-border
            hover:border-terminal-border-active hover:bg-white
            active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+    border-radius: var(--terminal-radius-control);
+    background: var(--terminal-control-background);
+    box-shadow: var(--terminal-shadow-control);
   }
 
   .terminal-tab {

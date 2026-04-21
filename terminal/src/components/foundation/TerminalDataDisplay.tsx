@@ -30,7 +30,7 @@ export function TerminalChainBadge({ chain }: { chain: string }) {
   return (
     <span
       className={joinClasses(
-        'inline-flex rounded-suwappu-pill px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em]',
+        'terminal-theme-pill terminal-theme-caption inline-flex px-2 py-1 text-[10px] font-bold uppercase',
         meta.className,
       )}
     >
@@ -82,9 +82,9 @@ export function TerminalKeyValueRow({
   detail?: ReactNode
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-suwappu-xl border border-terminal-border bg-white/90 px-3 py-2">
+    <div className="terminal-theme-card flex items-center justify-between gap-4 bg-white/90 px-3 py-2">
       <div className="min-w-0">
-        <div className="text-[10px] uppercase tracking-[0.18em] text-terminal-text-muted">
+        <div className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
           {label}
         </div>
         {detail ? <div className="mt-1 text-xs text-terminal-text-secondary">{detail}</div> : null}
