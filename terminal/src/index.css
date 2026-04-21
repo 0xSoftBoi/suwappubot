@@ -10,9 +10,21 @@
   :root,
   .terminal-theme-root {
     color-scheme: light;
+    --terminal-font-ui: "Inter", sans-serif;
+    --terminal-font-display: "Space Grotesk", "Inter", sans-serif;
+    --terminal-font-japanese: "Noto Sans JP", "Inter", sans-serif;
+    --terminal-font-mono: "JetBrains Mono", monospace;
     --terminal-shell-background:
-      radial-gradient(circle at top right, rgba(229, 141, 43, 0.14), transparent 24%),
-      radial-gradient(circle at left center, rgba(248, 228, 190, 0.24), transparent 18%),
+      radial-gradient(
+        circle at top right,
+        rgba(229, 141, 43, 0.14),
+        transparent 24%
+      ),
+      radial-gradient(
+        circle at left center,
+        rgba(248, 228, 190, 0.24),
+        transparent 18%
+      ),
       linear-gradient(180deg, #fffefb 0%, #fffaf3 100%);
     --terminal-panel-background: rgba(255, 255, 255, 0.96);
     --terminal-inset-background: rgba(255, 249, 240, 0.92);
@@ -47,8 +59,16 @@
     --terminal-shadow-raised:
       0 8px 18px rgba(176, 126, 64, 0.12),
       inset 0 1px 0 rgba(255, 255, 255, 0.88);
-    --terminal-button-background: linear-gradient(180deg, #efb84a 0%, #e58d2b 100%);
-    --terminal-button-background-hover: linear-gradient(180deg, #f4c963 0%, #d37322 100%);
+    --terminal-button-background: linear-gradient(
+      180deg,
+      #efb84a 0%,
+      #e58d2b 100%
+    );
+    --terminal-button-background-hover: linear-gradient(
+      180deg,
+      #f4c963 0%,
+      #d37322 100%
+    );
     --terminal-button-shadow:
       0 10px 20px rgba(229, 141, 43, 0.18),
       inset 0 1px 0 rgba(255, 255, 255, 0.34);
@@ -57,6 +77,31 @@
       inset 0 1px 0 rgba(255, 255, 255, 0.38);
     --terminal-heading-tracking: -0.045em;
     --terminal-caption-tracking: 0.2em;
+    --terminal-space-page: 18px;
+    --terminal-space-panel: 16px;
+    --terminal-space-inset: 12px;
+    --terminal-space-card: 10px;
+    --terminal-space-section: 12px;
+    --terminal-panel-orb: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.2) 0%,
+      transparent 36%
+    );
+    --terminal-inset-orb: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.14) 0%,
+      transparent 40%
+    );
+    --terminal-card-orb: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.14) 0%,
+      transparent 38%
+    );
+    --terminal-control-orb: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.22) 0%,
+      transparent 48%
+    );
   }
 
   html {
@@ -68,10 +113,24 @@
     min-height: 100vh;
     background: var(--terminal-shell-background);
     color: #2f221a;
+    font-family: var(--terminal-font-ui);
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  code,
+  kbd,
+  pre {
+    font-family: var(--terminal-font-mono);
   }
 
   ::selection {
-    background: rgba(244, 201, 99, 0.28);
+    background: rgba(14, 165, 233, 0.18);
   }
 
   ::-webkit-scrollbar {
@@ -95,19 +154,23 @@
 @layer components {
   .terminal-theme-root {
     min-height: 100%;
+    isolation: isolate;
   }
 
   .terminal-theme-page {
     min-height: 100vh;
     background: var(--terminal-shell-background);
-    color: theme('colors.terminal.text');
+    color: theme("colors.terminal.text");
   }
 
   .terminal-theme-panel {
+    position: relative;
+    overflow: hidden;
     border: 1px solid var(--terminal-border-color);
     border-radius: var(--terminal-radius-panel);
-    background: var(--terminal-panel-background);
+    background: var(--terminal-panel-orb), var(--terminal-panel-background);
     box-shadow: var(--terminal-shadow-panel);
+    isolation: isolate;
   }
 
   .terminal-theme-panel-elevated {
@@ -115,42 +178,73 @@
   }
 
   .terminal-theme-inset {
+    position: relative;
+    overflow: hidden;
     border: 1px solid var(--terminal-border-color);
     border-radius: var(--terminal-radius-inset);
-    background: var(--terminal-inset-background);
+    background: var(--terminal-inset-orb), var(--terminal-inset-background);
     box-shadow: var(--terminal-shadow-inset);
+    isolation: isolate;
   }
 
   .terminal-theme-card {
+    position: relative;
+    overflow: hidden;
     border: 1px solid var(--terminal-border-color);
     border-radius: var(--terminal-radius-card);
-    background: var(--terminal-card-background);
+    background: var(--terminal-card-orb), var(--terminal-card-background);
     box-shadow: var(--terminal-shadow-card);
+    isolation: isolate;
   }
 
   .terminal-theme-control {
+    position: relative;
+    overflow: hidden;
     border: 1px solid var(--terminal-border-color);
     border-radius: var(--terminal-radius-control);
-    background: var(--terminal-control-background);
+    background: var(--terminal-control-orb), var(--terminal-control-background);
     box-shadow: var(--terminal-shadow-control);
     transition:
       border-color 150ms ease,
-      background-color 150ms ease,
+      background 150ms ease,
       box-shadow 150ms ease,
       transform 150ms ease,
       color 150ms ease;
+    isolation: isolate;
   }
 
   .terminal-theme-control:hover,
   .terminal-theme-control:focus-within {
     border-color: var(--terminal-border-active-color);
-    background: var(--terminal-control-background-hover);
+    background:
+      var(--terminal-control-orb), var(--terminal-control-background-hover);
+    box-shadow: var(--terminal-shadow-raised);
+    transform: translateY(-1px);
   }
 
   .terminal-theme-control-active {
     border-color: var(--terminal-border-active-color);
-    background: var(--terminal-control-background-active);
+    background:
+      var(--terminal-control-orb), var(--terminal-control-background-active);
     box-shadow: var(--terminal-shadow-raised);
+  }
+
+  .terminal-theme-panel::after,
+  .terminal-theme-inset::after,
+  .terminal-theme-card::after,
+  .terminal-theme-control::after {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.82),
+      transparent
+    );
+    pointer-events: none;
+    opacity: 0.9;
   }
 
   .terminal-theme-pill {
@@ -158,11 +252,17 @@
   }
 
   .terminal-theme-heading {
+    font-family: var(--terminal-font-display);
     letter-spacing: var(--terminal-heading-tracking);
+    line-height: 1.04;
   }
 
   .terminal-theme-caption {
     letter-spacing: var(--terminal-caption-tracking);
+  }
+
+  .terminal-theme-japanese {
+    font-family: var(--terminal-font-japanese);
   }
 
   .terminal-panel {

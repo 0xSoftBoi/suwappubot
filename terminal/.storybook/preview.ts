@@ -1,7 +1,10 @@
-import type { Preview } from '@storybook/react-vite'
-import { createElement } from 'react'
-import '../src/index.css'
-import { TerminalThemeScope, type TerminalThemeMode } from '../src/theme/TerminalThemeScope'
+import type { Preview } from "@storybook/react-vite";
+import { createElement } from "react";
+import "../src/index.css";
+import {
+  TerminalThemeScope,
+  type TerminalThemeMode,
+} from "../src/theme/TerminalThemeScope";
 
 const preview: Preview = {
   decorators: [
@@ -13,7 +16,7 @@ const preview: Preview = {
       ),
   ],
   parameters: {
-    layout: 'padded',
+    layout: "padded",
     controls: {
       matchers: {
         color: /(background|color)$/i,
@@ -21,37 +24,46 @@ const preview: Preview = {
       },
     },
     backgrounds: {
-      default: 'studio',
+      default: "summer-breeze",
       values: [
-        { name: 'studio', value: '#FFFEFB' },
-        { name: 'butter', value: '#FFF8EE' },
-        { name: 'spring-sky', value: '#EAF4FF' },
+        { name: "summer-breeze", value: "#FFFEFB" },
+        { name: "studio", value: "#FFFEFB" },
+        { name: "butter", value: "#FFF8EE" },
+        { name: "spring-sky", value: "#EAF4FF" },
       ],
     },
     options: {
       storySort: {
-        order: ['Workbench', 'Foundations', 'Atoms', 'Molecules', 'Organisms', 'Templates'],
+        order: [
+          "Workbench",
+          "Foundations",
+          "Atoms",
+          "Molecules",
+          "Organisms",
+          "Templates",
+        ],
       },
     },
   },
   globalTypes: {
     terminalTheme: {
-      name: 'Terminal Theme',
-      description: 'Global rebuilt terminal theme',
+      name: "Terminal Theme",
+      description: "Global rebuilt terminal theme",
       toolbar: {
-        icon: 'paintbrush',
+        icon: "paintbrush",
         dynamicTitle: true,
         items: [
-          { value: 'precision', title: 'Precision' },
-          { value: 'desk', title: 'Desk' },
-          { value: 'studio', title: 'Studio' },
+          { value: "summer-breeze", title: "Summer Breeze" },
+          { value: "precision", title: "Precision" },
+          { value: "desk", title: "Desk" },
+          { value: "studio", title: "Studio" },
         ],
       },
     },
   },
   initialGlobals: {
-    terminalTheme: 'precision',
+    terminalTheme: "summer-breeze",
   },
-}
+};
 
-export default preview
+export default preview;
