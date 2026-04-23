@@ -234,6 +234,7 @@ def _ensure_schema(db_engine) -> None:
         _add_user_core_columns(db_engine, inspector, is_sqlite)
         _add_tos_columns(db_engine, inspector, is_sqlite)
         _fix_user_nullability(db_engine, inspector, is_sqlite)
+        _widen_user_telegram_id(db_engine, inspector, is_sqlite)
         _add_referral_columns(db_engine, inspector, is_sqlite)
         _add_push_token_column(db_engine, inspector, is_sqlite)
         _add_user_settings_columns(db_engine, inspector, is_sqlite)
@@ -393,7 +394,7 @@ def _add_discord_columns(db_engine, inspector, is_sqlite: bool) -> None:
 def _fix_user_nullability(db_engine, inspector, is_sqlite: bool) -> None:
     """
     Ensure telegram_id is nullable for WhatsApp-only users.
-    
+
     For Postgres: Uses ALTER COLUMN to drop NOT NULL constraint.
     For SQLite: Column nullability cannot be altered without table recreation.
                 New databases are created correctly; existing ones may need manual migration.
@@ -405,6 +406,32 @@ def _fix_user_nullability(db_engine, inspector, is_sqlite: bool) -> None:
         except Exception:
             # Column may already be nullable
             pass
+
+
+def _widen_user_telegram_id(db_engine, inspector, is_sqlite: bool) -> None:
+    """Widen users.telegram_id from INTEGER to BIGINT.
+
+    Telegram user IDs now exceed 2^31 (INT4 max), causing
+    psycopg2.errors.NumericValueOutOfRange on INSERT. Idempotent: queries
+    information_schema and no-ops if the column is already bigint.
+
+    SQLite treats INTEGER as 64-bit storage so no migration is required.
+    """
+    if is_sqlite:
+        return
+    try:
+        with db_engine.begin() as conn:
+            current_type = conn.execute(text(
+                "SELECT data_type FROM information_schema.columns "
+                "WHERE table_name = 'users' AND column_name = 'telegram_id'"
+            )).scalar()
+            if current_type == "integer":
+                conn.execute(text(
+                    "ALTER TABLE users ALTER COLUMN telegram_id TYPE BIGINT"
+                ))
+                logger.info("Widened users.telegram_id from INTEGER to BIGINT")
+    except Exception as exc:
+        logger.warning(f"Could not widen users.telegram_id to BIGINT: {exc}")
 
 
 def _add_user_core_columns(db_engine, inspector, is_sqlite: bool) -> None:
