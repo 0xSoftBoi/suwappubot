@@ -359,6 +359,229 @@ function ProductModules() {
   );
 }
 
+function MobileBreezeSite() {
+  return (
+    <main className="grid gap-2 px-2 py-2 md:hidden">
+      <section
+        className="relative min-h-[760px] overflow-hidden rounded-[12px] border"
+        style={{
+          borderColor: "#d7e6ef",
+          background:
+            "linear-gradient(180deg, #fffefb 0%, #f7fcff 17%, #d9f1f3 48%, #bde0e6 100%)",
+          boxShadow:
+            "0 20px 54px rgba(33,88,110,0.1), 0 10px 28px rgba(176,126,64,0.12)",
+        }}
+      >
+        <div className="absolute inset-y-3 left-3 w-[58px] rounded-[10px] border border-white/80 bg-white/78 shadow-[0_16px_34px_rgba(88,142,162,0.12)]" />
+        <div className="absolute left-5 top-6">
+          <PersimmonMark
+            size={50}
+            palette="butter"
+            variant="orchard"
+            shell="coin"
+            frame="none"
+            cutoutMode="none"
+            withGlow={false}
+          />
+        </div>
+        <div
+          className="absolute left-[17px] top-[108px] text-[42px] font-semibold leading-none text-[#16b8d1]"
+          style={{
+            fontFamily:
+              "'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', sans-serif",
+            writingMode: "vertical-rl",
+            textOrientation: "mixed",
+          }}
+        >
+          すわっぷ
+        </div>
+        <div className="absolute left-[70px] top-8 opacity-30">
+          <SakuraBloomMotif size={122} tone="mist" rotation={-8} />
+        </div>
+        <div className="absolute right-[-24px] top-[122px] opacity-20">
+          <PersimmonMark
+            size={98}
+            palette="butter"
+            variant="orchard"
+            shell="coin"
+            frame="none"
+            cutoutMode="none"
+            withGlow={false}
+          />
+        </div>
+        <div className="absolute bottom-[-44px] right-[-48px] opacity-18">
+          <PersimmonStemMotif size={190} palette="butter" rotation={26} flipX />
+        </div>
+
+        <div
+          className="absolute overflow-hidden rounded-[12px] border border-white/72"
+          style={{
+            bottom: 12,
+            left: 78,
+            right: 12,
+            top: 12,
+            background:
+              "radial-gradient(circle at 72% 18%, rgba(255,214,182,0.36), transparent 13%), radial-gradient(circle at 30% 14%, rgba(255,255,255,0.46), transparent 20%), linear-gradient(180deg, rgba(153,214,228,0.92) 0%, rgba(144,208,223,0.94) 24%, rgba(209,242,239,0.78) 55%, rgba(246,253,252,0.94) 100%)",
+          }}
+        >
+          <div
+            className="absolute"
+            style={{ left: 20, top: 20, width: 150 }}
+          >
+            <div className="rounded-[999px] border border-white/70 bg-white/28 px-3 py-1 text-[9px] uppercase tracking-[0.26em] text-[#4f8ca0]">
+              summer breeze
+            </div>
+            <h1
+              className="mt-4 font-semibold text-[#17324a]"
+              style={{ fontSize: "46px", lineHeight: 0.9 }}
+            >
+              Suwappu
+            </h1>
+            <p className="mt-3 text-[12px] leading-5 text-[#345069]">
+              Terminal trading, agent APIs, wallet rails, and bot commands in
+              one route-aware workspace.
+            </p>
+          </div>
+
+          <div
+            className="absolute rounded-[10px] border border-white/72 bg-white/54 p-2 shadow-[0_12px_26px_rgba(33,88,110,0.1)] backdrop-blur"
+            style={{ right: 16, top: 178, width: 120 }}
+          >
+            <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-[#9a7f5e]">
+              route
+            </div>
+            <div className="mt-1 flex justify-between font-mono text-[10px] text-[#26445d]">
+              <span>ETH</span>
+              <span>Base</span>
+            </div>
+            <div className="flex justify-between font-mono text-[10px] text-[#26445d]">
+              <span>USDC</span>
+              <span>V3</span>
+            </div>
+            <div className="mt-1 text-right font-mono text-[11px] text-bull">
+              98.2%
+            </div>
+          </div>
+
+          <div
+            className="absolute overflow-hidden rounded-[10px] border border-terminal-border bg-white/88 shadow-[0_18px_40px_rgba(33,88,110,0.14)]"
+            style={{ bottom: 16, left: 16, right: 16 }}
+          >
+            <div className="flex items-center justify-between border-b border-terminal-border px-2 py-1.5">
+              <div className="flex items-center gap-1">
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: "#f7d5df" }}
+                />
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: "#f4c963" }}
+                />
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: "#2f8f5b" }}
+                />
+              </div>
+              <span className="font-mono text-[9px] text-terminal-text-muted">
+                terminal.suwappu.bot
+              </span>
+            </div>
+            <div className="p-2">
+              <div className="mb-2 flex items-start justify-between">
+                <div>
+                  <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-terminal-text-muted">
+                    market
+                  </div>
+                  <div className="font-mono text-lg font-semibold text-terminal-text">
+                    ETH/USDC
+                  </div>
+                </div>
+                <div className="text-right font-mono">
+                  <div className="text-sm font-semibold text-terminal-text">
+                    $3,483.28
+                  </div>
+                  <div className="text-[11px] text-bull">+6.94%</div>
+                </div>
+              </div>
+              <div className="relative h-28 overflow-hidden rounded-[8px] border border-terminal-border bg-[linear-gradient(180deg,rgba(255,255,255,0.9),rgba(237,248,251,0.75))]">
+                <div className="absolute inset-0 bg-[linear-gradient(rgba(142,182,197,0.22)_1px,transparent_1px),linear-gradient(90deg,rgba(142,182,197,0.2)_1px,transparent_1px)] bg-[size:42px_28px]" />
+                <div className="absolute bottom-3 left-2 right-2 top-6 flex items-end gap-1">
+                  {[35, 48, 42, 57, 64, 61, 70, 79, 74, 84, 80].map(
+                    (height, index) => (
+                      <span
+                        key={`${height}-${index}`}
+                        style={{
+                          backgroundColor:
+                            index === 2 || index === 7 ? "#77bfd0" : "#2f8f5b",
+                          height: `${height}%`,
+                          flex: 1,
+                        }}
+                      />
+                    ),
+                  )}
+                </div>
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-1 text-center font-mono text-[9px]">
+                {["Chart", "Table", "Swap"].map((item) => (
+                  <div
+                    key={item}
+                    className="rounded-[6px] border border-terminal-border bg-white/72 px-1 py-1 text-terminal-text-secondary"
+                  >
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid grid-cols-3 gap-1.5">
+        {productModules.map((module) => (
+          <section
+            key={module.title}
+            className="terminal-theme-panel min-h-[104px] p-2"
+          >
+            <div className="terminal-theme-caption text-[8px] uppercase text-terminal-text-muted">
+              {module.eyebrow}
+            </div>
+            <h2 className="mt-1 text-[15px] font-semibold leading-4 text-terminal-text">
+              {module.title}
+            </h2>
+            <div className="mt-2 rounded-[6px] border border-terminal-border bg-white/72 px-1.5 py-1 font-mono text-[9px] text-terminal-text">
+              {module.stat}
+            </div>
+          </section>
+        ))}
+      </div>
+
+      <section className="terminal-theme-panel p-3">
+        <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
+          SDK lane
+        </div>
+        <h2 className="mt-1 text-2xl font-semibold leading-7 text-terminal-text">
+          Three calls. Full route.
+        </h2>
+        <div className="mt-3 rounded-[8px] border border-terminal-border bg-white/80 p-2 font-mono text-[11px] leading-5">
+          {sdkLines.slice(1, 6).map((line, index) => (
+            <div
+              key={line}
+              className={
+                index === 2 || index === 4 ? "text-bull" : "text-[#0b789a]"
+              }
+            >
+              <span className="mr-1 text-[#e58d2b]">
+                {index === 1 || index === 2 || index === 4 ? "=" : ">"}
+              </span>
+              {line}
+            </div>
+          ))}
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function ProofTable() {
   return (
     <SiteSection id="bot" motif="bloom">
@@ -419,7 +642,8 @@ export function SuwappuBotSiteReplacement() {
           <SakuraBloomMotif size={220} tone="mist" rotation={24} />
         </div>
         <TopNav />
-        <main className="mx-auto grid max-w-7xl gap-3 px-3 py-3 md:gap-4 md:px-5 md:py-5">
+        <MobileBreezeSite />
+        <main className="mx-auto hidden max-w-7xl gap-3 px-3 py-3 md:grid md:gap-4 md:px-5 md:py-5">
           <SiteSection
             className="grid gap-5 py-5 md:min-h-[620px] md:grid-cols-2 md:items-center md:py-8"
             motif="coin"
