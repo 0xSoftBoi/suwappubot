@@ -258,7 +258,7 @@ function TrackingGardenBoard() {
           <div className="mt-4 grid gap-2">
             {wallets.map((wallet) => (
               <ContentCard key={`${wallet.address}-${wallet.label ?? ""}`}>
-                <div className="font-mono text-xs text-terminal-text">
+                <div className="min-w-0 break-all font-mono text-xs leading-5 text-terminal-text">
                   {wallet.address}
                 </div>
                 {wallet.label ? (
@@ -362,7 +362,7 @@ function OperatorBoard() {
           <div className="mt-4 grid gap-2">
             {wallets.map((wallet) => (
               <ContentCard key={`${wallet.address}-${wallet.label ?? ""}`}>
-                <div className="font-mono text-xs text-terminal-text">
+                <div className="min-w-0 break-all font-mono text-xs leading-5 text-terminal-text">
                   {wallet.address}
                 </div>
                 {wallet.label ? (
@@ -572,7 +572,7 @@ function MorningBriefBoard() {
           <div className="mt-4 grid gap-2">
             {walletSeeds.map((wallet) => (
               <ContentCard key={`${wallet.address}-${wallet.label ?? ""}`}>
-                <div className="font-mono text-xs text-terminal-text">
+                <div className="min-w-0 break-all font-mono text-xs leading-5 text-terminal-text">
                   {wallet.address}
                 </div>
                 {wallet.label ? (

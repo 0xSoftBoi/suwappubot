@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { designTokens } from "@suwappu/design-tokens";
 
 export type TerminalThemeMode =
   | "precision"
@@ -8,14 +9,16 @@ export type TerminalThemeMode =
 
 type TerminalThemeVars = Record<`--terminal-${string}`, string>;
 
+const summerBreeze = designTokens.colors.surface.summerBreeze;
+const summerBreezeGradients = designTokens.gradients.summerBreeze;
+
 const shellBackgrounds: Record<TerminalThemeMode, string> = {
   precision:
     "radial-gradient(circle at top right, rgba(229,141,43,0.14), transparent 24%), radial-gradient(circle at left center, rgba(248,228,190,0.24), transparent 18%), linear-gradient(180deg, #fffefb 0%, #fffaf3 100%)",
   desk: "radial-gradient(circle at top right, rgba(244,201,99,0.18), transparent 28%), radial-gradient(circle at left center, rgba(248,228,190,0.4), transparent 22%), linear-gradient(180deg, #fffefb 0%, #fff9f0 100%)",
   studio:
     "radial-gradient(circle at top right, rgba(244,201,99,0.22), transparent 30%), radial-gradient(circle at left center, rgba(234,244,255,0.35), transparent 26%), linear-gradient(180deg, #fffefb 0%, #fff7ed 100%)",
-  "summer-breeze":
-    "radial-gradient(circle at 8% 10%, rgba(244,218,162,0.28), transparent 18%), radial-gradient(circle at 92% 16%, rgba(154,218,228,0.22), transparent 18%), radial-gradient(circle at 78% 82%, rgba(244,201,99,0.16), transparent 20%), linear-gradient(180deg, #fffefb 0%, #fff8ed 42%, #edf8fb 100%)",
+  "summer-breeze": summerBreezeGradients.shellBackground,
 };
 
 const themeVars: Record<TerminalThemeMode, TerminalThemeVars> = {
@@ -173,41 +176,36 @@ const themeVars: Record<TerminalThemeMode, TerminalThemeVars> = {
   },
   "summer-breeze": {
     "--terminal-shell-background": shellBackgrounds["summer-breeze"],
-    "--terminal-panel-background":
-      "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255,251,245,0.97) 42%, rgba(237,248,251,0.94) 100%)",
-    "--terminal-inset-background":
-      "linear-gradient(180deg, rgba(255,253,248,0.96) 0%, rgba(247,251,252,0.94) 100%)",
-    "--terminal-card-background":
-      "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255,250,243,0.96) 54%, rgba(241,251,252,0.94) 100%)",
-    "--terminal-control-background":
-      "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255,251,246,0.96) 100%)",
+    "--terminal-panel-background": summerBreezeGradients.panelBackground,
+    "--terminal-inset-background": summerBreezeGradients.insetBackground,
+    "--terminal-card-background": summerBreezeGradients.cardBackground,
+    "--terminal-control-background": summerBreezeGradients.controlBackground,
     "--terminal-control-background-hover":
-      "linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(246,252,253,0.98) 100%)",
+      summerBreezeGradients.controlBackgroundHover,
     "--terminal-control-background-active":
-      "linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(241,251,252,0.98) 100%)",
-    "--terminal-border-color": "#e7dcc8",
-    "--terminal-border-active-color": "#77bfd0",
-    "--terminal-radius-panel": "24px",
-    "--terminal-radius-inset": "18px",
-    "--terminal-radius-card": "16px",
-    "--terminal-radius-control": "16px",
-    "--terminal-radius-pill": "18px",
+      summerBreezeGradients.controlBackgroundActive,
+    "--terminal-border-color": summerBreeze.border,
+    "--terminal-border-active-color": summerBreeze.borderActive,
+    "--terminal-radius-panel": "12px",
+    "--terminal-radius-inset": "8px",
+    "--terminal-radius-card": "6px",
+    "--terminal-radius-control": "8px",
+    "--terminal-radius-pill": "8px",
     "--terminal-shadow-panel":
-      "0 28px 90px rgba(33,88,110,0.08), 0 16px 36px rgba(176,126,64,0.1), inset 0 1px 0 rgba(255,255,255,0.9)",
+      `0 28px 90px ${summerBreeze.shadowCool}, 0 16px 36px ${summerBreeze.shadowWarm}, inset 0 1px 0 rgba(255,255,255,0.9)`,
     "--terminal-shadow-panel-elevated":
-      "0 34px 104px rgba(33,88,110,0.1), 0 18px 42px rgba(176,126,64,0.12), inset 0 1px 0 rgba(255,255,255,0.94)",
+      `0 34px 104px rgba(33,88,110,0.1), 0 18px 42px rgba(176,126,64,0.12), inset 0 1px 0 rgba(255,255,255,0.94)`,
     "--terminal-shadow-inset":
       "0 10px 24px rgba(33,88,110,0.04), inset 0 1px 0 rgba(255,255,255,0.82)",
     "--terminal-shadow-card":
-      "0 12px 28px rgba(33,88,110,0.05), 0 4px 10px rgba(176,126,64,0.06), inset 0 1px 0 rgba(255,255,255,0.76)",
+      `0 12px 28px ${summerBreeze.shadowCoolSoft}, 0 4px 10px rgba(176,126,64,0.06), inset 0 1px 0 rgba(255,255,255,0.76)`,
     "--terminal-shadow-control":
       "0 4px 10px rgba(33,88,110,0.06), inset 0 1px 0 rgba(255,255,255,0.92)",
     "--terminal-shadow-raised":
-      "0 14px 28px rgba(33,88,110,0.08), 0 6px 14px rgba(176,126,64,0.08), inset 0 1px 0 rgba(255,255,255,0.94)",
-    "--terminal-button-background":
-      "linear-gradient(180deg, #38bdf8 0%, #0ea5e9 52%, #0284c7 100%)",
+      `0 14px 28px ${summerBreeze.shadowCool}, 0 6px 14px rgba(176,126,64,0.08), inset 0 1px 0 rgba(255,255,255,0.94)`,
+    "--terminal-button-background": summerBreezeGradients.buttonBackground,
     "--terminal-button-background-hover":
-      "linear-gradient(180deg, #67cffb 0%, #22b4ed 52%, #0369a1 100%)",
+      summerBreezeGradients.buttonBackgroundHover,
     "--terminal-button-shadow":
       "0 16px 30px rgba(14,165,233,0.22), 0 8px 16px rgba(33,88,110,0.08), inset 0 1px 0 rgba(255,255,255,0.4)",
     "--terminal-button-shadow-hover":
@@ -220,13 +218,10 @@ const themeVars: Record<TerminalThemeMode, TerminalThemeVars> = {
     "--terminal-space-card": "7px",
     "--terminal-space-section": "8px",
     "--terminal-panel-orb":
-      "radial-gradient(circle at 0% 0%, rgba(255,255,255,0.72), transparent 34%), radial-gradient(circle at 100% 0%, rgba(244,218,162,0.24), transparent 28%), radial-gradient(circle at 82% 100%, rgba(154,218,228,0.18), transparent 26%)",
-    "--terminal-inset-orb":
-      "radial-gradient(circle at 100% 0%, rgba(255,255,255,0.58), transparent 26%), radial-gradient(circle at 0% 100%, rgba(94,234,212,0.12), transparent 22%)",
-    "--terminal-card-orb":
-      "radial-gradient(circle at 100% 0%, rgba(255,255,255,0.64), transparent 28%), radial-gradient(circle at 0% 100%, rgba(154,218,228,0.14), transparent 22%)",
-    "--terminal-control-orb":
-      "linear-gradient(180deg, rgba(255,255,255,0.46) 0%, transparent 42%)",
+      summerBreezeGradients.panelOrb,
+    "--terminal-inset-orb": summerBreezeGradients.insetOrb,
+    "--terminal-card-orb": summerBreezeGradients.cardOrb,
+    "--terminal-control-orb": summerBreezeGradients.controlOrb,
   },
 };
 

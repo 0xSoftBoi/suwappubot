@@ -32,7 +32,11 @@ export function AddWalletForm({ onAdd }: AddWalletFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2 items-end" data-testid="add-wallet-form">
+    <form
+      onSubmit={handleSubmit}
+      className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(7rem,9rem)_auto] sm:items-end"
+      data-testid="add-wallet-form"
+    >
       <div className="flex-1 min-w-0">
         <input
           type="text"
@@ -49,10 +53,10 @@ export function AddWalletForm({ onAdd }: AddWalletFormProps) {
         value={label}
         onChange={e => setLabel(e.target.value)}
         placeholder="Label (optional)"
-        className="terminal-input text-xs w-28"
+        className="terminal-input w-full text-xs"
         data-testid="wallet-label-input"
       />
-      <button type="submit" className="terminal-button text-xs px-3 py-2 shrink-0" data-testid="add-wallet-btn">
+      <button type="submit" className="terminal-button min-h-[34px] px-3 py-2 text-xs" data-testid="add-wallet-btn">
         Track
       </button>
     </form>

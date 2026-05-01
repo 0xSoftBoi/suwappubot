@@ -170,7 +170,7 @@ function SummerBreezeShell({
         {eyebrow}
       </div>
       <div
-        className="relative overflow-hidden rounded-[34px] border"
+        className="relative overflow-hidden rounded-[18px] border"
         style={{
           minHeight: 860,
           borderColor: "#d7e6ef",
@@ -178,7 +178,7 @@ function SummerBreezeShell({
             "linear-gradient(180deg, #fdfcf8 0%, #fffefb 18%, #f7fcff 18%, #d9f1f3 52%, #bde0e6 100%)",
         }}
       >
-        <div className="absolute inset-y-5 left-5 w-[86px] rounded-[26px] border border-white/84 bg-white/88 shadow-[0_16px_40px_rgba(88,142,162,0.12)] md:inset-y-8 md:left-8 md:w-[132px] md:rounded-[30px]" />
+        <div className="absolute inset-y-5 left-5 w-[86px] rounded-[12px] border border-white/84 bg-white/88 shadow-[0_16px_40px_rgba(88,142,162,0.12)] md:inset-y-8 md:left-8 md:w-[132px] md:rounded-[14px]" />
         <div className="absolute left-[16px] top-[30px] md:left-[24px] md:top-[40px]">
           <div className="rounded-full border border-[#bfe6ef] bg-white/82 px-2.5 py-1 text-[9px] uppercase tracking-[0.28em] text-[#57a9bc] md:px-3 md:text-[10px]">
             summer breeze
@@ -212,7 +212,7 @@ function SummerBreezeShell({
         </div>
 
         <div
-          className="absolute bottom-[18px] left-[100px] right-[18px] top-[18px] overflow-hidden rounded-[26px] border border-white/70 md:bottom-[28px] md:left-[160px] md:right-[28px] md:top-[28px] md:rounded-[30px]"
+          className="absolute bottom-[18px] left-[100px] right-[18px] top-[18px] overflow-hidden rounded-[12px] border border-white/70 md:bottom-[28px] md:left-[160px] md:right-[28px] md:top-[28px] md:rounded-[16px]"
           style={{
             background:
               "radial-gradient(circle at 75% 24%, rgba(255,214,182,0.52), transparent 12%), radial-gradient(circle at 68% 14%, rgba(255,192,162,0.36), transparent 8%), linear-gradient(180deg, rgba(153,214,228,0.9) 0%, rgba(144,208,223,0.92) 26%, rgba(209,242,239,0.72) 54%, rgba(196,235,230,0.86) 100%)",
@@ -351,7 +351,7 @@ function ConciergeBoard() {
           <div className="mt-4 grid gap-2">
             {wallets.map((wallet) => (
               <ContentCard key={`${wallet.address}-${wallet.label ?? ""}`}>
-                <div className="font-mono text-xs text-terminal-text">
+                <div className="min-w-0 break-all font-mono text-xs leading-5 text-terminal-text">
                   {wallet.address}
                 </div>
                 {wallet.label ? (
