@@ -470,27 +470,57 @@ function MobileBreezeSite() {
               </div>
             </div>
 
-            <div className="overflow-hidden rounded-[10px] border border-terminal-border bg-white/90 shadow-[0_18px_40px_rgba(33,88,110,0.14)]">
-              <div className="flex items-center justify-between border-b border-terminal-border px-2 py-1.5">
+            <div
+              className="relative overflow-hidden rounded-[10px] border border-white/80 bg-white/92"
+              style={{
+                boxShadow:
+                  "0 2px 0 rgba(255,255,255,0.9) inset, 0 -18px 42px rgba(132,204,216,0.16) inset, 0 22px 42px rgba(33,88,110,0.2)",
+              }}
+            >
+              <div className="pointer-events-none absolute -right-9 -top-10 z-0 opacity-[0.08]">
+                <SakuraBloomMotif size={112} tone="mist" rotation={20} />
+              </div>
+              <div className="pointer-events-none absolute -bottom-5 left-8 z-0 h-7 w-40 rounded-[999px] bg-[#17324a]/10 blur-[14px]" />
+              <div
+                className="relative z-10 flex items-center justify-between border-b border-white/70 px-2 py-1.5"
+                style={{
+                  background:
+                    "linear-gradient(180deg, rgba(255,255,255,0.96), rgba(238,248,250,0.8))",
+                  boxShadow:
+                    "0 1px 0 rgba(255,255,255,0.9) inset, 0 10px 22px rgba(33,88,110,0.08)",
+                }}
+              >
                 <div className="flex items-center gap-1">
                   <span
                     className="h-2 w-2 rounded-full"
-                    style={{ backgroundColor: "#f7d5df" }}
+                    style={{
+                      background:
+                        "linear-gradient(180deg, #ffe8ef, #f0aec1)",
+                      boxShadow: "0 1px 2px rgba(69,39,55,0.22)",
+                    }}
                   />
                   <span
                     className="h-2 w-2 rounded-full"
-                    style={{ backgroundColor: "#f4c963" }}
+                    style={{
+                      background:
+                        "linear-gradient(180deg, #ffe8a8, #d99d24)",
+                      boxShadow: "0 1px 2px rgba(105,74,20,0.24)",
+                    }}
                   />
                   <span
                     className="h-2 w-2 rounded-full"
-                    style={{ backgroundColor: "#2f8f5b" }}
+                    style={{
+                      background:
+                        "linear-gradient(180deg, #58bd82, #207b4c)",
+                      boxShadow: "0 1px 2px rgba(20,79,48,0.26)",
+                    }}
                   />
                 </div>
                 <span className="font-mono text-[9px] text-terminal-text-muted">
                   terminal.suwappu.bot
                 </span>
               </div>
-              <div className="p-2">
+              <div className="relative z-10 p-2">
                 <div className="mb-2 flex items-start justify-between gap-2">
                   <div>
                     <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-terminal-text-muted">
@@ -512,9 +542,23 @@ function MobileBreezeSite() {
                   style={{
                     height: 118,
                     background:
-                      "linear-gradient(180deg, rgba(255,255,255,0.9), rgba(237,248,251,0.75))",
+                      "linear-gradient(145deg, rgba(255,255,255,0.95), rgba(224,247,249,0.84) 58%, rgba(255,247,231,0.72))",
+                    boxShadow:
+                      "0 1px 0 rgba(255,255,255,0.95) inset, 0 -18px 30px rgba(48,154,173,0.13) inset, 0 14px 26px rgba(33,88,110,0.16)",
                   }}
                 >
+                  <div className="absolute left-3 top-3 h-10 w-28 rounded-full bg-white/54 blur-[16px]" />
+                  <div className="absolute -right-7 -top-9 opacity-[0.09]">
+                    <PersimmonMark
+                      size={82}
+                      palette="butter"
+                      variant="orchard"
+                      shell="coin"
+                      frame="none"
+                      cutoutMode="none"
+                      withGlow={false}
+                    />
+                  </div>
                   <div className="absolute inset-0 bg-[linear-gradient(rgba(142,182,197,0.22)_1px,transparent_1px),linear-gradient(90deg,rgba(142,182,197,0.2)_1px,transparent_1px)] bg-[size:42px_28px]" />
                   <div className="absolute bottom-3 left-2 right-2 top-6 flex items-end gap-1">
                     {[35, 48, 42, 57, 64, 61, 70, 79, 74, 84, 80].map(
@@ -522,10 +566,13 @@ function MobileBreezeSite() {
                         <span
                           key={`${height}-${index}`}
                           style={{
-                            backgroundColor:
+                            background:
                               index === 2 || index === 7
-                                ? "#77bfd0"
-                                : "#2f8f5b",
+                                ? "linear-gradient(180deg, #8dd7e2, #53a9bd)"
+                                : "linear-gradient(180deg, #43a66d, #237b4d)",
+                            borderRadius: "5px 5px 1px 1px",
+                            boxShadow:
+                              "0 1px 0 rgba(255,255,255,0.44) inset, 0 7px 10px rgba(20,79,48,0.18)",
                             height: `${height}%`,
                             flex: 1,
                           }}
@@ -534,8 +581,13 @@ function MobileBreezeSite() {
                     )}
                   </div>
                   <span
-                    className="absolute right-2 top-2 rounded-[5px] px-2 py-1 font-mono text-[10px] font-semibold text-white"
-                    style={{ backgroundColor: "#0ea5e9" }}
+                    className="absolute right-2 top-2 rounded-[6px] px-2 py-1 font-mono text-[10px] font-semibold text-white"
+                    style={{
+                      background:
+                        "linear-gradient(180deg, #27bdf0, #0b8bc7)",
+                      boxShadow:
+                        "0 1px 0 rgba(255,255,255,0.42) inset, 0 7px 14px rgba(14,118,158,0.3)",
+                    }}
                   >
                     $3,483.28
                   </span>
@@ -548,7 +600,13 @@ function MobileBreezeSite() {
                   ].map(([label, value]) => (
                     <div
                       key={label}
-                      className="rounded-[6px] border border-terminal-border bg-white/76 px-1.5 py-1"
+                      className="rounded-[6px] border border-white/80 px-1.5 py-1"
+                      style={{
+                        background:
+                          "linear-gradient(180deg, rgba(255,255,255,0.92), rgba(238,248,250,0.78))",
+                        boxShadow:
+                          "0 1px 0 rgba(255,255,255,0.95) inset, 0 8px 15px rgba(33,88,110,0.09)",
+                      }}
                     >
                       <div className="font-mono text-[8px] uppercase text-terminal-text-muted">
                         {label}
