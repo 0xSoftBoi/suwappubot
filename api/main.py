@@ -153,10 +153,12 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"⚠️ Discord bot failed to start: {e}")
 
-    # 5. Start Background Services (only if database is available)
+    # 5. Start Background Services (only if database is available AND enabled)
     admin_ids = getattr(settings, 'admin_ids', [])
 
-    if db_success:
+    if not settings.enable_background_services:
+        logger.info("⏭️ Background services DISABLED via ENABLE_BACKGROUND_SERVICES=false")
+    elif db_success:
         # Stagger service starts to avoid thundering herd on DB
         await fee_sweeper.start()
         await asyncio.sleep(2)
@@ -244,7 +246,7 @@ async def lifespan(app: FastAPI):
             pass
 
     # Only stop services if they were started
-    if db_success:
+    if db_success and settings.enable_background_services:
         await fee_sweeper.stop()
         await alert_service.stop()
         await order_service.stop()
