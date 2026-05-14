@@ -1,164 +1,83 @@
 # Claude Code Auto Memory
 
-This is the main index for cross-project knowledge. It's auto-loaded into every session (200-line limit).
+Cross-project knowledge index. Auto-loaded every session (200-line limit).
 
-**Memory Bank Structure** (numbered by priority):
+## Memory Bank
 
-**1-core/** - Critical knowledge (auto-loaded)
-- [credentials.md](./1-core/credentials.md) - GitHub accounts, AWS profiles, auth patterns
-- [git-workflows.md](./1-core/git-workflows.md) - Git conventions, branch naming, worktree workflow
-- [shell-tools.md](./1-core/shell-tools.md) - `sw` worktree manager, aliases, custom commands
-
-**2-patterns/** - Learned patterns (referenced on-demand)
-- [debugging.md](./2-patterns/debugging.md) - Recurring issues and solutions
-- [nodejs-patterns.md](./2-patterns/nodejs-patterns.md) - Node.js/TypeScript conventions
-- [aws-patterns.md](./2-patterns/aws-patterns.md) - AWS CLI patterns, ECS deployment
-- [blockchain-dev.md](./2-patterns/blockchain-dev.md) - Solana/EVM/OP Stack patterns
-- [claude-usage.md](./2-patterns/claude-usage.md) - Session workflow preferences
-
-**3-decisions/** - Architecture Decision Records (ADRs)
-- Document "why" behind major decisions with rationale and consequences
+| Dir | Files | Purpose |
+|-----|-------|---------|
+| `1-core/` | credentials, git-workflows, shell-tools, build-on-aws | Critical — always relevant |
+| `2-patterns/` | debugging, nodejs, aws, blockchain, claude-usage, llm-confidence-calibration, taxonomy-alignment-iterations, deploy-ssm-fallback, deploy-sync-gotcha, gsx-dag-pause-perf-campaigns, gsx-cross-repo-wire-parity | Learned patterns — on-demand |
+| `3-decisions/` | phase6-prompt-engineering, phase7-few-shot-examples, jetson-edge-ai, tempo-mainnet-integration, ecosystem-landscape-2026q1, polymarket-integration, etp-private-until-audit | AI-Security phases + Jetson + Tempo + Ecosystem + Polymarket + ETP |
 
 ---
 
-## Critical Information (Quick Reference)
+## Critical Rules
 
-### Git Commits
+- **NEVER add "Co-Authored-By" lines to commit messages**
+- **NEVER use `git rebase`** — always `git merge` or `git pull --no-rebase`
+- Use `HUSKY=0` prefix for git operations in worktrees
+- **gsx-dag: never `cargo test`/`cargo build --workspace` locally** — Mac too weak; use CodeBuild + GHA test job. See [2-patterns/gsx-dag-no-local-cargo-test.md](./2-patterns/gsx-dag-no-local-cargo-test.md)
 
-**NEVER add "Co-Authored-By" lines to commit messages** - user explicitly requested this.
+## GitHub Accounts
 
-### GitHub Account Assignment
+| Repository | Account |
+|------------|---------|
+| **suwappubot** | `0xSoftBoi` |
+| **op-stack-reth** | `tomagsx` |
+| **gsx-dag** | `tomagsx` |
+| **ETP** | `tomagsx` + `0xSoftBoi` |
 
-| Repository | Account | Verification |
-|------------|---------|--------------|
-| **suwappubot** | `0xSoftBoi` | `gh auth status` before pushing |
-| **op-stack-reth** | `tomagsx` | `gh auth status` before pushing |
+Switch: `gh auth switch --user <account>`
+Verify: `gh auth status` (ALWAYS before pushing)
 
-**Switch accounts:**
-```bash
-gh auth switch --user 0xSoftBoi   # For Suwappubot
-gh auth switch --user tomagsx     # For OP Stack Reth
-```
+## AWS
 
-### AWS Configuration
-
-**Suwappubot AWS:**
-- Profile: `Swappu`
-- Account: `905418423235`
-- Region: `us-east-1`
-
-**Usage:**
-```bash
-AWS_PROFILE=Swappu aws <command>
-```
-
-### sw Command (Worktree Manager)
-
-**Quick reference** (see [shell-tools.md](./1-core/shell-tools.md) for details):
-
-```bash
-sw new <name>           # Create worktree
-sw new <name> claude    # Create worktree + launch Claude Code
-sw ls                   # List worktrees
-cd $(sw cd <name>)      # Navigate to worktree
-sw rm <name>            # Remove worktree
-sw clean                # Clean up merged worktrees
-sw parallel <n1> <n2>   # Launch multiple worktrees in tmux
-```
-
-**Location**: `~/Desktop/suwappumain/worktrees/main/scripts/sw`
-**Base**: `~/Desktop/suwappumain/worktrees/`
-
----
+- Profile: `default` (no flag needed)
+- Account: `905418423235` / Region: `us-east-1`
+- See [credentials.md](./1-core/credentials.md) for Gandi DNS, verification checklists
 
 ## Project Locations
 
-### Suwappubot
+| Project | Location | Remote | Account |
+|---------|----------|--------|---------|
+| Suwappubot | `~/Desktop/suwappumain/worktrees/main` | `0xSoftBoi/suwappubot` | `0xSoftBoi` |
+| OP Stack Reth | `~/op-stack-reth` | `GlobalSettlementNetwork/op-stack-reth` | `tomagsx` |
+| gsx-dag | `~/gsx-build/gsx-dag` | `GlobalSettlementNetwork/gsx-dag` | `tomagsx` (AWS profile: `gsn`) |
+| gsx-db | `~/gsx-build/gsx-db` | `GlobalSettlementNetwork/gsx-db` | `tomagsx` |
+| gsx-lattice-protocol | `~/gsx-build/gsx-lattice-protocol` | `GlobalSettlementNetwork/gsx-lattice-protocol` | `tomagsx` |
+| Sensorforge | `~/Desktop/sensorforge` (local) / `~/sensorforge` (Jetson) | — | — |
+| Voice Assistant | `~/jetson-voice-assistant` (local) / `~/scripts` (Jetson) | — | — |
+| ETP | `~/etp-merge` | `GlobalSettlementNetwork/ETP` + `0xSoftBoi/ETP` | `tomagsx` / `0xSoftBoi` |
 
-- **Bare repo**: `~/Desktop/suwappumain/suwappubot.git`
-- **Main worktree**: `~/Desktop/suwappumain/worktrees/main`
-- **CLAUDE.md**: `~/Desktop/suwappumain/worktrees/main/CLAUDE.md` (comprehensive project docs)
-- **Remote**: `https://github.com/0xSoftBoi/suwappubot.git`
-- **GitHub account**: `0xSoftBoi` (CRITICAL)
+Bare repo: `~/Desktop/suwappumain/suwappubot.git`
 
-### OP Stack Reth
+## sw Command
 
-- **Location**: `~/op-stack-reth`
-- **CLAUDE.md**: `~/op-stack-reth/CLAUDE.md`
-- **Remote**: `https://github.com/GlobalSettlementNetwork/op-stack-reth.git`
-- **GitHub account**: `tomagsx` (CRITICAL - NEVER use 0xSoftBoi)
-
----
-
-## Common Workflows
-
-### Starting Work on Suwappubot
+See [shell-tools.md](./1-core/shell-tools.md) for full docs.
 
 ```bash
-# Navigate to main worktree
-cd ~/Desktop/suwappumain/worktrees/main
-
-# Verify GitHub account
-gh auth status
-# Should show: ✓ Logged in to github.com as 0xSoftBoi
-
-# Create new worktree for feature
-sw new feature-name
-
-# Navigate to it
-cd $(sw cd feature-name)
-```
-
-### Starting Work on OP Stack Reth
-
-```bash
-# Navigate to project
-cd ~/op-stack-reth
-
-# CRITICAL: Verify GitHub account
-gh auth status
-# Should show: ✓ Logged in to github.com as tomagsx
-
-# If wrong account, switch:
-gh auth switch --user tomagsx
-```
-
-### Pre-Push Verification
-
-**Always run before pushing:**
-
-```bash
-gh auth status        # Verify correct GitHub account
-git remote -v         # Verify correct remote
-git status            # Verify branch and changes
+sw new <name>           # Create worktree
+sw new <name> claude    # Create + launch Claude Code
+sw ls                   # List worktrees
+cd $(sw cd <name>)      # Navigate
+sw rm <name>            # Remove
+sw clean                # Clean merged
+sw parallel <n1> <n2>   # Parallel tmux
 ```
 
 ---
 
 ## Common Aliases
 
-```bash
-gs="git status"
-py="python3"
-dc="docker-compose"
-```
+`gs`=git status, `gd`=git diff, `py`=python3, `dc`=docker-compose, `swm`=cd to main worktree
 
 See [shell-tools.md](./1-core/shell-tools.md) for full list.
 
 ---
 
-## Maintenance Notes
+## Session Workflow
 
-**After each session:**
-- If learned something useful, run `/revise-claude-md`
-- If cross-project pattern emerged, update relevant topic file
-
-**Weekly:**
-- Run `/claude-md-improver` to audit CLAUDE.md files
-- Consolidate recurring patterns from debugging
-
-**Monthly:**
-- Test documented commands
-- Verify file paths
-- Archive obsolete information
-- Check this file stays under 200 lines
+- Use `/revise-memory` after learning something new
+- Keep this file under 200 lines
+- See [claude-usage.md](./2-patterns/claude-usage.md) for preferences
