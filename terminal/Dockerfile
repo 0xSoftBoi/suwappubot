@@ -19,7 +19,9 @@ COPY terminal/ .
 
 # Set production API URL
 ARG VITE_API_URL=https://api.suwappu.bot
+ARG VITE_WC_PROJECT_ID
 ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_WC_PROJECT_ID=$VITE_WC_PROJECT_ID
 
 # Build the app
 RUN bun run build

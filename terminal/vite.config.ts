@@ -12,6 +12,7 @@ export default defineConfig({
   server: {
     port: 5174,
     host: true,
+    allowedHosts: ['terminal.suwappu.bot'],
     proxy: {
       '/terminal': {
         target: 'http://localhost:8000',
@@ -30,5 +31,8 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+  },
+  preview: {
+    allowedHosts: ['terminal.suwappu.bot'],
   },
 })

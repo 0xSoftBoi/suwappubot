@@ -49,6 +49,8 @@ const flowSteps = [
   "Track status",
 ];
 
+const DOCS_URL = "https://api.suwappu.bot/docs";
+
 function joinClasses(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
 }
@@ -119,7 +121,7 @@ function TopNav() {
           {["Terminal", "API", "Bot", "Docs"].map((item) => (
             <a
               key={item}
-              href={item === "Docs" ? "/docs" : `#${item.toLowerCase()}`}
+              href={item === "Docs" ? DOCS_URL : `#${item.toLowerCase()}`}
               className="terminal-theme-control px-3 py-1.5"
             >
               {item}
@@ -462,7 +464,7 @@ function MobileBreezeSite() {
                   Open Terminal
                 </a>
                 <a
-                  href="/docs"
+                  href={DOCS_URL}
                   className="rounded-[8px] border border-white/80 bg-white/54 px-3 py-2 text-center text-xs font-semibold text-[#17324a]"
                 >
                   Docs/API
@@ -771,7 +773,7 @@ export function SuwappuBotSiteReplacement() {
                   Start Trading
                 </a>
                 <a
-                  href="/docs"
+                  href={DOCS_URL}
                   className="terminal-theme-control rounded-[8px] px-4 py-2 text-sm font-semibold text-terminal-text"
                 >
                   Read Docs

@@ -11,6 +11,888 @@ html {
   scroll-behavior: smooth;
 }
 
+/* ================================================================
+   Summer Breeze production homepage
+   ================================================================ */
+.summer-page {
+  --summer-ink: #17324a;
+  --summer-muted: #4f6f7f;
+  --summer-line: #cfe3ea;
+  --summer-panel: rgba(255, 255, 255, 0.78);
+  --summer-panel-strong: rgba(255, 255, 255, 0.92);
+  --summer-sky: #77bfd0;
+  --summer-sky-deep: #0b8bc7;
+  --summer-green: #2f8f5b;
+  --summer-persimmon: #e58d2b;
+  --summer-butter: #f4c963;
+  min-height: 100vh;
+  overflow-x: hidden;
+  background:
+    linear-gradient(180deg, #fdfcf8 0%, #fffefb 12%, #d9f1f3 46%, #f7fbf8 100%);
+  color: var(--summer-ink);
+}
+
+.summer-bg {
+  pointer-events: none;
+  position: fixed;
+  z-index: 0;
+  opacity: 0.08;
+}
+
+.summer-bg--stem {
+  left: -84px;
+  top: 118px;
+  width: 240px;
+  height: 420px;
+  border-right: 18px solid #2f8f5b;
+  border-radius: 50%;
+  transform: rotate(-18deg);
+}
+
+.summer-bg--bloom {
+  right: -54px;
+  top: 160px;
+  width: 190px;
+  height: 190px;
+  background: url('/logo.svg') center / contain no-repeat;
+}
+
+.summer-shell {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 1280px);
+  margin: 0 auto;
+  padding: 14px 20px 40px;
+}
+
+.summer-nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  min-height: 62px;
+  padding: 10px 20px;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.9);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(18px);
+}
+
+.summer-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  color: var(--summer-ink);
+  font-family: var(--font-display);
+  font-size: 1.08rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.summer-brand img {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+}
+
+.summer-nav nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(207, 227, 234, 0.88);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.summer-nav nav a,
+.summer-nav__cta {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--summer-muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.summer-nav nav a {
+  padding: 0 12px;
+}
+
+.summer-nav nav a:hover {
+  color: var(--summer-ink);
+  background: rgba(237, 248, 251, 0.92);
+}
+
+.summer-nav__cta {
+  justify-self: end;
+  padding: 0 14px;
+  border: 1px solid #0d95bd;
+  color: white;
+  background: linear-gradient(180deg, #20b9de, #0b8bc7);
+  box-shadow: 0 8px 18px rgba(14, 118, 158, 0.22);
+}
+
+.summer-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 0.88fr) minmax(520px, 1.12fr);
+  gap: 28px;
+  min-height: 620px;
+  align-items: center;
+  padding: 36px;
+  overflow: hidden;
+  border: 1px solid var(--summer-line);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.26)),
+    linear-gradient(135deg, rgba(153, 214, 228, 0.7), rgba(255, 247, 231, 0.62) 58%, rgba(246, 253, 252, 0.94));
+  box-shadow: 0 20px 54px rgba(33, 88, 110, 0.1), 0 10px 28px rgba(176, 126, 64, 0.12);
+}
+
+.summer-hero::after {
+  content: "";
+  position: absolute;
+  right: -52px;
+  top: 30px;
+  width: 170px;
+  height: 170px;
+  background: url('/logo.svg') center / contain no-repeat;
+  opacity: 0.16;
+}
+
+.summer-hero__copy {
+  position: relative;
+  z-index: 1;
+  max-width: 620px;
+}
+
+.summer-kicker {
+  margin: 0;
+  color: #3c8ca1;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.summer-hero h1 {
+  margin: 12px 0 0;
+  color: var(--summer-ink);
+  font-family: var(--font-display);
+  font-size: 5.4rem;
+  line-height: 0.95;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.summer-hero__lead {
+  max-width: 570px;
+  margin: 20px 0 0;
+  color: #345069;
+  font-size: 1.1rem;
+  line-height: 1.65;
+}
+
+.summer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.summer-button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  padding: 0 16px;
+  font-size: 0.92rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.summer-button--primary {
+  border: 1px solid #0d95bd;
+  color: white;
+  background: linear-gradient(180deg, #20b9de, #0b8bc7);
+  box-shadow: 0 9px 18px rgba(14, 118, 158, 0.24);
+}
+
+.summer-button--secondary {
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  color: var(--summer-ink);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.summer-install {
+  width: fit-content;
+  max-width: 100%;
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 10px 12px;
+  border: 1px solid rgba(207, 227, 234, 0.92);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+.summer-install span {
+  color: var(--summer-persimmon);
+}
+
+.summer-install code {
+  overflow-wrap: anywhere;
+}
+
+.summer-terminal {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--summer-line);
+  border-radius: 8px;
+  background: var(--summer-panel-strong);
+  box-shadow:
+    0 2px 0 rgba(255, 255, 255, 0.9) inset,
+    0 -18px 42px rgba(132, 204, 216, 0.16) inset,
+    0 22px 42px rgba(33, 88, 110, 0.2);
+}
+
+.summer-terminal__bar,
+.summer-code__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.86);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(238, 248, 250, 0.8));
+}
+
+.summer-terminal__dots,
+.summer-code__bar {
+  color: var(--summer-muted);
+}
+
+.summer-terminal__dots {
+  display: flex;
+  gap: 5px;
+}
+
+.summer-terminal__dots span,
+.summer-code__bar > span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(69, 39, 55, 0.18);
+}
+
+.summer-terminal__dots span:nth-child(1),
+.summer-code__bar > span:nth-child(1) {
+  background: #f0aec1;
+}
+
+.summer-terminal__dots span:nth-child(2),
+.summer-code__bar > span:nth-child(2) {
+  background: #d99d24;
+}
+
+.summer-terminal__dots span:nth-child(3),
+.summer-code__bar > span:nth-child(3) {
+  background: #207b4c;
+}
+
+.summer-terminal__host {
+  min-width: 0;
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+
+.summer-pill {
+  flex: 0 0 auto;
+  border: 1px solid var(--summer-line);
+  border-radius: 8px;
+  padding: 3px 7px;
+  color: var(--summer-muted);
+  background: rgba(255, 255, 255, 0.64);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.summer-terminal__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(220px, 0.82fr);
+  gap: 10px;
+  padding: 10px;
+}
+
+.summer-chart,
+.summer-mini-panel,
+.summer-code,
+.summer-module,
+.summer-proof {
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.summer-chart,
+.summer-mini-panel {
+  padding: 12px;
+}
+
+.summer-chart__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  font-family: var(--font-mono);
+}
+
+.summer-chart__head p {
+  margin: 0 0 3px;
+  color: var(--summer-muted);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+}
+
+.summer-chart__head strong {
+  display: block;
+  color: var(--summer-ink);
+}
+
+.summer-chart__head > div:last-child {
+  text-align: right;
+}
+
+.summer-chart__head span,
+.summer-mini-panel__head span,
+.summer-wallet-row b,
+.summer-table__row span:nth-child(3),
+.is-success {
+  color: var(--summer-green);
+}
+
+.summer-chart__plot {
+  position: relative;
+  height: 260px;
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid var(--summer-line);
+  border-radius: 8px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(224, 247, 249, 0.84) 58%, rgba(255, 247, 231, 0.72));
+}
+
+.summer-chart__gridlines {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(rgba(142, 182, 197, 0.22) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(142, 182, 197, 0.2) 1px, transparent 1px);
+  background-size: 48px 34px;
+}
+
+.summer-chart__candles {
+  position: absolute;
+  inset: 44px 16px 18px;
+  display: flex;
+  align-items: end;
+  gap: 7px;
+}
+
+.summer-candle {
+  flex: 1;
+  min-width: 8px;
+  border-radius: 5px 5px 1px 1px;
+  background: linear-gradient(180deg, #43a66d, #237b4d);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.44) inset, 0 7px 10px rgba(20, 79, 48, 0.18);
+}
+
+.summer-candle--sky {
+  background: linear-gradient(180deg, #8dd7e2, #53a9bd);
+}
+
+.summer-chart__price {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: white;
+  background: linear-gradient(180deg, #27bdf0, #0b8bc7);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 800;
+  box-shadow: 0 7px 14px rgba(14, 118, 158, 0.24);
+}
+
+.summer-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.summer-mini-panel__head,
+.summer-wallet-row,
+.summer-mini-panel dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.summer-mini-panel strong {
+  color: var(--summer-ink);
+}
+
+.summer-mini-panel dl {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0 0;
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.summer-mini-panel dt,
+.summer-mini-panel dd {
+  margin: 0;
+}
+
+.summer-wallet-row {
+  margin-top: 9px;
+  border-top: 1px solid rgba(207, 227, 234, 0.76);
+  padding-top: 9px;
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.summer-modules {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.summer-module {
+  min-height: 210px;
+  padding: 18px;
+  box-shadow: 0 12px 24px rgba(33, 88, 110, 0.08);
+}
+
+.summer-module p {
+  margin: 0;
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.summer-module h2 {
+  margin: 10px 0 0;
+  color: var(--summer-ink);
+  font-size: 1.55rem;
+}
+
+.summer-module span {
+  display: inline-flex;
+  margin-top: 16px;
+  border: 1px solid var(--summer-line);
+  border-radius: 8px;
+  padding: 7px 10px;
+  color: var(--summer-ink);
+  background: rgba(255, 255, 255, 0.72);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+}
+
+.summer-module div {
+  margin-top: 14px;
+  color: var(--summer-muted);
+  font-size: 0.93rem;
+  line-height: 1.6;
+}
+
+.summer-sdk {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 26px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 26px;
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0.22)),
+    linear-gradient(135deg, rgba(244, 201, 99, 0.2), rgba(216, 243, 239, 0.66));
+}
+
+.summer-sdk h2,
+.summer-proof h2 {
+  margin: 10px 0 0;
+  color: var(--summer-ink);
+  font-size: 2.35rem;
+  line-height: 1.06;
+  letter-spacing: 0;
+}
+
+.summer-sdk p:not(.summer-kicker),
+.summer-proof__head > p {
+  max-width: 560px;
+  margin: 14px 0 0;
+  color: var(--summer-muted);
+  font-size: 0.98rem;
+  line-height: 1.7;
+}
+
+.summer-flow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.summer-flow div {
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 8px;
+  padding: 11px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.summer-flow span {
+  display: block;
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+
+.summer-flow strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--summer-ink);
+  font-size: 0.92rem;
+}
+
+.summer-code {
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.summer-code__bar {
+  justify-content: start;
+}
+
+.summer-code__bar b {
+  margin-left: auto;
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.summer-code pre {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 18px;
+  overflow-x: auto;
+  color: #0b789a;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.summer-code code {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.summer-code code span {
+  margin-right: 8px;
+  color: var(--summer-persimmon);
+}
+
+.summer-proof {
+  margin-top: 12px;
+  padding: 22px;
+  overflow: hidden;
+}
+
+.summer-proof__head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.summer-table {
+  overflow: hidden;
+  border: 1px solid var(--summer-line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.summer-table__row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 120px 90px 120px;
+  gap: 10px;
+  align-items: center;
+  min-height: 48px;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.76);
+  padding: 0 14px;
+  color: var(--summer-ink);
+  font-size: 0.9rem;
+}
+
+.summer-table__row:last-child {
+  border-bottom: 0;
+}
+
+.summer-table__row span:not(:first-child) {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+.summer-table__row--head {
+  min-height: 38px;
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+@media (max-width: 980px) {
+  .summer-shell {
+    padding: 10px 12px 30px;
+  }
+
+  .summer-nav {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .summer-nav nav {
+    display: none;
+  }
+
+  .summer-hero,
+  .summer-sdk,
+  .summer-proof__head {
+    grid-template-columns: 1fr;
+  }
+
+  .summer-hero {
+    min-height: 0;
+    gap: 18px;
+    padding: 20px;
+  }
+
+  .summer-hero h1 {
+    font-size: 4rem;
+  }
+
+  .summer-modules {
+    grid-template-columns: 1fr;
+  }
+
+  .summer-terminal__grid {
+    grid-template-columns: minmax(0, 1.1fr) minmax(200px, 0.82fr);
+  }
+
+  .summer-chart__plot {
+    height: 210px;
+  }
+
+  .summer-proof__head {
+    display: grid;
+  }
+}
+
+@media (max-width: 560px) {
+  .summer-shell {
+    padding: 8px 8px 24px;
+  }
+
+  .summer-nav {
+    min-height: 58px;
+    padding: 9px 10px;
+  }
+
+  .summer-brand span {
+    font-size: 1rem;
+  }
+
+  .summer-brand img {
+    width: 34px;
+    height: 34px;
+  }
+
+  .summer-nav__cta {
+    min-height: 36px;
+    padding: 0 10px;
+    font-size: 0.78rem;
+  }
+
+  .summer-hero {
+    padding: 13px;
+  }
+
+  .summer-hero h1 {
+    font-size: 2.95rem;
+  }
+
+  .summer-hero__lead {
+    margin-top: 14px;
+    font-size: 0.92rem;
+    line-height: 1.52;
+  }
+
+  .summer-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin-top: 16px;
+  }
+
+  .summer-button {
+    min-width: 0;
+    padding: 0 10px;
+    font-size: 0.82rem;
+  }
+
+  .summer-install {
+    font-size: 0.7rem;
+    margin-top: 14px;
+  }
+
+  .summer-terminal__bar {
+    gap: 7px;
+  }
+
+  .summer-pill {
+    display: none;
+  }
+
+  .summer-terminal__grid {
+    grid-template-columns: 1fr;
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .summer-chart,
+  .summer-mini-panel {
+    padding: 8px;
+  }
+
+  .summer-chart__plot {
+    height: 124px;
+    margin-top: 8px;
+  }
+
+  .summer-chart__candles {
+    inset: 38px 10px 12px;
+    gap: 4px;
+  }
+
+  .summer-candle {
+    min-width: 5px;
+  }
+
+  .summer-stack {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .summer-mini-panel dl {
+    gap: 5px;
+    margin-top: 7px;
+    font-size: 0.64rem;
+  }
+
+  .summer-wallet-row {
+    margin-top: 6px;
+    padding-top: 6px;
+    font-size: 0.62rem;
+  }
+
+  .summer-wallet-row:nth-of-type(4) {
+    display: none;
+  }
+
+  .summer-modules {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .summer-module {
+    min-height: 118px;
+    padding: 9px;
+  }
+
+  .summer-module p,
+  .summer-module div {
+    display: none;
+  }
+
+  .summer-module h2 {
+    margin-top: 0;
+    font-size: 0.98rem;
+    line-height: 1.1;
+  }
+
+  .summer-module span {
+    max-width: 100%;
+    margin-top: 10px;
+    padding: 5px 6px;
+    font-size: 0.58rem;
+    overflow-wrap: anywhere;
+  }
+
+  .summer-sdk,
+  .summer-proof {
+    padding: 15px;
+  }
+
+  .summer-sdk h2,
+  .summer-proof h2 {
+    font-size: 1.75rem;
+  }
+
+  .summer-flow {
+    grid-template-columns: 1fr;
+  }
+
+  .summer-code pre {
+    padding: 12px;
+    font-size: 0.72rem;
+  }
+
+  .summer-table {
+    overflow-x: auto;
+  }
+
+  .summer-table__row {
+    width: 520px;
+    grid-template-columns: 1fr 110px 70px 110px;
+    padding: 0 10px;
+    font-size: 0.8rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after {

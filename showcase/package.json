@@ -9,6 +9,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "qa:browserbase": "node scripts/browserbase-production-qa.mjs",
     "test:docs": "bunx playwright test",
     "test:docs:ui": "bunx playwright test --ui"
   },

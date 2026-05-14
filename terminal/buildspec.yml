@@ -11,7 +11,8 @@ phases:
   build:
     commands:
       - echo Building terminal image...
-      - docker build -f terminal/Dockerfile --build-arg VITE_API_URL=https://api.suwappu.bot -t $IMAGE_URI -t $COMMIT_URI .
+      - if [ -z "$VITE_WC_PROJECT_ID" ]; then echo "VITE_WC_PROJECT_ID not set; external WalletConnect support will use the app fallback. Turnkey remains server-side."; fi
+      - docker build -f terminal/Dockerfile --build-arg VITE_API_URL=https://api.suwappu.bot --build-arg VITE_WC_PROJECT_ID=$VITE_WC_PROJECT_ID -t $IMAGE_URI -t $COMMIT_URI .
 
   post_build:
     commands:
