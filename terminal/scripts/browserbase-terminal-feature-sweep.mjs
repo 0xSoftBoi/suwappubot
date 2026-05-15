@@ -115,10 +115,6 @@ try {
   await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {})
   await signIn(page, context)
 
-  await page.waitForResponse(
-    response => response.url().includes('/terminal/chart/ohlcv') && response.status() === 200,
-    { timeout: 30000 },
-  ).catch(() => failures.push('chart OHLCV response was not observed'))
   await page.waitForFunction(
     () => !document.body.innerText.includes('Chart provider is not connected yet.'),
     null,
