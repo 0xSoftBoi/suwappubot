@@ -11,6 +11,8 @@ import type {
   ChainInfo,
   SwapToken,
   OHLCVCandle,
+  OrderBookData,
+  TerminalTrade,
   Pool,
   TokenSecurity,
   HLMarket,
@@ -184,6 +186,16 @@ export const api = {
   getOHLCV(pair: string, chain: string, interval: string, limit: number) {
     const params = new URLSearchParams({ pair, chain, interval, limit: String(limit) })
     return request<OHLCVCandle[]>(`/terminal/chart/ohlcv?${params}`)
+  },
+
+  getOrderBook(symbol = 'ETHUSDC', depth = 15) {
+    const params = new URLSearchParams({ symbol, depth: String(depth) })
+    return request<OrderBookData>(`/terminal/orderbook?${params}`)
+  },
+
+  getRecentTrades(symbol = 'ETHUSDC', limit = 50) {
+    const params = new URLSearchParams({ symbol, limit: String(limit) })
+    return request<TerminalTrade[]>(`/terminal/trades?${params}`)
   },
 
   // Portfolio

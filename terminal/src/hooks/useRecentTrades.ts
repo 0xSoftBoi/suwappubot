@@ -1,15 +1,19 @@
-export interface Trade {
-  id: string
-  price: number
-  size: number
-  side: 'buy' | 'sell'
-  time: number
-  isNew?: boolean
-}
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../lib/api'
+import type { TerminalTrade } from '../types/api'
+
+export type Trade = TerminalTrade
 
 export function useRecentTrades() {
+  const { data: trades = [], isError } = useQuery({
+    queryKey: ['terminal-recent-trades', 'ETHUSDC'],
+    queryFn: () => api.getRecentTrades('ETHUSDC', 50),
+    refetchInterval: 3_000,
+    staleTime: 1_000,
+  })
+
   return {
-    trades: [] as Trade[],
-    isConnected: false,
+    trades,
+    isConnected: !isError && trades.length > 0,
   }
 }

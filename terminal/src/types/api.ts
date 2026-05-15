@@ -137,6 +137,29 @@ export interface OHLCVCandle {
   volume: number
 }
 
+export interface OrderBookLevel {
+  price: number
+  size: number
+  total: number
+}
+
+export interface OrderBookData {
+  bids: OrderBookLevel[]
+  asks: OrderBookLevel[]
+  spread: number
+  spreadPercent: number
+  midPrice: number
+}
+
+export interface TerminalTrade {
+  id: string
+  price: number
+  size: number
+  side: 'buy' | 'sell'
+  time: number
+  isNew?: boolean
+}
+
 export interface HLMarket {
   name: string
   asset: string

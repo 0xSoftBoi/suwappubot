@@ -115,6 +115,26 @@ try {
   await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {})
   await signIn(page, context)
 
+  await page.waitForResponse(
+    response => response.url().includes('/terminal/chart/ohlcv') && response.status() === 200,
+    { timeout: 30000 },
+  ).catch(() => failures.push('chart OHLCV response was not observed'))
+  await page.waitForFunction(
+    () => !document.body.innerText.includes('Chart provider is not connected yet.'),
+    null,
+    { timeout: 30000 },
+  ).catch(() => failures.push('chart still shows provider-not-connected state'))
+  await page.waitForFunction(
+    () => !document.body.innerText.includes('Order book provider is not connected yet.'),
+    null,
+    { timeout: 30000 },
+  ).catch(() => failures.push('order book still shows provider-not-connected state'))
+  await page.waitForFunction(
+    () => !document.body.innerText.includes('Recent trades provider is not connected yet.'),
+    null,
+    { timeout: 30000 },
+  ).catch(() => failures.push('recent trades still shows provider-not-connected state'))
+
   await screenshot(page, '00-authenticated-chart')
 
   for (const tab of tabs) {
