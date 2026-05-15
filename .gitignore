@@ -1,0 +1,20 @@
+.DS_Store
+
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# JavaScript package/build artifacts
+node_modules/
+**/node_modules/
+*.tsbuildinfo
+
+# Frontend generated artifacts
+showcase/.next/
+showcase/out/
+showcase/qa-screenshots/
+terminal/qa-screenshots/
+terminal/storybook-static/
+webapp/dist/
