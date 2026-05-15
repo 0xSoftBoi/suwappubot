@@ -212,6 +212,12 @@ class WebAppCreateDCARequest(BaseModel):
     numberOfOrders: int
 
 
+class WebAppTrackedWalletRequest(BaseModel):
+    address: str
+    label: Optional[str] = None
+    chain: Optional[str] = None
+
+
 class WebAppCopilotRequest(BaseModel):
     text: str
 
@@ -505,6 +511,33 @@ def _require_terminal_user(auth_payload: Optional[Dict]) -> int:
     if not auth_payload or not auth_payload.get("user_id"):
         raise HTTPException(status_code=401, detail="Not authenticated")
     return int(auth_payload["user_id"])
+
+
+_TRACKED_WALLET_RE = re.compile(r"^(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$")
+
+
+def _normalize_tracked_wallet_address(address: str) -> str:
+    normalized = address.strip()
+    if not _TRACKED_WALLET_RE.match(normalized):
+        raise HTTPException(status_code=400, detail="Invalid wallet address")
+    if normalized.startswith("0x"):
+        return normalized.lower()
+    return normalized
+
+
+def _chain_for_tracked_wallet(address: str, chain: Optional[str]) -> str:
+    if chain:
+        return chain.strip().lower()
+    return "ethereum" if address.startswith("0x") else "solana"
+
+
+def _tracked_wallet_response(wallet) -> Dict[str, Any]:
+    return {
+        "address": wallet.address,
+        "label": wallet.label,
+        "chain": wallet.chain,
+        "addedAt": wallet.created_at.isoformat() if wallet.created_at else "",
+    }
 
 
 def _copy_mode_for_response(follow) -> str:
@@ -1156,6 +1189,90 @@ async def delete_terminal_alert(
     db.delete(alert)
     db.commit()
     return {"success": True}
+
+
+@router.get("/wallet-tracker/wallets")
+async def get_terminal_tracked_wallets(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.tracking import TrackedWallet
+
+    wallets = db.query(TrackedWallet).filter(
+        TrackedWallet.user_id == user_id,
+        TrackedWallet.is_active == True,
+    ).order_by(TrackedWallet.created_at.desc()).all()
+    return [_tracked_wallet_response(wallet) for wallet in wallets]
+
+
+@router.post("/wallet-tracker/wallets")
+async def create_terminal_tracked_wallet(
+    body: WebAppTrackedWalletRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.tracking import TrackedWallet
+
+    address = _normalize_tracked_wallet_address(body.address)
+    label = body.label.strip() if body.label and body.label.strip() else None
+    chain = _chain_for_tracked_wallet(address, body.chain)
+
+    wallet = db.query(TrackedWallet).filter(
+        TrackedWallet.user_id == user_id,
+        TrackedWallet.address.ilike(address),
+    ).first()
+    if wallet:
+        wallet.label = label
+        wallet.chain = chain
+        wallet.is_active = True
+        wallet.updated_at = datetime.utcnow()
+    else:
+        wallet = TrackedWallet(
+            user_id=user_id,
+            address=address,
+            label=label,
+            chain=chain,
+            is_active=True,
+        )
+        db.add(wallet)
+
+    db.commit()
+    db.refresh(wallet)
+    return _tracked_wallet_response(wallet)
+
+
+@router.delete("/wallet-tracker/wallets/{address}")
+async def delete_terminal_tracked_wallet(
+    address: str,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.tracking import TrackedWallet
+
+    normalized = _normalize_tracked_wallet_address(address)
+    wallet = db.query(TrackedWallet).filter(
+        TrackedWallet.user_id == user_id,
+        TrackedWallet.address.ilike(normalized),
+        TrackedWallet.is_active == True,
+    ).first()
+    if not wallet:
+        raise HTTPException(status_code=404, detail="Tracked wallet not found")
+
+    wallet.is_active = False
+    wallet.updated_at = datetime.utcnow()
+    db.commit()
+    return {"success": True}
+
+
+@router.get("/wallet-tracker/activities")
+async def get_terminal_wallet_activities(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    _require_terminal_user(auth_payload)
+    return []
 
 
 @router.get("/dca/orders")

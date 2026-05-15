@@ -1,65 +1,65 @@
-import { useState, useCallback } from 'react'
-import type { TrackedWallet, WalletActivity, WalletStats } from '../types/api'
+import { useCallback, useMemo } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api } from '../lib/api'
+import type { WalletStats } from '../types/api'
 
-const STORAGE_KEY = 'suwappu_tracked_wallets'
-
-function loadWallets(): TrackedWallet[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
-
-function saveWallets(wallets: TrackedWallet[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(wallets))
-}
+const WALLETS_KEY = ['wallet-tracker', 'wallets'] as const
+const ACTIVITIES_KEY = ['wallet-tracker', 'activities'] as const
 
 export function useWalletTracker() {
-  const [wallets, setWallets] = useState<TrackedWallet[]>(loadWallets)
-  const [activities, setActivities] = useState<WalletActivity[]>([])
-  const [statsMap, setStatsMap] = useState<Record<string, WalletStats>>({})
+  const queryClient = useQueryClient()
+
+  const walletsQuery = useQuery({
+    queryKey: WALLETS_KEY,
+    queryFn: api.getTrackedWallets,
+    staleTime: 15_000,
+  })
+
+  const activitiesQuery = useQuery({
+    queryKey: ACTIVITIES_KEY,
+    queryFn: api.getWalletActivities,
+    staleTime: 15_000,
+  })
+
+  const saveWalletMutation = useMutation({
+    mutationFn: api.addTrackedWallet,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: WALLETS_KEY })
+    },
+  })
+
+  const removeWalletMutation = useMutation({
+    mutationFn: api.removeTrackedWallet,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: WALLETS_KEY })
+      queryClient.invalidateQueries({ queryKey: ACTIVITIES_KEY })
+    },
+  })
+
+  const wallets = walletsQuery.data ?? []
+  const activities = activitiesQuery.data ?? []
+  const statsMap = useMemo<Record<string, WalletStats>>(() => ({}), [])
 
   const addWallet = useCallback((address: string, label?: string, chain?: string) => {
-    setWallets(prev => {
-      if (prev.some(w => w.address === address)) return prev
-      const updated = [...prev, {
-        address,
-        label,
-        chain: chain || (address.startsWith('0x') ? 'ethereum' : 'solana'),
-        addedAt: new Date().toISOString(),
-      }]
-      saveWallets(updated)
-      return updated
-    })
-  }, [])
+    saveWalletMutation.mutate({ address, label, chain })
+  }, [saveWalletMutation])
 
   const removeWallet = useCallback((address: string) => {
-    setWallets(prev => {
-      const updated = prev.filter(w => w.address !== address)
-      saveWallets(updated)
-      return updated
-    })
-    setActivities(prev => prev.filter(a => a.walletAddress !== address))
-    setStatsMap(prev => {
-      const next = { ...prev }
-      delete next[address]
-      return next
-    })
-  }, [])
+    removeWalletMutation.mutate(address)
+  }, [removeWalletMutation])
 
   const updateLabel = useCallback((address: string, label: string) => {
-    setWallets(prev => {
-      const updated = prev.map(w => w.address === address ? { ...w, label } : w)
-      saveWallets(updated)
-      return updated
+    const wallet = wallets.find(w => w.address === address)
+    saveWalletMutation.mutate({
+      address,
+      label,
+      chain: wallet?.chain,
     })
-  }, [])
+  }, [saveWalletMutation, wallets])
 
-  const getStats = useCallback((address: string): WalletStats | undefined => {
-    return statsMap[address]
-  }, [statsMap])
+  const getStats = useCallback((_address: string): WalletStats | undefined => {
+    return undefined
+  }, [])
 
   return {
     wallets,
@@ -69,5 +69,8 @@ export function useWalletTracker() {
     updateLabel,
     getStats,
     statsMap,
+    isLoading: walletsQuery.isLoading || activitiesQuery.isLoading,
+    isSaving: saveWalletMutation.isPending || removeWalletMutation.isPending,
+    error: walletsQuery.error || activitiesQuery.error || saveWalletMutation.error || removeWalletMutation.error,
   }
 }

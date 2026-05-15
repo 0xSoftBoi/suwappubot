@@ -32,6 +32,8 @@ import type {
   DCAOrder,
   CreateDCAParams,
   LendingMarket,
+  TrackedWallet,
+  WalletActivity,
 } from '../types/api'
 
 const BASE_URL = import.meta.env.VITE_API_URL || ''
@@ -331,6 +333,28 @@ export const api = {
 
   getLendingMarket(id: string) {
     return request<LendingMarket>(`/webapp/lending/markets/${id}`)
+  },
+
+  // Wallet tracker
+  getTrackedWallets() {
+    return request<TrackedWallet[]>('/webapp/wallet-tracker/wallets')
+  },
+
+  addTrackedWallet(params: { address: string; label?: string; chain?: string }) {
+    return request<TrackedWallet>('/webapp/wallet-tracker/wallets', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  },
+
+  removeTrackedWallet(address: string) {
+    return request<void>(`/webapp/wallet-tracker/wallets/${encodeURIComponent(address)}`, {
+      method: 'DELETE',
+    })
+  },
+
+  getWalletActivities() {
+    return request<WalletActivity[]>('/webapp/wallet-tracker/activities')
   },
 
   // Agent / Copilot

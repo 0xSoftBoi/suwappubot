@@ -139,6 +139,8 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         from bot.models.perps import PerpPosition, PerpOrder, HyperLiquidAccount
         # Points rewards models
         from bot.models.token import PointsTier, FeeDiscount
+        # Terminal tracking models
+        from bot.models.tracking import TrackedWallet
 
         # Create all tables
         Base.metadata.create_all(bind=engine)

@@ -139,6 +139,30 @@ try {
         })
       }
     }
+
+    if (tab === 'Wallet Tracker') {
+      const qaAddress = '0x0000000000000000000000000000000000000293'
+      const qaLabel = `BB Wallet ${Date.now()}`
+      await page.getByTestId('wallet-address-input').fill(qaAddress)
+      await page.getByTestId('wallet-label-input').fill(qaLabel)
+      await page.getByTestId('add-wallet-btn').click()
+      await page.getByText(qaLabel, { exact: true }).waitFor({ state: 'visible', timeout: 30000 })
+      tabResults.push({
+        tab: 'Wallet Tracker / Add persisted wallet',
+        screenshot: await screenshot(page, 'tab-wallet-tracker-add-wallet'),
+        visibleTextSample: (await page.locator('body').innerText()).split('\n').slice(-12).join(' | '),
+      })
+
+      await page.getByText(qaLabel, { exact: true }).click()
+      await page.getByTestId('wallet-profile').waitFor({ state: 'visible', timeout: 30000 })
+      await page.getByRole('button', { name: 'Remove', exact: true }).click()
+      await page.getByText(qaLabel, { exact: true }).waitFor({ state: 'hidden', timeout: 30000 })
+      tabResults.push({
+        tab: 'Wallet Tracker / Remove persisted wallet',
+        screenshot: await screenshot(page, 'tab-wallet-tracker-remove-wallet'),
+        visibleTextSample: (await page.locator('body').innerText()).split('\n').slice(-12).join(' | '),
+      })
+    }
   }
 } finally {
   await browser.close()
