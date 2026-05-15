@@ -44,6 +44,7 @@ const candles = [34, 48, 42, 56, 62, 58, 70, 66, 78, 72, 84, 80];
 function TerminalPreview() {
   return (
     <div className="summer-terminal" aria-label="Terminal preview">
+      <div className="summer-flower summer-flower--mist summer-terminal__flower" aria-hidden="true" />
       <div className="summer-terminal__bar">
         <div className="summer-terminal__dots" aria-hidden="true">
           <span />
@@ -68,6 +69,8 @@ function TerminalPreview() {
           </div>
           <div className="summer-chart__plot">
             <div className="summer-chart__gridlines" />
+            <img className="summer-chart__fruit" src="/logo.svg" alt="" aria-hidden="true" />
+            <div className="summer-flower summer-flower--sun summer-chart__flower" aria-hidden="true" />
             <div className="summer-chart__candles">
               {candles.map((height, index) => (
                 <span
@@ -111,6 +114,14 @@ function TerminalPreview() {
 function Hero() {
   return (
     <section className="summer-hero">
+      <div className="summer-flower-field summer-flower-field--hero" aria-hidden="true">
+        <span className="summer-flower summer-flower--soft" />
+        <span className="summer-flower summer-flower--sun" />
+        <span className="summer-flower summer-flower--mist" />
+        <span className="summer-petal summer-petal--sky" />
+        <span className="summer-petal summer-petal--pink" />
+      </div>
+      <img className="summer-hero__fruit" src="/logo.svg" alt="" aria-hidden="true" />
       <div className="summer-hero__copy">
         <p className="summer-kicker">Summer Breeze system</p>
         <h1>Suwappu</h1>
@@ -144,6 +155,14 @@ export default function Home() {
       <main id="main-content" className="summer-page">
         <div className="summer-bg summer-bg--stem" aria-hidden="true" />
         <div className="summer-bg summer-bg--bloom" aria-hidden="true" />
+        <div className="summer-mobile-rail" aria-hidden="true">
+          <img src="/logo.svg" alt="" />
+          <span className="summer-flower summer-flower--soft" />
+          <b>すわっぷ</b>
+          <span className="summer-rail-loop summer-rail-loop--top" />
+          <span className="summer-rail-loop summer-rail-loop--bottom" />
+          <span className="summer-flower summer-flower--sun" />
+        </div>
 
         <header className="summer-nav">
           <a className="summer-brand" href="/">
@@ -165,8 +184,16 @@ export default function Home() {
           <Hero />
 
           <section id="terminal" className="summer-modules" aria-label="Product modules">
-            {modules.map((module) => (
+            {modules.map((module, index) => (
               <article className="summer-module" key={module.title}>
+                <i
+                  className={
+                    index === 0
+                      ? 'summer-module__mark summer-module__mark--fruit'
+                      : `summer-module__mark summer-flower ${index === 1 ? 'summer-flower--soft' : 'summer-flower--sun'}`
+                  }
+                  aria-hidden="true"
+                />
                 <p>{module.eyebrow}</p>
                 <h2>{module.title}</h2>
                 <span>{module.stat}</span>
@@ -176,6 +203,7 @@ export default function Home() {
           </section>
 
           <section id="api" className="summer-sdk">
+            <div className="summer-flower summer-flower--mist summer-sdk__flower" aria-hidden="true" />
             <div>
               <p className="summer-kicker">SDK lane</p>
               <h2>Three calls. Full route.</h2>
@@ -211,6 +239,7 @@ export default function Home() {
           </section>
 
           <section id="bot" className="summer-proof">
+            <div className="summer-flower summer-flower--soft summer-proof__flower" aria-hidden="true" />
             <div className="summer-proof__head">
               <div>
                 <p className="summer-kicker">Market proof</p>
