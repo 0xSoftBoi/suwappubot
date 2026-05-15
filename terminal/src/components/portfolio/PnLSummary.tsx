@@ -1,8 +1,12 @@
+import { usePortfolio } from '../../hooks/usePortfolio'
+
 export function PnLSummary() {
+  const { data: portfolio, isLoading } = usePortfolio()
+  const totalValue = portfolio ? `$${portfolio.totalUsdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '--'
   const stats = [
-    { label: 'Total Value', value: '$12,450.00', color: 'text-terminal-text' },
-    { label: '24h PnL', value: '+$234.50 (+1.9%)', color: 'text-bull' },
-    { label: 'All-Time PnL', value: '+$1,230.00 (+11.0%)', color: 'text-bull' },
+    { label: 'Total Value', value: isLoading ? 'Loading...' : totalValue, color: 'text-terminal-text' },
+    { label: '24h PnL', value: '--', color: 'text-terminal-text-muted' },
+    { label: 'All-Time PnL', value: '--', color: 'text-terminal-text-muted' },
   ]
 
   return (

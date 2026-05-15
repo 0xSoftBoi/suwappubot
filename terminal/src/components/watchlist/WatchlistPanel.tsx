@@ -1,53 +1,12 @@
-import { useState, useRef, useEffect } from 'react'
 import { useWatchlist, type WatchlistToken } from '../../hooks/useWatchlist'
 import { useWatchlistPrices } from '../../hooks/useWatchlistPrices'
 import { usePair } from '../../contexts/PairContext'
 import { WatchlistItem } from './WatchlistItem'
 
 export function WatchlistPanel() {
-  const { watchlist, addToken, removeToken } = useWatchlist()
+  const { watchlist, removeToken } = useWatchlist()
   const { getPrice, refetch } = useWatchlistPrices(watchlist)
   const { setSelectedPair, setSelectedChain } = usePair()
-  const [showAdd, setShowAdd] = useState(false)
-  const [search, setSearch] = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    if (showAdd) {
-      setTimeout(() => inputRef.current?.focus(), 50)
-    }
-  }, [showAdd])
-
-  const handleAddSubmit = () => {
-    // Parse simple input: SYMBOL/CHAIN/ADDRESS/NAME
-    const parts = search.split('/')
-    if (parts.length >= 3) {
-      const token: WatchlistToken = {
-        symbol: parts[0].trim().toUpperCase(),
-        chain: parts[1].trim().toLowerCase(),
-        address: parts[2].trim(),
-        name: parts[3]?.trim() || parts[0].trim(),
-      }
-      addToken(token)
-      setSearch('')
-      setShowAdd(false)
-    }
-  }
-
-  const handleQuickAdd = () => {
-    // Allow adding by just symbol for quick prototyping
-    if (search.trim().length > 0) {
-      const token: WatchlistToken = {
-        symbol: search.trim().toUpperCase(),
-        chain: 'ethereum',
-        address: `0x${search.trim().toLowerCase()}`,
-        name: search.trim(),
-      }
-      addToken(token)
-      setSearch('')
-      setShowAdd(false)
-    }
-  }
 
   const handleTokenClick = (token: WatchlistToken) => {
     // Navigate to token chart by setting it as the selected pair
@@ -89,9 +48,9 @@ export function WatchlistPanel() {
             {watchlist.length} tokens
           </span>
           <button
-            onClick={() => setShowAdd(!showAdd)}
-            className="text-terminal-text-muted hover:text-sakura-400 transition-colors p-0.5"
-            title="Add token"
+            disabled
+            className="text-terminal-text-muted transition-colors p-0.5 opacity-50"
+            title="Watchlist provider pending"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -100,44 +59,9 @@ export function WatchlistPanel() {
         </div>
       </div>
 
-      {/* Add token form */}
-      {showAdd && (
-        <div className="px-3 py-2 border-b border-terminal-border bg-terminal-bg-secondary shrink-0">
-          <div className="flex gap-2">
-            <input
-              ref={inputRef}
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  if (search.includes('/')) handleAddSubmit()
-                  else handleQuickAdd()
-                }
-                if (e.key === 'Escape') {
-                  setShowAdd(false)
-                  setSearch('')
-                }
-              }}
-              placeholder="SYMBOL or SYMBOL/chain/0xaddr/Name"
-              className="terminal-input flex-1 text-xs py-1.5"
-            />
-            <button
-              onClick={() => {
-                if (search.includes('/')) handleAddSubmit()
-                else handleQuickAdd()
-              }}
-              disabled={!search.trim()}
-              className="terminal-button text-xs px-3 py-1.5"
-            >
-              Add
-            </button>
-          </div>
-          <p className="text-[10px] text-terminal-text-muted mt-1">
-            Enter token symbol or SYMBOL/chain/address/name
-          </p>
-        </div>
-      )}
+      <div className="px-3 py-2 border-b border-terminal-border bg-terminal-bg-secondary shrink-0 text-xs text-terminal-text-muted">
+        Watchlist backend persistence is not connected yet.
+      </div>
 
       {/* Token list */}
       <div className="flex-1 overflow-y-auto">
@@ -148,7 +72,7 @@ export function WatchlistPanel() {
             </svg>
             <p className="text-sm text-terminal-text-muted mb-1">No tokens in watchlist</p>
             <p className="text-xs text-terminal-text-muted">
-              Click the + button to add tokens
+              Watchlist controls are disabled until backend persistence is connected.
             </p>
           </div>
         ) : (

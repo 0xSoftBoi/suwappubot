@@ -95,7 +95,13 @@ export function EquityCurve() {
           </button>
         ))}
       </div>
-      <div ref={containerRef} className="flex-1" />
+      {data.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center text-sm text-terminal-text-muted">
+          Portfolio history is not connected yet.
+        </div>
+      ) : (
+        <div ref={containerRef} className="flex-1" />
+      )}
     </div>
   )
 }

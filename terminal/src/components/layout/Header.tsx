@@ -5,6 +5,7 @@ import { PairSelector } from './PairSelector'
 import { usePair } from '../../contexts/PairContext'
 import { useAuth } from '../../contexts/AuthContext'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { PersimmonMark } from '../brand/PersimmonLogo'
 
 export function Header() {
   const { selectedChain, setSelectedChain, selectedPair, setSelectedPair } = usePair()
@@ -53,18 +54,42 @@ export function Header() {
     </button>
   )
 
+  const brandLockup = (
+    <div className="flex h-9 items-center gap-2 rounded-[10px] border border-white/70 bg-cyan/70 px-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.92),0_10px_24px_rgba(70,150,170,0.14)]">
+      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/70 shadow-[0_4px_12px_rgba(229,141,43,0.16)]">
+        <PersimmonMark
+          size={24}
+          palette="sunrise"
+          variant="slice"
+          shell="coin"
+          cutoutMode="none"
+          withGlow={false}
+          leafCount={4}
+        />
+      </div>
+      <div className="flex items-baseline gap-1.5 leading-none">
+        <span className="font-display text-[19px] font-bold tracking-normal text-[#169fe0]">
+          SUWAPPU
+        </span>
+        <span className="font-mono text-[10px] uppercase tracking-normal text-[#6b8ca0]">
+          Terminal
+        </span>
+      </div>
+    </div>
+  )
+
   if (isMobile) {
     return (
-      <header className="relative flex items-center justify-between h-10 px-3 border-b border-terminal-border bg-terminal-panel shrink-0">
+      <header className="relative flex h-12 shrink-0 items-center justify-between border-b border-white/70 bg-[linear-gradient(90deg,rgba(237,248,251,0.96),rgba(255,253,248,0.94))] px-2.5 shadow-[0_1px_0_rgba(120,178,196,0.18)]">
         <div className="flex items-center gap-2">
-          <span className="text-sakura-400 font-bold text-base tracking-tight">SUWAPPU</span>
+          {brandLockup}
 
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            className="p-1 rounded hover:bg-terminal-bg-tertiary transition-colors"
+            className="rounded border border-white/70 bg-white/58 p-1 text-[#31576d] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] transition-colors hover:bg-white"
             title="Select chain & pair"
           >
-            <svg className="w-5 h-5 text-terminal-text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               {menuOpen ? (
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               ) : (
@@ -79,7 +104,7 @@ export function Header() {
         </div>
 
         {menuOpen && (
-          <div className="absolute top-10 left-0 right-0 z-50 bg-terminal-bg-secondary border-b border-terminal-border p-3 flex flex-col gap-3">
+          <div className="absolute left-0 right-0 top-12 z-50 flex flex-col gap-3 border-b border-terminal-border bg-terminal-bg-secondary p-3">
             <div className="flex items-center gap-3">
               <span className="text-xs text-terminal-text-muted w-12 shrink-0">Chain</span>
               <ChainSelector selected={selectedChain} onSelect={(chain) => { setSelectedChain(chain); }} />
@@ -99,14 +124,11 @@ export function Header() {
   }
 
   return (
-    <header className="flex items-center justify-between h-10 px-4 border-b border-terminal-border bg-terminal-panel shrink-0">
+    <header className="flex h-12 shrink-0 items-center justify-between border-b border-white/70 bg-[linear-gradient(90deg,rgba(237,248,251,0.96),rgba(255,253,248,0.94))] px-3 shadow-[0_1px_0_rgba(120,178,196,0.18)]">
       <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <span className="text-sakura-400 font-bold text-lg tracking-tight">SUWAPPU</span>
-          <span className="text-terminal-text-muted text-xs font-mono">TERMINAL</span>
-        </div>
+        {brandLockup}
 
-        <div className="w-px h-6 bg-terminal-border" />
+        <div className="h-7 w-px bg-white/80 shadow-[1px_0_0_rgba(100,150,170,0.16)]" />
 
         <ChainSelector selected={selectedChain} onSelect={setSelectedChain} />
 
