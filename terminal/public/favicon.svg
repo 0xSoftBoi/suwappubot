@@ -14,9 +14,8 @@
       <stop offset="100%" stop-color="#261B19" />
     </linearGradient>
   </defs>
-  <rect x="64" y="64" width="872" height="872" rx="248" fill="url(#bg)" />
-  <rect x="104" y="104" width="792" height="792" rx="212" fill="none" stroke="#4A3025" stroke-width="18" />
-  <g transform="translate(0 28) scale(0.78) translate(140 120)">
+  <rect width="1000" height="1000" rx="210" fill="url(#bg)" />
+  <g transform="translate(0 18) scale(0.96) translate(20 12)">
     <ellipse cx="500" cy="860" rx="190" ry="44" fill="#160C0D" opacity="0.24" />
     <path d="M500 248C670 248 770 362 770 556C770 734 648 842 500 842C352 842 230 734 230 556C230 362 330 248 500 248Z" fill="url(#body)" stroke="#120F12" stroke-width="18" />
     <ellipse cx="416" cy="412" rx="104" ry="128" fill="#FFF7EE" opacity="0.12" transform="rotate(-16 416 412)" />
