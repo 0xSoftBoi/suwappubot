@@ -7,6 +7,8 @@ import {
 } from "../brand/PersimmonLogo";
 import { TerminalThemeScope } from "../../theme/TerminalThemeScope";
 
+const TERMINAL_URL = "https://terminal.suwappu.bot";
+
 type Market = {
   symbol: string;
   pair: string;
@@ -223,9 +225,12 @@ function Header({
           </button>
         ))}
       </div>
-      <button className="terminal-button min-h-9 rounded-[7px] px-4 text-sm font-semibold">
+      <a
+        href={TERMINAL_URL}
+        className="terminal-button inline-flex min-h-9 items-center rounded-[7px] px-4 text-sm font-semibold"
+      >
         Create Turnkey wallet
-      </button>
+      </a>
     </header>
   );
 }
@@ -538,9 +543,12 @@ function SwapTicket({ market }: { market: Market }) {
           ))}
         </div>
       </div>
-      <button className="terminal-button min-h-10 rounded-[7px] text-sm font-semibold">
+      <a
+        href={TERMINAL_URL}
+        className="terminal-button inline-flex min-h-10 items-center justify-center rounded-[7px] text-sm font-semibold"
+      >
         Create Turnkey wallet
-      </button>
+      </a>
     </Surface>
   );
 }
