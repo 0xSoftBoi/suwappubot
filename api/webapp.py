@@ -7,6 +7,7 @@ per https://core.telegram.org/bots/webapps#validating-data
 import hmac
 import hashlib
 import json
+import os
 import time
 import uuid
 from urllib.parse import parse_qs, unquote
@@ -37,7 +38,7 @@ _QUOTE_TTL_SECONDS = 45
 def _decode_terminal_auth_token(token: Optional[str]) -> Optional[Dict]:
     if not token:
         return None
-    secret = getattr(settings, "secret_key", None)
+    secret = getattr(settings, "secret_key", None) or os.environ.get("SECRET_KEY")
     if not secret:
         return None
     try:
