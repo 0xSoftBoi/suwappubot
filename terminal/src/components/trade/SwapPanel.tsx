@@ -236,7 +236,7 @@ export function SwapPanel() {
         }`}
       >
         {!isAuthenticated
-          ? 'Connect Wallet'
+          ? 'Create Turnkey wallet'
           : executing
             ? 'Executing...'
             : quoteLoading

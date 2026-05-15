@@ -130,7 +130,7 @@ export function PerpsPanel() {
           } disabled:cursor-not-allowed`}
       >
         {!isAuthenticated
-          ? 'Connect Wallet'
+          ? 'Create Turnkey wallet'
           : `Open ${leverage}x ${side === 'long' ? 'Long' : 'Short'} ${selectedMarket}`
         }
       </button>

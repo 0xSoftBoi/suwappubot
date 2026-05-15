@@ -36,13 +36,13 @@ export function PortfolioPanel() {
         <div className="ml-auto flex items-center gap-2 py-1">
           <button
             className="terminal-button-secondary text-xs"
-            onClick={() => toast('Connect wallet to deposit/withdraw')}
+            onClick={() => toast('Create a Turnkey wallet to deposit/withdraw')}
           >
             Deposit
           </button>
           <button
             className="terminal-button-secondary text-xs"
-            onClick={() => toast('Connect wallet to deposit/withdraw')}
+            onClick={() => toast('Create a Turnkey wallet to deposit/withdraw')}
           >
             Withdraw
           </button>
@@ -53,7 +53,7 @@ export function PortfolioPanel() {
       <div className="flex-1 overflow-auto">
         {!isAuthenticated ? (
           <div className="flex items-center justify-center h-full text-terminal-text-muted text-sm">
-            Connect wallet to view portfolio
+            Create a Turnkey wallet to view portfolio
           </div>
         ) : (
           <>
