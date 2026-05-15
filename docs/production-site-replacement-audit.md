@@ -26,7 +26,7 @@ Branch: `feat/terminal-site-replacement-story`
   - AWS CodeBuild project `suwappu-terminal-build` exists and uses source `https://github.com/0xSoftBoi/suwappubot.git` with buildspec `terminal/buildspec.yml`, but it has no webhook configured.
   - AWS ECS service `suwappu-terminal-prod` is active in cluster `suwappu-cluster`, desired `1`, running `1`, task definition `suwappu-terminal-prod:2`.
   - The service runs `905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu-terminal:latest`.
-  - Production release image was pushed on `2026-05-14T20:06:35-04:00` with commit tag `2a65430fdb8e4a9ba4872f996c60410b68c7adfc`, digest `sha256:87d0fa4be56b021ab01e21e5076db693ae92691013ece74ed3b4a4442055029c`.
+  - Current running terminal task `9718cefda7454f448e5a9982b859cdb4` is healthy on digest `sha256:60da3f275244f5cf31150bcb5589da98e50c8b1d5aef1aca17ead679d806823f`.
   - `terminal/TERMINAL.md` maps terminal deploy to ECR repository `suwappu-terminal` and host rule `terminal.suwappu.bot`.
 - API evidence points at the Python app behind `https://api.suwappu.bot`.
   - ALB routes general API traffic to ECS service `suwappu-bot-prod` in cluster `suwappu-cluster`.
@@ -204,6 +204,8 @@ Latest passing production QA:
 - Terminal swap functional Browserbase session: `https://www.browserbase.com/sessions/e91d7b72-4f45-4647-a9aa-014e3e8ee29a`
 - Swap result: Turnkey passkey auth `200`, `/auth/me` `200`, `/webapp/portfolio` `200`, `/webapp/swap/quote` `200` via `lifi`, `/webapp/swap/execute` `200 submitted` with swap id `48`.
 - Swap report and screenshots: `terminal/qa-screenshots/browserbase-functional-prod/swap-functional-report.json`, `after-turnkey-auth.png`, `after-swap-functional.png`.
+- Latest terminal button regression check: `https://www.browserbase.com/sessions/5a437810-5089-4a54-a86b-f27dd2a0da31`
+- Result: header Turnkey button created a passkey wallet, `/auth/me` returned authenticated user `58`, `/webapp/swap/quote` returned `200`, and `/webapp/swap/execute` reached the expected insufficient-funds path for the fresh wallet.
 
 Run the terminal swap functional gate:
 
