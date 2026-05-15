@@ -135,6 +135,10 @@ try {
 
   for (const tab of tabs) {
     await clickBottomTab(page, tab)
+    if (tab === 'DeFi Center') {
+      await page.getByText('Morpho Blue Markets', { exact: true }).waitFor({ state: 'visible', timeout: 30000 })
+      await page.getByTestId('lending-market-card').first().waitFor({ state: 'visible', timeout: 30000 })
+    }
     const bodyText = await page.locator('body').innerText({ timeout: 30000 })
     const file = await screenshot(page, `tab-${tab.toLowerCase().replaceAll(' ', '-')}`)
     tabResults.push({
@@ -207,7 +211,6 @@ try {
     }
 
     if (tab === 'DeFi Center') {
-      await page.getByText('Morpho Blue Markets', { exact: true }).waitFor({ state: 'visible', timeout: 30000 })
       const marketCards = await page.getByTestId('lending-market-card').count()
       if (marketCards === 0) {
         failures.push('DeFi Center did not render provider-backed Morpho lending markets')
