@@ -61,11 +61,11 @@ export function PriceChart() {
       },
       grid: {
         vertLines: {
-          color: 'rgba(80, 164, 190, 0.18)',
+          color: 'rgba(66, 184, 215, 0.12)',
           style: LineStyle.Dotted,
         },
         horzLines: {
-          color: 'rgba(80, 164, 190, 0.16)',
+          color: 'rgba(66, 184, 215, 0.1)',
           style: LineStyle.Dotted,
         },
       },
@@ -100,7 +100,7 @@ export function PriceChart() {
 
     // Line series (for line chart mode)
     const lineSeries = chart.addLineSeries({
-      color: '#E66D85',
+      color: '#0ea5e9',
       lineWidth: 2,
       crosshairMarkerVisible: true,
       crosshairMarkerRadius: 4,
@@ -120,7 +120,7 @@ export function PriceChart() {
 
     // SMA 20 line
     const sma20 = chart.addLineSeries({
-      color: '#f59e0b',
+      color: '#e58d2b',
       lineWidth: 1,
       lineStyle: LineStyle.Solid,
       crosshairMarkerVisible: false,
@@ -131,7 +131,7 @@ export function PriceChart() {
 
     // SMA 50 line
     const sma50 = chart.addLineSeries({
-      color: '#8b5cf6',
+      color: '#38bdf8',
       lineWidth: 1,
       lineStyle: LineStyle.Solid,
       crosshairMarkerVisible: false,
@@ -217,7 +217,10 @@ export function PriceChart() {
         chartType={chartType}
         onChartTypeChange={setChartType}
       />
-      <div ref={containerRef} className="flex-1 relative">
+      <div
+        ref={containerRef}
+        className="relative flex-1 overflow-hidden rounded-[8px] bg-[radial-gradient(circle_at_82%_12%,rgba(56,189,248,0.12),transparent_26%),linear-gradient(180deg,rgba(255,255,255,0.72),rgba(229,249,253,0.34))]"
+      >
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-terminal-text-muted text-sm animate-pulse">
@@ -244,8 +247,8 @@ export function PriceChart() {
         {/* SMA legend */}
         {candles && candles.length > 0 && (
           <div className="absolute top-1 left-2 flex gap-3 text-[10px] font-mono z-10 pointer-events-none">
-            <span className="text-amber-400">SMA 20</span>
-            <span className="text-violet-400">SMA 50</span>
+            <span className="text-[#e58d2b]">SMA 20</span>
+            <span className="text-sakura-500">SMA 50</span>
           </div>
         )}
       </div>
