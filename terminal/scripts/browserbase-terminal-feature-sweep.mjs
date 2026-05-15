@@ -205,6 +205,17 @@ try {
         visibleTextSample: (await page.locator('body').innerText()).split('\n').slice(-12).join(' | '),
       })
     }
+
+    if (tab === 'DeFi Center') {
+      await page.getByText('Morpho Blue Markets', { exact: true }).waitFor({ state: 'visible', timeout: 30000 })
+      const marketCards = await page.getByTestId('lending-market-card').count()
+      if (marketCards === 0) {
+        failures.push('DeFi Center did not render provider-backed Morpho lending markets')
+      }
+      if (bodyText.includes('No provider-backed lending markets available.')) {
+        failures.push('DeFi Center rendered unavailable lending state instead of provider-backed markets')
+      }
+    }
   }
 } finally {
   await browser.close()

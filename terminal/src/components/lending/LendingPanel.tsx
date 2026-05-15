@@ -35,7 +35,7 @@ export function LendingPanel() {
           </div>
         ) : filtered?.length === 0 ? (
           <div className="text-center text-terminal-text-muted text-sm py-8">
-            No markets found
+            No provider-backed lending markets available.
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

@@ -21,7 +21,10 @@ export function MarketCard({ market }: Props) {
   const utilPct = Math.min(market.utilization * 100, 100)
 
   return (
-    <div className="bg-terminal-bg rounded-lg p-3 border border-terminal-border hover:border-terminal-border-active transition-colors">
+    <div
+      className="bg-terminal-bg rounded-lg p-3 border border-terminal-border hover:border-terminal-border-active transition-colors"
+      data-testid="lending-market-card"
+    >
       <div className="flex items-center gap-2 mb-2">
         <div className="w-6 h-6 rounded-full bg-terminal-border flex items-center justify-center text-[10px] font-bold text-terminal-text-muted">
           {market.asset.slice(0, 2)}

@@ -35,6 +35,14 @@ from bot.services.turnkey_client import (
 router = APIRouter(prefix="/webapp", tags=["WebApp"])
 _terminal_quote_cache: Dict[str, Dict[str, Any]] = {}
 _QUOTE_TTL_SECONDS = 45
+_MORPHO_API_URL = "https://api.morpho.org/graphql"
+_MORPHO_CHAIN_IDS = [1, 8453, 42161, 10]
+_MORPHO_CHAIN_NAMES = {
+    "Ethereum": "Ethereum",
+    "Base": "Base",
+    "Arbitrum One": "Arbitrum",
+    "Optimism": "Optimism",
+}
 
 
 def _decode_terminal_auth_token(token: Optional[str]) -> Optional[Dict]:
@@ -47,6 +55,88 @@ def _decode_terminal_auth_token(token: Optional[str]) -> Optional[Dict]:
         return jwt.decode(token, secret, algorithms=["HS256"])
     except jwt.PyJWTError:
         return None
+
+
+def _as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_morpho_market(item: Dict[str, Any]) -> Optional["WebAppLendingMarket"]:
+    state = item.get("state") or {}
+    loan_asset = item.get("loanAsset") or {}
+    collateral_asset = item.get("collateralAsset") or {}
+    chain = item.get("chain") or {}
+    market_id = item.get("marketId") or item.get("uniqueKey")
+    loan_symbol = loan_asset.get("symbol")
+    collateral_symbol = collateral_asset.get("symbol")
+
+    if not market_id or not loan_symbol or not collateral_symbol:
+        return None
+
+    return WebAppLendingMarket(
+        id=market_id,
+        asset=f"{loan_symbol} / {collateral_symbol}",
+        chain=_MORPHO_CHAIN_NAMES.get(chain.get("network"), chain.get("network") or "Ethereum"),
+        supplyAPY=_as_float(state.get("supplyApy")),
+        borrowAPY=_as_float(state.get("borrowApy")),
+        utilization=max(0.0, min(_as_float(state.get("utilization")), 1.0)),
+        totalSupplied=max(0.0, _as_float(state.get("supplyAssetsUsd"))),
+        totalBorrowed=max(0.0, _as_float(state.get("borrowAssetsUsd"))),
+        lltv=_as_float(item.get("lltv")) / 1e18,
+    )
+
+
+async def _fetch_morpho_lending_markets(limit: int = 24) -> List["WebAppLendingMarket"]:
+    query = """
+    query TerminalMorphoMarkets($first: Int!, $chainIds: [Int!]!) {
+      markets(
+        first: $first
+        orderBy: SupplyAssetsUsd
+        orderDirection: Desc
+        where: {
+          chainId_in: $chainIds
+          listed: true
+          supplyAssetsUsd_gte: 1000000
+          supplyApy_lte: 1
+          borrowApy_lte: 1
+        }
+      ) {
+        items {
+          marketId
+          lltv
+          chain { id network }
+          loanAsset { symbol decimals }
+          collateralAsset { symbol decimals }
+          state {
+            supplyApy
+            borrowApy
+            utilization
+            supplyAssetsUsd
+            borrowAssetsUsd
+          }
+        }
+      }
+    }
+    """
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        response = await client.post(
+            _MORPHO_API_URL,
+            json={"query": query, "variables": {"first": limit, "chainIds": _MORPHO_CHAIN_IDS}},
+        )
+        response.raise_for_status()
+    payload = response.json()
+    if payload.get("errors"):
+        raise HTTPException(status_code=502, detail="Morpho lending market provider returned an error")
+
+    markets: List[WebAppLendingMarket] = []
+    for item in ((payload.get("data") or {}).get("markets") or {}).get("items") or []:
+        market = _normalize_morpho_market(item)
+        if market:
+            markets.append(market)
+    return markets
 
 
 async def get_terminal_auth_payload(
@@ -96,6 +186,18 @@ class WebAppChain(BaseModel):
     chainId: int
     nativeCurrency: str
     explorerUrl: str
+
+
+class WebAppLendingMarket(BaseModel):
+    id: str
+    asset: str
+    chain: str
+    supplyAPY: float
+    borrowAPY: float
+    utilization: float
+    totalSupplied: float
+    totalBorrowed: float
+    lltv: float
 
 
 class WebAppPortfolioToken(BaseModel):
@@ -1496,21 +1598,35 @@ async def cancel_terminal_dca_order(
     return {"success": True}
 
 
-@router.get("/lending/markets")
+@router.get("/lending/markets", response_model=List[WebAppLendingMarket])
 async def get_terminal_lending_markets(
     auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
 ):
     _require_terminal_user(auth_payload)
-    return []
+    try:
+        return await _fetch_morpho_lending_markets()
+    except HTTPException:
+        raise
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Morpho lending market provider is unavailable") from exc
 
 
-@router.get("/lending/markets/{market_id}")
+@router.get("/lending/markets/{market_id}", response_model=WebAppLendingMarket)
 async def get_terminal_lending_market(
     market_id: str,
     auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
 ):
     _require_terminal_user(auth_payload)
-    raise HTTPException(status_code=404, detail="Lending market provider is not connected yet")
+    try:
+        markets = await _fetch_morpho_lending_markets(limit=100)
+    except HTTPException:
+        raise
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Morpho lending market provider is unavailable") from exc
+    for market in markets:
+        if market.id == market_id:
+            return market
+    raise HTTPException(status_code=404, detail="Lending market not found")
 
 
 @router.get("/chains", response_model=List[WebAppChain])
