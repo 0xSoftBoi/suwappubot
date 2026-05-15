@@ -155,8 +155,9 @@ async def lifespan(app: FastAPI):
 
     # 5. Start Background Services (only if database is available AND enabled)
     admin_ids = getattr(settings, 'admin_ids', [])
+    enable_background_services = getattr(settings, "enable_background_services", True)
 
-    if not settings.enable_background_services:
+    if not enable_background_services:
         logger.info("⏭️ Background services DISABLED via ENABLE_BACKGROUND_SERVICES=false")
     elif db_success:
         # Stagger service starts to avoid thundering herd on DB
@@ -246,7 +247,7 @@ async def lifespan(app: FastAPI):
             pass
 
     # Only stop services if they were started
-    if db_success and settings.enable_background_services:
+    if db_success and enable_background_services:
         await fee_sweeper.stop()
         await alert_service.stop()
         await order_service.stop()
