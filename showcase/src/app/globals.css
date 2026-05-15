@@ -15,23 +15,23 @@ html {
    Summer Breeze production homepage
    ================================================================ */
 .summer-page {
-  --summer-ink: #17324a;
-  --summer-muted: #4f6f7f;
-  --summer-line: #cfe3ea;
-  --summer-panel: rgba(255, 255, 255, 0.78);
-  --summer-panel-strong: rgba(255, 255, 255, 0.92);
-  --summer-sky: #77bfd0;
-  --summer-sky-deep: #0b8bc7;
-  --summer-green: #2f8f5b;
-  --summer-persimmon: #e58d2b;
-  --summer-butter: #f4c963;
+  --summer-ink: var(--suwappu-summer-ink);
+  --summer-muted: var(--suwappu-summer-muted);
+  --summer-line: var(--suwappu-summer-line);
+  --summer-panel: var(--suwappu-summer-panel);
+  --summer-panel-strong: var(--suwappu-summer-panel-strong);
+  --summer-sky: var(--suwappu-summer-sky);
+  --summer-sky-deep: var(--suwappu-summer-sky-deep);
+  --summer-green: var(--suwappu-summer-green);
+  --summer-persimmon: var(--suwappu-summer-persimmon);
+  --summer-butter: var(--suwappu-summer-butter);
   position: relative;
   min-height: 100vh;
   overflow-x: hidden;
   background:
-    radial-gradient(circle at 12% 16%, rgba(247, 213, 223, 0.36), transparent 18rem),
+    radial-gradient(circle at 12% 16%, color-mix(in srgb, var(--suwappu-summer-flower-soft) 46%, transparent), transparent 18rem),
     radial-gradient(circle at 88% 8%, rgba(244, 201, 99, 0.26), transparent 16rem),
-    linear-gradient(180deg, #fdfcf8 0%, #fffefb 12%, #d9f1f3 46%, #f7fbf8 100%);
+    linear-gradient(180deg, var(--suwappu-summer-canvas) 0%, #fffefb 12%, #d9f1f3 46%, #f7fbf8 100%);
   color: var(--summer-ink);
 }
 
@@ -47,7 +47,7 @@ html {
   top: 118px;
   width: 240px;
   height: 420px;
-  border-right: 18px solid #2f8f5b;
+  border-right: 18px solid var(--summer-green);
   border-radius: 50%;
   transform: rotate(-18deg);
 }
@@ -73,32 +73,32 @@ html {
   display: block;
   background:
     radial-gradient(circle at 50% 50%, #f0c95a 0 10%, #fff4d4 11% 15%, transparent 16%),
-    radial-gradient(ellipse at 50% 16%, #f7d5df 0 18%, transparent 19%),
-    radial-gradient(ellipse at 84% 40%, #f7d5df 0 17%, transparent 18%),
-    radial-gradient(ellipse at 70% 84%, #f7d5df 0 17%, transparent 18%),
-    radial-gradient(ellipse at 30% 84%, #f7d5df 0 17%, transparent 18%),
-    radial-gradient(ellipse at 16% 40%, #f7d5df 0 17%, transparent 18%);
+    radial-gradient(ellipse at 50% 16%, var(--suwappu-summer-flower-soft) 0 18%, transparent 19%),
+    radial-gradient(ellipse at 84% 40%, var(--suwappu-summer-flower-soft) 0 17%, transparent 18%),
+    radial-gradient(ellipse at 70% 84%, var(--suwappu-summer-flower-soft) 0 17%, transparent 18%),
+    radial-gradient(ellipse at 30% 84%, var(--suwappu-summer-flower-soft) 0 17%, transparent 18%),
+    radial-gradient(ellipse at 16% 40%, var(--suwappu-summer-flower-soft) 0 17%, transparent 18%);
   filter: drop-shadow(0 8px 12px rgba(49, 93, 108, 0.14));
 }
 
 .summer-flower--sun {
   background:
-    radial-gradient(circle at 50% 50%, #e58d2b 0 10%, #fff4d4 11% 15%, transparent 16%),
-    radial-gradient(ellipse at 50% 16%, #f3d3cf 0 18%, transparent 19%),
-    radial-gradient(ellipse at 84% 40%, #f3d3cf 0 17%, transparent 18%),
-    radial-gradient(ellipse at 70% 84%, #f3d3cf 0 17%, transparent 18%),
-    radial-gradient(ellipse at 30% 84%, #f3d3cf 0 17%, transparent 18%),
-    radial-gradient(ellipse at 16% 40%, #f3d3cf 0 17%, transparent 18%);
+    radial-gradient(circle at 50% 50%, var(--summer-persimmon) 0 10%, #fff4d4 11% 15%, transparent 16%),
+    radial-gradient(ellipse at 50% 16%, var(--suwappu-summer-flower-sun) 0 18%, transparent 19%),
+    radial-gradient(ellipse at 84% 40%, var(--suwappu-summer-flower-sun) 0 17%, transparent 18%),
+    radial-gradient(ellipse at 70% 84%, var(--suwappu-summer-flower-sun) 0 17%, transparent 18%),
+    radial-gradient(ellipse at 30% 84%, var(--suwappu-summer-flower-sun) 0 17%, transparent 18%),
+    radial-gradient(ellipse at 16% 40%, var(--suwappu-summer-flower-sun) 0 17%, transparent 18%);
 }
 
 .summer-flower--mist {
   background:
     radial-gradient(circle at 50% 50%, #e7c892 0 10%, #fff5e5 11% 15%, transparent 16%),
-    radial-gradient(ellipse at 50% 16%, #eddde9 0 18%, transparent 19%),
-    radial-gradient(ellipse at 84% 40%, #eddde9 0 17%, transparent 18%),
-    radial-gradient(ellipse at 70% 84%, #eddde9 0 17%, transparent 18%),
-    radial-gradient(ellipse at 30% 84%, #eddde9 0 17%, transparent 18%),
-    radial-gradient(ellipse at 16% 40%, #eddde9 0 17%, transparent 18%);
+    radial-gradient(ellipse at 50% 16%, var(--suwappu-summer-flower-mist) 0 18%, transparent 19%),
+    radial-gradient(ellipse at 84% 40%, var(--suwappu-summer-flower-mist) 0 17%, transparent 18%),
+    radial-gradient(ellipse at 70% 84%, var(--suwappu-summer-flower-mist) 0 17%, transparent 18%),
+    radial-gradient(ellipse at 30% 84%, var(--suwappu-summer-flower-mist) 0 17%, transparent 18%),
+    radial-gradient(ellipse at 16% 40%, var(--suwappu-summer-flower-mist) 0 17%, transparent 18%);
 }
 
 .summer-petal {
@@ -106,7 +106,7 @@ html {
   width: 14px;
   height: 9px;
   border-radius: 999px 999px 999px 2px;
-  background: #f7d5df;
+  background: var(--suwappu-summer-flower-soft);
   box-shadow: 0 5px 12px rgba(49, 93, 108, 0.12);
 }
 
@@ -114,8 +114,8 @@ html {
   background: #8ed3de;
 }
 
-.summer-petal--pink {
-  background: #e9bfd0;
+.summer-petal--blush {
+  background: var(--suwappu-summer-petal-blush);
 }
 
 .summer-flower-field {
@@ -1238,7 +1238,7 @@ body {
   top: -100%;
   left: 1rem;
   z-index: 200;
-  background: #f472b6;
+  background: var(--suwappu-summer-accent);
   color: white;
   padding: 0.75rem 1.5rem;
   border-radius: 0 0 8px 8px;
@@ -1254,7 +1254,7 @@ body {
 
 /* Focus-visible outlines */
 :focus-visible {
-  outline: 2px solid #f472b6;
+  outline: 2px solid var(--suwappu-summer-accent);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -1265,7 +1265,7 @@ button:focus:not(:focus-visible) {
 }
 
 ::selection {
-  background: #f472b6;
+  background: var(--suwappu-summer-accent);
   color: white;
 }
 
@@ -1322,7 +1322,7 @@ button:focus:not(:focus-visible) {
   font-size: 0.875rem;
   font-weight: 600;
   color: white;
-  background: #f472b6;
+  background: var(--suwappu-summer-accent);
   padding: 0.5rem 1.25rem;
   border-radius: 50px;
   text-decoration: none;
@@ -1408,7 +1408,7 @@ button:focus:not(:focus-visible) {
 }
 
 .nav__drawer-link:hover {
-  color: #f472b6;
+  color: var(--suwappu-summer-accent);
 }
 
 .nav__drawer-cta {
@@ -1417,7 +1417,7 @@ button:focus:not(:focus-visible) {
   font-size: 1rem;
   font-weight: 600;
   color: white;
-  background: #f472b6;
+  background: var(--suwappu-summer-accent);
   padding: 0.875rem 1.25rem;
   border-radius: 50px;
   text-decoration: none;
@@ -1444,7 +1444,7 @@ button:focus:not(:focus-visible) {
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #f472b6;
+  color: var(--suwappu-summer-accent);
   margin-bottom: 0.75rem;
 }
 
@@ -1496,7 +1496,7 @@ button:focus:not(:focus-visible) {
 }
 
 .hero__title-accent {
-  color: #f472b6;
+  color: var(--suwappu-summer-accent);
 }
 
 .hero__subtitle {
@@ -1535,7 +1535,7 @@ button:focus:not(:focus-visible) {
 }
 
 .terminal-embed__link:hover .terminal-embed__cta {
-  color: #f472b6;
+  color: var(--suwappu-summer-accent);
 }
 
 .terminal-embed__mockup {
@@ -1619,7 +1619,7 @@ button:focus:not(:focus-visible) {
 }
 
 .btn--primary {
-  background: #f472b6;
+  background: var(--suwappu-summer-accent);
   color: white;
   box-shadow: 0 2px 8px rgba(244, 114, 182, 0.25);
 }
@@ -1723,7 +1723,7 @@ button:focus:not(:focus-visible) {
 }
 
 .code-block__tab--active {
-  color: #f472b6;
+  color: var(--suwappu-summer-accent);
   background: rgba(244, 114, 182, 0.1);
 }
 
@@ -1786,7 +1786,7 @@ button:focus:not(:focus-visible) {
 }
 
 .step-card:hover {
-  border-color: #f472b6;
+  border-color: var(--suwappu-summer-accent);
   box-shadow: 0 4px 20px rgba(244, 114, 182, 0.08);
   transform: translateY(-4px);
 }
@@ -1795,7 +1795,7 @@ button:focus:not(:focus-visible) {
   font-family: var(--font-display);
   font-size: 2.5rem;
   font-weight: 700;
-  color: #f472b6;
+  color: var(--suwappu-summer-accent);
   line-height: 1;
   margin-bottom: 1rem;
 }
@@ -1975,7 +1975,7 @@ button:focus:not(:focus-visible) {
 }
 
 .footer__list a:hover {
-  color: #f472b6;
+  color: var(--suwappu-summer-accent);
 }
 
 .footer__bottom {
@@ -2009,7 +2009,7 @@ button:focus:not(:focus-visible) {
 .tool__name {
   font-family: var(--font-mono);
   font-size: 0.8125rem;
-  color: #f472b6;
+  color: var(--suwappu-summer-accent);
   white-space: nowrap;
 }
 
@@ -2041,7 +2041,7 @@ button:focus:not(:focus-visible) {
 }
 
 .docs-masonry__card:hover {
-  border-color: #f472b6;
+  border-color: var(--suwappu-summer-accent);
   box-shadow: 0 4px 20px rgba(244, 114, 182, 0.08);
 }
 
@@ -2056,7 +2056,7 @@ button:focus:not(:focus-visible) {
   font-family: var(--font-mono);
   font-size: 0.75rem;
   font-weight: 600;
-  color: #f472b6;
+  color: var(--suwappu-summer-accent);
   margin-bottom: 1rem;
 }
 
@@ -2119,7 +2119,7 @@ button:focus:not(:focus-visible) {
 }
 
 .docs-nav__back:hover {
-  color: #f472b6;
+  color: var(--suwappu-summer-accent);
 }
 
 .docs-nav__section {
@@ -2142,7 +2142,7 @@ button:focus:not(:focus-visible) {
 }
 
 .docs-nav__heading--active {
-  color: #f472b6;
+  color: var(--suwappu-summer-accent);
   background: rgba(244, 114, 182, 0.08);
 }
 
@@ -2163,7 +2163,7 @@ button:focus:not(:focus-visible) {
 }
 
 .docs-nav__link:hover {
-  color: #f472b6;
+  color: var(--suwappu-summer-accent);
   background: rgba(244, 114, 182, 0.05);
 }
 
@@ -2189,7 +2189,7 @@ button:focus:not(:focus-visible) {
 }
 
 .docs-quicklink:hover {
-  border-color: #f472b6;
+  border-color: var(--suwappu-summer-accent);
   box-shadow: 0 2px 12px rgba(244, 114, 182, 0.08);
 }
 
@@ -2204,7 +2204,7 @@ button:focus:not(:focus-visible) {
   font-family: var(--font-mono);
   font-size: 0.6875rem;
   font-weight: 600;
-  color: #f472b6;
+  color: var(--suwappu-summer-accent);
   flex-shrink: 0;
 }
 
@@ -2360,7 +2360,7 @@ button:focus:not(:focus-visible) {
 }
 
 .doc-reader a {
-  color: #f472b6;
+  color: var(--suwappu-summer-accent);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -2474,7 +2474,7 @@ button:focus:not(:focus-visible) {
   background: #f5f0ea;
   padding: 0.125rem 0.5rem;
   border-radius: 4px;
-  color: #f472b6;
+  color: var(--suwappu-summer-accent);
   font-weight: 500;
 }
 
@@ -2496,7 +2496,7 @@ button:focus:not(:focus-visible) {
 }
 
 .doc-reader blockquote {
-  border-left: 3px solid #f472b6;
+  border-left: 3px solid var(--suwappu-summer-accent);
   padding: 0.75rem 1.25rem;
   margin: 1.5rem 0;
   background: rgba(244, 114, 182, 0.04);
@@ -2525,7 +2525,7 @@ button:focus:not(:focus-visible) {
 }
 
 .doc-breadcrumb a:hover {
-  color: #f472b6;
+  color: var(--suwappu-summer-accent);
 }
 
 .doc-breadcrumb__sep {

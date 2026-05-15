@@ -5,9 +5,14 @@ import { useChartData } from '../../hooks/useChartData'
 import { usePair } from '../../contexts/PairContext'
 import { useTrading } from '../../contexts/TradingContext'
 import type { OHLCVCandle } from '../../types/api'
+import { designTokens } from '@suwappu/design-tokens'
 
 const INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1D'] as const
 type Interval = typeof INTERVALS[number]
+
+const summer = designTokens.colors.surface.summerBreeze
+const trading = designTokens.colors.trading
+const brand = designTokens.colors.brand
 
 function computeSMA(candles: OHLCVCandle[], period: number) {
   const result: { time: number; value: number }[] = []
@@ -55,7 +60,7 @@ export function PriceChart() {
     const chart = createChart(containerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#7aa1b4',
+        textColor: summer.muted,
         fontFamily: 'JetBrains Mono, monospace',
         fontSize: 11,
       },
@@ -74,11 +79,11 @@ export function PriceChart() {
         horzLine: { color: 'rgba(14, 165, 233, 0.55)', width: 1, style: LineStyle.Dashed },
       },
       rightPriceScale: {
-        borderColor: 'rgba(80, 164, 190, 0.28)',
+        borderColor: 'rgba(66, 184, 215, 0.28)',
         scaleMargins: { top: 0.1, bottom: 0.25 },
       },
       timeScale: {
-        borderColor: 'rgba(80, 164, 190, 0.28)',
+        borderColor: 'rgba(66, 184, 215, 0.28)',
         timeVisible: true,
         secondsVisible: false,
       },
@@ -89,18 +94,18 @@ export function PriceChart() {
 
     // Candlestick series
     const candleSeries = chart.addCandlestickSeries({
-      upColor: '#22c55e',
-      downColor: '#ef4444',
-      borderUpColor: '#22c55e',
-      borderDownColor: '#ef4444',
-      wickUpColor: '#22c55e',
-      wickDownColor: '#ef4444',
+      upColor: trading.bull,
+      downColor: trading.bear,
+      borderUpColor: trading.bull,
+      borderDownColor: trading.bear,
+      wickUpColor: trading.bull,
+      wickDownColor: trading.bear,
     })
     candleSeriesRef.current = candleSeries
 
     // Line series (for line chart mode)
     const lineSeries = chart.addLineSeries({
-      color: '#0ea5e9',
+      color: summer.accent,
       lineWidth: 2,
       crosshairMarkerVisible: true,
       crosshairMarkerRadius: 4,
@@ -120,7 +125,7 @@ export function PriceChart() {
 
     // SMA 20 line
     const sma20 = chart.addLineSeries({
-      color: '#e58d2b',
+      color: brand.persimmonCore,
       lineWidth: 1,
       lineStyle: LineStyle.Solid,
       crosshairMarkerVisible: false,
@@ -131,7 +136,7 @@ export function PriceChart() {
 
     // SMA 50 line
     const sma50 = chart.addLineSeries({
-      color: '#38bdf8',
+      color: summer.accentLight,
       lineWidth: 1,
       lineStyle: LineStyle.Solid,
       crosshairMarkerVisible: false,

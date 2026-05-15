@@ -109,7 +109,7 @@ export default function Terminal() {
               style={{ color: lineColor(line.type) }}
             >
               {line.type === 'input' && (
-                <span style={{ color: '#f472b6', marginRight: 8 }}>{'>'}</span>
+                <span style={{ color: 'var(--suwappu-summer-accent)', marginRight: 8 }}>{'>'}</span>
               )}
               {line.text || '\u00A0'}
             </motion.div>
@@ -118,7 +118,7 @@ export default function Terminal() {
 
         {typing !== '' && (
           <div style={{ color: '#93c5fd' }}>
-            <span style={{ color: '#f472b6', marginRight: 8 }}>{'>'}</span>
+            <span style={{ color: 'var(--suwappu-summer-accent)', marginRight: 8 }}>{'>'}</span>
             {typing}
             <span
               style={{
@@ -135,7 +135,7 @@ export default function Terminal() {
 
         {typing === '' && lines.length === 0 && (
           <div style={{ color: '#93c5fd' }}>
-            <span style={{ color: '#f472b6', marginRight: 8 }}>{'>'}</span>
+            <span style={{ color: 'var(--suwappu-summer-accent)', marginRight: 8 }}>{'>'}</span>
             <span
               style={{
                 display: 'inline-block',

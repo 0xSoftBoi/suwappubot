@@ -166,3 +166,65 @@ export function generateCssVars(theme: 'sakura' | 'professional' = 'sakura'): st
 
   return lines.join('\n')
 }
+
+/**
+ * Generate the Summer Breeze vars used by the production homepage and terminal.
+ * These vars intentionally avoid legacy pink/magenta names.
+ */
+export function generateSummerBreezeCssVars(scope = ':root'): string {
+  const summer = t.colors.surface.summerBreeze
+  const gradients = t.gradients.summerBreeze
+  const brand = t.colors.brand
+  const trading = t.colors.trading
+  const radii = t.borderRadius
+
+  const values: Record<string, string> = {
+    '--suwappu-summer-ink': summer.ink,
+    '--suwappu-summer-muted': summer.muted,
+    '--suwappu-summer-line': summer.line,
+    '--suwappu-summer-line-strong': summer.lineStrong,
+    '--suwappu-summer-canvas': summer.canvas,
+    '--suwappu-summer-canvas-warm': summer.canvasWarm,
+    '--suwappu-summer-canvas-cool': summer.canvasCool,
+    '--suwappu-summer-sky': summer.sky,
+    '--suwappu-summer-sky-deep': summer.skyDeep,
+    '--suwappu-summer-green': summer.green,
+    '--suwappu-summer-persimmon': brand.persimmonCore,
+    '--suwappu-summer-butter': brand.goldenCalyx,
+    '--suwappu-summer-accent': summer.accent,
+    '--suwappu-summer-accent-light': summer.accentLight,
+    '--suwappu-summer-accent-deep': summer.accentDeep,
+    '--suwappu-summer-flower-soft': summer.petalSoft,
+    '--suwappu-summer-flower-sun': summer.petalSun,
+    '--suwappu-summer-flower-mist': summer.petalMist,
+    '--suwappu-summer-petal-blush': summer.petalBlush,
+    '--suwappu-summer-bull': trading.bull,
+    '--suwappu-summer-bear': trading.bear,
+    '--suwappu-summer-panel': 'rgba(255, 255, 255, 0.78)',
+    '--suwappu-summer-panel-strong': 'rgba(255, 255, 255, 0.92)',
+    '--suwappu-summer-shell-background': gradients.shellBackground,
+    '--suwappu-summer-panel-background': gradients.panelBackground,
+    '--suwappu-summer-inset-background': gradients.insetBackground,
+    '--suwappu-summer-card-background': gradients.cardBackground,
+    '--suwappu-summer-control-background': gradients.controlBackground,
+    '--suwappu-summer-control-background-hover': gradients.controlBackgroundHover,
+    '--suwappu-summer-control-background-active': gradients.controlBackgroundActive,
+    '--suwappu-summer-button-background': gradients.buttonBackground,
+    '--suwappu-summer-button-background-hover': gradients.buttonBackgroundHover,
+    '--suwappu-summer-panel-orb': gradients.panelOrb,
+    '--suwappu-summer-inset-orb': gradients.insetOrb,
+    '--suwappu-summer-card-orb': gradients.cardOrb,
+    '--suwappu-summer-control-orb': gradients.controlOrb,
+    '--suwappu-summer-radius-panel': `${radii.md}px`,
+    '--suwappu-summer-radius-inset': `${radii.sm}px`,
+    '--suwappu-summer-radius-card': '6px',
+    '--suwappu-summer-radius-control': `${radii.sm}px`,
+  }
+
+  return [
+    '/* Generated from packages/design-tokens/src/tokens.ts. Keep in sync with generateSummerBreezeCssVars(). */',
+    `${scope} {`,
+    ...Object.entries(values).map(([name, value]) => `  ${name}: ${value};`),
+    '}',
+  ].join('\n')
+}

@@ -119,7 +119,7 @@ function Hero() {
         <span className="summer-flower summer-flower--sun" />
         <span className="summer-flower summer-flower--mist" />
         <span className="summer-petal summer-petal--sky" />
-        <span className="summer-petal summer-petal--pink" />
+        <span className="summer-petal summer-petal--blush" />
       </div>
       <img className="summer-hero__fruit" src="/logo.svg" alt="" aria-hidden="true" />
       <div className="summer-hero__copy">

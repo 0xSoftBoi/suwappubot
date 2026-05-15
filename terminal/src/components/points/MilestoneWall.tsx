@@ -37,8 +37,8 @@ function MilestoneCard({ milestone }: { milestone: Milestone }) {
             style={{
               width: `${progressPct}%`,
               background: milestone.completed
-                ? 'linear-gradient(90deg, #FF839B, #E66D85)'
-                : 'linear-gradient(90deg, #55556a, #8888a0)',
+                ? 'var(--terminal-button-background)'
+                : 'linear-gradient(90deg, var(--terminal-border-color), var(--terminal-border-active-color))',
             }}
           />
         </div>

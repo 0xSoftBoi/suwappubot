@@ -89,7 +89,7 @@ function highlightCode(code: string, lang: string): string {
   // Booleans / null
   escaped = escaped.replace(/\b(true|false|null|None|True|False)\b/g, '<span class="hl-bool">$1</span>');
 
-  // Suwappu SDK — highlight key identifiers in pink
+  // Suwappu SDK — highlight key identifiers with the Summer Breeze accent.
   escaped = escaped.replace(
     /\b(Suwappu|suwappu|client\.(swap|getQuote|getBalance|getPortfolio|getPrice|getTokens|getChains|createWallet|limitOrder|dcaOrder|perps|predict|lend|execute)|@suwappu\/sdk|suwappu_sk_\w+|suwappu\.bot)\b/g,
     '<span class="hl-suwappu">$1</span>',

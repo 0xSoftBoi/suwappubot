@@ -154,23 +154,36 @@ export const designTokens = {
       },
       /** Summer Breeze light terminal palette */
       summerBreeze: {
+        ink: '#17324A',
+        muted: '#4F6F7F',
+        line: '#B9DFE9',
+        lineStrong: '#42B8D7',
         canvas: '#FFFEFB',
         canvasWarm: '#FFF8ED',
         canvasCool: '#EDF8FB',
-        panelCool: 'rgba(237, 248, 251, 0.94)',
-        insetCool: 'rgba(247, 251, 252, 0.94)',
-        cardCool: 'rgba(241, 251, 252, 0.94)',
-        controlCool: 'rgba(246, 252, 253, 0.98)',
-        controlActiveCool: 'rgba(241, 251, 252, 0.98)',
+        panelCool: 'rgba(241, 252, 255, 0.98)',
+        insetCool: 'rgba(229, 249, 253, 0.96)',
+        cardCool: 'rgba(225, 248, 252, 0.94)',
+        controlCool: 'rgba(239, 251, 255, 0.97)',
+        controlActiveCool: 'rgba(214, 244, 251, 0.98)',
         sunlight: 'rgba(244, 218, 162, 0.28)',
         sunlightStrong: 'rgba(244, 218, 162, 0.42)',
         calyxGlow: 'rgba(244, 201, 99, 0.16)',
         calyxGlowStrong: 'rgba(244, 201, 99, 0.24)',
-        breeze: 'rgba(154, 218, 228, 0.22)',
-        breezeStrong: 'rgba(154, 218, 228, 0.34)',
-        aquaWash: 'rgba(94, 234, 212, 0.12)',
-        border: '#E7DCC8',
-        borderActive: '#77BFD0',
+        breeze: 'rgba(56, 189, 248, 0.22)',
+        breezeStrong: 'rgba(56, 189, 248, 0.34)',
+        aquaWash: 'rgba(94, 234, 212, 0.16)',
+        sky: '#77BFD0',
+        skyDeep: '#0B8BC7',
+        green: '#2F8F5B',
+        butter: '#F4C963',
+        persimmon: '#E58D2B',
+        petalSoft: '#F7D5DF',
+        petalSun: '#F3D3CF',
+        petalMist: '#EDDDE9',
+        petalBlush: '#E9BFD0',
+        border: '#B9DFE9',
+        borderActive: '#42B8D7',
         accent: '#0EA5E9',
         accentLight: '#38BDF8',
         accentHoverLight: '#67CFFB',
@@ -201,31 +214,31 @@ export const designTokens = {
     featureCard: 'linear-gradient(165deg, rgba(255,255,255,0.98) 0%, rgba(255,251,245,0.96) 100%)',
     summerBreeze: {
       shellBackground:
-        'radial-gradient(circle at 8% 10%, rgba(244,218,162,0.28), transparent 18%), radial-gradient(circle at 92% 16%, rgba(154,218,228,0.22), transparent 18%), radial-gradient(circle at 78% 82%, rgba(244,201,99,0.16), transparent 20%), linear-gradient(180deg, #fffefb 0%, #fff8ed 42%, #edf8fb 100%)',
+        'radial-gradient(circle at 7% 9%, rgba(94,234,212,0.2), transparent 18%), radial-gradient(circle at 90% 14%, rgba(56,189,248,0.22), transparent 20%), radial-gradient(circle at 76% 86%, rgba(190,242,255,0.34), transparent 24%), linear-gradient(180deg, #f7fdff 0%, #e9faff 50%, #dff7fb 100%)',
       panelBackground:
-        'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255,251,245,0.97) 42%, rgba(237,248,251,0.94) 100%)',
+        'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(241,252,255,0.98) 42%, rgba(224,247,252,0.95) 100%)',
       insetBackground:
-        'linear-gradient(180deg, rgba(255,253,248,0.96) 0%, rgba(247,251,252,0.94) 100%)',
+        'linear-gradient(180deg, rgba(247,253,255,0.98) 0%, rgba(229,249,253,0.96) 100%)',
       cardBackground:
-        'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255,250,243,0.96) 54%, rgba(241,251,252,0.94) 100%)',
+        'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(239,251,255,0.96) 58%, rgba(225,248,252,0.94) 100%)',
       controlBackground:
-        'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255,251,246,0.96) 100%)',
+        'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(239,251,255,0.97) 100%)',
       controlBackgroundHover:
-        'linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(246,252,253,0.98) 100%)',
+        'linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(228,249,253,0.98) 100%)',
       controlBackgroundActive:
-        'linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(241,251,252,0.98) 100%)',
+        'linear-gradient(180deg, rgba(250,254,255,1) 0%, rgba(214,244,251,0.98) 100%)',
       buttonBackground:
         'linear-gradient(180deg, #38bdf8 0%, #0ea5e9 52%, #0284c7 100%)',
       buttonBackgroundHover:
         'linear-gradient(180deg, #67cffb 0%, #22b4ed 52%, #0369a1 100%)',
       panelOrb:
-        'radial-gradient(circle at 0% 0%, rgba(255,255,255,0.72), transparent 34%), radial-gradient(circle at 100% 0%, rgba(244,218,162,0.24), transparent 28%), radial-gradient(circle at 82% 100%, rgba(154,218,228,0.18), transparent 26%)',
+        'radial-gradient(circle at 0% 0%, rgba(255,255,255,0.78), transparent 34%), radial-gradient(circle at 100% 0%, rgba(56,189,248,0.18), transparent 30%), radial-gradient(circle at 82% 100%, rgba(94,234,212,0.16), transparent 28%)',
       insetOrb:
-        'radial-gradient(circle at 100% 0%, rgba(255,255,255,0.58), transparent 26%), radial-gradient(circle at 0% 100%, rgba(94,234,212,0.12), transparent 22%)',
+        'radial-gradient(circle at 100% 0%, rgba(255,255,255,0.6), transparent 26%), radial-gradient(circle at 0% 100%, rgba(94,234,212,0.16), transparent 24%)',
       cardOrb:
-        'radial-gradient(circle at 100% 0%, rgba(255,255,255,0.64), transparent 28%), radial-gradient(circle at 0% 100%, rgba(154,218,228,0.14), transparent 22%)',
+        'radial-gradient(circle at 100% 0%, rgba(255,255,255,0.66), transparent 28%), radial-gradient(circle at 0% 100%, rgba(56,189,248,0.14), transparent 24%)',
       controlOrb:
-        'linear-gradient(180deg, rgba(255,255,255,0.46) 0%, transparent 42%)',
+        'linear-gradient(180deg, rgba(255,255,255,0.5) 0%, transparent 42%)',
     },
   },
 

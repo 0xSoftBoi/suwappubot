@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react'
 import { createChart, type IChartApi, type ISeriesApi, ColorType } from 'lightweight-charts'
 import { usePortfolioHistory, type HistoryPeriod } from '../../hooks/usePortfolioHistory'
+import { designTokens } from '@suwappu/design-tokens'
 
 const PERIODS: { id: HistoryPeriod; label: string }[] = [
   { id: '24h', label: '24h' },
@@ -8,6 +9,8 @@ const PERIODS: { id: HistoryPeriod; label: string }[] = [
   { id: '30d', label: '30d' },
   { id: 'all', label: 'All' },
 ]
+
+const summer = designTokens.colors.surface.summerBreeze
 
 export function EquityCurve() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -24,32 +27,32 @@ export function EquityCurve() {
     const chart = createChart(containerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#8888a0',
+        textColor: summer.muted,
         fontFamily: 'JetBrains Mono, monospace',
         fontSize: 10,
       },
       grid: {
-        vertLines: { color: '#1e1e30' },
-        horzLines: { color: '#1e1e30' },
+        vertLines: { color: 'rgba(119, 191, 208, 0.22)' },
+        horzLines: { color: 'rgba(119, 191, 208, 0.22)' },
       },
       rightPriceScale: {
-        borderColor: '#1e1e30',
+        borderColor: summer.border,
         scaleMargins: { top: 0.1, bottom: 0.1 },
       },
       timeScale: {
-        borderColor: '#1e1e30',
+        borderColor: summer.border,
         timeVisible: true,
         secondsVisible: false,
       },
       crosshair: {
-        vertLine: { color: '#55556a', width: 1, style: 3 },
-        horzLine: { color: '#55556a', width: 1, style: 3 },
+        vertLine: { color: summer.borderActive, width: 1, style: 3 },
+        horzLine: { color: summer.borderActive, width: 1, style: 3 },
       },
       handleScroll: { vertTouchDrag: false },
     })
 
     const series = chart.addLineSeries({
-      color: '#E66D85',
+      color: summer.accent,
       lineWidth: 2,
       crosshairMarkerVisible: true,
       crosshairMarkerRadius: 3,

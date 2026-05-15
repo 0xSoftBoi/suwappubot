@@ -1,4 +1,8 @@
+import { designTokens } from '@suwappu/design-tokens'
 import { professionalPreset } from '@suwappu/design-tokens/tailwind'
+
+const summer = designTokens.colors.surface.summerBreeze
+const radii = designTokens.borderRadius
 
 /** @type {import('tailwindcss').Config} */
 export default {
@@ -12,14 +16,14 @@ export default {
     extend: {
       colors: {
         terminal: {
-          bg: '#edfaff',
-          'bg-secondary': '#f3fcff',
-          'bg-tertiary': '#dff5fb',
-          panel: '#f8fdff',
-          border: '#b9dfe9',
-          'border-active': '#42b8d7',
-          text: '#12384f',
-          'text-secondary': '#426a7c',
+          bg: summer.canvasCool,
+          'bg-secondary': summer.controlCool,
+          'bg-tertiary': summer.insetCool,
+          panel: summer.panelCool,
+          border: summer.border,
+          'border-active': summer.borderActive,
+          text: summer.ink,
+          'text-secondary': summer.muted,
           'text-muted': '#7899a8',
         },
         sakura: {
@@ -27,21 +31,21 @@ export default {
           100: '#dff7ff',
           200: '#bcefff',
           300: '#86ddf6',
-          400: '#38bdf8',
-          500: '#0ea5e9',
-          600: '#0284c7',
-          700: '#0369a1',
+          400: summer.accentLight,
+          500: summer.accent,
+          600: summer.accentDeep,
+          700: summer.accentDeepHover,
           800: '#075985',
           900: '#0c4a6e',
         },
       },
       borderRadius: {
-        'suwappu-md': '10px',
-        'suwappu-lg': '14px',
-        'suwappu-xl': '16px',
-        'suwappu-xxl': '18px',
-        'suwappu-xxxl': '22px',
-        'suwappu-pill': '18px',
+        'suwappu-md': `${radii.sm}px`,
+        'suwappu-lg': `${radii.md}px`,
+        'suwappu-xl': `${radii.lg}px`,
+        'suwappu-xxl': `${radii.xl}px`,
+        'suwappu-xxxl': `${radii.xxl}px`,
+        'suwappu-pill': `${radii.md}px`,
       },
     },
   },

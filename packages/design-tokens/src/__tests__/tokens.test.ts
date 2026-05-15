@@ -4,9 +4,19 @@
  */
 import { designTokens } from '../tokens'
 import { suwappuPreset, professionalPreset } from '../tailwind-preset'
-import { generateCssVars } from '../css-vars'
+import { generateCssVars, generateSummerBreezeCssVars } from '../css-vars'
 import { sakuraTheme, professionalTheme } from '../react-native'
 import { ansiColors, colorize } from '../terminal'
+
+declare const Bun: {
+  file(path: string | URL): {
+    text(): Promise<string>
+  }
+}
+
+declare const process: {
+  exit(code?: number): never
+}
 
 let passed = 0
 let failed = 0
@@ -84,6 +94,17 @@ assert(designTokens.gradients.summerBreeze.buttonBackground.includes('#0ea5e9'),
 
 const proCss = generateCssVars('professional')
 assert(proCss.includes('#FFFDF9') || proCss.includes('#fffdf9'), 'professional has studio bg')
+
+const summerCss = generateSummerBreezeCssVars()
+assert(summerCss.includes('--suwappu-summer-shell-background'), 'summer breeze css has shell')
+assert(summerCss.includes('--suwappu-summer-accent: #0EA5E9'), 'summer breeze css has blue accent')
+assert(summerCss.includes('--suwappu-summer-petal-blush'), 'summer breeze css has intentional flower accent')
+const showcaseSummerCss = (
+  await Bun.file(
+    new URL('../../../../showcase/src/app/summer-token-vars.css', import.meta.url),
+  ).text()
+).trim()
+eq(showcaseSummerCss, summerCss, 'showcase summer css mirrors generated token vars')
 
 // --- React Native themes ---
 console.log('React Native themes:')

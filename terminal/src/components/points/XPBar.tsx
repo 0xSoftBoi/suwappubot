@@ -34,7 +34,7 @@ export function XPBar({ xp, level, currentLevelXp, nextLevelXp }: XPBarProps) {
           className="absolute inset-y-0 left-0 rounded-full transition-all duration-1000 ease-out"
           style={{
             width: `${animatedWidth}%`,
-            background: 'linear-gradient(90deg, #FF839B, #E66D85, #FF9DB0)',
+            background: 'var(--terminal-button-background)',
           }}
         />
         <div

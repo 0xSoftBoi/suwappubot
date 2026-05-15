@@ -278,12 +278,12 @@ export default function Overlay() {
               <div className="terminal-embed__body">
                 <div className="terminal-embed__grid">
                   <div className="terminal-embed__panel terminal-embed__panel--chart">
-                    <div style={{ fontSize: '0.6875rem', color: '#f472b6', marginBottom: 4 }}>ETH / USDC</div>
+                    <div style={{ fontSize: '0.6875rem', color: 'var(--suwappu-summer-accent)', marginBottom: 4 }}>ETH / USDC</div>
                     <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#fff' }}>$2,847.32</div>
                     <div style={{ fontSize: '0.6875rem', color: '#86efac' }}>+3.2% 24h</div>
-                    <div style={{ marginTop: 16, height: 80, background: 'linear-gradient(180deg, rgba(244,114,182,0.15) 0%, transparent 100%)', borderRadius: 8, position: 'relative', overflow: 'hidden' }}>
+                    <div style={{ marginTop: 16, height: 80, background: 'linear-gradient(180deg, rgba(14,165,233,0.15) 0%, transparent 100%)', borderRadius: 8, position: 'relative', overflow: 'hidden' }}>
                       <svg viewBox="0 0 200 60" style={{ width: '100%', height: '100%' }} preserveAspectRatio="none">
-                        <polyline fill="none" stroke="#f472b6" strokeWidth="2" points="0,45 20,40 40,42 60,30 80,35 100,20 120,25 140,15 160,18 180,10 200,12" />
+                        <polyline fill="none" stroke="var(--suwappu-summer-accent)" strokeWidth="2" points="0,45 20,40 40,42 60,30 80,35 100,20 120,25 140,15 160,18 180,10 200,12" />
                       </svg>
                     </div>
                   </div>
@@ -295,7 +295,7 @@ export default function Overlay() {
                     <div style={{ background: '#1a1a1a', borderRadius: 8, padding: '8px 10px', marginBottom: 10, fontSize: '0.75rem' }}>
                       <span style={{ color: '#999' }}>To</span> <span style={{ color: '#fff', float: 'right' }}>2,847 USDC</span>
                     </div>
-                    <div style={{ background: '#f472b6', borderRadius: 8, padding: '6px 0', textAlign: 'center', fontSize: '0.75rem', fontWeight: 600, color: '#fff' }}>Execute Swap</div>
+                    <div style={{ background: 'var(--suwappu-summer-accent)', borderRadius: 8, padding: '6px 0', textAlign: 'center', fontSize: '0.75rem', fontWeight: 600, color: '#fff' }}>Execute Swap</div>
                   </div>
                   <div className="terminal-embed__panel terminal-embed__panel--book">
                     <div style={{ fontSize: '0.6875rem', color: '#999', marginBottom: 6 }}>Order Book</div>

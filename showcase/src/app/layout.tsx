@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Space_Grotesk, DM_Sans, Fira_Code } from 'next/font/google';
+import './summer-token-vars.css';
 import './globals.css';
 
 const spaceGrotesk = Space_Grotesk({
@@ -102,7 +103,7 @@ export default function RootLayout({
         <link rel="author" type="text/plain" href="/llms.txt" />
         <link rel="canonical" href="https://suwappu.bot" />
       </head>
-      <body className="font-sans antialiased bg-[#faf8f4] text-[#1a1a1a]">
+      <body className="font-sans antialiased bg-[var(--suwappu-summer-canvas-warm)] text-[var(--suwappu-summer-ink)]">
         <a href="#main-content" className="skip-to-content">Skip to content</a>
         {children}
       </body>

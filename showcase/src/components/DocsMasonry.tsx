@@ -54,7 +54,7 @@ export default function DocsMasonry() {
             href={`/docs#${section.id}`}
             className="docs-masonry__card"
             variants={staggerItem}
-            whileHover={{ y: -4, borderColor: '#f472b6' }}
+            whileHover={{ y: -4, borderColor: 'var(--suwappu-summer-accent)' }}
           >
             <div className="docs-masonry__icon">
               {SECTION_ICONS[section.id] || section.title[0]}
