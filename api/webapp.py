@@ -8,6 +8,7 @@ import hmac
 import hashlib
 import json
 import os
+import re
 import time
 import uuid
 from urllib.parse import parse_qs, unquote
@@ -18,6 +19,7 @@ from fastapi import APIRouter, HTTPException, Header, Depends, Request, Cookie
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import jwt
+import httpx
 
 from bot.config.chains import CHAINS, ChainType
 from bot.config.tokens import TOKENS
@@ -181,6 +183,16 @@ class WebAppSwapExecuteResponse(BaseModel):
     swap: Dict[str, str]
 
 
+class WebAppCopilotRequest(BaseModel):
+    text: str
+
+
+class WebAppCopilotResponse(BaseModel):
+    type: str
+    content: str
+    data: Optional[Dict[str, Any]] = None
+
+
 # --- Helpers ---
 
 def validate_telegram_init_data(init_data: str, bot_token: str) -> Optional[Dict]:
@@ -281,6 +293,175 @@ def _webapp_swap_token(symbol: str, chain: str) -> WebAppSwapToken:
         address=address,
         chain=chain,
         decimals=token.decimals,
+    )
+
+
+def _extract_copilot_chain(text: str, fallback: str = "ethereum") -> str:
+    lowered = text.lower()
+    for chain in CHAINS:
+        if re.search(rf"\b{re.escape(chain.lower())}\b", lowered):
+            return chain.lower()
+    for chain_key, chain in CHAINS.items():
+        display = chain.display_name.lower()
+        if display and re.search(rf"\b{re.escape(display)}\b", lowered):
+            return chain_key
+    return fallback
+
+
+def _extract_copilot_symbol(text: str) -> Optional[str]:
+    upper_text = text.upper()
+    for symbol in sorted(TOKENS.keys(), key=len, reverse=True):
+        token = TOKENS[symbol]
+        if re.search(rf"\b{re.escape(symbol.upper())}\b", upper_text):
+            return symbol
+        if re.search(rf"\b{re.escape(token.symbol.upper())}\b", upper_text):
+            return symbol
+    return None
+
+
+def _preferred_market_chain(symbol: str, requested_chain: Optional[str] = None) -> str:
+    token = TOKENS.get(symbol.upper())
+    if not token:
+        raise HTTPException(status_code=400, detail=f"Unsupported token {symbol}")
+    if requested_chain and requested_chain in token.addresses:
+        return requested_chain
+    if symbol.upper() == "SOL" and "solana" in token.addresses:
+        return "solana"
+    if "ethereum" in token.addresses:
+        return "ethereum"
+    return next(iter(token.addresses.keys()))
+
+
+def _parse_copilot_swap(text: str) -> WebAppSwapQuoteRequest:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    chain = _extract_copilot_chain(normalized)
+    amount_match = re.search(r"(?<![\w.])(\d+(?:\.\d+)?)", normalized)
+    amount = amount_match.group(1) if amount_match else "0.01"
+
+    from_symbol: Optional[str] = None
+    to_symbol: Optional[str] = None
+
+    swap_match = re.search(
+        r"\bswap\s+(?:(\d+(?:\.\d+)?)\s+)?([a-z0-9]+)\s+(?:to|for|into)\s+([a-z0-9]+)",
+        lowered,
+        flags=re.IGNORECASE,
+    )
+    buy_match = re.search(
+        r"\bbuy\s+(?:(\d+(?:\.\d+)?)\s+)?([a-z0-9]+)\s+(?:of|with|for)\s+([a-z0-9]+)",
+        lowered,
+        flags=re.IGNORECASE,
+    )
+
+    if swap_match:
+        amount = swap_match.group(1) or amount
+        from_symbol = swap_match.group(2).upper()
+        to_symbol = swap_match.group(3).upper()
+    elif buy_match:
+        amount = buy_match.group(1) or amount
+        from_symbol = buy_match.group(2).upper()
+        to_symbol = buy_match.group(3).upper()
+    else:
+        symbols = []
+        for match in re.finditer(r"\b[A-Za-z0-9]{2,12}\b", normalized):
+            candidate = match.group(0).upper()
+            if candidate in TOKENS and candidate not in symbols:
+                symbols.append(candidate)
+        if len(symbols) >= 2:
+            from_symbol, to_symbol = symbols[0], symbols[1]
+
+    if not from_symbol or not to_symbol:
+        raise HTTPException(
+            status_code=400,
+            detail='Tell me the swap as "Swap ETH to USDC" or "Buy 0.1 ETH of PEPE".',
+        )
+
+    from_symbol = _token_symbol_for_address(chain, from_symbol)
+    to_symbol = _token_symbol_for_address(chain, to_symbol)
+    from_token = _webapp_swap_token(from_symbol, chain)
+    to_token = _webapp_swap_token(to_symbol, chain)
+
+    return WebAppSwapQuoteRequest(
+        fromToken=from_token.address,
+        toToken=to_token.address,
+        fromChain=chain,
+        toChain=chain,
+        amount=amount,
+        fromDecimals=from_token.decimals,
+        slippage=0.5,
+    )
+
+
+async def _fetch_live_token_price(symbol: str, requested_chain: Optional[str] = None) -> WebAppCopilotResponse:
+    token = TOKENS.get(symbol.upper())
+    if not token:
+        raise HTTPException(status_code=400, detail=f"Unsupported token {symbol}")
+
+    chain = _preferred_market_chain(symbol, requested_chain)
+    address = token.addresses.get(chain)
+    if not address:
+        raise HTTPException(status_code=400, detail=f"{token.symbol} is not supported on {chain}")
+
+    url = f"https://api.dexscreener.com/latest/dex/tokens/{address}"
+    try:
+        async with httpx.AsyncClient(timeout=6.0) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            payload = response.json()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Price backend failed for {token.symbol}: {exc}",
+        )
+
+    pairs = payload.get("pairs") or []
+    if not pairs:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Price backend could not find live market data for {token.symbol}.",
+        )
+
+    best_pair = max(
+        pairs,
+        key=lambda pair: float((pair.get("liquidity") or {}).get("usd") or 0),
+    )
+    price = best_pair.get("priceUsd")
+    change_24h = (best_pair.get("priceChange") or {}).get("h24")
+    liquidity = (best_pair.get("liquidity") or {}).get("usd")
+    chain_label = (best_pair.get("chainId") or chain).title()
+    dex_label = best_pair.get("dexId") or "DexScreener"
+
+    if price is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Price backend did not return a USD price for {token.symbol}.",
+        )
+
+    change_text = ""
+    if isinstance(change_24h, (int, float)):
+        sign = "+" if change_24h >= 0 else ""
+        change_text = f" 24h: {sign}{change_24h:.2f}%."
+    liquidity_text = ""
+    if isinstance(liquidity, (int, float)):
+        liquidity_text = f" Liquidity: ${liquidity:,.0f}."
+
+    return WebAppCopilotResponse(
+        type="text",
+        content=(
+            f"{token.symbol} is ${float(price):,.6g} on {chain_label} via {dex_label}."
+            f"{change_text}{liquidity_text}"
+        ),
+        data={
+            "symbol": token.symbol,
+            "name": token.name,
+            "chain": chain,
+            "address": address,
+            "priceUsd": float(price),
+            "change24h": change_24h,
+            "liquidityUsd": liquidity,
+            "pairUrl": best_pair.get("url"),
+            "source": "dexscreener",
+        },
     )
 
 
@@ -531,6 +712,80 @@ async def get_terminal_portfolio(
         totalUsdValue=total_usd,
         tokens=tokens,
         lastUpdated=datetime.utcnow().isoformat()
+    )
+
+
+@router.post("/copilot", response_model=WebAppCopilotResponse)
+async def terminal_copilot_command(
+    body: WebAppCopilotRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    """
+    Execute terminal Co-Pilot commands against real backend services.
+    """
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Command is required")
+
+    lowered = text.lower()
+
+    if any(word in lowered for word in ["portfolio", "holdings", "balance"]):
+        if not auth_payload or not auth_payload.get("user_id"):
+            raise HTTPException(
+                status_code=401,
+                detail="Connect Turnkey first to load your real portfolio.",
+            )
+        with get_session() as db:
+            portfolio = await get_terminal_portfolio(auth_payload=auth_payload, db=db)
+        return WebAppCopilotResponse(
+            type="portfolio",
+            content=(
+                f"Portfolio loaded from your Turnkey wallet. "
+                f"Total value: ${portfolio.totalUsdValue:,.2f}."
+            ),
+            data=portfolio.dict(),
+        )
+
+    if any(word in lowered for word in ["swap", "buy", "sell", "trade"]):
+        quote_request = _parse_copilot_swap(text)
+        with get_session() as db:
+            quote = await create_terminal_swap_quote(
+                body=quote_request,
+                auth_payload=auth_payload,
+                db=db,
+            )
+        return WebAppCopilotResponse(
+            type="quote",
+            content=(
+                f"Live quote: {quote.fromAmount} {quote.fromToken.symbol} -> "
+                f"{quote.toAmount} {quote.toToken.symbol} via {quote.route}."
+            ),
+            data=quote.dict(),
+        )
+
+    if any(word in lowered for word in ["price", "worth", "market", "quote"]):
+        symbol = _extract_copilot_symbol(text)
+        if not symbol:
+            raise HTTPException(
+                status_code=400,
+                detail='Tell me the token symbol, like "Price of SOL".',
+            )
+        requested_chain = _extract_copilot_chain(text, fallback="")
+        return await _fetch_live_token_price(symbol, requested_chain or None)
+
+    if any(word in lowered for word in ["alert", "notify", "watch"]):
+        raise HTTPException(
+            status_code=501,
+            detail="Price alert creation is not wired to the terminal backend yet.",
+        )
+
+    return WebAppCopilotResponse(
+        type="text",
+        content=(
+            'Try "Price of SOL", "Swap ETH to USDC", '
+            '"Buy 0.1 ETH of PEPE", or "Show my portfolio".'
+        ),
+        data={"supported": ["price", "swap_quote", "portfolio"]},
     )
 
 

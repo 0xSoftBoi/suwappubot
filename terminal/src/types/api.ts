@@ -79,6 +79,12 @@ export interface SwapExecuteResult {
   }
 }
 
+export interface CopilotResponse {
+  type: 'text' | 'quote' | 'portfolio' | 'error'
+  content: string
+  data?: Record<string, unknown>
+}
+
 export interface SwapStatusResponse {
   id: number
   status: 'pending' | 'signed' | 'submitted' | 'completed' | 'failed'
