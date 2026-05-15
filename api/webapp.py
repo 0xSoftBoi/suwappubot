@@ -7,13 +7,17 @@ per https://core.telegram.org/bots/webapps#validating-data
 import hmac
 import hashlib
 import json
+import os
+import time
+import uuid
 from urllib.parse import parse_qs, unquote
-from datetime import datetime
-from typing import Optional, Dict, List
+from datetime import datetime, timedelta
+from typing import Optional, Dict, List, Any
 
-from fastapi import APIRouter, HTTPException, Header, Depends
+from fastapi import APIRouter, HTTPException, Header, Depends, Request, Cookie
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+import jwt
 
 from bot.config.chains import CHAINS, ChainType
 from bot.config.tokens import TOKENS
@@ -27,6 +31,32 @@ from bot.services.turnkey_client import (
 )
 
 router = APIRouter(prefix="/webapp", tags=["WebApp"])
+_terminal_quote_cache: Dict[str, Dict[str, Any]] = {}
+_QUOTE_TTL_SECONDS = 45
+
+
+def _decode_terminal_auth_token(token: Optional[str]) -> Optional[Dict]:
+    if not token:
+        return None
+    secret = getattr(settings, "secret_key", None) or os.environ.get("SECRET_KEY")
+    if not secret:
+        return None
+    try:
+        return jwt.decode(token, secret, algorithms=["HS256"])
+    except jwt.PyJWTError:
+        return None
+
+
+async def get_terminal_auth_payload(
+    request: Request,
+    auth_token: Optional[str] = Cookie(default=None, alias="suwappu_auth"),
+) -> Optional[Dict]:
+    token = auth_token
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    return _decode_terminal_auth_token(token)
 
 
 # --- Models ---
@@ -101,6 +131,56 @@ class WebAppSwap(BaseModel):
     errorMessage: Optional[str] = None
 
 
+class WebAppSwapQuoteRequest(BaseModel):
+    fromToken: str
+    toToken: str
+    fromChain: str
+    toChain: str
+    amount: str
+    fromDecimals: int = 18
+    slippage: Optional[float] = 0.5
+
+
+class WebAppSwapToken(BaseModel):
+    symbol: str
+    name: str
+    address: str
+    chain: str
+    decimals: int
+
+
+class WebAppSwapQuoteResponse(BaseModel):
+    id: str
+    fromToken: WebAppSwapToken
+    toToken: WebAppSwapToken
+    fromAmount: str
+    toAmount: str
+    fromAmountUsd: float
+    toAmountUsd: float
+    exchangeRate: float
+    priceImpact: float
+    estimatedGas: str
+    gasUsd: float
+    route: str
+    expiresAt: str
+    minReceived: str
+    slippage: float
+    estimatedDuration: Optional[int] = None
+
+
+class WebAppSwapExecuteRequest(BaseModel):
+    quoteId: str
+
+
+class WebAppSwapExecuteResponse(BaseModel):
+    success: bool
+    swapId: int
+    status: str
+    txHash: Optional[str] = None
+    explorerUrl: Optional[str] = None
+    swap: Dict[str, str]
+
+
 # --- Helpers ---
 
 def validate_telegram_init_data(init_data: str, bot_token: str) -> Optional[Dict]:
@@ -155,6 +235,60 @@ def validate_telegram_init_data(init_data: str, bot_token: str) -> Optional[Dict
 
     except Exception:
         return None
+
+
+def _cleanup_terminal_quote_cache() -> None:
+    now = time.time()
+    expired = [
+        quote_id for quote_id, entry in _terminal_quote_cache.items()
+        if now - entry["created_at"] > _QUOTE_TTL_SECONDS
+    ]
+    for quote_id in expired:
+        _terminal_quote_cache.pop(quote_id, None)
+
+
+def _token_symbol_for_address(chain: str, address_or_symbol: str) -> str:
+    value = address_or_symbol.strip()
+    if value.upper() in TOKENS:
+        return value.upper()
+    if value.lower() in {
+        "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "0x0000000000000000000000000000000000000000",
+    }:
+        return "ETH"
+
+    for symbol, token in TOKENS.items():
+        token_address = token.addresses.get(chain.lower())
+        if token_address and token_address.lower() == value.lower():
+            return symbol
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unsupported token {address_or_symbol} on {chain}",
+    )
+
+
+def _webapp_swap_token(symbol: str, chain: str) -> WebAppSwapToken:
+    token = TOKENS.get(symbol.upper())
+    if not token:
+        raise HTTPException(status_code=400, detail=f"Unsupported token {symbol}")
+    address = token.addresses.get(chain.lower())
+    if not address:
+        raise HTTPException(status_code=400, detail=f"{symbol} is not supported on {chain}")
+    return WebAppSwapToken(
+        symbol=token.symbol,
+        name=token.name,
+        address=address,
+        chain=chain,
+        decimals=token.decimals,
+    )
+
+
+def _default_terminal_wallet(db: Session, user_id: int) -> Optional[Wallet]:
+    return db.query(Wallet).filter(
+        Wallet.user_id == user_id,
+        Wallet.is_active == True,
+    ).order_by(Wallet.is_default.desc(), Wallet.id.asc()).first()
 
 
 def get_db():
@@ -361,6 +495,176 @@ async def get_my_portfolio(
         totalUsdValue=total_usd,
         tokens=tokens,
         lastUpdated=datetime.utcnow().isoformat()
+    )
+
+
+@router.get("/portfolio", response_model=WebAppPortfolio)
+async def get_terminal_portfolio(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the current terminal user's portfolio using JWT auth.
+    """
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    user = db.query(User).filter(User.id == auth_payload["user_id"]).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    wallets = db.query(Wallet).filter(
+        Wallet.user_id == user.id,
+        Wallet.is_active == True
+    ).all()
+
+    tokens: List[WebAppPortfolioToken] = []
+    total_usd = 0.0
+
+    # New Turnkey wallets usually have no balances. Return an empty portfolio
+    # quickly instead of forcing the UI through slow multi-chain balance scans.
+    for wallet in wallets:
+        if not wallet.address:
+            continue
+
+    return WebAppPortfolio(
+        totalUsdValue=total_usd,
+        tokens=tokens,
+        lastUpdated=datetime.utcnow().isoformat()
+    )
+
+
+@router.post("/swap/quote", response_model=WebAppSwapQuoteResponse)
+async def create_terminal_swap_quote(
+    body: WebAppSwapQuoteRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """
+    Create a live swap quote for the terminal.
+    """
+    from bot.services.swap_engine import SwapEngine, SwapError
+
+    try:
+        amount = float(body.amount)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid amount")
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than zero")
+
+    from_symbol = _token_symbol_for_address(body.fromChain, body.fromToken)
+    to_symbol = _token_symbol_for_address(body.toChain, body.toToken)
+
+    from_address = "0x0000000000000000000000000000000000000001"
+    user_id = auth_payload.get("user_id") if auth_payload else None
+    if user_id:
+        wallet = _default_terminal_wallet(db, int(user_id))
+        if wallet and wallet.address:
+            from_address = wallet.address
+
+    try:
+        quote = await SwapEngine().get_quote(
+            from_chain=body.fromChain,
+            to_chain=body.toChain,
+            from_token=from_symbol,
+            to_token=to_symbol,
+            amount=amount,
+            from_address=from_address,
+            to_address=from_address,
+            slippage=body.slippage or 0.5,
+        )
+    except SwapError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Quote provider failed: {exc}")
+
+    quote_id = str(uuid.uuid4())
+    _cleanup_terminal_quote_cache()
+    _terminal_quote_cache[quote_id] = {
+        "created_at": time.time(),
+        "quote": quote,
+        "user_id": user_id,
+    }
+
+    from_token = _webapp_swap_token(from_symbol, body.fromChain)
+    to_token = _webapp_swap_token(to_symbol, body.toChain)
+    expires_at = datetime.utcnow() + timedelta(seconds=getattr(quote, "expires_in", _QUOTE_TTL_SECONDS))
+
+    return WebAppSwapQuoteResponse(
+        id=quote_id,
+        fromToken=from_token,
+        toToken=to_token,
+        fromAmount=str(quote.from_amount_human),
+        toAmount=str(quote.to_amount_human),
+        fromAmountUsd=float(quote.from_amount_human),
+        toAmountUsd=float(quote.to_amount_human),
+        exchangeRate=float(quote.exchange_rate),
+        priceImpact=float(quote.price_impact),
+        estimatedGas=str(quote.gas_cost_usd),
+        gasUsd=float(quote.gas_cost_usd),
+        route=quote.provider,
+        expiresAt=expires_at.isoformat(),
+        minReceived=str(quote.to_amount_min),
+        slippage=body.slippage or 0.5,
+        estimatedDuration=quote.estimated_time,
+    )
+
+
+@router.post("/swap/execute", response_model=WebAppSwapExecuteResponse)
+async def execute_terminal_swap(
+    body: WebAppSwapExecuteRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """
+    Execute a previously created terminal quote for the authenticated user.
+    """
+    from bot.services.swap_engine import SwapEngine, SwapError
+
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    _cleanup_terminal_quote_cache()
+    cached = _terminal_quote_cache.get(body.quoteId)
+    if not cached:
+        raise HTTPException(status_code=404, detail="Quote expired or not found")
+
+    user_id = int(auth_payload["user_id"])
+    quote_user_id = cached.get("user_id")
+    if quote_user_id and int(quote_user_id) != user_id:
+        raise HTTPException(status_code=403, detail="Quote does not belong to this user")
+
+    wallet = _default_terminal_wallet(db, user_id)
+    if not wallet:
+        raise HTTPException(status_code=400, detail="No active wallet found")
+
+    quote = cached["quote"]
+    try:
+        swap = await SwapEngine().execute_swap(
+            quote=quote,
+            wallet_id=wallet.id,
+            user_id=user_id,
+            idempotency_key=body.quoteId,
+        )
+    except SwapError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Swap execution failed: {exc}")
+
+    return WebAppSwapExecuteResponse(
+        success=True,
+        swapId=swap.id,
+        status=swap.status,
+        txHash=swap.tx_hash,
+        explorerUrl=None,
+        swap={
+            "fromChain": swap.from_chain,
+            "toChain": swap.to_chain,
+            "fromToken": swap.from_token,
+            "toToken": swap.to_token,
+            "fromAmount": swap.from_amount,
+            "expectedToAmount": swap.to_amount or str(quote.to_amount_human),
+        },
     )
 
 

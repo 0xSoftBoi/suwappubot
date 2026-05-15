@@ -6,6 +6,7 @@
     "dev": "vite",
     "storybook": "storybook dev -p 6006 --host 0.0.0.0",
     "build-storybook": "storybook build",
+    "qa:browserbase:swap": "node scripts/browserbase-swap-functional.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },
