@@ -55,6 +55,80 @@ function joinClasses(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
 }
 
+function BloomSpray({
+  className,
+  scale = "compact",
+}: {
+  className?: string;
+  scale?: "compact" | "wide";
+}) {
+  const blooms =
+    scale === "wide"
+      ? [
+          ["left-2 top-7", 64, -20, "soft"],
+          ["left-24 top-1", 42, 18, "sun"],
+          ["right-10 top-10", 56, 24, "mist"],
+          ["right-28 bottom-0", 38, -12, "soft"],
+          ["left-44 bottom-4", 30, 34, "sun"],
+        ]
+      : [
+          ["left-1 top-2", 42, -16, "soft"],
+          ["right-2 top-8", 34, 18, "sun"],
+          ["left-14 bottom-1", 28, 26, "mist"],
+        ];
+
+  return (
+    <div className={joinClasses("pointer-events-none absolute z-0", className)}>
+      {blooms.map(([position, size, rotation, tone], index) => (
+        <div
+          key={`${position}-${index}`}
+          className={joinClasses("absolute", String(position))}
+          style={{
+            filter: "drop-shadow(0 8px 12px rgba(75, 112, 126, 0.12))",
+          }}
+        >
+          <SakuraBloomMotif
+            size={Number(size)}
+            rotation={Number(rotation)}
+            tone={tone as "soft" | "mist" | "sun"}
+            opacity={0.9}
+          />
+        </div>
+      ))}
+      <span className="absolute left-20 top-14 h-2 w-2 rounded-full bg-[#f0c95a]/70" />
+      <span className="absolute right-20 top-4 h-1.5 w-1.5 rounded-full bg-[#e66d85]/55" />
+      <span className="absolute bottom-8 left-36 h-1.5 w-1.5 rounded-full bg-[#7fc7d4]/70" />
+    </div>
+  );
+}
+
+function PetalDrift({ className }: { className?: string }) {
+  return (
+    <div className={joinClasses("pointer-events-none absolute z-0", className)}>
+      {[
+        ["left-[8%] top-[18%]", "#f4cbd7", "rotate-[-18deg]"],
+        ["left-[22%] top-[42%]", "#f0c95a", "rotate-[24deg]"],
+        ["right-[14%] top-[26%]", "#f3d3cf", "rotate-[38deg]"],
+        ["right-[28%] bottom-[16%]", "#d9c4d4", "rotate-[-30deg]"],
+        ["left-[46%] bottom-[8%]", "#8ed3de", "rotate-[12deg]"],
+      ].map(([position, color, rotation], index) => (
+        <span
+          key={`${position}-${index}`}
+          className={joinClasses(
+            "absolute h-3 w-2 rounded-[999px_999px_999px_2px] opacity-75",
+            position,
+            rotation,
+          )}
+          style={{
+            backgroundColor: color,
+            boxShadow: "0 4px 10px rgba(40, 83, 99, 0.12)",
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 function SiteSection({
   children,
   id,
@@ -93,6 +167,9 @@ function SiteSection({
             withGlow={false}
           />
         </div>
+      ) : null}
+      {motif !== "none" ? (
+        <BloomSpray className="inset-x-0 top-0 h-24 opacity-40" />
       ) : null}
       <div className={joinClasses("relative z-10", className)}>{children}</div>
     </section>
@@ -385,12 +462,20 @@ function MobileBreezeSite() {
             withGlow={false}
           />
         </div>
-        <div className="pointer-events-none absolute left-[44px] top-20 opacity-28">
-          <SakuraBloomMotif size={112} tone="soft" rotation={-10} />
+        <div className="pointer-events-none absolute left-[38px] top-16 opacity-75">
+          <SakuraBloomMotif size={118} tone="soft" rotation={-10} />
         </div>
-        <div className="pointer-events-none absolute bottom-[-44px] right-[-48px] opacity-18">
-          <PersimmonStemMotif size={190} palette="butter" rotation={26} flipX />
+        <div className="pointer-events-none absolute left-[-46px] top-[230px] opacity-55">
+          <SakuraBloomMotif size={92} tone="sun" rotation={18} />
         </div>
+        <div className="pointer-events-none absolute right-2 top-[318px] opacity-70">
+          <SakuraBloomMotif size={58} tone="mist" rotation={-28} />
+        </div>
+        <div className="pointer-events-none absolute bottom-[-44px] right-[-48px] opacity-45">
+          <PersimmonStemMotif size={210} palette="butter" rotation={26} flipX />
+        </div>
+        <BloomSpray className="left-5 top-6 h-24 w-[300px] opacity-60" scale="wide" />
+        <PetalDrift className="inset-0 opacity-80" />
 
         <div
           className="relative z-10 grid"
@@ -399,6 +484,10 @@ function MobileBreezeSite() {
           }}
         >
           <div className="relative m-2 mr-0 min-h-[594px] overflow-hidden rounded-[10px] border border-white/80 bg-white/74 shadow-[0_16px_34px_rgba(88,142,162,0.12)]">
+            <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-[#9bd6df]/70 to-transparent" />
+            <div className="absolute left-1/2 top-[142px] h-28 w-10 -translate-x-1/2 rounded-full border border-[#8ed3de]/45 bg-[#e9fbfb]/50" />
+            <div className="absolute left-1/2 top-[248px] h-28 w-10 -translate-x-1/2 rounded-full border border-[#f0c95a]/35 bg-[#fff2cf]/42" />
+            <div className="absolute left-1/2 top-[374px] h-24 w-10 -translate-x-1/2 rounded-full border border-[#e9bfd0]/40 bg-[#fff3f7]/46" />
             <div className="absolute left-1/2 top-5 -translate-x-1/2">
               <PersimmonMark
                 size={42}
@@ -409,6 +498,12 @@ function MobileBreezeSite() {
                 cutoutMode="none"
                 withGlow={false}
               />
+            </div>
+            <div className="absolute left-1/2 top-[52px] -translate-x-1/2 opacity-90">
+              <SakuraBloomMotif size={36} tone="sun" rotation={12} />
+            </div>
+            <div className="absolute left-1/2 bottom-10 -translate-x-1/2 opacity-85">
+              <SakuraBloomMotif size={44} tone="soft" rotation={-20} />
             </div>
             <div
               className="absolute left-1/2 top-[92px] -translate-x-1/2 text-[37px] font-semibold leading-none text-[#16b8d1]"
@@ -425,13 +520,19 @@ function MobileBreezeSite() {
 
           <div className="relative grid min-w-0 gap-2 p-2">
             <div
-              className="overflow-hidden rounded-[12px] border border-white/72 p-3"
+              className="relative overflow-hidden rounded-[12px] border border-white/72 p-3"
               style={{
                 background:
-                  "radial-gradient(circle at 82% 18%, rgba(255,214,182,0.36), transparent 15%), radial-gradient(circle at 15% 4%, rgba(255,255,255,0.52), transparent 20%), linear-gradient(180deg, rgba(153,214,228,0.94) 0%, rgba(144,208,223,0.95) 30%, rgba(209,242,239,0.82) 66%, rgba(246,253,252,0.95) 100%)",
+                  "radial-gradient(circle at 82% 18%, rgba(255,214,182,0.52), transparent 15%), radial-gradient(circle at 15% 4%, rgba(255,255,255,0.62), transparent 20%), radial-gradient(circle at 8% 86%, rgba(244,203,215,0.48), transparent 18%), linear-gradient(180deg, rgba(153,214,228,0.98) 0%, rgba(144,208,223,0.96) 30%, rgba(209,242,239,0.86) 66%, rgba(246,253,252,0.95) 100%)",
                 boxShadow: "0 14px 32px rgba(33,88,110,0.12)",
               }}
             >
+              <div className="pointer-events-none absolute -left-12 bottom-[-44px] opacity-24">
+                <PersimmonStemMotif size={126} palette="butter" rotation={-32} />
+              </div>
+              <div className="pointer-events-none absolute right-7 top-16 opacity-72">
+                <SakuraBloomMotif size={42} tone="soft" rotation={18} />
+              </div>
               <div className="flex items-start justify-between gap-2">
                 <div className="rounded-[999px] border border-white/70 bg-white/32 px-3 py-1 text-[9px] uppercase tracking-[0.22em] text-[#4f8ca0]">
                   summer breeze
@@ -448,7 +549,11 @@ function MobileBreezeSite() {
               </div>
               <h1
                 className="mt-3 font-semibold text-[#17324a]"
-                style={{ fontSize: "48px", lineHeight: 0.9 }}
+                style={{
+                  fontSize: "48px",
+                  lineHeight: 0.9,
+                  textShadow: "0 2px 0 rgba(255,255,255,0.5)",
+                }}
               >
                 Suwappu
               </h1>
@@ -481,6 +586,12 @@ function MobileBreezeSite() {
             >
               <div className="pointer-events-none absolute -right-9 -top-10 z-0 opacity-[0.08]">
                 <SakuraBloomMotif size={112} tone="mist" rotation={20} />
+              </div>
+              <div className="pointer-events-none absolute left-5 top-20 z-0 opacity-80">
+                <SakuraBloomMotif size={48} tone="sun" rotation={-18} />
+              </div>
+              <div className="pointer-events-none absolute right-10 bottom-11 z-0 opacity-70">
+                <SakuraBloomMotif size={36} tone="soft" rotation={22} />
               </div>
               <div className="pointer-events-none absolute -bottom-5 left-8 z-0 h-7 w-40 rounded-[999px] bg-[#17324a]/10 blur-[14px]" />
               <div
@@ -553,6 +664,17 @@ function MobileBreezeSite() {
                   <div className="absolute -right-7 -top-9 opacity-[0.09]">
                     <PersimmonMark
                       size={82}
+                      palette="butter"
+                      variant="orchard"
+                      shell="coin"
+                      frame="none"
+                      cutoutMode="none"
+                      withGlow={false}
+                    />
+                  </div>
+                  <div className="absolute left-4 top-5 opacity-95">
+                    <PersimmonMark
+                      size={56}
                       palette="butter"
                       variant="orchard"
                       shell="coin"
@@ -637,11 +759,30 @@ function MobileBreezeSite() {
       </section>
 
       <div className="grid grid-cols-3 gap-1.5">
-        {productModules.map((module) => (
+        {productModules.map((module, index) => (
           <section
             key={module.title}
-            className="terminal-theme-panel min-h-[104px] p-2"
+            className="terminal-theme-panel relative min-h-[104px] overflow-hidden p-2"
           >
+            <div className="pointer-events-none absolute -right-3 -top-3 opacity-45">
+              {index === 0 ? (
+                <PersimmonMark
+                  size={48}
+                  palette="butter"
+                  variant="orchard"
+                  shell="coin"
+                  frame="none"
+                  cutoutMode="none"
+                  withGlow={false}
+                />
+              ) : (
+                <SakuraBloomMotif
+                  size={52}
+                  tone={index === 1 ? "soft" : "sun"}
+                  rotation={index === 1 ? -12 : 18}
+                />
+              )}
+            </div>
             <div className="terminal-theme-caption text-[8px] uppercase text-terminal-text-muted">
               {module.eyebrow}
             </div>
@@ -655,7 +796,10 @@ function MobileBreezeSite() {
         ))}
       </div>
 
-      <section className="terminal-theme-panel p-3">
+      <section className="terminal-theme-panel relative overflow-hidden p-3">
+        <div className="pointer-events-none absolute right-2 top-2 opacity-45">
+          <SakuraBloomMotif size={60} tone="mist" rotation={16} />
+        </div>
         <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
           SDK lane
         </div>
@@ -735,12 +879,14 @@ export function SuwappuBotSiteReplacement() {
   return (
     <TerminalThemeScope mode="summer-breeze">
       <div className="terminal-theme-page min-h-screen overflow-hidden text-terminal-text">
-        <div className="pointer-events-none fixed -left-24 top-24 hidden opacity-[0.08] md:block">
+        <div className="pointer-events-none fixed -left-24 top-24 hidden opacity-[0.16] md:block">
           <PersimmonStemMotif size={300} palette="butter" rotation={-18} />
         </div>
-        <div className="pointer-events-none fixed right-[-72px] top-40 hidden opacity-[0.1] md:block">
+        <div className="pointer-events-none fixed right-[-72px] top-40 hidden opacity-[0.18] md:block">
           <SakuraBloomMotif size={220} tone="mist" rotation={24} />
         </div>
+        <BloomSpray className="left-8 top-20 hidden h-28 w-[520px] opacity-55 md:block" scale="wide" />
+        <PetalDrift className="inset-0 hidden opacity-60 md:block" />
         <TopNav />
         <MobileBreezeSite />
         <main className="mx-auto hidden max-w-7xl gap-3 px-3 py-3 md:grid md:gap-4 md:px-5 md:py-5">
@@ -748,6 +894,12 @@ export function SuwappuBotSiteReplacement() {
             className="grid gap-5 py-5 md:min-h-[620px] md:grid-cols-2 md:items-center md:py-8"
             motif="coin"
           >
+            <div className="pointer-events-none absolute left-4 top-4 z-0 hidden opacity-45 md:block">
+              <SakuraBloomMotif size={120} tone="sun" rotation={-14} />
+            </div>
+            <div className="pointer-events-none absolute bottom-6 left-[42%] z-0 hidden opacity-35 md:block">
+              <PersimmonStemMotif size={190} palette="butter" rotation={42} flipX />
+            </div>
             <div className="max-w-2xl">
               <div className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">
                 Summer Breeze replacement
