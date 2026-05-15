@@ -32,7 +32,7 @@ export function ChatMessage({
         className={joinClasses(
           "max-w-[85%] px-3 py-2",
           isUser
-            ? "terminal-theme-card border-[#E9D8B8] bg-[linear-gradient(180deg,rgba(255,249,239,0.98)_0%,rgba(255,244,228,0.96)_100%)]"
+            ? "terminal-theme-card border-[#8ccfe3] bg-[linear-gradient(180deg,rgba(237,250,255,0.98)_0%,rgba(222,246,252,0.96)_100%)]"
             : "terminal-theme-card",
         )}
       >

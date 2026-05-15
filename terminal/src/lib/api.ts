@@ -4,6 +4,7 @@ import type {
   SwapQuote,
   SwapExecuteRequest,
   SwapExecuteResult,
+  CopilotResponse,
   Portfolio,
   ChainInfo,
   SwapToken,
@@ -310,10 +311,10 @@ export const api = {
   },
 
   // Agent / Copilot
-  agentSwapQuote(naturalLanguage: string) {
-    return request<SwapQuote>('/v1/agent/swap/quote', {
+  copilotCommand(text: string) {
+    return request<CopilotResponse>('/webapp/copilot', {
       method: 'POST',
-      body: JSON.stringify({ text: naturalLanguage }),
+      body: JSON.stringify({ text }),
     })
   },
 }
