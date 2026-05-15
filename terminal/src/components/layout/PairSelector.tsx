@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { api } from '../../lib/api'
+import { useTokenSelectorTokens } from '../../hooks/useTokens'
 import type { SwapToken } from '../../types/api'
 
 interface Props {
@@ -37,11 +36,7 @@ export function PairSelector({ chain, selected, onSelect }: Props) {
     return () => document.removeEventListener('keydown', handler)
   }, [])
 
-  const { data: tokens } = useQuery({
-    queryKey: ['token-search', search, chain],
-    queryFn: () => search.length >= 1 ? api.searchTokens(search, chain) : api.getPopularTokens(chain),
-    staleTime: 30_000,
-  })
+  const { data: tokens, isFetching } = useTokenSelectorTokens(search, chain)
 
   const handleSelectToken = (token: SwapToken) => {
     // If no base selected, or user is selecting a different base
@@ -87,7 +82,7 @@ export function PairSelector({ chain, selected, onSelect }: Props) {
             />
           </div>
           <div className="max-h-64 overflow-y-auto">
-            {tokens?.map(token => (
+            {tokens?.length ? tokens.map(token => (
               <button
                 key={`${token.chain}-${token.address}`}
                 onClick={() => handleSelectToken(token)}
@@ -110,9 +105,9 @@ export function PairSelector({ chain, selected, onSelect }: Props) {
                   </span>
                 )}
               </button>
-            )) || (
+            )) : (
               <div className="px-3 py-4 text-center text-terminal-text-muted text-sm">
-                Loading tokens...
+                {isFetching ? 'Loading tokens...' : 'No tokens found'}
               </div>
             )}
           </div>

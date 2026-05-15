@@ -1,6 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useNewPools, useTrendingPools } from '../../hooks/useDiscovery'
-import { api } from '../../lib/api'
 import type { TokenSecurity, PulseToken } from '../../types/api'
 import { NewPairsTable } from './NewPairsTable'
 import { TrendingTable } from './TrendingTable'
@@ -37,34 +36,6 @@ export function DiscoveryPanel() {
   const pools = activeTab === 'new' ? newPools : trendingPools
   const isLoading = activeTab === 'new' ? newLoading : trendingLoading
   const lastUpdated = activeTab === 'pulse' ? null : (activeTab === 'new' ? newUpdated : trendingUpdated)
-
-  const fetchSecurity = useCallback(async (tokenAddress: string) => {
-    if (securityMap[tokenAddress] || securityLoading.has(tokenAddress)) return
-
-    setSecurityLoading(prev => new Set(prev).add(tokenAddress))
-    try {
-      const security = await api.getTokenSecurity(chain, tokenAddress)
-      setSecurityMap(prev => ({ ...prev, [tokenAddress]: security }))
-    } catch {
-      // Silently fail for security checks
-    } finally {
-      setSecurityLoading(prev => {
-        const next = new Set(prev)
-        next.delete(tokenAddress)
-        return next
-      })
-    }
-  }, [chain, securityMap, securityLoading])
-
-  // Fetch security for visible pools
-  useEffect(() => {
-    if (!pools) return
-    for (const pool of pools.slice(0, 10)) {
-      if (pool.baseToken.address) {
-        fetchSecurity(pool.baseToken.address)
-      }
-    }
-  }, [pools, fetchSecurity])
 
   // Reset security cache when chain changes
   useEffect(() => {

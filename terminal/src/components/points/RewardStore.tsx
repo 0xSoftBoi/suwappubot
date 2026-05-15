@@ -2,15 +2,6 @@ import { useRewardStore, useRedeemReward } from '../../hooks/usePoints'
 import type { Reward } from '../../types/api'
 import toast from 'react-hot-toast'
 
-const MOCK_REWARDS: Reward[] = [
-  { id: 'r1', name: 'Fee Discount 10%', description: '10% off swap fees for 7 days', cost: 500, stock: 100, category: 'discount' },
-  { id: 'r2', name: 'Fee Discount 25%', description: '25% off swap fees for 7 days', cost: 1200, stock: 50, category: 'discount' },
-  { id: 'r3', name: 'Custom Username', description: 'Set a custom display name on the leaderboard', cost: 2000, stock: 999, category: 'cosmetic' },
-  { id: 'r4', name: 'Sakura NFT Badge', description: 'Exclusive Suwappu sakura NFT badge', cost: 5000, stock: 25, category: 'nft' },
-  { id: 'r5', name: 'Priority Routing', description: 'Priority swap routing for 30 days', cost: 8000, stock: 10, category: 'utility' },
-  { id: 'r6', name: 'OG Genesis Pass', description: 'Lifetime OG status + all future perks', cost: 50000, stock: 5, category: 'exclusive' },
-]
-
 function RewardCard({ reward, userXp }: { reward: Reward; userXp: number }) {
   const redeemMutation = useRedeemReward()
   const canAfford = userXp >= reward.cost
@@ -69,7 +60,7 @@ function RewardCard({ reward, userXp }: { reward: Reward; userXp: number }) {
 
 export function RewardStore() {
   const { data } = useRewardStore()
-  const rewards = data?.rewards ?? MOCK_REWARDS
+  const rewards = data?.rewards ?? []
   const userXp = data?.userXp ?? 0
 
   return (
@@ -80,11 +71,17 @@ export function RewardStore() {
           Your balance: {userXp.toLocaleString()} XP
         </span>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {rewards.map(r => (
-          <RewardCard key={r.id} reward={r} userXp={userXp} />
-        ))}
-      </div>
+      {rewards.length === 0 ? (
+        <div className="terminal-panel p-6 text-center text-sm text-terminal-text-muted">
+          Reward store is not connected yet.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {rewards.map(r => (
+            <RewardCard key={r.id} reward={r} userXp={userXp} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

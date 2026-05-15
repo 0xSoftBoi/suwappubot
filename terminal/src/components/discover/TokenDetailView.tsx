@@ -16,23 +16,9 @@ function formatNum(value: number): string {
   return `$${value.toFixed(6)}`
 }
 
-const MOCK_HOLDERS = [
-  { rank: 1, address: '0x7a25...f3e1', percent: 0 },
-  { rank: 2, address: '0x3b91...a7c4', percent: 0 },
-  { rank: 3, address: '0xd42f...89b2', percent: 0 },
-  { rank: 4, address: '0x1e8c...5d06', percent: 0 },
-  { rank: 5, address: '0x92a0...c1f7', percent: 0 },
-]
-
 export function TokenDetailView({ token, onBack }: TokenDetailViewProps) {
   const [copied, setCopied] = useState(false)
   const otherPercent = Math.max(0, 100 - token.topHolderPercent - token.devPercent)
-
-  // Generate mock holder percentages based on topHolderPercent
-  const holders = MOCK_HOLDERS.map((h, i) => ({
-    ...h,
-    percent: Math.max(0.5, token.topHolderPercent / 5 - i * 1.5 + Math.random() * 2),
-  }))
 
   const handleCopy = () => {
     navigator.clipboard.writeText(token.address)
@@ -157,24 +143,9 @@ export function TokenDetailView({ token, onBack }: TokenDetailViewProps) {
         {/* Top Holders Table */}
         <div>
           <div className="text-[10px] text-terminal-text-muted mb-1.5 font-medium">Top 5 Holders</div>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-terminal-text-muted border-b border-terminal-border">
-                <th className="text-left py-1 px-2 font-medium text-[10px]">#</th>
-                <th className="text-left py-1 px-2 font-medium text-[10px]">Address</th>
-                <th className="text-right py-1 px-2 font-medium text-[10px]">%</th>
-              </tr>
-            </thead>
-            <tbody>
-              {holders.map(h => (
-                <tr key={h.rank} className="border-b border-terminal-border/50">
-                  <td className="py-1 px-2 text-terminal-text-muted font-mono">{h.rank}</td>
-                  <td className="py-1 px-2 font-mono text-terminal-text">{h.address}</td>
-                  <td className="py-1 px-2 text-right font-mono text-terminal-text-secondary">{h.percent.toFixed(2)}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="rounded border border-terminal-border bg-terminal-bg-secondary px-2 py-3 text-xs text-terminal-text-muted">
+            Holder provider is not connected yet.
+          </div>
         </div>
 
         {/* Quick Buy */}

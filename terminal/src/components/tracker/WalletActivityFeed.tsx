@@ -29,7 +29,7 @@ export function WalletActivityFeed({ activities, filterAddress }: WalletActivity
   if (filtered.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-terminal-text-muted text-sm" data-testid="activity-feed-empty">
-        {filterAddress ? 'No activity from this wallet yet' : 'Waiting for activity...'}
+        {filterAddress ? 'No live activity from this wallet yet' : 'Live wallet activity is not connected yet.'}
       </div>
     )
   }

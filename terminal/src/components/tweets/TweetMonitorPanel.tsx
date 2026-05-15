@@ -1,7 +1,5 @@
-import { useState } from 'react'
 import { useTweetMonitor, type SentimentFilter } from '../../hooks/useTweetMonitor'
 import { TweetCard } from './TweetCard'
-import { AddAccountModal } from './AddAccountModal'
 
 const SENTIMENT_FILTERS: { id: SentimentFilter; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -16,11 +14,9 @@ export function TweetMonitorPanel() {
     tweets,
     sentimentFilter,
     setSentimentFilter,
-    addAccount,
-    removeAccount,
   } = useTweetMonitor()
 
-  const [modalOpen, setModalOpen] = useState(false)
+  const providerPending = true
 
   return (
     <div className="p-4 flex flex-col gap-3 h-full" data-testid="tweet-monitor-panel">
@@ -35,11 +31,11 @@ export function TweetMonitorPanel() {
           )}
         </h3>
         <button
-          onClick={() => setModalOpen(true)}
-          className="terminal-button text-xs px-3 py-1"
+          disabled={providerPending}
+          className="terminal-button text-xs px-3 py-1 disabled:opacity-50"
           data-testid="add-account-btn"
         >
-          Add Account
+          Provider Pending
         </button>
       </div>
 
@@ -66,11 +62,11 @@ export function TweetMonitorPanel() {
         {accounts.length === 0 ? (
           <div className="text-center text-terminal-text-muted text-sm py-8">
             <p className="mb-2">No accounts tracked</p>
-            <p className="text-xs">Click "Add Account" to start monitoring tweets</p>
+            <p className="text-xs">Tweet provider is not connected yet.</p>
           </div>
         ) : tweets.length === 0 ? (
-          <div className="text-center text-terminal-text-muted text-sm py-8 animate-pulse">
-            Waiting for tweets...
+          <div className="text-center text-terminal-text-muted text-sm py-8">
+            Tweet provider is not connected yet.
           </div>
         ) : (
           tweets.map(tweet => (
@@ -78,15 +74,6 @@ export function TweetMonitorPanel() {
           ))
         )}
       </div>
-
-      {/* Modal */}
-      <AddAccountModal
-        isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
-        onAdd={addAccount}
-        onRemove={removeAccount}
-        accounts={accounts}
-      />
     </div>
   )
 }

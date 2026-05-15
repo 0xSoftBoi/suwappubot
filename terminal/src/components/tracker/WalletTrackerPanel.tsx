@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useWalletTracker } from '../../hooks/useWalletTracker'
-import { AddWalletForm } from './AddWalletForm'
 import { WalletActivityFeed } from './WalletActivityFeed'
 import { WalletProfileCard } from './WalletProfileCard'
 
@@ -15,7 +14,7 @@ function formatPnl(value: number): string {
 }
 
 export function WalletTrackerPanel() {
-  const { wallets, activities, addWallet, removeWallet, getStats, statsMap } = useWalletTracker()
+  const { wallets, activities, removeWallet, getStats, statsMap } = useWalletTracker()
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null)
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null)
 
@@ -53,7 +52,9 @@ export function WalletTrackerPanel() {
     <div className="h-full flex flex-col" data-testid="wallet-tracker">
       {/* Add wallet form */}
       <div className="px-3 py-2 border-b border-terminal-border shrink-0">
-        <AddWalletForm onAdd={addWallet} />
+        <div className="text-xs text-terminal-text-muted">
+          Live wallet tracking is not connected yet.
+        </div>
       </div>
 
       <div className="flex-1 flex overflow-hidden">
@@ -66,7 +67,7 @@ export function WalletTrackerPanel() {
           <div className="flex-1 overflow-y-auto" data-testid="tracked-wallets-list">
             {wallets.length === 0 ? (
               <div className="text-center text-terminal-text-muted text-xs py-6 px-3">
-                No wallets tracked yet. Add an address above to start monitoring.
+                No tracked wallets from a backend provider.
               </div>
             ) : (
               wallets.map(wallet => {
@@ -81,7 +82,7 @@ export function WalletTrackerPanel() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5 min-w-0">
                         {/* Active dot */}
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0 animate-pulse" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-terminal-text-muted shrink-0" />
                         <span className="text-xs font-medium truncate">
                           {wallet.label || truncateAddress(wallet.address)}
                         </span>
@@ -130,6 +131,11 @@ export function WalletTrackerPanel() {
             <span>Activity Feed</span>
             <span className="text-[10px] bg-terminal-bg rounded px-1.5 py-0.5">{activities.length} trades</span>
           </div>
+          {wallets.length > 0 && activities.length === 0 && (
+            <div className="px-3 py-2 text-xs text-terminal-text-muted border-b border-terminal-border">
+              Live wallet activity indexing is not connected yet.
+            </div>
+          )}
           <div className="flex-1 overflow-hidden">
             <WalletActivityFeed activities={activities} />
           </div>

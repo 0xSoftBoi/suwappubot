@@ -55,24 +55,30 @@ export function PriceChart() {
     const chart = createChart(containerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#8888a0',
+        textColor: '#7aa1b4',
         fontFamily: 'JetBrains Mono, monospace',
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: '#1e1e30' },
-        horzLines: { color: '#1e1e30' },
+        vertLines: {
+          color: 'rgba(80, 164, 190, 0.18)',
+          style: LineStyle.Dotted,
+        },
+        horzLines: {
+          color: 'rgba(80, 164, 190, 0.16)',
+          style: LineStyle.Dotted,
+        },
       },
       crosshair: {
-        vertLine: { color: '#55556a', width: 1, style: 3 },
-        horzLine: { color: '#55556a', width: 1, style: 3 },
+        vertLine: { color: 'rgba(14, 165, 233, 0.55)', width: 1, style: LineStyle.Dashed },
+        horzLine: { color: 'rgba(14, 165, 233, 0.55)', width: 1, style: LineStyle.Dashed },
       },
       rightPriceScale: {
-        borderColor: '#1e1e30',
+        borderColor: 'rgba(80, 164, 190, 0.28)',
         scaleMargins: { top: 0.1, bottom: 0.25 },
       },
       timeScale: {
-        borderColor: '#1e1e30',
+        borderColor: 'rgba(80, 164, 190, 0.28)',
         timeVisible: true,
         secondsVisible: false,
       },

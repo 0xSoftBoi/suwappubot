@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, unquote
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any
 
-from fastapi import APIRouter, HTTPException, Header, Depends, Request, Cookie
+from fastapi import APIRouter, HTTPException, Header, Depends, Request, Cookie, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import jwt
@@ -181,6 +181,35 @@ class WebAppSwapExecuteResponse(BaseModel):
     txHash: Optional[str] = None
     explorerUrl: Optional[str] = None
     swap: Dict[str, str]
+
+
+class WebAppFollowSettings(BaseModel):
+    copyMode: str = "notify"
+    fixedAmount: Optional[float] = None
+    percentageAmount: Optional[float] = None
+    maxPerTrade: Optional[float] = None
+    dailyLimit: Optional[float] = None
+    autoSellEnabled: Optional[bool] = None
+    stopLossPercent: Optional[float] = None
+    takeProfitPercent: Optional[float] = None
+    chainFilter: Optional[List[str]] = None
+    maxSlippage: Optional[float] = None
+
+
+class WebAppCreateAlertRequest(BaseModel):
+    tokenSymbol: str
+    tokenAddress: Optional[str] = None
+    chain: Optional[str] = "ethereum"
+    alertType: str
+    targetValue: float
+
+
+class WebAppCreateDCARequest(BaseModel):
+    fromToken: str
+    toToken: str
+    totalAmount: float
+    frequency: str
+    numberOfOrders: int
 
 
 class WebAppCopilotRequest(BaseModel):
@@ -472,6 +501,128 @@ def _default_terminal_wallet(db: Session, user_id: int) -> Optional[Wallet]:
     ).order_by(Wallet.is_default.desc(), Wallet.id.asc()).first()
 
 
+def _require_terminal_user(auth_payload: Optional[Dict]) -> int:
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return int(auth_payload["user_id"])
+
+
+def _copy_mode_for_response(follow) -> str:
+    if follow.copy_mode == "notify":
+        return "notify"
+    return follow.copy_type or "fixed"
+
+
+def _apply_copy_settings(follow, settings: WebAppFollowSettings) -> None:
+    if settings.copyMode == "notify":
+        follow.copy_mode = "notify"
+        follow.copy_type = "fixed"
+    elif settings.copyMode == "percentage":
+        follow.copy_mode = "auto"
+        follow.copy_type = "percentage"
+    else:
+        follow.copy_mode = "auto"
+        follow.copy_type = "fixed"
+
+    if settings.fixedAmount is not None:
+        follow.copy_amount_usd = settings.fixedAmount
+    if settings.percentageAmount is not None:
+        follow.copy_percentage = settings.percentageAmount
+    if settings.maxPerTrade is not None:
+        follow.max_trade_usd = settings.maxPerTrade
+    if settings.dailyLimit is not None:
+        follow.daily_limit_usd = settings.dailyLimit
+    if settings.maxSlippage is not None:
+        follow.max_slippage_percent = settings.maxSlippage
+    if settings.chainFilter is not None and hasattr(follow, "chains_filter"):
+        follow.chains_filter = ",".join(settings.chainFilter)
+    if settings.autoSellEnabled is not None and hasattr(follow, "auto_sell_enabled"):
+        follow.auto_sell_enabled = settings.autoSellEnabled
+
+
+def _copy_settings_response(follow) -> Dict[str, Any]:
+    chains_filter = getattr(follow, "chains_filter", None)
+    return {
+        "copyMode": _copy_mode_for_response(follow),
+        "fixedAmount": follow.copy_amount_usd,
+        "percentageAmount": follow.copy_percentage,
+        "maxPerTrade": follow.max_trade_usd,
+        "dailyLimit": follow.daily_limit_usd,
+        "autoSellEnabled": getattr(follow, "auto_sell_enabled", True),
+        "chainFilter": chains_filter.split(",") if chains_filter else None,
+        "maxSlippage": follow.max_slippage_percent,
+    }
+
+
+def _trader_address(db: Session, user_id: int) -> str:
+    wallet = _default_terminal_wallet(db, user_id)
+    if wallet and wallet.address:
+        return wallet.address
+    return f"user:{user_id}"
+
+
+def _trader_name(profile, user: Optional[User] = None) -> Optional[str]:
+    return profile.display_name or (user.username if user else None)
+
+
+def _alert_response(alert) -> Dict[str, Any]:
+    status = "triggered" if alert.is_triggered else ("active" if alert.is_active else "inactive")
+    return {
+        "id": str(alert.id),
+        "tokenSymbol": alert.token_symbol,
+        "chain": alert.chain,
+        "alertType": alert.alert_type,
+        "targetValue": float(alert.target_price or alert.percent_threshold or 0),
+        "currentPrice": alert.triggered_price,
+        "status": status,
+        "createdAt": alert.created_at.isoformat() if alert.created_at else "",
+        "triggeredAt": alert.triggered_at.isoformat() if alert.triggered_at else None,
+    }
+
+
+_DCA_FREQUENCY_TO_HOURS = {
+    "hourly": 1,
+    "daily": 24,
+    "weekly": 168,
+    "monthly": 720,
+}
+
+
+def _dca_frequency_from_hours(hours: Optional[int]) -> str:
+    for frequency, interval_hours in _DCA_FREQUENCY_TO_HOURS.items():
+        if hours == interval_hours:
+            return frequency
+    return "daily"
+
+
+def _float_value(value: Any, default: float = 0.0) -> float:
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _dca_order_response(order) -> Dict[str, Any]:
+    amount_per_order = _float_value(order.amount_per_execution)
+    total_amount = _float_value(order.max_total_amount, amount_per_order * float(order.max_executions or 0))
+    return {
+        "id": str(order.id),
+        "fromToken": order.from_token,
+        "toToken": order.to_token,
+        "amountPerOrder": amount_per_order,
+        "totalAmount": total_amount,
+        "totalInvested": _float_value(order.total_spent),
+        "frequency": _dca_frequency_from_hours(order.interval_hours),
+        "totalOrders": int(order.max_executions or 0),
+        "completedOrders": int(order.executions_completed or 0),
+        "status": order.status,
+        "nextExecution": order.next_execution_at.isoformat() if order.next_execution_at else None,
+        "createdAt": order.created_at.isoformat() if order.created_at else "",
+    }
+
+
 def get_db():
     """Database session dependency."""
     with get_session() as session:
@@ -542,6 +693,120 @@ def _token_response(symbol: str, token, chain: str) -> Optional[WebAppToken]:
     )
 
 
+def _is_native_token_address(address: str) -> bool:
+    return address.lower() in {
+        "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "0x0000000000000000000000000000000000000000",
+    }
+
+
+def _native_token_response(chain_key: str) -> Optional[WebAppToken]:
+    chain_config = CHAINS.get(chain_key)
+    if not chain_config or chain_config.chain_type != ChainType.EVM:
+        return None
+
+    token_config = TOKENS.get(chain_config.native_token.upper())
+    return WebAppToken(
+        symbol=chain_config.native_token,
+        name=token_config.name if token_config else chain_config.name.title(),
+        address="0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+        chain=chain_key,
+        decimals=chain_config.native_decimals,
+    )
+
+
+def _append_unique_token(results: List[WebAppToken], token: WebAppToken) -> None:
+    token_key = (
+        token.chain,
+        token.symbol.upper(),
+        "native" if _is_native_token_address(token.address) else token.address.lower(),
+    )
+    for existing in results:
+        existing_key = (
+            existing.chain,
+            existing.symbol.upper(),
+            "native" if _is_native_token_address(existing.address) else existing.address.lower(),
+        )
+        if existing_key == token_key:
+            return
+    results.append(token)
+
+
+_DEX_CHAIN_IDS = {
+    "ethereum": "ethereum",
+    "base": "base",
+    "arbitrum": "arbitrum",
+    "solana": "solana",
+    "bsc": "bsc",
+    "polygon": "polygon",
+    "optimism": "optimism",
+}
+
+_DEX_SEARCH_QUERY = {
+    "ethereum": "ETH USDC",
+    "base": "BASE USDC",
+    "arbitrum": "ARB USDC",
+    "solana": "SOL USDC",
+    "bsc": "BNB USDT",
+    "polygon": "MATIC USDC",
+    "optimism": "OP USDC",
+}
+
+
+def _dex_pair_to_pool(pair: Dict[str, Any]) -> Dict[str, Any]:
+    base_token = pair.get("baseToken") or {}
+    quote_token = pair.get("quoteToken") or {}
+    volume = pair.get("volume") or {}
+    liquidity = pair.get("liquidity") or {}
+    price_change = pair.get("priceChange") or {}
+    created_at = pair.get("pairCreatedAt")
+    return {
+        "name": pair.get("pairAddress") or f"{base_token.get('symbol', 'UNKNOWN')}/{quote_token.get('symbol', 'UNKNOWN')}",
+        "address": pair.get("pairAddress") or "",
+        "createdAt": datetime.utcfromtimestamp(created_at / 1000).isoformat() if created_at else "",
+        "baseToken": {
+            "symbol": base_token.get("symbol") or "UNKNOWN",
+            "address": base_token.get("address") or "",
+        },
+        "quoteToken": {
+            "symbol": quote_token.get("symbol") or "UNKNOWN",
+            "address": quote_token.get("address") or "",
+        },
+        "priceUsd": pair.get("priceUsd"),
+        "fdvUsd": str(pair.get("fdv")) if pair.get("fdv") is not None else None,
+        "volumeH24": str(volume.get("h24")) if volume.get("h24") is not None else None,
+        "reserveUsd": str(liquidity.get("usd")) if liquidity.get("usd") is not None else None,
+        "priceChangeH1": price_change.get("h1"),
+        "priceChangeH24": price_change.get("h24"),
+    }
+
+
+async def _fetch_dex_pools(chain: str, limit: int, mode: str) -> List[Dict[str, Any]]:
+    chain_key = chain.lower()
+    dex_chain_id = _DEX_CHAIN_IDS.get(chain_key, chain_key)
+    query = _DEX_SEARCH_QUERY.get(chain_key, chain_key)
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get("https://api.dexscreener.com/latest/dex/search", params={"q": query})
+            response.raise_for_status()
+            payload = response.json()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Discovery provider failed: {exc}")
+
+    pairs = [
+        pair for pair in payload.get("pairs", [])
+        if str(pair.get("chainId", "")).lower() == dex_chain_id
+    ]
+    if mode == "new":
+        pairs.sort(key=lambda pair: pair.get("pairCreatedAt") or 0, reverse=True)
+    else:
+        pairs.sort(
+            key=lambda pair: float(((pair.get("volume") or {}).get("h24")) or 0),
+            reverse=True,
+        )
+    return [_dex_pair_to_pool(pair) for pair in pairs[:limit]]
+
+
 @router.get("/tokens/popular", response_model=List[WebAppToken])
 async def get_popular_tokens(chain: str = "ethereum"):
     """Return configured liquid tokens for terminal selectors."""
@@ -549,35 +814,24 @@ async def get_popular_tokens(chain: str = "ethereum"):
     preferred = ["ETH", "USDC", "USDT", "DAI", "WETH", "WBTC"]
     results: List[WebAppToken] = []
 
-    chain_config = CHAINS.get(chain_key)
-    if chain_config and chain_config.chain_type == ChainType.EVM:
-        native_address = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
-        results.append(
-            WebAppToken(
-                symbol=chain_config.native_token,
-                name=chain_config.display_name,
-                address=native_address,
-                chain=chain_key,
-                decimals=chain_config.native_decimals,
-            )
-        )
+    native_token = _native_token_response(chain_key)
+    if native_token:
+        results.append(native_token)
 
     for symbol in preferred:
         token = TOKENS.get(symbol)
         if not token:
             continue
         response = _token_response(symbol, token, chain_key)
-        if response and all(item.address.lower() != response.address.lower() for item in results):
-            results.append(response)
+        if response:
+            _append_unique_token(results, response)
 
     if len(results) < 12:
         for symbol, token in TOKENS.items():
             response = _token_response(symbol, token, chain_key)
             if not response:
                 continue
-            if any(item.address.lower() == response.address.lower() for item in results):
-                continue
-            results.append(response)
+            _append_unique_token(results, response)
             if len(results) >= 12:
                 break
 
@@ -592,16 +846,437 @@ async def search_tokens(q: str, chain: str = "ethereum"):
         return []
 
     matches: List[WebAppToken] = []
+    native_token = _native_token_response(chain.lower())
+    if native_token:
+        native_haystack = f"{native_token.symbol} {native_token.name} {native_token.address}".lower()
+        if query in native_haystack:
+            matches.append(native_token)
+
     for symbol, token in TOKENS.items():
         response = _token_response(symbol, token, chain.lower())
         if not response:
             continue
         haystack = f"{token.symbol} {token.name} {response.address}".lower()
         if query in haystack:
-            matches.append(response)
+            _append_unique_token(matches, response)
         if len(matches) >= 25:
             break
     return matches
+
+
+@router.get("/discovery/new")
+async def get_terminal_new_pools(chain: str = "ethereum", limit: int = Query(default=20, ge=1, le=50)):
+    return await _fetch_dex_pools(chain, limit, "new")
+
+
+@router.get("/discovery/trending")
+async def get_terminal_trending_pools(chain: str = "ethereum", limit: int = Query(default=20, ge=1, le=50)):
+    return await _fetch_dex_pools(chain, limit, "trending")
+
+
+@router.get("/copy-trading/top-traders")
+async def get_terminal_top_traders(
+    timeframe: Optional[str] = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """Return real public trader profiles for the terminal copy-trading surface."""
+    _require_terminal_user(auth_payload)
+    from bot.models.copy_trading import TraderProfile
+
+    profiles = db.query(TraderProfile, User).join(
+        User, TraderProfile.user_id == User.id
+    ).filter(
+        TraderProfile.is_public == True,
+    ).order_by(
+        TraderProfile.rank_score.desc(),
+        TraderProfile.total_pnl_usd.desc(),
+        TraderProfile.total_trades.desc(),
+    ).limit(limit).all()
+
+    return [
+        {
+            "id": str(profile.id),
+            "address": _trader_address(db, profile.user_id),
+            "name": _trader_name(profile, user),
+            "pnl7d": float(profile.total_pnl_usd or 0),
+            "pnl30d": float(profile.total_pnl_usd or 0),
+            "winRate": float(profile.win_rate or 0),
+            "followers": int(profile.follower_count or 0),
+            "copiers": int(profile.times_copied or 0),
+            "totalTrades": int(profile.total_trades or 0),
+        }
+        for profile, user in profiles
+    ]
+
+
+@router.get("/copy-trading/traders/{trader_id}")
+async def get_terminal_trader_profile(
+    trader_id: int,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.copy_trading import CopyFollow, TraderProfile
+
+    profile = db.query(TraderProfile).filter(
+        TraderProfile.id == trader_id,
+        TraderProfile.is_public == True,
+    ).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Trader not found")
+
+    follow = db.query(CopyFollow).filter(
+        CopyFollow.follower_id == user_id,
+        CopyFollow.trader_id == profile.user_id,
+        CopyFollow.is_active == True,
+    ).first()
+
+    return {
+        "id": str(profile.id),
+        "address": _trader_address(db, profile.user_id),
+        "name": _trader_name(profile),
+        "pnl7d": float(profile.total_pnl_usd or 0),
+        "pnl30d": float(profile.total_pnl_usd or 0),
+        "winRate": float(profile.win_rate or 0),
+        "followers": int(profile.follower_count or 0),
+        "totalTrades": int(profile.total_trades or 0),
+        "bestTrade": float(profile.best_trade_pnl_usd or 0),
+        "worstTrade": float(profile.worst_trade_pnl_usd or 0),
+        "avgTradeSize": float(profile.avg_trade_size_usd or 0),
+        "isFollowing": bool(follow),
+    }
+
+
+@router.post("/copy-trading/follow/{trader_id}")
+async def follow_terminal_trader(
+    trader_id: int,
+    settings: WebAppFollowSettings,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.copy_trading import CopyFollow, TraderProfile
+
+    profile = db.query(TraderProfile).filter(
+        TraderProfile.id == trader_id,
+        TraderProfile.is_public == True,
+    ).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Trader not found")
+    if profile.user_id == user_id:
+        raise HTTPException(status_code=400, detail="You cannot follow yourself")
+
+    follow = db.query(CopyFollow).filter(
+        CopyFollow.follower_id == user_id,
+        CopyFollow.trader_id == profile.user_id,
+    ).first()
+    if follow and follow.is_active:
+        raise HTTPException(status_code=409, detail="Already following this trader")
+    if not follow:
+        follow = CopyFollow(follower_id=user_id, trader_id=profile.user_id)
+        db.add(follow)
+
+    follow.is_active = True
+    _apply_copy_settings(follow, settings)
+    profile.follower_count = int(profile.follower_count or 0) + 1
+    db.commit()
+    return {"success": True}
+
+
+@router.post("/copy-trading/unfollow/{trader_id}")
+async def unfollow_terminal_trader(
+    trader_id: int,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.copy_trading import CopyFollow, TraderProfile
+
+    profile = db.query(TraderProfile).filter(TraderProfile.id == trader_id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Trader not found")
+
+    follow = db.query(CopyFollow).filter(
+        CopyFollow.follower_id == user_id,
+        CopyFollow.trader_id == profile.user_id,
+        CopyFollow.is_active == True,
+    ).first()
+    if not follow:
+        raise HTTPException(status_code=404, detail="Not following this trader")
+
+    follow.is_active = False
+    profile.follower_count = max(0, int(profile.follower_count or 0) - 1)
+    db.commit()
+    return {"success": True}
+
+
+@router.get("/copy-trading/following")
+async def get_terminal_following(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.copy_trading import CopyFollow, TraderProfile
+
+    rows = db.query(CopyFollow, TraderProfile).join(
+        TraderProfile, CopyFollow.trader_id == TraderProfile.user_id,
+    ).filter(
+        CopyFollow.follower_id == user_id,
+        CopyFollow.is_active == True,
+    ).all()
+
+    return [
+        {
+            "traderId": str(profile.id),
+            "address": _trader_address(db, profile.user_id),
+            "name": _trader_name(profile),
+            "copyMode": _copy_mode_for_response(follow),
+            "dailyPnl": 0,
+            "totalPnl": float(follow.total_copy_pnl or 0),
+            "settings": _copy_settings_response(follow),
+        }
+        for follow, profile in rows
+    ]
+
+
+@router.get("/copy-trading/trades")
+async def get_terminal_copy_trades(
+    limit: int = Query(default=50, ge=1, le=200),
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.copy_trading import CopyTrade
+
+    trades = db.query(CopyTrade).filter(
+        CopyTrade.copier_id == user_id,
+    ).order_by(CopyTrade.created_at.desc()).limit(limit).all()
+
+    return [
+        {
+            "id": str(trade.id),
+            "traderAddress": _trader_address(db, trade.trader_id),
+            "action": "buy",
+            "tokenPair": f"{trade.from_token}/{trade.to_token}",
+            "amount": float(trade.copy_amount_usd or 0),
+            "pnl": float(trade.pnl_usd or 0),
+            "timestamp": trade.created_at.isoformat() if trade.created_at else "",
+        }
+        for trade in trades
+    ]
+
+
+@router.put("/copy-trading/follow/{trader_id}/settings")
+async def update_terminal_follow_settings(
+    trader_id: int,
+    settings: WebAppFollowSettings,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.copy_trading import CopyFollow, TraderProfile
+
+    profile = db.query(TraderProfile).filter(TraderProfile.id == trader_id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Trader not found")
+
+    follow = db.query(CopyFollow).filter(
+        CopyFollow.follower_id == user_id,
+        CopyFollow.trader_id == profile.user_id,
+        CopyFollow.is_active == True,
+    ).first()
+    if not follow:
+        raise HTTPException(status_code=404, detail="Not following this trader")
+
+    _apply_copy_settings(follow, settings)
+    db.commit()
+    return {"success": True}
+
+
+@router.get("/alerts")
+async def get_terminal_alerts(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.advanced import AdvancedPriceAlert
+
+    alerts = db.query(AdvancedPriceAlert).filter(
+        AdvancedPriceAlert.user_id == user_id,
+    ).order_by(AdvancedPriceAlert.created_at.desc()).all()
+
+    return [_alert_response(alert) for alert in alerts]
+
+
+@router.post("/alerts")
+async def create_terminal_alert(
+    body: WebAppCreateAlertRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    if body.targetValue <= 0:
+        raise HTTPException(status_code=400, detail="Target value must be greater than zero")
+
+    from bot.models.advanced import AdvancedPriceAlert
+
+    alert = AdvancedPriceAlert(
+        user_id=user_id,
+        token_symbol=body.tokenSymbol.strip().upper(),
+        chain=(body.chain or "ethereum").strip().lower(),
+        alert_type=body.alertType,
+        target_price=body.targetValue,
+        is_active=True,
+        is_triggered=False,
+    )
+    db.add(alert)
+    db.commit()
+    db.refresh(alert)
+    return _alert_response(alert)
+
+
+@router.delete("/alerts/{alert_id}")
+async def delete_terminal_alert(
+    alert_id: int,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.advanced import AdvancedPriceAlert
+
+    alert = db.query(AdvancedPriceAlert).filter(
+        AdvancedPriceAlert.id == alert_id,
+        AdvancedPriceAlert.user_id == user_id,
+    ).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    db.delete(alert)
+    db.commit()
+    return {"success": True}
+
+
+@router.get("/dca/orders")
+async def get_terminal_dca_orders(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.advanced import DCAOrder
+
+    orders = db.query(DCAOrder).filter(
+        DCAOrder.user_id == user_id,
+    ).order_by(DCAOrder.created_at.desc()).all()
+
+    return [_dca_order_response(order) for order in orders]
+
+
+@router.post("/dca/orders")
+async def create_terminal_dca_order(
+    body: WebAppCreateDCARequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    if body.totalAmount <= 0:
+        raise HTTPException(status_code=400, detail="Total amount must be greater than zero")
+    if body.numberOfOrders <= 0:
+        raise HTTPException(status_code=400, detail="Number of orders must be greater than zero")
+
+    interval_hours = _DCA_FREQUENCY_TO_HOURS.get(body.frequency)
+    if interval_hours is None:
+        raise HTTPException(status_code=400, detail="Unsupported DCA frequency")
+
+    wallet = _default_terminal_wallet(db, user_id)
+    if not wallet:
+        raise HTTPException(status_code=400, detail="Connect Turnkey first to create a DCA order")
+
+    from bot.models.advanced import DCAOrder
+
+    amount_per_order = body.totalAmount / body.numberOfOrders
+    order = DCAOrder(
+        user_id=user_id,
+        wallet_id=wallet.id,
+        status="active",
+        from_chain="ethereum",
+        from_token=body.fromToken.strip().upper(),
+        to_chain="ethereum",
+        to_token=body.toToken.strip().upper(),
+        amount_per_execution=str(amount_per_order),
+        interval_hours=interval_hours,
+        next_execution_at=datetime.utcnow() + timedelta(hours=interval_hours),
+        max_executions=body.numberOfOrders,
+        max_total_amount=str(body.totalAmount),
+        executions_completed=0,
+        total_spent="0",
+    )
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    return _dca_order_response(order)
+
+
+@router.post("/dca/orders/{order_id}/pause")
+async def pause_terminal_dca_order(
+    order_id: int,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.advanced import DCAOrder
+
+    order = db.query(DCAOrder).filter(
+        DCAOrder.id == order_id,
+        DCAOrder.user_id == user_id,
+    ).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="DCA order not found")
+    if order.status == "cancelled":
+        raise HTTPException(status_code=400, detail="Cancelled DCA orders cannot be paused")
+
+    order.status = "paused"
+    db.commit()
+    return {"success": True}
+
+
+@router.post("/dca/orders/{order_id}/cancel")
+async def cancel_terminal_dca_order(
+    order_id: int,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.advanced import DCAOrder
+
+    order = db.query(DCAOrder).filter(
+        DCAOrder.id == order_id,
+        DCAOrder.user_id == user_id,
+    ).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="DCA order not found")
+
+    order.status = "cancelled"
+    db.commit()
+    return {"success": True}
+
+
+@router.get("/lending/markets")
+async def get_terminal_lending_markets(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    _require_terminal_user(auth_payload)
+    return []
+
+
+@router.get("/lending/markets/{market_id}")
+async def get_terminal_lending_market(
+    market_id: str,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    _require_terminal_user(auth_payload)
+    raise HTTPException(status_code=404, detail="Lending market provider is not connected yet")
 
 
 @router.get("/chains", response_model=List[WebAppChain])

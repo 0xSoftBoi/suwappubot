@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { api } from '../../lib/api'
+import { useTokenSelectorTokens } from '../../hooks/useTokens'
 import type { SwapToken } from '../../types/api'
 
 interface Props {
@@ -34,14 +33,7 @@ export function TokenInput({
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const { data: tokens } = useQuery({
-    queryKey: ['token-search-swap', search, token?.chain],
-    queryFn: () => search.length >= 1
-      ? api.searchTokens(search, token?.chain)
-      : api.getPopularTokens(token?.chain),
-    enabled: selectorOpen,
-    staleTime: 30_000,
-  })
+  const { data: tokens, isFetching } = useTokenSelectorTokens(search, token?.chain, selectorOpen)
 
   return (
     <div className="bg-terminal-bg rounded-lg p-3">
@@ -107,7 +99,7 @@ export function TokenInput({
                 />
               </div>
               <div className="max-h-48 overflow-y-auto">
-                {tokens?.map(t => (
+                {tokens?.length ? tokens.map(t => (
                   <button
                     key={`${t.chain}-${t.address}`}
                     onClick={() => { onTokenSelect(t); setSelectorOpen(false) }}
@@ -124,7 +116,11 @@ export function TokenInput({
                     <span className="font-medium">{t.symbol}</span>
                     <span className="text-terminal-text-muted text-xs flex-1 text-left">{t.name}</span>
                   </button>
-                ))}
+                )) : (
+                  <div className="px-3 py-4 text-center text-terminal-text-muted text-sm">
+                    {isFetching ? 'Loading tokens...' : 'No tokens found'}
+                  </div>
+                )}
               </div>
             </div>
           )}

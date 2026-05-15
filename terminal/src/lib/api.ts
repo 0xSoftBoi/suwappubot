@@ -191,15 +191,15 @@ export const api = {
 
   // Discovery
   getNewPools(chain: string, limit: number) {
-    return request<Pool[]>(`/public/discovery/new?chain=${chain}&limit=${limit}`)
+    return request<Pool[]>(`/webapp/discovery/new?chain=${chain}&limit=${limit}`)
   },
 
   getTrendingPools(chain: string, limit: number) {
-    return request<Pool[]>(`/public/discovery/trending?chain=${chain}&limit=${limit}`)
+    return request<Pool[]>(`/webapp/discovery/trending?chain=${chain}&limit=${limit}`)
   },
 
   getTokenSecurity(chain: string, address: string) {
-    return request<TokenSecurity>(`/public/discovery/security?chain=${chain}&address=${address}`)
+    return request<TokenSecurity>(`/webapp/discovery/security?chain=${chain}&address=${address}`)
   },
 
   // Perps (HyperLiquid)
@@ -326,11 +326,11 @@ export const api = {
 
   // Lending
   getLendingMarkets() {
-    return request<LendingMarket[]>('/v1/agent/lend/markets')
+    return request<LendingMarket[]>('/webapp/lending/markets')
   },
 
   getLendingMarket(id: string) {
-    return request<LendingMarket>(`/v1/agent/lend/markets/${id}`)
+    return request<LendingMarket>(`/webapp/lending/markets/${id}`)
   },
 
   // Agent / Copilot
