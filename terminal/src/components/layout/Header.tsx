@@ -1,14 +1,41 @@
 import { useState } from 'react'
-import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { ChainSelector } from './ChainSelector'
 import { PairSelector } from './PairSelector'
 import { usePair } from '../../contexts/PairContext'
+import { useAuth } from '../../contexts/AuthContext'
 import { useIsMobile } from '../../hooks/useIsMobile'
 
 export function Header() {
   const { selectedChain, setSelectedChain, selectedPair, setSelectedPair } = usePair()
+  const { isAuthenticated, walletAddress, isLoading, signIn, signOut, isPasskeySupported } = useAuth()
   const isMobile = useIsMobile()
   const [menuOpen, setMenuOpen] = useState(false)
+
+  const authLabel = isAuthenticated && walletAddress
+    ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
+    : isLoading
+      ? 'Connecting'
+      : 'Turnkey'
+
+  const handleAuthClick = () => {
+    if (isAuthenticated) {
+      signOut()
+      return
+    }
+    void signIn()
+  }
+
+  const authButton = (
+    <button
+      type="button"
+      onClick={handleAuthClick}
+      disabled={isLoading || (!isAuthenticated && !isPasskeySupported)}
+      className="h-7 rounded border border-terminal-border bg-terminal-bg px-2.5 text-xs font-semibold text-terminal-text transition-colors hover:border-sakura-400 hover:text-sakura-300 disabled:cursor-not-allowed disabled:opacity-60"
+      title={isAuthenticated ? 'Sign out' : 'Create a Turnkey passkey wallet'}
+    >
+      {authLabel}
+    </button>
+  )
 
   if (isMobile) {
     return (
@@ -32,11 +59,7 @@ export function Header() {
         </div>
 
         <div className="flex items-center">
-          <ConnectButton
-            chainStatus="none"
-            accountStatus="avatar"
-            showBalance={false}
-          />
+          {authButton}
         </div>
 
         {menuOpen && (
@@ -79,11 +102,7 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-3">
-        <ConnectButton
-          chainStatus="icon"
-          accountStatus="address"
-          showBalance={false}
-        />
+        {authButton}
       </div>
     </header>
   )

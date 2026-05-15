@@ -6,7 +6,6 @@ import {
   useCallback,
   type ReactNode,
 } from 'react'
-import { useAccount, useSignMessage, useDisconnect } from 'wagmi'
 import { setAuthToken, getAuthToken, clearAuthToken } from '../lib/auth'
 import { api } from '../lib/api'
 
@@ -19,24 +18,44 @@ interface AuthContextType {
   signIn: () => Promise<void>
   signOut: () => void
   clearError: () => void
+  isPasskeySupported: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { address, isConnected } = useAccount()
-  const { signMessageAsync } = useSignMessage()
-  const { disconnect } = useDisconnect()
-
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [userId, setUserId] = useState<number | null>(null)
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isPasskeySupported, setIsPasskeySupported] = useState(false)
+
+  const toBase64Url = (buffer: ArrayBuffer): string => {
+    const bytes = new Uint8Array(buffer)
+    let binary = ''
+    for (const byte of bytes) binary += String.fromCharCode(byte)
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+  }
+
+  const credentialChallenge = (value: string): Uint8Array => new TextEncoder().encode(value)
+
+  const rpIdForCurrentHost = (): string => {
+    if (typeof window === 'undefined') return 'suwappu.bot'
+    const host = window.location.hostname
+    if (host === 'suwappu.bot' || host.endsWith('.suwappu.bot')) return 'suwappu.bot'
+    return host
+  }
 
   // Check existing session on mount
   useEffect(() => {
     const checkSession = async () => {
+      setIsPasskeySupported(
+        typeof window !== 'undefined' &&
+        !!window.PublicKeyCredential &&
+        window.isSecureContext,
+      )
+
       const token = getAuthToken()
       if (!token) {
         setIsLoading(false)
@@ -56,10 +75,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkSession()
   }, [])
 
-  // Sign in with connected wallet
+  // Create a Turnkey-backed passkey wallet for terminal auth.
   const signIn = useCallback(async () => {
-    if (!address || !isConnected) {
-      setError('Connect your wallet first')
+    if (
+      typeof navigator === 'undefined' ||
+      !navigator.credentials ||
+      typeof window === 'undefined' ||
+      !window.PublicKeyCredential
+    ) {
+      setError('Passkeys are not supported in this browser')
       return
     }
 
@@ -67,19 +91,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(true)
       setError(null)
 
-      // 1. Get challenge nonce
-      const { nonce, message } = await api.walletChallenge(address)
+      const init = await api.passkeyRegisterInit('Suwappu Terminal')
+      const credential = await navigator.credentials.create({
+        publicKey: {
+          challenge: credentialChallenge(init.challenge),
+          rp: {
+            id: rpIdForCurrentHost(),
+            name: init.rpName || 'Suwappu',
+          },
+          user: {
+            id: credentialChallenge(init.userId),
+            name: init.userName || 'terminal@suwappu.bot',
+            displayName: 'Suwappu Terminal',
+          },
+          pubKeyCredParams: [
+            { type: 'public-key', alg: -7 },
+            { type: 'public-key', alg: -257 },
+          ],
+          authenticatorSelection: {
+            residentKey: 'preferred',
+            userVerification: 'preferred',
+          },
+          attestation: 'none',
+        },
+      })
 
-      // 2. Sign message
-      const signature = await signMessageAsync({ message })
+      if (!credential || credential.type !== 'public-key') {
+        throw new Error('Passkey creation was cancelled')
+      }
 
-      // 3. Verify signature & get JWT
-      const result = await api.walletVerify(address, signature, nonce)
+      const publicKeyCredential = credential as PublicKeyCredential
+      const response = publicKeyCredential.response as AuthenticatorAttestationResponse
+      const transports = typeof response.getTransports === 'function' ? response.getTransports() : []
+      const result = await api.passkeyRegisterComplete({
+        credentialId: toBase64Url(publicKeyCredential.rawId),
+        attestationObject: toBase64Url(response.attestationObject),
+        clientDataJSON: toBase64Url(response.clientDataJSON),
+        transports,
+      })
 
-      // 4. Store token
       setAuthToken(result.token, result.expiresAt)
       setUserId(result.userId)
-      setWalletAddress(address)
+      setWalletAddress(result.walletAddress)
       setIsAuthenticated(true)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Sign-in failed'
@@ -87,22 +140,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false)
     }
-  }, [address, isConnected, signMessageAsync])
-
-  // Auto sign-in when wallet connects and no session exists
-  useEffect(() => {
-    if (isConnected && address && !isAuthenticated && !isLoading && !getAuthToken()) {
-      signIn()
-    }
-  }, [isConnected, address, isAuthenticated, isLoading, signIn])
+  }, [])
 
   const signOut = useCallback(() => {
     clearAuthToken()
     setIsAuthenticated(false)
     setUserId(null)
     setWalletAddress(null)
-    disconnect()
-  }, [disconnect])
+  }, [])
 
   const clearError = useCallback(() => setError(null), [])
 
@@ -117,6 +162,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signOut,
         clearError,
+        isPasskeySupported,
       }}
     >
       {children}

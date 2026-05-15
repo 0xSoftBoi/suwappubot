@@ -367,7 +367,10 @@ async def get_agent_or_admin_key(
     return await get_agent_key(agent_key)
 
 # Setup CORS
-_cors_origins = os.environ.get("CORS_ORIGINS", "https://app.suwappu.bot,https://devfront.suwappu.bot").split(",")
+_cors_origins = os.environ.get(
+    "CORS_ORIGINS",
+    "https://app.suwappu.bot,https://devfront.suwappu.bot,https://suwappu.bot,https://www.suwappu.bot,https://terminal.suwappu.bot",
+).split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in _cors_origins],
@@ -455,6 +458,15 @@ try:
 except Exception as e:
     import traceback
     print(f"WARNING: Could not load internal_router: {e}")
+    traceback.print_exc()
+
+try:
+    from api.routes.terminal import router as terminal_router
+    app.include_router(terminal_router)
+    print(f"✓ Terminal router loaded ({len(terminal_router.routes)} routes)")
+except Exception as e:
+    import traceback
+    print(f"WARNING: Could not load terminal_router: {e}")
     traceback.print_exc()
 
 # --- Pydantic Models (Aligned with Mobile/Web) ---
@@ -811,6 +823,8 @@ class PasskeyRegisterCompleteResponse(BaseModel):
     userId: int
     walletAddress: str
     subOrgId: str
+    token: str
+    expiresAt: datetime
 
 class PasskeyAuthInitResponse(BaseModel):
     challenge: str
@@ -946,6 +960,7 @@ async def passkey_register_complete(
         address=wallet_address or f"passkey:{request.credentialId[:16]}",
         user_id=user.id,
     )
+    expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 
     # Set cookie
     response.set_cookie(
@@ -963,6 +978,8 @@ async def passkey_register_complete(
         userId=user.id,
         walletAddress=wallet_address,
         subOrgId=sub_org_id,
+        token=token,
+        expiresAt=expires_at,
     )
 
 

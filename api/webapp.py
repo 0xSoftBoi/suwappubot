@@ -15,6 +15,8 @@ from fastapi import APIRouter, HTTPException, Header, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from bot.config.chains import CHAINS, ChainType
+from bot.config.tokens import TOKENS
 from bot.config.settings import settings
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction
@@ -49,6 +51,26 @@ class WebAppToken(BaseModel):
     name: str
     address: str
     chain: str
+    decimals: int = 18
+    balance: Optional[str] = None
+    usdValue: Optional[float] = None
+    balanceUsd: Optional[float] = None
+    logoUrl: Optional[str] = None
+
+
+class WebAppChain(BaseModel):
+    id: str
+    name: str
+    chainId: int
+    nativeCurrency: str
+    explorerUrl: str
+
+
+class WebAppPortfolioToken(BaseModel):
+    symbol: str
+    name: str
+    address: str
+    chain: str
     balance: str
     usdValue: float
     logoUrl: Optional[str] = None
@@ -56,7 +78,7 @@ class WebAppToken(BaseModel):
 
 class WebAppPortfolio(BaseModel):
     totalUsdValue: float
-    tokens: List[WebAppToken]
+    tokens: List[WebAppPortfolioToken]
     lastUpdated: str
 
 
@@ -191,6 +213,101 @@ async def validate_webapp(
     )
 
 
+def _token_response(symbol: str, token, chain: str) -> Optional[WebAppToken]:
+    address = token.addresses.get(chain)
+    if not address:
+        return None
+    return WebAppToken(
+        symbol=token.symbol,
+        name=token.name,
+        address=address,
+        chain=chain,
+        decimals=token.decimals,
+        logoUrl=None,
+    )
+
+
+@router.get("/tokens/popular", response_model=List[WebAppToken])
+async def get_popular_tokens(chain: str = "ethereum"):
+    """Return configured liquid tokens for terminal selectors."""
+    chain_key = chain.lower()
+    preferred = ["ETH", "USDC", "USDT", "DAI", "WETH", "WBTC"]
+    results: List[WebAppToken] = []
+
+    chain_config = CHAINS.get(chain_key)
+    if chain_config and chain_config.chain_type == ChainType.EVM:
+        native_address = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
+        results.append(
+            WebAppToken(
+                symbol=chain_config.native_token,
+                name=chain_config.display_name,
+                address=native_address,
+                chain=chain_key,
+                decimals=chain_config.native_decimals,
+            )
+        )
+
+    for symbol in preferred:
+        token = TOKENS.get(symbol)
+        if not token:
+            continue
+        response = _token_response(symbol, token, chain_key)
+        if response and all(item.address.lower() != response.address.lower() for item in results):
+            results.append(response)
+
+    if len(results) < 12:
+        for symbol, token in TOKENS.items():
+            response = _token_response(symbol, token, chain_key)
+            if not response:
+                continue
+            if any(item.address.lower() == response.address.lower() for item in results):
+                continue
+            results.append(response)
+            if len(results) >= 12:
+                break
+
+    return results
+
+
+@router.get("/tokens/search", response_model=List[WebAppToken])
+async def search_tokens(q: str, chain: str = "ethereum"):
+    """Search configured tokens by symbol, name, or address."""
+    query = q.strip().lower()
+    if not query:
+        return []
+
+    matches: List[WebAppToken] = []
+    for symbol, token in TOKENS.items():
+        response = _token_response(symbol, token, chain.lower())
+        if not response:
+            continue
+        haystack = f"{token.symbol} {token.name} {response.address}".lower()
+        if query in haystack:
+            matches.append(response)
+        if len(matches) >= 25:
+            break
+    return matches
+
+
+@router.get("/chains", response_model=List[WebAppChain])
+async def get_chains():
+    """Return EVM chains supported by the terminal UI."""
+    chains: List[WebAppChain] = []
+    for key, chain in CHAINS.items():
+        if chain.chain_type != ChainType.EVM or not isinstance(chain.chain_id, int):
+            continue
+        chains.append(
+            WebAppChain(
+                id=key,
+                name=chain.display_name,
+                chainId=chain.chain_id,
+                nativeCurrency=chain.native_token,
+                explorerUrl=chain.explorer_url,
+            )
+        )
+    return chains
+
+
 @router.get("/users/me/portfolio", response_model=WebAppPortfolio)
 async def get_my_portfolio(
     tg_user: TelegramUser = Depends(get_telegram_user),
@@ -228,7 +345,7 @@ async def get_my_portfolio(
                     if balance > 0:
                         # Simple USD estimation (would use price service in production)
                         usd_value = balance  # Placeholder
-                        tokens.append(WebAppToken(
+                        tokens.append(WebAppPortfolioToken(
                             symbol=symbol,
                             name=symbol,
                             address="0x...",
