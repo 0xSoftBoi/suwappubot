@@ -1,6 +1,6 @@
 # Production Site Replacement Audit
 
-Date: 2026-05-14
+Date: 2026-05-15
 Branch: `feat/terminal-site-replacement-story`
 
 ## Current Production Targets
@@ -28,6 +28,11 @@ Branch: `feat/terminal-site-replacement-story`
   - The service runs `905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu-terminal:latest`.
   - Production release image was pushed on `2026-05-14T20:06:35-04:00` with commit tag `2a65430fdb8e4a9ba4872f996c60410b68c7adfc`, digest `sha256:87d0fa4be56b021ab01e21e5076db693ae92691013ece74ed3b4a4442055029c`.
   - `terminal/TERMINAL.md` maps terminal deploy to ECR repository `suwappu-terminal` and host rule `terminal.suwappu.bot`.
+- API evidence points at the Python app behind `https://api.suwappu.bot`.
+  - ALB routes general API traffic to ECS service `suwappu-bot-prod` in cluster `suwappu-cluster`.
+  - The service runs `905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu:latest`.
+  - Branch deploy `73ef3ba500f1717e64016f08e3d76595734b7cf3` pushed digest `sha256:4b88dcc785bd83250f176660bccba2b8d77ca85ee15f24aa785786231debdbd0`.
+  - Running task `f95d6980070a4df1b0be6e9b63983041` is healthy on that digest.
 
 ## Deployment Discovery
 
@@ -78,15 +83,10 @@ Branch: `feat/terminal-site-replacement-story`
   - Current `terminal/Dockerfile` default: `ARG VITE_API_URL=https://api.suwappu.bot`.
   - Current `terminal/buildspec.yml`: passes `--build-arg VITE_API_URL=https://api.suwappu.bot`.
 - Turnkey is the primary wallet/auth path and must stay server-side through API/runtime secrets, not Vite browser env.
-- `VITE_WC_PROJECT_ID` is optional external-wallet support for RainbowKit/WalletConnect.
-  - `terminal/Dockerfile` now accepts `ARG VITE_WC_PROJECT_ID` and exports it for Vite.
-  - `terminal/buildspec.yml` now passes `--build-arg VITE_WC_PROJECT_ID=$VITE_WC_PROJECT_ID`.
-  - `terminal/buildspec.yml` does not block deploy when `VITE_WC_PROJECT_ID` is empty because Turnkey is the production-default wallet path.
-  - AWS CodeBuild project `suwappu-terminal-build` currently does not define `VITE_WC_PROJECT_ID`.
-  - AWS SSM Parameter Store has no matching `WC`, `Wallet`, `VITE`, or `suwappu` parameter.
-  - AWS Secrets Manager has Suwappu shared secrets, but their JSON keys do not include a matching `WC`, `Wallet`, `VITE`, `PROJECT`, or `TERMINAL` key.
-  - Current ECS task definition `suwappu-terminal-prod:2` has no runtime environment variables or secrets; this is expected for Vite because the value must exist at build time.
-  - Current production terminal bundle contains the fallback `projectId:"demo"`, not a real WalletConnect project id.
+- `VITE_WC_PROJECT_ID` is not required for the production terminal path.
+  - RainbowKit/WalletConnect providers were removed from the production render path.
+  - The visible auth entry is Turnkey/passkey copy, not external wallet connection copy.
+  - AWS CodeBuild project `suwappu-terminal-build` still does not define `VITE_WC_PROJECT_ID`, which is acceptable for the Turnkey default.
 - Browserbase credentials must be available for production QA:
   - `BROWSERBASE_API_KEY`
   - `BROWSERBASE_PROJECT_ID`
@@ -109,6 +109,8 @@ Verified production deploy runs:
 
 - Showcase: `https://github.com/0xSoftBoi/suwappubot/actions/runs/25892256968`
 - Terminal: `https://github.com/0xSoftBoi/suwappubot/actions/runs/25892776905`
+- Terminal branch preview/prod update: `https://github.com/0xSoftBoi/suwappubot/actions/runs/25920731998` on commit `6c69941d5e5c9c425245ba9205d532b0267ccf2f`
+- Earlier terminal branch deploy: `https://github.com/0xSoftBoi/suwappubot/actions/runs/25919969631` on commit `5ab552b1d1441b950113d63b93598e5f467ee1ab`
 
 Current manual showcase deploy path:
 
@@ -173,8 +175,15 @@ The run must attach the Browserbase session link, `report.json`, and screenshots
 
 Latest passing production QA:
 
-- Browserbase session: `https://www.browserbase.com/sessions/6c418f2b-c2ab-44b3-8a26-49c38b406d26`
+- Homepage + terminal Browserbase session: `https://www.browserbase.com/sessions/1399265a-a698-4909-8328-867986719e81`
+- Focused terminal Browserbase session: `https://www.browserbase.com/sessions/036c3f8f-ef51-4bf6-85c9-7f103276643b`
 - Result: `failures: []`
+
+Latest API verification:
+
+- `https://api.suwappu.bot/health` returned `{"status":"healthy","service":"suwappu-bot","database":"connected","bot":"webhook"}`.
+- `https://terminal.suwappu.bot/health` returned `{"status":"ok","service":"suwappu-terminal"}`.
+- `GET /webapp/tokens/popular?chain=ethereum`, `GET /webapp/chains`, and `GET /terminal/chart/ohlcv?...` returned `200` with `access-control-allow-origin: https://terminal.suwappu.bot`.
 
 Required checks:
 

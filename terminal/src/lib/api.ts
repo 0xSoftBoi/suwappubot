@@ -48,7 +48,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers['X-Dev-User-Id'] = '12345'
   }
 
-  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+  const res = await fetch(`${BASE_URL}${path}`, { credentials: 'include', ...options, headers })
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }))
     throw { detail: body.detail || body.message || res.statusText, status: res.status }
@@ -58,22 +58,69 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   // Auth
-  walletChallenge(address: string) {
-    return request<{ nonce: string; message: string }>('/terminal/auth/challenge', {
+  async walletChallenge(address: string) {
+    const result = await request<{ nonce: string; challenge: string }>('/auth/turnkey/challenge', {
       method: 'POST',
       body: JSON.stringify({ address }),
     })
+    return { nonce: result.nonce, message: result.challenge }
   },
 
-  walletVerify(address: string, signature: string, nonce: string) {
-    return request<{ token: string; expiresAt: string; userId: number }>('/terminal/auth/verify', {
+  async walletVerify(address: string, signature: string, nonce: string) {
+    const result = await request<{
+      token: string
+      expiresAt: string
+      user?: { id?: number }
+    }>('/auth/turnkey/verify', {
       method: 'POST',
       body: JSON.stringify({ address, signature, nonce }),
     })
+    return { token: result.token, expiresAt: result.expiresAt, userId: result.user?.id ?? 0 }
   },
 
-  getMe() {
-    return request<{ userId: number; walletAddress: string }>('/terminal/auth/me')
+  async getMe() {
+    const result = await request<{
+      authenticated: boolean
+      userId?: number
+      address?: string
+    }>('/auth/me')
+    if (!result.authenticated || !result.userId || !result.address) {
+      throw { detail: 'Not authenticated', status: 401 }
+    }
+    return { userId: result.userId, walletAddress: result.address }
+  },
+
+  passkeyRegisterInit(displayName?: string) {
+    return request<{
+      challenge: string
+      userId: string
+      userName: string
+      rpId: string
+      rpName: string
+      attestation: string
+    }>('/auth/passkey/register/init', {
+      method: 'POST',
+      body: JSON.stringify({ displayName }),
+    })
+  },
+
+  passkeyRegisterComplete(body: {
+    credentialId: string
+    attestationObject: string
+    clientDataJSON: string
+    transports: string[]
+  }) {
+    return request<{
+      success: boolean
+      userId: number
+      walletAddress: string
+      subOrgId: string
+      token: string
+      expiresAt: string
+    }>('/auth/passkey/register/complete', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
   },
 
   // Swap

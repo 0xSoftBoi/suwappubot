@@ -224,7 +224,7 @@ function Header({
         ))}
       </div>
       <button className="terminal-button min-h-9 rounded-[7px] px-4 text-sm font-semibold">
-        Connect Wallet
+        Create Turnkey wallet
       </button>
     </header>
   );
@@ -539,7 +539,7 @@ function SwapTicket({ market }: { market: Market }) {
         </div>
       </div>
       <button className="terminal-button min-h-10 rounded-[7px] text-sm font-semibold">
-        Connect Wallet
+        Create Turnkey wallet
       </button>
     </Surface>
   );
@@ -629,7 +629,7 @@ function BottomWorkspace() {
           </div>
         ))}
         <div className="p-3 text-xs text-terminal-text-muted">
-          Connect wallet for portfolio depth
+          Create a Turnkey wallet for portfolio depth
         </div>
       </div>
     </Surface>

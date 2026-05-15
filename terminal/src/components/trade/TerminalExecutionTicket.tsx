@@ -517,7 +517,7 @@ function primaryLabel({
   isBusy: boolean;
   hasQuote: boolean;
 }) {
-  if (!isAuthenticated) return "Connect wallet";
+  if (!isAuthenticated) return "Create Turnkey wallet";
   if (isBusy)
     return mode === "swap"
       ? "Staging route..."
