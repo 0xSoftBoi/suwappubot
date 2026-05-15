@@ -5,6 +5,8 @@ import type {
   SwapExecuteRequest,
   SwapExecuteResult,
   CopilotResponse,
+  PasskeyAuthInitResponse,
+  PasskeyAuthCompleteResponse,
   Portfolio,
   ChainInfo,
   SwapToken,
@@ -109,6 +111,7 @@ export const api = {
     credentialId: string
     attestationObject: string
     clientDataJSON: string
+    userHandle?: string
     transports: string[]
   }) {
     return request<{
@@ -119,6 +122,26 @@ export const api = {
       token: string
       expiresAt: string
     }>('/auth/passkey/register/complete', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+  },
+
+  passkeyAuthenticateInit() {
+    return request<PasskeyAuthInitResponse>('/auth/passkey/authenticate/init', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+  },
+
+  passkeyAuthenticateComplete(body: {
+    credentialId: string
+    authenticatorData: string
+    clientDataJSON: string
+    signature: string
+    userHandle?: string
+  }) {
+    return request<PasskeyAuthCompleteResponse>('/auth/passkey/authenticate/complete', {
       method: 'POST',
       body: JSON.stringify(body),
     })

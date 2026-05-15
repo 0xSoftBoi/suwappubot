@@ -22,6 +22,8 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
+const PASSKEY_CREDENTIAL_KEY = 'suwappu_passkey_credential_id'
+const PASSKEY_USER_HANDLE_KEY = 'suwappu_passkey_user_handle'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -75,7 +77,144 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkSession()
   }, [])
 
-  // Create a Turnkey-backed passkey wallet for terminal auth.
+  const fromBase64Url = (value: string): Uint8Array => {
+    const base64 = value.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=')
+    const binary = atob(padded)
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0))
+  }
+
+  const userHandleFromCredential = (value: ArrayBuffer | null): string | undefined => {
+    if (!value) return undefined
+    return toBase64Url(value)
+  }
+
+  const rememberPasskey = (credentialId: string, userHandle?: string) => {
+    try {
+      localStorage.setItem(PASSKEY_CREDENTIAL_KEY, credentialId)
+      if (userHandle) localStorage.setItem(PASSKEY_USER_HANDLE_KEY, userHandle)
+    } catch {
+      // Non-critical: discoverable passkeys can still reconnect without this hint.
+    }
+  }
+
+  const rememberedCredential = (): PublicKeyCredentialDescriptor[] | undefined => {
+    try {
+      const credentialId = localStorage.getItem(PASSKEY_CREDENTIAL_KEY)
+      if (!credentialId) return undefined
+      return [{ id: fromBase64Url(credentialId), type: 'public-key' }]
+    } catch {
+      return undefined
+    }
+  }
+
+  const hasRememberedCredential = (): boolean => {
+    try {
+      return !!localStorage.getItem(PASSKEY_CREDENTIAL_KEY)
+    } catch {
+      return false
+    }
+  }
+
+  const errorDetail = (err: unknown): string => {
+    if (err instanceof Error) return err.message
+    if (err && typeof err === 'object' && 'detail' in err) {
+      return String((err as { detail?: unknown }).detail || 'Sign-in failed')
+    }
+    return String(err || 'Sign-in failed')
+  }
+
+  const errorStatus = (err: unknown): number | undefined => {
+    if (err && typeof err === 'object' && 'status' in err) {
+      const status = Number((err as { status?: unknown }).status)
+      return Number.isFinite(status) ? status : undefined
+    }
+    return undefined
+  }
+
+  const authenticateWithPasskey = useCallback(async () => {
+    const init = await api.passkeyAuthenticateInit()
+    const allowCredentials = init.allowCredentials?.map((credential) => ({
+      id: fromBase64Url(credential.id),
+      type: 'public-key' as const,
+      transports: credential.transports as AuthenticatorTransport[] | undefined,
+    })) || rememberedCredential()
+
+    const credential = await navigator.credentials.get({
+      publicKey: {
+        challenge: credentialChallenge(init.challenge),
+        rpId: rpIdForCurrentHost(),
+        allowCredentials: allowCredentials?.length ? allowCredentials : undefined,
+        userVerification: 'preferred',
+        timeout: 15000,
+      },
+    })
+
+    if (!credential || credential.type !== 'public-key') {
+      throw new Error('Passkey authentication was cancelled')
+    }
+
+    const publicKeyCredential = credential as PublicKeyCredential
+    const response = publicKeyCredential.response as AuthenticatorAssertionResponse
+    const credentialId = toBase64Url(publicKeyCredential.rawId)
+    const userHandle = userHandleFromCredential(response.userHandle)
+    rememberPasskey(credentialId, userHandle)
+    return api.passkeyAuthenticateComplete({
+      credentialId,
+      authenticatorData: toBase64Url(response.authenticatorData),
+      clientDataJSON: toBase64Url(response.clientDataJSON),
+      signature: toBase64Url(response.signature),
+      userHandle,
+    })
+  }, [])
+
+  const createPasskeyWallet = useCallback(async () => {
+    const init = await api.passkeyRegisterInit('Suwappu Terminal')
+    const credential = await navigator.credentials.create({
+      publicKey: {
+        challenge: credentialChallenge(init.challenge),
+        rp: {
+          id: rpIdForCurrentHost(),
+          name: init.rpName || 'Suwappu',
+        },
+        user: {
+          id: credentialChallenge(init.userId),
+          name: init.userName || 'terminal@suwappu.bot',
+          displayName: 'Suwappu Terminal',
+        },
+        pubKeyCredParams: [
+          { type: 'public-key', alg: -7 },
+          { type: 'public-key', alg: -257 },
+        ],
+        authenticatorSelection: {
+          residentKey: 'required',
+          requireResidentKey: true,
+          userVerification: 'preferred',
+        },
+        attestation: 'none',
+      },
+    })
+
+    if (!credential || credential.type !== 'public-key') {
+      throw new Error('Passkey creation was cancelled')
+    }
+
+    const publicKeyCredential = credential as PublicKeyCredential
+    const response = publicKeyCredential.response as AuthenticatorAttestationResponse
+    const transports = typeof response.getTransports === 'function' ? response.getTransports() : []
+    const credentialId = toBase64Url(publicKeyCredential.rawId)
+    const userHandle = toBase64Url(credentialChallenge(init.userId))
+    rememberPasskey(credentialId, userHandle)
+    return api.passkeyRegisterComplete({
+      credentialId,
+      attestationObject: toBase64Url(response.attestationObject),
+      clientDataJSON: toBase64Url(response.clientDataJSON),
+      userHandle,
+      transports,
+    })
+  }, [])
+
+  // Connect an existing passkey first; create a Turnkey wallet if none exists.
   const signIn = useCallback(async () => {
     if (
       typeof navigator === 'undefined' ||
@@ -91,56 +230,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(true)
       setError(null)
 
-      const init = await api.passkeyRegisterInit('Suwappu Terminal')
-      const credential = await navigator.credentials.create({
-        publicKey: {
-          challenge: credentialChallenge(init.challenge),
-          rp: {
-            id: rpIdForCurrentHost(),
-            name: init.rpName || 'Suwappu',
-          },
-          user: {
-            id: credentialChallenge(init.userId),
-            name: init.userName || 'terminal@suwappu.bot',
-            displayName: 'Suwappu Terminal',
-          },
-          pubKeyCredParams: [
-            { type: 'public-key', alg: -7 },
-            { type: 'public-key', alg: -257 },
-          ],
-          authenticatorSelection: {
-            residentKey: 'preferred',
-            userVerification: 'preferred',
-          },
-          attestation: 'none',
-        },
-      })
-
-      if (!credential || credential.type !== 'public-key') {
-        throw new Error('Passkey creation was cancelled')
+      let result
+      if (hasRememberedCredential()) {
+        try {
+          result = await authenticateWithPasskey()
+        } catch (authErr: unknown) {
+          const authMessage = errorDetail(authErr)
+          const status = errorStatus(authErr)
+          if (status === 401 || /cancel|notallowed|no matching passkey/i.test(authMessage)) {
+            result = await createPasskeyWallet()
+          } else {
+            throw authErr
+          }
+        }
+      } else {
+        result = await createPasskeyWallet()
       }
-
-      const publicKeyCredential = credential as PublicKeyCredential
-      const response = publicKeyCredential.response as AuthenticatorAttestationResponse
-      const transports = typeof response.getTransports === 'function' ? response.getTransports() : []
-      const result = await api.passkeyRegisterComplete({
-        credentialId: toBase64Url(publicKeyCredential.rawId),
-        attestationObject: toBase64Url(response.attestationObject),
-        clientDataJSON: toBase64Url(response.clientDataJSON),
-        transports,
-      })
 
       setAuthToken(result.token, result.expiresAt)
       setUserId(result.userId)
       setWalletAddress(result.walletAddress)
       setIsAuthenticated(true)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Sign-in failed'
-      setError(message)
+      setError(errorDetail(err))
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [authenticateWithPasskey, createPasskeyWallet])
 
   const signOut = useCallback(() => {
     clearAuthToken()

@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import toast from 'react-hot-toast'
 import { ChainSelector } from './ChainSelector'
 import { PairSelector } from './PairSelector'
 import { usePair } from '../../contexts/PairContext'
@@ -7,7 +8,16 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 
 export function Header() {
   const { selectedChain, setSelectedChain, selectedPair, setSelectedPair } = usePair()
-  const { isAuthenticated, walletAddress, isLoading, signIn, signOut, isPasskeySupported } = useAuth()
+  const {
+    isAuthenticated,
+    walletAddress,
+    isLoading,
+    signIn,
+    signOut,
+    clearError,
+    error,
+    isPasskeySupported,
+  } = useAuth()
   const isMobile = useIsMobile()
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -24,6 +34,12 @@ export function Header() {
     }
     void signIn()
   }
+
+  useEffect(() => {
+    if (!error) return
+    toast.error(error)
+    clearError()
+  }, [clearError, error])
 
   const authButton = (
     <button

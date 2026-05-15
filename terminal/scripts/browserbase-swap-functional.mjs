@@ -127,6 +127,20 @@ try {
   })
 
   const me = await apiFetch(page, token, '/auth/me')
+  await page.locator('button[title="Sign out"]').click({ timeout: 30000 })
+  await page.waitForFunction(
+    () => !window.localStorage.getItem('suwappu_terminal_token'),
+    null,
+    { timeout: 30000 },
+  )
+  await page.locator('button[title="Create a Turnkey passkey wallet"]').click({ timeout: 30000 })
+  const reconnectToken = await page.waitForFunction(
+    () => window.localStorage.getItem('suwappu_terminal_token'),
+    null,
+    { timeout: 60000 },
+  ).then((handle) => handle.jsonValue())
+  const reconnectedMe = await apiFetch(page, reconnectToken, '/auth/me')
+
   const portfolio = await apiFetch(page, token, '/webapp/portfolio')
   const quote = await apiFetch(page, token, '/webapp/swap/quote', {
     method: 'POST',
@@ -155,6 +169,12 @@ try {
   if (!me.ok || !me.body?.authenticated) failures.push(`/auth/me failed: ${me.status}`)
   if (!/^0x[a-fA-F0-9]{40}$/.test(String(me.body?.address || ''))) {
     failures.push('/auth/me did not return an EVM wallet address')
+  }
+  if (!reconnectedMe.ok || !reconnectedMe.body?.authenticated) {
+    failures.push(`/auth/me after reconnect failed: ${reconnectedMe.status}`)
+  }
+  if (reconnectedMe.body?.address !== me.body?.address) {
+    failures.push('passkey reconnect did not return the original Turnkey wallet address')
   }
   if (!portfolio.ok || !Array.isArray(portfolio.body?.tokens)) {
     failures.push(`/webapp/portfolio failed: ${portfolio.status}`)
@@ -185,6 +205,13 @@ try {
       authenticated: me.body?.authenticated === true,
       userId: me.body?.userId,
       address: me.body?.address,
+    },
+    reconnect: {
+      status: reconnectedMe.status,
+      authenticated: reconnectedMe.body?.authenticated === true,
+      userId: reconnectedMe.body?.userId,
+      address: reconnectedMe.body?.address,
+      sameAddress: reconnectedMe.body?.address === me.body?.address,
     },
     portfolio: {
       status: portfolio.status,

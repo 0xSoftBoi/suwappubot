@@ -39,6 +39,10 @@ class User(Base):
     # Push notifications (Expo push token for iOS/Android app)
     push_token = Column(String(255), nullable=True, default=None)
 
+    # Terminal passkey auth
+    passkey_credential_id = Column(String(512), nullable=True, index=True)
+    passkey_user_handle = Column(String(255), nullable=True, index=True)
+
     # Wallet recovery
     recovery_email = Column(String(255), nullable=True)
     recovery_setup_at = Column(DateTime, nullable=True)
@@ -115,4 +119,3 @@ class Wallet(Base):
     def is_local_wallet(self) -> bool:
         """Check if wallet is stored locally."""
         return self.wallet_provider == "local"
-

@@ -85,6 +85,24 @@ export interface CopilotResponse {
   data?: Record<string, unknown>
 }
 
+export interface PasskeyAuthInitResponse {
+  challenge: string
+  rpId: string
+  allowCredentials?: Array<{
+    id: string
+    type: 'public-key'
+    transports?: string[]
+  }> | null
+}
+
+export interface PasskeyAuthCompleteResponse {
+  success: boolean
+  userId: number
+  walletAddress: string
+  token: string
+  expiresAt: string
+}
+
 export interface SwapStatusResponse {
   id: number
   status: 'pending' | 'signed' | 'submitted' | 'completed' | 'failed'

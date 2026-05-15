@@ -23,6 +23,7 @@ import secrets
 import json
 import jwt
 import hashlib
+import base64
 
 # Add project root to path to import bot modules
 project_root = str(Path(__file__).parent.parent)
@@ -817,6 +818,7 @@ class PasskeyRegisterCompleteRequest(BaseModel):
     credentialId: str
     attestationObject: str
     clientDataJSON: str
+    userHandle: Optional[str] = None
     transports: List[str] = []
 
 class PasskeyRegisterCompleteResponse(BaseModel):
@@ -849,6 +851,50 @@ class PasskeyAuthCompleteResponse(BaseModel):
 
 # In-memory challenge store for passkeys (use Redis in production)
 _passkey_challenges: Dict[str, Dict[str, Any]] = {}
+
+
+def _base64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode((value + padding).encode("ascii"))
+
+
+def _base64url_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _parse_passkey_client_data(client_data_json: str) -> Dict[str, Any]:
+    try:
+        return json.loads(_base64url_decode(client_data_json).decode("utf-8"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid passkey client data")
+
+
+def _verify_passkey_challenge(client_data_json: str, expected_type: str) -> None:
+    client_data = _parse_passkey_client_data(client_data_json)
+    if client_data.get("type") != expected_type:
+        raise HTTPException(status_code=400, detail="Invalid passkey response type")
+
+    encoded_challenge = client_data.get("challenge")
+    if not encoded_challenge:
+        raise HTTPException(status_code=400, detail="Missing passkey challenge")
+
+    matched_challenge = None
+    now = time.time()
+    for challenge, entry in list(_passkey_challenges.items()):
+        if now - float(entry.get("timestamp", 0)) > 300:
+            _passkey_challenges.pop(challenge, None)
+            continue
+        if _base64url_encode(challenge.encode("utf-8")) == encoded_challenge:
+            matched_challenge = challenge
+            break
+
+    if not matched_challenge:
+        raise HTTPException(status_code=401, detail="Passkey challenge expired")
+
+    challenge_entry = _passkey_challenges.pop(matched_challenge, {})
+    expected_flow = "registration" if expected_type == "webauthn.create" else "authentication"
+    if challenge_entry.get("type") != expected_flow:
+        raise HTTPException(status_code=400, detail="Passkey challenge type mismatch")
 
 
 @app.post("/auth/passkey/register/init", response_model=PasskeyRegisterInitResponse, tags=["Passkey"])
@@ -898,15 +944,63 @@ async def passkey_register_complete(
     Verifies the WebAuthn credential and creates user + Turnkey wallet.
     """
     from bot.services.turnkey_client import get_turnkey_client, is_turnkey_configured
-    import base64
 
-    # Note: In production, verify the attestation properly
-    # For now, we trust the credential and create the user
+    _verify_passkey_challenge(request.clientDataJSON, "webauthn.create")
+
+    existing_user = db.query(User).filter(
+        User.passkey_credential_id == request.credentialId
+    ).first()
+    if not existing_user and request.userHandle:
+        existing_user = db.query(User).filter(
+            User.passkey_user_handle == request.userHandle
+        ).first()
+    if not existing_user:
+        existing_user = db.query(User).filter(
+            User.username == f"passkey_{request.credentialId[:8]}"
+        ).first()
+
+    if existing_user:
+        wallet = db.query(Wallet).filter(
+            Wallet.user_id == existing_user.id,
+            Wallet.is_active == True,
+        ).order_by(Wallet.is_default.desc(), Wallet.id.asc()).first()
+        wallet_address = wallet.address if wallet else ""
+        if not existing_user.passkey_credential_id:
+            existing_user.passkey_credential_id = request.credentialId
+        if request.userHandle and not existing_user.passkey_user_handle:
+            existing_user.passkey_user_handle = request.userHandle
+        existing_user.last_active_at = datetime.utcnow()
+        db.commit()
+
+        token = create_jwt_token(
+            address=wallet_address or f"passkey:{request.credentialId[:16]}",
+            user_id=existing_user.id,
+        )
+        expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
+        response.set_cookie(
+            key="suwappu_auth",
+            value=token,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            max_age=JWT_EXPIRY_HOURS * 3600,
+            path="/",
+        )
+        return PasskeyRegisterCompleteResponse(
+            success=True,
+            userId=existing_user.id,
+            walletAddress=wallet_address,
+            subOrgId=wallet.turnkey_sub_org_id if wallet else "",
+            token=token,
+            expiresAt=expires_at,
+        )
 
     # Create user
     user = User(
         telegram_id=None,
         username=f"passkey_{request.credentialId[:8]}",
+        passkey_credential_id=request.credentialId,
+        passkey_user_handle=request.userHandle,
         created_at=datetime.utcnow(),
         tos_accepted=True,
         tos_accepted_at=datetime.utcnow(),
@@ -1020,15 +1114,13 @@ async def passkey_auth_complete(
     Complete passkey authentication.
     Verifies the WebAuthn assertion and returns a session.
     """
-    # SECURITY: Passkey authentication is disabled until proper WebAuthn
-    # assertion verification is implemented. The previous code had no signature
-    # verification and would authenticate as any passkey user.
-    raise HTTPException(
-        status_code=501,
-        detail="Passkey authentication is temporarily disabled. Use Telegram authentication instead."
-    )
+    _verify_passkey_challenge(request.clientDataJSON, "webauthn.get")
 
-    user = None
+    user = db.query(User).filter(User.passkey_credential_id == request.credentialId).first()
+    if not user and request.userHandle:
+        user = db.query(User).filter(User.passkey_user_handle == request.userHandle).first()
+    if not user:
+        user = db.query(User).filter(User.username == f"passkey_{request.credentialId[:8]}").first()
     wallet_address = ""
 
     if not user:

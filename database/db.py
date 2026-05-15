@@ -237,6 +237,7 @@ def _ensure_schema(db_engine) -> None:
         _add_referral_columns(db_engine, inspector, is_sqlite)
         _add_push_token_column(db_engine, inspector, is_sqlite)
         _add_user_settings_columns(db_engine, inspector, is_sqlite)
+        _add_passkey_columns(db_engine, inspector, is_sqlite)
 
     # --- smart notification columns ---
     _add_smart_notification_columns(db_engine, inspector, is_sqlite)
@@ -478,6 +479,35 @@ def _add_push_token_column(db_engine, inspector, is_sqlite: bool) -> None:
             ddl = "ALTER TABLE users ADD COLUMN IF NOT EXISTS push_token VARCHAR(255) DEFAULT NULL"
         with db_engine.begin() as conn:
             conn.execute(text(ddl))
+
+
+def _add_passkey_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add terminal passkey lookup columns to users table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("users")}
+
+    new_columns = [
+        ("passkey_credential_id", "VARCHAR(512)", "NULL"),
+        ("passkey_user_handle", "VARCHAR(255)", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE users ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+    with db_engine.begin() as conn:
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_users_passkey_credential_id "
+            "ON users(passkey_credential_id)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_users_passkey_user_handle "
+            "ON users(passkey_user_handle)"
+        ))
 
 
 def _add_user_settings_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -908,4 +938,3 @@ async def run_in_db(fn: Callable[..., T], *args, **kwargs) -> T:
     if kwargs:
         return await loop.run_in_executor(_db_executor, lambda: fn(*args, **kwargs))
     return await loop.run_in_executor(_db_executor, fn, *args)
-
