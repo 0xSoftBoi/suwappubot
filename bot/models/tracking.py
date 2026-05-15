@@ -26,3 +26,23 @@ class TrackedWallet(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user = relationship("User", backref="tracked_wallets")
+
+
+class TrackedTwitterAccount(Base):
+    """A Twitter/X handle tracked by a terminal user."""
+
+    __tablename__ = "tracked_twitter_accounts"
+    __table_args__ = (
+        UniqueConstraint("user_id", "handle", name="uq_tracked_twitter_user_handle"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    handle = Column(String(50), nullable=False, index=True)
+    display_name = Column(String(100), nullable=False)
+    avatar_color = Column(String(20), nullable=False, default="#28A0F0")
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", backref="tracked_twitter_accounts")

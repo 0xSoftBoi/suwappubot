@@ -179,6 +179,32 @@ try {
         visibleTextSample: (await page.locator('body').innerText()).split('\n').slice(-12).join(' | '),
       })
     }
+
+    if (tab === 'Tweets') {
+      const qaHandle = `bbtweet${Date.now().toString().slice(-8)}`
+      await page.getByTestId('add-account-btn').click({ timeout: 30000 })
+      await page.getByTestId('add-account-modal').waitFor({ state: 'visible', timeout: 30000 })
+      await page.getByTestId('account-input').fill(qaHandle)
+      await page.getByRole('button', { name: 'Add', exact: true }).click()
+      await page.getByText(`@${qaHandle}`, { exact: true }).waitFor({ state: 'visible', timeout: 30000 })
+      tabResults.push({
+        tab: 'Tweets / Add persisted account',
+        screenshot: await screenshot(page, 'tab-tweets-add-account'),
+        visibleTextSample: (await page.locator('body').innerText()).split('\n').slice(-12).join(' | '),
+      })
+
+      await page.getByTestId('tracked-account')
+        .filter({ hasText: `@${qaHandle}` })
+        .getByTestId('remove-account')
+        .click()
+      await page.getByText(`@${qaHandle}`, { exact: true }).waitFor({ state: 'hidden', timeout: 30000 })
+      await page.keyboard.press('Escape')
+      tabResults.push({
+        tab: 'Tweets / Remove persisted account',
+        screenshot: await screenshot(page, 'tab-tweets-remove-account'),
+        visibleTextSample: (await page.locator('body').innerText()).split('\n').slice(-12).join(' | '),
+      })
+    }
   }
 } finally {
   await browser.close()

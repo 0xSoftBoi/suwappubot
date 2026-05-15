@@ -35,6 +35,8 @@ import type {
   CreateDCAParams,
   LendingMarket,
   TrackedWallet,
+  TrackedTwitterAccount,
+  TweetData,
   WalletActivity,
 } from '../types/api'
 
@@ -367,6 +369,28 @@ export const api = {
 
   getWalletActivities() {
     return request<WalletActivity[]>('/webapp/wallet-tracker/activities')
+  },
+
+  // Tweet monitor
+  getTrackedTwitterAccounts() {
+    return request<TrackedTwitterAccount[]>('/webapp/tweets/accounts')
+  },
+
+  addTrackedTwitterAccount(handle: string) {
+    return request<TrackedTwitterAccount>('/webapp/tweets/accounts', {
+      method: 'POST',
+      body: JSON.stringify({ handle }),
+    })
+  },
+
+  removeTrackedTwitterAccount(handle: string) {
+    return request<void>(`/webapp/tweets/accounts/${encodeURIComponent(handle)}`, {
+      method: 'DELETE',
+    })
+  },
+
+  getTweetFeed() {
+    return request<TweetData[]>('/webapp/tweets/feed')
   },
 
   // Agent / Copilot

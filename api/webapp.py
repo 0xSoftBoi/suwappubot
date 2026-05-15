@@ -218,6 +218,10 @@ class WebAppTrackedWalletRequest(BaseModel):
     chain: Optional[str] = None
 
 
+class WebAppTrackedTwitterAccountRequest(BaseModel):
+    handle: str
+
+
 class WebAppCopilotRequest(BaseModel):
     text: str
 
@@ -537,6 +541,34 @@ def _tracked_wallet_response(wallet) -> Dict[str, Any]:
         "label": wallet.label,
         "chain": wallet.chain,
         "addedAt": wallet.created_at.isoformat() if wallet.created_at else "",
+    }
+
+
+_TWITTER_HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
+_TWITTER_AVATAR_COLORS = [
+    "#28A0F0",
+    "#22C55E",
+    "#627EEA",
+    "#9945FF",
+    "#F0B90B",
+    "#6FBCF0",
+    "#E84142",
+]
+
+
+def _normalize_twitter_handle(handle: str) -> str:
+    normalized = handle.strip().lstrip("@")
+    if not _TWITTER_HANDLE_RE.match(normalized):
+        raise HTTPException(status_code=400, detail="Invalid Twitter handle")
+    return normalized
+
+
+def _twitter_account_response(account) -> Dict[str, Any]:
+    return {
+        "handle": account.handle,
+        "displayName": account.display_name,
+        "avatarColor": account.avatar_color,
+        "addedAt": account.created_at.isoformat() if account.created_at else "",
     }
 
 
@@ -1269,6 +1301,91 @@ async def delete_terminal_tracked_wallet(
 
 @router.get("/wallet-tracker/activities")
 async def get_terminal_wallet_activities(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    _require_terminal_user(auth_payload)
+    return []
+
+
+@router.get("/tweets/accounts")
+async def get_terminal_tweet_accounts(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.tracking import TrackedTwitterAccount
+
+    accounts = db.query(TrackedTwitterAccount).filter(
+        TrackedTwitterAccount.user_id == user_id,
+        TrackedTwitterAccount.is_active == True,
+    ).order_by(TrackedTwitterAccount.created_at.desc()).all()
+    return [_twitter_account_response(account) for account in accounts]
+
+
+@router.post("/tweets/accounts")
+async def create_terminal_tweet_account(
+    body: WebAppTrackedTwitterAccountRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.tracking import TrackedTwitterAccount
+
+    handle = _normalize_twitter_handle(body.handle)
+    account_count = db.query(TrackedTwitterAccount).filter(
+        TrackedTwitterAccount.user_id == user_id,
+        TrackedTwitterAccount.is_active == True,
+    ).count()
+
+    account = db.query(TrackedTwitterAccount).filter(
+        TrackedTwitterAccount.user_id == user_id,
+        TrackedTwitterAccount.handle.ilike(handle),
+    ).first()
+    if account:
+        account.is_active = True
+        account.display_name = handle
+        account.updated_at = datetime.utcnow()
+    else:
+        account = TrackedTwitterAccount(
+            user_id=user_id,
+            handle=handle,
+            display_name=handle,
+            avatar_color=_TWITTER_AVATAR_COLORS[account_count % len(_TWITTER_AVATAR_COLORS)],
+            is_active=True,
+        )
+        db.add(account)
+
+    db.commit()
+    db.refresh(account)
+    return _twitter_account_response(account)
+
+
+@router.delete("/tweets/accounts/{handle}")
+async def delete_terminal_tweet_account(
+    handle: str,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.tracking import TrackedTwitterAccount
+
+    normalized = _normalize_twitter_handle(handle)
+    account = db.query(TrackedTwitterAccount).filter(
+        TrackedTwitterAccount.user_id == user_id,
+        TrackedTwitterAccount.handle.ilike(normalized),
+        TrackedTwitterAccount.is_active == True,
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Tracked account not found")
+
+    account.is_active = False
+    account.updated_at = datetime.utcnow()
+    db.commit()
+    return {"success": True}
+
+
+@router.get("/tweets/feed")
+async def get_terminal_tweet_feed(
     auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
 ):
     _require_terminal_user(auth_payload)

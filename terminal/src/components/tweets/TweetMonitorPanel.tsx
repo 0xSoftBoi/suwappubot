@@ -1,5 +1,7 @@
 import { useTweetMonitor, type SentimentFilter } from '../../hooks/useTweetMonitor'
+import { AddAccountModal } from './AddAccountModal'
 import { TweetCard } from './TweetCard'
+import { useState } from 'react'
 
 const SENTIMENT_FILTERS: { id: SentimentFilter; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -14,9 +16,13 @@ export function TweetMonitorPanel() {
     tweets,
     sentimentFilter,
     setSentimentFilter,
+    addAccount,
+    removeAccount,
+    isLoading,
+    error,
   } = useTweetMonitor()
 
-  const providerPending = true
+  const [isModalOpen, setIsModalOpen] = useState(false)
 
   return (
     <div className="p-4 flex flex-col gap-3 h-full" data-testid="tweet-monitor-panel">
@@ -31,13 +37,27 @@ export function TweetMonitorPanel() {
           )}
         </h3>
         <button
-          disabled={providerPending}
-          className="terminal-button text-xs px-3 py-1 disabled:opacity-50"
+          onClick={() => setIsModalOpen(true)}
+          className="terminal-button text-xs px-3 py-1"
           data-testid="add-account-btn"
         >
-          Provider Pending
+          Manage Accounts
         </button>
       </div>
+
+      <div className="text-xs text-terminal-text-muted">
+        Tracked account persistence is connected. Tweet provider is not connected yet.
+      </div>
+      {error && (
+        <div className="text-xs text-bear" data-testid="tweet-monitor-error">
+          {error instanceof Error ? error.message : 'Tweet monitor request failed.'}
+        </div>
+      )}
+      {isLoading && (
+        <div className="text-xs text-terminal-text-muted" data-testid="tweet-monitor-loading">
+          Loading tracked accounts...
+        </div>
+      )}
 
       {/* Sentiment filter bar */}
       <div className="flex items-center gap-1 shrink-0" data-testid="sentiment-filters">
@@ -74,6 +94,14 @@ export function TweetMonitorPanel() {
           ))
         )}
       </div>
+
+      <AddAccountModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onAdd={addAccount}
+        onRemove={removeAccount}
+        accounts={accounts}
+      />
     </div>
   )
 }

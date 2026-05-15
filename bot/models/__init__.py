@@ -36,7 +36,7 @@ from .subscription import (
     APICredit,
 )
 from .predict import PredictionOrder, PredictionPosition
-from .tracking import TrackedWallet
+from .tracking import TrackedTwitterAccount, TrackedWallet
 
 __all__ = [
     "User",
@@ -86,5 +86,6 @@ __all__ = [
     # Prediction markets
     "PredictionOrder",
     "PredictionPosition",
+    "TrackedTwitterAccount",
     "TrackedWallet",
 ]
