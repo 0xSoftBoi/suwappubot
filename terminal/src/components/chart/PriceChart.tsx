@@ -233,6 +233,14 @@ export function PriceChart() {
             </div>
           </div>
         )}
+        {!isLoading && candles && candles.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center bg-terminal-bg/60">
+            <div className="rounded-md border border-terminal-border bg-terminal-bg-secondary/90 px-4 py-3 text-center shadow-lg">
+              <div className="text-terminal-text-secondary text-sm">Chart provider is not connected yet.</div>
+              <div className="text-terminal-text-muted text-xs mt-1">Live OHLCV will appear here when the feed is wired.</div>
+            </div>
+          </div>
+        )}
         {/* SMA legend */}
         {candles && candles.length > 0 && (
           <div className="absolute top-1 left-2 flex gap-3 text-[10px] font-mono z-10 pointer-events-none">

@@ -26,10 +26,6 @@ export function useMarketData(): MarketData {
     const change24h = firstClose !== 0 ? ((price - firstClose) / firstClose) * 100 : 0
     const volume24h = candles.reduce((sum, c) => sum + c.volume, 0)
 
-    // Mock values — replace with real API data later
-    const marketCap = 389_000_000_000
-    const fundingRate = 0.0125
-
-    return { price, change24h, volume24h, marketCap, fundingRate, isLoading }
+    return { price, change24h, volume24h, marketCap: null, fundingRate: null, isLoading }
   }, [candles, isLoading])
 }

@@ -15,10 +15,11 @@ function formatSize(size: number): string {
 export function OrderBookPanel() {
   const [viewMode, setViewMode] = useState<OrderBookViewMode>('both')
   const [precision, setPrecision] = useState<PrecisionStep>(0.01)
-  const { book, maxTotal } = useOrderBook(precision)
+  const { book, isConnected, maxTotal } = useOrderBook(precision)
 
   const showBids = viewMode === 'both' || viewMode === 'bids'
   const showAsks = viewMode === 'both' || viewMode === 'asks'
+  const hasBook = book.asks.length > 0 || book.bids.length > 0
 
   return (
     <div className="flex flex-col h-full" data-testid="order-book">
@@ -87,14 +88,26 @@ export function OrderBookPanel() {
 
       {/* Book content */}
       <div className="flex-1 overflow-hidden flex flex-col font-mono text-[11px] leading-[18px]">
+        {!hasBook && (
+          <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-center">
+            <div>
+              <div className="text-[11px] font-sans text-terminal-text-secondary">
+                Order book provider is not connected yet.
+              </div>
+              <div className="mt-1 text-[10px] font-sans text-terminal-text-muted">
+                Live depth will appear here when a real feed is wired.
+              </div>
+            </div>
+          </div>
+        )}
         {/* Asks (reversed so lowest ask is at bottom, near spread) */}
-        {showAsks && (
+        {hasBook && showAsks && (
           <div className="flex-1 flex flex-col justify-end overflow-hidden" data-testid="asks-side">
             {[...book.asks].reverse().map((level, i) => (
               <div key={`ask-${i}`} className="grid grid-cols-3 px-2 relative">
                 <div
                   className="absolute inset-0 bg-bear/10"
-                  style={{ width: `${(level.total / maxTotal) * 100}%`, right: 0, left: 'auto' }}
+                  style={{ width: `${maxTotal > 0 ? (level.total / maxTotal) * 100 : 0}%`, right: 0, left: 'auto' }}
                 />
                 <span className="text-bear relative z-10">{formatPrice(level.price, precision)}</span>
                 <span className="text-right text-terminal-text-secondary relative z-10">{formatSize(level.size)}</span>
@@ -110,21 +123,21 @@ export function OrderBookPanel() {
           data-testid="spread-display"
         >
           <span className="text-[11px] font-medium text-terminal-text">
-            {formatPrice(book.midPrice, precision)}
+            {hasBook ? formatPrice(book.midPrice, precision) : '--'}
           </span>
           <span className="text-[10px] text-terminal-text-muted">
-            Spread: {book.spread.toFixed(2)} ({book.spreadPercent.toFixed(3)}%)
+            {isConnected ? `Spread: ${book.spread.toFixed(2)} (${book.spreadPercent.toFixed(3)}%)` : 'Provider offline'}
           </span>
         </div>
 
         {/* Bids */}
-        {showBids && (
+        {hasBook && showBids && (
           <div className="flex-1 overflow-hidden" data-testid="bids-side">
             {book.bids.map((level, i) => (
               <div key={`bid-${i}`} className="grid grid-cols-3 px-2 relative">
                 <div
                   className="absolute inset-0 bg-bull/10"
-                  style={{ width: `${(level.total / maxTotal) * 100}%`, right: 0, left: 'auto' }}
+                  style={{ width: `${maxTotal > 0 ? (level.total / maxTotal) * 100 : 0}%`, right: 0, left: 'auto' }}
                 />
                 <span className="text-bull relative z-10">{formatPrice(level.price, precision)}</span>
                 <span className="text-right text-terminal-text-secondary relative z-10">{formatSize(level.size)}</span>

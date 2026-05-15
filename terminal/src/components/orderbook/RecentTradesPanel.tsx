@@ -25,6 +25,18 @@ export function RecentTradesPanel() {
 
       {/* Trades list */}
       <div className="flex-1 overflow-y-auto font-mono text-[11px] leading-[18px]">
+        {trades.length === 0 && (
+          <div className="flex h-full items-center justify-center px-4 text-center font-sans">
+            <div>
+              <div className="text-[11px] text-terminal-text-secondary">
+                Recent trades provider is not connected yet.
+              </div>
+              <div className="mt-1 text-[10px] text-terminal-text-muted">
+                Live prints will appear here when a real feed is wired.
+              </div>
+            </div>
+          </div>
+        )}
         {trades.map(trade => (
           <div
             key={trade.id}
