@@ -19,14 +19,14 @@ Branch: `feat/terminal-site-replacement-story`
   - AWS CodeBuild project `suwappu-showcase-build` exists and uses source `https://github.com/0xSoftBoi/suwappubot.git` with buildspec `showcase/buildspec.yml`, but it has no webhook configured.
   - AWS ECS service `suwappu-showcase` is active in cluster `suwappu-cluster`, desired `1`, running `1`, task definition `suwappu-showcase:1`.
   - The service runs `905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu-showcase:latest`.
-  - The latest ECR `latest` image was pushed on `2026-04-01T06:41:02-04:00` with commit tag `ea63c63e325e8dd5b8b45e68e575d15e00d344ae`.
+  - Production release image was pushed on `2026-05-14T19:50:57-04:00` with commit tag `2a65430fdb8e4a9ba4872f996c60410b68c7adfc`, digest `sha256:1423b4a74baad7d6237684c0d2ccd6aa20517429fc1b46b2ef0b71b0eb561669`.
 - Terminal evidence points at `terminal/`.
   - `terminal/Dockerfile` builds the Vite app with Bun and serves `dist/` through nginx.
   - `terminal/buildspec.yml` builds `terminal/Dockerfile`, pushes the image, then forces an ECS redeploy.
   - AWS CodeBuild project `suwappu-terminal-build` exists and uses source `https://github.com/0xSoftBoi/suwappubot.git` with buildspec `terminal/buildspec.yml`, but it has no webhook configured.
   - AWS ECS service `suwappu-terminal-prod` is active in cluster `suwappu-cluster`, desired `1`, running `1`, task definition `suwappu-terminal-prod:2`.
   - The service runs `905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu-terminal:latest`.
-  - The latest ECR `latest` image was pushed on `2026-03-31T11:08:38-04:00` with commit tag `f7646d32f823dd91b64d35e64103921009c85d52`.
+  - Production release image was pushed on `2026-05-14T20:06:35-04:00` with commit tag `2a65430fdb8e4a9ba4872f996c60410b68c7adfc`, digest `sha256:87d0fa4be56b021ab01e21e5076db693ae92691013ece74ed3b4a4442055029c`.
   - `terminal/TERMINAL.md` maps terminal deploy to ECR repository `suwappu-terminal` and host rule `terminal.suwappu.bot`.
 
 ## Deployment Discovery
@@ -44,8 +44,8 @@ Branch: `feat/terminal-site-replacement-story`
   - ALB listener rule priority `28` routes `suwappu.bot` to target group `suwappu-showcase`.
   - ALB listener rule priority `30` routes `www.suwappu.bot` to target group `suwappu-showcase`.
   - ALB listener rule priority `25` routes `terminal.suwappu.bot` to target group `suwappu-terminal-prod`.
-  - `suwappu-showcase` target group has healthy target `10.0.3.160:3000`, which matches running ECS Fargate task `a0c39b01029d4ddabf222ac88f6b5916`.
-  - `suwappu-terminal-prod` target group has healthy target `10.0.2.105:80`, which matches running ECS Fargate task `21f2676d1d6048b8a816bcb35e187168`.
+  - `suwappu-showcase` target group has healthy target `10.0.2.61:3000`, which matches running ECS Fargate task `eff26e8054bd40079227dca90a175eb3`.
+  - `suwappu-terminal-prod` target group has healthy target `10.0.2.159:80`, which matches running ECS Fargate task `56ea038c13a345e3a68f83e4032c5843`.
 - CodeBuild was used historically.
   - CloudTrail shows `suwappu-codebuild-role` pushed ECR images and ran `ecs:UpdateService` for `suwappu-showcase` on `2026-04-01T10:41:04Z`.
   - CloudTrail shows `suwappu-codebuild-role` pushed ECR images and ran `ecs:UpdateService` for `suwappu-terminal-prod` on `2026-03-31T15:08:40Z`.
@@ -104,6 +104,11 @@ gh workflow run "Deploy Frontend" \
 ```
 
 Use `target=terminal` for `terminal.suwappu.bot` or `target=all` for both.
+
+Verified production deploy runs:
+
+- Showcase: `https://github.com/0xSoftBoi/suwappubot/actions/runs/25892256968`
+- Terminal: `https://github.com/0xSoftBoi/suwappubot/actions/runs/25892776905`
 
 Current manual showcase deploy path:
 
@@ -165,6 +170,11 @@ bun run qa:browserbase
 ```
 
 The run must attach the Browserbase session link, `report.json`, and screenshots from `showcase/qa-screenshots/browserbase-production/`.
+
+Latest passing production QA:
+
+- Browserbase session: `https://www.browserbase.com/sessions/6c418f2b-c2ab-44b3-8a26-49c38b406d26`
+- Result: `failures: []`
 
 Required checks:
 
