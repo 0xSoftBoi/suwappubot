@@ -31,8 +31,10 @@ Branch: `feat/terminal-site-replacement-story`
 - API evidence points at the Python app behind `https://api.suwappu.bot`.
   - ALB routes general API traffic to ECS service `suwappu-bot-prod` in cluster `suwappu-cluster`.
   - The service runs `905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu:latest`.
-  - Branch deploy `73ef3ba500f1717e64016f08e3d76595734b7cf3` pushed digest `sha256:4b88dcc785bd83250f176660bccba2b8d77ca85ee15f24aa785786231debdbd0`.
-  - Running task `f95d6980070a4df1b0be6e9b63983041` is healthy on that digest.
+  - Production API task definition is `suwappu-bot-prod:15`.
+  - Running task `af7f35f32511475abb95682fabbb3a93` is healthy on digest `sha256:1da7fafb7e2550df9ae629677fbb7aeb900d2edbb0869759e09936609e147723`.
+  - The API image overlay must include `api/main.py`, `api/webapp.py`, `api/routes/terminal.py`, and `bot/services/swap_engine.py`; otherwise prod can expose the terminal routes while retaining an older swap executor.
+  - `suwappu-bot-prod:15` includes Turnkey runtime secrets and `OAUTH_REDIRECT_BASE=https://suwappu.bot`.
 
 ## Deployment Discovery
 
@@ -154,6 +156,27 @@ aws ecs update-service \
   --region us-east-1
 ```
 
+Current manual API deploy path used for terminal auth/swap fixes:
+
+```bash
+aws ecr get-login-password --region us-east-1 \
+  | docker login --username AWS --password-stdin 905418423235.dkr.ecr.us-east-1.amazonaws.com
+
+docker build \
+  --platform linux/amd64 \
+  -f api/Dockerfile \
+  -t 905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu:latest \
+  .
+
+docker push 905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu:latest
+
+aws ecs update-service \
+  --cluster suwappu-cluster \
+  --service suwappu-bot-prod \
+  --force-new-deployment \
+  --region us-east-1
+```
+
 If CodeBuild queue limits are fixed, CodeBuild uses the same shape through `showcase/buildspec.yml` and `terminal/buildspec.yml`, with `IMAGE_URI`, `COMMIT_URI`, `ECS_CLUSTER`, `ECS_SERVICE`, and `AWS_DEFAULT_REGION` supplied by the provider.
 
 ## Browserbase Production QA Gate
@@ -178,12 +201,27 @@ Latest passing production QA:
 - Homepage + terminal Browserbase session: `https://www.browserbase.com/sessions/1399265a-a698-4909-8328-867986719e81`
 - Focused terminal Browserbase session: `https://www.browserbase.com/sessions/036c3f8f-ef51-4bf6-85c9-7f103276643b`
 - Result: `failures: []`
+- Terminal swap functional Browserbase session: `https://www.browserbase.com/sessions/e91d7b72-4f45-4647-a9aa-014e3e8ee29a`
+- Swap result: Turnkey passkey auth `200`, `/auth/me` `200`, `/webapp/portfolio` `200`, `/webapp/swap/quote` `200` via `lifi`, `/webapp/swap/execute` `200 submitted` with swap id `48`.
+- Swap report and screenshots: `terminal/qa-screenshots/browserbase-functional-prod/swap-functional-report.json`, `after-turnkey-auth.png`, `after-swap-functional.png`.
+
+Run the terminal swap functional gate:
+
+```bash
+cd terminal
+BROWSERBASE_API_KEY=... \
+BROWSERBASE_PROJECT_ID=... \
+QA_TERMINAL_URL=https://terminal.suwappu.bot \
+QA_API_URL=https://api.suwappu.bot \
+bun run qa:browserbase:swap
+```
 
 Latest API verification:
 
 - `https://api.suwappu.bot/health` returned `{"status":"healthy","service":"suwappu-bot","database":"connected","bot":"webhook"}`.
 - `https://terminal.suwappu.bot/health` returned `{"status":"ok","service":"suwappu-terminal"}`.
 - `GET /webapp/tokens/popular?chain=ethereum`, `GET /webapp/chains`, and `GET /terminal/chart/ohlcv?...` returned `200` with `access-control-allow-origin: https://terminal.suwappu.bot`.
+- Browserbase swap QA confirmed no localhost API traffic and no WalletConnect/RainbowKit copy in the production terminal path.
 
 Required checks:
 
