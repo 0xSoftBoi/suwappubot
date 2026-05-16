@@ -35,6 +35,7 @@ from bot.config.settings import settings
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
 from bot.services.orders import order_service
+from bot.services.swap_engine import SwapEngine
 from bot.services.tx_poller import tx_poller
 from bot.services.health_monitor import health_monitor
 from bot.services.balance_refresher import balance_refresher
@@ -166,7 +167,7 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)
         await alert_service.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
-        await order_service.start(bot=bot_app.bot if bot_initialized else None)
+        await order_service.start(bot=bot_app.bot if bot_initialized else None, swap_engine=SwapEngine())
         await asyncio.sleep(2)
         await tx_poller.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)

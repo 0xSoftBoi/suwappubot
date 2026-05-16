@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from typing import Optional, List, Tuple
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from bot.models.advanced import (
@@ -26,6 +26,7 @@ class OrderService:
         self._running = False
         self._task = None
         self._check_interval = 30  # Check every 30 seconds
+        self._bot = None
         self._swap_engine = None
     
     # === Limit Orders ===
@@ -60,7 +61,7 @@ class OrderService:
             )
             
             if expires_in_hours:
-                order.expires_at = datetime.now(timezone.utc) + timedelta(hours=expires_in_hours)
+                order.expires_at = datetime.utcnow() + timedelta(hours=expires_in_hours)
             
             session.add(order)
             session.flush()
@@ -118,7 +119,7 @@ class OrderService:
                 ).all()
                 # Detach from session by extracting needed fields
                 result = []
-                now = datetime.now(timezone.utc)
+                now = datetime.utcnow()
                 expired_ids = []
                 for o in orders:
                     if o.expires_at and o.expires_at < now:
@@ -215,12 +216,12 @@ class OrderService:
                 to_token=to_token,
                 amount_per_execution=amount_per_execution,
                 interval_hours=interval_hours,
-                next_execution_at=datetime.now(timezone.utc),  # Execute first one immediately
+                next_execution_at=datetime.utcnow(),  # Execute first one immediately
                 max_executions=max_executions,
             )
             
             if ends_in_days:
-                order.ends_at = datetime.now(timezone.utc) + timedelta(days=ends_in_days)
+                order.ends_at = datetime.utcnow() + timedelta(days=ends_in_days)
             
             session.add(order)
             session.flush()
@@ -268,7 +269,7 @@ class OrderService:
             
             if order:
                 order.status = DCAStatus.ACTIVE.value
-                order.next_execution_at = datetime.now(timezone.utc)
+                order.next_execution_at = datetime.utcnow()
                 return True
             return False
     
@@ -290,7 +291,7 @@ class OrderService:
         """Check DCA orders due for execution."""
         def _check():
             due_orders = []
-            now = datetime.now(timezone.utc)
+            now = datetime.utcnow()
 
             with get_session() as session:
                 orders = session.query(DCAOrder).filter(
@@ -362,7 +363,7 @@ class OrderService:
             
             if template:
                 template.use_count += 1
-                template.last_used_at = datetime.now(timezone.utc)
+                template.last_used_at = datetime.utcnow()
                 return template
             return None
     
@@ -388,7 +389,7 @@ class OrderService:
         
         self._running = True
         self._bot = bot
-        self._swap_engine = swap_engine
+        self._swap_engine = swap_engine or SwapEngine()
         self._task = asyncio.create_task(self._order_loop())
         logger.info("Order service started")
     
@@ -458,7 +459,7 @@ class OrderService:
             )
             
             # 3. Execute Swap
-            idempotency_key = f"lo:{order.id}:{datetime.now(timezone.utc).strftime('%Y%m%d%H')}"
+            idempotency_key = f"lo:{order.id}:{datetime.utcnow().strftime('%Y%m%d%H')}"
             
             swap_tx = await self._swap_engine.execute_swap(
                 quote=quote,
@@ -473,7 +474,7 @@ class OrderService:
                     db_order = session.query(LimitOrder).filter(LimitOrder.id == order.id).first()
                     if db_order:
                         db_order.status = OrderStatus.EXECUTED.value
-                        db_order.executed_at = datetime.now(timezone.utc)
+                        db_order.executed_at = datetime.utcnow()
                         db_order.tx_hash = swap_tx.tx_hash
                 
                 # Notify user
@@ -520,7 +521,7 @@ class OrderService:
             )
             
             # 2. Execute Swap
-            idempotency_key = f"dca:{order.id}:{order.executions_completed}:{datetime.now(timezone.utc).strftime('%Y%m%d%H')}"
+            idempotency_key = f"dca:{order.id}:{order.executions_completed}:{datetime.utcnow().strftime('%Y%m%d%H')}"
             
             swap_tx = await self._swap_engine.execute_swap(
                 quote=quote,
@@ -537,7 +538,7 @@ class OrderService:
                         db_order.executions_completed += 1
                         db_order.total_spent = str(int(db_order.total_spent) + int(order.amount_per_execution))
                         # Update next execution time
-                        db_order.next_execution_at = datetime.now(timezone.utc) + timedelta(hours=db_order.interval_hours)
+                        db_order.next_execution_at = datetime.utcnow() + timedelta(hours=db_order.interval_hours)
                         
                         # Record individual execution
                         execution = DCAExecution(
@@ -617,4 +618,3 @@ class OrderService:
 
 # Global instance
 order_service = OrderService()
-

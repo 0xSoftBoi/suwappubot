@@ -401,7 +401,7 @@ async def post_init(application) -> None:
         logger.info("✓ Price alert service started")
 
         # Start order service (limit orders & DCA)
-        await order_service.start(bot=application.bot)
+        await order_service.start(bot=application.bot, swap_engine=SwapEngine())
         logger.info("✓ Order service started")
 
         # Start transaction poller
@@ -450,7 +450,7 @@ async def run_headless() -> None:
     # These services usually need a bot to send messages
     # We pass None and they should handle it gracefully
     await alert_service.start(bot=None)
-    await order_service.start(bot=None)
+    await order_service.start(bot=None, swap_engine=SwapEngine())
     await tx_poller.start(bot=None)
     await health_monitor.start(bot=None, admin_ids=admin_ids)
     await rug_service.start(swap_engine=SwapEngine())
