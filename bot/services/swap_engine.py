@@ -1073,8 +1073,37 @@ class SwapEngine:
             )
             return tx_hash
         else:
-            # EVM transaction
-            web3 = self.wallet_service._get_web3(quote.from_chain)
+            last_error = None
+            for attempt in range(3):
+                web3 = self.wallet_service._get_web3(quote.from_chain)
+                try:
+                    return await self._execute_lifi_evm_swap(
+                        quote=quote,
+                        wallet_data=wallet_data,
+                        wallet=wallet,
+                        chain=chain,
+                        web3=web3,
+                        tx_request=tx_request,
+                    )
+                except Exception as e:
+                    last_error = e
+                    if not self._is_retryable_rpc_error(e) or attempt == 2:
+                        raise
+                    self._report_web3_failure(quote.from_chain, web3, e)
+                    await asyncio.sleep(0.25 * (attempt + 1))
+
+            raise last_error
+
+    async def _execute_lifi_evm_swap(
+        self,
+        quote: SwapQuote,
+        wallet_data: dict,
+        wallet: Wallet,
+        chain,
+        web3: Web3,
+        tx_request: dict,
+    ) -> str:
+            """Execute an EVM Li.Fi route with a selected Web3 provider."""
             sender = Web3.to_checksum_address(wallet_data["address"])
             nonce = web3.eth.get_transaction_count(sender)
 
@@ -1150,6 +1179,23 @@ class SwapEngine:
             tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
 
             return tx_hash.hex()
+
+    @staticmethod
+    def _is_retryable_rpc_error(error: Exception) -> bool:
+        message = str(error).lower()
+        return (
+            "429" in message
+            or "too many requests" in message
+            or "rate limit" in message
+            or "timeout" in message
+        )
+
+    @staticmethod
+    def _report_web3_failure(chain_name: str, web3: Web3, error: Exception) -> None:
+        provider = getattr(web3, "provider", None)
+        url = getattr(provider, "endpoint_uri", None)
+        if url:
+            rpc_manager.report_failure(chain_name, url, str(error)[:120])
     
     async def _execute_jupiter_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via Jupiter."""
