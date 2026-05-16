@@ -13,6 +13,7 @@ import time
 import uuid
 from urllib.parse import parse_qs, unquote
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Optional, Dict, List, Any
 
 from fastapi import APIRouter, HTTPException, Header, Depends, Request, Cookie, Query
@@ -312,6 +313,18 @@ class WebAppCreateDCARequest(BaseModel):
     totalAmount: float
     frequency: str
     numberOfOrders: int
+
+
+class WebAppCreateLimitOrderRequest(BaseModel):
+    orderType: str
+    fromToken: str
+    toToken: str
+    fromChain: str = "ethereum"
+    toChain: str = "ethereum"
+    amount: float
+    triggerPrice: float
+    slippage: float = 0.5
+    expiresInHours: Optional[int] = None
 
 
 class WebAppTrackedWalletRequest(BaseModel):
@@ -788,6 +801,50 @@ def _dca_order_response(order) -> Dict[str, Any]:
         "nextExecution": order.next_execution_at.isoformat() if order.next_execution_at else None,
         "createdAt": order.created_at.isoformat() if order.created_at else "",
     }
+
+
+def _limit_order_response(order) -> Dict[str, Any]:
+    return {
+        "id": str(order.id),
+        "orderType": order.order_type,
+        "status": order.status,
+        "fromToken": order.from_token,
+        "toToken": order.to_token,
+        "fromChain": order.from_chain,
+        "toChain": order.to_chain,
+        "amountRaw": order.amount,
+        "triggerPrice": float(order.trigger_price or 0),
+        "executionPrice": order.execution_price,
+        "slippage": float(order.slippage or 0),
+        "expiresAt": order.expires_at.isoformat() if order.expires_at else None,
+        "executedAt": order.executed_at.isoformat() if order.executed_at else None,
+        "txHash": order.tx_hash,
+        "createdAt": order.created_at.isoformat() if order.created_at else "",
+    }
+
+
+def _limit_order_target_symbol(order_type: str, from_token: str, to_token: str) -> str:
+    if order_type == "limit_buy":
+        return to_token
+    return from_token
+
+
+async def _validate_limit_order_market(order_type: str, from_token: str, to_token: str, trigger_price: float) -> float:
+    from bot.services.price_service import price_service
+
+    target_symbol = _limit_order_target_symbol(order_type, from_token, to_token)
+    current_price = await price_service.get_price(target_symbol)
+    if current_price is None or current_price <= 0:
+        raise HTTPException(status_code=400, detail=f"Live USD price is not available for {target_symbol}")
+
+    if order_type == "limit_buy" and trigger_price > current_price:
+        raise HTTPException(status_code=400, detail="Limit buy target must be at or below the current market price")
+    if order_type in {"limit_sell", "take_profit"} and trigger_price < current_price:
+        raise HTTPException(status_code=400, detail="Sell target must be at or above the current market price")
+    if order_type == "stop_loss" and trigger_price > current_price:
+        raise HTTPException(status_code=400, detail="Stop-loss target must be at or below the current market price")
+
+    return float(current_price)
 
 
 def get_db():
@@ -1493,6 +1550,96 @@ async def get_terminal_tweet_feed(
 ):
     _require_terminal_user(auth_payload)
     return []
+
+
+@router.get("/limit-orders")
+async def get_terminal_limit_orders(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.advanced import LimitOrder
+
+    orders = db.query(LimitOrder).filter(
+        LimitOrder.user_id == user_id,
+    ).order_by(LimitOrder.created_at.desc()).all()
+    return [_limit_order_response(order) for order in orders]
+
+
+@router.post("/limit-orders")
+async def create_terminal_limit_order(
+    body: WebAppCreateLimitOrderRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    order_type = body.orderType.strip().lower()
+    if order_type not in {"limit_buy", "limit_sell", "stop_loss", "take_profit"}:
+        raise HTTPException(status_code=400, detail="Unsupported limit order type")
+    if body.amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than zero")
+    if body.triggerPrice <= 0:
+        raise HTTPException(status_code=400, detail="Target price must be greater than zero")
+    if body.expiresInHours is not None and body.expiresInHours <= 0:
+        raise HTTPException(status_code=400, detail="Expiry must be greater than zero")
+
+    wallet = _default_terminal_wallet(db, user_id)
+    if not wallet:
+        raise HTTPException(status_code=400, detail="Connect Turnkey first to create a limit order")
+
+    from_chain = body.fromChain.strip().lower()
+    to_chain = body.toChain.strip().lower()
+    from_token = body.fromToken.strip().upper()
+    to_token = body.toToken.strip().upper()
+    await _validate_limit_order_market(order_type, from_token, to_token, body.triggerPrice)
+
+    from bot.config.tokens import get_token_decimals
+    from bot.models.advanced import LimitOrder, OrderStatus
+
+    decimals = get_token_decimals(from_token, from_chain)
+    amount_raw = str(int(Decimal(str(body.amount)) * (Decimal(10) ** decimals)))
+
+    order = LimitOrder(
+        user_id=user_id,
+        wallet_id=wallet.id,
+        order_type=order_type,
+        status=OrderStatus.PENDING.value,
+        from_chain=from_chain,
+        from_token=from_token,
+        to_chain=to_chain,
+        to_token=to_token,
+        amount=amount_raw,
+        trigger_price=body.triggerPrice,
+        slippage=body.slippage,
+        expires_at=datetime.utcnow() + timedelta(hours=body.expiresInHours) if body.expiresInHours else None,
+    )
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    return _limit_order_response(order)
+
+
+@router.post("/limit-orders/{order_id}/cancel")
+async def cancel_terminal_limit_order(
+    order_id: int,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    user_id = _require_terminal_user(auth_payload)
+    from bot.models.advanced import LimitOrder, OrderStatus
+
+    order = db.query(LimitOrder).filter(
+        LimitOrder.id == order_id,
+        LimitOrder.user_id == user_id,
+    ).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Limit order not found")
+    if order.status not in {OrderStatus.PENDING.value, OrderStatus.TRIGGERED.value}:
+        raise HTTPException(status_code=400, detail="Only pending or triggered orders can be cancelled")
+
+    order.status = OrderStatus.CANCELLED.value
+    db.commit()
+    return {"success": True}
 
 
 @router.get("/dca/orders")

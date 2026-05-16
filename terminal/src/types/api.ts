@@ -419,6 +419,41 @@ export interface CreateDCAParams {
   numberOfOrders: number
 }
 
+// === Limit Orders ===
+
+export type LimitOrderType = 'limit_buy' | 'limit_sell' | 'stop_loss' | 'take_profit'
+export type LimitOrderStatus = 'pending' | 'triggered' | 'executed' | 'cancelled' | 'expired' | 'failed'
+
+export interface LimitOrder {
+  id: string
+  orderType: LimitOrderType
+  status: LimitOrderStatus
+  fromToken: string
+  toToken: string
+  fromChain: string
+  toChain: string
+  amountRaw: string
+  triggerPrice: number
+  executionPrice?: number | null
+  slippage: number
+  expiresAt?: string | null
+  executedAt?: string | null
+  txHash?: string | null
+  createdAt: string
+}
+
+export interface CreateLimitOrderParams {
+  orderType: LimitOrderType
+  fromToken: string
+  toToken: string
+  fromChain: string
+  toChain: string
+  amount: number
+  triggerPrice: number
+  slippage: number
+  expiresInHours?: number | null
+}
+
 // === Lending ===
 
 export interface LendingMarket {

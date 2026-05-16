@@ -8,6 +8,7 @@
     "build-storybook": "storybook build",
     "qa:browserbase:swap": "node scripts/browserbase-swap-functional.mjs",
     "qa:browserbase:copilot": "node scripts/browserbase-copilot-functional.mjs",
+    "qa:browserbase:limit": "node scripts/browserbase-limit-order-functional.mjs",
     "qa:browserbase:features": "node scripts/browserbase-terminal-feature-sweep.mjs",
     "build": "vite build",
     "preview": "vite preview"

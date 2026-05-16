@@ -33,6 +33,8 @@ import type {
   CreateAlertParams,
   DCAOrder,
   CreateDCAParams,
+  LimitOrder,
+  CreateLimitOrderParams,
   LendingMarket,
   TrackedWallet,
   TrackedTwitterAccount,
@@ -307,6 +309,22 @@ export const api = {
 
   pauseDCAOrder(orderId: string) {
     return request<void>(`/webapp/dca/orders/${orderId}/pause`, { method: 'POST' })
+  },
+
+  // Limit Orders
+  getLimitOrders() {
+    return request<LimitOrder[]>('/webapp/limit-orders')
+  },
+
+  createLimitOrder(params: CreateLimitOrderParams) {
+    return request<LimitOrder>('/webapp/limit-orders', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  },
+
+  cancelLimitOrder(orderId: string) {
+    return request<void>(`/webapp/limit-orders/${orderId}/cancel`, { method: 'POST' })
   },
 
   // Points / Gamification
