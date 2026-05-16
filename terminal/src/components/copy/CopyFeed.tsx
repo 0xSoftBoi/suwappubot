@@ -41,11 +41,15 @@ export function CopyFeed() {
         <div key={trade.id} className="flex items-center gap-3 px-3 py-2.5 hover:bg-terminal-bg-tertiary/50 transition-colors">
           {/* Action badge */}
           <div className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase shrink-0 ${
-            trade.action === 'buy'
+            trade.status === 'failed'
+              ? 'bg-bear-dim text-bear'
+              : trade.status && trade.status !== 'copied'
+                ? 'bg-terminal-bg-tertiary text-terminal-text-secondary'
+                : trade.action === 'buy'
               ? 'bg-bull-dim text-bull'
               : 'bg-bear-dim text-bear'
           }`}>
-            {trade.action}
+            {trade.status || trade.action}
           </div>
 
           {/* Details */}

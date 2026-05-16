@@ -166,7 +166,7 @@ export function TraderLeaderboard({ onSelectTrader, onFollow }: TraderLeaderboar
                   {trader.followers.toLocaleString()}
                 </td>
                 <td className="py-2.5 px-3 text-right font-mono text-xs text-terminal-text-secondary">
-                  {(trader.copiers ?? Math.floor(trader.followers * 0.3)).toLocaleString()}
+                  {(trader.copiers ?? 0).toLocaleString()}
                 </td>
                 <td className="py-2.5 px-3 text-right">
                   <button

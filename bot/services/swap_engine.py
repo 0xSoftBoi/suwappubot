@@ -984,6 +984,12 @@ class SwapEngine:
                     "provider": quote.provider,
                 })
 
+                try:
+                    from bot.services.copy_service import copy_service
+                    await copy_service.handle_swap_submitted(swap_id)
+                except Exception as e:
+                    logger.warning(f"Copy-trading hook failed for swap {swap_id}: {e}")
+
                 # Clean up local references
                 wallet_encrypted_key = None
 

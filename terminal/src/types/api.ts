@@ -296,6 +296,7 @@ export interface CopyTrade {
   tokenPair: string
   amount: number
   pnl: number
+  status?: 'pending' | 'notified' | 'copied' | 'skipped' | 'failed'
   timestamp: string
 }
 

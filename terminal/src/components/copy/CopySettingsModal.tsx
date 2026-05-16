@@ -22,9 +22,6 @@ export function CopySettingsModal({ isOpen, onClose, onSave, initialSettings, tr
   const [percentageAmount, setPercentageAmount] = useState(initialSettings?.percentageAmount?.toString() || '10')
   const [maxPerTrade, setMaxPerTrade] = useState(initialSettings?.maxPerTrade?.toString() || '500')
   const [dailyLimit, setDailyLimit] = useState(initialSettings?.dailyLimit?.toString() || '2000')
-  const [autoSellEnabled, setAutoSellEnabled] = useState(initialSettings?.autoSellEnabled ?? true)
-  const [stopLossPercent, setStopLossPercent] = useState(initialSettings?.stopLossPercent ?? 15)
-  const [takeProfitPercent, setTakeProfitPercent] = useState(initialSettings?.takeProfitPercent ?? 50)
   const [chainFilter, setChainFilter] = useState<string[]>(initialSettings?.chainFilter || ['ethereum', 'arbitrum', 'base', 'solana'])
   const [maxSlippage, setMaxSlippage] = useState(initialSettings?.maxSlippage?.toString() || '1')
 
@@ -35,9 +32,6 @@ export function CopySettingsModal({ isOpen, onClose, onSave, initialSettings, tr
       setPercentageAmount(initialSettings.percentageAmount?.toString() || '10')
       setMaxPerTrade(initialSettings.maxPerTrade?.toString() || '500')
       setDailyLimit(initialSettings.dailyLimit?.toString() || '2000')
-      setAutoSellEnabled(initialSettings.autoSellEnabled ?? true)
-      setStopLossPercent(initialSettings.stopLossPercent ?? 15)
-      setTakeProfitPercent(initialSettings.takeProfitPercent ?? 50)
       setChainFilter(initialSettings.chainFilter || ['ethereum', 'arbitrum', 'base', 'solana'])
       setMaxSlippage(initialSettings.maxSlippage?.toString() || '1')
     }
@@ -58,9 +52,6 @@ export function CopySettingsModal({ isOpen, onClose, onSave, initialSettings, tr
       percentageAmount: parseFloat(percentageAmount) || undefined,
       maxPerTrade: parseFloat(maxPerTrade) || undefined,
       dailyLimit: parseFloat(dailyLimit) || undefined,
-      autoSellEnabled,
-      stopLossPercent,
-      takeProfitPercent,
       chainFilter,
       maxSlippage: parseFloat(maxSlippage) || undefined,
     })
@@ -177,63 +168,6 @@ export function CopySettingsModal({ isOpen, onClose, onSave, initialSettings, tr
               />
             </div>
           </>
-        )}
-
-        {/* TP/SL sliders */}
-        {copyMode !== 'notify' && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={autoSellEnabled}
-                onChange={e => setAutoSellEnabled(e.target.checked)}
-                className="accent-sakura-500"
-              />
-              <label className="text-xs text-terminal-text-secondary">Auto sell (TP/SL)</label>
-            </div>
-
-            {autoSellEnabled && (
-              <>
-                <div>
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="text-xs text-terminal-text-secondary">Stop Loss</label>
-                    <span className="text-xs font-mono text-bear">{stopLossPercent}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={stopLossPercent}
-                    onChange={e => setStopLossPercent(parseInt(e.target.value))}
-                    className="w-full accent-bear"
-                  />
-                  <div className="flex justify-between text-[10px] text-terminal-text-muted">
-                    <span>0%</span>
-                    <span>100%</span>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="text-xs text-terminal-text-secondary">Take Profit</label>
-                    <span className="text-xs font-mono text-bull">{takeProfitPercent}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={takeProfitPercent}
-                    onChange={e => setTakeProfitPercent(parseInt(e.target.value))}
-                    className="w-full accent-bull"
-                  />
-                  <div className="flex justify-between text-[10px] text-terminal-text-muted">
-                    <span>0%</span>
-                    <span>100%</span>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
         )}
 
         {/* Chain filter */}

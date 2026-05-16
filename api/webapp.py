@@ -1225,10 +1225,11 @@ async def get_terminal_copy_trades(
         {
             "id": str(trade.id),
             "traderAddress": _trader_address(db, trade.trader_id),
-            "action": "buy",
+            "action": "buy" if trade.from_token.upper() in {"USDC", "USDT", "DAI"} else "sell",
             "tokenPair": f"{trade.from_token}/{trade.to_token}",
             "amount": float(trade.copy_amount_usd or 0),
             "pnl": float(trade.pnl_usd or 0),
+            "status": trade.status,
             "timestamp": trade.created_at.isoformat() if trade.created_at else "",
         }
         for trade in trades
