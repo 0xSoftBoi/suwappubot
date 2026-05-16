@@ -56,6 +56,14 @@ class FakeSwapEngine:
             return swap
 
 
+class FakeBot:
+    def __init__(self):
+        self.messages = []
+
+    async def send_message(self, **kwargs):
+        self.messages.append(kwargs)
+
+
 def test_limit_order_executes_through_swap_engine(sqlite_db):
     captured = {}
     service = OrderService()
@@ -105,6 +113,42 @@ def test_limit_order_executes_through_swap_engine(sqlite_db):
         assert db_order.status == OrderStatus.EXECUTED.value
         assert db_order.tx_hash == "0xlimit"
         assert db_order.executed_at is not None
+
+
+def test_limit_order_notification_uses_single_markdown_link(sqlite_db):
+    service = OrderService()
+    service._bot = FakeBot()
+    tx_hash = "0x" + "a" * 64
+
+    with get_session() as session:
+        user = User(id=1, telegram_id=123, username="limit-user")
+        order = LimitOrder(
+            id=1,
+            user_id=1,
+            wallet_id=1,
+            order_type=OrderType.LIMIT_SELL.value,
+            status=OrderStatus.EXECUTED.value,
+            from_chain="base",
+            from_token="ETH",
+            to_chain="base",
+            to_token="USDC",
+            amount=str(2 * 10**18),
+            trigger_price=4000,
+        )
+        session.add_all([user, order])
+
+    with get_session() as session:
+        order = session.query(LimitOrder).filter(LimitOrder.id == 1).first()
+
+    swap_tx = type("SwapTx", (), {"tx_hash": tx_hash})()
+    asyncio.run(service._notify_order_executed(order, swap_tx))
+
+    assert len(service._bot.messages) == 1
+    message = service._bot.messages[0]
+    assert message["chat_id"] == 123
+    assert "[View Transaction]([" not in message["text"]
+    assert f"]({tx_hash}" not in message["text"]
+    assert "](https://" in message["text"]
 
 
 def test_limit_order_expiration_handles_naive_utc_datetimes(sqlite_db):

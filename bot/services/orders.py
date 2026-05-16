@@ -569,7 +569,7 @@ class OrderService:
                     tx_info = ""
                     if swap_tx and swap_tx.tx_hash:
                         from bot.utils.formatters import format_tx_link
-                        tx_info = f"\n🔗 [View Transaction]({format_tx_link(swap_tx.tx_hash, order.from_chain)})"
+                        tx_info = f"\n🔗 {format_tx_link(swap_tx.tx_hash, order.from_chain)}"
 
                     text = (
                         f"✅ *Limit Order Executed!*\n\n"
@@ -597,7 +597,7 @@ class OrderService:
                     tx_info = ""
                     if swap_tx and swap_tx.tx_hash:
                         from bot.utils.formatters import format_tx_link
-                        tx_info = f"\n🔗 [View Transaction]({format_tx_link(swap_tx.tx_hash, order.from_chain)})"
+                        tx_info = f"\n🔗 {format_tx_link(swap_tx.tx_hash, order.from_chain)}"
                         
                     text = (
                         f"📊 *DCA Trade Executed!*\n\n"
