@@ -90,15 +90,15 @@ class UnifiedBotService:
                 return await self._handle_wallets(user)
                 
             elif text in ["/g", "g", "gas"]:
-                # Simple mocked gas response for now (to match Telegram's quick response)
-                return UnifiedResponse(
-                    "⛽ *Live Gas Prices*\n\n"
-                    "• *ETH*: 15 Gwei\n"
-                    "• *ARB*: 0.1 Gwei\n"
-                    "• *Base*: 0.01 Gwei\n"
-                    "• *POL*: 35 Gwei\n\n"
-                    "_Refreshed just now_"
-                )
+                # Live gas prices from the gas tracker (previously hardcoded values).
+                from bot.services.gas_tracker import gas_tracker
+                try:
+                    gas_prices = await gas_tracker.get_all_gas_prices()
+                    if gas_prices:
+                        return UnifiedResponse(gas_tracker.format_gas_message(gas_prices))
+                except Exception as e:
+                    logger.warning(f"Failed to fetch live gas prices: {e}")
+                return UnifiedResponse("⛽ Gas prices are temporarily unavailable. Try again shortly.")
                 
             elif text in ["/s", "s", "swap"]:
                 return UnifiedResponse(
