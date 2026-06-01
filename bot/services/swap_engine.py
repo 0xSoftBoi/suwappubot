@@ -363,6 +363,11 @@ class SwapEngine:
                 tasks.append(self._get_cctp_quote(
                     from_chain, to_chain, from_token, amount, amount_raw, slippage
                 ))
+            # CCIP: same-token cross-chain EVM (#257 — was only in get_all_quotes).
+            if self._is_ccip_route(from_chain, to_chain, from_token, to_token):
+                tasks.append(self._get_ccip_quote(
+                    from_chain, to_chain, from_token, amount, from_address, to_address
+                ))
             # Across: fast intent-based cross-chain.
             if self._is_across_route(from_chain, to_chain, from_token, to_token):
                 tasks.append(self._get_across_quote(

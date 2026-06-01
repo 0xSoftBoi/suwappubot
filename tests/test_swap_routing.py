@@ -130,3 +130,34 @@ def test_get_quote_selects_best_among_wired_providers(engine, monkeypatch):
     ))
     assert best.provider == "across"
     assert best.to_amount_human == 1.02
+
+
+def test_get_quote_includes_ccip(engine, monkeypatch):
+    """#257: CCIP must be raced by get_quote(), not only get_all_quotes()."""
+    assert engine._is_ccip_route("ethereum", "arbitrum", "USDC", "USDC") is True
+
+    def make(provider, out):
+        async def _q(*a, **k):
+            return SwapQuote(
+                provider=provider, from_chain="ethereum", to_chain="arbitrum",
+                from_token="USDC", to_token="USDC", from_amount="1000000",
+                from_amount_human=1.0, to_amount=str(int(out * 1e6)), to_amount_human=out,
+                to_amount_min=str(int(out * 1e6)), gas_cost_usd=0.1, fee_cost_usd=0.0,
+                total_cost_usd=0.1, estimated_time=60, price_impact=0,
+                exchange_rate=out, raw_quote={},
+            )
+        return _q
+
+    # CCIP offers the best price -> it must win, proving it's wired into get_quote.
+    monkeypatch.setattr(engine, "_get_lifi_quote", make("lifi", 0.97))
+    monkeypatch.setattr(engine, "_get_ccip_quote", make("ccip", 1.05))
+    monkeypatch.setattr(engine, "_get_cctp_quote", make("cctp", 1.00))
+    monkeypatch.setattr(engine, "_get_across_quote", make("across", 1.01))
+    monkeypatch.setattr(engine, "_get_socket_quote", make("socket", 0.99))
+
+    best = asyncio.run(engine.get_quote(
+        from_chain="ethereum", to_chain="arbitrum", from_token="USDC", to_token="USDC",
+        amount=1.0, from_address="0x" + "1" * 40, slippage=0.5,
+    ))
+    assert best.provider == "ccip"
+    assert best.to_amount_human == 1.05
