@@ -240,6 +240,8 @@ def _ensure_schema(db_engine) -> None:
         _add_push_token_column(db_engine, inspector, is_sqlite)
         _add_user_settings_columns(db_engine, inspector, is_sqlite)
         _add_passkey_columns(db_engine, inspector, is_sqlite)
+        _widen_totp_secret(db_engine, inspector, is_sqlite)
+        _encrypt_plaintext_totp_secrets(db_engine, is_sqlite)
 
     # --- smart notification columns ---
     _add_smart_notification_columns(db_engine, inspector, is_sqlite)
@@ -391,6 +393,66 @@ def _add_discord_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
+
+
+def _widen_totp_secret(db_engine, inspector, is_sqlite: bool) -> None:
+    """Widen users.totp_secret to hold an encrypted secret (~208 chars).
+
+    Older deployments created the column as VARCHAR(64) for a plaintext TOTP
+    seed. Encryption-at-rest stores a much longer ciphertext, so Postgres must
+    widen the column. SQLite ignores VARCHAR lengths, so this is a no-op there.
+    """
+    if is_sqlite:
+        return
+    cols = {c["name"] for c in inspector.get_columns("users")}
+    if "totp_secret" not in cols:
+        return
+    try:
+        with db_engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ALTER COLUMN totp_secret TYPE TEXT"))
+        logger.info("Widened users.totp_secret to TEXT")
+    except Exception as e:
+        logger.warning(f"Could not widen users.totp_secret: {e}")
+
+
+def _encrypt_plaintext_totp_secrets(db_engine, is_sqlite: bool) -> None:
+    """Backfill: encrypt any legacy plaintext TOTP secrets in place.
+
+    Idempotent — already-encrypted rows decrypt cleanly and are skipped. This
+    remediates the historical plaintext exposure for users who never re-trigger
+    a 2FA read. Best-effort: failures are logged, never fatal to startup.
+    """
+    try:
+        from bot.config.settings import settings
+        from bot.utils.encryption import encrypt_private_key, decrypt_private_key
+    except Exception as e:
+        logger.warning(f"Skipping TOTP backfill (imports unavailable): {e}")
+        return
+
+    key = settings.encryption_key
+    try:
+        with db_engine.begin() as conn:
+            rows = conn.execute(text(
+                "SELECT id, totp_secret FROM users WHERE totp_secret IS NOT NULL"
+            )).fetchall()
+            migrated = 0
+            for row in rows:
+                stored = row[1]
+                try:
+                    decrypt_private_key(stored, key)
+                    continue  # already encrypted
+                except Exception:
+                    pass  # plaintext — encrypt it
+                encrypted = encrypt_private_key(stored, key)
+                conn.execute(
+                    text("UPDATE users SET totp_secret = :s WHERE id = :id"),
+                    {"s": encrypted, "id": row[0]},
+                )
+                migrated += 1
+            if migrated:
+                logger.info(f"Encrypted {migrated} legacy plaintext TOTP secret(s)")
+    except Exception as e:
+        logger.warning(f"TOTP secret backfill skipped: {e}")
 
 
 def _fix_user_nullability(db_engine, inspector, is_sqlite: bool) -> None:

@@ -8,6 +8,8 @@ from typing import Optional, Tuple
 
 from bot.models.user import User
 from database.db import get_session
+from bot.config.settings import settings
+from bot.utils.encryption import encrypt_private_key, decrypt_private_key
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +39,30 @@ class TwoFactorService:
         """Verify a TOTP code."""
         totp = pyotp.TOTP(secret)
         return totp.verify(code)
-    
+
+    def encrypt_secret(self, secret: str) -> str:
+        """Encrypt a TOTP secret for storage at rest."""
+        return encrypt_private_key(secret, settings.encryption_key)
+
+    def _read_secret(self, user) -> Optional[str]:
+        """Return a user's plaintext TOTP secret, healing legacy rows.
+
+        Secrets are stored encrypted (see ``encrypt_secret``). Rows enrolled
+        before encryption-at-rest was added are plaintext: decryption fails, so
+        we treat the stored value as the secret and re-encrypt it in place. The
+        surrounding ``get_session()`` commits on clean exit, so the plaintext
+        exposure is remediated the first time the secret is read.
+        """
+        stored = user.totp_secret
+        if not stored:
+            return None
+        try:
+            return decrypt_private_key(stored, settings.encryption_key)
+        except Exception:
+            # Legacy plaintext secret — re-encrypt in place.
+            user.totp_secret = self.encrypt_secret(stored)
+            return stored
+
     def setup_2fa(self, user_id: int) -> Tuple[str, str]:
         """Set up 2FA for a user. Returns (secret, uri)."""
         with get_session() as session:
@@ -47,9 +72,9 @@ class TwoFactorService:
             
             # Generate new secret
             secret = self.generate_secret()
-            
-            # Store encrypted secret (in production, encrypt this!)
-            user.totp_secret = secret
+
+            # Store the secret encrypted at rest — never persist the raw seed.
+            user.totp_secret = self.encrypt_secret(secret)
             user.two_fa_enabled = True
             
             uri = self.get_totp_uri(secret, user.username or f"user_{user_id}")
@@ -62,10 +87,11 @@ class TwoFactorService:
             user = session.query(User).filter(User.id == user_id).first()
             if not user or not user.totp_secret:
                 return False
-            
-            if not self.verify_totp(user.totp_secret, code):
+
+            secret = self._read_secret(user)
+            if not secret or not self.verify_totp(secret, code):
                 return False
-            
+
             user.totp_secret = None
             user.two_fa_enabled = False
             return True
@@ -79,8 +105,8 @@ class TwoFactorService:
     def requires_2fa(self, user_id: int, amount_usd: float, threshold: float = None) -> bool:
         """Check if a transaction requires 2FA."""
         if threshold is None:
-            threshold = self.DEFAULT_THRESHOLD
-        
+            threshold = self.get_2fa_threshold(user_id)
+
         if amount_usd < threshold:
             return False
         
@@ -92,8 +118,9 @@ class TwoFactorService:
             user = session.query(User).filter(User.id == user_id).first()
             if not user or not user.totp_secret:
                 return False
-            
-            return self.verify_totp(user.totp_secret, code)
+
+            secret = self._read_secret(user)
+            return bool(secret) and self.verify_totp(secret, code)
     
     # === Simple Code Verification (no TOTP app required) ===
     
@@ -133,20 +160,21 @@ class TwoFactorService:
         # Could be user-configurable in the future
         with get_session() as session:
             user = session.query(User).filter(User.id == user_id).first()
-            if user:
-                # Check if user has custom threshold setting
-                # For now, return default
-                pass
+            if user and user.two_fa_threshold is not None:
+                return float(user.two_fa_threshold)
             return self.DEFAULT_THRESHOLD
-    
+
     def set_2fa_threshold(self, user_id: int, threshold: float) -> bool:
-        """Set custom 2FA threshold for a user."""
+        """Set custom 2FA threshold for a user. Returns True if persisted."""
         if threshold < 0:
             return False
-        
-        # Store in user settings
-        # For now, this is a placeholder
-        return True
+
+        with get_session() as session:
+            user = session.query(User).filter(User.id == user_id).first()
+            if not user:
+                return False
+            user.two_fa_threshold = int(threshold)
+            return True
 
 
 # Global instance

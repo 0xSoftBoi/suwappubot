@@ -33,7 +33,7 @@ class User(Base):
     
     # 2FA
     two_fa_enabled = Column(Boolean, default=False)
-    totp_secret = Column(String(64), nullable=True)  # TOTP secret for 2FA
+    totp_secret = Column(Text, nullable=True)  # Encrypted TOTP secret for 2FA (Fernet ciphertext, ~208 chars)
     two_fa_threshold = Column(Integer, default=1000)  # USD threshold for 2FA
     
     # Push notifications (Expo push token for iOS/Android app)
