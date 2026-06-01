@@ -39,6 +39,7 @@ from bot.services.swap_engine import SwapEngine
 from bot.services.tx_poller import tx_poller
 from bot.services.health_monitor import health_monitor
 from bot.services.balance_refresher import balance_refresher
+from bot.services.perps_monitor import perps_monitor
 from bot.services.event_bus import event_bus
 from bot.services.api_client import api_client
 from bot.utils.preload import preload_config
@@ -174,6 +175,9 @@ async def lifespan(app: FastAPI):
         await health_monitor.start(bot=bot_app.bot if bot_initialized else None, admin_ids=admin_ids)
         await asyncio.sleep(2)
         await balance_refresher.start()
+        await asyncio.sleep(2)
+        # Perps position-sync loop (#248): previously implemented but never started.
+        await perps_monitor.start(bot=bot_app.bot if bot_initialized else None)
 
         # Start Discord alert service if Discord bot is available
         if discord_bot:
@@ -256,6 +260,7 @@ async def lifespan(app: FastAPI):
         await tx_poller.stop()
         await health_monitor.stop()
         await balance_refresher.stop()
+        await perps_monitor.stop()
 
     # Stop auth challenge cleanup
     auth_cleanup_task.cancel()
