@@ -844,6 +844,7 @@ class SwapEngine:
                     return {
                         "id": wallet_obj.id,
                         "wallet_id": wallet_obj.id,
+                        "user_id": wallet_obj.user_id,
                         "address": wallet_obj.address,
                         "chain_type": wallet_obj.chain_type,
                         "encrypted_private_key": wallet_obj.encrypted_private_key,
@@ -851,6 +852,12 @@ class SwapEngine:
             wallet = await run_in_db(_get_wallet)
             if not wallet:
                 raise SwapError("Wallet not found")
+
+            # Authentication binding: ensure the wallet actually belongs to the
+            # caller's user_id before moving any funds. Without this an attacker
+            # could supply a wallet_id from one user and a user_id from another.
+            if wallet["user_id"] != user_id:
+                raise SwapError(f"Wallet {wallet_id} does not belong to user {user_id}")
 
             wallet_address = wallet["address"]
             wallet_chain_type = wallet["chain_type"]
@@ -1155,7 +1162,14 @@ class SwapEngine:
                         "chainId": chain.chain_id,
                     }
                     signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-                    approve_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approve.replace("0x", "")))
+                    approve_raw = bytes.fromhex(signed_approve.replace("0x", ""))
+                    # The tx hash is deterministically keccak256 of the signed raw
+                    # bytes. Verify the RPC returned a hash for *our* signed tx so a
+                    # tampering/untrusted RPC can't swap in a different transaction.
+                    approve_expected = Web3.keccak(approve_raw)
+                    approve_hash = web3.eth.send_raw_transaction(approve_raw)
+                    if bytes(approve_hash) != bytes(approve_expected):
+                        raise SwapError("RPC returned mismatched approval transaction hash — possible tampering")
                     logger.info(f"LiFi approval tx: {approve_hash.hex()}")
                     web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
                     nonce += 1
@@ -1176,9 +1190,17 @@ class SwapEngine:
 
             # Sign and send
             signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-            tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+            raw_tx = bytes.fromhex(signed_tx_hex.replace("0x", ""))
+            # The tx hash is deterministically keccak256 of the signed raw bytes.
+            # Verify the RPC returned a hash for *our* signed tx so a tampering or
+            # untrusted RPC can't substitute a different transaction (e.g. one with
+            # a modified recipient) and still report success.
+            expected_hash = Web3.keccak(raw_tx)
+            tx_hash = web3.eth.send_raw_transaction(raw_tx)
+            if bytes(tx_hash) != bytes(expected_hash):
+                raise SwapError("RPC returned mismatched transaction hash — possible tampering")
 
-            return tx_hash.hex()
+            return expected_hash.hex()
 
     @staticmethod
     def _is_retryable_rpc_error(error: Exception) -> bool:

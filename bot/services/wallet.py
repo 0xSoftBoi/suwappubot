@@ -1,8 +1,11 @@
 """Wallet management service for EVM and Solana chains."""
 
 import asyncio
+import ctypes
 import json
 import logging
+import sys
+import threading
 import time
 from typing import Optional
 from web3 import Web3
@@ -26,10 +29,128 @@ from bot.utils.envelope_crypto import (
     SCHEME_KMS_AESGCM_V2,
 )
 from bot.utils.validators import validate_private_key, validate_address
+from bot.utils.rate_limiter import RateLimitExceeded
 from bot.models.user import User, Wallet
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
+
+
+def _zeroize_str(secret: Optional[str]) -> None:
+    """Best-effort secure wipe of a Python string's backing buffer.
+
+    Python strings are immutable, so the interpreter normally keeps the
+    plaintext in memory until garbage-collected. For sensitive material
+    (decrypted private keys) we overwrite the underlying character buffer
+    in place via ctypes so a memory dump taken after signing does not
+    expose the key.
+
+    This is a hardening best-effort only: it MUST NOT raise (never break
+    signing). It is a no-op for interned/empty strings or non-CPython
+    runtimes where the memory layout assumption does not hold.
+    """
+    if not secret or not isinstance(secret, str):
+        return
+    # Only safe on CPython, whose object layout we rely on.
+    if sys.implementation.name != "cpython":
+        return
+    try:
+        # Only handle pure-ASCII strings. Private keys are always hex/base58
+        # ASCII, which CPython stores as a compact 1-byte-per-char buffer at a
+        # fixed offset. Restricting to ASCII guarantees the offset and byte
+        # length below are correct and avoids touching wider unicode layouts.
+        if not secret.isascii():
+            return
+        n = len(secret)
+        # Only wipe sufficiently long secrets. Real private keys are >= 32 chars
+        # (hex/base58); skipping short strings avoids touching CPython's interned
+        # single-char / small-string caches, which are shared process-wide.
+        if n < 16:
+            return
+        # Compact ASCII str data lives right after the object header. The header
+        # size equals getsizeof('') minus the 1-byte trailing NUL of the empty
+        # string's own (zero-length) data region.
+        offset = sys.getsizeof("") - 1
+        ctypes.memset(id(secret) + offset, 0, n)
+    except Exception:
+        # Never let zeroization break a signing flow.
+        return
+
+
+class _BackupKeyAccessGuard:
+    """Rate limiting + anomaly logging for backup private key decryption.
+
+    Backup keys are the most sensitive material in the system (full plaintext
+    key for an otherwise-Turnkey-managed wallet). Without throttling, an
+    attacker who controls a user's session could trigger unbounded backup key
+    decryptions and exfiltrate every key (e.g. by repeatedly invoking the
+    predict handler).
+
+    This guard logs every decryption (for downstream alerting) and enforces
+    two limits per wallet:
+      * an optional minimum interval between accesses (disabled by default so
+        legitimate back-to-back order placement is not broken); and
+      * a burst/anomaly cap — at most ``max_burst`` accesses within
+        ``burst_window_seconds``. The defaults (20 / 300s) sit far above any
+        legitimate human-driven signing rate but block an automated
+        exfiltration loop, which would attempt hundreds of accesses per minute.
+
+    The guard is process-wide and best-effort (in-memory only); it complements,
+    rather than replaces, account-level auth and Telegram-side rate limiting.
+    """
+
+    def __init__(self, min_interval_seconds: float = 0.0, max_burst: int = 20,
+                 burst_window_seconds: float = 300.0):
+        self.min_interval_seconds = min_interval_seconds
+        self.max_burst = max_burst
+        self.burst_window_seconds = burst_window_seconds
+        self._last_access: dict[int, float] = {}
+        self._recent: dict[int, list] = {}
+        self._lock = threading.Lock()
+
+    def check(self, wallet_id: int) -> None:
+        """Raise RateLimitExceeded if backup key access is too frequent."""
+        now = time.monotonic()
+        with self._lock:
+            last = self._last_access.get(wallet_id)
+            if last is not None:
+                elapsed = now - last
+                if elapsed < self.min_interval_seconds:
+                    retry_after = self.min_interval_seconds - elapsed
+                    logger.warning(
+                        "Backup key access throttled for wallet %s: "
+                        "last access %.1fs ago (min interval %.0fs)",
+                        wallet_id, elapsed, self.min_interval_seconds,
+                    )
+                    raise RateLimitExceeded(
+                        "Backup key access rate limit exceeded. "
+                        f"Retry in {retry_after:.0f}s.",
+                        retry_after=retry_after,
+                    )
+
+            # Burst / anomaly detection across a wider window.
+            window_start = now - self.burst_window_seconds
+            recent = [t for t in self._recent.get(wallet_id, []) if t > window_start]
+            if len(recent) >= self.max_burst:
+                logger.error(
+                    "ANOMALY: backup key accessed %d times in %.0fs for wallet %s — "
+                    "possible key exfiltration attempt",
+                    len(recent), self.burst_window_seconds, wallet_id,
+                )
+                raise RateLimitExceeded(
+                    "Backup key access blocked: too many accesses in a short window.",
+                )
+
+            # Record this access.
+            self._last_access[wallet_id] = now
+            recent.append(now)
+            self._recent[wallet_id] = recent
+
+        logger.info("Backup private key decrypted for wallet %s", wallet_id)
+
+
+# Process-wide guard for backup key decryption.
+_backup_key_guard = _BackupKeyAccessGuard()
 
 
 # ERC20 ABI for balance checking
@@ -510,6 +631,11 @@ class WalletService:
         """
         if not wallet.encrypted_private_key or wallet.encrypted_private_key == "turnkey_managed":
             raise ValueError(f"No backup key for wallet {wallet.id}")
+
+        # Rate limit + anomaly-log every backup key decryption. Backup keys are
+        # the highest-value secret in the system; unbounded access is a key
+        # exfiltration vector. Raises RateLimitExceeded if accessed too often.
+        _backup_key_guard.check(wallet.id)
 
         return get_private_key_with_auto_migrate(wallet, auto_migrate=False)
 
@@ -1070,11 +1196,15 @@ class WalletService:
     def _sign_evm_local(self, wallet: Wallet, transaction: dict) -> str:
         """Sign EVM transaction with local private key."""
         private_key = self.get_private_key(wallet)
-        if not private_key.startswith("0x"):
-            private_key = "0x" + private_key
-
-        signed = Account.sign_transaction(transaction, private_key)
-        return signed.raw_transaction.hex()
+        prefixed = None
+        try:
+            prefixed = private_key if private_key.startswith("0x") else "0x" + private_key
+            signed = Account.sign_transaction(transaction, prefixed)
+            return signed.raw_transaction.hex()
+        finally:
+            _zeroize_str(private_key)
+            if prefixed is not None and prefixed is not private_key:
+                _zeroize_str(prefixed)
     
     async def sign_typed_data(self, wallet: Wallet, typed_data: dict) -> str:
         """Sign EIP-712 typed data. Falls back to local signing if Turnkey is down."""
@@ -1089,13 +1219,24 @@ class WalletService:
         from eth_account.messages import encode_typed_data
 
         private_key = self.get_private_key(wallet)
-        if not private_key.startswith("0x"):
-            private_key = "0x" + private_key
-
-        account = Account.from_key(private_key)
-        encoded_message = encode_typed_data(full_message=typed_data)
-        signed = account.sign_message(encoded_message)
-        return signed.signature.hex()
+        prefixed = None
+        account = None
+        try:
+            prefixed = private_key if private_key.startswith("0x") else "0x" + private_key
+            account = Account.from_key(prefixed)
+            encoded_message = encode_typed_data(full_message=typed_data)
+            signed = account.sign_message(encoded_message)
+            return signed.signature.hex()
+        finally:
+            _zeroize_str(private_key)
+            if prefixed is not None and prefixed is not private_key:
+                _zeroize_str(prefixed)
+            # The Account object holds the key bytes internally; drop the
+            # reference so it becomes eligible for GC sooner. This only
+            # narrows the exposure window — it does not scrub the key bytes
+            # already stored inside eth_account internals.
+            account = None
+            del account
 
     async def _sign_typed_data_via_turnkey(self, wallet: Wallet, typed_data: dict) -> str:
         """Sign typed data via Turnkey."""
@@ -1184,16 +1325,21 @@ class WalletService:
         from solders.transaction import VersionedTransaction
 
         private_key = self.get_private_key(wallet)
-
+        key_bytes = None
         try:
-            key_bytes = base58.b58decode(private_key)
-        except Exception:
-            key_bytes = bytes(json.loads(private_key))
+            try:
+                key_bytes = base58.b58decode(private_key)
+            except Exception:
+                key_bytes = bytes(json.loads(private_key))
 
-        keypair = Keypair.from_bytes(key_bytes)
-        tx = VersionedTransaction.from_bytes(transaction_bytes)
-        tx.sign([keypair])
-        return bytes(tx)
+            keypair = Keypair.from_bytes(key_bytes)
+            tx = VersionedTransaction.from_bytes(transaction_bytes)
+            tx.sign([keypair])
+            return bytes(tx)
+        finally:
+            _zeroize_str(private_key)
+            if isinstance(key_bytes, bytearray):
+                ctypes.memset((ctypes.c_char * len(key_bytes)).from_buffer(key_bytes), 0, len(key_bytes))
     
     async def _sign_solana_via_turnkey(self, wallet: Wallet, transaction_bytes: bytes) -> bytes:
         """Sign Solana transaction via Turnkey API."""
@@ -1236,7 +1382,10 @@ class WalletService:
             private_key_hex = self.get_backup_private_key(wallet)
         else:
             private_key_hex = self.get_private_key(wallet)
-        pk = TronPrivateKey(bytes.fromhex(private_key_hex.replace("0x", "")))
+        try:
+            pk = TronPrivateKey(bytes.fromhex(private_key_hex.replace("0x", "")))
+        finally:
+            _zeroize_str(private_key_hex)
 
         rpc_url = rpc_manager.get_rpc_url("tron") or "https://api.trongrid.io"
 
@@ -1312,12 +1461,15 @@ class WalletService:
             kms_key_id=kms_key_id,
             key_version=key_version,
         )
-        
-        if not private_key.startswith("0x"):
-            private_key = "0x" + private_key
-        
-        signed = Account.sign_transaction(transaction, private_key)
-        return signed.raw_transaction.hex()
+        prefixed = None
+        try:
+            prefixed = private_key if private_key.startswith("0x") else "0x" + private_key
+            signed = Account.sign_transaction(transaction, prefixed)
+            return signed.raw_transaction.hex()
+        finally:
+            _zeroize_str(private_key)
+            if prefixed is not None and prefixed is not private_key:
+                _zeroize_str(prefixed)
     
     def sign_solana_transaction_raw(
         self,
@@ -1363,17 +1515,22 @@ class WalletService:
             kms_key_id=kms_key_id,
             key_version=key_version,
         )
-        
+        key_bytes = None
         try:
-            key_bytes = base58.b58decode(private_key)
-        except Exception:
-            key_bytes = bytes(json.loads(private_key))
-        
-        keypair = Keypair.from_bytes(key_bytes)
-        
-        # Deserialize, sign, and serialize
-        tx = VersionedTransaction.from_bytes(transaction_bytes)
-        tx.sign([keypair])
-        
-        return bytes(tx)
+            try:
+                key_bytes = base58.b58decode(private_key)
+            except Exception:
+                key_bytes = bytes(json.loads(private_key))
+
+            keypair = Keypair.from_bytes(key_bytes)
+
+            # Deserialize, sign, and serialize
+            tx = VersionedTransaction.from_bytes(transaction_bytes)
+            tx.sign([keypair])
+
+            return bytes(tx)
+        finally:
+            _zeroize_str(private_key)
+            if isinstance(key_bytes, bytearray):
+                ctypes.memset((ctypes.c_char * len(key_bytes)).from_buffer(key_bytes), 0, len(key_bytes))
 

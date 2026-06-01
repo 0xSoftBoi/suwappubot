@@ -132,6 +132,50 @@ function getChainList(): string[] {
 	return [...evmChains, 'Solana']
 }
 
+// Placeholder used for EVM quotes when the requesting agent has no usable
+// on-chain wallet recorded. Li.Fi requires a `fromAddress`, but a quote built
+// against a placeholder is non-executable (it cannot be signed by any agent).
+const EVM_QUOTE_PLACEHOLDER_ADDRESS = '0x0000000000000000000000000000000000000001'
+const EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/
+
+/**
+ * Resolve the EVM `fromAddress` to use when generating a quote for an agent.
+ *
+ * Quotes are scoped to the requesting agent (see `cacheAgentQuote(..., agent.id)`),
+ * so they must be priced against that agent's own wallet rather than a shared
+ * placeholder. Using the real wallet ensures the resulting (future) executable
+ * transaction can only be signed by the agent that requested it, removing the
+ * cross-agent quote-reuse risk.
+ *
+ * Falls back to the non-executable placeholder when the agent has no valid EVM
+ * wallet recorded, preserving prior behavior for those agents. A stored value is
+ * only accepted if it is a well-formed EVM address, so malformed/Solana metadata
+ * never reaches Li.Fi (which would reject the quote).
+ */
+export function resolveAgentEvmAddress(agent: Agent): string {
+	const raw = (agent.metadata as Record<string, unknown> | null | undefined)?.wallet_address
+	if (typeof raw === 'string' && EVM_ADDRESS_RE.test(raw)) {
+		return raw
+	}
+	return EVM_QUOTE_PLACEHOLDER_ADDRESS
+}
+
+/**
+ * Enforce that a cached quote belongs to the requesting agent.
+ *
+ * A2A does not currently expose a quote-execution endpoint, so this is not yet
+ * called at runtime. It is provided (and exported) so that any future execution
+ * path MUST validate ownership before returning a signable swap transaction —
+ * without this check, an agent could pass another agent's `quote_id` and hijack
+ * its swap. Returns false when the cached quote was created by a different agent.
+ */
+export function isQuoteOwnedByAgent(
+	cached: { agentId?: number } | null | undefined,
+	agentId: number,
+): boolean {
+	return !!cached && cached.agentId === agentId
+}
+
 // -------------------------------------------------------------------
 // Message processing
 // -------------------------------------------------------------------
@@ -317,7 +361,7 @@ async function processEvmQuote(
 					fromToken: fromTokenInfo.address,
 					toToken: toTokenInfo.address,
 					fromAmount: fromAmountWei,
-					fromAddress: '0x0000000000000000000000000000000000000001',
+					fromAddress: resolveAgentEvmAddress(agent),
 					slippage: 0.03,
 					integrator: 'suwappu-a2a',
 				} as QuoteParams)
@@ -325,6 +369,9 @@ async function processEvmQuote(
 
 			const toAmountHuman = parseFloat(quote.toAmount) / 10 ** toTokenInfo.decimals
 			const quoteId = quote.quoteId
+			// Scope the cached quote to the requesting agent. Any future quote
+			// execution path MUST re-validate ownership via isQuoteOwnedByAgent
+			// before returning a signable transaction.
 			cacheAgentQuote(quoteId, quote, agent.id, false)
 
 			return {
@@ -416,6 +463,9 @@ async function processSolanaQuote(
 			const route = quote.routePlan.map((r: any) => r.swapInfo.label).join(' -> ')
 
 			const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+			// Scope the cached quote to the requesting agent. Any future quote
+			// execution path MUST re-validate ownership via isQuoteOwnedByAgent
+			// before returning a signable transaction.
 			cacheAgentQuote(quoteId, quote, agent.id, true)
 
 			return {

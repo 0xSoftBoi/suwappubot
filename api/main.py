@@ -296,6 +296,59 @@ admin_key_header = APIKeyHeader(name=ADMIN_KEY_NAME, auto_error=False)
 _agent_key_cache: dict[str, tuple[int, float]] = {}
 _AGENT_KEY_CACHE_TTL = 300  # 5 minutes
 
+# --- Per-agent-key enumeration throttle ---
+# The /users/{user_id}/* discovery endpoints accept an arbitrary user_id, so a
+# single valid (possibly shared or compromised) agent key could walk user_id
+# 1..N and harvest every wallet/portfolio in the system. We cap how fast any
+# one key can hit these endpoints and log bursts of distinct-user lookups so
+# bulk enumeration is both slowed down and visible.
+from bot.utils.rate_limiter import UserRateLimiter as _UserRateLimiter, RateLimitExceeded as _RateLimitExceeded
+
+_ENUM_MAX_REQUESTS = int(os.environ.get("AGENT_ENUM_MAX_PER_MIN", "10"))
+_enum_rate_limiter = _UserRateLimiter(max_requests=_ENUM_MAX_REQUESTS, window_seconds=60)
+
+# Tracks distinct user_ids queried per agent key within the window (for alerting).
+_enum_seen_users: "dict[str, dict[int, float]]" = {}
+_ENUM_ALERT_DISTINCT_USERS = int(os.environ.get("AGENT_ENUM_ALERT_DISTINCT", "20"))
+
+
+async def enforce_enumeration_guard(agent_key: str, user_id: int) -> None:
+    """Rate-limit and monitor per-agent-key access to user enumeration endpoints.
+
+    Raises HTTP 429 when an agent key exceeds the per-minute cap. Logs a warning
+    when a single key fans out across many distinct user_ids (a strong signal of
+    sequential enumeration / scraping).
+    """
+    try:
+        await _enum_rate_limiter.check(agent_key)
+    except _RateLimitExceeded as e:
+        logger.warning(
+            f"🚨 Agent enumeration rate limit exceeded (key=...{str(agent_key)[-6:]}) on user_id={user_id}"
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=str(e),
+            headers={"Retry-After": str(int(getattr(e, "retry_after", 60)) or 60)},
+        )
+
+    # Distinct-user fan-out detection (best-effort, in-memory).
+    now = time.monotonic()
+    seen = _enum_seen_users.setdefault(agent_key, {})
+    # Drop entries older than the 60s window.
+    for uid in [u for u, ts in seen.items() if now - ts > 60]:
+        seen.pop(uid, None)
+    seen[user_id] = now
+    # Opportunistically reap fully-expired keys so the outer dict stays bounded.
+    if len(_enum_seen_users) > 1000:
+        for k in [k for k, v in _enum_seen_users.items()
+                  if k != agent_key and all(now - ts > 60 for ts in v.values())]:
+            _enum_seen_users.pop(k, None)
+    if len(seen) >= _ENUM_ALERT_DISTINCT_USERS:
+        logger.warning(
+            f"🚨 Possible user enumeration: agent key ...{str(agent_key)[-6:]} queried "
+            f"{len(seen)} distinct user_ids in the last 60s"
+        )
+
 
 async def get_agent_key(
     api_key: str = Security(api_key_header),
@@ -574,7 +627,10 @@ if not JWT_SECRET:
     _jwt_log.getLogger(__name__).warning("SECRET_KEY not set — generating ephemeral JWT secret (tokens will not survive restarts)")
     JWT_SECRET = secrets.token_hex(32)
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRY_HOURS = 24 * 7  # 7 days
+# Short-lived tokens limit the blast radius of a stolen token and force
+# re-authentication so that revoked/banned users lose access quickly.
+# (Previously 7 days, which kept a leaked token valid for a full week.)
+JWT_EXPIRY_HOURS = int(os.environ.get("JWT_EXPIRY_HOURS", "1"))
 
 def create_jwt_token(address: str, user_id: int) -> str:
     """Create a JWT token for authenticated user."""
@@ -586,15 +642,50 @@ def create_jwt_token(address: str, user_id: int) -> str:
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
+def _user_is_authorized(user_id) -> bool:
+    """Check that the token's subject is still a valid, active user.
+
+    A signature-valid JWT is not sufficient: the user may have been deleted
+    (or otherwise deauthorized) after the token was issued. We re-check on
+    every decode so revocation takes effect immediately rather than waiting
+    for the token to expire.
+
+    Fails open only when the database is unavailable, so that a degraded-mode
+    deployment does not lock everyone out (matches the rest of this service's
+    degraded-mode behavior).
+    """
+    if user_id is None:
+        return False
+    # Re-import the flag: database.db sets it inside init_db() (which runs in the
+    # lifespan, after this module is imported), so the import-time module-level
+    # copy is stale-False. health_check() re-imports for the same reason.
+    from database.db import DATABASE_AVAILABLE as _DB_AVAILABLE
+    if not _DB_AVAILABLE:
+        return True
+    try:
+        with get_session() as session:
+            return session.query(User.id).filter(User.id == user_id).first() is not None
+    except Exception:
+        # DB hiccup — do not hard-fail auth on a transient error.
+        return True
+
+
 def decode_jwt_token(token: str) -> Optional[Dict]:
-    """Decode and validate a JWT token."""
+    """Decode and validate a JWT token.
+
+    Validates the signature and expiry, then re-confirms that the subject
+    user is still authorized (active) before trusting the token.
+    """
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        return payload
     except jwt.ExpiredSignatureError:
         return None
     except jwt.InvalidTokenError:
         return None
+
+    if not _user_is_authorized(payload.get("user_id")):
+        return None
+    return payload
 
 async def get_current_user_from_token(
     request: Request,
@@ -1445,6 +1536,7 @@ async def get_wallets(
     Retrieve all active wallets for a specific user.
     Agents use this to identify target addresses for deposit/swap operations.
     """
+    await enforce_enumeration_guard(agent_key, user_id)
     wallets = db.query(Wallet).filter(Wallet.user_id == user_id, Wallet.is_active == True).all()
     # Map camelCase for iOS compatibility
     res = []
@@ -1471,8 +1563,9 @@ async def get_portfolio(
     Fetches a real-time consolidated balance sheet for a user across all supported chains.
     Agents must call this to verify sufficient liquidity before initiating swap orders.
     """
+    await enforce_enumeration_guard(agent_key, user_id)
     wallets = db.query(Wallet).filter(Wallet.user_id == user_id, Wallet.is_active == True).all()
-    
+
     total_usd = 0.0
     all_token_balances = []
     chains_value = {}
@@ -1516,6 +1609,11 @@ async def get_swaps(
     db: Session = Depends(get_db),
     _key: str = Depends(get_agent_or_admin_key),
 ):
+    # Admin keys are trusted and exempt; throttle/monitor only agent-key access.
+    _admin_key = getattr(settings, "admin_api_key", None)
+    if not (_admin_key and _key == _admin_key):
+        await enforce_enumeration_guard(_key, user_id)
+
     swaps = db.query(SwapTransaction).filter(
         SwapTransaction.user_id == user_id
     ).order_by(SwapTransaction.created_at.desc()).limit(limit).all()

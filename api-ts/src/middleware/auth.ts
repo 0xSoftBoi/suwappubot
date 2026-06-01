@@ -39,6 +39,52 @@ function safeCompare(a: string, b: string): boolean {
 	return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b))
 }
 
+// Brute-force protection for admin key auth: track failed attempts per IP and
+// apply an exponentially increasing lockout once a threshold is exceeded.
+// In-memory + per-process (mirrors ipRateLimit's model); state resets on restart.
+const ADMIN_AUTH_FAILURE_THRESHOLD = 5
+const ADMIN_AUTH_BASE_LOCKOUT_MS = 1_000 // 1s, doubles per failure past threshold
+const ADMIN_AUTH_MAX_LOCKOUT_MS = 60 * 60_000 // cap at 1 hour
+const ADMIN_AUTH_CLEANUP_INTERVAL_MS = 60 * 60_000 // 1 hour
+
+interface AdminAuthFailureEntry {
+	failures: number
+	lockedUntil: number
+}
+
+const adminAuthFailures = new Map<string, AdminAuthFailureEntry>()
+let lastAdminAuthCleanup = Date.now()
+
+function adminAuthClientIp(c: Context): string {
+	const forwarded = c.req.header('x-forwarded-for')
+	return forwarded?.split(',')[0]?.trim() || 'unknown'
+}
+
+function cleanupAdminAuthFailures(now: number) {
+	if (now - lastAdminAuthCleanup < ADMIN_AUTH_CLEANUP_INTERVAL_MS) return
+	lastAdminAuthCleanup = now
+	for (const [key, entry] of adminAuthFailures) {
+		// Drop entries that are no longer locked and have no recent activity to track.
+		if (entry.lockedUntil <= now) {
+			adminAuthFailures.delete(key)
+		}
+	}
+}
+
+function recordAdminAuthFailure(key: string, now: number) {
+	const entry = adminAuthFailures.get(key) ?? { failures: 0, lockedUntil: 0 }
+	entry.failures += 1
+	if (entry.failures > ADMIN_AUTH_FAILURE_THRESHOLD) {
+		const overage = entry.failures - ADMIN_AUTH_FAILURE_THRESHOLD
+		const lockout = Math.min(
+			ADMIN_AUTH_BASE_LOCKOUT_MS * 2 ** (overage - 1),
+			ADMIN_AUTH_MAX_LOCKOUT_MS,
+		)
+		entry.lockedUntil = now + lockout
+	}
+	adminAuthFailures.set(key, entry)
+}
+
 /**
  * Middleware to validate X-Admin-Key header
  */
@@ -48,6 +94,21 @@ export function adminKeyAuth(validKey: string | undefined) {
 			throw new HTTPException(500, { message: 'Admin API key not configured' })
 		}
 
+		const ip = adminAuthClientIp(c)
+		const key = `admin:${ip}`
+		const now = Date.now()
+
+		cleanupAdminAuthFailures(now)
+
+		const entry = adminAuthFailures.get(key)
+		if (entry && now < entry.lockedUntil) {
+			const retryAfter = Math.ceil((entry.lockedUntil - now) / 1000)
+			c.header('Retry-After', String(retryAfter))
+			throw new HTTPException(429, {
+				message: `Too many failed admin key attempts. Retry after ${retryAfter}s.`,
+			})
+		}
+
 		const apiKey = c.req.header('X-Admin-Key')
 
 		if (!apiKey) {
@@ -55,8 +116,14 @@ export function adminKeyAuth(validKey: string | undefined) {
 		}
 
 		if (!safeCompare(apiKey, validKey)) {
+			recordAdminAuthFailure(key, now)
+			console.warn(`[security] Invalid admin key attempt from ip=${ip}`)
 			throw new HTTPException(401, { message: 'Invalid admin key' })
 		}
+
+		// Successful auth: clear any accumulated failures so a legit admin who
+		// fat-fingered the key earlier is not penalized.
+		if (entry) adminAuthFailures.delete(key)
 
 		await next()
 	}

@@ -163,6 +163,60 @@ function isSolanaChain(chain: string): boolean {
 	return normalized === 'solana' || normalized === 'sol'
 }
 
+// Detect an EVM (0x-prefixed hex) address
+function isEvmAddress(addr: string): boolean {
+	return /^0x[0-9a-fA-F]{40}$/.test(addr.trim())
+}
+
+// Case-insensitive EVM address equality (checksummed vs lowercase are the same address)
+function evmAddressesEqual(a: string, b: string): boolean {
+	return a.trim().toLowerCase() === b.trim().toLowerCase()
+}
+
+// Read the agent's managed (EVM) wallet address from metadata, if any.
+function getAgentWalletAddress(agent: Agent): string | undefined {
+	const metadata = (agent.metadata as Record<string, unknown>) || {}
+	const addr = metadata.wallet_address
+	return typeof addr === 'string' ? addr : undefined
+}
+
+// Validate that a user-supplied EVM wallet_address belongs to the authenticated agent.
+// Returns null if authorized, otherwise an error reason string.
+// NOTE: only EVM (managed) wallets are stored, so only EVM addresses can be ownership-verified.
+function checkEvmWalletOwnership(agent: Agent, walletAddress: string): string | null {
+	if (!isEvmAddress(walletAddress)) {
+		return 'wallet_address must be a registered EVM wallet owned by this agent'
+	}
+	const owned = getAgentWalletAddress(agent)
+	if (!owned) {
+		return 'No managed wallet found for this agent. Create one via POST /v1/agent/wallets'
+	}
+	if (!evmAddressesEqual(owned, walletAddress)) {
+		return 'wallet_address does not belong to the authenticated agent'
+	}
+	return null
+}
+
+// Convert a human decimal amount string to an integer base-unit string using exact
+// BigInt arithmetic (no float precision loss). Returns null on invalid input or when
+// the amount specifies more decimal places than the token supports.
+function parseAmountToBaseUnits(amount: string, decimals: number): string | null {
+	const trimmed = amount.trim()
+	if (!/^\d+(\.\d+)?$/.test(trimmed)) return null
+	const [whole, frac = ''] = trimmed.split('.')
+	if (frac.length > decimals) return null
+	const paddedFrac = frac.padEnd(decimals, '0')
+	const combined = `${whole}${paddedFrac}`.replace(/^0+(?=\d)/, '')
+	let value: bigint
+	try {
+		value = BigInt(combined === '' ? '0' : combined)
+	} catch {
+		return null
+	}
+	if (value <= 0n) return null
+	return value.toString()
+}
+
 // ===========================================
 // PUBLIC ENDPOINTS (no auth required)
 // ===========================================
@@ -251,47 +305,56 @@ agentRoutes.post('/sponge/callback', async (c) => {
 		}),
 	)
 
-	if (Either.isRight(envResult)) {
-		const env = envResult.right
-		if (env.SPONGE_WEBHOOK_SECRET) {
-			const signature = c.req.header('X-Sponge-Signature')
-			if (!signature) {
-				return c.json({ error: 'Missing X-Sponge-Signature header' }, 401)
-			}
-
-			const rawBody = await c.req.text()
-			const expected = crypto
-				.createHmac('sha256', env.SPONGE_WEBHOOK_SECRET)
-				.update(rawBody)
-				.digest('hex')
-
-			const sigBuf = Buffer.from(signature, 'hex')
-			const expBuf = Buffer.from(expected, 'hex')
-			if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
-				return c.json({ error: 'Invalid signature' }, 401)
-			}
-
-			// Re-parse body since we consumed it
-			let body: any
-			try {
-				body = JSON.parse(rawBody)
-			} catch {
-				return c.json({ error: 'Invalid JSON body' }, 400)
-			}
-
-			return handleSpongeCallback(c, body)
-		}
+	if (Either.isLeft(envResult)) {
+		// Cannot determine configuration — fail closed.
+		return c.json({ error: 'Sponge callback unavailable' }, 503)
 	}
 
-	// No webhook secret configured — accept without signature validation
-	let body: unknown
+	const env = envResult.right
+
+	// Fail closed: signature validation must be configured. Never accept
+	// unsigned Sponge callbacks — they can auto-register agents with
+	// attacker-controlled callback URLs and metadata.
+	if (!env.SPONGE_WEBHOOK_SECRET) {
+		console.error(
+			'[security] Sponge callback rejected: SPONGE_WEBHOOK_SECRET is not configured',
+		)
+		return c.json({ error: 'Sponge webhook signature validation is not configured' }, 503)
+	}
+
+	const signature = c.req.header('X-Sponge-Signature')
+	if (!signature) {
+		console.warn('[security] Sponge callback rejected: missing X-Sponge-Signature header')
+		return c.json({ error: 'Missing X-Sponge-Signature header' }, 401)
+	}
+
+	const rawBody = await c.req.text()
+	const expected = crypto
+		.createHmac('sha256', env.SPONGE_WEBHOOK_SECRET)
+		.update(rawBody)
+		.digest('hex')
+
+	let sigBuf: Buffer
 	try {
-		body = await c.req.json()
+		sigBuf = Buffer.from(signature, 'hex')
+	} catch {
+		return c.json({ error: 'Invalid signature' }, 401)
+	}
+	const expBuf = Buffer.from(expected, 'hex')
+	if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+		console.warn('[security] Sponge callback rejected: invalid signature')
+		return c.json({ error: 'Invalid signature' }, 401)
+	}
+
+	// Re-parse body since we consumed it
+	let body: any
+	try {
+		body = JSON.parse(rawBody)
 	} catch {
 		return c.json({ error: 'Invalid JSON body' }, 400)
 	}
 
-	return handleSpongeCallback(c, body as any)
+	return handleSpongeCallback(c, body)
 })
 
 async function handleSpongeCallback(c: any, body: any) {
@@ -589,14 +652,15 @@ agentRoutes.post('/quote', async (c) => {
 					)
 				}
 
-				// Convert amount to smallest unit (lamports for SOL, etc)
-				const amountNum = parseFloat(amount)
-				if (isNaN(amountNum) || amountNum <= 0) {
-					return yield* Effect.fail(new ValidationError({ message: 'Invalid amount' }))
+				// Convert amount to smallest unit (lamports for SOL, etc) using exact BigInt math
+				const fromAmountLamports = parseAmountToBaseUnits(amount, fromTokenInfo.decimals)
+				if (fromAmountLamports === null) {
+					return yield* Effect.fail(
+						new ValidationError({
+							message: `Invalid amount: must be a positive number with at most ${fromTokenInfo.decimals} decimal places`,
+						}),
+					)
 				}
-				const fromAmountLamports = BigInt(
-					Math.floor(amountNum * 10 ** fromTokenInfo.decimals),
-				).toString()
 
 				// Get quote from Jupiter
 				const quote = yield* jupiterService
@@ -720,12 +784,23 @@ agentRoutes.post('/quote', async (c) => {
 				)
 			}
 
-			// Convert amount to wei/smallest unit
-			const amountNum = parseFloat(amount)
-			if (isNaN(amountNum) || amountNum <= 0) {
-				return yield* Effect.fail(new ValidationError({ message: 'Invalid amount' }))
+			// Convert amount to wei/smallest unit using exact BigInt math
+			const fromAmountWei = parseAmountToBaseUnits(amount, fromTokenInfo.decimals)
+			if (fromAmountWei === null) {
+				return yield* Effect.fail(
+					new ValidationError({
+						message: `Invalid amount: must be a positive number with at most ${fromTokenInfo.decimals} decimal places`,
+					}),
+				)
 			}
-			const fromAmountWei = BigInt(Math.floor(amountNum * 10 ** fromTokenInfo.decimals)).toString()
+
+			// If a wallet_address is supplied it must be one this agent owns.
+			if (wallet_address) {
+				const ownershipError = checkEvmWalletOwnership(agent, wallet_address)
+				if (ownershipError) {
+					return yield* Effect.fail(new ValidationError({ message: ownershipError }))
+				}
+			}
 
 			// Use a placeholder address if none provided
 			const fromAddress = wallet_address || '0x0000000000000000000000000000000000000001'
@@ -878,7 +953,35 @@ agentRoutes.post('/swap', async (c) => {
 			)
 		}
 
+		// Quotes are bound to the agent that requested them. Reject cross-agent
+		// quote use to prevent hijacking another agent's unsigned transaction.
+		if (cached.agentId !== agent.id) {
+			console.warn(
+				`[security] Agent ${agent.id} attempted to use quote owned by agent ${cached.agentId}`,
+			)
+			return c.json(
+				{
+					success: false,
+					error: 'Quote does not belong to the authenticated agent',
+				},
+				403,
+			)
+		}
+
 		const quote = cached.quote
+
+		// For EVM swaps, the wallet_address used as the transaction sender must be
+		// a wallet this agent owns. (Solana wallets are not managed/stored, so they
+		// are protected only by the per-agent quote binding above.)
+		if (!cached.isSolana) {
+			const ownershipError = checkEvmWalletOwnership(agent, wallet_address)
+			if (ownershipError) {
+				console.warn(
+					`[security] Agent ${agent.id} attempted swap with unauthorized wallet_address`,
+				)
+				return c.json({ success: false, error: ownershipError }, 403)
+			}
+		}
 
 		// Handle Solana swaps
 		if (cached.isSolana) {
@@ -1041,13 +1144,38 @@ agentRoutes.post('/execute', async (c) => {
 	if (swapMatch) {
 		const [, amount, fromToken, toToken, chain] = swapMatch
 
+		// Require an explicit chain. Silently defaulting to ethereum can execute a
+		// swap on a different chain than the user intended (same token symbol,
+		// different address). Make the user state "on <chain>".
+		if (!chain) {
+			return c.json(
+				{
+					success: false,
+					error: 'Chain is required. Specify the chain explicitly, e.g. "swap 0.5 ETH to USDC on base".',
+					hint: 'Append "on <chain>" to your command.',
+				},
+				400,
+			)
+		}
+
+		// If a wallet_address is supplied it must be one this agent owns.
+		if (wallet_address) {
+			const ownershipError = checkEvmWalletOwnership(agent, wallet_address)
+			if (ownershipError) {
+				console.warn(
+					`[security] Agent ${agent.id} attempted execute with unauthorized wallet_address`,
+				)
+				return c.json({ success: false, error: ownershipError }, 403)
+			}
+		}
+
 		// Get a quote
 		const result = await runEffectEither(
 			Effect.gen(function* () {
 				const tokenService = yield* TokenService
 				const swapService = yield* SwapService
 
-				const chainKey = chain || 'ethereum'
+				const chainKey = chain
 				const chainInfo = tokenService.resolveChain(chainKey)
 
 				if (!chainInfo) {
@@ -1076,10 +1204,14 @@ agentRoutes.post('/execute', async (c) => {
 					)
 				}
 
-				const amountNum = parseFloat(amount)
-				const fromAmountWei = BigInt(
-					Math.floor(amountNum * 10 ** fromTokenInfo.decimals),
-				).toString()
+				const fromAmountWei = parseAmountToBaseUnits(amount, fromTokenInfo.decimals)
+				if (fromAmountWei === null) {
+					return yield* Effect.fail(
+						new ValidationError({
+							message: `Invalid amount: must be a positive number with at most ${fromTokenInfo.decimals} decimal places`,
+						}),
+					)
+				}
 				const fromAddress = wallet_address || '0x0000000000000000000000000000000000000001'
 
 				const quote = yield* swapService
@@ -1224,6 +1356,18 @@ agentRoutes.get('/portfolio', async (c) => {
 			},
 			400,
 		)
+	}
+
+	// Ownership check: an agent may only query the portfolio of its own managed
+	// (EVM) wallet. This prevents enumeration / disclosure of arbitrary wallets'
+	// holdings, and makes per-wallet rate limiting unnecessary (the only wallet an
+	// agent can query is its own).
+	const ownershipError = checkEvmWalletOwnership(agent, walletAddress)
+	if (ownershipError) {
+		console.warn(
+			`[security] Agent ${agent.id} attempted portfolio query for unauthorized wallet`,
+		)
+		return c.json({ success: false, error: ownershipError }, 403)
 	}
 
 	const chain = c.req.query('chain')
@@ -1441,6 +1585,17 @@ agentRoutes.post('/swap/execute', async (c) => {
 				hint: 'Request a new quote using POST /v1/agent/quote',
 			},
 			400,
+		)
+	}
+
+	// Quotes are bound to the agent that requested them. Reject cross-agent use.
+	if (cached.agentId !== agent.id) {
+		console.warn(
+			`[security] Agent ${agent.id} attempted to execute quote owned by agent ${cached.agentId}`,
+		)
+		return c.json(
+			{ success: false, error: 'Quote does not belong to the authenticated agent' },
+			403,
 		)
 	}
 
@@ -1872,6 +2027,11 @@ agentRoutes.get('/wallets', async (c) => {
 // WALLET POLICIES (Turnkey)
 // ===========================================
 
+// Name prefix marking a policy as agent-created (and therefore agent-deletable).
+// Policies without this prefix are treated as admin/guardrail policies that the
+// agent API must not be able to delete.
+const AGENT_POLICY_PREFIX = 'agent-'
+
 // POST /v1/agent/wallet/policy - Create a Turnkey policy for agent wallet
 agentRoutes.post('/wallet/policy', async (c) => {
 	const agent = c.get('agent')
@@ -1897,7 +2057,7 @@ agentRoutes.post('/wallet/policy', async (c) => {
 				const condition = `eth.value <= ${params.maxAmountWei}`
 				const policyId = yield* turnkeyService.createPolicy(
 					subOrgId,
-					`agent-spending-limit-${params.timeWindowSeconds}s`,
+					`${AGENT_POLICY_PREFIX}spending-limit-${params.timeWindowSeconds}s`,
 					'EFFECT_DENY',
 					condition,
 				)
@@ -1907,7 +2067,7 @@ agentRoutes.post('/wallet/policy', async (c) => {
 				const condition = `eth.tx.to in [${addresses}]`
 				const policyId = yield* turnkeyService.createPolicy(
 					subOrgId,
-					`agent-whitelist-${params.allowedAddresses!.length}`,
+					`${AGENT_POLICY_PREFIX}whitelist-${params.allowedAddresses!.length}`,
 					'EFFECT_ALLOW',
 					condition,
 				)
@@ -1959,12 +2119,34 @@ agentRoutes.delete('/wallet/policy/:policyId', async (c) => {
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const turnkeyService = yield* TurnkeyService
+
+			// Only allow agents to delete policies they created themselves.
+			// Agent-created policies are named with the AGENT_POLICY_PREFIX. Any other
+			// policy (e.g. an admin-applied spending limit or whitelist guardrail) is
+			// immutable from the agent API and must not be deletable here.
+			const policies = yield* turnkeyService.listPolicies(subOrgId)
+			const target = policies.find((p) => p.policyId === policyId)
+
+			if (!target) {
+				return yield* Effect.fail(new ValidationError({ message: 'Policy not found' }))
+			}
+
+			if (!target.policyName.startsWith(AGENT_POLICY_PREFIX)) {
+				return yield* Effect.fail(
+					new ValidationError({
+						message: 'This policy was not created by the agent and cannot be deleted',
+					}),
+				)
+			}
+
+			console.warn(`[security] Agent ${agent.id} deleting self-created policy ${policyId}`)
 			return yield* turnkeyService.deletePolicy(subOrgId, policyId)
 		})
 	)
 
 	if (Either.isLeft(result)) {
-		return c.json({ error: result.left.message }, 500)
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
 	}
 
 	return c.json({ success: true, deleted: true })

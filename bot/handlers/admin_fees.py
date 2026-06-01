@@ -13,7 +13,8 @@ ADMIN_IDS = []  # Add your Telegram ID
 
 
 def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS or len(ADMIN_IDS) == 0
+    """Check if user is admin. Denies all if no admin IDs configured (fail-closed)."""
+    return len(ADMIN_IDS) > 0 and user_id in ADMIN_IDS
 
 
 async def fees_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -97,6 +97,39 @@ async def get_current_user(
     return db.query(User).filter(User.id == user_id).first() if user_id else None
 
 
+# --- Helpers ---
+
+def _is_allowed_redirect(redirect_url: Optional[str]) -> bool:
+    """
+    Validate a user-supplied OAuth redirect URL against the allowlist.
+
+    Only absolute URLs whose scheme+host (origin) match one of the
+    configured ``oauth_redirect_base`` entries are permitted. This prevents
+    open-redirect / authorization-code interception via attacker-controlled
+    destinations. ``None`` is allowed (callback falls back to the default
+    dashboard URL).
+    """
+    if redirect_url is None:
+        return True
+
+    # oauth_redirect_base may be a single base or a comma-separated list.
+    allowed_bases = [
+        base.strip().rstrip("/")
+        for base in (settings.oauth_redirect_base or "").split(",")
+        if base.strip()
+    ]
+    if not allowed_bases:
+        return False
+
+    for base in allowed_bases:
+        # Match exact base or any path beneath the base origin. A trailing
+        # path separator prevents "https://app.example.com.attacker.com"
+        # from matching "https://app.example.com".
+        if redirect_url == base or redirect_url.startswith(base + "/"):
+            return True
+    return False
+
+
 # --- Endpoints ---
 
 @router.get("/providers", response_model=OAuthProviderStatus)
@@ -133,6 +166,12 @@ async def oauth_authorize(
     if not settings.is_oauth_configured(provider):
         raise HTTPException(status_code=501, detail=f"OAuth not configured for {provider}")
 
+    # Validate redirect_url against the allowlist to prevent open redirect /
+    # authorization-code interception. Reject before persisting any state.
+    if not _is_allowed_redirect(redirect_url):
+        logger.warning(f"OAuth authorize: rejected redirect_url for provider {provider}")
+        raise HTTPException(status_code=400, detail="Invalid redirect URL")
+
     oauth_service = get_oauth_service()
 
     # Generate state and PKCE
@@ -164,6 +203,7 @@ async def oauth_callback(
     error_description: Optional[str] = Query(None),
     response: Response = None,
     db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
 ):
     """
     Handle OAuth callback from provider.
@@ -191,6 +231,26 @@ async def oauth_callback(
         db.delete(oauth_state)
         db.commit()
         raise HTTPException(status_code=400, detail="OAuth state expired")
+
+    # For account-linking flows, the OAuth identity must be linked to the
+    # user who actually initiated and is currently authenticated for the
+    # flow. Without this check an attacker could pre-seed a "link" state
+    # bound to a victim's user_id and trick the victim into authorizing,
+    # binding the attacker-controlled OAuth identity to the victim account
+    # (or vice versa). Require the current session to match oauth_state.user_id.
+    if oauth_state.action == "link" or oauth_state.user_id is not None:
+        if current_user is None or current_user.id != oauth_state.user_id:
+            logger.warning(
+                "OAuth callback: link user mismatch "
+                f"(state_user={oauth_state.user_id}, "
+                f"session_user={getattr(current_user, 'id', None)})"
+            )
+            db.delete(oauth_state)
+            db.commit()
+            raise HTTPException(
+                status_code=403,
+                detail="Authentication required to link this account",
+            )
 
     oauth_service = get_oauth_service()
 
@@ -263,8 +323,12 @@ async def oauth_callback(
         path="/",
     )
 
-    # Redirect to frontend success page
-    redirect_url = oauth_state.redirect_uri or f"{settings.oauth_redirect_base}/dashboard"
+    # Redirect to frontend success page. Re-validate the stored redirect_uri
+    # as defense-in-depth: never emit a Location header to a non-allowlisted
+    # destination even if a state row was somehow persisted with a bad value.
+    redirect_url = oauth_state.redirect_uri
+    if not redirect_url or not _is_allowed_redirect(redirect_url):
+        redirect_url = f"{settings.oauth_redirect_base.split(',')[0].strip().rstrip('/')}/dashboard"
     success_url = f"{redirect_url}?auth=success&provider={provider}"
 
     return RedirectResponse(url=success_url, status_code=302)

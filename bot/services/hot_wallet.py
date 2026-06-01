@@ -37,7 +37,40 @@ class HotWalletService:
         return rpc_manager.get_web3(chain_name)
     
     # === Hot Wallet Management ===
-    
+
+    def _require_secure_envelope_encryption(self) -> None:
+        """
+        Enforce mandatory KMS envelope encryption (v2) for new/imported wallets.
+
+        Security: legacy Fernet encryption relies on a single master key
+        (settings.encryption_key) shared across all wallets. If that key is
+        weak, hardcoded, or leaked, every hot wallet can be decrypted. To
+        prevent funds-at-rest from ever being protected by that single key,
+        new wallet creation and imports MUST use envelope encryption backed by
+        a real (non-dev) KMS provider.
+
+        Raises:
+            ValueError: if the configured scheme is not v2, or the configured
+                KMS provider is not a real provider ('aws' or 'gcp').
+        """
+        if settings.wallet_encryption_scheme != SCHEME_KMS_AESGCM_V2:
+            raise ValueError(
+                "Hot wallet creation/import requires envelope encryption "
+                f"(scheme '{SCHEME_KMS_AESGCM_V2}'). Refusing to create a wallet "
+                f"with scheme '{settings.wallet_encryption_scheme}'. Set "
+                "wallet_encryption_scheme to 'kms_aesgcm_v2'."
+            )
+
+        provider = (settings.kms_provider or "").lower()
+        if provider not in ("aws", "gcp"):
+            raise ValueError(
+                "Hot wallet creation/import requires a KMS-backed envelope "
+                "encryption provider ('aws' or 'gcp'). Refusing to create a "
+                f"wallet with kms_provider '{settings.kms_provider}'. The 'dev' "
+                "mock provider uses the local master key and is not allowed for "
+                "wallets that hold real funds."
+            )
+
     async def create_hot_wallet(
         self,
         name: str,
@@ -80,23 +113,13 @@ class HotWalletService:
             private_key = base58.b58encode(bytes(keypair)).decode()
         else:
             raise ValueError(f"Unsupported chain type: {chain_type}")
-        
-        # Use envelope encryption (v2) or legacy based on settings
-        use_v2 = settings.wallet_encryption_scheme == SCHEME_KMS_AESGCM_V2
-        
-        if use_v2:
-            encrypted = encrypt_private_key_v2(private_key)
-            db_fields = encode_for_db(encrypted)
-        else:
-            db_fields = {
-                "encrypted_private_key": encrypt_private_key(private_key, settings.encryption_key),
-                "encryption_scheme": SCHEME_LEGACY_FERNET_V1,
-                "kms_wrapped_dek": None,
-                "aesgcm_nonce": None,
-                "kms_key_id": None,
-                "key_version": 1,
-            }
-        
+
+        # Mandatory KMS envelope encryption (v2). Legacy Fernet fallback is
+        # not permitted for wallets that hold real funds.
+        self._require_secure_envelope_encryption()
+        encrypted = encrypt_private_key_v2(private_key)
+        db_fields = encode_for_db(encrypted)
+
         with get_session() as session:
             wallet = HotWallet(
                 name=name,
@@ -182,23 +205,13 @@ class HotWalletService:
             address = str(keypair.pubkey())
         else:
             raise ValueError(f"Unsupported chain type: {chain_type}")
-        
-        # Use envelope encryption (v2) or legacy based on settings
-        use_v2 = settings.wallet_encryption_scheme == SCHEME_KMS_AESGCM_V2
-        
-        if use_v2:
-            encrypted = encrypt_private_key_v2(private_key)
-            db_fields = encode_for_db(encrypted)
-        else:
-            db_fields = {
-                "encrypted_private_key": encrypt_private_key(private_key, settings.encryption_key),
-                "encryption_scheme": SCHEME_LEGACY_FERNET_V1,
-                "kms_wrapped_dek": None,
-                "aesgcm_nonce": None,
-                "kms_key_id": None,
-                "key_version": 1,
-            }
-        
+
+        # Mandatory KMS envelope encryption (v2). Legacy Fernet fallback is
+        # not permitted for wallets that hold real funds.
+        self._require_secure_envelope_encryption()
+        encrypted = encrypt_private_key_v2(private_key)
+        db_fields = encode_for_db(encrypted)
+
         with get_session() as session:
             wallet = HotWallet(
                 name=name,

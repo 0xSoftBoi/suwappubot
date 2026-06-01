@@ -9,12 +9,114 @@ Supports multiple providers:
 
 import os
 import base64
+import hashlib
 import logging
+import threading
+import time
 from abc import ABC, abstractmethod
+from collections import deque
 from typing import Tuple, Optional
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+
+class _KmsDecryptAnomalyMonitor:
+    """Anomaly detection for KMS DEK decryption (defense-in-depth).
+
+    The KMS client exposes ``decrypt_data_key`` to the whole process. If the
+    application is compromised via RCE, an attacker can iterate over every
+    wrapped DEK stored in the DB and decrypt them all — envelope encryption
+    provides no protection against code-level compromise. The real mitigation
+    lives in KMS infrastructure (IAM key policies, CloudTrail / Cloud Audit
+    Logs, Grants); this in-process monitor is a complementary detection layer
+    that surfaces the exfiltration *pattern* so external alerting can fire.
+
+    ``decrypt_data_key`` sits on the hot path of *every* signing operation
+    (one decrypt per signed transaction; an EVM approve+swap is two, copy
+    trading fans out across many followers, sniping fires rapidly on a single
+    wallet). Because the legitimate worst-case burst cannot be tightly bounded,
+    this monitor is intentionally **detection-only**: it logs loudly but never
+    raises, so it can never throttle or break fund movement. It tracks two
+    dimensions:
+
+      * global rate — many decrypts across *distinct* wrapped DEKs in a short
+        window is the signature of an RCE walking the key table (the stated
+        threat); and
+      * per-key rate — one wrapped DEK decrypted abnormally often.
+
+    Wrapped DEKs are identified by a truncated SHA-256 of their bytes so the
+    monitor never holds key material or ciphertext.
+    """
+
+    def __init__(
+        self,
+        window_seconds: float = 300.0,
+        global_anomaly_threshold: int = 200,
+        distinct_key_anomaly_threshold: int = 50,
+        per_key_anomaly_threshold: int = 50,
+    ):
+        self.window_seconds = window_seconds
+        self.global_anomaly_threshold = global_anomaly_threshold
+        self.distinct_key_anomaly_threshold = distinct_key_anomaly_threshold
+        self.per_key_anomaly_threshold = per_key_anomaly_threshold
+        # (timestamp, key_fingerprint) pairs within the rolling window.
+        self._events: deque = deque()
+        self._lock = threading.Lock()
+        # Throttle repeated anomaly logs so a sustained attack doesn't flood.
+        # None means "no alert emitted yet" so the first anomaly always fires.
+        self._last_global_alert: Optional[float] = None
+
+    @staticmethod
+    def _fingerprint(encrypted_key: bytes) -> str:
+        try:
+            return hashlib.sha256(bytes(encrypted_key)).hexdigest()[:16]
+        except Exception:
+            return "?"
+
+    def record(self, encrypted_key: bytes) -> None:
+        """Record one DEK decryption and log loudly on anomaly. Never raises."""
+        try:
+            fp = self._fingerprint(encrypted_key)
+            now = time.monotonic()
+            with self._lock:
+                self._events.append((now, fp))
+                window_start = now - self.window_seconds
+                while self._events and self._events[0][0] < window_start:
+                    self._events.popleft()
+
+                total = len(self._events)
+                distinct = len({f for _, f in self._events})
+                per_key = sum(1 for _, f in self._events if f == fp)
+
+                anomalous = (
+                    total >= self.global_anomaly_threshold
+                    or distinct >= self.distinct_key_anomaly_threshold
+                    or per_key >= self.per_key_anomaly_threshold
+                )
+                should_alert = anomalous and (
+                    self._last_global_alert is None
+                    or (now - self._last_global_alert) > 5.0
+                )
+                if should_alert:
+                    self._last_global_alert = now
+
+            if should_alert:
+                logger.error(
+                    "ANOMALY: KMS DEK decrypt volume %d (%d distinct keys, "
+                    "%d for key %s) within %.0fs — possible key exfiltration "
+                    "via compromised application code. This is detection only; "
+                    "enforce KMS-side access controls (IAM key policy, "
+                    "CloudTrail/Cloud Audit Logs, Grants).",
+                    total, distinct, per_key, fp, self.window_seconds,
+                )
+        except Exception:
+            # Detection must never break a decrypt (and thus a signing flow).
+            return
+
+
+# Process-wide monitor for KMS DEK decryption (defense-in-depth, never raises).
+_kms_decrypt_monitor = _KmsDecryptAnomalyMonitor()
 
 
 @dataclass
@@ -140,6 +242,7 @@ class DevMockKmsClient(KmsClientBase):
     
     def decrypt_data_key(self, encrypted_key: bytes) -> bytes:
         """Decrypt a DEK that was encrypted with our local Fernet key."""
+        _kms_decrypt_monitor.record(encrypted_key)
         return self._fernet.decrypt(encrypted_key)
     
     def encrypt(self, plaintext: bytes) -> bytes:
@@ -194,6 +297,7 @@ class AwsKmsClient(KmsClientBase):
     
     def decrypt_data_key(self, encrypted_key: bytes) -> bytes:
         """Decrypt a DEK using AWS KMS Decrypt."""
+        _kms_decrypt_monitor.record(encrypted_key)
         response = self._client.decrypt(
             CiphertextBlob=encrypted_key,
             KeyId=self._key_id_str,
@@ -277,6 +381,7 @@ class GcpKmsClient(KmsClientBase):
     
     def decrypt_data_key(self, encrypted_key: bytes) -> bytes:
         """Decrypt a DEK using GCP KMS."""
+        _kms_decrypt_monitor.record(encrypted_key)
         return self.decrypt(encrypted_key)
     
     def encrypt(self, plaintext: bytes) -> bytes:

@@ -26,8 +26,8 @@ ADMIN_IDS = []  # e.g., [123456789]
 
 
 def is_admin(user_id: int) -> bool:
-    """Check if user is admin."""
-    return user_id in ADMIN_IDS or len(ADMIN_IDS) == 0
+    """Check if user is admin. Denies all if no admin IDs configured (fail-closed)."""
+    return len(ADMIN_IDS) > 0 and user_id in ADMIN_IDS
 
 
 # Conversation states

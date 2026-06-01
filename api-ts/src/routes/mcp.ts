@@ -473,10 +473,15 @@ async function handlePredictMarketDetail(args: Record<string, unknown>) {
 	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
 }
 
-async function handleExecuteSwap(args: Record<string, unknown>) {
+async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent) {
 	const { quote_id, wallet_address } = args as { quote_id: string; wallet_address: string }
 	const cached = getCachedQuote(quote_id)
 	if (!cached) return { isError: true, content: [{ type: 'text', text: 'Quote expired or not found. Get a new quote first.' }] }
+
+	// Authorization: a quote may only be executed by the agent that created it.
+	if (cached.agentId !== undefined && cached.agentId !== agent.id) {
+		return { isError: true, content: [{ type: 'text', text: 'Quote expired or not found. Get a new quote first.' }] }
+	}
 
 	const quote = cached.quote
 	if (cached.isSolana) {
@@ -565,7 +570,7 @@ mcpRoutes.post('/', async (c) => {
 					result = handleListTokens(args || {})
 					break
 				case 'execute_swap':
-					result = await handleExecuteSwap(args || {})
+					result = await handleExecuteSwap(args || {}, agent)
 					break
 				case 'get_tempo_tokens':
 					result = handleGetTempoTokens(args || {})

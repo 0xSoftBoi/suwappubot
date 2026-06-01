@@ -121,20 +121,57 @@ class UserRateLimiter:
         self,
         max_requests: int = 30,
         window_seconds: int = 60,
+        cleanup_ttl_seconds: int = 86400,
+        cleanup_interval_seconds: int = 3600,
     ):
         """
         Initialize user rate limiter.
-        
+
         Args:
             max_requests: Maximum requests per window
             window_seconds: Window duration in seconds
+            cleanup_ttl_seconds: Drop a user's history after this many seconds
+                of inactivity. Defaults to 24h. Must be >= window_seconds so
+                cleanup never affects an active rate-limit decision.
+            cleanup_interval_seconds: Minimum seconds between full sweeps of
+                the request map (cheap throttle so we don't scan every call).
         """
         self.max_requests = max_requests
         self.window_seconds = window_seconds
+        # TTL must always exceed the active window; otherwise a sweep could
+        # evict history that still matters for an in-progress decision.
+        self.cleanup_ttl_seconds = max(cleanup_ttl_seconds, window_seconds)
+        self.cleanup_interval_seconds = cleanup_interval_seconds
         # Key can be Telegram ID (int), WhatsApp number (str), etc.
         self._user_requests: Dict[Hashable, list] = defaultdict(list)
         self._lock = asyncio.Lock()
-    
+        # Monotonic timestamp of the last full sweep (separate clock from the
+        # tz-aware datetimes stored per request).
+        self._last_cleanup = time.monotonic()
+
+    def _cleanup_locked(self, now: datetime) -> None:
+        """
+        Evict users with no activity within cleanup_ttl_seconds.
+
+        Must be called while holding self._lock. Throttled by
+        cleanup_interval_seconds so it does not run on every request. Because
+        cleanup_ttl_seconds >= window_seconds, evicting a stale user never
+        changes the rate-limit decision for any active user; the defaultdict
+        re-creates an entry on the next access for the calling user.
+        """
+        monotonic_now = time.monotonic()
+        if monotonic_now - self._last_cleanup < self.cleanup_interval_seconds:
+            return
+        self._last_cleanup = monotonic_now
+
+        ttl_cutoff = now - timedelta(seconds=self.cleanup_ttl_seconds)
+        stale = [
+            uid for uid, ts_list in self._user_requests.items()
+            if not ts_list or max(ts_list) <= ttl_cutoff
+        ]
+        for uid in stale:
+            del self._user_requests[uid]
+
     async def check(self, user_id: Hashable) -> bool:
         """
         Check if user is within rate limit.
@@ -148,7 +185,12 @@ class UserRateLimiter:
         async with self._lock:
             now = datetime.now(timezone.utc)
             cutoff = now - timedelta(seconds=self.window_seconds)
-            
+
+            # Evict inactive users (TTL >> window, so this can never alter an
+            # active decision). Runs before the per-user logic; the defaultdict
+            # re-creates this user's entry below if it was swept.
+            self._cleanup_locked(now)
+
             # Clean old requests
             self._user_requests[user_id] = [
                 ts for ts in self._user_requests[user_id]

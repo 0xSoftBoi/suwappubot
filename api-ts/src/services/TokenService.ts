@@ -258,6 +258,38 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 const tokenResolutionCache = new Map<string, { result: TokenInfo | null; expiry: number }>()
 const TOKEN_RESOLUTION_TTL = 10 * 60 * 1000 // 10 minutes
 
+// Basic EVM address shape: 0x followed by 40 hex chars.
+const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
+
+// Validate a token returned by the (untrusted) Li.Fi API before it is cached or
+// used to construct a swap transaction. Returns true only if the token is safe
+// to trust. Behavior-preserving: invalid tokens fall through to the existing
+// `null` resolution path, which callers already handle.
+function isValidLifiToken(token: TokenInfo, chainId: number, normalizedSymbol: string): boolean {
+	// 1. Address must be a well-formed EVM address.
+	if (typeof token.address !== 'string' || !EVM_ADDRESS_RE.test(token.address)) {
+		return false
+	}
+
+	// 2. If Li.Fi reports a chainId, it must match the requested chain.
+	if (token.chainId != null && token.chainId !== chainId) {
+		return false
+	}
+
+	const returnedAddrLower = token.address.toLowerCase()
+
+	// 3. If we have a verified address for this exact (chain, symbol) pair, the
+	//    Li.Fi response MUST match it. (Redundant with the COMMON_TOKENS early
+	//    return below, but enforces the trusted whitelist defensively.)
+	const chainTokens = COMMON_TOKENS[chainId]
+	const trusted = chainTokens?.[normalizedSymbol]
+	if (trusted) {
+		return returnedAddrLower === trusted.toLowerCase()
+	}
+
+	return true
+}
+
 export interface TokenServiceInterface {
 	readonly resolveChain: (chainInput: string) => ChainInfo | null
 	readonly resolveToken: (symbol: string, chainId: number) => Effect.Effect<TokenInfo | null, Error>
@@ -350,7 +382,10 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 			const tokens = response.tokens[String(chainId)] || []
 			const found = tokens.find((t) => t.symbol.toUpperCase() === normalized)
 
-			const result = found || null
+			// Validate the (untrusted) Li.Fi response before trusting/caching it.
+			// A spoofed or malformed address resolves to null rather than being
+			// used to build a swap transaction.
+			const result = found && isValidLifiToken(found, chainId, normalized) ? found : null
 
 			// Cache the result (even null to avoid repeated lookups for unknown tokens)
 			tokenResolutionCache.set(cacheKey, { result, expiry: Date.now() + TOKEN_RESOLUTION_TTL })
