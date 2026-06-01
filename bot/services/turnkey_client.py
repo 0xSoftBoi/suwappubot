@@ -544,13 +544,37 @@ class TurnkeyClient:
             organization_id=organization_id,
         )
 
-        # Reconstruct signature from r, s, v
+        # Reconstruct signature from r, s, v. Turnkey returns these as hex
+        # strings (no 0x prefix), matching eth_account's signature layout.
         r = result.get("r", "")
         s = result.get("s", "")
         v = result.get("v", "")
 
-        # Turnkey returns hex values
-        signature = r + s + v
+        # Strip any 0x prefix (use slicing, not lstrip, to avoid eating
+        # legitimate leading "0" nibbles of r/s).
+        if r.startswith("0x"):
+            r = r[2:]
+        if s.startswith("0x"):
+            s = s[2:]
+        if v.startswith("0x"):
+            v = v[2:]
+
+        # Validate component lengths: r and s must be 32 bytes (64 hex chars).
+        if len(r) != 64 or len(s) != 64:
+            raise ValueError(
+                f"Invalid signature components: r={len(r)} chars, "
+                f"s={len(s)} chars (expected 64 each)"
+            )
+
+        # Normalize v to a 1-byte (2 hex char) recovery value. Turnkey returns
+        # v as hex; accept a bare recovery id (00/01) and map it to 27/28.
+        v_int = int(v, 16)
+        if v_int < 27:
+            v_int += 27
+        v_hex = format(v_int, "02x")
+
+        # Return a properly formatted 65-byte EIP-712 signature: 0x<r><s><v>.
+        signature = "0x" + r + s + v_hex
         return signature
 
     # === Import/Export ===
