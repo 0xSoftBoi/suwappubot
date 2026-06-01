@@ -202,6 +202,39 @@ class SwapEngine:
         if from_token != to_token:
             return False
         return self.layerzero.is_supported_route(from_chain, to_chain, from_token)
+
+    def _is_cctp_route(self, from_chain: str, to_chain: str, from_token: str, to_token: str) -> bool:
+        """Circle CCTP: zero-fee native USDC cross-chain (same token)."""
+        if from_token != to_token:
+            return False
+        return self.cctp.is_supported_route(from_chain, to_chain, from_token)
+
+    def _is_across_route(self, from_chain: str, to_chain: str, from_token: str, to_token: str) -> bool:
+        """Across: fast intent-based same-token cross-chain on supported EVM chains."""
+        if from_token != to_token:
+            return False
+        return self.across.is_supported_route(from_chain, to_chain, from_token)
+
+    def _is_wormhole_route(self, from_chain: str, to_chain: str, from_token: str, to_token: str) -> bool:
+        """Wormhole: same-token cross-chain incl. Solana<->EVM.
+
+        Solana->EVM execution is not yet implemented (see #250 and
+        _execute_wormhole_swap), so we do not offer that direction here — it
+        would only be rejected at execution time.
+        """
+        if from_token != to_token:
+            return False
+        if from_chain.lower() == "solana":
+            return False
+        return self.wormhole.is_supported_route(from_chain, to_chain, from_token)
+
+    def _is_cow_route(self, from_chain: str, to_chain: str) -> bool:
+        """CoW Protocol: gasless, MEV-protected same-chain EVM swaps."""
+        return from_chain.lower() == to_chain.lower() and self.cow.is_supported_chain(from_chain)
+
+    def _is_socket_route(self, from_chain: str, to_chain: str) -> bool:
+        """Socket/Bungee: super-aggregator across many EVM chains (same- or cross-chain)."""
+        return self.socket.is_supported_chain(from_chain) and self.socket.is_supported_chain(to_chain)
     
     def _get_token_amount_raw(self, amount: float, token_symbol: str, chain_name: str) -> str:
         """Convert human-readable amount to raw amount string."""
@@ -323,6 +356,36 @@ class SwapEngine:
                 from_chain, to_chain, from_token, to_token,
                 amount, amount_raw, from_address, to_address, slippage
             ))
+
+            # Additional providers — raced in parallel; best price wins.
+            # CCTP: preferred for native USDC (zero fee).
+            if self._is_cctp_route(from_chain, to_chain, from_token, to_token):
+                tasks.append(self._get_cctp_quote(
+                    from_chain, to_chain, from_token, amount, amount_raw, slippage
+                ))
+            # Across: fast intent-based cross-chain.
+            if self._is_across_route(from_chain, to_chain, from_token, to_token):
+                tasks.append(self._get_across_quote(
+                    from_chain, to_chain, from_token, amount, amount_raw,
+                    from_address, to_address
+                ))
+            # Wormhole: cross-chain incl. EVM->Solana (Solana->EVM gated, see #250).
+            if self._is_wormhole_route(from_chain, to_chain, from_token, to_token):
+                tasks.append(self._get_wormhole_quote(
+                    from_chain, to_chain, from_token, amount, amount_raw
+                ))
+            # CoW: gasless, MEV-protected same-chain EVM swaps.
+            if self._is_cow_route(from_chain, to_chain):
+                tasks.append(self._get_cow_quote(
+                    from_chain, from_token, to_token, amount, amount_raw,
+                    from_address, to_address
+                ))
+            # Socket: super-aggregator fallback across many EVM chains.
+            if self._is_socket_route(from_chain, to_chain):
+                tasks.append(self._get_socket_quote(
+                    from_chain, to_chain, from_token, to_token,
+                    amount, amount_raw, from_address, to_address
+                ))
 
         # Adaptive timeout: 3s fast path, extend to 8s total if no fast results
         FAST_TIMEOUT = 3.0
@@ -719,6 +782,122 @@ class SwapEngine:
             raw_quote=raw_data,
         )
     
+    @staticmethod
+    def _rate(to_amount_human: float, amount: float) -> float:
+        return (to_amount_human / amount) if amount else 0.0
+
+    async def _get_cctp_quote(
+        self, from_chain: str, to_chain: str, token: str, amount: float,
+        amount_raw: str, slippage: float,
+    ) -> SwapQuote:
+        """Circle CCTP quote (zero-fee 1:1 native USDC bridging)."""
+        quote = await self.cctp.get_quote(from_chain=from_chain, to_chain=to_chain,
+                                          amount=amount_raw, slippage=slippage)
+        raw = dict(quote.raw_data or {})
+        raw.update({
+            "token_messenger": quote.token_messenger,
+            "message_transmitter": quote.message_transmitter,
+            "destination_domain": quote.destination_domain,
+            "usdc_address": quote.usdc_address,
+        })
+        return SwapQuote(
+            provider="cctp", from_chain=from_chain, to_chain=to_chain,
+            from_token=token, to_token=token,
+            from_amount=quote.from_amount, from_amount_human=amount,
+            to_amount=quote.to_amount, to_amount_human=quote.to_amount_human,
+            to_amount_min=quote.to_amount,  # 1:1
+            gas_cost_usd=quote.gas_cost_usd, fee_cost_usd=quote.bridge_fee_usd,
+            total_cost_usd=quote.total_cost_usd, estimated_time=quote.estimated_time,
+            price_impact=0, exchange_rate=1.0, raw_quote=raw,
+        )
+
+    async def _get_across_quote(
+        self, from_chain: str, to_chain: str, token: str, amount: float,
+        amount_raw: str, from_address: str, to_address: Optional[str],
+    ) -> SwapQuote:
+        """Across Protocol quote (intent-based cross-chain)."""
+        quote = await self.across.get_quote(
+            from_chain=from_chain, to_chain=to_chain, token=token,
+            amount=amount_raw, from_address=from_address, to_address=to_address,
+        )
+        return SwapQuote(
+            provider="across", from_chain=from_chain, to_chain=to_chain,
+            from_token=token, to_token=token,
+            from_amount=quote.from_amount, from_amount_human=quote.from_amount_human,
+            to_amount=quote.to_amount, to_amount_human=quote.to_amount_human,
+            to_amount_min=quote.to_amount,
+            gas_cost_usd=quote.gas_cost_usd, fee_cost_usd=quote.relay_fee_usd,
+            total_cost_usd=quote.total_cost_usd, estimated_time=quote.estimated_fill_time,
+            price_impact=0, exchange_rate=self._rate(quote.to_amount_human, amount),
+            raw_quote=quote.raw_quote,
+        )
+
+    async def _get_wormhole_quote(
+        self, from_chain: str, to_chain: str, token: str, amount: float, amount_raw: str,
+    ) -> SwapQuote:
+        """Wormhole quote (cross-chain incl. EVM->Solana)."""
+        quote = await self.wormhole.get_quote(
+            from_chain=from_chain, to_chain=to_chain, token=token, amount=amount_raw,
+        )
+        return SwapQuote(
+            provider="wormhole", from_chain=from_chain, to_chain=to_chain,
+            from_token=token, to_token=token,
+            from_amount=quote.from_amount, from_amount_human=quote.from_amount_human,
+            to_amount=quote.to_amount, to_amount_human=quote.to_amount_human,
+            to_amount_min=quote.to_amount,
+            gas_cost_usd=quote.gas_cost_usd, fee_cost_usd=quote.relayer_fee_usd,
+            total_cost_usd=quote.total_cost_usd, estimated_time=quote.estimated_time,
+            price_impact=0, exchange_rate=self._rate(quote.to_amount_human, amount),
+            raw_quote=quote.raw_data,
+        )
+
+    async def _get_cow_quote(
+        self, from_chain: str, from_token: str, to_token: str, amount: float,
+        amount_raw: str, from_address: str, to_address: Optional[str],
+    ) -> SwapQuote:
+        """CoW Protocol quote (gasless, MEV-protected, same-chain EVM)."""
+        quote = await self.cow.get_quote(
+            chain=from_chain, from_token=from_token, to_token=to_token,
+            amount=amount_raw, from_address=from_address, receiver=to_address,
+        )
+        return SwapQuote(
+            provider="cow", from_chain=from_chain, to_chain=from_chain,
+            from_token=from_token, to_token=to_token,
+            from_amount=quote.from_amount, from_amount_human=amount,
+            to_amount=quote.to_amount, to_amount_human=quote.to_amount_human,
+            to_amount_min=quote.to_amount,
+            gas_cost_usd=0.0,  # CoW is gasless (fee taken from sell token)
+            fee_cost_usd=0.0, total_cost_usd=0.0, estimated_time=60,
+            price_impact=0, exchange_rate=self._rate(quote.to_amount_human, amount),
+            raw_quote=quote.raw_quote,
+        )
+
+    async def _get_socket_quote(
+        self, from_chain: str, to_chain: str, from_token: str, to_token: str,
+        amount: float, amount_raw: str, from_address: str, to_address: Optional[str],
+    ) -> SwapQuote:
+        """Socket/Bungee super-aggregator quote (best route across bridges+DEXes)."""
+        quote = await self.socket.get_quote(
+            from_chain=from_chain, to_chain=to_chain, from_token=from_token,
+            to_token=to_token, from_amount=amount_raw, from_address=from_address,
+            to_address=to_address,
+        )
+        route = quote.best_route
+        if route is None:
+            raise SocketError("Socket returned no viable route")
+        raw = {"routeId": route.route_id, "bridgeName": route.bridge_name, **(route.raw_route or {})}
+        return SwapQuote(
+            provider="socket", from_chain=from_chain, to_chain=to_chain,
+            from_token=from_token, to_token=to_token,
+            from_amount=route.from_amount, from_amount_human=amount,
+            to_amount=route.to_amount, to_amount_human=route.to_amount_human,
+            to_amount_min=route.to_amount,
+            gas_cost_usd=route.gas_usd, fee_cost_usd=route.service_fee_usd,
+            total_cost_usd=route.total_fee_usd, estimated_time=route.estimated_time_seconds,
+            price_impact=0, exchange_rate=self._rate(route.to_amount_human, amount),
+            raw_quote=raw,
+        )
+
     async def get_all_quotes(
         self,
         from_chain: str,
@@ -758,6 +937,39 @@ class SwapEngine:
         if self._is_ccip_route(from_chain, to_chain, from_token, to_token):
             tasks.append(self._get_ccip_quote(
                 from_chain, to_chain, from_token, amount, from_address, to_address
+            ))
+
+        # CCTP — zero-fee native USDC
+        if self._is_cctp_route(from_chain, to_chain, from_token, to_token):
+            tasks.append(self._get_cctp_quote(
+                from_chain, to_chain, from_token, amount, amount_raw, slippage
+            ))
+
+        # Across — fast intent-based cross-chain
+        if self._is_across_route(from_chain, to_chain, from_token, to_token):
+            tasks.append(self._get_across_quote(
+                from_chain, to_chain, from_token, amount, amount_raw,
+                from_address, to_address
+            ))
+
+        # Wormhole — cross-chain incl. EVM->Solana (Solana->EVM gated, #250)
+        if self._is_wormhole_route(from_chain, to_chain, from_token, to_token):
+            tasks.append(self._get_wormhole_quote(
+                from_chain, to_chain, from_token, amount, amount_raw
+            ))
+
+        # CoW — gasless, MEV-protected same-chain EVM
+        if self._is_cow_route(from_chain, to_chain):
+            tasks.append(self._get_cow_quote(
+                from_chain, from_token, to_token, amount, amount_raw,
+                from_address, to_address
+            ))
+
+        # Socket — super-aggregator across many EVM chains
+        if self._is_socket_route(from_chain, to_chain):
+            tasks.append(self._get_socket_quote(
+                from_chain, to_chain, from_token, to_token,
+                amount, amount_raw, from_address, to_address
             ))
 
         # Jupiter for Solana

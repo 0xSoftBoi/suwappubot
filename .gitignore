@@ -18,3 +18,6 @@ showcase/qa-screenshots/
 terminal/qa-screenshots/
 terminal/storybook-static/
 webapp/dist/
+
+# local dev venv
+.venv/
