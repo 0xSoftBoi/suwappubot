@@ -75,7 +75,7 @@ adminRoutes.get('/stats', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({ success: true, ...result.right })
@@ -153,7 +153,7 @@ adminRoutes.get('/agents', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({ success: true, ...result.right })
@@ -229,7 +229,7 @@ adminRoutes.get('/swaps', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({ success: true, ...result.right })
@@ -297,7 +297,7 @@ adminRoutes.get('/webhooks', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({ success: true, ...result.right })

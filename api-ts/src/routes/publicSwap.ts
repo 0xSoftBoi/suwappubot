@@ -344,7 +344,7 @@ publicSwapRoutes.get('/quote', flexAuth(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left as any)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)
@@ -541,7 +541,7 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 		logger.error({ err: error }, '[PublicSwap] Execute error')
 		if ('status' in error) {
 			const { status, body } = mapErrorToResponse(error as any)
-			return c.json(body, status as 200)
+			return c.json(body, status)
 		}
 		return c.json(
 			{ error: 'Internal Error', message: (error as Error).message || 'Failed to execute swap' },
@@ -601,7 +601,7 @@ publicSwapRoutes.get('/status/:swapId', flexAuth(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left as any)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)

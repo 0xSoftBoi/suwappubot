@@ -62,6 +62,12 @@ const CHAIN_RPC_ENDPOINTS: Record<number, string> = {
 	324: process.env.ZKSYNC_RPC_URL || 'https://mainnet.era.zksync.io',
 }
 
+// Parse the USD value of the source amount for storage. Never falls back to
+// quote.fromAmount, which is a token quantity in wei (not a USD value) — doing
+// so would corrupt the USD currency column. Returns null when unavailable.
+export const usdAmountFromQuote = (quote: Pick<SwapQuote, 'fromAmountUsd'>): number | null =>
+	parseFloat(quote.fromAmountUsd) || null
+
 // In-memory quote cache as fallback when Redis is not available
 const quoteCacheMemory = new Map<string, { quote: SwapQuote; expiry: number }>()
 const QUOTE_TTL_MS = QUOTE_TTL * 1000
@@ -227,7 +233,7 @@ swapRoutes.get('/quote', ipRateLimit(30), telegramAuth(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left as any)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)
@@ -309,7 +315,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 				toToken: quote.toToken.symbol,
 				fromAmount: quote.fromAmount,
 				toAmount: quote.toAmount,
-				fromAmountUsd: parseFloat(quote.fromAmountUsd || quote.fromAmount) || null,
+				fromAmountUsd: usdAmountFromQuote(quote),
 				toAmountUsd: null,
 				status: 'pending',
 				routeProvider: 'lifi',
@@ -617,7 +623,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 		// Map error to response
 		if ('status' in error) {
 			const { status, body } = mapErrorToResponse(error as any)
-			return c.json(body, status as 200)
+			return c.json(body, status)
 		}
 
 		return c.json(
@@ -691,7 +697,7 @@ swapRoutes.get('/status/:swapId', telegramAuth(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left as any)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)

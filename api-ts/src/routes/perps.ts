@@ -33,7 +33,7 @@ perpsRoutes.get('/markets', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({ markets: result.right })
@@ -58,7 +58,7 @@ perpsRoutes.post('/quote', agentBearerAuth, async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)
@@ -80,7 +80,7 @@ perpsRoutes.get('/positions', agentBearerAuth, async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({ positions: result.right })

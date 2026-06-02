@@ -50,7 +50,7 @@ export type AppError =
 	| ExternalServiceError
 
 interface ErrorResponse {
-	status: number
+	status: 400 | 401 | 403 | 404 | 500 | 502
 	body: { error: string; message?: string; fields?: Record<string, string>; service?: string; resource?: string }
 }
 
