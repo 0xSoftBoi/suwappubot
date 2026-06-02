@@ -142,6 +142,13 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         # Terminal tracking models
         from bot.models.tracking import TrackedWallet
 
+        # Reconcile a cross-ORM table collision before create_all (which only creates
+        # MISSING tables, never fixes an existing one): api-ts (Drizzle) historically created
+        # `limit_orders` with an incompatible schema (no wallet_id). api-ts now owns
+        # `limit_orders_ts`, so drop an empty, wrong-shaped `limit_orders` and let create_all
+        # rebuild the SQLAlchemy schema.
+        _reconcile_cross_orm_tables(engine)
+
         # Create all tables
         Base.metadata.create_all(bind=engine)
         logger.info("✓ Database tables created/verified")
@@ -156,6 +163,52 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
     
     DATABASE_AVAILABLE = True
     return True
+
+
+def _reconcile_cross_orm_tables(db_engine) -> None:
+    """One-time corrective for cross-ORM table collisions on the shared database.
+
+    api-ts (Drizzle) creates several feature tables (limit_orders, dca_orders, ...) with
+    schemas incompatible with the python SQLAlchemy models. `create_all` only creates
+    MISSING tables — it never fixes an existing one — so when api-ts created a table first,
+    python's expected columns are absent and the bot's background services error
+    (e.g. `column limit_orders.wallet_id does not exist`).
+
+    For each affected python-owned table: if it exists, is EMPTY, and is missing columns the
+    SQLAlchemy model defines, drop it so create_all rebuilds the correct schema. Drops ONLY
+    when empty, to never lose data.
+    """
+    try:
+        from bot.models.advanced import LimitOrder, DCAOrder, DCAExecution
+    except Exception:
+        return
+    try:
+        inspector = inspect(db_engine)
+        existing = set(inspector.get_table_names())
+        for model in (LimitOrder, DCAOrder, DCAExecution):
+            table = model.__tablename__
+            if table not in existing:
+                continue
+            db_cols = {c["name"] for c in inspector.get_columns(table)}
+            model_cols = {c.name for c in model.__table__.columns}
+            missing = model_cols - db_cols
+            if not missing:
+                continue  # already matches the SQLAlchemy schema
+            with db_engine.begin() as conn:
+                count = conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar() or 0
+                if count > 0:
+                    logger.warning(
+                        "%s is missing python columns %s but has %s row(s); NOT dropping — "
+                        "resolve manually.", table, sorted(missing), count
+                    )
+                    continue
+                conn.execute(text(f"DROP TABLE {table} CASCADE"))
+            logger.info(
+                "Reconciled cross-ORM table %s: dropped empty wrong-shaped table; "
+                "create_all will rebuild the SQLAlchemy schema", table
+            )
+    except Exception as e:
+        logger.warning("cross-ORM table reconcile skipped: %s", e)
 
 
 def _ensure_schema(db_engine) -> None:
