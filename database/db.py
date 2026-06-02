@@ -574,6 +574,7 @@ def _add_user_settings_columns(db_engine, inspector, is_sqlite: bool) -> None:
         ("two_fa_enabled", "BOOLEAN", "FALSE"),
         ("totp_secret", "VARCHAR(64)", "NULL"),
         ("two_fa_threshold", "INTEGER", "1000"),
+        ("gas_mode", "VARCHAR(10)", "'auto'"),  # read/written by api-ts (webapp gas settings)
     ]
 
     for col_name, col_type, default in new_columns:
