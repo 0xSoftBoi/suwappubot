@@ -17,7 +17,7 @@ from bot.services.hot_wallet import hot_wallet_service
 from bot.config.chains import CHAINS, get_chain_by_name
 from bot.config.tokens import TOKENS, get_token_address
 from bot.utils.formatters import format_amount, format_usd
-from bot.utils.validators import validate_amount, validate_address
+from bot.utils.validators import validate_amount
 from bot.utils.qr_code import generate_wallet_qr
 from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
@@ -415,11 +415,8 @@ async def withdraw_select_token(update: Update, context: ContextTypes.DEFAULT_TY
     
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        if not db_user:
-            await query.edit_message_text("❌ Please use /start first.")
-            return SELECT_TOKEN
         user_id = db_user.id
-
+    
     balance = hot_wallet_service.get_custodial_balance(user_id, chain, token)
     context.user_data["withdraw_balance"] = float(balance)
     
@@ -479,16 +476,11 @@ async def withdraw_enter_amount(update: Update, context: ContextTypes.DEFAULT_TY
 async def withdraw_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle withdrawal confirmation."""
     to_address = update.message.text.strip()
-
-    # Chain-aware address validation (EVM, Solana, TRON, ...)
-    chain = context.user_data.get("withdraw_chain")
-    chain_config = get_chain_by_name(chain) if chain else None
-    chain_type = chain_config.chain_type.value if chain_config else "evm"
-
-    if not validate_address(to_address, chain_type):
-        chain_display = chain_config.display_name if chain_config else chain
+    
+    # Basic address validation
+    if not to_address.startswith("0x") or len(to_address) != 42:
         await update.message.reply_text(
-            f"❌ Invalid {chain_display} address. Please enter a valid address."
+            "❌ Invalid EVM address. Please enter a valid address starting with 0x."
         )
         return CONFIRM_WITHDRAWAL
     
@@ -499,11 +491,8 @@ async def withdraw_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        if not db_user:
-            await update.message.reply_text("❌ Please use /start first.")
-            return CONFIRM_WITHDRAWAL
         user_id = db_user.id
-
+    
     await update.message.reply_text("⏳ Processing withdrawal...")
     
     try:

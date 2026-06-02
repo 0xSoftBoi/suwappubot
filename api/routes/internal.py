@@ -52,7 +52,7 @@ async def sign_transaction(
     Used by the TS API when Turnkey is unavailable and it needs to delegate
     signing to the Python service (which has KMS access for backup keys).
     """
-    _verify_internal_key(x_internal_key)
+    _verify_internal_key(x_internal_api_key)
 
     with get_session() as session:
         wallet = session.query(Wallet).filter(Wallet.id == request.wallet_id).first()
@@ -112,7 +112,7 @@ async def verify_x402_payment(
     Called by the TS API mppAuth middleware to confirm that a payment
     transaction matches the expected amount, token, and recipient.
     """
-    _verify_internal_key(x_internal_key)
+    _verify_internal_key(x_internal_api_key)
 
     # Resolve token address from symbol
     chain_tokens = x402_service.payment_tokens.get(request.chain, {})
@@ -168,7 +168,7 @@ async def provision_agent_wallet(
     x_internal_key: str = Header(None, alias="X-Internal-Key"),
 ):
     """Create a User + Wallet row for an agent. Called by TS API after Turnkey wallet creation."""
-    _verify_internal_key(x_internal_key)
+    _verify_internal_key(x_internal_api_key)
 
     try:
         from bot.models.user import User
@@ -226,7 +226,7 @@ async def execute_agent_swap(
     x_internal_key: str = Header(None, alias="X-Internal-Key"),
 ):
     """Execute a swap using the full Python swap pipeline. Called by TS API."""
-    _verify_internal_key(x_internal_key)
+    _verify_internal_key(x_internal_api_key)
 
     try:
         from bot.services.swap_engine import swap_engine, SwapQuote
