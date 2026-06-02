@@ -466,6 +466,9 @@ async def withdraw_select_token(update: Update, context: ContextTypes.DEFAULT_TY
     
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.edit_message_text("❌ Please use /start first.")
+            return ConversationHandler.END
         user_id = db_user.id
     
     balance = hot_wallet_service.get_custodial_balance(user_id, chain, token)
@@ -703,6 +706,9 @@ async def withdraw_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await update.message.reply_text("❌ Please use /start first.")
+            return ConversationHandler.END
         user_id = db_user.id
 
     # Whitelist enforcement (opt-in per chain).
@@ -763,6 +769,9 @@ async def withdraw_confirm_2fa(update: Update, context: ContextTypes.DEFAULT_TYP
     user = update.effective_user
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await update.message.reply_text("❌ Please use /start first.")
+            return ConversationHandler.END
         user_id = db_user.id
 
     success, action_data = twofa_service.verify_simple_code(user_id, code)
