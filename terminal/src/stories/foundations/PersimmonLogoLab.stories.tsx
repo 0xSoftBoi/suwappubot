@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { Meta, StoryObj } from '@storybook/react-vite'
+import type { Meta, StoryObj } from '@storybook/react'
 import { gsap } from 'gsap'
 import {
   PersimmonFavicon,
@@ -1583,6 +1583,7 @@ function SummerBreezeBoard() {
 
 const meta = {
   title: 'Foundations/Suwappu Mark Lab',
+  component: Playground,
   tags: ['autodocs'],
   args: {
     palette: 'mandarin',
@@ -1639,7 +1640,7 @@ const meta = {
       options: ['badge', 'orbit', 'stream'],
     },
   },
-} satisfies Meta<PlaygroundArgs>
+} satisfies Meta<typeof Playground>
 
 export default meta
 

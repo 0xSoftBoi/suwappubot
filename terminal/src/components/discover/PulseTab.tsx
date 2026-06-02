@@ -18,9 +18,10 @@ export function PulseTab({ onSelectToken }: PulseTabProps) {
   const {
     activeStage, setActiveStage,
     tokens, filters, setFilters, resetFilters,
-    lastUpdated, soundEnabled, setSoundEnabled,
+    lastUpdated,
   } = usePulse()
 
+  const [soundEnabled, setSoundEnabled] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevTokenCountRef = useRef(tokens.length)

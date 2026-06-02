@@ -221,6 +221,8 @@ export interface TokenSecurity {
   topHolderPercent: number
   mintAuthority: boolean
   riskLevel: 'safe' | 'caution' | 'danger'
+  trustScore?: number
+  devHoldingsPercent?: number
 }
 
 export interface PredictionMarket {

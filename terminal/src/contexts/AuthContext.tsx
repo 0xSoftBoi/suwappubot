@@ -33,14 +33,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [isPasskeySupported, setIsPasskeySupported] = useState(false)
 
-  const toBase64Url = (buffer: ArrayBuffer): string => {
-    const bytes = new Uint8Array(buffer)
+  const toBase64Url = (buffer: BufferSource): string => {
+    const bytes =
+      buffer instanceof ArrayBuffer ? new Uint8Array(buffer) : new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
     let binary = ''
     for (const byte of bytes) binary += String.fromCharCode(byte)
     return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
   }
 
-  const credentialChallenge = (value: string): Uint8Array => new TextEncoder().encode(value)
+  const credentialChallenge = (value: string): Uint8Array<ArrayBuffer> => {
+    const encoded = new TextEncoder().encode(value)
+    const buffer = new ArrayBuffer(encoded.byteLength)
+    const bytes = new Uint8Array(buffer)
+    bytes.set(encoded)
+    return bytes
+  }
 
   const rpIdForCurrentHost = (): string => {
     if (typeof window === 'undefined') return 'suwappu.bot'
@@ -77,11 +84,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkSession()
   }, [])
 
-  const fromBase64Url = (value: string): Uint8Array => {
+  const fromBase64Url = (value: string): Uint8Array<ArrayBuffer> => {
     const base64 = value.replace(/-/g, '+').replace(/_/g, '/')
     const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=')
     const binary = atob(padded)
-    return Uint8Array.from(binary, (char) => char.charCodeAt(0))
+    const bytes = new Uint8Array(new ArrayBuffer(binary.length))
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+    return bytes
   }
 
   const userHandleFromCredential = (value: ArrayBuffer | null): string | undefined => {
