@@ -190,6 +190,48 @@ Workspace **Eric Manganaro's Projects** (= Superposition), project **suwappu**
    under `KMS_PROVIDER=local` until re-wrapped. Starting fresh (no restore) needs no
    migration.
 
+## First deploy run — results & follow-ups
+
+Triggered all four via `railway up` (CLI). Build validation:
+- **terminal** — ✅ built and **LIVE** (nginx).
+- **python-api** — ✅ build succeeded (reconstructed `requirements.txt` + `Dockerfile.railway`
+  validated end-to-end). Crashes at boot only on missing required settings
+  `TELEGRAM_BOT_TOKEN` + `ENCRYPTION_KEY`.
+- **api-ts** — ✅ build succeeded after fixing a bun bug (see below). Boot blocked on
+  missing `TELEGRAM_BOT_TOKEN`, `JWT_SECRET`, `ADMIN_API_KEY`, and a schema step (below).
+- **showcase** — ❌ blocked by Railway's **build-time vulnerability scan**: `next@14.2.21`
+  has HIGH CVEs (CVE-2025-55184, CVE-2025-67779). Fix: bump to `next@^14.2.35` and
+  regenerate `bun.lock` + `package-lock.json` (the scanner reads `package-lock.json`).
+  No documented opt-out for the scan.
+
+Fixes applied this run (committed):
+- `api-ts/Dockerfile`: bun was under `/root/.bun`; non-root `USER bun` can't traverse
+  `/root` → `bun: Permission denied`. Now installed to `/usr/local`. (Helps AWS too.)
+- `api-ts/railway.json`, `showcase/railway.json`: removed `watchPatterns`. With a subdir
+  build root, repo-root-relative patterns (`api-ts/**`) never match → Railway skipped the
+  build. python-api/terminal keep theirs (their build root *is* repo root).
+
+Deploy mechanics learned (for future CLI deploys):
+- `railway up` (no path) for repo-root services (python-api, terminal) + a
+  `RAILWAY_DOCKERFILE_PATH` service var (`api/Dockerfile.railway`, `terminal/Dockerfile`),
+  since `railway up` only auto-reads a file literally named `railway.json` at the archive
+  root. Do **not** pass `.` as the path arg — it errors `prefix not found`.
+- `railway up ./<dir> --path-as-root --service <svc>` for subdir services (api-ts, showcase).
+
+Open follow-ups:
+- **Secrets** (still required to boot): python-api → `TELEGRAM_BOT_TOKEN`, `ENCRYPTION_KEY`
+  (must equal prod); api-ts → `TELEGRAM_BOT_TOKEN`, `JWT_SECRET`, `ADMIN_API_KEY` (reuse
+  prod values to avoid invalidating sessions/admin callers). `INTERNAL_API_KEY` already
+  minted on both.
+- **api-ts schema**: `start.sh` runs `drizzle-kit migrate` when `NODE_ENV=production`, but
+  there are no committed migration files (`drizzle/` is empty) → `Can't find
+  meta/_journal.json` (non-fatal, startup continues, but schema isn't created). For a fresh
+  Railway DB use `drizzle-kit push`; decide migrate-files vs push before relying on api-ts.
+- **showcase**: bump `next` (above).
+- **Ongoing deploys**: services were deployed via CLI, not connected to GitHub. For
+  auto-deploy, either connect the repo + set Root Directory/config path per service
+  (dashboard), or use the `deploy-railway.yml` Action with project tokens.
+
 ## Cutover order
 1. Provision Postgres + Redis; restore data into Postgres.
 2. Deploy **python-api** (KMS still `aws` if you have not run the re-wrap yet — see the
