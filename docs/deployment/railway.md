@@ -232,6 +232,47 @@ Open follow-ups:
   auto-deploy, either connect the repo + set Root Directory/config path per service
   (dashboard), or use the `deploy-railway.yml` Action with project tokens.
 
+## Live status + backups (clean-start migration)
+
+All four services deploy and run on Railway (project `suwappu`, env `production`):
+**terminal**, **showcase**, **api-ts**, **python-api** — all reach SUCCESS. python-api boots
+fully (DB schema created, Redis + RPC up, Telegram polling `getUpdates 200`); api-ts runs
+`drizzle-kit push` on the fresh DB. Secrets were freshly generated (clean start, no AWS data
+carried over): `ENCRYPTION_KEY`, `JWT_SECRET`, `ADMIN_API_KEY`, plus the earlier
+`TELEGRAM_BOT_TOKEN`, `WALLET_MASTER_KEK`, `INTERNAL_API_KEY`.
+
+> **Back up `ENCRYPTION_KEY` + `WALLET_MASTER_KEK`** (python-api → Variables) into a password
+> manager. Once wallets are created on Railway they're tied to these.
+
+### Never-lose-data backups (open source, provider-portable)
+The fix for "I lose data every provider switch" is: **data is durable, compute is
+disposable.** You're on vanilla open-source Postgres (portable via `pg_dump`), and Turnkey
+holds wallet keys in its TEE — neither is tied to Railway. Two backup layers:
+1. **Railway native scheduled backups** (Pro org): Postgres service → Backups → enable.
+   Zero setup, daily, retained.
+2. **A copy you control** — `scripts/backup-to-r2.sh`: nightly `pg_dump` → S3-compatible
+   object storage (Cloudflare R2 / Backblaze B2). Deploy as a Railway **cron service** off
+   the `postgres:16` image; set `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `S3_BUCKET`,
+   `S3_ENDPOINT`, `AWS_ACCESS_KEY_ID/SECRET`; schedule `0 4 * * *`. **You provide:** an
+   R2/B2 bucket + access keys.
+3. **Restore drill**: periodically `pg_restore` a dump into a scratch DB — an unrestored
+   backup isn't a backup. Restore command is in the script header.
+
+A future provider switch then = `pg_restore` the latest dump (or just repoint
+`DATABASE_URL`) — never "start from zero."
+
+### Known follow-ups (non-blocking)
+- **Schema bug**: python-api logs `column limit_orders.wallet_id does not exist` on each
+  order-check poll. The fresh schema from `_ensure_schema()` (`database/db.py`) doesn't add
+  `wallet_id` to `limit_orders`, but `bot/services/orders.py` queries it — a pre-existing
+  model/migration mismatch (harmless on an empty DB; limit orders won't work until fixed).
+- **Bot persistence is ephemeral**: `data/bot_persistence.pickle` is on the container FS and
+  resets on redeploy. Attach a Railway volume at `/app/data` if you want it to persist.
+- **Full functionality** still needs (from each service's own dashboard, not prod):
+  `TURNKEY_*` (wallets), `INFURA_API_KEY`/`ALCHEMY_API_KEY` (RPC), fee addresses, OAuth.
+- **Public domains** not generated yet (Settings → Networking → Generate Domain); then set
+  terminal's `VITE_API_URL` + api-ts `ALLOWED_ORIGINS`.
+
 ## Cutover order
 1. Provision Postgres + Redis; restore data into Postgres.
 2. Deploy **python-api** (KMS still `aws` if you have not run the re-wrap yet — see the
