@@ -139,6 +139,57 @@ Directory + `railway.json`, so it runs from the repo root for every service.
 > The old AWS workflows (`deploy-api.yml`, `deploy-frontend.yml`) are `workflow_dispatch`
 > only — they never auto-run, so they don't conflict. Left in place for reversibility.
 
+## Provisioned this session (CLI)
+
+Workspace **Eric Manganaro's Projects** (= Superposition), project **suwappu**
+(`428680a3-dd24-4f7c-8349-e66d791b5104`), environment **production**:
+- Services created: **Postgres**, **Redis**, **python-api**, **api-ts**, **terminal**,
+  **showcase** (the four app services are empty — no source connected yet, so nothing
+  has built).
+- Variables set:
+  - python-api: `KMS_PROVIDER=local`, `WALLET_MASTER_KEK` (minted), `INTERNAL_API_KEY`
+    (minted), `WALLET_PROVIDER=turnkey`, `USE_WEBHOOK=false`, `PORT=8000`,
+    `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `REDIS_URL=${{Redis.REDIS_URL}}`.
+  - api-ts: `NODE_ENV=production`, `INTERNAL_API_KEY` (same minted value),
+    `INTERNAL_API_URL=http://python-api.railway.internal:8000`,
+    `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `REDIS_URL=${{Redis.REDIS_URL}}`.
+
+> **Back up `WALLET_MASTER_KEK` now.** It was generated and written only to Railway
+> (python-api → Variables) — never printed. Copy it to a password manager. After the
+> re-wrap migration runs, losing this key = unrecoverable local-KMS wallets. The same
+> value must be available to the migration job.
+
+### Remaining manual steps (dashboard-only — CLI/API can't do these)
+
+1. **Per service: Root Directory + Config-as-code path** (Service → Settings):
+   | Service | Root Directory | Config-as-code path (absolute) |
+   |---|---|---|
+   | python-api | `/` | `/railway.python-api.json` |
+   | api-ts | `api-ts` | `/api-ts/railway.json` |
+   | terminal | `/` | `/railway.terminal.json` |
+   | showcase | `showcase` | `/showcase/railway.json` |
+   (Config path does **not** follow Root Directory — give the absolute repo path.)
+2. **Source**: connect the GitHub repo `0xSoftBoi/suwappubot` to each service (Settings →
+   Source), or deploy via the GitHub Action / `railway up`. If you use native GitHub
+   deploys, the `deploy-railway.yml` Action is redundant (pick one to avoid double builds).
+3. **terminal**: set **target port = 80** (Settings → Networking) and the build variable
+   `VITE_API_URL` = python-api's public URL.
+4. **Paste the external secrets** you hold (Variables):
+   - python-api: `TELEGRAM_BOT_TOKEN`, **`ENCRYPTION_KEY` (MUST equal the current prod
+     value or legacy wallets won't decrypt)**, `TURNKEY_ORGANIZATION_ID`,
+     `TURNKEY_API_PUBLIC_KEY`, `TURNKEY_API_PRIVATE_KEY`, `INFURA_API_KEY`,
+     `ALCHEMY_API_KEY`, fee/OAuth vars as used.
+   - api-ts: `TURNKEY_API_PUBLIC_KEY`, `TURNKEY_API_PRIVATE_KEY`, `TURNKEY_ORGANIZATION_ID`,
+     `JWT_SECRET`, `FEE_WALLET_EVM`, `FEE_WALLET_SOLANA`, `POLYMARKET_CREDENTIAL_KEY`,
+     `ALLOWED_ORIGINS` (terminal + showcase domains).
+5. **Generate public domains** (Settings → Networking → Generate Domain) for python-api,
+   api-ts, terminal, showcase; then set `VITE_API_URL` and `ALLOWED_ORIGINS` accordingly.
+6. **Data**: the Railway Postgres is empty. To carry over users/wallets, `pg_dump` the
+   current DB → restore into Railway Postgres, then run the KMS re-wrap (next section)
+   **before** the app serves traffic — its v2 wallets are AWS-wrapped and won't decrypt
+   under `KMS_PROVIDER=local` until re-wrapped. Starting fresh (no restore) needs no
+   migration.
+
 ## Cutover order
 1. Provision Postgres + Redis; restore data into Postgres.
 2. Deploy **python-api** (KMS still `aws` if you have not run the re-wrap yet — see the
