@@ -26,7 +26,11 @@ class Settings(BaseSettings):
     # KMS Wallet Encryption (envelope encryption)
     kms_provider: str = Field(
         default="aws",
-        description="KMS provider: 'aws' (recommended), 'gcp', or 'dev' (local mock — NOT for production)"
+        description="KMS provider: 'aws', 'gcp', 'local' (env-var KEK, production-acceptable for the fallback/backup + OAuth tier), or 'dev' (local mock — NOT for production)"
+    )
+    wallet_master_kek: Optional[str] = Field(
+        default=None,
+        description="High-entropy base64/hex KEK used by the 'local' KMS provider to wrap per-wallet DEKs. Distinct from encryption_key. Generate: python3 -c \"import os,base64;print(base64.b64encode(os.urandom(32)).decode())\""
     )
     kms_key_id: Optional[str] = Field(
         default=None,

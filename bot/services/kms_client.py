@@ -3,6 +3,7 @@ KMS client abstraction for wallet key encryption.
 
 Supports multiple providers:
 - dev: Local mock using settings.encryption_key (for development/testing)
+- local: Production env-var KEK (settings.wallet_master_kek) — no external service
 - aws: AWS KMS
 - gcp: Google Cloud KMS
 """
@@ -151,10 +152,113 @@ class DevMockKmsClient(KmsClientBase):
         return self._fernet.decrypt(ciphertext)
 
 
+class LocalKmsClient(KmsClientBase):
+    """
+    Production-grade local KMS client using an env-var KEK (no external service).
+
+    Wraps/unwraps the 32-byte DEK with AES-256-GCM. The wrapping key is derived
+    from a dedicated high-entropy master KEK (settings.wallet_master_kek) via
+    HKDF-SHA256 with a fixed salt + info, so wraps are reproducible across deploys.
+
+    Trust model: the KEK lives in process memory + the platform secret store
+    (e.g. Railway), NOT an HSM. This is an accepted trade for the lower-sensitivity
+    tier (fallback/backup keys + OAuth tokens) because primary wallet custody is
+    Turnkey's TEE. Do NOT reuse the KEK across environments.
+
+    Wrapped-DEK format is self-contained: nonce(12 bytes) || AES-GCM ciphertext+tag.
+    """
+
+    # Fixed derivation parameters — changing these invalidates all existing wraps.
+    _HKDF_SALT = b"suwappu-local-kms-salt:v1"
+    _HKDF_INFO = b"suwappu-local-kms-kek-v1"
+
+    def __init__(self, master_kek: str):
+        """
+        Initialize with a high-entropy master KEK.
+
+        Args:
+            master_kek: base64- (preferred) or hex-encoded key material (>= 32 bytes).
+        """
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+        if not master_kek:
+            raise ValueError("LocalKmsClient requires a non-empty master_kek")
+
+        raw = self._decode_kek(master_kek)
+        if len(raw) < 16:
+            raise ValueError(
+                "wallet_master_kek is too short; expected >= 32 bytes of entropy "
+                "(generate with: python3 -c \"import os,base64;print(base64.b64encode(os.urandom(32)).decode())\")"
+            )
+
+        # Derive a stable 32-byte AES-256 wrapping key from the master KEK.
+        self._wrapping_key = HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=self._HKDF_SALT,
+            info=self._HKDF_INFO,
+        ).derive(raw)
+        self._key_id_str = "local-v1"
+
+    @staticmethod
+    def _decode_kek(master_kek: str) -> bytes:
+        """Decode a base64 or hex KEK string into raw bytes."""
+        s = master_kek.strip()
+        # Try base64 (standard + urlsafe) first, then hex.
+        for decoder in (base64.b64decode, base64.urlsafe_b64decode):
+            try:
+                decoded = decoder(s + "=" * (-len(s) % 4))
+                if len(decoded) >= 16:
+                    return decoded
+            except Exception:
+                pass
+        try:
+            return bytes.fromhex(s)
+        except ValueError:
+            # Last resort: use the raw UTF-8 bytes (still HKDF-stretched).
+            return s.encode("utf-8")
+
+    @property
+    def key_id(self) -> str:
+        return self._key_id_str
+
+    def encrypt(self, plaintext: bytes) -> bytes:
+        """Wrap: AES-256-GCM with a random nonce; output is nonce || ciphertext+tag."""
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+        nonce = os.urandom(12)
+        ciphertext = AESGCM(self._wrapping_key).encrypt(nonce, plaintext, None)
+        return nonce + ciphertext
+
+    def decrypt(self, ciphertext: bytes) -> bytes:
+        """Unwrap: split the 12-byte nonce prefix, then AES-256-GCM decrypt."""
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+        if len(ciphertext) < 13:
+            raise ValueError("Local KMS ciphertext too short to contain nonce + tag")
+        nonce, ct = ciphertext[:12], ciphertext[12:]
+        return AESGCM(self._wrapping_key).decrypt(nonce, ct, None)
+
+    def generate_data_key(self) -> DataKeyResult:
+        """Generate a random 32-byte DEK and wrap it with the local KEK."""
+        plaintext_key = os.urandom(32)
+        encrypted_key = self.encrypt(plaintext_key)
+        return DataKeyResult(
+            plaintext_key=plaintext_key,
+            encrypted_key=encrypted_key,
+            key_id=self._key_id_str,
+        )
+
+    def decrypt_data_key(self, encrypted_key: bytes) -> bytes:
+        """Unwrap a DEK previously wrapped with this KEK."""
+        return self.decrypt(encrypted_key)
+
+
 class AwsKmsClient(KmsClientBase):
     """
     AWS KMS client for production envelope encryption.
-    
+
     Requires boto3 and appropriate IAM permissions.
     """
     
@@ -318,7 +422,15 @@ def get_kms_client() -> KmsClientBase:
     if provider == "dev":
         logger.info("Using DevMockKmsClient (local encryption)")
         _kms_client = DevMockKmsClient(settings.encryption_key)
-    
+
+    elif provider == "local":
+        if not settings.wallet_master_kek:
+            raise ValueError(
+                "Local KMS requires wallet_master_kek (env WALLET_MASTER_KEK) to be set"
+            )
+        logger.info("Using LocalKmsClient (env-var KEK)")
+        _kms_client = LocalKmsClient(settings.wallet_master_kek)
+
     elif provider == "aws":
         if not settings.kms_key_id:
             raise ValueError("AWS KMS requires kms_key_id to be set")

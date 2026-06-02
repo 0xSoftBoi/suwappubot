@@ -1,0 +1,126 @@
+# Python monolith (api/ + bot/ + database/) — Railway runtime dependencies.
+#
+# RECONSTRUCTED set. The authoritative dependency list previously lived only in the
+# private ECR base image (905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu:latest),
+# which is not reachable off-AWS. This file = the local .venv freeze (known-good pins
+# for the core app) + packages that ARE imported by the code but were absent from the
+# local venv (uvicorn, boto3, psycopg2, orjson, tronpy, discord, Pillow, qrcode,
+# py-clob-client). The `docker build` + import smoke test is the validation step — if the
+# resolver conflicts on a pinned core line, relax that one line and rebuild.
+
+# ---- Web framework / server ----
+fastapi==0.128.8
+starlette==0.49.3
+uvicorn[standard]>=0.30,<1.0          # ASGI server — entrypoint (not in local venv)
+anyio==4.12.1
+h11==0.16.0
+sniffio==1.3.1
+
+# ---- Telegram bot ----
+python-telegram-bot==22.5
+
+# ---- HTTP clients ----
+httpx==0.28.1
+httpcore==1.0.9
+requests==2.32.5
+aiohttp==3.13.5
+aiohappyeyeballs==2.6.1
+aiosignal==1.4.0
+async-timeout==5.0.1
+frozenlist==1.8.0
+multidict==6.7.1
+propcache==0.4.1
+yarl==1.22.0
+websockets==15.0.1
+websocket-client==1.9.0
+urllib3==2.6.3
+certifi==2026.5.20
+charset-normalizer==3.4.7
+idna==3.17
+
+# ---- Database ----
+SQLAlchemy==2.0.50
+psycopg2-binary>=2.9,<3.0             # PostgreSQL driver (sslmode/connect_timeout args) — not in local venv
+
+# ---- Pydantic / settings ----
+pydantic==2.13.4
+pydantic_core==2.46.4
+pydantic-settings==2.11.0
+annotated-types==0.7.0
+annotated-doc==0.0.4
+typing_extensions==4.15.0
+typing-inspection==0.4.2
+python-dotenv==1.2.1
+
+# ---- Crypto / encryption ----
+cryptography==48.0.0
+pycryptodome==3.23.0
+cffi==2.0.0
+pycparser==2.23
+PyJWT==2.13.0
+pyotp==2.9.0
+
+# ---- EVM / web3 ----
+web3==7.16.0
+eth-account==0.13.7
+eth_abi==5.2.0
+eth-hash==0.7.1
+eth-keyfile==0.8.1
+eth-keys==0.7.0
+eth-rlp==2.2.0
+eth-typing==5.2.1
+eth-utils==5.3.1
+hexbytes==1.3.1
+rlp==4.1.0
+ckzg==2.1.7
+parsimonious==0.10.0
+pyunormalize==17.0.0
+cytoolz==1.1.0
+toolz==1.1.0
+bitarray==3.8.1
+
+# ---- Solana ----
+solana==0.36.12
+solders==0.27.1
+base58==2.1.1
+construct==2.10.70
+construct-typing==0.7.0
+jsonalias==0.1.1
+
+# ---- Tron (imported by bot/services) ----
+tronpy>=0.5,<1.0                      # not in local venv
+
+# ---- Perps / Polymarket / Hyperliquid ----
+hyperliquid-python-sdk==0.23.0
+py-clob-client>=0.20                  # Polymarket CLOB (imported as py_clob_client) — not in local venv
+msgpack==1.1.2
+
+# ---- Discord integration (imported by bot/) ----
+discord.py>=2.3,<3.0                  # not in local venv
+
+# ---- Media / QR ----
+qrcode>=7.4,<9.0                      # not in local venv
+Pillow>=10.0                          # imported as PIL — not in local venv
+
+# ---- Cache ----
+redis==7.0.1
+
+# ---- AWS KMS ----
+# boto3 is intentionally NOT a runtime dependency. It is imported lazily in
+# AwsKmsClient (bot/services/kms_client.py) and is only needed by the one-time re-wrap
+# migration (scripts/rewrap_kms_to_local.py), which runs in an environment that still has
+# AWS access — install it there via scripts/requirements-migrate.txt. Keeping it out of the
+# runtime image avoids a botocore<->urllib3 version conflict on the pinned HTTP stack.
+
+# ---- Serialization / misc ----
+orjson>=3.10                          # not in local venv
+regex==2026.1.15
+attrs==26.1.0
+packaging==26.2
+Pygments==2.20.0
+exceptiongroup==1.3.1
+tomli==2.4.1
+
+# ---- Optional: only needed if KMS_PROVIDER=gcp (lazy-imported in kms_client.py).
+# Left out by default to avoid pulling grpc/protobuf; uncomment if switching to GCP KMS.
+# google-cloud-kms>=2.21

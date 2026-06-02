@@ -1,0 +1,64 @@
+# Self-contained image for the Python monolith (FastAPI + Telegram bot + background
+# services) — for Railway. Unlike api/Dockerfile (which layers a few files onto the
+# private ECR base image 905418423235.dkr.ecr.us-east-1.amazonaws.com/suwappu:latest),
+# this builds everything from a public base + requirements.txt, so it has no AWS dependency.
+#
+# Build context MUST be the repo root (needs api/, bot/, database/, requirements.txt).
+# On Railway: set the service Root Directory to the repo root and Dockerfile Path to
+# api/Dockerfile.railway.
+#
+# Python 3.9 is pinned to match the version the dependency pins in requirements.txt were
+# resolved against (maximizes manylinux wheel availability for the C/Rust extensions:
+# solders, pydantic_core, ckzg, cryptography, psycopg2-binary, Pillow).
+
+# ---- Builder: install deps into an isolated venv (with build tools as a fallback for
+#      any package that ships only an sdist) ----
+FROM python:3.9-slim-bookworm AS builder
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        libpq-dev \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY requirements.txt .
+RUN pip install --upgrade pip && pip install -r requirements.txt
+
+# ---- Runtime: slim image, no build tools, non-root ----
+FROM python:3.9-slim-bookworm AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH"
+
+# libpq5 is the runtime lib for psycopg2 (psycopg2-binary bundles it, but keep it for the
+# source-built fallback). curl is for the healthcheck.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpq5 \
+        curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -m -u 1000 botuser
+
+COPY --from=builder /opt/venv /opt/venv
+
+WORKDIR /app
+COPY --chown=botuser:botuser api/ /app/api/
+COPY --chown=botuser:botuser bot/ /app/bot/
+COPY --chown=botuser:botuser database/ /app/database/
+
+USER botuser
+
+EXPOSE 8000
+
+# Railway injects $PORT; fall back to 8000 for local/other platforms. Shell form so $PORT
+# expands at runtime.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -fsS "http://localhost:${PORT:-8000}/health" || exit 1
+
+CMD uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}
