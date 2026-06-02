@@ -199,10 +199,10 @@ Triggered all four via `railway up` (CLI). Build validation:
   `TELEGRAM_BOT_TOKEN` + `ENCRYPTION_KEY`.
 - **api-ts** — ✅ build succeeded after fixing a bun bug (see below). Boot blocked on
   missing `TELEGRAM_BOT_TOKEN`, `JWT_SECRET`, `ADMIN_API_KEY`, and a schema step (below).
-- **showcase** — ❌ blocked by Railway's **build-time vulnerability scan**: `next@14.2.21`
-  has HIGH CVEs (CVE-2025-55184, CVE-2025-67779). Fix: bump to `next@^14.2.35` and
-  regenerate `bun.lock` + `package-lock.json` (the scanner reads `package-lock.json`).
-  No documented opt-out for the scan.
+- **showcase** — ✅ now built and **LIVE**. Was blocked by Railway's build-time
+  vulnerability scan on `next@14.2.21` (HIGH: CVE-2025-55184, CVE-2025-67779); fixed by
+  bumping to `next@^14.2.35` and regenerating `bun.lock` + `package-lock.json` (the scanner
+  reads `package-lock.json`). No documented opt-out for the scan.
 
 Fixes applied this run (committed):
 - `api-ts/Dockerfile`: bun was under `/root/.bun`; non-root `USER bun` can't traverse
