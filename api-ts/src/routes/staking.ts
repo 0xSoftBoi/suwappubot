@@ -209,6 +209,22 @@ stakingRoutes.get('/vault', async (c) => {
 	return c.json(result.right)
 })
 
+// GET /staking/bonds — treasury LP holdings summary (public)
+stakingRoutes.get('/bonds', async (c) => {
+	// Placeholder: once SuwppuBonds contract is deployed and indexed,
+	// this will query on-chain bond data or a bonds DB table.
+	// For now, return treasury stats and contract address.
+	return c.json({
+		bonds_contract: process.env.BONDS_CONTRACT_ADDRESS ?? null,
+		total_lp_bonded: 0,
+		total_suwp_issued: 0,
+		discount_bps: 500,
+		vesting_days: 7,
+		note: 'Bond your SUWP/USDC Uniswap v3 LP NFT for discounted SUWP. Contract pending deployment.',
+		uniswap_pool: process.env.SUWP_USDC_POOL_ADDRESS ?? null,
+	})
+})
+
 // GET /staking/apy — estimated APY based on recent epoch
 stakingRoutes.get('/apy', async (c) => {
 	const result = await runEffectEither(

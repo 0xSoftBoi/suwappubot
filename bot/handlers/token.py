@@ -13,7 +13,7 @@ from bot.models.points import UserPoints
 
 logger = logging.getLogger(__name__)
 
-ENTER_CLAIM_AMOUNT, ENTER_STAKE_AMOUNT, ENTER_WALLET = range(3)
+ENTER_CLAIM_AMOUNT, ENTER_STAKE_AMOUNT, ENTER_WALLET, ENTER_LP_TOKEN_ID = range(4)
 
 
 async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -64,6 +64,7 @@ async def token_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
     if pending_usdc > 0 or pending_suwp_bonus > 0:
         keyboard.append([InlineKeyboardButton("Claim Rewards", callback_data="token_claim_rewards")])
+    keyboard.append([InlineKeyboardButton("🔗 Bond LP for SUWP", callback_data="bond_menu")])
     keyboard.append([InlineKeyboardButton("Back", callback_data="main_menu")])
 
     effective_message = update.message or update.callback_query.message
@@ -278,6 +279,101 @@ async def receive_stake_amount(update: Update, context: ContextTypes.DEFAULT_TYP
     return ConversationHandler.END
 
 
+async def bond_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show bonding dashboard — sell LP tokens for discounted SUWP."""
+    query = update.callback_query
+    if query:
+        await query.answer()
+
+    from bot.config.settings import settings
+    contract_addr = getattr(settings, "bonds_contract_address", None)
+
+    text = (
+        "🔗 *Protocol-Owned Liquidity Bonds*\n\n"
+        "*How it works:*\n"
+        "1. Provide SUWP/USDC liquidity on Uniswap v3 (Base)\n"
+        "2. Bond your LP NFT here → receive SUWP at *5% discount*\n"
+        "3. SUWP vests linearly over *7 days*\n"
+        "4. Protocol keeps the LP forever (earns trading fees)\n\n"
+        "*Why bond?*\n"
+        "• Get 5% more SUWP than buying on the open market\n"
+        "• Help deepen SUWP/USDC liquidity permanently\n\n"
+        "*Current discount:* 5% below TWAP price\n"
+        "*Vesting period:* 7 days (linear)\n\n"
+    )
+
+    if contract_addr:
+        text += f"*Bonds contract:* `{contract_addr}`\n\n_Enter your Uniswap v3 NFT token ID to bond:_"
+        keyboard = [
+            [InlineKeyboardButton("🔗 Bond LP NFT", callback_data="bond_start")],
+            [InlineKeyboardButton("📋 My Active Bonds", callback_data="bond_list")],
+            [InlineKeyboardButton("« Back", callback_data="token_menu")],
+        ]
+    else:
+        text += "_Bonding contract not yet deployed. Check back soon!_"
+        keyboard = [[InlineKeyboardButton("« Back", callback_data="token_menu")]]
+
+    send = query.edit_message_text if query else update.message.reply_text
+    await send(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+async def bond_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Prompt for LP NFT token ID."""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "🔗 *Bond LP NFT*\n\n"
+        "Enter your Uniswap v3 SUWP/USDC position NFT token ID:\n"
+        "_(Find it on app.uniswap.org → Pool → your position)_",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="bond_menu")]]),
+    )
+    context.user_data["token_action"] = "bond"
+    return ENTER_LP_TOKEN_ID
+
+
+async def receive_lp_token_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Process LP token ID — show preview and confirm."""
+    try:
+        token_id = int(update.message.text.strip().replace(",", ""))
+        if token_id <= 0:
+            raise ValueError
+    except (ValueError, Exception):
+        await update.message.reply_text("❌ Enter a valid positive integer token ID.")
+        return ENTER_LP_TOKEN_ID
+
+    from bot.config.settings import settings
+    contract_addr = getattr(settings, "bonds_contract_address", None)
+
+    await update.message.reply_text(
+        f"🔗 *Bond Preview*\n\n"
+        f"LP NFT Token ID: `{token_id}`\n"
+        f"Contract: `{contract_addr or 'not deployed'}`\n\n"
+        f"To complete bonding:\n"
+        f"1. Approve the NFT to the bonds contract\n"
+        f"2. Call `bond({token_id})` on the contract\n\n"
+        f"_Bonding is an on-chain action — use your wallet directly or the webapp._\n\n"
+        f"[Open on Basescan](https://basescan.org/address/{contract_addr or '0x0'})",
+        parse_mode="Markdown",
+    )
+    return ConversationHandler.END
+
+
+async def bond_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show user's active bonds (read from DB when implemented)."""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "📋 *Your Active Bonds*\n\n"
+        "_Bond tracking will show here once you have active positions on-chain._\n\n"
+        "Check your bonds at:\n"
+        "• Webapp → Staking → Bonds\n"
+        "• Basescan → Contract → Read → getUserBonds",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="bond_menu")]]),
+    )
+
+
 async def _cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Cancelled.")
     return ConversationHandler.END
@@ -290,11 +386,13 @@ token_conv_handler = ConversationHandler(
         CommandHandler("suwp", token_command),
         CallbackQueryHandler(token_claim_callback, pattern="^token_claim$"),
         CallbackQueryHandler(token_stake_callback, pattern="^token_stake$"),
+        CallbackQueryHandler(bond_start_callback, pattern="^bond_start$"),
     ],
     states={
         ENTER_WALLET: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_wallet_address)],
         ENTER_CLAIM_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_claim_amount)],
         ENTER_STAKE_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_stake_amount)],
+        ENTER_LP_TOKEN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_lp_token_id)],
     },
     fallbacks=[CommandHandler("cancel", _cancel)],
     name="token_conv",
@@ -305,3 +403,5 @@ token_conv_handler = ConversationHandler(
 token_menu_callback_handler = CallbackQueryHandler(token_menu_callback, pattern="^token_menu$")
 token_unstake_callback_handler = CallbackQueryHandler(token_unstake_callback, pattern="^token_unstake$")
 token_claim_rewards_callback_handler = CallbackQueryHandler(token_claim_rewards_callback, pattern="^token_claim_rewards$")
+bond_menu_callback_handler = CallbackQueryHandler(bond_callback, pattern="^bond_menu$")
+bond_list_callback_handler = CallbackQueryHandler(bond_list_callback, pattern="^bond_list$")

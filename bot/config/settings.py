@@ -445,6 +445,10 @@ class Settings(BaseSettings):
         default=None,
         description="Deployed SuwppuStaking contract address on Base (used by fundStream / distributeSuwpBonus)"
     )
+    bonds_contract_address: Optional[str] = Field(
+        default=None,
+        description="Deployed SuwppuBonds contract address on Base (protocol-owned liquidity bonding)"
+    )
 
     model_config = ConfigDict(
         env_file=".env",

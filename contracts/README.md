@@ -44,6 +44,36 @@ forge create contracts/SuwppuStaking.sol:SuwppuStaking \
 - GDA:  0x6DA13Bde224A05a288748d857b9e7DDEffd1dE08
 - USDCx (wrapped USDC): 0xD04383398dD2426297da660F9CCA3d439AF9ce1b
 
+## SuwppuBonds — Protocol-Owned Liquidity
+
+Users sell SUWP/USDC Uniswap v3 LP NFTs to the protocol treasury.
+Protocol pays discounted SUWP (5% below TWAP) vesting over 7 days.
+Protocol holds LP permanently → earns trading fees forever.
+
+### Deploy sequence
+```bash
+# 1. Deploy SuwppuBonds
+forge create contracts/SuwppuBonds.sol:SuwppuBonds \
+  --constructor-args <SUWP_ADDRESS> 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 \
+    0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f \
+    <OWNER_MULTISIG> \
+  --rpc-url https://mainnet.base.org \
+  --private-key $DEPLOYER_PRIVATE_KEY \
+  --verify
+
+# 2. Grant MINTER_ROLE on SuwpOFT to SuwppuBonds address
+# 3. After SUWP/USDC pool exists: call setSuwpUsdcPool(<pool_address>)
+```
+
+### Uniswap v3 on Base
+- Position Manager: `0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f`
+- Factory: `0x33128a8fC17869897dcE68Ed026d694621f6FDfD`
+
+### Production note on pricing
+The TWAP price function uses a simplified tick→price approximation.
+In production, integrate Uniswap v3's TickMath library for exact pricing:
+`forge install Uniswap/v3-core` then use `TickMath.getSqrtRatioAtTick(avgTick)`.
+
 ## SuwpOFT — Omnichain Token
 
 Replace `SUWP.sol` with `SuwpOFT.sol` for cross-chain deployment.

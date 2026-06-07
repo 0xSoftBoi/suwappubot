@@ -90,6 +90,8 @@ from bot.handlers.token import (
     token_menu_callback_handler,
     token_unstake_callback_handler,
     token_claim_rewards_callback_handler,
+    bond_menu_callback_handler,
+    bond_list_callback_handler,
 )
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
@@ -323,6 +325,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(token_menu_callback_handler)
     application.add_handler(token_unstake_callback_handler)
     application.add_handler(token_claim_rewards_callback_handler)
+    application.add_handler(bond_menu_callback_handler)
+    application.add_handler(bond_list_callback_handler)
 
     # Copy Trading callbacks
     application.add_handler(copy_menu_callback_handler)
