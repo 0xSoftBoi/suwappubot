@@ -568,9 +568,26 @@ class TurnkeyClient:
 
         # Normalize v to a 1-byte (2 hex char) recovery value. Turnkey returns
         # v as hex; accept a bare recovery id (00/01) and map it to 27/28.
-        v_int = int(v, 16)
+        try:
+            v_int = int(v, 16)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Invalid signature v (not hex): {v!r}") from e
+        # A bare recovery id is 0..3; map it into the EIP-155 27..30 range.
         if v_int < 27:
+            if v_int > 3:
+                raise ValueError(
+                    f"Invalid signature v: {v_int} (expected bare recovery id 0-3 "
+                    f"or 27/28)"
+                )
             v_int += 27
+        # Final guard: a usable EVM signature must recover with v in {27, 28}.
+        # Without this, a bad upstream v (e.g. 0x63=99) would pass through and
+        # produce an unrecoverable signature that downstream silently rejects.
+        if v_int not in (27, 28):
+            raise ValueError(
+                f"Invalid signature v after normalization: {v_int} "
+                f"(expected 27 or 28; Turnkey returned raw v={v!r})"
+            )
         v_hex = format(v_int, "02x")
 
         # Return a properly formatted 65-byte EIP-712 signature: 0x<r><s><v>.

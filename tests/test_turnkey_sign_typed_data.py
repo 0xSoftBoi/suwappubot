@@ -137,3 +137,21 @@ def test_rejects_malformed_components(monkeypatch):
     _patch_raw(client, monkeypatch, "abc", "def", "00")
     with pytest.raises(ValueError):
         _run(client.sign_typed_data(TYPED_DATA, sign_with="0xdead"))
+
+
+def test_rejects_out_of_range_v(monkeypatch):
+    # A bad upstream v (0x63 = 99) must NOT pass through as an unrecoverable
+    # signature; it has to raise rather than silently emit "...63".
+    _expected_sig, r, s, _v = _ground_truth()
+    client = _client_without_init()
+    _patch_raw(client, monkeypatch, format(r, "064x"), format(s, "064x"), "63")
+    with pytest.raises(ValueError):
+        _run(client.sign_typed_data(TYPED_DATA, sign_with="0xdead"))
+
+
+def test_rejects_non_hex_v(monkeypatch):
+    _expected_sig, r, s, _v = _ground_truth()
+    client = _client_without_init()
+    _patch_raw(client, monkeypatch, format(r, "064x"), format(s, "064x"), "zz")
+    with pytest.raises(ValueError):
+        _run(client.sign_typed_data(TYPED_DATA, sign_with="0xdead"))
