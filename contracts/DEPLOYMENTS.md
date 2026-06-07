@@ -21,3 +21,15 @@ Superfluid GDA streaming pool created successfully.
 **Before mainnet:** transfer ownership/admin of all three contracts to the treasury multisig.
 
 ## Base Mainnet — not yet deployed
+
+## Working SuwppuStaking (decimal-fixed) — Base Sepolia
+After fixing the fundStream decimal bug (usdcx.upgrade must take the 18-dec amount):
+
+| Contract | Address |
+|----------|---------|
+| SuwppuStaking (live, stream-verified) | `0x9a7F2AF86c6834F2043066de0060862626aCD0cf` |
+| Superfluid GDA pool | `0x90e99a3bFc12d79C0c19D6B3a40f788cb8bD1237` |
+
+Verified live: 5000 SUWP staked → USDCx streams to staker at 0.000115 USDCx/sec
+(9.94 USDCx/day), claimable accrues per-second with no batch/claim step.
+fundStream tx: 0xd1edf6f40c1de810649001baed833a9737a88f4518348649608bf18fd4cd24ac

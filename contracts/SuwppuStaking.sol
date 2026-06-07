@@ -217,9 +217,10 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
         // Pull USDC from caller
         usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
 
-        // Wrap USDC → USDCx (18-decimal super token from 6-decimal USDC)
+        // Wrap USDC → USDCx. Superfluid upgrade() takes the 18-decimal super-token
+        // amount and pulls the equivalent 6-decimal USDC via the constructor approval.
         uint256 usdcxAmount = usdcAmount * 1e12; // scale 6→18 decimals
-        usdcx.upgrade(usdcAmount);               // wraps using pre-approved allowance
+        usdcx.upgrade(usdcxAmount);
 
         // Calculate flowRate: USDCx per second (18 decimals)
         int96 flowRate = int96(int256(usdcxAmount / durationSeconds));
