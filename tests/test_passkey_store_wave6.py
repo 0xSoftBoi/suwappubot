@@ -38,10 +38,10 @@ async def _create(challenge: str, entry: dict):
 async def _verify(encoded_challenge: str, expected_flow: str) -> bool:
     """Mirror of _verify_passkey_challenge's store interaction."""
     challenge = _b64url_decode(encoded_challenge).decode("utf-8")
-    entry = await redis_cache.get(_passkey_key(challenge))
+    # Atomic fetch-and-delete: single-use even under concurrent verification.
+    entry = await redis_cache.get_del(_passkey_key(challenge))
     if not entry:
-        return False  # expired / unknown
-    await redis_cache.delete(_passkey_key(challenge))  # single-use
+        return False  # expired / unknown / already used
     return entry.get("type") == expected_flow
 
 
@@ -71,5 +71,26 @@ def test_type_mismatch_detected():
         encoded = _b64url_encode(challenge.encode())
         await _create(challenge, {"type": "authentication"})
         # Verified as the wrong flow -> rejected.
+        assert await _verify(encoded, "registration") is False
+    asyncio.run(main())
+
+
+def test_concurrent_verify_consumes_challenge_once():
+    """Two concurrent verifications of the same challenge: exactly one wins.
+
+    Regression for the TOCTOU replay — a get()+delete() pair let both reads
+    see the challenge before either delete landed. get_del() is atomic.
+    """
+    async def main():
+        challenge = "race_ch"
+        encoded = _b64url_encode(challenge.encode())
+        await _create(challenge, {"type": "registration"})
+
+        r1, r2 = await asyncio.gather(
+            _verify(encoded, "registration"),
+            _verify(encoded, "registration"),
+        )
+        assert sorted([r1, r2]) == [False, True]
+        # And it stays consumed afterwards.
         assert await _verify(encoded, "registration") is False
     asyncio.run(main())

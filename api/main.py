@@ -896,13 +896,18 @@ async def _verify_passkey_challenge(client_data_json: str, expected_type: str) -
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid passkey challenge")
 
-    entry = await redis_cache.get(_passkey_key(challenge))
+    # Fetch-and-delete atomically so the challenge is single-use even under
+    # concurrent requests. A separate get() then delete() leaves a TOCTOU
+    # window where two requests both read the challenge before either deletes
+    # it — a WebAuthn challenge replay.
+    try:
+        entry = await redis_cache.get_del(_passkey_key(challenge))
+    except Exception:
+        # Redis error mid-verification: fail closed rather than risk a replay.
+        raise HTTPException(status_code=503, detail="Authentication temporarily unavailable")
     if not entry:
-        # Missing or expired (Redis TTL handles expiry).
+        # Missing, already used, or expired (Redis TTL handles expiry).
         raise HTTPException(status_code=401, detail="Passkey challenge expired")
-
-    # Challenges are single-use.
-    await redis_cache.delete(_passkey_key(challenge))
 
     expected_flow = "registration" if expected_type == "webauthn.create" else "authentication"
     if entry.get("type") != expected_flow:

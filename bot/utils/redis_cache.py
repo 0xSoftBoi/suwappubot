@@ -141,6 +141,53 @@ class RedisCache:
         self._memory_ttl.pop(key, None)
         return True
 
+    async def get_del(self, key: str) -> Optional[Any]:
+        """Atomically fetch and delete a key (single-use token pattern).
+
+        Returns the value to at most one caller, so concurrent requests can't
+        both consume the same single-use token (e.g. a WebAuthn passkey
+        challenge). A plain ``get`` then ``delete`` has a TOCTOU window where
+        two requests both read the value before either deletes it — a replay.
+
+        When connected to Redis this uses ``GETDEL`` (atomic, cross-replica),
+        falling back to a Lua ``GET``+``DEL`` for older servers. A Redis error
+        is raised rather than silently degraded, so single-use semantics are
+        never quietly lost. In memory mode it does an atomic in-process
+        get-then-pop (no ``await`` between read and remove, so coroutines can't
+        interleave); cross-replica single-use genuinely requires Redis, which
+        is why these tokens are routed through it.
+        """
+        if self._redis and self._connected:
+            try:
+                raw = await self._redis.getdel(key)
+            except AttributeError:
+                # Client predates GETDEL: emulate atomically with a Lua script.
+                raw = await self._redis.eval(
+                    "local v = redis.call('GET', KEYS[1]); "
+                    "if v then redis.call('DEL', KEYS[1]) end; return v",
+                    1,
+                    key,
+                )
+            except Exception as e:
+                logger.error(f"Redis GETDEL failed for {key}: {e}")
+                raise
+            if raw is None:
+                return None
+            try:
+                return json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return raw
+
+        # Memory mode: atomic get-then-pop (no await between → no interleave).
+        if key not in self._memory_cache:
+            return None
+        ttl = self._memory_ttl.get(key, 0)
+        value = self._memory_cache.pop(key, None)
+        self._memory_ttl.pop(key, None)
+        if ttl and time.time() > ttl:
+            return None
+        return value
+
     async def clear_pattern(self, pattern: str) -> int:
         """Delete all keys matching pattern."""
         count = 0
