@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AnimatePresence, motion, type Variants } from 'framer-motion'
@@ -161,6 +162,7 @@ function AppContent() {
   const location = useLocation()
 
   const content = (
+    <ErrorBoundary>
     <Suspense fallback={<LazyFallback />}>
     <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
@@ -373,6 +375,7 @@ function AppContent() {
       </Routes>
     </AnimatePresence>
     </Suspense>
+    </ErrorBoundary>
   )
 
   return isDesktop ? (

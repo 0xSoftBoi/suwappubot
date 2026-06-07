@@ -62,12 +62,19 @@ export function Swap() {
     reset: resetSwapState,
   } = useSwapExecute()
 
+  const TERMINAL_STATUSES = ['completed', 'failed', 'success', 'cancelled']
+
   // Poll for swap status after execution
   const { data: swapStatus } = useQuery({
     queryKey: ['swapStatus', swapResult?.swapId],
     queryFn: () => api.getSwapStatus(swapResult!.swapId),
-    enabled: !!swapResult?.swapId && swapResult.status === 'submitted',
-    refetchInterval: 5000,
+    enabled: !!swapResult?.swapId,
+    // refetchInterval callback receives the Query object in React Query v5;
+    // return false to stop polling once a terminal status is reached.
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      return TERMINAL_STATUSES.includes(status ?? '') ? false : 5000
+    },
     refetchIntervalInBackground: false,
   })
 
