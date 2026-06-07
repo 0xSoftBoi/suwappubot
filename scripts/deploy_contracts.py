@@ -1,28 +1,39 @@
 #!/usr/bin/env python3
 """
-Deploy Suwappu contracts to Base Sepolia using the bot's own treasury wallet.
+Deploy Suwappu contracts to Base using the bot's own wallet infrastructure.
 
-Uses the existing hot_wallet_service + web3 infrastructure — no raw private keys needed.
-Reads compiled contract artifacts from contracts/out/ (run `forge build` first).
+Two deployer modes:
+  1. PRODUCTION (--from-bot-wallet): loads the `treasury_vault` HotWallet from the
+     bot DB and KMS-decrypts the key. Run this ON Railway where DB + KMS exist.
+  2. STANDALONE (default): manages a self-contained deployer wallet in a local
+     gitignored keystore (scripts/.deployer_key). Auto-generated on first run.
+     You never touch a raw private key by hand. Ideal for testnet.
+
+Reads compiled artifacts from contracts/out/ (run `cd contracts && forge build`).
 
 Usage:
-    python3 scripts/deploy_contracts.py --network testnet
-    python3 scripts/deploy_contracts.py --network mainnet  # when ready
+    python3 scripts/deploy_contracts.py --network testnet            # standalone
+    python3 scripts/deploy_contracts.py --network testnet --dry-run  # check balance
+    python3 scripts/deploy_contracts.py --network mainnet --from-bot-wallet  # on Railway
 
-The treasury_vault hot wallet must exist in the DB:
-    name = "treasury_vault", chain_type = "evm"
+For testnet the standalone deployer owns the contracts; transfer ownership to the
+treasury multisig before any mainnet launch.
 """
 
 import sys
 import json
 import argparse
 import logging
+import os
+import stat
 from pathlib import Path
 from decimal import Decimal
 
 # Add project root to path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
+
+KEYSTORE = ROOT / "scripts" / ".deployer_key"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("deploy")
@@ -59,6 +70,27 @@ DEPLOY_LOG = ROOT / "scripts" / "deployed_addresses.json"
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
+def load_standalone_deployer():
+    """
+    Load or generate a self-contained deployer wallet from a local gitignored
+    keystore. Returns (address, private_key). The key file is chmod 600.
+    """
+    from eth_account import Account
+
+    if KEYSTORE.exists():
+        private_key = KEYSTORE.read_text().strip()
+        acct = Account.from_key(private_key)
+        return acct.address, private_key
+
+    # Generate a fresh deployer wallet (testnet throwaway)
+    acct = Account.create()
+    KEYSTORE.write_text(acct.key.hex())
+    os.chmod(KEYSTORE, stat.S_IRUSR | stat.S_IWUSR)  # 0600
+    logger.info(f"Generated new standalone deployer wallet → {KEYSTORE}")
+    logger.info("  (gitignored, chmod 600 — never commit this file)")
+    return acct.address, acct.key.hex()
+
 
 def load_artifact(contract_name: str) -> tuple[list, str]:
     """Load ABI and bytecode from forge build output."""
@@ -133,56 +165,64 @@ def send_tx(web3, wallet, private_key: str, contract_fn, label: str, chain_id: i
 def main():
     parser = argparse.ArgumentParser(description="Deploy Suwappu contracts")
     parser.add_argument("--network", choices=["testnet", "mainnet"], default="testnet")
-    parser.add_argument("--wallet-name", default="treasury_vault",
-                        help="HotWallet.name to use as deployer")
     parser.add_argument("--dry-run", action="store_true",
                         help="Load wallet and check balance without deploying")
+    parser.add_argument("--from-bot-wallet", action="store_true",
+                        help="Use the treasury_vault HotWallet from the bot DB "
+                             "(run on Railway where DB + KMS exist)")
+    parser.add_argument("--wallet-name", default="treasury_vault",
+                        help="HotWallet.name when using --from-bot-wallet")
     args = parser.parse_args()
 
     net = NETWORKS[args.network]
     logger.info(f"Deploying to {net['name']} (chain {net['chain_id']})")
 
-    # Init DB (needs DATABASE_URL in env or settings)
-    from database.db import init_db
-    from bot.config.settings import settings
-    if not init_db(settings.database_url):
-        logger.error("DB init failed. Is DATABASE_URL set?")
-        sys.exit(1)
-
-    # Load treasury wallet via existing bot infrastructure
     from web3 import Web3
-    from bot.models.custodial import HotWallet
-    from database.db import get_session
-    from bot.services.hot_wallet import hot_wallet_service
+    from types import SimpleNamespace
 
     web3 = Web3(Web3.HTTPProvider(net["rpc_url"]))
     if not web3.is_connected():
         logger.error(f"Cannot connect to {net['rpc_url']}")
         sys.exit(1)
 
-    with get_session() as session:
-        wallet = session.query(HotWallet).filter(
-            HotWallet.name == args.wallet_name
-        ).first()
-        if not wallet:
-            logger.error(
-                f"Hot wallet '{args.wallet_name}' not found in DB.\n"
-                "Create it via the admin panel or bot /admin → wallets."
-            )
+    # ── Load deployer: bot wallet (Railway) or standalone keystore (local) ─────
+    if args.from_bot_wallet:
+        from database.db import init_db, get_session
+        from bot.config.settings import settings
+        from bot.models.custodial import HotWallet
+        from bot.services.hot_wallet import hot_wallet_service
+        if not init_db(settings.database_url):
+            logger.error("DB init failed. Is DATABASE_URL set?")
             sys.exit(1)
-        deployer_address = Web3.to_checksum_address(wallet.address)
-        private_key = hot_wallet_service.get_private_key(wallet)
+        with get_session() as session:
+            db_wallet = session.query(HotWallet).filter(
+                HotWallet.name == args.wallet_name
+            ).first()
+            if not db_wallet:
+                logger.error(f"Hot wallet '{args.wallet_name}' not found in DB.")
+                sys.exit(1)
+            deployer_address = Web3.to_checksum_address(db_wallet.address)
+            private_key = hot_wallet_service.get_private_key(db_wallet)
+        logger.info(f"Using bot treasury wallet: {deployer_address}")
+    else:
+        addr, private_key = load_standalone_deployer()
+        deployer_address = Web3.to_checksum_address(addr)
+        logger.info(f"Using standalone deployer: {deployer_address}")
+
+    # Lightweight wallet object for the deploy/send helpers (only .address is used)
+    wallet = SimpleNamespace(address=deployer_address)
 
     balance = web3.eth.get_balance(deployer_address)
     eth_balance = web3.from_wei(balance, "ether")
-    logger.info(f"Deployer: {deployer_address}")
     logger.info(f"Balance:  {eth_balance:.6f} ETH")
 
+    faucet = "https://www.alchemy.com/faucets/base-sepolia" if args.network == "testnet" else "(fund from treasury)"
     if eth_balance < Decimal("0.005"):
         logger.error(
             f"Insufficient ETH for gas (have {eth_balance:.6f}, need ~0.005).\n"
-            f"Fund {deployer_address} on Base Sepolia:\n"
-            f"  https://www.alchemy.com/faucets/base-sepolia"
+            f"Fund this address on {net['name']}:\n"
+            f"  {deployer_address}\n"
+            f"  Faucet: {faucet}"
         )
         sys.exit(1)
 

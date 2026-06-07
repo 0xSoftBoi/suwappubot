@@ -21,3 +21,7 @@ webapp/dist/
 
 # local dev venv
 .venv/
+
+# Local testnet deployer key (never commit)
+scripts/.deployer_key
+scripts/deployed_addresses.json
