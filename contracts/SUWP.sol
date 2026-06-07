@@ -54,6 +54,7 @@ contract SUWP is ERC20, AccessControl, Pausable {
         string calldata reason
     ) external onlyRole(MINTER_ROLE) whenNotPaused {
         require(recipients.length == amounts.length, "Length mismatch");
+        require(recipients.length <= 500, "Batch too large");
         for (uint256 i = 0; i < recipients.length; i++) {
             totalMinted += amounts[i];
             _mint(recipients[i], amounts[i]);

@@ -109,6 +109,11 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
     }
     mapping(uint256 => EpochInfo) public epochs;
 
+    // SUWP bonus allocated to stakers but not yet claimed (protected from recoverToken)
+    uint256 public totalPendingBonuses;
+
+    uint256 public constant MIN_STAKE = 1e9; // below this, _toUnits rounds to 0 units
+
     // ─── Vault yield pool ─────────────────────────────────────────────────────
 
     uint256 public vaultYieldPool;
@@ -146,8 +151,7 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
         host  = _host;
         gda   = IGDAv1Forwarder(_gda);
 
-        // Pre-approve USDCx to wrap from USDC (max once)
-        IERC20(_usdc).approve(_usdcx, type(uint256).max);
+        // USDC→USDCx approval is granted per-call in fundStream (no standing allowance)
 
         // Create the GDA pool — admin is this contract
         IGDAv1Forwarder.PoolConfig memory cfg = IGDAv1Forwarder.PoolConfig({
@@ -163,14 +167,14 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
      * @notice Stake SUWP. Updates pool member units pro-rata.
      */
     function stake(uint256 amount) external nonReentrant whenNotPaused {
-        require(amount > 0, "Amount must be > 0");
+        require(amount >= MIN_STAKE, "Below minimum stake");
         suwp.safeTransferFrom(msg.sender, address(this), amount);
 
         stakedBalance[msg.sender] += amount;
         totalStaked += amount;
 
         uint128 newUnits = _toUnits(stakedBalance[msg.sender]);
-        pool.updateMemberUnits(msg.sender, newUnits);
+        require(pool.updateMemberUnits(msg.sender, newUnits), "Unit update failed");
 
         emit Staked(msg.sender, amount, newUnits);
     }
@@ -186,7 +190,7 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
         totalStaked -= amount;
 
         uint128 newUnits = _toUnits(stakedBalance[msg.sender]);
-        pool.updateMemberUnits(msg.sender, newUnits);
+        require(pool.updateMemberUnits(msg.sender, newUnits), "Unit update failed");
 
         suwp.safeTransfer(msg.sender, amount);
         emit Unstaked(msg.sender, amount, newUnits);
@@ -210,6 +214,11 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
         require(durationSeconds > 0, "Duration must be > 0");
         require(totalStaked > 0, "No stakers");
         require(block.number > lastEpochBlock, "Already funded this block");
+        // Don't stack epochs: the prior stream must have ended (rate back to 0).
+        require(
+            gda.getFlowDistributionFlowRate(usdcx, address(this), pool) == 0,
+            "Previous stream still active"
+        );
 
         lastEpochBlock = block.number;
         currentEpoch++;
@@ -217,17 +226,23 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
         // Pull USDC from caller
         usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
 
-        // Wrap USDC → USDCx. Superfluid upgrade() takes the 18-decimal super-token
-        // amount and pulls the equivalent 6-decimal USDC via the constructor approval.
+        // Wrap USDC → USDCx. upgrade() takes the 18-dec super-token amount and pulls
+        // the equivalent 6-dec USDC. Approve exactly this amount (no standing allowance).
         uint256 usdcxAmount = usdcAmount * 1e12; // scale 6→18 decimals
+        usdc.forceApprove(address(usdcx), usdcAmount);
         usdcx.upgrade(usdcxAmount);
 
-        // Calculate flowRate: USDCx per second (18 decimals)
-        int96 flowRate = int96(int256(usdcxAmount / durationSeconds));
+        // Calculate flowRate (USDCx/sec, 18 dec) with explicit int96 bound check
+        uint256 ratePerSec = usdcxAmount / durationSeconds;
+        require(ratePerSec <= uint256(uint96(type(int96).max)), "Flow rate too large");
+        int96 flowRate = int96(int256(ratePerSec));
         require(flowRate > 0, "Flow rate too small");
 
-        // Set the pool flowRate via GDA — replaces any previous rate
-        gda.distributeFlow(usdcx, address(this), pool, flowRate, "");
+        // Set the pool flowRate via GDA
+        require(
+            gda.distributeFlow(usdcx, address(this), pool, flowRate, ""),
+            "GDA distributeFlow failed"
+        );
 
         epochs[currentEpoch] = EpochInfo({
             totalStakedSnapshot: totalStaked,
@@ -250,16 +265,25 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
     ) external onlyOwner nonReentrant {
         require(stakers.length > 0, "Empty stakers list");
         require(totalStaked > 0, "No stakers");
+        // Contract must hold enough SUWP to cover staked principal + all pending
+        // bonuses + this new distribution before allocating it.
+        require(
+            suwp.balanceOf(address(this)) >= totalStaked + totalPendingBonuses + suwpBonus,
+            "Insufficient SUWP to fund bonus"
+        );
 
         epochs[currentEpoch].suwpBonusPool = suwpBonus;
 
+        uint256 allocated;
         for (uint256 i = 0; i < stakers.length; i++) {
             address staker = stakers[i];
             uint256 stake = stakedBalance[staker];
             if (stake == 0) continue;
             uint256 share = (suwpBonus * stake) / totalStaked;
             claimableSuwpBonus[staker] += share;
+            allocated += share;
         }
+        totalPendingBonuses += allocated;
 
         emit SuwpBonusDistributed(currentEpoch, suwpBonus, totalStaked);
     }
@@ -274,6 +298,7 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
         uint256 amount = claimableSuwpBonus[msg.sender];
         require(amount > 0, "No SUWP bonus to claim");
         claimableSuwpBonus[msg.sender] = 0;
+        totalPendingBonuses -= amount;
         suwp.safeTransfer(msg.sender, amount);
         emit SuwpBonusClaimed(msg.sender, amount);
     }
@@ -310,6 +335,7 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
 
     function depositVaultYield(uint256 usdcAmount) external onlyOwner nonReentrant {
         require(usdcAmount > 0, "Amount must be > 0");
+        usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
         vaultYieldPool += usdcAmount;
         emit VaultYieldDeposited(usdcAmount, vaultYieldPool);
     }
@@ -324,9 +350,11 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
     function unpause() external onlyOwner { _unpause(); }
 
     function recoverToken(address token, uint256 amount) external onlyOwner nonReentrant {
+        // Never let the owner pull staked principal OR unclaimed bonus SUWP.
         require(
-            token != address(suwp) || amount <= IERC20(token).balanceOf(address(this)) - totalStaked,
-            "Cannot recover staked SUWP"
+            token != address(suwp) ||
+                amount <= IERC20(token).balanceOf(address(this)) - totalStaked - totalPendingBonuses,
+            "Cannot recover staked/pending SUWP"
         );
         IERC20(token).safeTransfer(owner(), amount);
     }

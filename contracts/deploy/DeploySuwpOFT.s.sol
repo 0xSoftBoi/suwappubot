@@ -28,10 +28,13 @@ contract DeploySuwpOFT is Script {
     function run() external {
         address endpoint = vm.envAddress("LZ_ENDPOINT");
         address admin = vm.envAddress("ADMIN");
+        // CANONICAL=true ONLY on Base (where minting happens); false on every other chain.
+        bool isCanonical = vm.envOr("CANONICAL", false);
 
         vm.startBroadcast();
-        SuwpOFT oft = new SuwpOFT(endpoint, admin, admin);
+        SuwpOFT oft = new SuwpOFT(endpoint, admin, admin, isCanonical);
         console.log("SuwpOFT deployed at:", address(oft));
+        console.log("isCanonicalChain:", isCanonical);
         vm.stopBroadcast();
     }
 }

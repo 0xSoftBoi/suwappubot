@@ -7,6 +7,11 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 
+import "./lib/uniswap/TickMath.sol";
+import "./lib/uniswap/FullMath.sol";
+import "./lib/uniswap/LiquidityAmounts.sol";
+import "./lib/uniswap/OracleLibrary.sol";
+
 interface IUniswapV3Pool {
     function observe(uint32[] calldata secondsAgos)
         external view returns (int56[] memory tickCumulatives, uint160[] memory secondsPerLiquidityCumulativeX128s);
@@ -17,6 +22,10 @@ interface IUniswapV3Pool {
     );
     function token0() external view returns (address);
     function token1() external view returns (address);
+}
+
+interface IUniswapV3Factory {
+    function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address pool);
 }
 
 interface INonfungiblePositionManager {
@@ -59,12 +68,17 @@ contract SuwppuBonds is Ownable, ReentrancyGuard, Pausable {
     ISuwp   public immutable suwp;
     IERC20  public immutable usdc;
     INonfungiblePositionManager public immutable positionManager;
+    address public immutable uniswapFactory; // canonical Uniswap v3 factory (pool authenticity)
     IUniswapV3Pool public suwpUsdcPool; // set post-deployment once SUWP pool exists
 
     uint256 public constant VESTING_DURATION = 7 days;
     uint256 public constant DISCOUNT_BPS = 500;   // 5% discount (basis points)
     uint256 public constant MAX_DISCOUNT_BPS = 2000; // 20% max
     uint32  public constant TWAP_PERIOD = 1800;   // 30 minutes
+
+    // Mint caps (owner-settable) to bound SUWP issued via bonds
+    uint256 public maxSuwpPerBond = 1_000_000e18;   // per-bond ceiling
+    uint256 public globalBondCap  = 50_000_000e18;  // cumulative ceiling on totalSuwpIssued
 
     // ─── Bond state ──────────────────────────────────────────────────────────
 
@@ -98,6 +112,7 @@ contract SuwppuBonds is Ownable, ReentrancyGuard, Pausable {
     event Redeemed(uint256 indexed bondId, address indexed bonder, uint256 suwpAmount);
     event PoolUpdated(address newPool);
     event DiscountUpdated(uint256 newDiscountBps);
+    event BondCapsUpdated(uint256 maxSuwpPerBond, uint256 globalBondCap);
 
     // ─── Constructor ─────────────────────────────────────────────────────────
 
@@ -105,11 +120,18 @@ contract SuwppuBonds is Ownable, ReentrancyGuard, Pausable {
         address _suwp,
         address _usdc,
         address _positionManager,
+        address _uniswapFactory,
         address _owner
     ) Ownable(_owner) {
+        require(_suwp != address(0), "suwp=0");
+        require(_usdc != address(0), "usdc=0");
+        require(_positionManager != address(0), "pm=0");
+        require(_uniswapFactory != address(0), "factory=0");
         suwp            = ISuwp(_suwp);
         usdc            = IERC20(_usdc);
         positionManager = INonfungiblePositionManager(_positionManager);
+        uniswapFactory  = _uniswapFactory;
+        nextBondId      = 1; // avoid bond ID 0 footgun
     }
 
     // ─── Bond ────────────────────────────────────────────────────────────────
@@ -138,7 +160,7 @@ contract SuwppuBonds is Ownable, ReentrancyGuard, Pausable {
         positionManager.safeTransferFrom(msg.sender, address(this), lpTokenId);
 
         // Estimate LP value and compute discounted SUWP payout
-        uint256 suwpPayout = _computePayout(lpTokenId, token0 == usdcAddr);
+        uint256 suwpPayout = _computePayout(lpTokenId);
 
         // Create vesting bond
         bondId = nextBondId++;
@@ -190,29 +212,21 @@ contract SuwppuBonds is Ownable, ReentrancyGuard, Pausable {
     function getSuwpPrice() public view returns (uint256 priceUsdcPerSuwp) {
         require(address(suwpUsdcPool) != address(0), "Pool not set");
 
-        uint32[] memory secondsAgos = new uint32[](2);
-        secondsAgos[0] = TWAP_PERIOD;
-        secondsAgos[1] = 0;
+        // Real Uniswap v3 TWAP: arithmetic-mean tick over the TWAP window.
+        // Reverts naturally if the pool's observation cardinality is too low to
+        // cover TWAP_PERIOD ("OLD") — callers must seed observations first.
+        int24 tick = OracleLibrary.consult(address(suwpUsdcPool), TWAP_PERIOD);
 
-        (int56[] memory tickCumulatives,) = suwpUsdcPool.observe(secondsAgos);
-        int56 tickDelta = tickCumulatives[1] - tickCumulatives[0];
-        int24 avgTick = int24(tickDelta / int56(uint56(TWAP_PERIOD)));
-
-        // Price = 1.0001^tick (approximation: each tick = 0.01% price change)
-        // For token0=SUWP, token1=USDC: price = 1.0001^tick * 10^(decimal1-decimal0)
-        // Simplified: use sqrtPriceX96 from slot0 as fallback if TWAP fails
-        // Full tick→price: too complex inline; use TickMath lib in production
-        // Here: return raw tick as a proxy — caller should use TickMath off-chain
-        // to get exact price. This view is informational.
-        bool suwpIsToken0 = suwpUsdcPool.token0() == address(suwp);
-        // Rough price in USDC (6 dec): 1.0001^tick * scale factor
-        // Using simplified integer math: tick * 1e6 / 10000 (±1% per 100 ticks)
-        if (suwpIsToken0) {
-            // USDC per SUWP = 10^12 / (1.0001^avgTick) — simplified
-            priceUsdcPerSuwp = uint256(int256(1e6) + (int256(avgTick) * 1e6 / 10000));
-        } else {
-            priceUsdcPerSuwp = uint256(int256(1e6) - (int256(avgTick) * 1e6 / 10000));
-        }
+        // Quote: how much USDC (6 dec) is received for exactly 1 SUWP (1e18 base units).
+        // getQuoteAtTick uses the exact 1.0001^tick relation via TickMath, handling
+        // token ordering and decimals correctly regardless of which token is token0.
+        priceUsdcPerSuwp = OracleLibrary.getQuoteAtTick(
+            tick,
+            uint128(1e18),
+            address(suwp),
+            address(usdc)
+        );
+        require(priceUsdcPerSuwp > 0, "Invalid price");
     }
 
     /**
@@ -220,9 +234,7 @@ contract SuwppuBonds is Ownable, ReentrancyGuard, Pausable {
      */
     function previewBond(uint256 lpTokenId) external view returns (uint256 suwpPayout) {
         require(address(suwpUsdcPool) != address(0), "Pool not set");
-        (,, address token0,,,,,,,,,) = positionManager.positions(lpTokenId);
-        bool usdcIsToken0 = token0 == address(usdc);
-        suwpPayout = _computePayout(lpTokenId, usdcIsToken0);
+        suwpPayout = _computePayout(lpTokenId);
     }
 
     /**
@@ -248,8 +260,28 @@ contract SuwppuBonds is Ownable, ReentrancyGuard, Pausable {
      *         Call after deploying the SUWP token and creating the pool.
      */
     function setSuwpUsdcPool(address _pool) external onlyOwner {
+        require(_pool != address(0), "Pool=0");
+        // Validate the pool actually holds the SUWP/USDC pair (in either order).
+        address t0 = IUniswapV3Pool(_pool).token0();
+        address t1 = IUniswapV3Pool(_pool).token1();
+        address suwpAddr = address(suwp);
+        address usdcAddr = address(usdc);
+        require(
+            (t0 == suwpAddr && t1 == usdcAddr) ||
+            (t0 == usdcAddr && t1 == suwpAddr),
+            "Pool not SUWP/USDC"
+        );
         suwpUsdcPool = IUniswapV3Pool(_pool);
         emit PoolUpdated(_pool);
+    }
+
+    /// @notice Update the per-bond and global SUWP mint caps.
+    function setBondCaps(uint256 _maxSuwpPerBond, uint256 _globalBondCap) external onlyOwner {
+        require(_maxSuwpPerBond > 0, "maxPerBond=0");
+        require(_globalBondCap >= totalSuwpIssued, "cap < issued");
+        maxSuwpPerBond = _maxSuwpPerBond;
+        globalBondCap  = _globalBondCap;
+        emit BondCapsUpdated(_maxSuwpPerBond, _globalBondCap);
     }
 
     function pause() external onlyOwner { _pause(); }
@@ -262,27 +294,58 @@ contract SuwppuBonds is Ownable, ReentrancyGuard, Pausable {
 
     // ─── Internal ─────────────────────────────────────────────────────────────
 
-    function _computePayout(uint256 lpTokenId, bool usdcIsToken0) internal view returns (uint256) {
-        // Get position liquidity to estimate USDC value
-        (,,,,,,, uint128 liquidity,,,,) = positionManager.positions(lpTokenId);
+    function _computePayout(uint256 lpTokenId) internal view returns (uint256) {
+        // Decompose the validated position into its underlying USDC/SUWP token amounts.
+        // Split into a helper to keep the 12-field positions() destructuring off this
+        // function's stack frame (avoids "stack too deep").
+        (uint256 usdcAmt, uint256 suwpAmt) = _positionAmounts(lpTokenId);
+
+        // Value both sides in USDC (6 dec) using the manipulation-resistant TWAP price.
+        uint256 suwpPrice = getSuwpPrice(); // USDC (6 dec) per 1 SUWP
+        uint256 suwpValueUsdc = FullMath.mulDiv(suwpAmt, suwpPrice, 1e18);
+        uint256 totalUsdcValue = usdcAmt + suwpValueUsdc;
+        require(totalUsdcValue > 0, "Zero value position");
+
+        // SUWP payout = (USD value / SUWP price) * (1 + discount), 18-dec SUWP out.
+        uint256 baseSuwp = FullMath.mulDiv(totalUsdcValue, 1e18, suwpPrice);
+        uint256 payout = baseSuwp * (10000 + DISCOUNT_BPS) / 10000;
+        require(payout <= maxSuwpPerBond, "Exceeds per-bond cap");
+        require(totalSuwpIssued + payout <= globalBondCap, "Exceeds global bond cap");
+        return payout;
+    }
+
+    /// @dev Validates the position's pool and returns its underlying (USDC, SUWP) amounts
+    ///      at the pool's current price. Reverts unless the position belongs to the
+    ///      canonical SUWP/USDC pool this contract prices against.
+    function _positionAmounts(uint256 lpTokenId)
+        internal
+        view
+        returns (uint256 usdcAmt, uint256 suwpAmt)
+    {
+        (,, address t0, address t1, uint24 fee, int24 tickLower, int24 tickUpper, uint128 liquidity,,,,) =
+            positionManager.positions(lpTokenId);
         require(liquidity > 0, "Empty position");
 
-        // Simplified: estimate LP value as liquidity / 1e12 USDC (rough proxy)
-        // Production: use Uniswap v3 position value formula with sqrtPrice
-        // For now: 1 unit liquidity ≈ 1e-12 USDC × 2 (both sides)
-        uint256 estimatedUsdcValue = uint256(liquidity) / 1e12;
-        require(estimatedUsdcValue > 0, "Position value too small");
+        // Verify the NFT belongs to the canonical SUWP/USDC pool we price against.
+        // This blocks attackers from bonding a position from a low-liquidity pool
+        // (different fee tier / token pair) whose tick they can manipulate.
+        require(
+            IUniswapV3Factory(uniswapFactory).getPool(t0, t1, fee) == address(suwpUsdcPool),
+            "Wrong pool"
+        );
 
-        // Get SUWP price from TWAP
-        uint256 suwpPrice = getSuwpPrice();         // USDC per SUWP (6 decimals)
-        require(suwpPrice > 0, "Invalid price");
+        (uint160 sqrtPriceX96,,,,,,) = suwpUsdcPool.slot0();
+        (uint256 amount0, uint256 amount1) = LiquidityAmounts.getAmountsForLiquidity(
+            sqrtPriceX96,
+            TickMath.getSqrtRatioAtTick(tickLower),
+            TickMath.getSqrtRatioAtTick(tickUpper),
+            liquidity
+        );
 
-        // SUWP payout = (USD value / SUWP price) * (1 + discount)
-        // discounted: user pays less USD per SUWP → gets more SUWP
-        uint256 baseSuwp = (estimatedUsdcValue * 1e18) / suwpPrice;  // 18-decimal SUWP
-        uint256 discountedSuwp = baseSuwp * (10000 + DISCOUNT_BPS) / 10000;
-
-        return discountedSuwp;
+        // Identify USDC (6 dec) vs SUWP (18 dec) amounts.
+        bool usdcIsToken0 = t0 == address(usdc);
+        usdcAmt = usdcIsToken0 ? amount0 : amount1; // 6 dec
+        suwpAmt = usdcIsToken0 ? amount1 : amount0; // 18 dec
     }
 
     function _vestedAmount(Bond storage b) internal view returns (uint256) {

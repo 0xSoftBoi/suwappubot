@@ -36,6 +36,7 @@ contract DeployTestnet is Script {
 
     // ─── Uniswap v3 Base Sepolia ──────────────────────────────────────────────
     address constant UNISWAP_POSITION_MANAGER = 0x27F971cb582BF9E50F397e4d29a5C7A34f11faA2;
+    address constant UNISWAP_FACTORY          = 0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24;
 
     // ─── Testnet USDC (Base Sepolia) ──────────────────────────────────────────
     // Official Circle testnet USDC on Base Sepolia
@@ -69,6 +70,7 @@ contract DeployTestnet is Script {
             address(suwp),
             USDC,
             UNISWAP_POSITION_MANAGER,
+            UNISWAP_FACTORY,
             deployer
         );
         console.log("SuwppuBonds deployed at:", address(bonds));
