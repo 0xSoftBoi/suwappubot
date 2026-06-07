@@ -1,5 +1,7 @@
 """Two-factor authentication service for large swaps."""
 
+import base64
+import re
 import pyotp
 import secrets
 import logging
@@ -44,6 +46,25 @@ class TwoFactorService:
         """Encrypt a TOTP secret for storage at rest."""
         return encrypt_private_key(secret, settings.encryption_key)
 
+    @staticmethod
+    def _is_legacy_plaintext_secret(value: str) -> bool:
+        """True only if ``value`` looks like a real (legacy plaintext) TOTP
+        secret rather than corrupted ciphertext.
+
+        A genuine secret is RFC 3548 base32 (chars A-Z2-7, optional ``=``
+        padding) that decodes cleanly and constructs a ``pyotp.TOTP``. This
+        guard prevents healing from re-encrypting garbage in place and thereby
+        destroying an unrecoverable secret.
+        """
+        if not value or not re.fullmatch(r"[A-Z2-7]+=*", value):
+            return False
+        try:
+            base64.b32decode(value, casefold=False)
+            pyotp.TOTP(value)
+        except Exception:
+            return False
+        return True
+
     def _read_secret(self, user) -> Optional[str]:
         """Return a user's plaintext TOTP secret, healing legacy rows.
 
@@ -52,14 +73,28 @@ class TwoFactorService:
         we treat the stored value as the secret and re-encrypt it in place. The
         surrounding ``get_session()`` commits on clean exit, so the plaintext
         exposure is remediated the first time the secret is read.
+
+        Only values that actually look like a legacy base32 TOTP secret are
+        healed; a decrypt failure on anything else is treated as corruption and
+        raised, so we never overwrite an unrecoverable secret with garbage.
         """
         stored = user.totp_secret
         if not stored:
             return None
         try:
             return decrypt_private_key(stored, settings.encryption_key)
-        except Exception:
-            # Legacy plaintext secret — re-encrypt in place.
+        except Exception as decrypt_error:
+            if not self._is_legacy_plaintext_secret(stored):
+                logger.error(
+                    "TOTP secret for user %s failed to decrypt and is not valid "
+                    "legacy base32; refusing to heal (manual recovery needed).",
+                    getattr(user, "id", "?"),
+                )
+                raise ValueError(
+                    "Stored TOTP secret is corrupted (decrypt failed and value "
+                    "is not a valid legacy secret)."
+                ) from decrypt_error
+            # Genuine legacy plaintext secret — re-encrypt in place.
             user.totp_secret = self.encrypt_secret(stored)
             return stored
 

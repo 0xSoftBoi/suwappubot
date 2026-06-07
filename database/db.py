@@ -429,6 +429,20 @@ def _encrypt_plaintext_totp_secrets(db_engine, is_sqlite: bool) -> None:
         logger.warning(f"Skipping TOTP backfill (imports unavailable): {e}")
         return
 
+    import base64
+    import re
+
+    def _is_legacy_plaintext_secret(value) -> bool:
+        # Only heal values that actually look like a legacy base32 TOTP secret;
+        # never re-encrypt corrupted ciphertext (that would destroy it).
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Z2-7]+=*", value):
+            return False
+        try:
+            base64.b32decode(value, casefold=False)
+        except Exception:
+            return False
+        return True
+
     key = settings.encryption_key
     try:
         with db_engine.begin() as conn:
@@ -436,21 +450,32 @@ def _encrypt_plaintext_totp_secrets(db_engine, is_sqlite: bool) -> None:
                 "SELECT id, totp_secret FROM users WHERE totp_secret IS NOT NULL"
             )).fetchall()
             migrated = 0
+            skipped = 0
             for row in rows:
                 stored = row[1]
                 try:
                     decrypt_private_key(stored, key)
                     continue  # already encrypted
                 except Exception:
-                    pass  # plaintext — encrypt it
+                    pass  # decrypt failed — only heal if it's real plaintext
+                if not _is_legacy_plaintext_secret(stored):
+                    logger.warning(
+                        "User %s TOTP secret failed to decrypt and is not valid "
+                        "legacy base32; skipping to avoid corrupting it.", row[0]
+                    )
+                    skipped += 1
+                    continue
                 encrypted = encrypt_private_key(stored, key)
                 conn.execute(
                     text("UPDATE users SET totp_secret = :s WHERE id = :id"),
                     {"s": encrypted, "id": row[0]},
                 )
                 migrated += 1
-            if migrated:
-                logger.info(f"Encrypted {migrated} legacy plaintext TOTP secret(s)")
+            if migrated or skipped:
+                logger.info(
+                    "TOTP backfill: encrypted %s legacy plaintext, skipped %s "
+                    "corrupted/invalid", migrated, skipped
+                )
     except Exception as e:
         logger.warning(f"TOTP secret backfill skipped: {e}")
 

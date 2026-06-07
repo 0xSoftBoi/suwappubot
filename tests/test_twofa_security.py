@@ -76,6 +76,17 @@ def test_legacy_plaintext_secret_is_healed_on_read(sqlite_db):
     assert twofa_service._read_secret(_FakeUser(healed)) == secret
 
 
+def test_corrupted_secret_is_not_healed_on_read(sqlite_db):
+    # A value that fails to decrypt AND is not valid legacy base32 is corruption,
+    # not plaintext: it must raise rather than be re-encrypted (which would
+    # overwrite an unrecoverable secret with garbage).
+    corrupt = "!!!not-base32-and-not-fernet!!!"
+    user = _FakeUser(corrupt)
+    with pytest.raises(ValueError):
+        twofa_service._read_secret(user)
+    assert user.totp_secret == corrupt, "corrupted value must be left untouched"
+
+
 # --- Threshold persistence + enforcement ----------------------------------
 
 def test_threshold_set_get_roundtrip(sqlite_db):
@@ -117,6 +128,19 @@ def test_backfill_encrypts_plaintext_rows(sqlite_db):
     # Idempotent: a second run leaves the already-encrypted value untouched.
     _encrypt_plaintext_totp_secrets(db.engine, is_sqlite=True)
     assert _stored_secret(1) == stored
+
+
+def test_backfill_skips_corrupted_rows(sqlite_db):
+    import database.db as db
+    from database.db import _encrypt_plaintext_totp_secrets
+
+    corrupt = "!!!corrupted-ciphertext!!!"
+    with get_session() as session:
+        session.query(User).filter(User.id == 1).first().totp_secret = corrupt
+
+    # Backfill must not re-encrypt a value that isn't valid legacy base32.
+    _encrypt_plaintext_totp_secrets(db.engine, is_sqlite=True)
+    assert _stored_secret(1) == corrupt, "corrupted row must be skipped, not mangled"
 
 
 # --- Turnkey fail-closed ---------------------------------------------------
