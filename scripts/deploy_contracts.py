@@ -44,11 +44,11 @@ NETWORKS = {
     "testnet": {
         "name": "Base Sepolia",
         "chain_id": 84532,
-        "rpc_url": "https://sepolia.base.org",
+        "rpc_url": os.environ.get("BASE_SEPOLIA_RPC_URL", "https://sepolia.base.org"),
         "usdc":    "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-        "usdcx":   "0x8aE68021f6170E5a766bE613cEA0d75236ECCa9a",
+        "usdcx":   "0xC821107bE6E8eD189F3fe05AD06C496243b53B55",  # our wrapper of test USDC
         "sf_host": "0x109412E3C84f0539b43d39dB691B08c90f58dC7c",
-        "sf_gda":  "0x68aE1b4ba46d276e0FDfB7dCa7E93f5A2B1E6Ed6",
+        "sf_gda":  "0x6DA13Bde224A05a288748d857b9e7DDEffd1dE08",  # GDAv1Forwarder (universal)
         "uni_pos": "0x27F971cb582BF9E50F397e4d29a5C7A34f11faA2",
         "explorer": "https://sepolia.basescan.org",
     },
@@ -110,8 +110,8 @@ def deploy_contract(web3, wallet, private_key: str, abi: list, bytecode: str,
     """Deploy a contract and return its address."""
     from eth_account import Account
     contract = web3.eth.contract(abi=abi, bytecode=bytecode)
-    nonce = web3.eth.get_transaction_count(web3.to_checksum_address(wallet.address))
-    gas_price = web3.eth.gas_price
+    nonce = web3.eth.get_transaction_count(web3.to_checksum_address(wallet.address), 'pending')
+    gas_price = int(web3.eth.gas_price * 1.15)
 
     tx = contract.constructor(*constructor_args).build_transaction({
         "from": web3.to_checksum_address(wallet.address),
@@ -124,7 +124,7 @@ def deploy_contract(web3, wallet, private_key: str, abi: list, bytecode: str,
     if not private_key.startswith("0x"):
         private_key = "0x" + private_key
     signed = Account.sign_transaction(tx, private_key)
-    tx_hash = web3.eth.send_raw_transaction(signed.rawTransaction)
+    tx_hash = web3.eth.send_raw_transaction(getattr(signed, "raw_transaction", None) or signed.rawTransaction)
 
     logger.info(f"  Deploying {label}... tx={tx_hash.hex()[:20]}...")
     receipt = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
@@ -140,8 +140,8 @@ def deploy_contract(web3, wallet, private_key: str, abi: list, bytecode: str,
 def send_tx(web3, wallet, private_key: str, contract_fn, label: str, chain_id: int):
     """Send a state-changing transaction."""
     from eth_account import Account
-    nonce = web3.eth.get_transaction_count(web3.to_checksum_address(wallet.address))
-    gas_price = web3.eth.gas_price
+    nonce = web3.eth.get_transaction_count(web3.to_checksum_address(wallet.address), 'pending')
+    gas_price = int(web3.eth.gas_price * 1.15)
     tx = contract_fn.build_transaction({
         "from": web3.to_checksum_address(wallet.address),
         "nonce": nonce,
@@ -152,7 +152,7 @@ def send_tx(web3, wallet, private_key: str, contract_fn, label: str, chain_id: i
     if not private_key.startswith("0x"):
         private_key = "0x" + private_key
     signed = Account.sign_transaction(tx, private_key)
-    tx_hash = web3.eth.send_raw_transaction(signed.rawTransaction)
+    tx_hash = web3.eth.send_raw_transaction(getattr(signed, "raw_transaction", None) or signed.rawTransaction)
     receipt = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
     if receipt.status != 1:
         raise RuntimeError(f"{label} failed (tx={tx_hash.hex()})")

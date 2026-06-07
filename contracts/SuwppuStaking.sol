@@ -23,47 +23,42 @@ interface ISuperfluidPool {
     function getMemberUnits(address member) external view returns (uint128);
 }
 
-interface IGeneralDistributionAgreementV1 {
+/// GDAv1Forwarder — the public, ctx-free entrypoint to the General Distribution
+/// Agreement. Deployed at the SAME deterministic address on every Superfluid
+/// chain: 0x6DA13Bde224A05a288748d857b9e7DDEffd1dE08
+interface IGDAv1Forwarder {
+    struct PoolConfig {
+        bool transferabilityForUnitsOwner;
+        bool distributionFromAnyAddress;
+    }
+
     function createPool(
         ISuperToken token,
         address admin,
         PoolConfig memory config
-    ) external returns (ISuperfluidPool pool);
+    ) external returns (bool success, ISuperfluidPool pool);
 
     function distributeFlow(
         ISuperToken token,
         address from,
         ISuperfluidPool pool,
         int96 requestedFlowRate,
-        bytes memory ctx
-    ) external returns (bytes memory newCtx);
+        bytes memory userData
+    ) external returns (bool success);
 
     function distribute(
         ISuperToken token,
         address from,
         ISuperfluidPool pool,
         uint256 requestedAmount,
-        bytes memory ctx
-    ) external returns (bytes memory newCtx);
+        bytes memory userData
+    ) external returns (bool success);
 
-    function getFlowRate(
+    function getFlowDistributionFlowRate(
         ISuperToken token,
         address from,
-        ISuperfluidPool pool
+        ISuperfluidPool to
     ) external view returns (int96);
-
-    struct PoolConfig {
-        bool transferabilityForUnitsOwner;
-        bool distributionFromAnyAddress;
-    }
-}
-
-interface ISuperfluid {
-    function callAgreement(
-        address agreementClass,
-        bytes memory callData,
-        bytes memory userData
-    ) external returns (bytes memory returnedData);
 }
 
 /**
@@ -90,8 +85,8 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
 
     // ─── Superfluid ───────────────────────────────────────────────────────────
 
-    ISuperfluid public immutable host;
-    IGeneralDistributionAgreementV1 public immutable gda;
+    address public immutable host;          // Superfluid Host (stored for reference)
+    IGDAv1Forwarder public immutable gda;   // GDAv1Forwarder (ctx-free entrypoint)
     ISuperfluidPool public immutable pool;  // created once in constructor
 
     // ─── Staking state ────────────────────────────────────────────────────────
@@ -148,18 +143,18 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
         suwp  = IERC20(_suwp);
         usdc  = IERC20(_usdc);
         usdcx = ISuperToken(_usdcx);
-        host  = ISuperfluid(_host);
-        gda   = IGeneralDistributionAgreementV1(_gda);
+        host  = _host;
+        gda   = IGDAv1Forwarder(_gda);
 
         // Pre-approve USDCx to wrap from USDC (max once)
         IERC20(_usdc).approve(_usdcx, type(uint256).max);
 
         // Create the GDA pool — admin is this contract
-        IGeneralDistributionAgreementV1.PoolConfig memory cfg = IGeneralDistributionAgreementV1.PoolConfig({
+        IGDAv1Forwarder.PoolConfig memory cfg = IGDAv1Forwarder.PoolConfig({
             transferabilityForUnitsOwner: false,
             distributionFromAnyAddress: false
         });
-        pool = gda.createPool(ISuperToken(_usdcx), address(this), cfg);
+        (, pool) = gda.createPool(ISuperToken(_usdcx), address(this), cfg);
     }
 
     // ─── Staking ──────────────────────────────────────────────────────────────
@@ -307,7 +302,7 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
      * @notice Current GDA flowRate from protocol to pool (USDCx/second, 18 decimals).
      */
     function getPoolFlowRate() external view returns (int96) {
-        return gda.getFlowRate(usdcx, address(this), pool);
+        return gda.getFlowDistributionFlowRate(usdcx, address(this), pool);
     }
 
     // ─── Vault yield ──────────────────────────────────────────────────────────
