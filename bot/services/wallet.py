@@ -1184,16 +1184,25 @@ class WalletService:
         from solders.transaction import VersionedTransaction
 
         private_key = self.get_private_key(wallet)
-
+        # Hold the decoded key in a mutable bytearray so it can actually be
+        # wiped afterwards. base58.b58decode returns immutable bytes, so the
+        # previous isinstance(key_bytes, bytearray) guard was always False and
+        # zeroization never ran — the key lingered in memory after signing.
+        key_bytes = None
         try:
-            key_bytes = base58.b58decode(private_key)
-        except Exception:
-            key_bytes = bytes(json.loads(private_key))
+            try:
+                key_bytes = bytearray(base58.b58decode(private_key))
+            except Exception:
+                key_bytes = bytearray(json.loads(private_key))
 
-        keypair = Keypair.from_bytes(key_bytes)
-        tx = VersionedTransaction.from_bytes(transaction_bytes)
-        tx.sign([keypair])
-        return bytes(tx)
+            keypair = Keypair.from_bytes(bytes(key_bytes))
+            tx = VersionedTransaction.from_bytes(transaction_bytes)
+            tx.sign([keypair])
+            return bytes(tx)
+        finally:
+            _zeroize_str(private_key)
+            if key_bytes is not None:
+                ctypes.memset((ctypes.c_char * len(key_bytes)).from_buffer(key_bytes), 0, len(key_bytes))
     
     async def _sign_solana_via_turnkey(self, wallet: Wallet, transaction_bytes: bytes) -> bytes:
         """Sign Solana transaction via Turnkey API."""
