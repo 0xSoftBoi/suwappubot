@@ -632,35 +632,33 @@ class TurnkeyClient:
     ) -> Dict[str, Any]:
         """
         Import an existing private key into Turnkey.
-        
-        Note: This should be done via secure iframe in production.
-        For server-side import, use encrypted bundle approach.
-        
+
+        NOT IMPLEMENTED — fails closed.
+
+        Turnkey's ``ACTIVITY_TYPE_IMPORT_PRIVATE_KEY`` requires the key to be
+        HPKE-encrypted to the enclave's import target public key (obtained via an
+        INIT_IMPORT activity) before it is sent. The previous implementation put
+        the *raw* hex key in ``encryptedBundle``, which both leaks the key to the
+        API layer and is rejected by Turnkey. Rather than ship a second
+        unverified crypto path, this refuses server-side plaintext import. Use
+        Turnkey's secure iframe import flow on the client, or implement and test
+        the INIT_IMPORT + HPKE encrypted-bundle flow before re-enabling this.
+
         Args:
             private_key: Hex-encoded private key
             key_name: Name for the imported key
             curve: CURVE_SECP256K1 or CURVE_ED25519
             organization_id: Target organization
-            
-        Returns:
-            Import result with new wallet/account IDs
+
+        Raises:
+            NotImplementedError: always — server-side plaintext import is unsafe.
         """
-        params = {
-            "privateKeyName": key_name,
-            "encryptedBundle": private_key,  # Simplified - production should use encryption
-            "curve": curve,
-            "addressFormats": [
-                "ADDRESS_FORMAT_ETHEREUM" if curve == "CURVE_SECP256K1" else "ADDRESS_FORMAT_SOLANA"
-            ],
-        }
-        
-        result = await self._submit_activity(
-            "ACTIVITY_TYPE_IMPORT_PRIVATE_KEY",
-            params,
-            organization_id=organization_id,
+        raise NotImplementedError(
+            "Server-side private key import is disabled: it would send the raw "
+            "key to Turnkey instead of an HPKE-encrypted import bundle. Use the "
+            "secure iframe import flow, or implement INIT_IMPORT + encrypted "
+            "bundle encryption before re-enabling this method."
         )
-        
-        return result.get("importPrivateKeyResult", {})
     
     # === Policies ===
 
