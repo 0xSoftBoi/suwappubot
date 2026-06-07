@@ -110,6 +110,7 @@ contract SuwppuBonds is Ownable, ReentrancyGuard, Pausable {
         uint256 endTime
     );
     event Redeemed(uint256 indexed bondId, address indexed bonder, uint256 suwpAmount);
+    event BondCancelled(uint256 indexed bondId, address indexed bonder, uint256 lpTokenId);
     event PoolUpdated(address newPool);
     event DiscountUpdated(uint256 newDiscountBps);
     event BondCapsUpdated(uint256 maxSuwpPerBond, uint256 globalBondCap);
@@ -202,6 +203,34 @@ contract SuwppuBonds is Ownable, ReentrancyGuard, Pausable {
 
         suwp.mint(msg.sender, claimed, "bond_vest");
         emit Redeemed(bondId, msg.sender, claimed);
+    }
+
+    /**
+     * @notice Cancel a bond and return its LP NFT to the bonder. Escape hatch for
+     *         when the protocol can no longer honor a bond (e.g. MINTER_ROLE was
+     *         revoked from this contract mid-vest), so the bonder's LP is never
+     *         permanently locked. Owner-only; reverses the unclaimed portion.
+     * @param bondId  Bond to cancel
+     */
+    function cancelBond(uint256 bondId) external onlyOwner nonReentrant {
+        Bond storage b = bonds[bondId];
+        require(b.active, "Bond not active");
+
+        uint256 unminted = b.suwpTotal - b.suwpClaimed;
+        b.active = false;
+        // Roll back the unminted portion of the global issuance counter.
+        if (totalSuwpIssued >= unminted) {
+            totalSuwpIssued -= unminted;
+        } else {
+            totalSuwpIssued = 0;
+        }
+        if (totalLpBonded > 0) {
+            totalLpBonded--;
+        }
+
+        // Return the LP NFT to the original bonder.
+        positionManager.safeTransferFrom(address(this), b.bonder, b.lpTokenId);
+        emit BondCancelled(bondId, b.bonder, b.lpTokenId);
     }
 
     // ─── View ─────────────────────────────────────────────────────────────────

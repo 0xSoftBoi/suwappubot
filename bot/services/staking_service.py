@@ -25,14 +25,26 @@ class StakingService:
 
         suwp_amount = Decimal(points_to_burn) / Decimal(POINTS_PER_SUWP)
 
-        with get_session() as session:
-            # Verify and deduct points
-            user_pts = session.query(UserPoints).filter(UserPoints.user_id == user_id).first()
-            if not user_pts or user_pts.current_points < points_to_burn:
-                raise ValueError(f"Insufficient points. Have: {getattr(user_pts, 'current_points', 0)}, need: {points_to_burn}")
+        from sqlalchemy import update, func
 
-            user_pts.current_points -= points_to_burn
-            user_pts.points_spent = (user_pts.points_spent or 0) + points_to_burn
+        with get_session() as session:
+            # Atomic guarded deduction — the WHERE clause makes the balance check and
+            # the decrement a single DB operation, so two concurrent claims can't both
+            # pass the check and double-spend the same points (multi-replica safe).
+            result = session.execute(
+                update(UserPoints)
+                .where(
+                    UserPoints.user_id == user_id,
+                    UserPoints.current_points >= points_to_burn,
+                )
+                .values(
+                    current_points=UserPoints.current_points - points_to_burn,
+                    points_spent=func.coalesce(UserPoints.points_spent, 0) + points_to_burn,
+                )
+            )
+            if result.rowcount != 1:
+                session.rollback()
+                raise ValueError(f"Insufficient points (need {points_to_burn}) or user not found")
 
             claim = TokenClaim(
                 user_id=user_id,

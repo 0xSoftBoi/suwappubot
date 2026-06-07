@@ -196,6 +196,26 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
         emit Unstaked(msg.sender, amount, newUnits);
     }
 
+    /**
+     * @notice Recover ALL staked principal even if the Superfluid pool reverts
+     *         (pool upgrade / pause / outage). Only callable while the contract is
+     *         paused. The pool unit update is best-effort: if it fails, principal is
+     *         still returned and units may be stale until the admin corrects them —
+     *         principal recovery must never be blocked by an external dependency.
+     */
+    function emergencyUnstake() external nonReentrant whenPaused {
+        uint256 amount = stakedBalance[msg.sender];
+        require(amount > 0, "Nothing staked");
+
+        stakedBalance[msg.sender] = 0;
+        totalStaked -= amount;
+
+        try pool.updateMemberUnits(msg.sender, 0) returns (bool) {} catch {}
+
+        suwp.safeTransfer(msg.sender, amount);
+        emit Unstaked(msg.sender, amount, 0);
+    }
+
     // ─── USDC Streaming (Superfluid GDA) ─────────────────────────────────────
 
     /**
@@ -256,36 +276,37 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @notice Distribute weekly SUWP bonus to stakers (batch, same as before).
-     *         SUWP must already be in this contract.
+     * @notice Distribute weekly SUWP bonus. Amounts are pre-computed off-chain from
+     *         an EPOCH-START snapshot of each staker's balance (see Python
+     *         create_distribution_epoch). Passing explicit amounts — rather than
+     *         reading live stakedBalance — prevents a flash-stake front-run from
+     *         capturing a share they didn't hold during the epoch, and eliminates
+     *         integer-division dust. SUWP must already be in this contract.
      */
     function distributeSuwpBonus(
         address[] calldata stakers,
-        uint256 suwpBonus
+        uint256[] calldata amounts
     ) external onlyOwner nonReentrant {
-        require(stakers.length > 0, "Empty stakers list");
-        require(totalStaked > 0, "No stakers");
-        // Contract must hold enough SUWP to cover staked principal + all pending
-        // bonuses + this new distribution before allocating it.
+        require(stakers.length == amounts.length, "Length mismatch");
+        require(stakers.length > 0 && stakers.length <= 500, "Bad stakers length");
+
+        uint256 total;
+        for (uint256 i = 0; i < amounts.length; i++) {
+            total += amounts[i];
+        }
+        // Contract must hold staked principal + all pending bonuses + this batch.
         require(
-            suwp.balanceOf(address(this)) >= totalStaked + totalPendingBonuses + suwpBonus,
+            suwp.balanceOf(address(this)) >= totalStaked + totalPendingBonuses + total,
             "Insufficient SUWP to fund bonus"
         );
 
-        epochs[currentEpoch].suwpBonusPool = suwpBonus;
-
-        uint256 allocated;
+        epochs[currentEpoch].suwpBonusPool = total;
         for (uint256 i = 0; i < stakers.length; i++) {
-            address staker = stakers[i];
-            uint256 stake = stakedBalance[staker];
-            if (stake == 0) continue;
-            uint256 share = (suwpBonus * stake) / totalStaked;
-            claimableSuwpBonus[staker] += share;
-            allocated += share;
+            claimableSuwpBonus[stakers[i]] += amounts[i];
         }
-        totalPendingBonuses += allocated;
+        totalPendingBonuses += total;
 
-        emit SuwpBonusDistributed(currentEpoch, suwpBonus, totalStaked);
+        emit SuwpBonusDistributed(currentEpoch, total, totalStaked);
     }
 
     // ─── Claiming ─────────────────────────────────────────────────────────────
