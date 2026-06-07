@@ -32,6 +32,7 @@ POINT_ACTIONS = {
     "referral_signup": {"points": 500, "description": "Friend signs up with your code"},
     "referral_first_swap": {"points": 200, "description": "Referral completes first swap"},
     "twitter_share": {"points": 25, "description": "Share on Twitter"},
+    "level_up": {"points": 100, "description": "Level up bonus"},
     "milestone": {"points": 100, "description": "Achieve a milestone"},
     "streak_bonus": {"points": 5, "per_day": True, "description": "Streak bonus per day"},
     "copy_trade": {"points": 10, "description": "Copy a trade"},

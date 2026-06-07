@@ -145,6 +145,8 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         from bot.models.token import PointsTier, FeeDiscount
         # Terminal tracking models
         from bot.models.tracking import TrackedWallet
+        # Prediction market models
+        from bot.models.predict import PredictionOrder, PredictionPosition
 
         # Reconcile a cross-ORM table collision before create_all (which only creates
         # MISSING tables, never fixes an existing one): api-ts (Drizzle) historically created

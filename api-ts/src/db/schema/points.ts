@@ -30,7 +30,7 @@ export const POINT_ACTIONS = {
 	swap: { points: 1, description: 'Swap (per $10 volume)' },
 	first_swap_daily: { points: 50, description: 'First swap of the day bonus' },
 	referral_signup: { points: 500, description: 'Referred user signed up' },
-	referral_first_swap: { points: 100, description: 'Referred user first swap' },
+	referral_first_swap: { points: 200, description: 'Referred user first swap' },
 	twitter_share: { points: 25, description: 'Shared on Twitter' },
 	streak_bonus: { points: 5, description: 'Daily streak bonus' },
 	level_up: { points: 100, description: 'Level up bonus' },
