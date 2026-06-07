@@ -46,3 +46,9 @@ After fixing 4 critical + 7 high audit findings. These supersede all addresses a
 
 Verified live: MIN_STAKE guard, per-call forceApprove, no-active-stream guard all
 active; USDCx streams at 0.000055/sec (4.75/day), claimable accrues per second.
+
+## Second audit pass — verified fixes
+- CRITICAL (Bonds): LP now decomposed at TWAP not spot (flash-loan overmint blocked)
+- HIGH (Staking): removed the flowRate==0 guard that permanently bricked epoch 2
+  Verified on Base Sepolia (staking 0xAe0E9e82cdc8E72F75B6E15c1989858Dd01Fb9a6):
+  epoch 1 funded → epoch 2 funded → currentEpoch=2 ✓ (would have been impossible before)
