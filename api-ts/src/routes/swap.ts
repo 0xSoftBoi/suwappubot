@@ -65,8 +65,12 @@ const CHAIN_RPC_ENDPOINTS: Record<number, string> = {
 // Parse the USD value of the source amount for storage. Never falls back to
 // quote.fromAmount, which is a token quantity in wei (not a USD value) — doing
 // so would corrupt the USD currency column. Returns null when unavailable.
-export const usdAmountFromQuote = (quote: Pick<SwapQuote, 'fromAmountUsd'>): number | null =>
-	parseFloat(quote.fromAmountUsd) || null
+// Uses Number.isFinite rather than `|| null` so a legitimate 0 USD value is
+// preserved instead of being coerced to null.
+export const usdAmountFromQuote = (quote: Pick<SwapQuote, 'fromAmountUsd'>): number | null => {
+	const parsed = parseFloat(quote.fromAmountUsd)
+	return Number.isFinite(parsed) ? parsed : null
+}
 
 // In-memory quote cache as fallback when Redis is not available
 const quoteCacheMemory = new Map<string, { quote: SwapQuote; expiry: number }>()

@@ -12,8 +12,11 @@ describe('usdAmountFromQuote (swap.ts)', () => {
 		expect(usdAmountFromQuote({ fromAmountUsd: '3500.25' })).toBe(3500.25)
 	})
 
-	test('zero USD coerces to null via || (unchanged pre-existing behavior)', () => {
-		expect(usdAmountFromQuote({ fromAmountUsd: '0.00' })).toBeNull()
+	test('a known zero USD value is preserved as 0, not coerced to null', () => {
+		// A provider reporting an exact $0 value is known data, not "unavailable".
+		// The old `|| null` lost it; the fix keeps it via Number.isFinite.
+		expect(usdAmountFromQuote({ fromAmountUsd: '0.00' })).toBe(0)
+		expect(usdAmountFromQuote({ fromAmountUsd: '0' })).toBe(0)
 	})
 
 	test('empty USD string returns null', () => {
