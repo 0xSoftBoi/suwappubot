@@ -50,6 +50,7 @@ NETWORKS = {
         "sf_host": "0x109412E3C84f0539b43d39dB691B08c90f58dC7c",
         "sf_gda":  "0x6DA13Bde224A05a288748d857b9e7DDEffd1dE08",  # GDAv1Forwarder (universal)
         "uni_pos": "0x27F971cb582BF9E50F397e4d29a5C7A34f11faA2",
+        "uni_factory": "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
         "explorer": "https://sepolia.basescan.org",
     },
     "mainnet": {
@@ -61,6 +62,7 @@ NETWORKS = {
         "sf_host": "0x4C073B3baB862572842bFB01F7B1FA40B61D1A06",
         "sf_gda":  "0x6DA13Bde224A05a288748d857b9e7DDEffd1dE08",
         "uni_pos": "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f",
+        "uni_factory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
         "explorer": "https://basescan.org",
     },
 }
@@ -272,6 +274,7 @@ def main():
             Web3.to_checksum_address(suwp_address),
             Web3.to_checksum_address(net["usdc"]),
             Web3.to_checksum_address(net["uni_pos"]),
+            Web3.to_checksum_address(net["uni_factory"]),
             deployer_address,
         ],
         "SuwppuBonds", chain_id,

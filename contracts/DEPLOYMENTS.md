@@ -33,3 +33,16 @@ After fixing the fundStream decimal bug (usdcx.upgrade must take the 18-dec amou
 Verified live: 5000 SUWP staked → USDCx streams to staker at 0.000115 USDCx/sec
 (9.94 USDCx/day), claimable accrues per-second with no batch/claim step.
 fundStream tx: 0xd1edf6f40c1de810649001baed833a9737a88f4518348649608bf18fd4cd24ac
+
+## Hardened redeploy (post-audit) — Base Sepolia
+After fixing 4 critical + 7 high audit findings. These supersede all addresses above.
+
+| Contract | Address |
+|----------|---------|
+| SUWP | `0x0b96a41a2a4c9b50097049d24f43848be3A892e8` |
+| SuwppuStaking | `0xFA1142C788b6BC09CD16490dFEdAcEAFC505bA17` |
+| SuwppuBonds | `0x9aCCf607AF27327B4940827a5c389F109847562D` |
+| Superfluid GDA pool | `0x924c4FA120d647B432D1E9F6e9632c2f4CEDfCFf` |
+
+Verified live: MIN_STAKE guard, per-call forceApprove, no-active-stream guard all
+active; USDCx streams at 0.000055/sec (4.75/day), claimable accrues per second.
