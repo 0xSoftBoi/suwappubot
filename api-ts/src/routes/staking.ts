@@ -7,9 +7,38 @@ import { telegramAuth } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { UserService } from '../services'
 
-// TODO: Add GET /staking/streaming-balance?address=0x... endpoint that reads
-// pool.getClaimableNow(userAddr) via on-chain RPC call once STAKING_CONTRACT_ADDRESS is set.
-// Requires @superfluid-finance/sdk-core or direct ethers/viem call.
+// ─── Dependency-free on-chain reads (Superfluid GDA pool) ────────────────────
+// Reads live USDCx stream state via raw JSON-RPC eth_call — no ethers/viem needed.
+const SEL_CLAIMABLE = '0x21dd5777' // getClaimableNow(address) -> (int256, uint256)
+const SEL_FLOWRATE = '0x539e8c1c' // getMemberFlowRate(address) -> int96
+
+function pad32(addr: string): string {
+	return addr.toLowerCase().replace(/^0x/, '').padStart(64, '0')
+}
+
+async function ethCall(rpcUrl: string, to: string, data: string): Promise<string> {
+	const res = await fetch(rpcUrl, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			jsonrpc: '2.0',
+			id: 1,
+			method: 'eth_call',
+			params: [{ to, data }, 'latest'],
+		}),
+	})
+	const json = (await res.json()) as { result?: string; error?: { message: string } }
+	if (json.error) throw new Error(json.error.message)
+	return json.result ?? '0x'
+}
+
+// Parse a hex two's-complement int from a 32-byte (64-hex) word
+function parseSignedHex(word: string): bigint {
+	let n = BigInt('0x' + word)
+	const max = 1n << 256n
+	if (n >= max >> 1n) n -= max
+	return n
+}
 
 export const stakingRoutes = new Hono()
 
@@ -115,7 +144,8 @@ stakingRoutes.get('/overview', telegramAuth(), async (c) => {
 					streaming_note: 'USDC streams continuously via Superfluid. Check your wallet for USDCx balance.',
 				},
 				streaming: {
-					pool_address: null,  // populated post-deployment from env/config
+					pool_address: process.env.STAKING_POOL_ADDRESS ?? null,
+					balance_endpoint: '/staking/streaming-balance?address=<wallet>',
 					note: 'USDC rewards stream per-second via Superfluid GDA pool. Use Superfluid dashboard or claim USDCx directly.',
 				},
 				recent_claims: claims,
@@ -267,4 +297,40 @@ stakingRoutes.get('/apy', async (c) => {
 	)
 	if (Either.isLeft(result)) return c.json({ apy_estimate_pct: null })
 	return c.json(result.right)
+})
+
+// GET /staking/streaming-balance?address=0x... — live USDCx stream from the GDA pool
+stakingRoutes.get('/streaming-balance', async (c) => {
+	const address = c.req.query('address')
+	if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) {
+		return c.json({ error: 'valid ?address=0x... required' }, 400)
+	}
+	const rpcUrl = process.env.BASE_RPC_URL ?? process.env.BASE_SEPOLIA_RPC_URL
+	const pool = process.env.STAKING_POOL_ADDRESS
+	if (!rpcUrl || !pool) {
+		return c.json({ streaming: false, note: 'STAKING_POOL_ADDRESS / BASE_RPC_URL not configured' })
+	}
+
+	try {
+		const [claimableHex, flowHex] = await Promise.all([
+			ethCall(rpcUrl, pool, SEL_CLAIMABLE + pad32(address)),
+			ethCall(rpcUrl, pool, SEL_FLOWRATE + pad32(address)),
+		])
+		// getClaimableNow returns (int256 claimable, uint256 timestamp) — first word is claimable
+		const claimableWei = parseSignedHex(claimableHex.replace(/^0x/, '').slice(0, 64) || '0')
+		const flowWei = parseSignedHex(flowHex.replace(/^0x/, '').padStart(64, '0'))
+		const toUsdc = (w: bigint) => Number(w) / 1e18
+
+		return c.json({
+			streaming: flowWei > 0n,
+			address,
+			claimable_usdcx: toUsdc(claimableWei),
+			flow_rate_per_sec: toUsdc(flowWei),
+			flow_rate_per_day: toUsdc(flowWei) * 86400,
+			pool,
+			note: 'USDCx accrues per second; claim via Superfluid pool.claimAll() or it auto-settles.',
+		})
+	} catch (e) {
+		return c.json({ streaming: false, error: String(e) }, 200)
+	}
 })
