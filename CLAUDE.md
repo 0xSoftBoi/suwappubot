@@ -41,7 +41,7 @@ Suwappu is a cross-chain DEX bot and liquidity infrastructure for swapping token
 - **Mobile** (`mobile/`): Expo iOS app
 - **Showcase** (`showcase/`): Next.js homepage
 
-Deploys to AWS ECS Fargate (us-east-1). See `docs/deployment/`.
+Deploys to Railway. See `docs/deployment/`.
 
 ## Commands
 
@@ -126,8 +126,8 @@ cd mobile && bun install && bun run ios
 ## Deployment
 
 **Environments**:
-- **Production**: `main` branch → api.suwappu.bot, app.suwappu.bot (EC2: 23.21.184.77)
-- **Development**: `dev` branch → devapi.suwappu.bot, devfront.suwappu.bot (EC2: 54.224.128.32)
+- **Production**: `main` branch → Railway (see `docs/deployment/railway.md`)
+- **Development**: `dev` branch → Railway dev project
 
 **Pre-deploy checklist**:
 1. All changed Python files parse (`python3 -c "import ast; ..."`)
@@ -137,8 +137,8 @@ cd mobile && bun install && bun run ios
 
 **Deploy methods**:
 - `/deploy` skill for manual deployments (preferred)
+- Railway dashboard for manual triggers and environment management
 - GitHub Actions auto-deploys on push to `main`/`dev` (currently broken — billing)
-- SSM fallback: `aws ssm send-command --instance-ids <id> ...`
 
 ```bash
 curl https://api.suwappu.bot/health       # Check production
