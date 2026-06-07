@@ -825,6 +825,12 @@ class SwapEngine:
             from_chain=from_chain, to_chain=to_chain, token=token,
             amount=amount_raw, from_address=from_address, to_address=to_address,
         )
+        # Persist the intended recipient so execution deposits to it rather than
+        # defaulting to the sender wallet (the SwapQuote itself carries no
+        # recipient field). None means "same as sender", the prior behavior.
+        raw_quote = dict(quote.raw_quote or {})
+        if to_address:
+            raw_quote["recipient"] = to_address
         return SwapQuote(
             provider="across", from_chain=from_chain, to_chain=to_chain,
             from_token=token, to_token=token,
@@ -834,7 +840,7 @@ class SwapEngine:
             gas_cost_usd=quote.gas_cost_usd, fee_cost_usd=quote.relay_fee_usd,
             total_cost_usd=quote.total_cost_usd, estimated_time=quote.estimated_fill_time,
             price_impact=0, exchange_rate=self._rate(quote.to_amount_human, amount),
-            raw_quote=quote.raw_quote,
+            raw_quote=raw_quote,
         )
 
     async def _get_wormhole_quote(
@@ -861,8 +867,12 @@ class SwapEngine:
         amount_raw: str, from_address: str, to_address: Optional[str],
     ) -> SwapQuote:
         """CoW Protocol quote (gasless, MEV-protected, same-chain EVM)."""
+        # CoW expects token *addresses* (it calls Web3.to_checksum_address
+        # internally); resolve the symbols first, same as _get_lifi_quote.
+        from_token_address = get_token_address(from_token, from_chain)
+        to_token_address = get_token_address(to_token, from_chain)
         quote = await self.cow.get_quote(
-            chain=from_chain, from_token=from_token, to_token=to_token,
+            chain=from_chain, from_token=from_token_address, to_token=to_token_address,
             amount=amount_raw, from_address=from_address, receiver=to_address,
         )
         return SwapQuote(
@@ -882,9 +892,13 @@ class SwapEngine:
         amount: float, amount_raw: str, from_address: str, to_address: Optional[str],
     ) -> SwapQuote:
         """Socket/Bungee super-aggregator quote (best route across bridges+DEXes)."""
+        # Socket passes from/to token straight through as address query params,
+        # so resolve the symbols to addresses first (per-chain), like _get_lifi_quote.
+        from_token_address = get_token_address(from_token, from_chain)
+        to_token_address = get_token_address(to_token, to_chain)
         quote = await self.socket.get_quote(
-            from_chain=from_chain, to_chain=to_chain, from_token=from_token,
-            to_token=to_token, from_amount=amount_raw, from_address=from_address,
+            from_chain=from_chain, to_chain=to_chain, from_token=from_token_address,
+            to_token=to_token_address, from_amount=amount_raw, from_address=from_address,
             to_address=to_address,
         )
         route = quote.best_route
@@ -1921,13 +1935,17 @@ class SwapEngine:
         chain = get_chain_by_name(quote.from_chain)
         web3 = rpc_manager.get_web3(quote.from_chain)
 
-        # Get fresh quote with deposit data
+        # Honor the recipient captured at quote time; fall back to the sender.
+        recipient = (quote.raw_quote or {}).get("recipient") or wallet_data["address"]
+
+        # Get fresh quote with deposit data (for the same recipient)
         across_quote = await self.across.get_quote(
             from_chain=quote.from_chain,
             to_chain=quote.to_chain,
             token=quote.from_token,
             amount=quote.from_amount,
             from_address=wallet_data["address"],
+            to_address=recipient,
         )
 
         # Check if token needs approval (not ETH)
@@ -1977,10 +1995,11 @@ class SwapEngine:
             # Wait for approval
             web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
 
-        # Build deposit transaction
+        # Build deposit transaction — deposit to the intended recipient.
         deposit_tx = self.across.build_deposit_calldata(
             across_quote,
             wallet_data["address"],
+            to_address=recipient,
         )
 
         nonce = web3.eth.get_transaction_count(wallet_data["address"])

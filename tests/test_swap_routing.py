@@ -100,6 +100,63 @@ def test_socket_quote_raises_without_route(engine):
         asyncio.run(engine._get_socket_quote("ethereum", "base", "USDC", "USDC", 1.0, "1000000", "0xA", None))
 
 
+def test_cow_quote_resolves_token_addresses(engine):
+    # CoW's API checksum-addresses the tokens, so symbols must be resolved first;
+    # passing the raw "USDC"/"WETH" symbols made every CoW quote raise.
+    captured = {}
+
+    async def fake_get_quote(**kw):
+        captured.update(kw)
+        return SimpleNamespace(
+            from_amount="1000000", to_amount="990000",
+            to_amount_human=0.99, raw_quote={"q": 1},
+        )
+    engine.cow.get_quote = fake_get_quote
+
+    q = asyncio.run(engine._get_cow_quote("ethereum", "USDC", "WETH", 1.0, "1000000", "0xA", None))
+    assert q.provider == "cow"
+    assert captured["from_token"] != "USDC", "symbol must be resolved to an address"
+    assert captured["to_token"] != "WETH", "symbol must be resolved to an address"
+
+
+def test_socket_quote_resolves_token_addresses(engine):
+    captured = {}
+    route = SimpleNamespace(
+        route_id="r1", bridge_name="across", from_amount="1000000",
+        to_amount="2000000", to_amount_human=2.0, gas_usd=1.0, service_fee_usd=0.5,
+        total_fee_usd=1.5, estimated_time_seconds=90, raw_route={"x": 1},
+    )
+
+    async def fake_get_quote(**kw):
+        captured.update(kw)
+        return SimpleNamespace(best_route=route)
+    engine.socket.get_quote = fake_get_quote
+
+    asyncio.run(engine._get_socket_quote("ethereum", "base", "USDC", "USDC", 1.0, "1000000", "0xA", None))
+    assert captured["from_token"] != "USDC", "symbol must be resolved to an address"
+    assert captured["to_token"] != "USDC", "symbol must be resolved to an address"
+
+
+def test_across_quote_persists_recipient(engine):
+    # The recipient is honored at quote time but the SwapQuote has no recipient
+    # field, so execution previously defaulted to the sender. Persist it in
+    # raw_quote so _execute_across_swap deposits to the intended recipient.
+    async def fake_get_quote(**kw):
+        return SimpleNamespace(
+            from_amount="1000000", from_amount_human=1.0,
+            to_amount="990000", to_amount_human=0.99,
+            gas_cost_usd=0.1, relay_fee_usd=0.2, total_cost_usd=0.3,
+            estimated_fill_time=30, raw_quote={"spoke": "0xSP"},
+        )
+    engine.across.get_quote = fake_get_quote
+
+    q = asyncio.run(engine._get_across_quote("ethereum", "base", "USDC", 1.0, "1000000", "0xA", "0xRECIPIENT"))
+    assert q.raw_quote["recipient"] == "0xRECIPIENT"
+    # No recipient -> not injected (execution defaults to the sender).
+    q2 = asyncio.run(engine._get_across_quote("ethereum", "base", "USDC", 1.0, "1000000", "0xA", None))
+    assert "recipient" not in q2.raw_quote
+
+
 # --- End-to-end: get_quote races new providers and picks the best ---------
 
 def test_get_quote_selects_best_among_wired_providers(engine, monkeypatch):
