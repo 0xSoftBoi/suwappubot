@@ -7,6 +7,10 @@ import { telegramAuth } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { UserService } from '../services'
 
+// TODO: Add GET /staking/streaming-balance?address=0x... endpoint that reads
+// pool.getClaimableNow(userAddr) via on-chain RPC call once STAKING_CONTRACT_ADDRESS is set.
+// Requires @superfluid-finance/sdk-core or direct ethers/viem call.
+
 export const stakingRoutes = new Hono()
 
 // GET /staking/overview — dashboard data for webapp
@@ -105,7 +109,15 @@ stakingRoutes.get('/overview', telegramAuth(), async (c) => {
 						staked_since: userPos.stakedSince,
 					}
 					: null,
-				pending_rewards: { usdc: pendingUsdc, suwp_bonus: pendingSuwp },
+				pending_rewards: {
+					usdc: pendingUsdc,          // keep for backward compat (now always 0 from DB)
+					suwp_bonus: pendingSuwp,    // from EpochReward records (still batch)
+					streaming_note: 'USDC streams continuously via Superfluid. Check your wallet for USDCx balance.',
+				},
+				streaming: {
+					pool_address: null,  // populated post-deployment from env/config
+					note: 'USDC rewards stream per-second via Superfluid GDA pool. Use Superfluid dashboard or claim USDCx directly.',
+				},
 				recent_claims: claims,
 				recent_epochs: epochs,
 			}
@@ -233,6 +245,7 @@ stakingRoutes.get('/apy', async (c) => {
 				vault_apy_pct: vaultApyPct,
 				weekly_usdc_pool: weeklyUsdc,
 				total_staked: totalStaked,
+				streaming_model: true,   // tells frontend USDC streams continuously via Superfluid GDA
 			}
 		}),
 	)

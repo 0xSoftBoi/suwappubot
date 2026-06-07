@@ -441,6 +441,10 @@ class Settings(BaseSettings):
         default=None,
         description="Address to receive yield withdrawals for distribution"
     )
+    staking_contract_address: Optional[str] = Field(
+        default=None,
+        description="Deployed SuwppuStaking contract address on Base (used by fundStream / distributeSuwpBonus)"
+    )
 
     model_config = ConfigDict(
         env_file=".env",

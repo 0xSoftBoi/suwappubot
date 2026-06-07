@@ -205,22 +205,28 @@ class StakingService:
                 StakingPosition.suwp_staked > 0,
             ).all()
 
+            # USDC rewards now flow per-second via Superfluid GDA pool (fundStream).
+            # No per-staker USDC EpochReward records are created; usdc_reward is set to 0.
+            logger.info(
+                "Epoch #%d: %.6f USDC will be streamed via fundStream() "
+                "(Superfluid GDA pool) — no per-staker USDC records created.",
+                next_epoch_number, float(total_staker_usdc),
+            )
+
             rewards_count = 0
             for staker in stakers:
                 if total_suwp_staked == 0:
                     break
                 share = Decimal(str(staker.suwp_staked)) / total_suwp_staked
-                usdc_reward = (total_staker_usdc * share).quantize(
-                    Decimal("0.000001"), rounding=ROUND_DOWN
-                )
                 suwp_bonus = (WEEKLY_SUWP_EMISSION * share).quantize(
                     Decimal("0.000001"), rounding=ROUND_DOWN
                 )
+                # usdc_reward is 0: USDC distributes continuously via Superfluid GDA pool.
                 session.add(EpochReward(
                     epoch_id=epoch.id,
                     user_id=staker.user_id,
                     suwp_staked_snapshot=staker.suwp_staked,
-                    usdc_reward=usdc_reward,
+                    usdc_reward=Decimal("0"),
                     suwp_bonus=suwp_bonus,
                     status="pending",
                 ))
@@ -230,11 +236,50 @@ class StakingService:
             session.refresh(epoch)
             logger.info(
                 "Epoch #%d: fees=%.2f direct=%.2f vault_yield=%.2f "
-                "total_staker=%.2f rewards=%d stakers",
+                "total_staker=%.2f (streamed via Superfluid) suwp_rewards=%d stakers",
                 next_epoch_number, float(total_fees_usd), float(direct_fees_usdc),
                 float(vault_yield), float(total_staker_usdc), rewards_count,
             )
             return epoch
+
+    def fund_stream_on_chain(self, epoch_usdc: Decimal, duration_seconds: int = 604800) -> str:
+        """
+        Call SuwppuStaking.fundStream(usdcAmount, durationSeconds) on Base.
+        Returns tx_hash. No-op if STAKING_CONTRACT_ADDRESS not set.
+        Requires treasury wallet to have USDC approved to the staking contract.
+        """
+        from bot.config.settings import settings
+        contract_addr = getattr(settings, "staking_contract_address", None)
+        if not contract_addr:
+            logger.info("[mock] fund_stream_on_chain %.6f USDC (no contract address set)", epoch_usdc)
+            return "0x" + "0" * 64
+        try:
+            from bot.services.treasury_vault_service import treasury_vault_service
+            from web3 import Web3
+            web3 = treasury_vault_service._get_web3()
+            wallet = treasury_vault_service._get_treasury_wallet()
+            private_key = treasury_vault_service._get_private_key(wallet)
+
+            STAKING_ABI = [
+                {"name": "fundStream", "type": "function", "stateMutability": "nonpayable",
+                 "inputs": [{"name": "usdcAmount", "type": "uint256"},
+                             {"name": "durationSeconds", "type": "uint256"}],
+                 "outputs": []},
+            ]
+            contract = web3.eth.contract(
+                address=Web3.to_checksum_address(contract_addr), abi=STAKING_ABI
+            )
+            usdc_wei = int(epoch_usdc * Decimal("1000000"))  # 6 decimals
+            tx_hash = treasury_vault_service._build_and_send(
+                web3, wallet,
+                contract.functions.fundStream(usdc_wei, duration_seconds),
+                private_key,
+            )
+            logger.info("fundStream called: %.6f USDC over %ds tx=%s", epoch_usdc, duration_seconds, tx_hash)
+            return tx_hash
+        except Exception as e:
+            logger.error("fund_stream_on_chain failed: %s", e, exc_info=True)
+            return "0x" + "0" * 64
 
     def get_vault_stats(self) -> dict:
         """Delegate to treasury vault service."""

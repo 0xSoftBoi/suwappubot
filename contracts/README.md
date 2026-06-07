@@ -33,11 +33,16 @@ forge create contracts/SUWP.sol:SUWP \
 
 # Deploy Staking contract
 forge create contracts/SuwppuStaking.sol:SuwppuStaking \
-  --constructor-args <SUWP_ADDRESS> 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 <OWNER_ADDRESS> \
+  --constructor-args <SUWP_ADDRESS> 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 0xD04383398dD2426297da660F9CCA3d439AF9ce1b 0x4C073B3baB862572842bFB01F7B1FA40B61D1A06 0x6DA13Bde224A05a288748d857b9e7DDEffd1dE08 <OWNER_ADDRESS> \
   --rpc-url https://mainnet.base.org \
   --private-key $DEPLOYER_PRIVATE_KEY \
   --verify
 ```
+
+## Superfluid Addresses (Base mainnet)
+- Host: 0x4C073B3baB862572842bFB01F7B1FA40B61D1A06
+- GDA:  0x6DA13Bde224A05a288748d857b9e7DDEffd1dE08
+- USDCx (wrapped USDC): 0xD04383398dD2426297da660F9CCA3d439AF9ce1b
 
 ## SuwpOFT — Omnichain Token
 

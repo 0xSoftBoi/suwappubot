@@ -7,170 +7,311 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 
+// ─── Minimal Superfluid interfaces ──────────────────────────────────────────
+
+interface ISuperToken is IERC20 {
+    function upgrade(uint256 amount) external;
+    function downgrade(uint256 amount) external;
+    function getUnderlyingToken() external view returns (address);
+}
+
+interface ISuperfluidPool {
+    function updateMemberUnits(address member, uint128 newUnits) external returns (bool);
+    function getMemberFlowRate(address member) external view returns (int96);
+    function getClaimableNow(address member) external view returns (int256 claimableBalance, uint256 timestamp);
+    function getTotalUnits() external view returns (uint128);
+    function getMemberUnits(address member) external view returns (uint128);
+}
+
+interface IGeneralDistributionAgreementV1 {
+    function createPool(
+        ISuperToken token,
+        address admin,
+        PoolConfig memory config
+    ) external returns (ISuperfluidPool pool);
+
+    function distributeFlow(
+        ISuperToken token,
+        address from,
+        ISuperfluidPool pool,
+        int96 requestedFlowRate,
+        bytes memory ctx
+    ) external returns (bytes memory newCtx);
+
+    function distribute(
+        ISuperToken token,
+        address from,
+        ISuperfluidPool pool,
+        uint256 requestedAmount,
+        bytes memory ctx
+    ) external returns (bytes memory newCtx);
+
+    function getFlowRate(
+        ISuperToken token,
+        address from,
+        ISuperfluidPool pool
+    ) external view returns (int96);
+
+    struct PoolConfig {
+        bool transferabilityForUnitsOwner;
+        bool distributionFromAnyAddress;
+    }
+}
+
+interface ISuperfluid {
+    function callAgreement(
+        address agreementClass,
+        bytes memory callData,
+        bytes memory userData
+    ) external returns (bytes memory returnedData);
+}
+
 /**
- * @title SuwppuStaking
- * @dev Stake SUWP, earn USDC (real yield from protocol fees) + bonus SUWP.
+ * @title SuwppuStaking v2 — Superfluid GDA streaming rewards
+ * @dev Stake SUWP → earn:
+ *   (1) USDCx streaming in real-time via Superfluid GDA pool (pro-rata by stake)
+ *   (2) Bonus SUWP distributed weekly via claimableSuwpBonus (batch)
  *
- * Model:
- *   - Users stake SUWP; no lockup (can unstake any time).
- *   - Owner distributes rewards per epoch (weekly):
- *       distributeEpoch(usdcAmount, suwpBonusAmount)
- *   - Rewards accumulate as claimable balances; users pull them.
- *   - Reward per user = (userStake / totalStake) × epochRewards
+ * Protocol calls fundStream(usdcAmount, durationSeconds) each epoch to set
+ * the flowRate on the pool. Stakers see USDCx accruing per second.
  *
- * Deploy on Base. Accepts:
- *   - SUWP token (stake/unstake)
- *   - USDC on Base: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+ * USDC/USDCx on Base:
+ *   USDC:  0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+ *   USDCx: 0xD04383398dD2426297da660F9CCA3d439AF9ce1b
  */
 contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
+    // ─── Tokens ───────────────────────────────────────────────────────────────
+
     IERC20 public immutable suwp;
-    IERC20 public immutable usdc;
+    IERC20 public immutable usdc;          // plain USDC (for deposit)
+    ISuperToken public immutable usdcx;    // USDCx Super Token (for streaming)
 
-    // Global staking state
+    // ─── Superfluid ───────────────────────────────────────────────────────────
+
+    ISuperfluid public immutable host;
+    IGeneralDistributionAgreementV1 public immutable gda;
+    ISuperfluidPool public immutable pool;  // created once in constructor
+
+    // ─── Staking state ────────────────────────────────────────────────────────
+
     uint256 public totalStaked;
-
-    // Per-user stake
     mapping(address => uint256) public stakedBalance;
 
-    // Per-user claimable rewards (accumulated across epochs)
-    mapping(address => uint256) public claimableUsdc;
-    mapping(address => uint256) public claimableSuwpBonus;
+    // ─── SUWP bonus (batch, weekly) ───────────────────────────────────────────
 
-    // Epoch tracking
+    mapping(address => uint256) public claimableSuwpBonus;
     uint256 public currentEpoch;
-    uint256 public lastEpochBlock;  // prevent same-block double distribution
-    mapping(uint256 => EpochInfo) public epochs;
+    uint256 public lastEpochBlock;
 
     struct EpochInfo {
         uint256 totalStakedSnapshot;
-        uint256 usdcPool;
         uint256 suwpBonusPool;
+        uint256 usdcStreamed;      // total USDC funded into pool this epoch
+        int96   flowRate;          // GDA flowRate set this epoch
         uint256 timestamp;
     }
+    mapping(uint256 => EpochInfo) public epochs;
 
-    // Events
-    event Staked(address indexed user, uint256 amount);
-    event Unstaked(address indexed user, uint256 amount);
-    event RewardsClaimed(address indexed user, uint256 usdcAmount, uint256 suwpBonus);
-    event EpochDistributed(uint256 indexed epoch, uint256 usdcPool, uint256 suwpBonus, uint256 totalStaked);
+    // ─── Vault yield pool ─────────────────────────────────────────────────────
 
-    constructor(address _suwp, address _usdc, address _owner) Ownable(_owner) {
-        suwp = IERC20(_suwp);
-        usdc = IERC20(_usdc);
+    uint256 public vaultYieldPool;
+
+    // ─── Events ───────────────────────────────────────────────────────────────
+
+    event Staked(address indexed user, uint256 amount, uint128 newUnits);
+    event Unstaked(address indexed user, uint256 amount, uint128 newUnits);
+    event StreamFunded(uint256 indexed epoch, uint256 usdcAmount, int96 flowRate, uint256 durationSeconds);
+    event SuwpBonusDistributed(uint256 indexed epoch, uint256 suwpBonus, uint256 totalStaked);
+    event SuwpBonusClaimed(address indexed user, uint256 amount);
+    event VaultYieldDeposited(uint256 amount, uint256 totalPool);
+
+    // ─── Constructor ──────────────────────────────────────────────────────────
+
+    /**
+     * @param _suwp    SUWP token address
+     * @param _usdc    Plain USDC address (Base: 0x833589...)
+     * @param _usdcx   USDCx Super Token (Base: 0xD04383...)
+     * @param _host    Superfluid Host (Base: 0x4C073B...)
+     * @param _gda     GDA forwarder (Base: 0x6DA13B...)
+     * @param _owner   Protocol multisig
+     */
+    constructor(
+        address _suwp,
+        address _usdc,
+        address _usdcx,
+        address _host,
+        address _gda,
+        address _owner
+    ) Ownable(_owner) {
+        suwp  = IERC20(_suwp);
+        usdc  = IERC20(_usdc);
+        usdcx = ISuperToken(_usdcx);
+        host  = ISuperfluid(_host);
+        gda   = IGeneralDistributionAgreementV1(_gda);
+
+        // Pre-approve USDCx to wrap from USDC (max once)
+        IERC20(_usdc).approve(_usdcx, type(uint256).max);
+
+        // Create the GDA pool — admin is this contract
+        IGeneralDistributionAgreementV1.PoolConfig memory cfg = IGeneralDistributionAgreementV1.PoolConfig({
+            transferabilityForUnitsOwner: false,
+            distributionFromAnyAddress: false
+        });
+        pool = gda.createPool(ISuperToken(_usdcx), address(this), cfg);
     }
 
     // ─── Staking ──────────────────────────────────────────────────────────────
 
+    /**
+     * @notice Stake SUWP. Updates pool member units pro-rata.
+     */
     function stake(uint256 amount) external nonReentrant whenNotPaused {
         require(amount > 0, "Amount must be > 0");
         suwp.safeTransferFrom(msg.sender, address(this), amount);
+
         stakedBalance[msg.sender] += amount;
         totalStaked += amount;
-        emit Staked(msg.sender, amount);
+
+        uint128 newUnits = _toUnits(stakedBalance[msg.sender]);
+        pool.updateMemberUnits(msg.sender, newUnits);
+
+        emit Staked(msg.sender, amount, newUnits);
     }
 
+    /**
+     * @notice Unstake SUWP. Updates pool member units.
+     */
     function unstake(uint256 amount) external nonReentrant {
         require(amount > 0, "Amount must be > 0");
         require(stakedBalance[msg.sender] >= amount, "Insufficient stake");
+
         stakedBalance[msg.sender] -= amount;
         totalStaked -= amount;
+
+        uint128 newUnits = _toUnits(stakedBalance[msg.sender]);
+        pool.updateMemberUnits(msg.sender, newUnits);
+
         suwp.safeTransfer(msg.sender, amount);
-        emit Unstaked(msg.sender, amount);
+        emit Unstaked(msg.sender, amount, newUnits);
     }
 
-    // ─── Epoch Distribution ───────────────────────────────────────────────────
+    // ─── USDC Streaming (Superfluid GDA) ─────────────────────────────────────
 
     /**
-     * @notice Owner distributes a week's fee pool to all stakers.
-     *         Call once per epoch after sending USDC + SUWP to this contract.
-     *         Rewards are calculated pro-rata by stake at the time of distribution.
+     * @notice Fund the epoch's USDC stream. Wraps USDC → USDCx, sets flowRate on pool.
+     *         Call once per epoch (weekly). USDC must be approved to this contract first.
      *
-     * @dev For gas efficiency with many stakers, rewards are stored as claimable
-     *      balances rather than pushed. Alternatively, use a reward-per-token
-     *      accumulator pattern (Synthetix style) for >10k stakers.
-     *
-     * @param stakers      Array of all staker addresses (fetch from DB)
-     * @param usdcPool     Total USDC to distribute this epoch (already in contract)
-     * @param suwpBonus    Total bonus SUWP to distribute (already in contract)
+     * @param usdcAmount       Total USDC to stream this epoch (6 decimals)
+     * @param durationSeconds  Stream duration (typically 7 days = 604800)
      */
-    function distributeEpoch(
-        address[] calldata stakers,
-        uint256 usdcPool,
-        uint256 suwpBonus
-    ) external onlyOwner nonReentrant {
+    function fundStream(uint256 usdcAmount, uint256 durationSeconds)
+        external
+        onlyOwner
+        nonReentrant
+    {
+        require(usdcAmount > 0, "Amount must be > 0");
+        require(durationSeconds > 0, "Duration must be > 0");
         require(totalStaked > 0, "No stakers");
-        require(stakers.length > 0, "Empty stakers list");
-        require(block.number > lastEpochBlock, "Already distributed this block");
-        lastEpochBlock = block.number;
+        require(block.number > lastEpochBlock, "Already funded this block");
 
+        lastEpochBlock = block.number;
         currentEpoch++;
+
+        // Pull USDC from caller
+        usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
+
+        // Wrap USDC → USDCx (18-decimal super token from 6-decimal USDC)
+        uint256 usdcxAmount = usdcAmount * 1e12; // scale 6→18 decimals
+        usdcx.upgrade(usdcAmount);               // wraps using pre-approved allowance
+
+        // Calculate flowRate: USDCx per second (18 decimals)
+        int96 flowRate = int96(int256(usdcxAmount / durationSeconds));
+        require(flowRate > 0, "Flow rate too small");
+
+        // Set the pool flowRate via GDA — replaces any previous rate
+        gda.distributeFlow(usdcx, address(this), pool, flowRate, "");
+
         epochs[currentEpoch] = EpochInfo({
             totalStakedSnapshot: totalStaked,
-            usdcPool: usdcPool,
-            suwpBonusPool: suwpBonus,
+            suwpBonusPool: 0,
+            usdcStreamed: usdcAmount,
+            flowRate: flowRate,
             timestamp: block.timestamp
         });
 
-        // Distribute pro-rata to each staker's claimable balance
+        emit StreamFunded(currentEpoch, usdcAmount, flowRate, durationSeconds);
+    }
+
+    /**
+     * @notice Distribute weekly SUWP bonus to stakers (batch, same as before).
+     *         SUWP must already be in this contract.
+     */
+    function distributeSuwpBonus(
+        address[] calldata stakers,
+        uint256 suwpBonus
+    ) external onlyOwner nonReentrant {
+        require(stakers.length > 0, "Empty stakers list");
+        require(totalStaked > 0, "No stakers");
+
+        epochs[currentEpoch].suwpBonusPool = suwpBonus;
+
         for (uint256 i = 0; i < stakers.length; i++) {
             address staker = stakers[i];
             uint256 stake = stakedBalance[staker];
             if (stake == 0) continue;
-
-            uint256 usdcShare = (usdcPool * stake) / totalStaked;
-            uint256 suwpShare = (suwpBonus * stake) / totalStaked;
-
-            claimableUsdc[staker] += usdcShare;
-            claimableSuwpBonus[staker] += suwpShare;
+            uint256 share = (suwpBonus * stake) / totalStaked;
+            claimableSuwpBonus[staker] += share;
         }
 
-        emit EpochDistributed(currentEpoch, usdcPool, suwpBonus, totalStaked);
+        emit SuwpBonusDistributed(currentEpoch, suwpBonus, totalStaked);
     }
 
     // ─── Claiming ─────────────────────────────────────────────────────────────
 
-    function claimRewards() external nonReentrant {
-        uint256 usdcAmount = claimableUsdc[msg.sender];
-        uint256 suwpAmount = claimableSuwpBonus[msg.sender];
-        require(usdcAmount > 0 || suwpAmount > 0, "Nothing to claim");
-
-        claimableUsdc[msg.sender] = 0;
+    /**
+     * @notice Claim pending SUWP bonus rewards.
+     *         USDCx streams directly from pool — claim via Superfluid SDK / pool.claimAll().
+     */
+    function claimSuwpBonus() external nonReentrant {
+        uint256 amount = claimableSuwpBonus[msg.sender];
+        require(amount > 0, "No SUWP bonus to claim");
         claimableSuwpBonus[msg.sender] = 0;
-
-        if (usdcAmount > 0) usdc.safeTransfer(msg.sender, usdcAmount);
-        if (suwpAmount > 0) suwp.safeTransfer(msg.sender, suwpAmount);
-
-        emit RewardsClaimed(msg.sender, usdcAmount, suwpAmount);
+        suwp.safeTransfer(msg.sender, amount);
+        emit SuwpBonusClaimed(msg.sender, amount);
     }
 
     // ─── View ─────────────────────────────────────────────────────────────────
 
+    /**
+     * @notice Get staker info including real-time USDCx claimable from pool.
+     */
     function getStakerInfo(address user) external view returns (
         uint256 staked,
-        uint256 pendingUsdc,
-        uint256 pendingSuwp,
-        uint256 poolShareBps  // basis points (10000 = 100%)
+        uint128 poolUnits,
+        int256  claimableUsdcx,   // accrued USDCx (18 decimals) — claimable now
+        int96   streamRatePerSec, // user's share of current flowRate
+        uint256 pendingSuwpBonus,
+        uint256 poolShareBps      // basis points (10000 = 100%)
     ) {
         staked = stakedBalance[user];
-        pendingUsdc = claimableUsdc[user];
-        pendingSuwp = claimableSuwpBonus[user];
+        poolUnits = pool.getMemberUnits(user);
+        (claimableUsdcx,) = pool.getClaimableNow(user);
+        streamRatePerSec = pool.getMemberFlowRate(user);
+        pendingSuwpBonus = claimableSuwpBonus[user];
         poolShareBps = totalStaked > 0 ? (staked * 10000) / totalStaked : 0;
     }
 
-    // ─── Admin ────────────────────────────────────────────────────────────────
-
-    // Vault yield tracking
-    uint256 public vaultYieldPool;
-
-    event VaultYieldDeposited(uint256 amount, uint256 totalPool);
-
     /**
-     * @notice Owner deposits Aave vault yield for stakers.
-     *         Transfer USDC to this contract first, then call this function.
-     *         Include vaultYieldPool in the next distributeEpoch's usdcPool param.
+     * @notice Current GDA flowRate from protocol to pool (USDCx/second, 18 decimals).
      */
+    function getPoolFlowRate() external view returns (int96) {
+        return gda.getFlowRate(usdcx, address(this), pool);
+    }
+
+    // ─── Vault yield ──────────────────────────────────────────────────────────
+
     function depositVaultYield(uint256 usdcAmount) external onlyOwner nonReentrant {
         require(usdcAmount > 0, "Amount must be > 0");
         vaultYieldPool += usdcAmount;
@@ -181,13 +322,26 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
         return vaultYieldPool;
     }
 
+    // ─── Admin ────────────────────────────────────────────────────────────────
+
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
 
-    // Recover accidentally sent tokens (not SUWP staking principal)
     function recoverToken(address token, uint256 amount) external onlyOwner nonReentrant {
-        require(token != address(suwp) || amount <= (IERC20(token).balanceOf(address(this)) - totalStaked),
-            "Cannot recover staked SUWP");
+        require(
+            token != address(suwp) || amount <= IERC20(token).balanceOf(address(this)) - totalStaked,
+            "Cannot recover staked SUWP"
+        );
         IERC20(token).safeTransfer(owner(), amount);
+    }
+
+    // ─── Internal ─────────────────────────────────────────────────────────────
+
+    /**
+     * @dev Convert SUWP stake (18 decimals) to pool units (uint128).
+     *      Scale down by 1e9 to fit uint128 — supports up to ~340B SUWP staked.
+     */
+    function _toUnits(uint256 suwpAmount) internal pure returns (uint128) {
+        return uint128(suwpAmount / 1e9);
     }
 }
