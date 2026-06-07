@@ -214,11 +214,11 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
         require(durationSeconds > 0, "Duration must be > 0");
         require(totalStaked > 0, "No stakers");
         require(block.number > lastEpochBlock, "Already funded this block");
-        // Don't stack epochs: the prior stream must have ended (rate back to 0).
-        require(
-            gda.getFlowDistributionFlowRate(usdcx, address(this), pool) == 0,
-            "Previous stream still active"
-        );
+        // NOTE: GDA distributeFlow sets an ABSOLUTE, continuous rate — it never
+        // auto-stops when durationSeconds elapses, and a new call REPLACES the old
+        // rate (flows don't stack). So we deliberately do NOT require the prior rate
+        // to be zero; the new rate below streams from the contract's full USDCx
+        // balance (residual from the prior epoch + the newly upgraded amount).
 
         lastEpochBlock = block.number;
         currentEpoch++;

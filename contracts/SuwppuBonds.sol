@@ -334,7 +334,12 @@ contract SuwppuBonds is Ownable, ReentrancyGuard, Pausable {
             "Wrong pool"
         );
 
-        (uint160 sqrtPriceX96,,,,,,) = suwpUsdcPool.slot0();
+        // Decompose the LP at the 30-min TWAP price, NOT spot (slot0). Using spot
+        // here would let an attacker flash-manipulate the pool to shift the LP
+        // composition toward the side valued favourably — overminting SUWP. The
+        // TWAP tick is the same source used to price SUWP, keeping both consistent.
+        int24 twapTick = OracleLibrary.consult(address(suwpUsdcPool), TWAP_PERIOD);
+        uint160 sqrtPriceX96 = TickMath.getSqrtRatioAtTick(twapTick);
         (uint256 amount0, uint256 amount1) = LiquidityAmounts.getAmountsForLiquidity(
             sqrtPriceX96,
             TickMath.getSqrtRatioAtTick(tickLower),
