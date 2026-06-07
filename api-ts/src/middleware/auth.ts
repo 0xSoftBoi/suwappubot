@@ -1,12 +1,14 @@
 import crypto from 'crypto'
 import { Effect, Either, Option } from 'effect'
 import type { Context, Next } from 'hono'
+import { getConnInfo } from 'hono/bun'
 import { HTTPException } from 'hono/http-exception'
 import { inArray } from 'drizzle-orm'
 import { requireDb } from '../db/DrizzleService'
 import { agents } from '../db/schema'
 import { runEffect, runEffectEither } from '../runtime'
 import { AgentService } from '../services'
+import { resolveClientIp } from './ipRateLimit'
 
 // Batch agent activity updates: collect IDs and flush every 60s
 const pendingActivityUpdates = new Set<number>()
@@ -56,8 +58,18 @@ const adminAuthFailures = new Map<string, AdminAuthFailureEntry>()
 let lastAdminAuthCleanup = Date.now()
 
 function adminAuthClientIp(c: Context): string {
+	// Use the spoof-resistant client IP (trusted-proxy hops counted from the
+	// right), same as ipRateLimit. Keying the lockout on the left-most
+	// x-forwarded-for entry let an attacker rotate that entry to evade the
+	// per-IP brute-force lockout entirely.
 	const forwarded = c.req.header('x-forwarded-for')
-	return forwarded?.split(',')[0]?.trim() || 'unknown'
+	let socketIp: string | undefined
+	try {
+		socketIp = getConnInfo(c).remote.address
+	} catch {
+		socketIp = undefined
+	}
+	return resolveClientIp(forwarded, socketIp)
 }
 
 function cleanupAdminAuthFailures(now: number) {
