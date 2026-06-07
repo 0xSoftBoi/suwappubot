@@ -33,7 +33,7 @@ predictRoutes.get('/markets', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({ markets: result.right })
@@ -53,7 +53,7 @@ predictRoutes.get('/events', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({ events: result.right })
@@ -72,7 +72,7 @@ predictRoutes.get('/market/:id', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)
@@ -108,7 +108,7 @@ predictRoutes.get('/market/:id/book', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)
@@ -144,7 +144,7 @@ predictRoutes.get('/market/:id/price', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)
@@ -184,7 +184,7 @@ predictRoutes.get('/market/:id/trades', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)
@@ -316,7 +316,7 @@ predictRoutes.post('/order', agentBearerAuth(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({ order: result.right })
@@ -352,7 +352,7 @@ predictRoutes.delete('/order/:id', agentBearerAuth(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)
@@ -413,7 +413,7 @@ predictRoutes.get('/positions', agentBearerAuth(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({ positions: result.right })
@@ -449,7 +449,7 @@ predictRoutes.get('/orders', agentBearerAuth(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status: errStatus, body } = mapErrorToResponse(result.left)
-		return c.json(body, errStatus as 200)
+		return c.json(body, errStatus)
 	}
 
 	return c.json({ orders: result.right })
