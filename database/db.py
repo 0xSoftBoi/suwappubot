@@ -147,6 +147,8 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         from bot.models.tracking import TrackedWallet
         # Prediction market models
         from bot.models.predict import PredictionOrder, PredictionPosition
+        # Token staking models
+        from bot.models.token_staking import TokenClaim, StakingPosition, DistributionEpoch, EpochReward
 
         # Reconcile a cross-ORM table collision before create_all (which only creates
         # MISSING tables, never fixes an existing one): api-ts (Drizzle) historically created
@@ -340,6 +342,9 @@ def _ensure_schema(db_engine) -> None:
             conn.execute(text("ALTER TABLE registered_agents RENAME TO agents"))
             logger.info("Renamed registered_agents -> agents")
 
+    # --- staking tables: token_claims, staking_positions, distribution_epochs, epoch_rewards ---
+    _add_staking_tables(db_engine, inspector, is_sqlite)
+
     # --- performance indexes ---
     _add_performance_indexes(db_engine, inspector, is_sqlite)
 
@@ -373,6 +378,19 @@ def _add_agent_drizzle_columns(db_engine, inspector, table_name: str, is_sqlite:
             f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{table_name}_uuid "
             f"ON {table_name}(uuid)"
         ))
+
+
+def _add_staking_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create SUWP staking tables (token_claims, staking_positions, distribution_epochs, epoch_rewards) idempotently."""
+    try:
+        from bot.models.token_staking import TokenClaim, StakingPosition, DistributionEpoch, EpochReward
+
+        for model in (TokenClaim, StakingPosition, DistributionEpoch, EpochReward):
+            if not inspector.has_table(model.__tablename__):
+                model.__table__.create(bind=db_engine)
+                logger.info(f"Created {model.__tablename__} table")
+    except Exception as e:
+        logger.warning(f"Failed to create staking tables: {e}")
 
 
 def _add_performance_indexes(db_engine, inspector, is_sqlite: bool) -> None:

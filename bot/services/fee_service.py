@@ -65,6 +65,10 @@ class FeeCalculation:
     fee_amount_token: Optional[Decimal] = None
     token_symbol: Optional[str] = None
     
+    # Staking pool split (20/80)
+    staking_allocation_usd: float = 0.0   # 20% of fee_amount_usd
+    protocol_allocation_usd: float = 0.0  # 80% of fee_amount_usd
+
     # Referral info
     referrer_id: Optional[int] = None
     has_referrer: bool = False
@@ -126,12 +130,18 @@ class FeeService:
         # Net fee (what we keep)
         net_fee = fee_amount - referral_reward
 
+        # 20/80 split: staking pool vs protocol treasury
+        staking_allocation_usd = float(fee_amount) * 0.20
+        protocol_allocation_usd = float(fee_amount) * 0.80
+
         return FeeCalculation(
             swap_amount_usd=amount,
             fee_amount_usd=fee_amount,
             fee_percentage=fee_percentage_display,
             referral_reward_usd=referral_reward,
             net_fee_usd=net_fee,
+            staking_allocation_usd=staking_allocation_usd,
+            protocol_allocation_usd=protocol_allocation_usd,
             referrer_id=referrer_id,
             has_referrer=has_referrer,
         )
@@ -278,6 +288,10 @@ class FeeService:
                 chain=chain,
                 collected=False,
                 created_at=datetime.now(timezone.utc),
+                # TODO(staking): add staking_allocation_usd and protocol_allocation_usd
+                # columns to FeeTransaction to persist the 20/80 split per-record.
+                # The split is already computed on FeeCalculation.staking_allocation_usd /
+                # FeeCalculation.protocol_allocation_usd for in-process consumers.
             )
             session.add(fee_tx)
             session.flush()

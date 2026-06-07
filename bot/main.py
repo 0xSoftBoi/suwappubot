@@ -85,6 +85,12 @@ from bot.handlers.snipe import snipe_conversation_handler
 from bot.handlers.predict import predict_conversation_handler
 from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
 from bot.handlers.dashboard import dashboard_handler, dashboard_menu_callback
+from bot.handlers.token import (
+    token_conv_handler,
+    token_menu_callback_handler,
+    token_unstake_callback_handler,
+    token_claim_rewards_callback_handler,
+)
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
@@ -198,6 +204,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(snipe_conversation_handler)  # Token sniping /snipe
     application.add_handler(perps_conversation_handler)  # Perps trading /perps
     application.add_handler(predict_conversation_handler)  # Prediction markets /predict
+    application.add_handler(token_conv_handler)           # SUWP token /token /suwp
 
     # ============ CALLBACK QUERY HANDLERS ============
     
@@ -312,6 +319,11 @@ def add_handlers(application: Application) -> None:
     # Perps Trading callbacks
     application.add_handler(perps_menu_callback_handler)
 
+    # SUWP token staking callbacks
+    application.add_handler(token_menu_callback_handler)
+    application.add_handler(token_unstake_callback_handler)
+    application.add_handler(token_claim_rewards_callback_handler)
+
     # Copy Trading callbacks
     application.add_handler(copy_menu_callback_handler)
     application.add_handler(traders_callback_handler)
@@ -368,6 +380,8 @@ async def post_init(application) -> None:
             BotCommand("traders", "Copy trading"),
             BotCommand("perps", "Perpetual trading"),
             BotCommand("predict", "Prediction markets"),
+            BotCommand("token", "SUWP token & staking"),
+            BotCommand("suwp", "SUWP token & staking"),
             BotCommand("following", "Copy trading follows"),
             BotCommand("profile", "Your trader profile"),
             BotCommand("c", "Custodial wallet"),

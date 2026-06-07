@@ -18,6 +18,7 @@ import {
 	perpsRoutes,
 	predictRoutes,
 	publicSwapRoutes,
+	stakingRoutes,
 	swapRoutes,
 	webappRoutes,
 } from './routes'
@@ -67,6 +68,9 @@ export function createApp(config: AppConfig) {
 
 	// Webapp routes - Telegram auth
 	app.route('/webapp', webappRoutes)
+
+	// Staking routes - SUWP token staking dashboard
+	app.route('/staking', stakingRoutes)
 
 	// Billing routes - Stripe subscription management
 	app.route('/billing', billingRoutes)
