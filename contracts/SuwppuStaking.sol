@@ -40,6 +40,7 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
 
     // Epoch tracking
     uint256 public currentEpoch;
+    uint256 public lastEpochBlock;  // prevent same-block double distribution
     mapping(uint256 => EpochInfo) public epochs;
 
     struct EpochInfo {
@@ -101,6 +102,8 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
     ) external onlyOwner nonReentrant {
         require(totalStaked > 0, "No stakers");
         require(stakers.length > 0, "Empty stakers list");
+        require(block.number > lastEpochBlock, "Already distributed this block");
+        lastEpochBlock = block.number;
 
         currentEpoch++;
         epochs[currentEpoch] = EpochInfo({
@@ -168,7 +171,7 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
      *         Transfer USDC to this contract first, then call this function.
      *         Include vaultYieldPool in the next distributeEpoch's usdcPool param.
      */
-    function depositVaultYield(uint256 usdcAmount) external onlyOwner {
+    function depositVaultYield(uint256 usdcAmount) external onlyOwner nonReentrant {
         require(usdcAmount > 0, "Amount must be > 0");
         vaultYieldPool += usdcAmount;
         emit VaultYieldDeposited(usdcAmount, vaultYieldPool);
@@ -182,7 +185,7 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
     function unpause() external onlyOwner { _unpause(); }
 
     // Recover accidentally sent tokens (not SUWP staking principal)
-    function recoverToken(address token, uint256 amount) external onlyOwner {
+    function recoverToken(address token, uint256 amount) external onlyOwner nonReentrant {
         require(token != address(suwp) || amount <= (IERC20(token).balanceOf(address(this)) - totalStaked),
             "Cannot recover staked SUWP");
         IERC20(token).safeTransfer(owner(), amount);

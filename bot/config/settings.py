@@ -427,6 +427,8 @@ class Settings(BaseSettings):
         default=False,
         description="Enable actual on-chain Aave v3 interactions (false = mock/safe mode)"
     )
+    vault_type: str = Field(default="aave", description="Vault backend: 'aave' or 'morpho'")
+    morpho_vault_address: Optional[str] = Field(default=None, description="Morpho MetaMorpho vault address (ERC-4626)")
     treasury_vault_hot_wallet_name: str = Field(
         default="treasury_vault",
         description="Name of the HotWallet DB record used to sign vault transactions"

@@ -39,6 +39,48 @@ forge create contracts/SuwppuStaking.sol:SuwppuStaking \
   --verify
 ```
 
+## SuwpOFT — Omnichain Token
+
+Replace `SUWP.sol` with `SuwpOFT.sol` for cross-chain deployment.
+
+### LayerZero V2 Endpoints
+| Chain | Endpoint |
+|-------|----------|
+| Base mainnet | `0x1a44076050125825900e736c501f859c50fE728c` |
+| Arbitrum One | `0x1a44076050125825900e736c501f859c50fE728c` |
+| Polygon | `0x1a44076050125825900e736c501f859c50fE728c` |
+| Base Sepolia (testnet) | `0x6EDCE65403992e310A62460808c4b910D972f10f` |
+| Arbitrum Sepolia (testnet) | `0x6EDCE65403992e310A62460808c4b910D972f10f` |
+
+### DVN Security Configuration (REQUIRED)
+After deployment, configure ≥2 DVNs to prevent single-point bridge failures:
+```
+LZ DVN: 0x589dEDbD617e0CBcB916A9223F4d1300c294236b (Base mainnet)
+Google Cloud DVN: 0xD56e4eAb23cb81f43168F9F45211Eb027b9aC7cc (Base mainnet)
+```
+Set enforced options via `setEnforcedOptions()` with both DVNs required.
+
+### Deploy sequence
+```bash
+# 1. Deploy on Base (canonical — minting happens here)
+LZ_ENDPOINT=0x1a44076050125825900e736c501f859c50fE728c \
+ADMIN=<multisig> \
+forge script contracts/deploy/DeploySuwpOFT.s.sol --rpc-url base --broadcast --verify
+
+# 2. Deploy on Arbitrum
+LZ_ENDPOINT=0x1a44076050125825900e736c501f859c50fE728c \
+ADMIN=<multisig> \
+forge script contracts/deploy/DeploySuwpOFT.s.sol --rpc-url arbitrum --broadcast --verify
+
+# 3. Wire peers (setPeer on each contract pointing to the other chains)
+# Use LayerZero's wire-all script or OFT Scan dashboard
+```
+
+## Running Tests
+```bash
+forge test --match-contract SuwppuStakingTest -vv
+```
+
 ## Weekly Distribution Flow
 
 1. Fee sweeper collects 20% of weekly fees as USDC
