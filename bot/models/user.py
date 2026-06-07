@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, Float
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, ForeignKey, Text, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database.db import Base
@@ -7,9 +7,10 @@ from database.db import Base
 class User(Base):
     """Telegram user model."""
     __tablename__ = "users"
-    
+
     id = Column(Integer, primary_key=True)
-    telegram_id = Column(Integer, unique=True, nullable=True, index=True)
+    # Telegram user IDs routinely exceed 2^31 (INT4 max) as of 2024-2026; must be BIGINT.
+    telegram_id = Column(BigInteger, unique=True, nullable=True, index=True)
     whatsapp_id = Column(String(255), unique=True, nullable=True, index=True)
     discord_id = Column(String(100), unique=True, nullable=True, index=True)
     discord_username = Column(String(255), nullable=True)

@@ -324,14 +324,35 @@ _ERROR_PATTERNS: list[tuple[re.Pattern, str]] = [
 ]
 
 
+# Stringified SQLAlchemy / psycopg2 exceptions embed the full failing SQL
+# statement (including column names like `default_slippage`), so substring
+# patterns like /slippage/ will spuriously match and a DB failure will be
+# reported to users as a swap-slippage error. Any message containing one of
+# these markers is almost certainly a DB/ORM error, not a swap error.
+_DB_ERROR_MARKERS = (
+    "[sql:",
+    "psycopg2.",
+    "sqlalchemy.exc",
+    "integrityerror",
+    "operationalerror",
+    "dataerror",
+    "programmingerror",
+    "numericvalueoutofrange",
+)
+
+
 def detect_error_code(error_message: str) -> str:
     """Try to detect error code from error message string.
 
-    Checks exception's error_code attribute first (if present), then falls
-    back to pattern matching on the message text.
+    Falls back to pattern matching on the message text. DB/ORM errors
+    short-circuit to UNKNOWN_ERROR so that SQL text (column names,
+    parameter dicts) isn't misclassified as a swap-specific error.
     """
-    # Database/schema errors should never match swap-specific codes
     error_lower = error_message.lower()
+
+    # DB/ORM errors — their stringified form embeds SQL text.
+    if any(marker in error_lower for marker in _DB_ERROR_MARKERS):
+        return "UNKNOWN_ERROR"
     if "column" in error_lower and ("does not exist" in error_lower or "no such column" in error_lower):
         return "UNKNOWN_ERROR"
 
@@ -348,6 +369,13 @@ def detect_error_code_from_exception(exception: Exception) -> str:
     error_code = getattr(exception, "error_code", None)
     if error_code and error_code in ERROR_MESSAGES:
         return error_code
+
+    # DB/ORM exceptions are classified by module rather than by message text,
+    # since their stringified form embeds SQL and can match swap patterns
+    # spuriously (e.g. column name 'default_slippage' matching /slippage/).
+    module = (type(exception).__module__ or "").lower()
+    if module.startswith(("psycopg2", "sqlalchemy", "asyncpg", "aiosqlite")):
+        return "UNKNOWN_ERROR"
 
     return detect_error_code(str(exception))
 
