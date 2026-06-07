@@ -54,6 +54,10 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
             if "sslmode=" not in database_url:
                 connect_args["sslmode"] = "require"
             connect_args["connect_timeout"] = 10
+            # Cap runaway queries at 30 seconds to prevent pool starvation
+            connect_args["options"] = (
+                connect_args.get("options", "") + " -c statement_timeout=30000"
+            ).strip()
     
     # Retry logic for transient connection failures
     last_error = None
@@ -376,6 +380,13 @@ def _add_performance_indexes(db_engine, inspector, is_sqlite: bool) -> None:
         ("ix_swap_transactions_user_created", "swap_transactions", "user_id, created_at DESC"),
         ("ix_swap_transactions_status", "swap_transactions", "status"),
         ("ix_agents_is_active", "agents", "is_active"),
+        # Added by audit — pollers and services do full-table scans without these
+        ("ix_swap_transactions_tx_hash", "swap_transactions", "tx_hash"),
+        ("ix_wallets_user_id_id", "wallets", "user_id, id"),
+        ("ix_referral_rewards_referral_id", "referral_rewards", "referral_id"),
+        ("ix_limit_orders_user_id_status", "limit_orders", "user_id, status"),
+        ("ix_dca_orders_status_next", "dca_orders", "status, next_execution_at"),
+        ("ix_advanced_price_alerts_active", "advanced_price_alerts", "is_active, is_triggered"),
     ]
     for idx_name, table, columns in indexes:
         try:

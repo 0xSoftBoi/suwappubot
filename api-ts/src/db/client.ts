@@ -8,6 +8,7 @@ export function createDbClient(databaseUrl: string) {
 		idle_timeout: 60,
 		connect_timeout: 10,
 		ssl: 'require',
+		connection: { statement_timeout: 30000 },
 	})
 
 	return drizzle(queryClient, { schema })

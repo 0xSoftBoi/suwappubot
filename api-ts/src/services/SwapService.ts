@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq, notInArray } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { logger } from '../lib/logger'
 import {
@@ -416,6 +416,26 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 			const db = yield* requireDb.pipe(
 				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
+
+			// Idempotency: if a non-terminal record with this key already exists, return it
+			if (swap.idempotencyKey) {
+				const existing = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.select()
+							.from(swapTransactions)
+							.where(
+								and(
+									eq(swapTransactions.idempotencyKey, swap.idempotencyKey!),
+									notInArray(swapTransactions.status, ['failed', 'cancelled']),
+								),
+							)
+							.limit(1),
+					catch: (e) =>
+						new DatabaseError({ message: `Idempotency check failed: ${e}`, cause: e }),
+				})
+				if (existing.length > 0) return existing[0]
+			}
 
 			const result = yield* Effect.tryPromise({
 				try: () => db.insert(swapTransactions).values(swap).returning(),
