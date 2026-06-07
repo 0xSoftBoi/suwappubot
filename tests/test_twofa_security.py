@@ -78,13 +78,23 @@ def test_legacy_plaintext_secret_is_healed_on_read(sqlite_db):
 
 def test_corrupted_secret_is_not_healed_on_read(sqlite_db):
     # A value that fails to decrypt AND is not valid legacy base32 is corruption,
-    # not plaintext: it must raise rather than be re-encrypted (which would
-    # overwrite an unrecoverable secret with garbage).
+    # not plaintext: fail closed (return None) and leave it untouched rather than
+    # re-encrypt garbage over an unrecoverable secret.
     corrupt = "!!!not-base32-and-not-fernet!!!"
     user = _FakeUser(corrupt)
-    with pytest.raises(ValueError):
-        twofa_service._read_secret(user)
+    assert twofa_service._read_secret(user) is None
     assert user.totp_secret == corrupt, "corrupted value must be left untouched"
+
+
+def test_unpadded_legacy_secret_is_healed(sqlite_db):
+    # A genuine legacy plaintext secret whose length isn't a multiple of 8 (so it
+    # has no base32 padding) must still be recognized and healed, not rejected —
+    # otherwise the user is locked out of their own 2FA.
+    unpadded = "JBSWY3DPEHPK3PX"  # 15 chars, valid base32 once padded
+    assert twofa_service._is_legacy_plaintext_secret(unpadded) is True
+    user = _FakeUser(unpadded)
+    assert twofa_service._read_secret(user) == unpadded
+    assert user.totp_secret != unpadded, "unpadded legacy secret should be re-encrypted"
 
 
 # --- Threshold persistence + enforcement ----------------------------------

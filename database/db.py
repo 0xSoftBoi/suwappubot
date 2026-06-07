@@ -438,7 +438,10 @@ def _encrypt_plaintext_totp_secrets(db_engine, is_sqlite: bool) -> None:
         if not isinstance(value, str) or not re.fullmatch(r"[A-Z2-7]+=*", value):
             return False
         try:
-            base64.b32decode(value, casefold=False)
+            # Pad to an 8-char boundary first: a genuine secret may be stored
+            # unpadded, and b32decode rejects unpadded input.
+            padded = value + "=" * (-len(value) % 8)
+            base64.b32decode(padded, casefold=False)
         except Exception:
             return False
         return True

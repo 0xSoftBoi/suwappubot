@@ -59,7 +59,11 @@ class TwoFactorService:
         if not value or not re.fullmatch(r"[A-Z2-7]+=*", value):
             return False
         try:
-            base64.b32decode(value, casefold=False)
+            # Normalize padding to an 8-char boundary before decoding: a genuine
+            # secret may have been stored unpadded (b32decode rejects unpadded
+            # input), and rejecting it here would lock the user out of their 2FA.
+            padded = value + "=" * (-len(value) % 8)
+            base64.b32decode(padded, casefold=False)
             pyotp.TOTP(value)
         except Exception:
             return False
@@ -76,24 +80,25 @@ class TwoFactorService:
 
         Only values that actually look like a legacy base32 TOTP secret are
         healed; a decrypt failure on anything else is treated as corruption and
-        raised, so we never overwrite an unrecoverable secret with garbage.
+        the secret is left untouched. We return ``None`` (fail closed) rather
+        than raise, so a corrupted row makes 2FA verification fail safely
+        instead of surfacing a 500 — callers already treat ``None`` as "no
+        usable secret".
         """
         stored = user.totp_secret
         if not stored:
             return None
         try:
             return decrypt_private_key(stored, settings.encryption_key)
-        except Exception as decrypt_error:
+        except Exception:
             if not self._is_legacy_plaintext_secret(stored):
                 logger.error(
                     "TOTP secret for user %s failed to decrypt and is not valid "
-                    "legacy base32; refusing to heal (manual recovery needed).",
+                    "legacy base32; leaving it untouched and failing closed "
+                    "(manual recovery needed).",
                     getattr(user, "id", "?"),
                 )
-                raise ValueError(
-                    "Stored TOTP secret is corrupted (decrypt failed and value "
-                    "is not a valid legacy secret)."
-                ) from decrypt_error
+                return None
             # Genuine legacy plaintext secret — re-encrypt in place.
             user.totp_secret = self.encrypt_secret(stored)
             return stored
