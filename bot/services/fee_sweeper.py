@@ -93,7 +93,22 @@ class FeeSweeper:
         if failed:
             for f in failed:
                 logger.warning(f"Sweep failed for {f['chain']}/{f['token']}: {f['message']}")
-        
+
+        # Trigger vault deposit for protocol's 60% share if AAVE_ENABLED and threshold met
+        try:
+            from bot.config.settings import settings
+            if getattr(settings, "aave_enabled", False) and successful:
+                from decimal import Decimal
+                from bot.services.treasury_vault_service import treasury_vault_service
+                total_swept = Decimal(str(sum(r.get("amount_usd", r.get("amount", 0)) for r in successful)))
+                protocol_portion = (total_swept * Decimal("0.60"))
+                min_deposit = Decimal(str(getattr(settings, "vault_min_deposit_usdc", 50.0)))
+                if protocol_portion >= min_deposit:
+                    tx = treasury_vault_service.deposit_to_vault(protocol_portion)
+                    logger.info("Vault deposit %.2f USDC → Aave v3 Base tx=%s", protocol_portion, tx)
+        except Exception as vault_err:
+            logger.warning("Vault deposit trigger skipped (non-fatal): %s", vault_err)
+
         self._last_sweep = datetime.now(timezone.utc)
     
     async def sweep_now(self):

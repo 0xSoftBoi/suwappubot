@@ -421,7 +421,25 @@ class Settings(BaseSettings):
     referral_reward_percentage: float = Field(default=30, description="Referral reward percentage (30% of fees)")
     fee_collector_address: Optional[str] = Field(default=None, description="EVM address for fee collection")
     fee_collector_solana: Optional[str] = Field(default=None, description="Solana address for fee collection")
-    
+
+    # Treasury Vault (Aave v3 on Base)
+    aave_enabled: bool = Field(
+        default=False,
+        description="Enable actual on-chain Aave v3 interactions (false = mock/safe mode)"
+    )
+    treasury_vault_hot_wallet_name: str = Field(
+        default="treasury_vault",
+        description="Name of the HotWallet DB record used to sign vault transactions"
+    )
+    vault_min_deposit_usdc: float = Field(
+        default=50.0,
+        description="Minimum USDC to trigger an automatic vault deposit"
+    )
+    distribution_wallet_address: Optional[str] = Field(
+        default=None,
+        description="Address to receive yield withdrawals for distribution"
+    )
+
     model_config = ConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
-import { distributionEpochs, epochRewards, requireDb, stakingPositions, tokenClaims } from '../db'
+import { distributionEpochs, epochRewards, requireDb, stakingPositions, tokenClaims, treasuryPositions } from '../db'
 import { mapErrorToResponse } from '../errors'
 import { telegramAuth } from '../middleware'
 import { runEffectEither } from '../runtime'
@@ -138,6 +138,65 @@ stakingRoutes.get('/epochs', async (c) => {
 	return c.json(result.right)
 })
 
+// GET /staking/vault — Treasury vault stats
+stakingRoutes.get('/vault', async (c) => {
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+
+			const positions = yield* Effect.tryPromise({
+				try: () => db.select().from(treasuryPositions).limit(1),
+				catch: (e) => new Error(`DB error: ${e}`),
+			})
+			const pos = positions[0]
+
+			const recentEpochs = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							epochNumber: distributionEpochs.epochNumber,
+							directFeesUsdc: distributionEpochs.directFeesUsdc,
+							treasuryYieldUsdc: distributionEpochs.treasuryYieldUsdc,
+							totalStakerUsdc: distributionEpochs.totalStakerUsdc,
+							treasuryAumUsdc: distributionEpochs.treasuryAumUsdc,
+							periodEnd: distributionEpochs.periodEnd,
+						})
+						.from(distributionEpochs)
+						.where(eq(distributionEpochs.status, 'completed'))
+						.orderBy(desc(distributionEpochs.epochNumber))
+						.limit(4),
+				catch: (e) => new Error(`DB error: ${e}`),
+			})
+
+			const principal = parseFloat(pos?.principalUsdc ?? '0')
+			const balance = parseFloat(pos?.currentATokenBalance ?? '0')
+
+			return {
+				vault_name: pos?.vaultName ?? 'aave_v3_base_usdc',
+				chain: pos?.chain ?? 'base',
+				principal_usdc: principal,
+				current_balance_usdc: balance,
+				yield_earned_usdc: Math.max(balance - principal, 0),
+				total_yield_harvested_usdc: parseFloat(pos?.totalYieldHarvestedUsdc ?? '0'),
+				last_deposit_at: pos?.lastDepositAt ?? null,
+				last_harvest_at: pos?.lastHarvestAt ?? null,
+				recent_epoch_yields: recentEpochs.map((e) => ({
+					epoch: e.epochNumber,
+					direct_fees_usdc: parseFloat(e.directFeesUsdc ?? '0'),
+					vault_yield_usdc: parseFloat(e.treasuryYieldUsdc ?? '0'),
+					total_staker_usdc: parseFloat(e.totalStakerUsdc ?? '0'),
+					treasury_aum_usdc: parseFloat(e.treasuryAumUsdc ?? '0'),
+					period_end: e.periodEnd,
+				})),
+			}
+		}),
+	)
+	if (Either.isLeft(result)) {
+		return c.json({ vault_name: 'aave_v3_base_usdc', chain: 'base', error: 'unavailable' })
+	}
+	return c.json(result.right)
+})
+
 // GET /staking/apy — estimated APY based on recent epoch
 stakingRoutes.get('/apy', async (c) => {
 	const result = await runEffectEither(
@@ -162,7 +221,19 @@ stakingRoutes.get('/apy', async (c) => {
 			// Annualise: 52 weeks, expressed as % of staked value (assuming $1/SUWP for now)
 			const apyPct = totalStaked > 0 ? ((weeklyUsdc * 52) / totalStaked) * 100 : null
 
-			return { apy_estimate_pct: apyPct, weekly_usdc_pool: weeklyUsdc, total_staked: totalStaked }
+			// Compute breakdown from new epoch columns
+			const weeklyFees = parseFloat(latestEpoch.directFeesUsdc ?? latestEpoch.stakingPoolUsdc ?? '0')
+			const weeklyVault = parseFloat(latestEpoch.treasuryYieldUsdc ?? '0')
+			const feeApyPct = totalStaked > 0 ? ((weeklyFees * 52) / totalStaked) * 100 : null
+			const vaultApyPct = totalStaked > 0 ? ((weeklyVault * 52) / totalStaked) * 100 : null
+
+			return {
+				apy_estimate_pct: apyPct,
+				fee_apy_pct: feeApyPct,
+				vault_apy_pct: vaultApyPct,
+				weekly_usdc_pool: weeklyUsdc,
+				total_staked: totalStaked,
+			}
 		}),
 	)
 	if (Either.isLeft(result)) return c.json({ apy_estimate_pct: null })

@@ -158,6 +158,26 @@ contract SuwppuStaking is Ownable, ReentrancyGuard, Pausable {
 
     // ─── Admin ────────────────────────────────────────────────────────────────
 
+    // Vault yield tracking
+    uint256 public vaultYieldPool;
+
+    event VaultYieldDeposited(uint256 amount, uint256 totalPool);
+
+    /**
+     * @notice Owner deposits Aave vault yield for stakers.
+     *         Transfer USDC to this contract first, then call this function.
+     *         Include vaultYieldPool in the next distributeEpoch's usdcPool param.
+     */
+    function depositVaultYield(uint256 usdcAmount) external onlyOwner {
+        require(usdcAmount > 0, "Amount must be > 0");
+        vaultYieldPool += usdcAmount;
+        emit VaultYieldDeposited(usdcAmount, vaultYieldPool);
+    }
+
+    function getVaultYieldPool() external view returns (uint256) {
+        return vaultYieldPool;
+    }
+
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
 

@@ -50,6 +50,10 @@ export const distributionEpochs = pgTable('distribution_epochs', {
 	status: varchar('status', { length: 20 }).default('pending'),
 	createdAt: timestamp('created_at').defaultNow(),
 	distributedAt: timestamp('distributed_at'),
+	directFeesUsdc: numeric('direct_fees_usdc', { precision: 18, scale: 6 }),
+	treasuryYieldUsdc: numeric('treasury_yield_usdc', { precision: 18, scale: 6 }),
+	totalStakerUsdc: numeric('total_staker_usdc', { precision: 18, scale: 6 }),
+	treasuryAumUsdc: numeric('treasury_aum_usdc', { precision: 18, scale: 6 }),
 })
 
 export type DistributionEpoch = typeof distributionEpochs.$inferSelect
@@ -73,3 +77,19 @@ export const epochRewards = pgTable('epoch_rewards', {
 
 export type EpochReward = typeof epochRewards.$inferSelect
 export type NewEpochReward = typeof epochRewards.$inferInsert
+
+export const treasuryPositions = pgTable('treasury_positions', {
+	id: serial('id').primaryKey(),
+	vaultName: varchar('vault_name', { length: 50 }).default('aave_v3_base_usdc'),
+	chain: varchar('chain', { length: 20 }).default('base'),
+	principalUsdc: numeric('principal_usdc', { precision: 18, scale: 6 }).notNull().default('0'),
+	currentATokenBalance: numeric('current_a_token_balance', { precision: 18, scale: 6 }).notNull().default('0'),
+	totalYieldHarvestedUsdc: numeric('total_yield_harvested_usdc', { precision: 18, scale: 6 }).notNull().default('0'),
+	lastDepositAt: timestamp('last_deposit_at'),
+	lastHarvestAt: timestamp('last_harvest_at'),
+	createdAt: timestamp('created_at').defaultNow(),
+	updatedAt: timestamp('updated_at').defaultNow(),
+})
+
+export type TreasuryPosition = typeof treasuryPositions.$inferSelect
+export type NewTreasuryPosition = typeof treasuryPositions.$inferInsert

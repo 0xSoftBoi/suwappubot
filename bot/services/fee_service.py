@@ -130,9 +130,9 @@ class FeeService:
         # Net fee (what we keep)
         net_fee = fee_amount - referral_reward
 
-        # 20/80 split: staking pool vs protocol treasury
-        staking_allocation_usd = float(fee_amount) * 0.20
-        protocol_allocation_usd = float(fee_amount) * 0.80
+        # 40/60 split: staking pool vs protocol treasury
+        staking_allocation_usd = float(fee_amount) * 0.40
+        protocol_allocation_usd = float(fee_amount) * 0.60
 
         return FeeCalculation(
             swap_amount_usd=amount,

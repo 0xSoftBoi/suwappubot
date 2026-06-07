@@ -52,6 +52,10 @@ class DistributionEpoch(Base):
     total_suwp_staked = Column(Numeric(18, 6), nullable=False, default=0)   # snapshot
     suwp_emission = Column(Numeric(18, 6), nullable=False, default=10000)   # 10k SUWP/week bonus
     status = Column(String(20), default="pending")  # pending/processing/completed
+    direct_fees_usdc = Column(Numeric(18, 6), nullable=True)
+    treasury_yield_usdc = Column(Numeric(18, 6), nullable=True)
+    total_staker_usdc = Column(Numeric(18, 6), nullable=True)
+    treasury_aum_usdc = Column(Numeric(18, 6), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     distributed_at = Column(DateTime, nullable=True)
 
@@ -70,3 +74,18 @@ class EpochReward(Base):
     tx_hash = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     paid_at = Column(DateTime, nullable=True)
+
+
+class TreasuryPosition(Base):
+    """Aave v3 vault position tracking."""
+    __tablename__ = "treasury_positions"
+    id = Column(Integer, primary_key=True)
+    vault_name = Column(String(50), nullable=False, default="aave_v3_base_usdc")
+    chain = Column(String(20), nullable=False, default="base")
+    principal_usdc = Column(Numeric(18, 6), nullable=False, default=0)
+    current_a_token_balance = Column(Numeric(18, 6), nullable=False, default=0)
+    total_yield_harvested_usdc = Column(Numeric(18, 6), nullable=False, default=0)
+    last_deposit_at = Column(DateTime, nullable=True)
+    last_harvest_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -10,7 +10,7 @@ from bot.models.points import UserPoints
 logger = logging.getLogger(__name__)
 
 POINTS_PER_SUWP = 1000
-STAKING_FEE_SHARE = Decimal("0.20")
+STAKING_FEE_SHARE = Decimal("0.40")
 WEEKLY_SUWP_EMISSION = Decimal("10000")  # bonus SUWP distributed per epoch
 
 
@@ -126,6 +126,120 @@ class StakingService:
                 EpochReward.user_id == user_id,
                 EpochReward.status == "pending",
             ).all()
+
+    def create_distribution_epoch(self):
+        """Create a weekly DistributionEpoch: 40% fees direct + 100% vault yield → stakers."""
+        from decimal import ROUND_DOWN
+        from sqlalchemy import func
+        from bot.models.fees import FeeTransaction
+        from bot.services.treasury_vault_service import treasury_vault_service
+
+        now = datetime.now(timezone.utc)
+
+        with get_session() as session:
+            last_epoch = session.query(DistributionEpoch).order_by(
+                DistributionEpoch.epoch_number.desc()
+            ).first()
+
+            if last_epoch:
+                period_start = last_epoch.period_end
+                next_epoch_number = last_epoch.epoch_number + 1
+            else:
+                from datetime import datetime as dt
+                period_start = dt(2024, 1, 1, tzinfo=timezone.utc)
+                next_epoch_number = 1
+
+            period_end = now
+
+            total_row = session.query(
+                func.coalesce(func.sum(FeeTransaction.fee_amount_usd), 0).label("total")
+            ).filter(
+                FeeTransaction.collected == True,
+                FeeTransaction.created_at >= period_start,
+                FeeTransaction.created_at < period_end,
+            ).one()
+            total_fees_usd = Decimal(str(total_row.total))
+
+            direct_fees_usdc = (total_fees_usd * Decimal("0.40")).quantize(
+                Decimal("0.000001"), rounding=ROUND_DOWN
+            )
+            protocol_usdc = (total_fees_usd * Decimal("0.60")).quantize(
+                Decimal("0.000001"), rounding=ROUND_DOWN
+            )
+
+            # Harvest vault yield — returns 0 safely on any failure
+            vault_yield = treasury_vault_service.harvest_yield()
+            total_staker_usdc = direct_fees_usdc + vault_yield
+
+            staked_row = session.query(
+                func.coalesce(func.sum(StakingPosition.suwp_staked), 0).label("total")
+            ).filter(
+                StakingPosition.is_active == True,
+                StakingPosition.suwp_staked > 0,
+            ).one()
+            total_suwp_staked = Decimal(str(staked_row.total))
+
+            vault_stats = treasury_vault_service.get_vault_stats()
+            treasury_aum_usdc = Decimal(str(vault_stats.get("current_balance_usdc", 0)))
+
+            epoch = DistributionEpoch(
+                epoch_number=next_epoch_number,
+                period_start=period_start,
+                period_end=period_end,
+                total_fees_usdc=total_fees_usd,
+                staking_pool_usdc=total_staker_usdc,  # legacy field — APY endpoint reads this
+                protocol_usdc=protocol_usdc,
+                total_suwp_staked=total_suwp_staked,
+                suwp_emission=WEEKLY_SUWP_EMISSION,
+                status="pending",
+                direct_fees_usdc=direct_fees_usdc,
+                treasury_yield_usdc=vault_yield,
+                total_staker_usdc=total_staker_usdc,
+                treasury_aum_usdc=treasury_aum_usdc,
+            )
+            session.add(epoch)
+            session.flush()
+
+            stakers = session.query(StakingPosition).filter(
+                StakingPosition.is_active == True,
+                StakingPosition.suwp_staked > 0,
+            ).all()
+
+            rewards_count = 0
+            for staker in stakers:
+                if total_suwp_staked == 0:
+                    break
+                share = Decimal(str(staker.suwp_staked)) / total_suwp_staked
+                usdc_reward = (total_staker_usdc * share).quantize(
+                    Decimal("0.000001"), rounding=ROUND_DOWN
+                )
+                suwp_bonus = (WEEKLY_SUWP_EMISSION * share).quantize(
+                    Decimal("0.000001"), rounding=ROUND_DOWN
+                )
+                session.add(EpochReward(
+                    epoch_id=epoch.id,
+                    user_id=staker.user_id,
+                    suwp_staked_snapshot=staker.suwp_staked,
+                    usdc_reward=usdc_reward,
+                    suwp_bonus=suwp_bonus,
+                    status="pending",
+                ))
+                rewards_count += 1
+
+            session.commit()
+            session.refresh(epoch)
+            logger.info(
+                "Epoch #%d: fees=%.2f direct=%.2f vault_yield=%.2f "
+                "total_staker=%.2f rewards=%d stakers",
+                next_epoch_number, float(total_fees_usd), float(direct_fees_usdc),
+                float(vault_yield), float(total_staker_usdc), rewards_count,
+            )
+            return epoch
+
+    def get_vault_stats(self) -> dict:
+        """Delegate to treasury vault service."""
+        from bot.services.treasury_vault_service import treasury_vault_service
+        return treasury_vault_service.get_vault_stats()
 
 
 staking_service = StakingService()

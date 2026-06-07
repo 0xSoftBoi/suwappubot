@@ -148,7 +148,7 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         # Prediction market models
         from bot.models.predict import PredictionOrder, PredictionPosition
         # Token staking models
-        from bot.models.token_staking import TokenClaim, StakingPosition, DistributionEpoch, EpochReward
+        from bot.models.token_staking import TokenClaim, StakingPosition, DistributionEpoch, EpochReward, TreasuryPosition
 
         # Reconcile a cross-ORM table collision before create_all (which only creates
         # MISSING tables, never fixes an existing one): api-ts (Drizzle) historically created
@@ -344,6 +344,7 @@ def _ensure_schema(db_engine) -> None:
 
     # --- staking tables: token_claims, staking_positions, distribution_epochs, epoch_rewards ---
     _add_staking_tables(db_engine, inspector, is_sqlite)
+    _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite)
 
     # --- performance indexes ---
     _add_performance_indexes(db_engine, inspector, is_sqlite)
@@ -391,6 +392,38 @@ def _add_staking_tables(db_engine, inspector, is_sqlite: bool) -> None:
                 logger.info(f"Created {model.__tablename__} table")
     except Exception as e:
         logger.warning(f"Failed to create staking tables: {e}")
+
+
+def _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create treasury_positions table and add vault columns to distribution_epochs."""
+    try:
+        from bot.models.token_staking import TreasuryPosition
+        if not inspector.has_table("treasury_positions"):
+            TreasuryPosition.__table__.create(bind=db_engine)
+            logger.info("Created treasury_positions table")
+    except Exception as e:
+        logger.warning(f"Failed to create treasury_positions table: {e}")
+
+    if "distribution_epochs" in set(inspector.get_table_names()):
+        cols = {c["name"] for c in inspector.get_columns("distribution_epochs")}
+        new_columns = [
+            ("direct_fees_usdc", "NUMERIC(18,6)"),
+            ("treasury_yield_usdc", "NUMERIC(18,6)"),
+            ("total_staker_usdc", "NUMERIC(18,6)"),
+            ("treasury_aum_usdc", "NUMERIC(18,6)"),
+        ]
+        for col_name, col_type in new_columns:
+            if col_name not in cols:
+                if is_sqlite:
+                    ddl = f"ALTER TABLE distribution_epochs ADD COLUMN {col_name} {col_type}"
+                else:
+                    ddl = f"ALTER TABLE distribution_epochs ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+                try:
+                    with db_engine.begin() as conn:
+                        conn.execute(text(ddl))
+                    logger.info(f"Added distribution_epochs.{col_name}")
+                except Exception as e:
+                    logger.warning(f"Could not add {col_name}: {e}")
 
 
 def _add_performance_indexes(db_engine, inspector, is_sqlite: bool) -> None:
