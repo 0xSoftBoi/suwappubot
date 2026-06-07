@@ -1,13 +1,13 @@
 """HyperLiquid API client for perpetual trading."""
 
 import logging
-import json
 import time
-import hashlib
 from typing import Optional
 from dataclasses import dataclass
 
 import httpx
+
+from bot.services.hyperliquid_signing import sign_l1_action
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,8 @@ class HyperLiquidClient:
 
     def __init__(self):
         self._client: Optional[httpx.AsyncClient] = None
+        self._asset_index_cache: dict[str, int] = {}
+        self._asset_index_fetched_at: float = 0.0
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -190,7 +192,7 @@ class HyperLiquidClient:
 
             # Build order
             order = {
-                "a": self._get_asset_index(asset),  # Asset index
+                "a": await self._resolve_asset_index(asset),  # Asset index
                 "b": is_buy,
                 "p": str(price) if price else "0",
                 "s": str(size),
@@ -269,7 +271,7 @@ class HyperLiquidClient:
             action = {
                 "type": "cancel",
                 "cancels": [{
-                    "a": self._get_asset_index(asset),
+                    "a": await self._resolve_asset_index(asset),
                     "o": int(order_id),
                 }],
             }
@@ -305,7 +307,7 @@ class HyperLiquidClient:
         try:
             action = {
                 "type": "updateLeverage",
-                "asset": self._get_asset_index(asset),
+                "asset": await self._resolve_asset_index(asset),
                 "isCross": True,
                 "leverage": leverage,
             }
@@ -325,22 +327,60 @@ class HyperLiquidClient:
         except Exception as e:
             logger.warning(f"Failed to set leverage: {e}")
 
-    def _get_asset_index(self, asset: str) -> int:
-        """Get the numeric asset index for HyperLiquid."""
-        # HyperLiquid assigns sequential indices to assets
-        # This is a simplified mapping — in production, fetch from /info endpoint
-        asset_indices = {
-            "BTC": 0, "ETH": 1, "SOL": 2, "ARB": 3, "AVAX": 4,
-            "DOGE": 5, "MATIC": 6, "OP": 7, "SUI": 8, "APT": 9,
-        }
-        return asset_indices.get(asset, 0)
+    # Fallback indices used only if the /info metadata fetch fails. The
+    # authoritative mapping is the position of each asset in meta.universe.
+    _FALLBACK_ASSET_INDICES = {
+        "BTC": 0, "ETH": 1, "SOL": 2, "ARB": 3, "AVAX": 4,
+        "DOGE": 5, "MATIC": 6, "OP": 7, "SUI": 8, "APT": 9,
+    }
+    ASSET_INDEX_TTL = 3600.0  # seconds
+
+    async def _resolve_asset_index(self, asset: str) -> int:
+        """Resolve a HyperLiquid asset index dynamically from /info metadata.
+
+        The index is the asset's position in ``meta.universe`` and can change as
+        assets are listed. We cache the mapping with a TTL and fall back to the
+        static map only if the fetch fails. An unknown asset raises rather than
+        silently defaulting to index 0 (which would target BTC).
+        """
+        now = time.time()
+        if not self._asset_index_cache or (now - self._asset_index_fetched_at) > self.ASSET_INDEX_TTL:
+            try:
+                client = await self._get_client()
+                resp = await client.post(self.INFO_URL, json={"type": "meta"})
+                if resp.status_code == 200:
+                    universe = resp.json().get("universe", [])
+                    mapping = {
+                        info.get("name"): i
+                        for i, info in enumerate(universe)
+                        if info.get("name")
+                    }
+                    if mapping:
+                        for name, fallback_idx in self._FALLBACK_ASSET_INDICES.items():
+                            if name in mapping and mapping[name] != fallback_idx:
+                                logger.warning(
+                                    "HyperLiquid asset index drift for %s: dynamic=%s hardcoded=%s",
+                                    name, mapping[name], fallback_idx,
+                                )
+                        self._asset_index_cache = mapping
+                        self._asset_index_fetched_at = now
+            except Exception as e:
+                logger.warning("Failed to fetch HyperLiquid asset metadata, using fallback: %s", e)
+
+        if asset in self._asset_index_cache:
+            return self._asset_index_cache[asset]
+        if asset in self._FALLBACK_ASSET_INDICES:
+            logger.warning("Using fallback asset index for %s (metadata unavailable)", asset)
+            return self._FALLBACK_ASSET_INDICES[asset]
+        raise ValueError(f"Unknown HyperLiquid asset: {asset!r}")
 
     def _sign_action(self, action: dict, nonce: int, api_secret: str) -> dict:
-        """Sign an action for HyperLiquid API."""
-        # Simplified signing — actual implementation uses EIP-712 typed data signing
-        message = json.dumps(action, sort_keys=True) + str(nonce)
-        signature = hashlib.sha256((message + api_secret).encode()).hexdigest()
-        return {"r": "0x" + signature[:64], "s": "0x" + signature[64:], "v": 27}
+        """Sign an L1 action for the HyperLiquid exchange API via EIP-712.
+
+        ``api_secret`` is the account's EVM private key. Mainnet is assumed
+        (BASE_URL points at api.hyperliquid.xyz) and there is no vault address.
+        """
+        return sign_l1_action(api_secret, action, None, nonce, is_mainnet=True)
 
     async def close(self):
         """Close HTTP client."""
