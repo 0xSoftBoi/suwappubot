@@ -130,8 +130,12 @@ class CoWProtocolAPI:
             "version": "1.0.0",
             "metadata": {}
         }
-        # Hash the app data (simplified - in production use proper hashing)
-        return "0x" + Web3.keccak(text=json.dumps(app_data)).hex()[:64]
+        # appData is keccak256 of the canonical JSON document. Use Web3.to_hex so
+        # we always emit the full 0x-prefixed 32-byte hash — the previous
+        # `"0x" + keccak(...).hex()[:64]` silently dropped 2 hex chars on web3
+        # versions whose HexBytes.hex() already includes the 0x prefix.
+        app_data_json = json.dumps(app_data, separators=(",", ":"), sort_keys=True)
+        return Web3.to_hex(Web3.keccak(text=app_data_json))
     
     def is_supported_chain(self, chain: str) -> bool:
         """Check if CoW supports this chain."""

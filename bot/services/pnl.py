@@ -11,6 +11,7 @@ from bot.models.advanced import UserStats, PortfolioSnapshot
 from bot.models.user import User
 from bot.services.price_service import price_service
 from bot.services.wallet import WalletService
+from bot.config.tokens import get_token_decimals
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -318,7 +319,9 @@ class PnLService:
             # Initial price (at time of swap)
             # Calculated from from_amount (USD) / to_amount
             try:
-                to_amount = float(swap.to_amount) / (10**6) # Simplified decimals
+                # Use the destination token's real decimals, not a hardcoded 6.
+                decimals = get_token_decimals(swap.to_token, swap.to_chain)
+                to_amount = float(swap.to_amount) / (10 ** decimals)
                 from_usd = float(swap.from_amount_usd) if swap.from_amount_usd else 0
                 if to_amount == 0: return None
                 
