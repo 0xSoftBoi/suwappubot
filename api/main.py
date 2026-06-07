@@ -109,7 +109,8 @@ async def lifespan(app: FastAPI):
 
     # 2. Build Bot Application
     os.makedirs("data", exist_ok=True)
-    persistence = PicklePersistence(filepath="data/bot_persistence.pickle")
+    persistence_path = os.environ.get("BOT_PERSISTENCE_PATH", "data/bot_persistence.pickle")
+    persistence = PicklePersistence(filepath=persistence_path)
     bot_app = (
         Application.builder()
         .token(settings.telegram_bot_token)
@@ -535,16 +536,6 @@ class AgentWalletCreate(BaseModel):
     name: Optional[str] = "Agent Managed Wallet"
     chain_type: str = "evm"
 
-class AgentRegisterRequest(BaseModel):
-    name: str
-    description: Optional[str] = None
-    callback_url: Optional[str] = None
-
-class AgentRegisterResponse(BaseModel):
-    agent_id: int
-    name: str
-    api_key: str
-    message: str
 
 class SwapResponse(BaseModel):
     id: int
@@ -1244,38 +1235,6 @@ async def get_tools(agent_key: str = Depends(get_agent_key)):
             }
         ]
     }
-
-@app.post("/v1/agent/register", response_model=AgentRegisterResponse, status_code=201, tags=["Agents"], summary="Register an external agent")
-async def register_agent(
-    request: AgentRegisterRequest,
-    db: Session = Depends(get_db),
-):
-    """
-    Public endpoint for external A2A agents to self-register and obtain an API key.
-    No authentication required. The returned API key should be stored securely
-    by the caller — it cannot be retrieved again.
-    """
-    # Generate a unique prefixed API key
-    api_key = f"suw_ag_{secrets.token_urlsafe(32)}"
-
-    agent = RegisteredAgent(
-        name=request.name,
-        description=request.description,
-        callback_url=request.callback_url,
-        api_key=api_key,
-        is_active=True,
-        created_at=datetime.utcnow(),
-    )
-    db.add(agent)
-    db.commit()
-    db.refresh(agent)
-
-    return AgentRegisterResponse(
-        agent_id=agent.id,
-        name=agent.name,
-        api_key=api_key,
-        message="Store this key securely. It cannot be retrieved again.",
-    )
 
 
 @app.post("/v1/agent/execute", tags=["Agents"], summary="Execute natural language trading command")
