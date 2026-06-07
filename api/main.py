@@ -4,7 +4,7 @@ import asyncio
 import time
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, Security, Response, Cookie
 from fastapi.security.api_key import APIKeyHeader, APIKey
@@ -45,7 +45,7 @@ from bot.utils.preload import preload_config
 from bot.services.rpc_manager import rpc_manager
 from database.db import init_db, engine, get_session, DATABASE_AVAILABLE
 from bot.models.user import User, Wallet
-from bot.models.swap import SwapTransaction
+from bot.models.swap import SwapTransaction, SwapStatus
 from bot.models.advanced import LimitOrder, DCAOrder
 from bot.models.agent import RegisteredAgent
 from bot.utils.db_monitor import setup_db_monitoring
@@ -87,6 +87,25 @@ async def lifespan(app: FastAPI):
         logger.info("✓ Database monitoring enabled")
     else:
         logger.warning("⚠️ Database monitoring disabled (no connection)")
+
+    # Reconcile any EXECUTING rows that have no tx_hash (process died mid-execution)
+    if db_success:
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+            with get_session() as session:
+                orphaned = session.query(SwapTransaction).filter(
+                    SwapTransaction.status == SwapStatus.EXECUTING.value,
+                    SwapTransaction.tx_hash.is_(None),
+                    SwapTransaction.created_at < cutoff,
+                ).all()
+                if orphaned:
+                    for row in orphaned:
+                        row.status = SwapStatus.FAILED.value
+                        row.error_message = "Reconciled at startup: EXECUTING with no tx_hash"
+                    session.commit()
+                    logger.warning("Reconciled %d orphaned EXECUTING transactions", len(orphaned))
+        except Exception as e:
+            logger.warning(f"Orphan reconciliation error (non-fatal): {e}")
 
     # 2. Build Bot Application
     os.makedirs("data", exist_ok=True)
