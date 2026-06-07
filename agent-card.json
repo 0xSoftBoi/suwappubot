@@ -1,0 +1,88 @@
+{
+  "$schema": "https://specs.a2aprotocol.ai/agent-card.json",
+  "id": "suwappu-dex",
+  "name": "Suwappu",
+  "description": "Cross-chain DEX for AI agents. Swap tokens across 14 chains via natural language.",
+  "version": "0.2.0",
+  "url": "https://api.suwappu.bot",
+  "logo": "https://suwappu.bot/logo.png",
+  "protocolVersions": ["0.3"],
+  "interfaces": [
+    {
+      "type": "JSON-RPC",
+      "baseUrl": "https://api.suwappu.bot/a2a",
+      "version": "1.0"
+    }
+  ],
+  "securitySchemes": [
+    {
+      "type": "http",
+      "scheme": "bearer",
+      "description": "Register at POST /v1/agent/register to get an API key (suwappu_sk_...)"
+    }
+  ],
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": true,
+    "stateTransitionHistory": false
+  },
+  "authentication": {
+    "schemes": ["bearer"],
+    "credentials": null
+  },
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "skills": [
+    {
+      "id": "swap",
+      "name": "Token Swap",
+      "description": "Swap tokens across 14 chains (12 EVM + Solana + TRON)",
+      "tags": ["defi", "swap", "trading", "cross-chain"],
+      "examples": [
+        "swap 0.5 ETH to USDC on Base",
+        "swap 100 USDC to SOL on Solana",
+        "bridge 500 USDC from Ethereum to Arbitrum"
+      ]
+    },
+    {
+      "id": "quote",
+      "name": "Get Quote",
+      "description": "Get a swap quote without executing",
+      "tags": ["defi", "quote", "price"],
+      "examples": [
+        "quote 1 ETH to USDC",
+        "price of 100 USDC in ETH"
+      ]
+    },
+    {
+      "id": "portfolio",
+      "name": "Portfolio Check",
+      "description": "Check token balances across all chains",
+      "tags": ["balance", "portfolio", "wallet"],
+      "examples": [
+        "check balance",
+        "show portfolio"
+      ]
+    }
+  ],
+  "provider": {
+    "organization": "Suwappu",
+    "url": "https://suwappu.bot"
+  },
+  "supportedChains": [
+    {"id": 1, "name": "Ethereum", "native": "ETH"},
+    {"id": 56, "name": "BSC", "native": "BNB"},
+    {"id": 137, "name": "Polygon", "native": "MATIC"},
+    {"id": 42161, "name": "Arbitrum", "native": "ETH"},
+    {"id": 10, "name": "Optimism", "native": "ETH"},
+    {"id": 8453, "name": "Base", "native": "ETH"},
+    {"id": 43114, "name": "Avalanche", "native": "AVAX"},
+    {"id": 250, "name": "Fantom", "native": "FTM"},
+    {"id": 59144, "name": "Linea", "native": "ETH"},
+    {"id": 5000, "name": "Mantle", "native": "MNT"},
+    {"id": 100, "name": "Gnosis", "native": "xDAI"},
+    {"id": 534352, "name": "Scroll", "native": "ETH"},
+    {"id": "solana", "name": "Solana", "native": "SOL"},
+    {"id": "tron", "name": "TRON", "native": "TRX"}
+  ]
+}
