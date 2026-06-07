@@ -1,4 +1,5 @@
 export { a2aRoutes } from './a2a'
+export { billingRoutes } from './billing'
 export { adminRoutes } from './admin'
 export { agentRoutes } from './agent'
 export { healthRoutes } from './health'

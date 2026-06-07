@@ -752,10 +752,12 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         from_chain_config = get_chain_by_name(swap_data["from_chain"])
         to_chain_config = get_chain_by_name(swap_data["to_chain"])
         
-        # Fees info
+        # Fees info — use tier-specific rate (Option B hybrid pricing)
+        user_tier = await x402_service.get_tier(context.user_data["user_id"])
         fee_amount, fee_percentage, fee_usd = await fee_service.calculate_fee_with_price(
             amount=quote.from_amount_human,
             token_symbol=swap_data["from_token"],
+            tier=user_tier,
         )
         # Persist fee values so post-execution can record them
         context.user_data["swap"]["fee_amount"] = fee_amount

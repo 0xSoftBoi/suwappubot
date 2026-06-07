@@ -23,6 +23,7 @@ import { MorphoServiceLive } from './MorphoService'
 import { PolymarketServiceLive } from './PolymarketService'
 import { PolymarketCredentialServiceLive } from './PolymarketCredentialService'
 import { WalletServiceLive } from './WalletService'
+import { StripeServiceLive } from './StripeService'
 
 // Base configuration layer
 export const ConfigLayer = EnvServiceLive
@@ -35,6 +36,9 @@ export const TelegramAuthLayer = TelegramAuthServiceLive.pipe(Layer.provide(Conf
 
 // Turnkey layer depends on config
 export const TurnkeyLayer = TurnkeyServiceLive.pipe(Layer.provide(ConfigLayer))
+
+// Stripe layer depends on config
+export const StripeLayer = StripeServiceLive.pipe(Layer.provide(ConfigLayer))
 
 // Redis layer depends on config
 export const RedisLayer = RedisServiceLive.pipe(Layer.provide(ConfigLayer))
@@ -79,6 +83,7 @@ export const MainLayer = Layer.mergeAll(
 	EventBusLayer,
 	ServicesLayer,
 	PolymarketCredentialLayer,
+	StripeLayer,
 )
 
 // Type alias for the full context

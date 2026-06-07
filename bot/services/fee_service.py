@@ -1,7 +1,10 @@
 """Fee service for calculating and collecting swap fees.
 
-Suwappu Competitive Pricing:
-- 0.8% flat swap fee (undercuts 1% industry standard)
+Suwappu Competitive Pricing (Option B Hybrid):
+- FREE:       1.0% swap fee
+- PRO:        0.5% swap fee
+- PREMIUM:    0.3% swap fee
+- ENTERPRISE: 0.1% swap fee
 - 30% referral rewards (aggressive growth)
 - User pays gas (separate from swap fee)
 """
@@ -14,17 +17,27 @@ from datetime import datetime, timezone
 
 from bot.config.settings import settings
 from bot.models.fees import FeeTransaction
+from bot.models.subscription import SubscriptionTier
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
 # ============================================
-# FEE CONSTANTS - Competitive Pricing
+# FEE CONSTANTS - Option B Hybrid Pricing
 # ============================================
 
-# Swap fee: 0.8% (undercuts Maestro 1%, Trojan 0.9%)
-SWAP_FEE_PERCENTAGE = Decimal("0.8")  # 0.8%
-SWAP_FEE_DECIMAL = SWAP_FEE_PERCENTAGE / Decimal("100")  # 0.008
+# Legacy flat rate (kept for backward-compat reference only)
+SWAP_FEE_PERCENTAGE = Decimal("0.8")  # 0.8% (legacy)
+SWAP_FEE_DECIMAL = SWAP_FEE_PERCENTAGE / Decimal("100")  # 0.008 (legacy)
+
+# Tier-based fee rates (as plain decimals, e.g. 0.01 = 1%)
+TIER_FEE_RATES = {
+    SubscriptionTier.FREE: 0.01,        # 1%
+    SubscriptionTier.PRO: 0.005,        # 0.5%
+    SubscriptionTier.PREMIUM: 0.003,    # 0.3%
+    SubscriptionTier.ENTERPRISE: 0.001, # 0.1%
+}
+DEFAULT_FEE_RATE = 0.01  # fallback if tier lookup fails
 
 # Referral rewards: 30% of fees (aggressive growth)
 REFERRAL_REWARD_PERCENTAGE = Decimal("30")  # 30%
@@ -74,40 +87,49 @@ class FeeService:
         self,
         swap_amount_usd: float,
         referrer_id: Optional[int] = None,
+        tier: "Optional[SubscriptionTier]" = None,
     ) -> FeeCalculation:
         """
         Calculate fee for a swap.
-        
+
         Args:
             swap_amount_usd: Swap amount in USD
             referrer_id: Optional referrer user ID for reward calculation
-            
+            tier: User's subscription tier; determines fee rate. Falls back
+                  to DEFAULT_FEE_RATE (1%) when None.
+
         Returns:
             FeeCalculation with all fee details
         """
         amount = Decimal(str(swap_amount_usd))
-        
-        # Calculate base fee (0.8%)
-        fee_amount = (amount * self.fee_percentage).quantize(
+
+        # Resolve tier-specific fee rate (as Decimal to avoid float arithmetic)
+        raw_rate = TIER_FEE_RATES.get(tier, DEFAULT_FEE_RATE) if tier is not None else DEFAULT_FEE_RATE
+        fee_rate = Decimal(str(raw_rate))
+        # fee_percentage_display is e.g. Decimal("1.0") meaning "1%"
+        fee_percentage_display = fee_rate * Decimal("100")
+
+        # Calculate base fee
+        fee_amount = (amount * fee_rate).quantize(
             Decimal("0.01"), rounding=ROUND_DOWN
         )
-        
+
         # Calculate referral reward if applicable
         has_referrer = referrer_id is not None
         referral_reward = Decimal("0")
-        
+
         if has_referrer:
             referral_reward = (fee_amount * self.referral_percentage).quantize(
                 Decimal("0.01"), rounding=ROUND_DOWN
             )
-        
+
         # Net fee (what we keep)
         net_fee = fee_amount - referral_reward
-        
+
         return FeeCalculation(
             swap_amount_usd=amount,
             fee_amount_usd=fee_amount,
-            fee_percentage=SWAP_FEE_PERCENTAGE,
+            fee_percentage=fee_percentage_display,
             referral_reward_usd=referral_reward,
             net_fee_usd=net_fee,
             referrer_id=referrer_id,
@@ -120,21 +142,23 @@ class FeeService:
         token_price_usd: float,
         token_symbol: str,
         referrer_id: Optional[int] = None,
+        tier: "Optional[SubscriptionTier]" = None,
     ) -> FeeCalculation:
         """
         Calculate fee in token terms.
-        
+
         Args:
             swap_amount: Amount of tokens being swapped
             token_price_usd: Price of token in USD
             token_symbol: Token symbol
             referrer_id: Optional referrer user ID
-            
+            tier: User's subscription tier for fee rate selection
+
         Returns:
             FeeCalculation with token amounts
         """
         swap_amount_usd = float(swap_amount) * token_price_usd
-        calc = self.calculate_fee(swap_amount_usd, referrer_id)
+        calc = self.calculate_fee(swap_amount_usd, referrer_id, tier=tier)
         
         # Calculate fee in token terms
         if token_price_usd > 0:
@@ -150,35 +174,39 @@ class FeeService:
         self,
         amount: float,
         token_symbol: str,
+        tier: "Optional[SubscriptionTier]" = None,
     ) -> Tuple[float, float, float]:
         """
         Calculate fee with automatic price lookup.
-        
+
         Args:
             amount: Amount of tokens being swapped
             token_symbol: Token symbol
-            
+            tier: User's subscription tier; determines fee rate. Falls back
+                  to DEFAULT_FEE_RATE (1%) when None.
+
         Returns:
             Tuple of (fee_amount_token, fee_percentage, fee_amount_usd)
+            where fee_percentage is a percent-number e.g. 1.0 means 1%.
         """
         from bot.services.price_service import price_service
-        
+
         # Get token price
         prices = await price_service.get_prices([token_symbol])
         token_price = prices.get(token_symbol.upper(), 1.0)
-        
+
         # Calculate USD value
         amount_usd = amount * token_price
-        
-        # Calculate fee
-        calc = self.calculate_fee(amount_usd)
-        
+
+        # Calculate fee with tier-specific rate
+        calc = self.calculate_fee(amount_usd, tier=tier)
+
         # Convert fee back to token amount
         fee_amount_token = float(calc.fee_amount_usd) / token_price if token_price > 0 else 0
-        
+
         return (
             fee_amount_token,
-            float(SWAP_FEE_PERCENTAGE),
+            float(calc.fee_percentage),  # already a percent-number (e.g. 1.0 = 1%)
             float(calc.fee_amount_usd)
         )
     

@@ -10,6 +10,7 @@ import {
 	a2aRoutes,
 	adminRoutes,
 	agentRoutes,
+	billingRoutes,
 	healthRoutes,
 	internalRoutes,
 	lendRoutes,
@@ -66,6 +67,9 @@ export function createApp(config: AppConfig) {
 
 	// Webapp routes - Telegram auth
 	app.route('/webapp', webappRoutes)
+
+	// Billing routes - Stripe subscription management
+	app.route('/billing', billingRoutes)
 
 	// Agent A2A API routes (v1/agent/*) - uses Bearer token auth internally
 	// Registration is public, other endpoints require Bearer token
