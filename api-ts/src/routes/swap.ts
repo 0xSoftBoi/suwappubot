@@ -547,15 +547,11 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 
 			const signedTransaction = signResult.signedTransaction
 
-			// Submit to RPC
-			// For now, return the signed tx - in production, submit to the chain's RPC
+			// Broadcast the signed transaction to the chain's RPC via
+			// eth_sendRawTransaction. rpcUrlForChain is guaranteed set above (the
+			// route fails early on an unsupported chain), so the signed tx is
+			// always broadcast and the swap status reflects the real outcome.
 			logger.info('[SwapRoute] Transaction signed successfully')
-
-			// In a full implementation, you would:
-			// 1. Get the appropriate RPC endpoint for the chain
-			// 2. Send the signed transaction using eth_sendRawTransaction
-			// 3. Wait for confirmation
-			// 4. Update swap status to 'completed' or 'failed'
 
 			let txHash: string | null = null
 
