@@ -728,7 +728,13 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         # (in a professional setup we'd get individual quotes, but here 
         # we'll start with the default wallet's quote as a reference)
         with get_session() as session:
-            ref_wallet = session.query(Wallet).filter(Wallet.id == selected_wallet_ids[0]).first()
+            ref_wallet = session.query(Wallet).filter(
+                Wallet.id == selected_wallet_ids[0],
+                Wallet.user_id == user_id,
+            ).first()
+            if not ref_wallet:
+                await query.edit_message_text("❌ Invalid wallet selection.")
+                return ConversationHandler.END
             wallet_address = ref_wallet.address
             
         quote = await swap_engine.get_quote(
@@ -860,7 +866,10 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     selected_wallet_ids = swap_data.get("selected_wallets", [swap_data.get("wallet_id")])
 
     with get_session() as session:
-        wallets = session.query(Wallet).filter(Wallet.id.in_(selected_wallet_ids)).all()
+        wallets = session.query(Wallet).filter(
+            Wallet.id.in_(selected_wallet_ids),
+            Wallet.user_id == user_id,
+        ).all()
         wallet_map = {w.id: w for w in wallets}
 
         for wid in selected_wallet_ids:

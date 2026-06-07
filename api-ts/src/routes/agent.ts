@@ -10,6 +10,7 @@ import { requireDb, swapTransactions, webhookEvents } from '../db'
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { agentBearerAuth, agentBearerAuthAllowInactive } from '../middleware'
 import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
+import { ipRateLimit } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
 import { runEffectEither } from '../runtime'
 import {
@@ -168,7 +169,7 @@ function isSolanaChain(chain: string): boolean {
 // ===========================================
 
 // POST /v1/agent/register - Register a new agent
-agentRoutes.post('/register', async (c) => {
+agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 	let body: unknown
 	try {
 		body = await c.req.json()
@@ -243,7 +244,7 @@ agentRoutes.post('/register', async (c) => {
 })
 
 // POST /v1/agent/sponge/callback - Sponge Gateway agent connection callback (public)
-agentRoutes.post('/sponge/callback', async (c) => {
+agentRoutes.post('/sponge/callback', ipRateLimit(20), async (c) => {
 	// Validate X-Sponge-Signature if webhook secret is configured
 	const envResult = await runEffectEither(
 		Effect.gen(function* () {

@@ -1,5 +1,22 @@
 import { z } from 'zod'
 
+// Reject private/loopback/link-local IPs to prevent SSRF via callback_url
+function isPublicUrl(url: string): boolean {
+	try {
+		const h = new URL(url).hostname
+		return !/^(localhost$|127\.|0\.0\.0\.0$|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1$|fc[0-9a-f]{2}:)/i.test(
+			h,
+		)
+	} catch {
+		return false
+	}
+}
+
+const publicCallbackUrl = z
+	.string()
+	.url('Invalid callback URL')
+	.refine(isPublicUrl, 'callback_url must be a public URL')
+
 export const RegisterAgentSchema = z.object({
 	name: z
 		.string()
@@ -7,7 +24,7 @@ export const RegisterAgentSchema = z.object({
 		.max(50, 'Name must be at most 50 characters')
 		.regex(/^[a-zA-Z0-9_-]+$/, 'Name must be alphanumeric with underscores and hyphens only'),
 	description: z.string().max(500).optional(),
-	callback_url: z.url('Invalid callback URL').optional(),
+	callback_url: publicCallbackUrl.optional(),
 	metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
@@ -46,7 +63,7 @@ export const ExecuteCommandSchema = z.object({
 export const UpdateAgentSchema = z
 	.object({
 		description: z.string().max(500).optional(),
-		callback_url: z.url('Invalid callback URL').nullish(),
+		callback_url: publicCallbackUrl.nullish(),
 		metadata: z.record(z.string(), z.unknown()).optional(),
 	})
 	.refine(
@@ -60,9 +77,14 @@ export const UpdateAgentSchema = z
 export const CreatePolicySchema = z.object({
 	type: z.enum(['spending_limit', 'whitelist']),
 	params: z.object({
-		maxAmountWei: z.string().optional(),
+		maxAmountWei: z
+			.string()
+			.regex(/^\d+$/, 'maxAmountWei must be a decimal integer string')
+			.optional(),
 		timeWindowSeconds: z.number().optional(),
-		allowedAddresses: z.array(z.string()).optional(),
+		allowedAddresses: z
+			.array(z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'Must be a valid EVM address'))
+			.optional(),
 	}),
 })
 

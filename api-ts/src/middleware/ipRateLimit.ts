@@ -33,8 +33,11 @@ function cleanupExpired() {
  */
 export function ipRateLimit(limit: number = DEFAULT_LIMIT) {
 	return async (c: Context, next: Next) => {
+		// Prefer Cloudflare's header; otherwise take the rightmost XFF hop
+		// (the hop added by our own proxy, not attacker-controlled).
+		const cfIp = c.req.header('cf-connecting-ip')
 		const forwarded = c.req.header('x-forwarded-for')
-		const ip = forwarded?.split(',')[0]?.trim() || 'unknown'
+		const ip = cfIp ?? forwarded?.split(',').at(-1)?.trim() ?? 'unknown'
 		const key = `ip:${ip}`
 		const now = Date.now()
 

@@ -162,37 +162,49 @@ class TwoFactorAuth:
     """Simple 2FA implementation using time-based codes."""
     
     def __init__(self):
-        # Store pending codes: user_id -> (code, expires_at)
         self._pending_codes: dict[int, tuple[str, float]] = {}
+        self._failed_attempts: dict[int, int] = {}
         self._code_ttl = 300  # 5 minutes
+        self._max_attempts = 5
     
     def generate_code(self, user_id: int) -> str:
         """Generate a 6-digit confirmation code."""
         code = ''.join(secrets.choice('0123456789') for _ in range(6))
         expires_at = time.time() + self._code_ttl
         self._pending_codes[user_id] = (code, expires_at)
+        self._failed_attempts.pop(user_id, None)
         return code
     
     def verify_code(self, user_id: int, code: str) -> bool:
         """Verify a confirmation code."""
         if user_id not in self._pending_codes:
             return False
-        
+
         stored_code, expires_at = self._pending_codes[user_id]
-        
+
         if time.time() > expires_at:
-            del self._pending_codes[user_id]
+            self._pending_codes.pop(user_id, None)
+            self._failed_attempts.pop(user_id, None)
             return False
-        
-        if code == stored_code:
-            del self._pending_codes[user_id]
+
+        attempts = self._failed_attempts.get(user_id, 0)
+        if attempts >= self._max_attempts:
+            self._pending_codes.pop(user_id, None)
+            self._failed_attempts.pop(user_id, None)
+            return False
+
+        if secrets.compare_digest(code, stored_code):
+            self._pending_codes.pop(user_id, None)
+            self._failed_attempts.pop(user_id, None)
             return True
-        
+
+        self._failed_attempts[user_id] = attempts + 1
         return False
     
     def clear_code(self, user_id: int) -> None:
         """Clear pending code for user."""
         self._pending_codes.pop(user_id, None)
+        self._failed_attempts.pop(user_id, None)
 
 
 class TransactionSimulator:

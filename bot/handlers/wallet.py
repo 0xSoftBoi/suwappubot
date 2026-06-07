@@ -294,13 +294,22 @@ async def wallet_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text("❌ Invalid wallet.")
         return
     
+    tg_user = update.effective_user
     with get_session() as session:
-        wallet = session.query(Wallet).filter(Wallet.id == wallet_id).first()
-        
+        db_user = session.query(User).filter(User.telegram_id == tg_user.id).first()
+        if not db_user:
+            await query.edit_message_text("❌ User not found.")
+            return
+
+        wallet = session.query(Wallet).filter(
+            Wallet.id == wallet_id,
+            Wallet.user_id == db_user.id,
+        ).first()
+
         if not wallet:
             await query.edit_message_text("❌ Wallet not found.")
             return
-        
+
         address = wallet.address
         chain_type = wallet.chain_type
         wallet_name = wallet.name

@@ -21,12 +21,22 @@ from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
-# Beta access passwords (case-insensitive)
-BETA_PASSWORDS = {
-    "waifu": SubscriptionTier.PREMIUM,      # Full premium access
-    "suwappu": SubscriptionTier.PRO,        # Pro access
-    "earlybird": SubscriptionTier.PRO,      # Pro access
-}
+import os as _os
+
+def _load_beta_passwords() -> dict:
+    raw = _os.getenv("BETA_PASSWORDS", "")
+    result = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if ":" in pair:
+            code, tier_name = pair.split(":", 1)
+            try:
+                result[code.strip().lower()] = SubscriptionTier[tier_name.strip().upper()]
+            except KeyError:
+                pass
+    return result
+
+BETA_PASSWORDS = _load_beta_passwords()
 
 
 # Subscription tier limits
@@ -239,7 +249,7 @@ class X402Service:
         # Grant beta access (lifetime = 365 days)
         await self.upgrade_subscription(user_id, tier, duration_days=365)
         
-        logger.info(f"User {user_id} activated beta code '{password_lower}' -> {tier.value}")
+        logger.info(f"User {user_id} activated beta code -> {tier.value}")
         return True, f"🎉 Beta access activated! You now have **{tier.value.upper()}** for 1 year!", tier
     
     
