@@ -620,6 +620,8 @@ def create_jwt_token(address: str, user_id: int) -> str:
     payload = {
         "address": address.lower(),
         "user_id": user_id,
+        # camelCase alias so api-ts (which reads `userId`) accepts Python-issued tokens.
+        "userId": user_id,
         "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS),
         "iat": datetime.utcnow(),
     }
@@ -874,18 +876,70 @@ async def auth_me(
     )
 
 
-@app.post("/auth/logout", tags=["Auth"])
-async def auth_logout(response: Response):
-    """
-    Log out the current user by clearing the session cookie.
-    """
-    response.delete_cookie(
-        key="suwappu_auth",
-        path="/",
-        secure=True,
-        httponly=True,
-        samesite="lax"
+# --- Refresh tokens (H13): short-lived access JWT + rotating refresh token ---
+
+REFRESH_COOKIE = "suwappu_refresh"
+REFRESH_TTL_SECONDS = 30 * 24 * 3600
+
+
+def _set_session_cookies(response: Response, access_token: str, refresh_token: Optional[str]) -> None:
+    """Set the access (and optionally refresh) cookies with the standard attributes."""
+    response.set_cookie(
+        key="suwappu_auth", value=access_token, httponly=True, secure=True,
+        samesite="lax", max_age=JWT_EXPIRY_HOURS * 3600, path="/",
     )
+    if refresh_token is not None:
+        response.set_cookie(
+            key=REFRESH_COOKIE, value=refresh_token, httponly=True, secure=True,
+            samesite="lax", max_age=REFRESH_TTL_SECONDS, path="/",
+        )
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: Optional[str] = None
+
+
+@app.post("/auth/refresh", tags=["Auth"])
+async def auth_refresh(request: Request, response: Response, body: Optional[RefreshRequest] = None):
+    """
+    Exchange a (rotating) refresh token for a fresh access JWT.
+
+    Accepts the refresh token from the ``suwappu_refresh`` httponly cookie (OAuth /
+    cookie clients) or a JSON body (localStorage clients). Rotates the token; on a
+    reused/expired/unknown token returns 401 and revokes the family.
+    """
+    from bot.services.refresh_token_service import rotate_refresh_token
+
+    token = (body.refresh_token if body else None) or request.cookies.get(REFRESH_COOKIE)
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing refresh token")
+
+    rotated = rotate_refresh_token(token, client="refresh")
+    if rotated is None:
+        # Clear stale cookies so the client falls back to a fresh login.
+        response.delete_cookie(REFRESH_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    user_id, address, new_refresh, _expires = rotated
+    access_token = create_jwt_token(address or "", user_id)
+    _set_session_cookies(response, access_token, new_refresh)
+    return {"success": True, "token": access_token, "refresh_token": new_refresh}
+
+
+@app.post("/auth/logout", tags=["Auth"])
+async def auth_logout(request: Request, response: Response, body: Optional[RefreshRequest] = None):
+    """
+    Log out: clear the session cookies and revoke the refresh-token family.
+    """
+    token = (body.refresh_token if body else None) or request.cookies.get(REFRESH_COOKIE)
+    if token:
+        try:
+            from bot.services.refresh_token_service import revoke_refresh_token
+            revoke_refresh_token(token)
+        except Exception as e:
+            logger.warning(f"Refresh-token revoke on logout failed: {e}")
+    for key in ("suwappu_auth", REFRESH_COOKIE):
+        response.delete_cookie(key=key, path="/", secure=True, httponly=True, samesite="lax")
     return {"success": True, "message": "Logged out successfully"}
 
 

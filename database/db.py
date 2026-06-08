@@ -348,6 +348,7 @@ def _ensure_schema(db_engine) -> None:
     # --- staking tables: token_claims, staking_positions, distribution_epochs, epoch_rewards ---
     _add_staking_tables(db_engine, inspector, is_sqlite)
     _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite)
+    _add_auth_tables(db_engine, inspector, is_sqlite)
 
     # --- performance indexes ---
     _add_performance_indexes(db_engine, inspector, is_sqlite)
@@ -382,6 +383,18 @@ def _add_agent_drizzle_columns(db_engine, inspector, table_name: str, is_sqlite:
             f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{table_name}_uuid "
             f"ON {table_name}(uuid)"
         ))
+
+
+def _add_auth_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the auth_refresh_tokens table (H13 refresh tokens) idempotently."""
+    try:
+        from bot.models.auth import RefreshToken
+
+        if not inspector.has_table(RefreshToken.__tablename__):
+            RefreshToken.__table__.create(bind=db_engine)
+            logger.info(f"Created {RefreshToken.__tablename__} table")
+    except Exception as e:
+        logger.warning(f"Failed to create auth_refresh_tokens table: {e}")
 
 
 def _add_staking_tables(db_engine, inspector, is_sqlite: bool) -> None:
