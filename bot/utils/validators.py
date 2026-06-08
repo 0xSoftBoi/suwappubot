@@ -39,13 +39,13 @@ def validate_evm_address(address: str) -> bool:
 def validate_solana_address(address: str) -> bool:
     """Validate a Solana address (base58 encoded 32-byte public key).
 
-    Solana public keys are exactly 32 bytes when decoded. The base58
-    encoding of 32 bytes is exactly 44 characters; lengths of 32–43 chars
-    indicate a shorter byte sequence and are rejected.
+    Solana public keys are exactly 32 bytes when decoded. The base58 encoding
+    of 32 bytes is 43 or 44 characters (44 normally; 43 when the leading byte
+    is small, e.g. Wrapped SOL `So1111...112`). The decoded length is the real
+    check — the char-length bound just rejects obviously-wrong inputs early.
     """
     try:
-        # Solana base58 addresses are always exactly 44 characters.
-        if len(address) != 44:
+        if not (43 <= len(address) <= 44):
             return False
         decoded = base58.b58decode(address)
         return len(decoded) == 32
