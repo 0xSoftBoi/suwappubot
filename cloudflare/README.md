@@ -22,17 +22,15 @@ Both backends are healthy on their free Railway URLs:
    nameservers to those two. Propagation is usually minutes to a couple hours.
 4. SSL/TLS → set mode to **Full** (not Flexible, not Full(Strict)).
 
-### 2. Create the Worker
-1. Cloudflare → **Workers & Pages** → **Create** → **Worker**. Name it `suwappu-router`.
-2. Paste the contents of `suwappu-router.worker.js` and **Deploy**.
-   (Or with wrangler: `npx wrangler deploy suwappu-router.worker.js --name suwappu-router`.)
-
-### 3. Bind the hostnames (Worker Custom Domain — simplest, auto DNS + cert)
-Open the `suwappu-router` Worker → **Settings → Domains & Routes → Add → Custom Domain**,
-and add each of these (Cloudflare auto-creates the proxied DNS record + edge TLS cert):
-- `api.suwappu.bot` → path-routed to python-api + api-ts
-- `www.suwappu.bot` → showcase
-- `suwappu.bot` (apex) → showcase
+### 2 + 3. Deploy the Worker AND bind all hostnames — one command
+Once the zone is **Active** on Cloudflare (step 1) and you've run `bunx wrangler login`:
+```bash
+cd cloudflare && bunx wrangler deploy
+```
+`wrangler.toml` has `custom_domain = true` for `api`, `www`, and the apex, so this single
+command deploys the Worker and creates each Custom Domain + edge TLS cert automatically —
+no dashboard clicking. (Dashboard equivalent: Workers & Pages → Create Worker `suwappu-router`,
+paste `suwappu-router.worker.js`, then Settings → Domains & Routes → add each Custom Domain.)
 
 Client TLS is served by Cloudflare; the Worker fetches each origin over the valid
 `*.up.railway.app` cert. The hostname→origin map lives in `suwappu-router.worker.js`.
