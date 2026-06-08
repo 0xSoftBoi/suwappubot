@@ -2322,3 +2322,44 @@ async def unlink_wallet(
     db.commit()
 
     return {"success": True, "message": "Wallet unlinked successfully"}
+
+
+# --- Points (aliases of /v1/mobile/points/* used by the terminal SPA) ---
+# The terminal calls /webapp/points/*, but the implementation lives on the mobile
+# router (/v1/mobile/points/*) which isn't reachable via api.suwappu.bot. Delegate to
+# the same handlers (identical JWT auth) so the rewards dashboard + check-in work.
+
+@router.get("/points/profile")
+async def webapp_points_profile(request: Request):
+    from api.routes.mobile import get_points
+    return await get_points(request)
+
+
+@router.post("/points/checkin")
+async def webapp_points_checkin(request: Request):
+    from api.routes.mobile import daily_checkin
+    return await daily_checkin(request)
+
+
+@router.get("/points/milestones")
+async def webapp_points_milestones(request: Request):
+    from api.routes.mobile import get_milestones
+    return await get_milestones(request)
+
+
+@router.get("/points/rewards")
+async def webapp_points_rewards(request: Request):
+    from api.routes.mobile import get_rewards
+    return await get_rewards(request)
+
+
+@router.post("/points/rewards/{reward_id}/redeem")
+async def webapp_points_redeem(request: Request, reward_id: int):
+    from api.routes.mobile import redeem_reward
+    return await redeem_reward(request, reward_id)
+
+
+@router.get("/points/leaderboard")
+async def webapp_points_leaderboard(request: Request, limit: int = Query(default=50, le=100)):
+    from api.routes.mobile import get_leaderboard
+    return await get_leaderboard(request, limit)
