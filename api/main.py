@@ -1079,9 +1079,9 @@ async def passkey_register_init(request: PasskeyRegisterInitRequest):
         "type": "registration",
     }, ttl_seconds=PASSKEY_CHALLENGE_TTL)
 
-    # Get RP ID from settings or use default
-    import urllib.parse
-    rp_id = urllib.parse.urlparse(settings.oauth_redirect_base).netloc or "localhost"
+    # WebAuthn RP ID — must be a registrable suffix of the page origin (suwappu.bot
+    # covers app./terminal./www.). Decoupled from oauth_redirect_base (see settings).
+    rp_id = settings.webauthn_rp_id
 
     return PasskeyRegisterInitResponse(
         challenge=challenge,
@@ -1256,7 +1256,7 @@ async def passkey_auth_init():
         "type": "authentication",
     }, ttl_seconds=PASSKEY_CHALLENGE_TTL)
 
-    rp_id = urllib.parse.urlparse(settings.oauth_redirect_base).netloc or "localhost"
+    rp_id = settings.webauthn_rp_id
 
     return PasskeyAuthInitResponse(
         challenge=challenge,
