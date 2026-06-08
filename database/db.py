@@ -304,6 +304,10 @@ def _ensure_schema(db_engine) -> None:
         _add_passkey_columns(db_engine, inspector, is_sqlite)
         _widen_totp_secret(db_engine, inspector, is_sqlite)
         _encrypt_plaintext_totp_secrets(db_engine, is_sqlite)
+        # Self-heal any remaining missing User columns (shared DB has had python-owned
+        # columns dropped by api-ts drizzle pushes). Belt-and-suspenders so the ORM's
+        # SELECT never 500s on a column the model has but the table lost.
+        _reconcile_user_columns(db_engine, is_sqlite)
 
     # --- smart notification columns ---
     _add_smart_notification_columns(db_engine, inspector, is_sqlite)
@@ -679,6 +683,40 @@ def _add_user_core_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
+
+
+def _reconcile_user_columns(db_engine, is_sqlite: bool) -> None:
+    """Add any User-model column missing from the live ``users`` table.
+
+    The shared Postgres has had python-owned columns (recovery_email,
+    recovery_setup_at, …) dropped by api-ts ``drizzle-kit push --force``. Rather than
+    chase each one with a bespoke migration, add any column the SQLAlchemy model
+    declares but the table lacks — as NULLABLE, best-effort, per-column guarded — so a
+    plain ``SELECT * FROM users`` (every User query) can never 500 on a missing column.
+    """
+    from bot.models.user import User
+
+    try:
+        insp = inspect(db_engine)  # fresh inspector: reflect columns added earlier this run
+        existing = {c["name"] for c in insp.get_columns("users")}
+    except Exception as e:
+        logger.warning(f"_reconcile_user_columns: could not read users columns: {e}")
+        return
+
+    for col in User.__table__.columns:
+        if col.name in existing:
+            continue
+        try:
+            coltype = col.type.compile(dialect=db_engine.dialect)
+            if is_sqlite:
+                ddl = f'ALTER TABLE users ADD COLUMN "{col.name}" {coltype}'
+            else:
+                ddl = f'ALTER TABLE users ADD COLUMN IF NOT EXISTS "{col.name}" {coltype}'
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.warning(f"Reconciled missing users column: {col.name} {coltype}")
+        except Exception as e:
+            logger.warning(f"_reconcile_user_columns: could not add {col.name}: {e}")
 
 
 def _add_tos_columns(db_engine, inspector, is_sqlite: bool) -> None:
