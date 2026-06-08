@@ -215,7 +215,7 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	const { agent, apiKey } = result.right
@@ -336,7 +336,7 @@ async function handleSpongeCallback(c: any, body: any) {
 
 	if (Either.isLeft(result)) {
 		const { status, body: errBody } = mapErrorToResponse(result.left)
-		return c.json(errBody, status as 200)
+		return c.json(errBody, status)
 	}
 
 	const { apiKey } = result.right
@@ -499,7 +499,7 @@ agentRoutes.patch('/me', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	const updated = result.right
@@ -665,7 +665,7 @@ agentRoutes.post('/quote', async (c) => {
 
 		if (Either.isLeft(result)) {
 			const { status, body } = mapErrorToResponse(result.left)
-			return c.json(body, status as 200)
+			return c.json(body, status)
 		}
 
 		return c.json({ success: true, ...result.right })
@@ -810,7 +810,7 @@ agentRoutes.post('/quote', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({
@@ -1139,7 +1139,7 @@ agentRoutes.post('/execute', async (c) => {
 
 		if (Either.isLeft(result)) {
 			const { status, body } = mapErrorToResponse(result.left)
-			return c.json({ success: false, ...body }, status as 200)
+			return c.json({ success: false, ...body }, status)
 		}
 
 		return c.json({
@@ -1283,7 +1283,7 @@ agentRoutes.get('/portfolio', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({
@@ -1359,7 +1359,7 @@ agentRoutes.post('/wallets', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	const wallet = result.right
@@ -1549,7 +1549,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	const swapResult = result.right
@@ -1615,7 +1615,7 @@ agentRoutes.get('/swap/status/:swapId', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({ success: true, ...result.right })
@@ -1687,7 +1687,7 @@ agentRoutes.get('/swaps', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({ success: true, ...result.right })
@@ -2052,7 +2052,7 @@ agentRoutes.get('/webhooks', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status: errStatus, body } = mapErrorToResponse(result.left)
-		return c.json(body, errStatus as 200)
+		return c.json(body, errStatus)
 	}
 
 	return c.json({ success: true, ...result.right })
@@ -2139,7 +2139,7 @@ agentRoutes.post('/keys/rotate', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({
@@ -2166,7 +2166,7 @@ agentRoutes.post('/me/deactivate', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({
@@ -2195,7 +2195,7 @@ agentRoutes.post('/reactivate', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({
@@ -2217,7 +2217,7 @@ agentRoutes.delete('/me', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.body(null, 204)

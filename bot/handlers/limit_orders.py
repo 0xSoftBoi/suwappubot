@@ -476,8 +476,11 @@ async def lo_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.edit_message_text("❌ Please use /start first.")
+            return ConversationHandler.END
         user_id = db_user.id
-    
+
     # Get wallet for the source chain
     chain_type = "solana" if lo["from_chain"] == "solana" else "evm"
     wallet = wallet_service.get_default_wallet(user_id, chain_type)

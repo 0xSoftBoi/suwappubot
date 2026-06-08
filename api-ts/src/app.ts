@@ -36,6 +36,15 @@ export function createApp(config: AppConfig) {
 	app.use('*', honoLogger())
 	app.use('*', createCorsMiddleware(config.allowedOrigins))
 
+	// Request ID — inject a UUID per request for distributed tracing.
+	// Passed through as X-Request-ID so clients and logs can correlate.
+	app.use('*', async (c, next) => {
+		const rid = c.req.header('X-Request-ID') ?? crypto.randomUUID()
+		c.set('requestId', rid)
+		await next()
+		c.header('X-Request-ID', rid)
+	})
+
 	// Request timing middleware — logs slow requests (>100ms) for profiling
 	app.use('*', async (c, next) => {
 		const start = performance.now()
@@ -47,14 +56,20 @@ export function createApp(config: AppConfig) {
 		}
 	})
 
-	// Global error handler
+	// Global error handler — standardized error envelope with requestId + timestamp.
 	app.onError((err, c) => {
+		const requestId = (c.get('requestId') as string | undefined) ?? 'unknown'
+		const timestamp = new Date().toISOString()
+
 		if (err instanceof HTTPException) {
-			return c.json({ error: err.message }, err.status)
+			return c.json(
+				{ error: err.message, requestId, timestamp },
+				err.status,
+			)
 		}
 
-		logger.error({ err }, 'Unhandled error')
-		return c.json({ error: 'Internal Server Error' }, 500)
+		logger.error({ err, requestId }, 'Unhandled error')
+		return c.json({ error: 'Internal Server Error', requestId, timestamp }, 500)
 	})
 
 	// Public routes

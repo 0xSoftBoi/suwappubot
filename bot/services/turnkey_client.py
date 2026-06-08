@@ -544,13 +544,54 @@ class TurnkeyClient:
             organization_id=organization_id,
         )
 
-        # Reconstruct signature from r, s, v
+        # Reconstruct signature from r, s, v. Turnkey returns these as hex
+        # strings (no 0x prefix), matching eth_account's signature layout.
         r = result.get("r", "")
         s = result.get("s", "")
         v = result.get("v", "")
 
-        # Turnkey returns hex values
-        signature = r + s + v
+        # Strip any 0x prefix (use slicing, not lstrip, to avoid eating
+        # legitimate leading "0" nibbles of r/s).
+        if r.startswith("0x"):
+            r = r[2:]
+        if s.startswith("0x"):
+            s = s[2:]
+        if v.startswith("0x"):
+            v = v[2:]
+
+        # Validate component lengths: r and s must be 32 bytes (64 hex chars).
+        if len(r) != 64 or len(s) != 64:
+            raise ValueError(
+                f"Invalid signature components: r={len(r)} chars, "
+                f"s={len(s)} chars (expected 64 each)"
+            )
+
+        # Normalize v to a 1-byte (2 hex char) recovery value. Turnkey returns
+        # v as hex; accept a bare recovery id (00/01) and map it to 27/28.
+        try:
+            v_int = int(v, 16)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Invalid signature v (not hex): {v!r}") from e
+        # A bare recovery id is 0..3; map it into the EIP-155 27..30 range.
+        if v_int < 27:
+            if v_int > 3:
+                raise ValueError(
+                    f"Invalid signature v: {v_int} (expected bare recovery id 0-3 "
+                    f"or 27/28)"
+                )
+            v_int += 27
+        # Final guard: a usable EVM signature must recover with v in {27, 28}.
+        # Without this, a bad upstream v (e.g. 0x63=99) would pass through and
+        # produce an unrecoverable signature that downstream silently rejects.
+        if v_int not in (27, 28):
+            raise ValueError(
+                f"Invalid signature v after normalization: {v_int} "
+                f"(expected 27 or 28; Turnkey returned raw v={v!r})"
+            )
+        v_hex = format(v_int, "02x")
+
+        # Return a properly formatted 65-byte EIP-712 signature: 0x<r><s><v>.
+        signature = "0x" + r + s + v_hex
         return signature
 
     # === Import/Export ===
@@ -632,35 +673,33 @@ class TurnkeyClient:
     ) -> Dict[str, Any]:
         """
         Import an existing private key into Turnkey.
-        
-        Note: This should be done via secure iframe in production.
-        For server-side import, use encrypted bundle approach.
-        
+
+        NOT IMPLEMENTED — fails closed.
+
+        Turnkey's ``ACTIVITY_TYPE_IMPORT_PRIVATE_KEY`` requires the key to be
+        HPKE-encrypted to the enclave's import target public key (obtained via an
+        INIT_IMPORT activity) before it is sent. The previous implementation put
+        the *raw* hex key in ``encryptedBundle``, which both leaks the key to the
+        API layer and is rejected by Turnkey. Rather than ship a second
+        unverified crypto path, this refuses server-side plaintext import. Use
+        Turnkey's secure iframe import flow on the client, or implement and test
+        the INIT_IMPORT + HPKE encrypted-bundle flow before re-enabling this.
+
         Args:
             private_key: Hex-encoded private key
             key_name: Name for the imported key
             curve: CURVE_SECP256K1 or CURVE_ED25519
             organization_id: Target organization
-            
-        Returns:
-            Import result with new wallet/account IDs
+
+        Raises:
+            NotImplementedError: always — server-side plaintext import is unsafe.
         """
-        params = {
-            "privateKeyName": key_name,
-            "encryptedBundle": private_key,  # Simplified - production should use encryption
-            "curve": curve,
-            "addressFormats": [
-                "ADDRESS_FORMAT_ETHEREUM" if curve == "CURVE_SECP256K1" else "ADDRESS_FORMAT_SOLANA"
-            ],
-        }
-        
-        result = await self._submit_activity(
-            "ACTIVITY_TYPE_IMPORT_PRIVATE_KEY",
-            params,
-            organization_id=organization_id,
+        raise NotImplementedError(
+            "Server-side private key import is disabled: it would send the raw "
+            "key to Turnkey instead of an HPKE-encrypted import bundle. Use the "
+            "secure iframe import flow, or implement INIT_IMPORT + encrypted "
+            "bundle encryption before re-enabling this method."
         )
-        
-        return result.get("importPrivateKeyResult", {})
     
     # === Policies ===
 

@@ -62,6 +62,16 @@ const CHAIN_RPC_ENDPOINTS: Record<number, string> = {
 	324: process.env.ZKSYNC_RPC_URL || 'https://mainnet.era.zksync.io',
 }
 
+// Parse the USD value of the source amount for storage. Never falls back to
+// quote.fromAmount, which is a token quantity in wei (not a USD value) — doing
+// so would corrupt the USD currency column. Returns null when unavailable.
+// Uses Number.isFinite rather than `|| null` so a legitimate 0 USD value is
+// preserved instead of being coerced to null.
+export const usdAmountFromQuote = (quote: Pick<SwapQuote, 'fromAmountUsd'>): number | null => {
+	const parsed = parseFloat(quote.fromAmountUsd)
+	return Number.isFinite(parsed) ? parsed : null
+}
+
 // In-memory quote cache as fallback when Redis is not available
 const quoteCacheMemory = new Map<string, { quote: SwapQuote; expiry: number }>()
 const QUOTE_TTL_MS = QUOTE_TTL * 1000
@@ -227,7 +237,7 @@ swapRoutes.get('/quote', ipRateLimit(30), telegramAuth(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left as any)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)
@@ -309,7 +319,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 				toToken: quote.toToken.symbol,
 				fromAmount: quote.fromAmount,
 				toAmount: quote.toAmount,
-				fromAmountUsd: parseFloat(quote.fromAmountUsd || quote.fromAmount) || null,
+				fromAmountUsd: usdAmountFromQuote(quote),
 				toAmountUsd: null,
 				status: 'pending',
 				routeProvider: 'lifi',
@@ -537,15 +547,11 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 
 			const signedTransaction = signResult.signedTransaction
 
-			// Submit to RPC
-			// For now, return the signed tx - in production, submit to the chain's RPC
+			// Broadcast the signed transaction to the chain's RPC via
+			// eth_sendRawTransaction. rpcUrlForChain is guaranteed set above (the
+			// route fails early on an unsupported chain), so the signed tx is
+			// always broadcast and the swap status reflects the real outcome.
 			logger.info('[SwapRoute] Transaction signed successfully')
-
-			// In a full implementation, you would:
-			// 1. Get the appropriate RPC endpoint for the chain
-			// 2. Send the signed transaction using eth_sendRawTransaction
-			// 3. Wait for confirmation
-			// 4. Update swap status to 'completed' or 'failed'
 
 			let txHash: string | null = null
 
@@ -617,7 +623,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 		// Map error to response
 		if ('status' in error) {
 			const { status, body } = mapErrorToResponse(error as any)
-			return c.json(body, status as 200)
+			return c.json(body, status)
 		}
 
 		return c.json(
@@ -691,7 +697,7 @@ swapRoutes.get('/status/:swapId', telegramAuth(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left as any)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)

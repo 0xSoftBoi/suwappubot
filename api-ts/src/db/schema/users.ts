@@ -1,4 +1,5 @@
 import {
+	bigint,
 	boolean,
 	integer,
 	pgTable,
@@ -11,7 +12,10 @@ import {
 
 export const users = pgTable('users', {
 	id: serial('id').primaryKey(),
-	telegramId: integer('telegram_id').unique(),
+	// Telegram user IDs exceed 2^31 as of 2024-2026; must be BIGINT to match
+	// the Postgres schema. 'number' mode is safe because Telegram IDs fit
+	// well within Number.MAX_SAFE_INTEGER (2^53 - 1).
+	telegramId: bigint('telegram_id', { mode: 'number' }).unique(),
 	whatsappId: varchar('whatsapp_id', { length: 255 }).unique(),
 	username: varchar('username', { length: 255 }),
 	firstName: varchar('first_name', { length: 255 }),

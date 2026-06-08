@@ -94,8 +94,8 @@ class TokenSafetyReport:
     sell_tax: Optional[float] = None
     buy_tax: Optional[float] = None
 
-    # Liquidity
-    liquidity_sol: float = 0
+    # Liquidity (None = not measured/unknown, not zero)
+    liquidity_sol: Optional[float] = None
     liquidity_locked: bool = False
     liquidity_lock_until: Optional[datetime] = None
 
@@ -359,27 +359,19 @@ class TokenAnalyzer:
             logger.warning(f"Blacklist check failed: {e}")
 
     async def _check_liquidity(self, token_mint: str, report: TokenSafetyReport):
-        """Check liquidity levels."""
-        try:
-            await api_limiter.wait_and_acquire("solana")
-            session = await get_session()
-            rpc_url = rpc_manager.get_rpc_url("solana")
+        """Check liquidity levels.
 
-            # This would query DEX pools for liquidity
-            # Simplified implementation
-            report.liquidity_sol = 0
-
-            if report.liquidity_sol < 1:
-                report.risk_factors.append(RiskFactor(
-                    category=RiskCategory.LOW_LIQUIDITY,
-                    severity=RiskLevel.MEDIUM,
-                    description="Very low liquidity - high slippage expected",
-                    score_impact=15,
-                    details={"liquidity_sol": report.liquidity_sol},
-                ))
-
-        except Exception as e:
-            logger.debug(f"Liquidity check failed: {e}")
+        On-chain DEX-pool liquidity querying is not yet implemented. The previous
+        code hardcoded ``liquidity_sol = 0`` and therefore flagged EVERY token
+        with a fabricated MEDIUM "very low liquidity" risk factor (score_impact
+        15) — desensitizing users and corrupting the safety score. Until a real
+        pool query exists, leave liquidity unknown (None) and surface an honest,
+        non-scoring warning rather than inventing a measurement.
+        """
+        report.liquidity_sol = None  # unknown — not measured
+        report.warnings.append(
+            "Liquidity not verified — confirm pool depth on a DEX explorer before trading"
+        )
 
     async def _check_holders(self, token_mint: str, report: TokenSafetyReport):
         """Check holder distribution."""
@@ -445,8 +437,7 @@ class TokenAnalyzer:
     async def _check_metadata(self, token_mint: str, report: TokenSafetyReport):
         """Check token metadata for suspicious patterns."""
         try:
-            # This would fetch token metadata (name, symbol, etc.)
-            # For pump.fun tokens, we can use their API
+            # Fetch token metadata (name, symbol) from the pump.fun API.
             from bot.services.sniping.pump_fun_api import pump_fun_api
 
             token = await pump_fun_api.get_token(token_mint)

@@ -2,9 +2,15 @@ import sys
 import os
 import asyncio
 import time
+import uuid
+from contextvars import ContextVar
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
+
+# Request-ID context variable — propagated into every service/log call within
+# the same async context without threading explicit parameters everywhere.
+request_id_ctx: ContextVar[str] = ContextVar("request_id", default="unknown")
 
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, Security, Response, Cookie
 from fastapi.security.api_key import APIKeyHeader, APIKey
@@ -39,6 +45,7 @@ from bot.services.swap_engine import SwapEngine
 from bot.services.tx_poller import tx_poller
 from bot.services.health_monitor import health_monitor
 from bot.services.balance_refresher import balance_refresher
+from bot.services.perps_monitor import perps_monitor
 from bot.services.event_bus import event_bus
 from bot.services.api_client import api_client
 from bot.utils.preload import preload_config
@@ -194,6 +201,9 @@ async def lifespan(app: FastAPI):
         await health_monitor.start(bot=bot_app.bot if bot_initialized else None, admin_ids=admin_ids)
         await asyncio.sleep(2)
         await balance_refresher.start()
+        await asyncio.sleep(2)
+        # Perps position-sync loop (#248): previously implemented but never started.
+        await perps_monitor.start(bot=bot_app.bot if bot_initialized else None)
 
         # Start Discord alert service if Discord bot is available
         if discord_bot:
@@ -276,6 +286,7 @@ async def lifespan(app: FastAPI):
         await tx_poller.stop()
         await health_monitor.stop()
         await balance_refresher.stop()
+        await perps_monitor.stop()
 
     # Stop auth challenge cleanup
     auth_cleanup_task.cancel()
@@ -401,6 +412,24 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Agent-Key", "X-Admin-Key", "X-Telegram-Init-Data"],
 )
+
+
+# --- Request ID Middleware ---
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """Inject a UUID request ID into every async context and response header.
+
+    Downstream services can call ``request_id_ctx.get()`` to include the ID
+    in log records without threading it through every function signature.
+    """
+    rid = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    token = request_id_ctx.set(rid)
+    try:
+        response = await call_next(request)
+    finally:
+        request_id_ctx.reset(token)
+    response.headers["X-Request-ID"] = rid
+    return response
 
 
 # --- Request Timing Middleware ---
@@ -631,14 +660,30 @@ def get_db():
     with get_session() as session:
         yield session
 
-# --- Health Check ---
+# --- Health Checks ---
 
-@app.get("/health", tags=["Health"], summary="Service health check")
-async def health_check():
-    """Health check endpoint for load balancers, monitoring, and orchestration."""
+@app.get("/health/live", tags=["Health"], summary="Liveness probe")
+async def health_live():
+    """K8s/ECS liveness probe — confirms the process is alive.
+
+    Load balancers should use ``/health/ready`` to gate traffic;
+    orchestrators use this to decide whether to restart the container.
+    """
+    return {"status": "alive"}
+
+
+@app.get("/health/ready", tags=["Health"], summary="Readiness probe")
+async def health_ready():
+    """K8s/ECS readiness probe — confirms the service can handle requests.
+
+    Checks database connectivity, Redis reachability, and background service
+    heartbeats. Returns 503 if any critical dependency is unhealthy so that
+    the load balancer stops routing traffic to this instance.
+    """
     from database.db import DATABASE_AVAILABLE
+    from bot.utils.redis_cache import redis_cache
 
-    # Check if bot is running (polling or webhook mode)
+    # Bot mode
     bot_status = "unknown"
     try:
         bot_app = getattr(app.state, "bot_app", None)
@@ -653,17 +698,50 @@ async def health_check():
     except Exception:
         bot_status = "error"
 
-    is_healthy = DATABASE_AVAILABLE and bot_status in ("polling", "webhook")
+    # Redis ping
+    redis_ok = await redis_cache.ping()
+
+    # Background service heartbeats (TTL 60s; missing key = service dead)
+    now = time.time()
+    svc_heartbeats: dict = {}
+    for svc in ("tx_poller", "balance_refresher", "perps_monitor"):
+        last = await redis_cache.get(f"service:{svc}:heartbeat")
+        if last is None:
+            svc_heartbeats[svc] = "unknown"
+        elif now - float(last) > 90:
+            svc_heartbeats[svc] = "dead"
+        else:
+            svc_heartbeats[svc] = "alive"
+
+    checks = {
+        "database": DATABASE_AVAILABLE,
+        "redis": redis_ok,
+        "bot": bot_status in ("polling", "webhook"),
+        "services": svc_heartbeats,
+    }
+    # Critical: DB must be up; Redis + bot strongly preferred
+    is_ready = checks["database"]
+    status_code = 200 if is_ready else 503
 
     return JSONResponse(
-        status_code=200 if is_healthy else 503,
+        status_code=status_code,
         content={
-            "status": "healthy" if is_healthy else "degraded",
+            "ready": is_ready,
             "service": "suwappu-bot",
-            "database": "connected" if DATABASE_AVAILABLE else "disconnected",
-            "bot": bot_status,
+            "checks": {
+                "database": "connected" if DATABASE_AVAILABLE else "disconnected",
+                "redis": "connected" if redis_ok else "memory-fallback",
+                "bot": bot_status,
+                "background_services": svc_heartbeats,
+            },
         },
     )
+
+
+@app.get("/health", tags=["Health"], summary="Health check (legacy)")
+async def health_check():
+    """Legacy alias for /health/ready — kept for backward compatibility."""
+    return await health_ready()
 
 
 # ============ Turnkey Web Authentication ============
@@ -860,8 +938,15 @@ class PasskeyAuthCompleteResponse(BaseModel):
     expiresAt: datetime
 
 
-# In-memory challenge store for passkeys (use Redis in production)
-_passkey_challenges: Dict[str, Dict[str, Any]] = {}
+# Passkey WebAuthn challenges live in the shared Redis cache (with in-memory
+# fallback) so a challenge issued by one ECS replica can be verified by another.
+# The previous per-process dict broke under multiple replicas: a challenge created
+# on replica A was invisible to replica B, so passkey auth failed intermittently.
+PASSKEY_CHALLENGE_TTL = 300  # seconds
+
+
+def _passkey_key(challenge: str) -> str:
+    return f"passkey:challenge:{challenge}"
 
 
 def _base64url_decode(value: str) -> bytes:
@@ -880,7 +965,9 @@ def _parse_passkey_client_data(client_data_json: str) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="Invalid passkey client data")
 
 
-def _verify_passkey_challenge(client_data_json: str, expected_type: str) -> None:
+async def _verify_passkey_challenge(client_data_json: str, expected_type: str) -> None:
+    from bot.utils.redis_cache import redis_cache
+
     client_data = _parse_passkey_client_data(client_data_json)
     if client_data.get("type") != expected_type:
         raise HTTPException(status_code=400, detail="Invalid passkey response type")
@@ -889,22 +976,29 @@ def _verify_passkey_challenge(client_data_json: str, expected_type: str) -> None
     if not encoded_challenge:
         raise HTTPException(status_code=400, detail="Missing passkey challenge")
 
-    matched_challenge = None
-    now = time.time()
-    for challenge, entry in list(_passkey_challenges.items()):
-        if now - float(entry.get("timestamp", 0)) > 300:
-            _passkey_challenges.pop(challenge, None)
-            continue
-        if _base64url_encode(challenge.encode("utf-8")) == encoded_challenge:
-            matched_challenge = challenge
-            break
+    # The client echoes the challenge base64url-encoded; decode it to recover the
+    # raw challenge string we stored as the key, enabling a direct lookup in the
+    # shared store (no per-process scan).
+    try:
+        challenge = _base64url_decode(encoded_challenge).decode("utf-8")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid passkey challenge")
 
-    if not matched_challenge:
+    # Fetch-and-delete atomically so the challenge is single-use even under
+    # concurrent requests. A separate get() then delete() leaves a TOCTOU
+    # window where two requests both read the challenge before either deletes
+    # it — a WebAuthn challenge replay.
+    try:
+        entry = await redis_cache.get_del(_passkey_key(challenge))
+    except Exception:
+        # Redis error mid-verification: fail closed rather than risk a replay.
+        raise HTTPException(status_code=503, detail="Authentication temporarily unavailable")
+    if not entry:
+        # Missing, already used, or expired (Redis TTL handles expiry).
         raise HTTPException(status_code=401, detail="Passkey challenge expired")
 
-    challenge_entry = _passkey_challenges.pop(matched_challenge, {})
     expected_flow = "registration" if expected_type == "webauthn.create" else "authentication"
-    if challenge_entry.get("type") != expected_flow:
+    if entry.get("type") != expected_flow:
         raise HTTPException(status_code=400, detail="Passkey challenge type mismatch")
 
 
@@ -921,14 +1015,15 @@ async def passkey_register_init(request: PasskeyRegisterInitRequest):
     challenge = secrets.token_urlsafe(32)
     user_id = secrets.token_hex(16)
 
-    # Store challenge for verification
-    _passkey_challenges[challenge] = {
+    # Store challenge for verification (shared across replicas via Redis)
+    from bot.utils.redis_cache import redis_cache
+    await redis_cache.set(_passkey_key(challenge), {
         "user_id": user_id,
         "email": request.email,
         "display_name": request.displayName or request.email or "Suwappu User",
         "timestamp": time.time(),
         "type": "registration",
-    }
+    }, ttl_seconds=PASSKEY_CHALLENGE_TTL)
 
     # Get RP ID from settings or use default
     import urllib.parse
@@ -956,7 +1051,7 @@ async def passkey_register_complete(
     """
     from bot.services.turnkey_client import get_turnkey_client, is_turnkey_configured
 
-    _verify_passkey_challenge(request.clientDataJSON, "webauthn.create")
+    await _verify_passkey_challenge(request.clientDataJSON, "webauthn.create")
 
     existing_user = db.query(User).filter(
         User.passkey_credential_id == request.credentialId
@@ -1101,10 +1196,11 @@ async def passkey_auth_init():
 
     challenge = secrets.token_urlsafe(32)
 
-    _passkey_challenges[challenge] = {
+    from bot.utils.redis_cache import redis_cache
+    await redis_cache.set(_passkey_key(challenge), {
         "timestamp": time.time(),
         "type": "authentication",
-    }
+    }, ttl_seconds=PASSKEY_CHALLENGE_TTL)
 
     rp_id = urllib.parse.urlparse(settings.oauth_redirect_base).netloc or "localhost"
 
@@ -1125,7 +1221,7 @@ async def passkey_auth_complete(
     Complete passkey authentication.
     Verifies the WebAuthn assertion and returns a session.
     """
-    _verify_passkey_challenge(request.clientDataJSON, "webauthn.get")
+    await _verify_passkey_challenge(request.clientDataJSON, "webauthn.get")
 
     user = db.query(User).filter(User.passkey_credential_id == request.credentialId).first()
     if not user and request.userHandle:

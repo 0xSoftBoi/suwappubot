@@ -1,6 +1,6 @@
 # All Chains
 
-Suwappu supports 15 blockchain networks across three chain types: EVM, Solana, and non-EVM (Sui, TON). Every chain is accessible through the same unified API -- the `chain` parameter in your requests determines which network to use.
+Suwappu supports 14 blockchain networks across three chain types: EVM, Solana, and TRON. Every chain is accessible through the same unified API -- the `chain` parameter in your requests determines which network to use.
 
 ## Supported Chains
 
@@ -19,8 +19,7 @@ Suwappu supports 15 blockchain networks across three chain types: EVM, Solana, a
 | Gnosis | 100 | `gnosis` | -- | xDAI | EVM | Live |
 | Scroll | 534352 | `scroll` | -- | ETH | EVM | Live |
 | Solana | -- | `solana` | `sol` | SOL | Solana | Live |
-| Sui | -- | `sui` | -- | SUI | Move | Live |
-| TON | -- | `ton` | -- | TON | TON | Live |
+| TRON | -- | `tron` | `trx` | TRX | TRON | Live |
 
 ## Using Chain Keys
 
@@ -54,12 +53,11 @@ The API currently resolves the following chain keys and aliases for swap routing
 | `avalanche` | `avax` |
 | `fantom` | `ftm` |
 | `linea` | -- |
-| `mantle` | `mnt` |
+| `mantle` | -- |
 | `gnosis` | -- |
 | `scroll` | -- |
 | `solana` | `sol` |
-
-Sui and TON are live and queryable via `GET /chains`, with swap routing support expanding.
+| `tron` | `trx` |
 
 ## Chain Types
 
@@ -75,9 +73,9 @@ Solana uses Base58 addresses, the SPL token standard, and routes swaps through t
 
 See [Solana](solana.md) for token addresses and Solana-specific details.
 
-### Sui and TON
+### TRON
 
-Sui uses the Move VM and TON uses its own virtual machine. Both have distinct address formats and token standards. Support for these chains is expanding.
+TRON uses Base58Check addresses (starting with `T`), the TRC-20 token standard, and routes swaps through Li.Fi. TRON wallets are separate from EVM and Solana wallets.
 
 ## Discovering Chains Programmatically
 

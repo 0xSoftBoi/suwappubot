@@ -141,8 +141,10 @@ class TwoFAFlow(BaseWhatsAppFlow):
             with get_session() as session:
                 user = session.query(User).filter(User.id == db_uid).first()
                 if user:
+                    from bot.services.twofa import twofa_service
                     user.two_fa_enabled = True
-                    user.totp_secret = secret
+                    # Encrypt at rest — never persist the raw TOTP seed.
+                    user.totp_secret = twofa_service.encrypt_secret(secret)
                     session.commit()
         except Exception as e:
             logger.error(f"2FA save error: {e}")

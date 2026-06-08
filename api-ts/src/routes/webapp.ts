@@ -379,7 +379,7 @@ protectedWebapp.get('/swaps', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)
@@ -853,7 +853,7 @@ protectedWebapp.get('/copy/trader/:id', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 	return c.json(result.right)
 })
@@ -944,7 +944,7 @@ protectedWebapp.post('/copy/follow/:traderId', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body: errBody } = mapErrorToResponse(result.left)
-		return c.json(errBody, status as 200)
+		return c.json(errBody, status)
 	}
 	return c.json(result.right, 201)
 })
@@ -975,7 +975,7 @@ protectedWebapp.delete('/copy/follow/:traderId', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body: errBody } = mapErrorToResponse(result.left)
-		return c.json(errBody, status as 200)
+		return c.json(errBody, status)
 	}
 	return c.json(result.right)
 })
@@ -1014,7 +1014,7 @@ protectedWebapp.put('/copy/follow/:traderId', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body: errBody } = mapErrorToResponse(result.left)
-		return c.json(errBody, status as 200)
+		return c.json(errBody, status)
 	}
 	return c.json(result.right)
 })
@@ -1036,7 +1036,7 @@ protectedWebapp.get('/predict/markets', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({ markets: result.right })
@@ -1056,7 +1056,7 @@ protectedWebapp.get('/predict/events', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json({ events: result.right })
@@ -1075,7 +1075,7 @@ protectedWebapp.get('/predict/market/:id', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)
@@ -1111,7 +1111,7 @@ protectedWebapp.get('/predict/market/:id/book', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)
@@ -1147,7 +1147,7 @@ protectedWebapp.get('/predict/market/:id/price', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)
@@ -1187,7 +1187,7 @@ protectedWebapp.get('/predict/market/:id/trades', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)

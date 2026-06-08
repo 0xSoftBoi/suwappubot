@@ -460,8 +460,28 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> Settings:
-    """Get cached settings instance."""
-    return Settings()
+    """Get cached settings instance.
+
+    Validates that KMS is properly configured when a production KMS provider
+    is selected.  A silent fallback to legacy Fernet encryption would mean
+    wallets are encrypted with a weaker scheme without any warning.
+    """
+    s = Settings()
+    if s.kms_provider in ("aws", "gcp"):
+        if not s.kms_key_id:
+            raise ValueError(
+                f"KMS_KEY_ID (or KMS_KEY_ARN) is required when KMS_PROVIDER={s.kms_provider!r}. "
+                "Set it in your environment or switch to KMS_PROVIDER=dev for local development."
+            )
+        if s.kms_provider == "aws" and not s.kms_region:
+            raise ValueError(
+                "KMS_REGION is required when KMS_PROVIDER='aws' (e.g. KMS_REGION=us-east-1)."
+            )
+        if s.kms_provider == "gcp" and not s.gcp_project_id:
+            raise ValueError(
+                "GCP_PROJECT_ID is required when KMS_PROVIDER='gcp'."
+            )
+    return s
 
 
 settings = get_settings()
