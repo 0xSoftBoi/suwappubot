@@ -129,6 +129,16 @@ class RedisCache:
                 self._memory_cache.pop(k, None)
                 self._memory_ttl.pop(k, None)
 
+    async def ping(self) -> bool:
+        """Return True if Redis is reachable, False if using memory fallback."""
+        if self._redis and self._connected:
+            try:
+                await self._redis.ping()
+                return True
+            except Exception:
+                return False
+        return False
+
     async def delete(self, key: str) -> bool:
         """Delete key from Redis (or memory fallback)."""
         if self._redis and self._connected:

@@ -1,8 +1,12 @@
 """Shared HTTP client with connection pooling for faster API calls."""
 
 import aiohttp
-from typing import Optional
+import logging
+from typing import Optional, Callable, TypeVar, Any
 import asyncio
+
+logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
 try:
     import orjson
@@ -76,4 +80,59 @@ async def post_json(url: str, json_data: dict = None, **kwargs) -> dict:
     session = await get_session()
     async with session.post(url, json=json_data, **kwargs) as response:
         return await response.json()
+
+
+# ---------------------------------------------------------------------------
+# Retry helper
+# ---------------------------------------------------------------------------
+
+# HTTP status codes that are transient and worth retrying.
+_RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
+
+
+async def with_retry(
+    fn: Callable[[], Any],
+    *,
+    max_attempts: int = 3,
+    base_delay: float = 1.0,
+    label: str = "request",
+) -> Any:
+    """Retry ``fn`` with exponential backoff on transient errors.
+
+    Retries on ``ConnectionError``, ``asyncio.TimeoutError``, and HTTP
+    responses whose status codes are in ``_RETRYABLE_STATUSES``.  Raises
+    immediately on any other exception (e.g. 4xx validation errors).
+
+    Usage::
+
+        async def _do():
+            async with session.post(url, json=body) as r:
+                if r.status not in (200, 201):
+                    raise aiohttp.ClientResponseError(
+                        r.request_info, r.history, status=r.status
+                    )
+                return await r.json()
+
+        data = await with_retry(_do, label="CoW quote")
+    """
+    last_exc: Exception = RuntimeError("no attempts made")
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return await fn()
+        except aiohttp.ClientResponseError as exc:
+            if exc.status not in _RETRYABLE_STATUSES or attempt == max_attempts:
+                raise
+            last_exc = exc
+        except (ConnectionError, asyncio.TimeoutError, aiohttp.ClientConnectionError) as exc:
+            if attempt == max_attempts:
+                raise
+            last_exc = exc
+
+        delay = base_delay * (2 ** (attempt - 1))
+        logger.warning(
+            "%s failed (attempt %d/%d), retrying in %.1fs: %s",
+            label, attempt, max_attempts, delay, last_exc,
+        )
+        await asyncio.sleep(delay)
+    raise last_exc
 

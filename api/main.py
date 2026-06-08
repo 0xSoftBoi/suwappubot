@@ -2,9 +2,15 @@ import sys
 import os
 import asyncio
 import time
+import uuid
+from contextvars import ContextVar
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
+
+# Request-ID context variable — propagated into every service/log call within
+# the same async context without threading explicit parameters everywhere.
+request_id_ctx: ContextVar[str] = ContextVar("request_id", default="unknown")
 
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, Security, Response, Cookie
 from fastapi.security.api_key import APIKeyHeader, APIKey
@@ -388,6 +394,24 @@ app.add_middleware(
 )
 
 
+# --- Request ID Middleware ---
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """Inject a UUID request ID into every async context and response header.
+
+    Downstream services can call ``request_id_ctx.get()`` to include the ID
+    in log records without threading it through every function signature.
+    """
+    rid = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    token = request_id_ctx.set(rid)
+    try:
+        response = await call_next(request)
+    finally:
+        request_id_ctx.reset(token)
+    response.headers["X-Request-ID"] = rid
+    return response
+
+
 # --- Request Timing Middleware ---
 @app.middleware("http")
 async def timing_middleware(request: Request, call_next):
@@ -626,14 +650,30 @@ def get_db():
     with get_session() as session:
         yield session
 
-# --- Health Check ---
+# --- Health Checks ---
 
-@app.get("/health", tags=["Health"], summary="Service health check")
-async def health_check():
-    """Health check endpoint for load balancers, monitoring, and orchestration."""
+@app.get("/health/live", tags=["Health"], summary="Liveness probe")
+async def health_live():
+    """K8s/ECS liveness probe — confirms the process is alive.
+
+    Load balancers should use ``/health/ready`` to gate traffic;
+    orchestrators use this to decide whether to restart the container.
+    """
+    return {"status": "alive"}
+
+
+@app.get("/health/ready", tags=["Health"], summary="Readiness probe")
+async def health_ready():
+    """K8s/ECS readiness probe — confirms the service can handle requests.
+
+    Checks database connectivity, Redis reachability, and background service
+    heartbeats. Returns 503 if any critical dependency is unhealthy so that
+    the load balancer stops routing traffic to this instance.
+    """
     from database.db import DATABASE_AVAILABLE
+    from bot.utils.redis_cache import redis_cache
 
-    # Check if bot is running (polling or webhook mode)
+    # Bot mode
     bot_status = "unknown"
     try:
         bot_app = getattr(app.state, "bot_app", None)
@@ -648,17 +688,50 @@ async def health_check():
     except Exception:
         bot_status = "error"
 
-    is_healthy = DATABASE_AVAILABLE and bot_status in ("polling", "webhook")
+    # Redis ping
+    redis_ok = await redis_cache.ping()
+
+    # Background service heartbeats (TTL 60s; missing key = service dead)
+    now = time.time()
+    svc_heartbeats: dict = {}
+    for svc in ("tx_poller", "balance_refresher", "perps_monitor"):
+        last = await redis_cache.get(f"service:{svc}:heartbeat")
+        if last is None:
+            svc_heartbeats[svc] = "unknown"
+        elif now - float(last) > 90:
+            svc_heartbeats[svc] = "dead"
+        else:
+            svc_heartbeats[svc] = "alive"
+
+    checks = {
+        "database": DATABASE_AVAILABLE,
+        "redis": redis_ok,
+        "bot": bot_status in ("polling", "webhook"),
+        "services": svc_heartbeats,
+    }
+    # Critical: DB must be up; Redis + bot strongly preferred
+    is_ready = checks["database"]
+    status_code = 200 if is_ready else 503
 
     return JSONResponse(
-        status_code=200 if is_healthy else 503,
+        status_code=status_code,
         content={
-            "status": "healthy" if is_healthy else "degraded",
+            "ready": is_ready,
             "service": "suwappu-bot",
-            "database": "connected" if DATABASE_AVAILABLE else "disconnected",
-            "bot": bot_status,
+            "checks": {
+                "database": "connected" if DATABASE_AVAILABLE else "disconnected",
+                "redis": "connected" if redis_ok else "memory-fallback",
+                "bot": bot_status,
+                "background_services": svc_heartbeats,
+            },
         },
     )
+
+
+@app.get("/health", tags=["Health"], summary="Health check (legacy)")
+async def health_check():
+    """Legacy alias for /health/ready — kept for backward compatibility."""
+    return await health_ready()
 
 
 # ============ Turnkey Web Authentication ============

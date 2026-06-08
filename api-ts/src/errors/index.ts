@@ -49,9 +49,19 @@ export type AppError =
 	| DatabaseError
 	| ExternalServiceError
 
+export interface ErrorResponseBody {
+	error: string
+	message?: string
+	fields?: Record<string, string>
+	service?: string
+	resource?: string
+	requestId?: string
+	timestamp?: string
+}
+
 interface ErrorResponse {
 	status: 400 | 401 | 403 | 404 | 500 | 502
-	body: { error: string; message?: string; fields?: Record<string, string>; service?: string; resource?: string }
+	body: ErrorResponseBody
 }
 
 export const mapErrorToResponse = (error: AppError | Error | unknown): ErrorResponse => {

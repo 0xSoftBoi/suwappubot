@@ -21,7 +21,7 @@ from eth_account.messages import encode_typed_data
 from bot.config.settings import settings
 from bot.config.chains import get_chain_by_name
 from bot.config.tokens import get_token_address, get_token_decimals, get_decimals_by_address
-from bot.utils.http_client import get_session
+from bot.utils.http_client import get_session, with_retry
 from bot.utils.rate_limiter import api_limiter
 
 logger = logging.getLogger(__name__)
@@ -212,15 +212,26 @@ class CoWProtocolAPI:
         else:
             quote_request["buyAmountAfterFee"] = amount
         
-        async with session.post(
-            f"{api_url}/api/v1/quote",
-            json=quote_request
-        ) as response:
-            if response.status != 200:
-                error_text = await response.text()
-                raise CoWError(f"CoW quote error: {error_text}")
-            
-            data = await response.json()
+        async def _do_quote():
+            import aiohttp as _aiohttp
+            async with session.post(
+                f"{api_url}/api/v1/quote",
+                json=quote_request,
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    raise _aiohttp.ClientResponseError(
+                        response.request_info,
+                        response.history,
+                        status=response.status,
+                        message=error_text[:200],
+                    )
+                return await response.json()
+
+        try:
+            data = await with_retry(_do_quote, label="CoW quote", base_delay=0.5)
+        except Exception as exc:
+            raise CoWError(f"CoW quote error: {exc}") from exc
         
         quote = data.get("quote", {})
         
