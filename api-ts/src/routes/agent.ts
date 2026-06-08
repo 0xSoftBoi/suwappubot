@@ -1268,6 +1268,12 @@ agentRoutes.get('/portfolio', async (c) => {
 		)
 	}
 
+	// Only allow an agent to read its own managed wallet's balances — otherwise the
+	// endpoint discloses live balances for any address and enables wallet enumeration (H9).
+	if (!checkEvmWalletOwnership(agent, walletAddress)) {
+		return c.json({ success: false, error: 'wallet_address is not your managed wallet' }, 403)
+	}
+
 	const chain = c.req.query('chain')
 
 	// Track request
