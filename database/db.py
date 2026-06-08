@@ -665,6 +665,10 @@ def _add_user_core_columns(db_engine, inspector, is_sqlite: bool) -> None:
         ("whatsapp_id", "VARCHAR(255)", "NULL"),
         ("default_slippage", "INTEGER", "50"),
         ("notifications_enabled", "BOOLEAN", "TRUE"),
+        # recovery_email had no migration; an api-ts drizzle push --force dropped it from
+        # the shared DB, so passkey register/complete (and any User SELECT) 500'd with
+        # "column users.recovery_email does not exist". Restore it idempotently.
+        ("recovery_email", "VARCHAR(255)", "NULL"),
     ]
 
     for col_name, col_type, default in new_columns:
