@@ -1,0 +1,121 @@
+name: Tests & Quality Gates
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Python — lint, type-check, tests, coverage
+  # ---------------------------------------------------------------------------
+  python-quality:
+    name: Python quality
+    runs-on: ubuntu-latest
+    env:
+      TELEGRAM_BOT_TOKEN: test-token
+      ENCRYPTION_KEY: test-encryption-key-32byteslong!!
+      DATABASE_URL: "sqlite:///test.db"
+      KMS_PROVIDER: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]" 2>/dev/null || pip install \
+            pytest pytest-asyncio pytest-cov \
+            black flake8 \
+            pydantic pydantic-settings \
+            eth-utils base58 \
+            aiohttp \
+            sqlalchemy \
+            python-telegram-bot \
+            cryptography
+
+      - name: Format check (black)
+        run: black --check --line-length=100 bot/ api/ tests/
+        continue-on-error: true   # advisory — fix before setting to false
+
+      - name: Lint (flake8)
+        run: flake8 bot/ api/ tests/ --max-line-length=100 --extend-ignore=E501,W503
+        continue-on-error: true   # advisory — fix before setting to false
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ \
+            --cov=bot --cov=api \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=30 \
+            -q
+        # Threshold starts at 30 % — raise by 10 pp each sprint until 70 %
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+
+  # ---------------------------------------------------------------------------
+  # TypeScript — type-check, tests
+  # ---------------------------------------------------------------------------
+  typescript-quality:
+    name: TypeScript quality
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api-ts
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Type-check (tsc --noEmit)
+        run: bun run check
+
+      - name: Run TypeScript tests
+        run: bun run test
+        continue-on-error: true   # advisory until coverage is built up
+
+  # ---------------------------------------------------------------------------
+  # Security — dependency scanning
+  # ---------------------------------------------------------------------------
+  dependency-scan:
+    name: Dependency security scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Python dependency audit (pip-audit)
+        run: |
+          pip install pip-audit
+          pip-audit --desc || true   # advisory — harden to fail later
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: TypeScript dependency audit (npm audit)
+        working-directory: api-ts
+        run: |
+          npm audit --production --audit-level=high || true   # advisory
