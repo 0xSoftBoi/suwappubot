@@ -65,9 +65,9 @@ class FeeCalculation:
     fee_amount_token: Optional[Decimal] = None
     token_symbol: Optional[str] = None
     
-    # Staking pool split (20/80)
-    staking_allocation_usd: float = 0.0   # 20% of fee_amount_usd
-    protocol_allocation_usd: float = 0.0  # 80% of fee_amount_usd
+    # Staking pool split (40/60 of the net fee, i.e. after the referral payout)
+    staking_allocation_usd: float = 0.0   # 40% of net_fee_usd
+    protocol_allocation_usd: float = 0.0  # 60% of net_fee_usd
 
     # Referral info
     referrer_id: Optional[int] = None
@@ -76,11 +76,11 @@ class FeeCalculation:
 
 class FeeService:
     """Service for calculating and collecting swap fees.
-    
-    Pricing strategy:
-    - 0.8% flat fee on all swaps (competitive rate)
-    - 30% of fees go to referrer (viral growth)
-    - Net revenue: 0.56% per swap (0.8% * 70%)
+
+    Pricing strategy (Option B Hybrid, tier-based):
+    - Swap fee by subscription tier: Free 1.0% / Pro 0.5% / Premium 0.3% / Enterprise 0.1%
+    - 30% of the gross fee goes to the referrer (viral growth)
+    - The remaining net fee is split 40/60 between the staking pool and protocol treasury
     """
     
     def __init__(self):
@@ -127,12 +127,15 @@ class FeeService:
                 Decimal("0.01"), rounding=ROUND_DOWN
             )
 
-        # Net fee (what we keep)
+        # Net fee (what we keep after paying the referrer)
         net_fee = fee_amount - referral_reward
 
-        # 40/60 split: staking pool vs protocol treasury
-        staking_allocation_usd = float(fee_amount) * 0.40
-        protocol_allocation_usd = float(fee_amount) * 0.60
+        # 40/60 split of the NET fee: staking pool vs protocol treasury.
+        # Splitting net (not gross) keeps the allocation consistent —
+        # referral + staking + protocol == fee_amount (otherwise a referred
+        # swap would "allocate" 30% + 40% + 60% = 130% of the fee).
+        staking_allocation_usd = float(net_fee) * 0.40
+        protocol_allocation_usd = float(net_fee) * 0.60
 
         return FeeCalculation(
             swap_amount_usd=amount,
@@ -274,7 +277,7 @@ class FeeService:
         # Accept both fee_token and token_symbol (caller uses token_symbol)
         resolved_token = fee_token or token_symbol or "UNKNOWN"
         resolved_fee_amount = fee_amount_token or fee_amount
-        resolved_fee_pct = fee_percentage or float(SWAP_FEE_PERCENTAGE)
+        resolved_fee_pct = fee_percentage or (DEFAULT_FEE_RATE * 100)  # free-tier default (1.0%)
 
         with get_session() as session:
             fee_tx = FeeTransaction(
@@ -289,7 +292,7 @@ class FeeService:
                 collected=False,
                 created_at=datetime.now(timezone.utc),
                 # TODO(staking): add staking_allocation_usd and protocol_allocation_usd
-                # columns to FeeTransaction to persist the 20/80 split per-record.
+                # columns to FeeTransaction to persist the 40/60 net-fee split per-record.
                 # The split is already computed on FeeCalculation.staking_allocation_usd /
                 # FeeCalculation.protocol_allocation_usd for in-process consumers.
             )
@@ -326,16 +329,19 @@ class FeeService:
         """Format fee information for display."""
         return (
             "💰 *Suwappu Fee Structure*\n\n"
-            f"• Swap Fee: *{SWAP_FEE_PERCENTAGE}%*\n"
+            "• Swap Fee by tier:\n"
+            "   – Free: *1.0%*\n"
+            "   – Pro: *0.5%*\n"
+            "   – Premium: *0.3%*\n"
+            "   – Enterprise: *0.1%*\n"
             f"• Referral Reward: *{REFERRAL_REWARD_PERCENTAGE}%* of fees\n"
             f"• Min Swap: ${MIN_SWAP_USD}\n"
             f"• Max Swap: ${MAX_SWAP_USD:,}\n\n"
             "🏆 *Why We're Competitive:*\n"
-            "• Lower than Maestro (1%)\n"
-            "• Lower than Trojan (0.9%)\n"
+            "• Lower tiers beat Maestro (1%) and Trojan (0.9%)\n"
             "• MEV Protection included\n"
             "• Cross-chain support\n\n"
-            "_Example: $1,000 swap = $8 fee_"
+            "_Example: $1,000 swap on Free = $10 fee_"
         )
 
     def get_uncollected_fees(self) -> List[Dict[str, object]]:
