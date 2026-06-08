@@ -258,6 +258,24 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 const tokenResolutionCache = new Map<string, { result: TokenInfo | null; expiry: number }>()
 const TOKEN_RESOLUTION_TTL = 10 * 60 * 1000 // 10 minutes
 
+// Li.Fi (chainlist's token list) is an untrusted upstream — a DNS hijack / MITM / Li.Fi
+// compromise could map a legitimate symbol to a malicious contract that the swap builder
+// would then trust. Validate the resolved token before caching/returning it (H8).
+const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
+function isValidLifiToken(
+	token: TokenInfo | undefined,
+	chainId: number,
+	symbol: string,
+): token is TokenInfo {
+	if (!token || !EVM_ADDRESS_RE.test(token.address)) return false
+	// Li.Fi must report the token on the chain we asked for.
+	if (token.chainId !== chainId) return false
+	// If we have a canonical address for this exact (chain, symbol), it must match.
+	const trusted = COMMON_TOKENS[chainId]?.[symbol]
+	if (trusted && trusted.toLowerCase() !== token.address.toLowerCase()) return false
+	return true
+}
+
 export interface TokenServiceInterface {
 	readonly resolveChain: (chainInput: string) => ChainInfo | null
 	readonly resolveToken: (symbol: string, chainId: number) => Effect.Effect<TokenInfo | null, Error>
@@ -350,7 +368,9 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 			const tokens = response.tokens[String(chainId)] || []
 			const found = tokens.find((t) => t.symbol.toUpperCase() === normalized)
 
-			const result = found || null
+			// Discard a malformed / cross-chain / canonical-mismatch Li.Fi response (H8);
+			// the null path is already handled by callers.
+			const result = isValidLifiToken(found, chainId, normalized) ? found : null
 
 			// Cache the result (even null to avoid repeated lookups for unknown tokens)
 			tokenResolutionCache.set(cacheKey, { result, expiry: Date.now() + TOKEN_RESOLUTION_TTL })
