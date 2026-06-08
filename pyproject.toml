@@ -2,6 +2,10 @@
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "--strict-markers -v --tb=short"
+# Put the repo root on sys.path so tests can import the first-party packages
+# (bot, api, database). The project is not pip-installed, so without this pytest
+# can't resolve `from bot...` / `from api...` imports.
+pythonpath = ["."]
 
 [tool.coverage.run]
 source = ["bot", "api"]
