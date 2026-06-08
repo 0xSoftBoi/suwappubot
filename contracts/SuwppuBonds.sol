@@ -157,13 +157,12 @@ contract SuwppuBonds is Ownable, ReentrancyGuard, Pausable {
             "LP must be SUWP/USDC"
         );
 
-        // Transfer LP NFT to this contract (protocol treasury)
-        positionManager.safeTransferFrom(msg.sender, address(this), lpTokenId);
-
-        // Estimate LP value and compute discounted SUWP payout
+        // Compute payout from the (still caller-owned) position, then write all
+        // state BEFORE the external NFT transfer (checks-effects-interactions). The
+        // transfer is last; if it reverts the whole tx reverts. nonReentrant also
+        // blocks re-entry via the onERC721Received callback.
         uint256 suwpPayout = _computePayout(lpTokenId);
 
-        // Create vesting bond
         bondId = nextBondId++;
         uint256 end = block.timestamp + VESTING_DURATION;
         bonds[bondId] = Bond({
@@ -176,11 +175,13 @@ contract SuwppuBonds is Ownable, ReentrancyGuard, Pausable {
             active:      true
         });
         userBonds[msg.sender].push(bondId);
-
         totalLpBonded++;
         totalSuwpIssued += suwpPayout;
 
         emit Bonded(bondId, msg.sender, lpTokenId, suwpPayout, end);
+
+        // Interaction last: pull the LP NFT into the treasury.
+        positionManager.safeTransferFrom(msg.sender, address(this), lpTokenId);
     }
 
     /**
