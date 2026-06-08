@@ -12,6 +12,11 @@ export function createCorsMiddleware(allowedOrigins: string) {
 			if (!isProduction && origin.match(/^http:\/\/localhost(:\d+)?$/)) return origin
 			return null
 		},
+		// The webapp/terminal SPA calls with fetch(credentials:'include'), so the
+		// browser requires Access-Control-Allow-Credentials: true or it blocks every
+		// response. Safe here: the origin callback echoes a concrete origin (never '*')
+		// for real cross-origin requests, which is what the credentialed-CORS spec needs.
+		credentials: true,
 		allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 		allowHeaders: [
 			'Content-Type',
