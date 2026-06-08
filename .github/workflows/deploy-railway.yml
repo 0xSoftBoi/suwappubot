@@ -112,4 +112,16 @@ jobs:
       - name: Deploy
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: railway up --ci --service "${{ matrix.service }}"
+        run: |
+          svc="${{ matrix.service }}"
+          # api-ts and showcase are sub-directory services: each has a self-contained
+          # railway.json + Dockerfile in its own folder. Upload that folder as the
+          # archive root (--path-as-root) so Railway builds it via its Dockerfile
+          # instead of detecting the repo root as a Python app (root pyproject.toml).
+          # python-api and terminal deploy from the repo root and use their dashboard
+          # Config path (railway.<svc>.json).
+          case "$svc" in
+            api-ts)   railway up ./api-ts   --path-as-root --ci --service "$svc" ;;
+            showcase) railway up ./showcase --path-as-root --ci --service "$svc" ;;
+            *)        railway up --ci --service "$svc" ;;
+          esac
