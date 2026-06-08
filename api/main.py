@@ -760,11 +760,13 @@ async def auth_challenge(request: AuthChallengeRequest):
     if not address.startswith("0x") or len(address) != 42:
         raise HTTPException(status_code=400, detail="Invalid Ethereum address format")
     
-    challenge, nonce = generate_auth_challenge(address)
-    
+    # generate_auth_challenge returns a dict (challenge/nonce/expiresAt); unpacking
+    # it into two vars raised "too many values to unpack" -> 500 on every challenge.
+    result = generate_auth_challenge(address)
+
     return AuthChallengeResponse(
-        challenge=challenge,
-        nonce=nonce,
+        challenge=result["challenge"],
+        nonce=result["nonce"],
         expiresAt=datetime.utcnow() + timedelta(minutes=5)
     )
 
