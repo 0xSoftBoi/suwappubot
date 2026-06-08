@@ -1075,6 +1075,7 @@ class SwapEngine:
                     return {
                         "id": wallet_obj.id,
                         "wallet_id": wallet_obj.id,
+                        "user_id": wallet_obj.user_id,
                         "address": wallet_obj.address,
                         "chain_type": wallet_obj.chain_type,
                         "encrypted_private_key": wallet_obj.encrypted_private_key,
@@ -1082,6 +1083,13 @@ class SwapEngine:
             wallet = await run_in_db(_get_wallet)
             if not wallet:
                 raise SwapError("Wallet not found")
+
+            # Authentication binding: the wallet must belong to the caller's
+            # user_id before any funds move. Without this, a caller could supply
+            # a wallet_id from one user and a user_id from another (e.g. via the
+            # internal /agent/execute-swap endpoint) to swap on someone else's wallet.
+            if wallet["user_id"] != user_id:
+                raise SwapError(f"Wallet {wallet_id} does not belong to user {user_id}")
 
             wallet_address = wallet["address"]
             wallet_chain_type = wallet["chain_type"]
