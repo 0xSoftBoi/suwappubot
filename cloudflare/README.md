@@ -62,11 +62,12 @@ All three reaching the right backend = the ALB path-routing is restored, for $0.
 ## Per-hostname status (June 2026)
 | Hostname | Status | Action |
 |----------|--------|--------|
-| `api.suwappu.bot` | ✅ wired (python-api + api-ts) | add Custom Domain |
-| `www.suwappu.bot` / `suwappu.bot` | ✅ wired (showcase, live 200) | add Custom Domain |
-| `terminal.suwappu.bot` | ⛔ backend down — `terminal-production-7906.up.railway.app/` returns **502** | fix the terminal service first, then add `terminal` to `ORIGINS` + a hostname branch |
-| `app.suwappu.bot` | ⛔ no host — webapp Mini App is **not a Railway service** (not in the deploy matrix) | host it (recommend **Cloudflare Pages**, free, builds `webapp/`), then point `app` at it |
+| `api.suwappu.bot` | ✅ live (python-api + api-ts) | bound |
+| `www.suwappu.bot` / `suwappu.bot` | ✅ live (showcase) | bound |
+| `terminal.suwappu.bot` | ✅ wired in Worker (terminal) | 502 fixed in PR #349 ($PORT); redeploy Worker + add Custom Domain |
+| `app.suwappu.bot` | ✅ wired in Worker (→ terminal) | old Mini App source is gone; `app` mirrors terminal. Delete stale `app` CNAME, then add Custom Domain |
 | `devapi.suwappu.bot` | ⛔ dev env has **no public domains** (python-api/api-ts dev not exposed) | generate dev auto-domains, then a second Worker/route mapping `devapi` → dev backends |
 
-The three ⛔ rows aren't DNS problems — each needs its backend stood up before a hostname
-helps. `api` + `www`/apex (the live ones) are what restores the core product.
+`api`/`www`/apex are live now. `terminal`/`app` are wired in the Worker and just need the
+Worker redeployed + their Custom Domains bound (the `app` row also needs its dead CNAME
+removed first). `devapi` still needs a dev backend exposed.

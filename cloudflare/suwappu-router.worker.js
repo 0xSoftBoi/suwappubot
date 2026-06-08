@@ -11,10 +11,10 @@
  * Hostname map:
  *   api.suwappu.bot            → path-routed across python-api + api-ts (the old ALB job)
  *   www.suwappu.bot / apex     → showcase (Next.js marketing site)
+ *   terminal.suwappu.bot       → terminal (trading UI; 502 fixed in PR #349 = listen on $PORT)
+ *   app.suwappu.bot            → terminal (the old Mini App's source is gone; app now shows terminal)
  *
  * NOT wired here yet (backend not ready — see cloudflare/README.md):
- *   terminal.suwappu.bot  — terminal service currently returns 502 (app down), fix it first
- *   app.suwappu.bot       — webapp Mini App isn't a Railway service; needs a host (e.g. CF Pages)
  *   devapi.suwappu.bot    — dev environment has no public domains; stand those up first
  */
 
@@ -22,6 +22,7 @@ const ORIGINS = {
   PYTHON: "https://python-api-production-8526.up.railway.app",
   API_TS: "https://api-ts-production.up.railway.app",
   SHOWCASE: "https://showcase-production-6f89.up.railway.app",
+  TERMINAL: "https://terminal-production-7906.up.railway.app",
 };
 
 // On api.suwappu.bot, these top-level prefixes belong to python-api (JWT issuer +
@@ -32,6 +33,11 @@ const PYTHON_PREFIXES = ["/auth", "/telegram", "/webhook", "/users", "/tools"];
 function pickOrigin(hostname, pathname) {
   if (hostname === "www.suwappu.bot" || hostname === "suwappu.bot") {
     return ORIGINS.SHOWCASE;
+  }
+  // terminal.suwappu.bot serves the trading UI; app.suwappu.bot now mirrors it
+  // (the old Mini App's deployable source no longer exists).
+  if (hostname === "terminal.suwappu.bot" || hostname === "app.suwappu.bot") {
+    return ORIGINS.TERMINAL;
   }
   // api.suwappu.bot (and any other host that reaches this Worker) → API path-routing
   for (const p of PYTHON_PREFIXES) {
