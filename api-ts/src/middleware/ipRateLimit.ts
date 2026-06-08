@@ -1,4 +1,5 @@
 import type { Context, Next } from 'hono'
+import { getConnInfo } from 'hono/bun'
 import { HTTPException } from 'hono/http-exception'
 
 interface SlidingWindowEntry {
@@ -9,6 +10,36 @@ interface SlidingWindowEntry {
 const DEFAULT_LIMIT = 10
 const WINDOW_MS = 60_000 // 1 minute
 const CLEANUP_INTERVAL = 5 * 60_000 // 5 minutes
+
+// Trusted reverse-proxy hops in front of this service. A trusting proxy APPENDS the
+// real client IP to the right of x-forwarded-for, so the spoof-resistant address is the
+// entry TRUSTED_PROXY_COUNT hops from the right; anything a client sets lands further
+// left and must be ignored. Configurable for multi-hop topologies (CloudFront -> ALB).
+const TRUSTED_PROXY_COUNT = Math.max(1, Number(process.env.TRUSTED_PROXY_COUNT) || 1)
+
+/**
+ * Resolve the rate-limiting client IP in a spoof-resistant way: take the entry
+ * `trustedProxyCount` hops from the RIGHT of x-forwarded-for (the proxy-appended hop),
+ * not the client-controllable leftmost. Falls back to the socket IP, then 'unknown'.
+ */
+export function resolveClientIp(
+	forwarded: string | undefined,
+	socketIp: string | undefined,
+	trustedProxyCount: number = TRUSTED_PROXY_COUNT,
+): string {
+	const chain =
+		forwarded
+			?.split(',')
+			.map((part) => part.trim())
+			.filter((part) => part.length > 0) ?? []
+
+	if (chain.length >= trustedProxyCount) {
+		const clientIp = chain[chain.length - trustedProxyCount]
+		if (clientIp) return clientIp
+	}
+
+	return socketIp?.trim() || 'unknown'
+}
 
 const windows = new Map<string, SlidingWindowEntry>()
 let lastGlobalCleanup = Date.now()
@@ -33,11 +64,18 @@ function cleanupExpired() {
  */
 export function ipRateLimit(limit: number = DEFAULT_LIMIT) {
 	return async (c: Context, next: Next) => {
-		// Prefer Cloudflare's header; otherwise take the rightmost XFF hop
-		// (the hop added by our own proxy, not attacker-controlled).
+		// Prefer Cloudflare's header; otherwise resolve the spoof-resistant client IP
+		// (trusted-proxy hops from the right of XFF, then socket IP).
 		const cfIp = c.req.header('cf-connecting-ip')
 		const forwarded = c.req.header('x-forwarded-for')
-		const ip = cfIp ?? forwarded?.split(',').at(-1)?.trim() ?? 'unknown'
+		let socketIp: string | undefined
+		try {
+			socketIp = getConnInfo(c).remote.address
+		} catch {
+			// Connection info unavailable (e.g. non-Bun runtime in tests); fall back below.
+			socketIp = undefined
+		}
+		const ip = cfIp?.trim() || resolveClientIp(forwarded, socketIp)
 		const key = `ip:${ip}`
 		const now = Date.now()
 
