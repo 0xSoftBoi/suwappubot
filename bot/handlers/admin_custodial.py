@@ -16,18 +16,19 @@ from bot.services.hot_wallet import hot_wallet_service
 from bot.services.paymaster import paymaster_service
 from bot.models.custodial import HotWallet, GasSponsorshipConfig
 from bot.config.chains import CHAINS
+from bot.config.settings import settings
 from bot.utils.formatters import format_amount, format_usd
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
-# Admin IDs (set your Telegram ID here)
-ADMIN_IDS = []  # e.g., [123456789]
+# Admin user IDs from settings, fail-closed if not configured
+ADMIN_IDS = [int(x) for x in settings.admin_telegram_ids.split(",") if x.strip()] if settings.admin_telegram_ids else []
 
 
 def is_admin(user_id: int) -> bool:
-    """Check if user is admin."""
-    return user_id in ADMIN_IDS or len(ADMIN_IDS) == 0
+    """Check if user is admin. Denies all if no admin IDs configured (fail-closed)."""
+    return len(ADMIN_IDS) > 0 and user_id in ADMIN_IDS
 
 
 # Conversation states
