@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import type { Agent } from '../db'
 import { mapErrorToResponse } from '../errors'
-import { agentBearerAuth } from '../middleware'
+import { agentBearerAuth, flexAuth } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { HyperliquidService } from '../services/HyperliquidService'
 
@@ -40,7 +40,7 @@ perpsRoutes.get('/markets', async (c) => {
 })
 
 // POST /v1/agent/perps/quote — get perp position quote
-perpsRoutes.post('/quote', agentBearerAuth, async (c) => {
+perpsRoutes.post('/quote', agentBearerAuth(), async (c) => {
 	const body = await c.req.json()
 	const parsed = QuoteSchema.safeParse(body)
 	if (!parsed.success) {
@@ -65,7 +65,7 @@ perpsRoutes.post('/quote', agentBearerAuth, async (c) => {
 })
 
 // GET /v1/agent/perps/positions — list open positions
-perpsRoutes.get('/positions', agentBearerAuth, async (c) => {
+perpsRoutes.get('/positions', flexAuth(), async (c) => {
 	const address = c.req.query('address')
 	if (!address) {
 		return c.json({ error: 'address query parameter required' }, 400)
