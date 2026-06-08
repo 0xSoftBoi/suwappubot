@@ -77,6 +77,26 @@ export function stopAgentCleanup() {
 	clearInterval(quoteCacheCleanup)
 }
 
+// --- Managed-wallet ownership (C16/C17) ---
+// Agents use managed (Turnkey) EVM wallets whose address is stored in
+// agent.metadata.wallet_address. A caller-supplied `wallet_address` used as the
+// swap sender must match it — otherwise an agent could build a fund-moving tx from
+// an arbitrary/victim address.
+const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
+function isEvmAddress(addr: unknown): addr is string {
+	return typeof addr === 'string' && EVM_ADDRESS_RE.test(addr)
+}
+function getAgentWalletAddress(agent: Agent): string | undefined {
+	const addr = ((agent.metadata || {}) as Record<string, unknown>).wallet_address
+	return typeof addr === 'string' ? addr : undefined
+}
+/** True only if `addr` is a valid EVM address matching the agent's managed wallet. */
+export function checkEvmWalletOwnership(agent: Agent, addr: unknown): boolean {
+	if (!isEvmAddress(addr)) return false
+	const owned = getAgentWalletAddress(agent)
+	return isEvmAddress(owned) && owned.toLowerCase() === addr.toLowerCase()
+}
+
 // CoinGecko ID mapping for token prices
 const COINGECKO_IDS: Record<string, string> = {
 	eth: 'ethereum',
@@ -941,6 +961,13 @@ agentRoutes.post('/swap', async (c) => {
 			})
 		}
 
+		// The EVM tx below is built with from: wallet_address, so the caller must own
+		// that address (their managed wallet) — block constructing a fund-moving tx
+		// from an arbitrary/victim address (C16).
+		if (!checkEvmWalletOwnership(agent, wallet_address)) {
+			return c.json({ success: false, error: 'wallet_address is not your managed wallet' }, 403)
+		}
+
 		// EVM swap - return unsigned transaction
 		return c.json({
 			success: true,
@@ -1023,6 +1050,13 @@ agentRoutes.post('/execute', async (c) => {
 	}
 
 	const { command, wallet_address } = parsed.data
+
+	// If a wallet_address is supplied it must be the agent's own managed EVM wallet —
+	// otherwise a natural-language command could carry a victim's address as the swap
+	// sender (C17).
+	if (wallet_address && !checkEvmWalletOwnership(agent, wallet_address)) {
+		return c.json({ success: false, error: 'wallet_address is not your managed wallet' }, 403)
+	}
 
 	// Track request
 	await runEffectEither(
