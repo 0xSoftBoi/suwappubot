@@ -415,8 +415,11 @@ async def withdraw_select_token(update: Update, context: ContextTypes.DEFAULT_TY
     
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.edit_message_text("❌ Please use /start first.")
+            return ConversationHandler.END
         user_id = db_user.id
-    
+
     balance = hot_wallet_service.get_custodial_balance(user_id, chain, token)
     context.user_data["withdraw_balance"] = float(balance)
     
@@ -491,8 +494,11 @@ async def withdraw_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await update.message.reply_text("❌ Please use /start first.")
+            return ConversationHandler.END
         user_id = db_user.id
-    
+
     await update.message.reply_text("⏳ Processing withdrawal...")
     
     try:
