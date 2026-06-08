@@ -15,11 +15,19 @@ function formatSize(size: number): string {
 export function OrderBookPanel() {
   const [viewMode, setViewMode] = useState<OrderBookViewMode>('both')
   const [precision, setPrecision] = useState<PrecisionStep>(0.01)
-  const { book, isConnected, maxTotal } = useOrderBook(precision)
+  const { book, status, isConnected, maxTotal } = useOrderBook(precision)
 
   const showBids = viewMode === 'both' || viewMode === 'bids'
   const showAsks = viewMode === 'both' || viewMode === 'asks'
   const hasBook = book.asks.length > 0 || book.bids.length > 0
+  const emptyTitle =
+    status === 'unsupported' ? 'No central order book for DEX pairs'
+    : status === 'error' ? "Couldn't load the order book"
+    : 'Loading order book…'
+  const emptySub =
+    status === 'unsupported' ? 'AMM pairs trade against pool liquidity, not a bid/ask book.'
+    : status === 'error' ? 'Retrying automatically…'
+    : ''
 
   return (
     <div className="flex flex-col h-full" data-testid="order-book">
@@ -91,12 +99,10 @@ export function OrderBookPanel() {
         {!hasBook && (
           <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-center">
             <div>
-              <div className="text-[11px] font-sans text-terminal-text-secondary">
-                Order book provider is not connected yet.
-              </div>
-              <div className="mt-1 text-[10px] font-sans text-terminal-text-muted">
-                Live depth will appear here when a real feed is wired.
-              </div>
+              <div className="text-[11px] font-sans text-terminal-text-secondary">{emptyTitle}</div>
+              {emptySub && (
+                <div className="mt-1 text-[10px] font-sans text-terminal-text-muted">{emptySub}</div>
+              )}
             </div>
           </div>
         )}
@@ -126,7 +132,7 @@ export function OrderBookPanel() {
             {hasBook ? formatPrice(book.midPrice, precision) : '--'}
           </span>
           <span className="text-[10px] text-terminal-text-muted">
-            {isConnected ? `Spread: ${book.spread.toFixed(2)} (${book.spreadPercent.toFixed(3)}%)` : 'Provider offline'}
+            {isConnected ? `Spread: ${book.spread.toFixed(2)} (${book.spreadPercent.toFixed(3)}%)` : '—'}
           </span>
         </div>
 

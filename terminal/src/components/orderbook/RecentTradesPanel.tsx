@@ -6,7 +6,15 @@ function formatTime(ts: number): string {
 }
 
 export function RecentTradesPanel() {
-  const { trades, isConnected } = useRecentTrades()
+  const { trades, status, isConnected } = useRecentTrades()
+  const emptyTitle =
+    status === 'unsupported' ? 'No public trade feed for DEX pairs'
+    : status === 'error' ? "Couldn't load recent trades"
+    : 'Loading recent trades…'
+  const emptySub =
+    status === 'unsupported' ? 'On-chain pairs trade against pool liquidity — there is no central trade tape.'
+    : status === 'error' ? 'Retrying automatically…'
+    : ''
 
   return (
     <div className="flex flex-col h-full" data-testid="recent-trades">
@@ -28,12 +36,8 @@ export function RecentTradesPanel() {
         {trades.length === 0 && (
           <div className="flex h-full items-center justify-center px-4 text-center font-sans">
             <div>
-              <div className="text-[11px] text-terminal-text-secondary">
-                Recent trades provider is not connected yet.
-              </div>
-              <div className="mt-1 text-[10px] text-terminal-text-muted">
-                Live prints will appear here when a real feed is wired.
-              </div>
+              <div className="text-[11px] text-terminal-text-secondary">{emptyTitle}</div>
+              {emptySub && <div className="mt-1 text-[10px] text-terminal-text-muted">{emptySub}</div>}
             </div>
           </div>
         )}
