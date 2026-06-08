@@ -1,0 +1,35 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "--strict-markers -v --tb=short"
+
+[tool.coverage.run]
+source = ["bot", "api"]
+omit = [
+    "*/tests/*",
+    "bot/platforms/*",   # platform adapters: complex integration, separate coverage sprint
+    "bot/main.py",       # Telegram bot entry point, tested via integration
+]
+
+[tool.coverage.report]
+fail_under = 30          # Floor: grow to 70% over 6 weeks (see CLAUDE.md roadmap)
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_ignores = true
+no_implicit_optional = true
+strict_optional = true
