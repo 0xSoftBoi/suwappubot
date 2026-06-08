@@ -857,7 +857,10 @@ agentRoutes.post('/swap', async (c) => {
 	if (quote_id) {
 		const cached = quoteCache.get(quote_id)
 
-		if (!cached) {
+		// Reject a missing quote OR one created by a different agent — same generic
+		// message so an attacker can't tell "no quote" from "not your quote"
+		// (cross-agent quote hijacking).
+		if (!cached || cached.agentId !== agent.id) {
 			return c.json(
 				{
 					success: false,
@@ -1428,9 +1431,10 @@ agentRoutes.post('/swap/execute', async (c) => {
 		)
 	}
 
-	// Look up cached quote
+	// Look up cached quote. Reject a missing quote OR one created by a different
+	// agent — same generic message so cross-agent quote hijacking can't be probed.
 	const cached = quoteCache.get(quote_id)
-	if (!cached) {
+	if (!cached || cached.agentId !== agent.id) {
 		return c.json(
 			{
 				success: false,
