@@ -15,7 +15,9 @@ main = "suwappu-router.worker.js"
 compatibility_date = "2026-06-01"
 
 routes = [
-  { pattern = "api.suwappu.bot", custom_domain = true },
-  { pattern = "www.suwappu.bot", custom_domain = true },
-  { pattern = "suwappu.bot",     custom_domain = true },
+  { pattern = "api.suwappu.bot",      custom_domain = true },
+  { pattern = "www.suwappu.bot",      custom_domain = true },
+  { pattern = "suwappu.bot",          custom_domain = true },
+  { pattern = "terminal.suwappu.bot", custom_domain = true },
+  { pattern = "app.suwappu.bot",      custom_domain = true },
 ]
