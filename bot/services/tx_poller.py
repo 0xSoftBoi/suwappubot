@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 
@@ -53,12 +54,14 @@ class TransactionPoller:
     
     async def _poll_loop(self):
         """Main polling loop."""
+        from bot.utils.redis_cache import redis_cache
         while self._running:
             try:
                 await self._check_pending_transactions()
+                await redis_cache.set("service:tx_poller:heartbeat", time.time(), ttl_seconds=60)
             except Exception as e:
                 logger.error(f"Transaction poll error: {e}")
-            
+
             await asyncio.sleep(self._poll_interval)
     
     async def _check_pending_transactions(self):

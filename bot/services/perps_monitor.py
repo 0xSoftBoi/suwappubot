@@ -45,9 +45,12 @@ class PerpsMonitor:
 
     async def _monitor_loop(self):
         """Main monitoring loop."""
+        import time as _time
+        from bot.utils.redis_cache import redis_cache
         while self._running:
             try:
                 await self._sync_all_positions()
+                await redis_cache.set("service:perps_monitor:heartbeat", _time.time(), ttl_seconds=60)
             except asyncio.CancelledError:
                 break
             except Exception as e:

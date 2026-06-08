@@ -16,7 +16,7 @@ from web3 import Web3
 
 from bot.config.settings import settings
 from bot.config.chains import get_chain_by_name, CHAINS
-from bot.utils.http_client import get_session
+from bot.utils.http_client import get_session, with_retry
 from bot.utils.rate_limiter import api_limiter
 
 logger = logging.getLogger(__name__)
@@ -250,16 +250,25 @@ class SocketAPI:
         if exclude_dexes:
             params["excludeDexes"] = ",".join(exclude_dexes)
         
-        async with session.get(
-            f"{SOCKET_API_URL}/quote",
-            params=params,
-            headers=self._get_headers()
-        ) as response:
-            if response.status != 200:
-                error_text = await response.text()
-                raise SocketError(f"Socket quote error: {error_text}")
-            
-            data = await response.json()
+        async def _do_quote():
+            import aiohttp as _aiohttp
+            async with session.get(
+                f"{SOCKET_API_URL}/quote",
+                params=params,
+                headers=self._get_headers(),
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    raise _aiohttp.ClientResponseError(
+                        response.request_info, response.history,
+                        status=response.status, message=error_text[:200],
+                    )
+                return await response.json()
+
+        try:
+            data = await with_retry(_do_quote, label="Socket quote", base_delay=0.5)
+        except Exception as exc:
+            raise SocketError(f"Socket quote error: {exc}") from exc
         
         if not data.get("success"):
             raise SocketError(

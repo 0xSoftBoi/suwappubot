@@ -46,12 +46,15 @@ class BalanceRefresher:
 
     async def _refresh_loop(self):
         """Main refresh loop."""
+        import time as _time
+        from bot.utils.redis_cache import redis_cache
         # Wait for services to fully initialize
         await asyncio.sleep(30)
 
         while self._running:
             try:
                 await self._refresh_all()
+                await redis_cache.set("service:balance_refresher:heartbeat", _time.time(), ttl_seconds=60)
             except asyncio.CancelledError:
                 return
             except Exception as e:
