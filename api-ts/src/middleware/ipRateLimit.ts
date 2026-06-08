@@ -53,7 +53,7 @@ export function ipRateLimit(limit: number = DEFAULT_LIMIT) {
 		entry.timestamps = entry.timestamps.filter((t) => t > cutoff)
 
 		if (entry.timestamps.length >= limit) {
-			const oldestInWindow = entry.timestamps[0]
+			const oldestInWindow = entry.timestamps[0] ?? now
 			const retryAfter = Math.ceil((oldestInWindow + WINDOW_MS - now) / 1000)
 
 			c.header('Retry-After', String(retryAfter))

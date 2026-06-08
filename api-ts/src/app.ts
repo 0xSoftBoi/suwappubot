@@ -25,12 +25,15 @@ import {
 
 export interface AppConfig {
 	allowedOrigins: string
-	adminApiKey?: string
-	internalApiKey?: string
+	adminApiKey?: string | undefined
+	internalApiKey?: string | undefined
 }
 
+// Per-request context variables set by middleware (see request-ID middleware below).
+type AppVariables = { requestId: string }
+
 export function createApp(config: AppConfig) {
-	const app = new Hono()
+	const app = new Hono<{ Variables: AppVariables }>()
 
 	// Global middleware
 	app.use('*', honoLogger())
@@ -58,7 +61,7 @@ export function createApp(config: AppConfig) {
 
 	// Global error handler — standardized error envelope with requestId + timestamp.
 	app.onError((err, c) => {
-		const requestId = (c.get('requestId') as string | undefined) ?? 'unknown'
+		const requestId = c.get('requestId') ?? 'unknown'
 		const timestamp = new Date().toISOString()
 
 		if (err instanceof HTTPException) {

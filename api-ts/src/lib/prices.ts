@@ -46,6 +46,7 @@ export async function fetchTokenPrices(symbols: string[]): Promise<Record<string
 				const data = await res.json() as Record<string, { usd?: number; usd_24h_change?: number }>
 				for (const sym of toFetch) {
 					const cgId = COINGECKO_IDS[sym]
+					if (!cgId) continue
 					const priceData = data[cgId]
 					if (priceData?.usd !== undefined) {
 						const entry: PriceEntry = { usd: priceData.usd, change_24h: priceData.usd_24h_change ?? null }

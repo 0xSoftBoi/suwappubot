@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
-import { type DrizzleService, requireDb, type Wallet, wallets } from '../db'
+import { type DrizzleService, requireDb, requireRow, type Wallet, wallets } from '../db'
 import { DatabaseError } from '../errors'
 
 export interface CreateTurnkeyWalletParams {
@@ -88,6 +88,6 @@ export const WalletServiceLive = Layer.succeed(WalletService, {
 					new DatabaseError({ message: `Failed to create Turnkey wallet: ${e}`, cause: e }),
 			})
 
-			return result[0]
+			return yield* requireRow(result, 'Failed to create Turnkey wallet: no row returned')
 		}),
 })

@@ -7,6 +7,7 @@ import {
 	limitOrders,
 	type NewLimitOrder,
 	requireDb,
+	requireRow,
 } from '../db'
 import { DatabaseError, NotFoundError, ValidationError } from '../errors'
 
@@ -24,9 +25,9 @@ export interface CreateLimitOrderParams {
 	toTokenSymbol: string
 	targetPrice: number
 	triggerType: 'lte' | 'gte' // less than or equal, greater than or equal
-	slippage?: number
+	slippage?: number | undefined
 	walletAddress: string
-	expiresAt?: Date
+	expiresAt?: Date | undefined
 }
 
 export interface LimitOrderWithPrice extends LimitOrder {
@@ -159,7 +160,7 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 					new DatabaseError({ message: `Failed to create limit order: ${e}`, cause: e }),
 			})
 
-			return result[0]
+			return yield* requireRow(result, 'Failed to create limit order: no row returned')
 		}),
 
 	getUserOrders: (userId: number, status?: string, limit = 20, offset = 0) =>
@@ -209,7 +210,7 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 				catch: (e) => new DatabaseError({ message: `Failed to get order: ${e}`, cause: e }),
 			})
 
-			return result.length > 0 ? Option.some(result[0]) : Option.none()
+			return Option.fromNullable(result[0])
 		}),
 
 	cancelOrder: (orderId: number, userId: number) =>
@@ -229,16 +230,17 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 				catch: (e) => new DatabaseError({ message: `Failed to get order: ${e}`, cause: e }),
 			})
 
-			if (existing.length === 0) {
+			const order = existing[0]
+			if (!order) {
 				return yield* Effect.fail(
 					new NotFoundError({ message: 'Order not found', resource: 'limit_order' }),
 				)
 			}
 
-			if (existing[0].status !== 'active') {
+			if (order.status !== 'active') {
 				return yield* Effect.fail(
 					new ValidationError({
-						message: `Cannot cancel order with status: ${existing[0].status}`,
+						message: `Cannot cancel order with status: ${order.status}`,
 						fields: { status: 'must be active' },
 					}),
 				)
@@ -254,7 +256,7 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 				catch: (e) => new DatabaseError({ message: `Failed to cancel order: ${e}`, cause: e }),
 			})
 
-			return result[0]
+			return yield* requireRow(result, 'Failed to cancel order: no row returned')
 		}),
 
 	getActiveOrders: () =>
@@ -342,9 +344,10 @@ export const LimitOrderServiceLive = Layer.succeed(LimitOrderService, {
 				catch: (e) => new DatabaseError({ message: `Failed to get order: ${e}`, cause: e }),
 			})
 
-			if (existing.length === 0) return null
+			const existingOrder = existing[0]
+			if (!existingOrder) return null
 
-			const retryCount = (existing[0].retryCount ?? 0) + 1
+			const retryCount = (existingOrder.retryCount ?? 0) + 1
 			const shouldFail = retryCount >= 3 // Mark as failed after 3 retries
 
 			const result = yield* Effect.tryPromise({

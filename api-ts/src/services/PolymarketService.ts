@@ -81,8 +81,8 @@ export interface PlaceOrderParams {
 	price: string
 	size: string
 	side: 'BUY' | 'SELL'
-	expiration?: number
-	feeRateBps?: number
+	expiration?: number | undefined
+	feeRateBps?: number | undefined
 }
 
 export interface ClobOrder {

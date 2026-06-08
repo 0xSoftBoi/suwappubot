@@ -280,12 +280,12 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 
 			// Get user's wallet
 			const wallets = yield* walletService.getActiveWallets(user.id)
-			if (wallets.length === 0) {
+			const wallet = wallets[0]
+			if (!wallet) {
 				return yield* Effect.fail(
 					new NotFoundError({ message: 'No wallet found', resource: 'wallet' }),
 				)
 			}
-			const wallet = wallets[0]
 
 			// Check if wallet is a Turnkey wallet
 			if (wallet.walletProvider !== 'turnkey' || !wallet.turnkeySubOrgId) {
@@ -787,9 +787,9 @@ interface TokenListResponse {
 		symbol: string
 		decimals: number
 		name: string
-		logoURI?: string
-		priceUSD?: string
-		balance?: string
+		logoURI?: string | undefined
+		priceUSD?: string | undefined
+		balance?: string | undefined
 	}>
 }
 
@@ -877,7 +877,7 @@ swapRoutes.get('/tokens', async (c) => {
 				const userOption = yield* userService.getUserByTelegramId(tgUser.id)
 				if (Option.isNone(userOption)) return null
 				const wallets = yield* walletService.getActiveWallets(userOption.value.id)
-				return wallets.length > 0 ? wallets[0].address : null
+				return wallets[0]?.address ?? null
 			}),
 		)
 		if (Either.isRight(walletResult) && walletResult.right) {

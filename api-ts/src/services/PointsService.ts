@@ -15,6 +15,7 @@ import {
 	pointTransactions,
 	type Reward,
 	requireDb,
+	requireRow,
 	rewards,
 	type UserMilestone,
 	type UserPoints,
@@ -140,7 +141,7 @@ function getLevelFromXp(xp: number): LevelName {
 function getNextLevel(currentLevel: LevelName): LevelName | null {
 	const order: LevelName[] = ['bronze', 'silver', 'gold', 'platinum', 'diamond']
 	const idx = order.indexOf(currentLevel)
-	return idx < order.length - 1 ? order[idx + 1] : null
+	return idx < order.length - 1 ? (order[idx + 1] ?? null) : null
 }
 
 function getXpToNextLevel(currentXp: number, currentLevel: LevelName): number | null {
@@ -177,8 +178,9 @@ const getOrCreateUserPoints = (
 			catch: (e) => new DatabaseError({ message: `Failed to get user points: ${e}`, cause: e }),
 		})
 
-		if (existing.length > 0) {
-			return existing[0]
+		const existingPoints = existing[0]
+		if (existingPoints) {
+			return existingPoints
 		}
 
 		const created = yield* Effect.tryPromise({
@@ -186,7 +188,7 @@ const getOrCreateUserPoints = (
 			catch: (e) => new DatabaseError({ message: `Failed to create user points: ${e}`, cause: e }),
 		})
 
-		return created[0]
+		return yield* requireRow(created, 'Failed to create user points: no row returned')
 	})
 
 // Internal helper: Check and award milestones
@@ -247,8 +249,9 @@ const checkAndAwardMilestones = (
 					catch: (e) => new DatabaseError({ message: `Failed to award milestone: ${e}`, cause: e }),
 				})
 
-				if (awarded.length > 0) {
-					newlyAchieved.push(awarded[0])
+				const awardedMilestone = awarded[0]
+				if (awardedMilestone) {
+					newlyAchieved.push(awardedMilestone)
 
 					yield* Effect.tryPromise({
 						try: () =>
@@ -629,11 +632,10 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 				catch: (e) => new DatabaseError({ message: `Failed to get reward: ${e}`, cause: e }),
 			})
 
-			if (rewardResult.length === 0) {
+			const reward = rewardResult[0]
+			if (!reward) {
 				return yield* Effect.fail(new NotFoundError({ message: 'Reward not found' }))
 			}
-
-			const reward = rewardResult[0]
 
 			if (!reward.isActive) {
 				return yield* Effect.fail(new ValidationError({ message: 'Reward is not available' }))
@@ -711,7 +713,7 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 				})
 			}
 
-			return redemption[0]
+			return yield* requireRow(redemption, 'Failed to create redemption: no row returned')
 		}),
 
 	getLeaderboard: (limit = 10) =>

@@ -5,6 +5,7 @@ import {
 	type DrizzleService,
 	type NewSwapTransaction,
 	requireDb,
+	requireRow,
 	type SwapTransaction,
 	swapTransactions,
 } from '../db'
@@ -126,13 +127,13 @@ export interface SwapQuote {
 		address: string
 		symbol: string
 		decimals: number
-		logoURI?: string
+		logoURI?: string | undefined
 	}
 	toToken: {
 		address: string
 		symbol: string
 		decimals: number
-		logoURI?: string
+		logoURI?: string | undefined
 	}
 	fromAmount: string
 	toAmount: string
@@ -434,7 +435,8 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 					catch: (e) =>
 						new DatabaseError({ message: `Idempotency check failed: ${e}`, cause: e }),
 				})
-				if (existing.length > 0) return existing[0]
+				const existingRecord = existing[0]
+				if (existingRecord) return existingRecord
 			}
 
 			const result = yield* Effect.tryPromise({
@@ -443,7 +445,7 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 					new DatabaseError({ message: `Failed to create swap record: ${e}`, cause: e }),
 			})
 
-			return result[0]
+			return yield* requireRow(result, 'Failed to create swap record: no row returned')
 		}),
 
 	updateSwapStatus: (swapId: number, status: string, txHash?: string, errorMessage?: string) =>

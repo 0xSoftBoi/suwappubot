@@ -86,7 +86,7 @@ const TOKEN_CACHE_TTL = 5 * 60 * 1000
 
 healthRoutes.get('/tokens', async (c) => {
 	const chainId = c.req.query('chainId') || '1'
-	const verifiedSymbols = VERIFIED_TOKENS[chainId] || VERIFIED_TOKENS['1']
+	const verifiedSymbols = VERIFIED_TOKENS[chainId] || VERIFIED_TOKENS['1'] || []
 
 	const cached = tokenListCache.get(chainId)
 	if (cached && Date.now() < cached.expiry) {

@@ -371,12 +371,12 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 
 			// Get user's wallet
 			const wallets = yield* walletService.getActiveWallets(authUser.userId)
-			if (wallets.length === 0) {
+			const wallet = wallets[0]
+			if (!wallet) {
 				return yield* Effect.fail(
 					new NotFoundError({ message: 'No wallet found', resource: 'wallet' }),
 				)
 			}
-			const wallet = wallets[0]
 
 			if (wallet.walletProvider !== 'turnkey' || !wallet.turnkeySubOrgId) {
 				return yield* Effect.fail(
@@ -637,8 +637,9 @@ publicSwapRoutes.post('/auth', ipRateLimit(), async (c) => {
 
 			let userId: number
 
-			if (existingWallet.length > 0) {
-				userId = existingWallet[0].userId
+			const existingWalletRow = existingWallet[0]
+			if (existingWalletRow) {
+				userId = existingWalletRow.userId
 			} else {
 				// Create new user for showcase passkey auth
 				const { user } = yield* userService.getOrCreateUser({

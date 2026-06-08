@@ -112,7 +112,7 @@ webappRoutes.post('/telegram/auth', async (c) => {
 					logger.error({ err: turnkeyResult.left }, 'Failed to create Turnkey wallet')
 				}
 			} else {
-				walletAddress = existingWallets[0].address
+				walletAddress = existingWallets[0]?.address ?? null
 			}
 
 			// 4. Generate JWT
@@ -1327,7 +1327,7 @@ webappRoutes.get('/tokens/:chain/:address/chart', async (c) => {
 				const high = Math.max(price, prevPrice) * (1 + Math.abs(change) / 200)
 				const low = Math.min(price, prevPrice) * (1 - Math.abs(change) / 200)
 				candles.unshift({
-					time: now - intervals[i],
+					time: now - (intervals[i] ?? 0),
 					open: prevPrice,
 					high,
 					low,

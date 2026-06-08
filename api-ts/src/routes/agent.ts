@@ -131,6 +131,7 @@ async function fetchTokenPrices(
 				const data = (await res.json()) as Record<string, { usd?: number; usd_24h_change?: number }>
 				for (const sym of toFetch) {
 					const cgId = COINGECKO_IDS[sym]
+					if (!cgId) continue
 					const priceData = data[cgId]
 					if (priceData?.usd !== undefined) {
 						const entry = { usd: priceData.usd, change_24h: priceData.usd_24h_change ?? null }
@@ -1042,6 +1043,10 @@ agentRoutes.post('/execute', async (c) => {
 	if (swapMatch) {
 		const [, amount, fromToken, toToken, chain] = swapMatch
 
+		if (!amount || !fromToken || !toToken) {
+			return c.json({ error: 'Invalid swap command format' }, 400)
+		}
+
 		// Get a quote
 		const result = await runEffectEither(
 			Effect.gen(function* () {
@@ -1161,6 +1166,9 @@ agentRoutes.post('/execute', async (c) => {
 
 	if (quoteMatch) {
 		const [, amount, fromToken, toToken, chain] = quoteMatch
+		if (!amount || !fromToken || !toToken) {
+			return c.json({ error: 'Invalid quote command format' }, 400)
+		}
 		// Redirect to quote endpoint logic (same as swap but different message)
 		return c.json({
 			success: true,
@@ -1591,11 +1599,10 @@ agentRoutes.get('/swap/status/:swapId', async (c) => {
 				catch: (e) => new Error(`Database error: ${e}`),
 			})
 
-			if (rows.length === 0) {
+			const s = rows[0]
+			if (!s) {
 				return yield* Effect.fail(new ValidationError({ message: 'Swap not found' }))
 			}
-
-			const s = rows[0]
 			return {
 				swap_id: s.id,
 				status: s.status,

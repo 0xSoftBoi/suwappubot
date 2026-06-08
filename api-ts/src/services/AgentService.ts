@@ -1,20 +1,20 @@
 import crypto from 'crypto'
 import { eq, sql } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
-import { type Agent, agents, type DrizzleService, requireDb, webhookEvents } from '../db'
+import { type Agent, agents, type DrizzleService, requireDb, requireRow, webhookEvents } from '../db'
 import { DatabaseError } from '../errors'
 
 export interface RegisterAgentParams {
 	name: string
-	description?: string
-	callbackUrl?: string
-	metadata?: Record<string, unknown>
+	description?: string | undefined
+	callbackUrl?: string | undefined
+	metadata?: Record<string, unknown> | undefined
 }
 
 export interface UpdateAgentParams {
-	description?: string
-	callbackUrl?: string | null
-	metadata?: Record<string, unknown>
+	description?: string | undefined
+	callbackUrl?: string | null | undefined
+	metadata?: Record<string, unknown> | undefined
 }
 
 export interface AgentServiceInterface {
@@ -121,7 +121,8 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 			})
 
 			// Return agent with full API key (only time it's shown)
-			return { agent: result[0], apiKey }
+			const agent = yield* requireRow(result, 'Failed to register agent: no row returned')
+			return { agent, apiKey }
 		}),
 
 	getAgentByApiKey: (apiKey: string) =>
@@ -141,16 +142,13 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 					}),
 			})
 
-			if (result.length === 0) {
+			const agent = result[0]
+			// Skip missing or inactive agents
+			if (!agent || !agent.isActive) {
 				return Option.none()
 			}
 
-			// Check if agent is active
-			if (!result[0].isActive) {
-				return Option.none()
-			}
-
-			return Option.some(result[0])
+			return Option.some(agent)
 		}),
 
 	getAgentByName: (name: string) =>
@@ -168,7 +166,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 					}),
 			})
 
-			return result.length > 0 ? Option.some(result[0]) : Option.none()
+			return Option.fromNullable(result[0])
 		}),
 
 	getAgentById: (id: number) =>
@@ -182,7 +180,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 				catch: (e) => new DatabaseError({ message: `Failed to get agent: ${e}`, cause: e }),
 			})
 
-			return result.length > 0 ? Option.some(result[0]) : Option.none()
+			return Option.fromNullable(result[0])
 		}),
 
 	updateAgent: (agentId: number, params: UpdateAgentParams) =>
@@ -201,11 +199,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 				catch: (e) => new DatabaseError({ message: `Failed to update agent: ${e}`, cause: e }),
 			})
 
-			if (result.length === 0) {
-				return yield* Effect.fail(new DatabaseError({ message: 'Agent not found' }))
-			}
-
-			return result[0]
+			return yield* requireRow(result, 'Agent not found')
 		}),
 
 	updateAgentActivity: (agentId: number) =>
@@ -266,11 +260,8 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 				catch: (e) => new DatabaseError({ message: `Failed to rotate API key: ${e}`, cause: e }),
 			})
 
-			if (result.length === 0) {
-				return yield* Effect.fail(new DatabaseError({ message: 'Agent not found' }))
-			}
-
-			return { agent: result[0], apiKey }
+			const agent = yield* requireRow(result, 'Agent not found')
+			return { agent, apiKey }
 		}),
 
 	deactivateAgent: (agentId: number) =>
@@ -289,11 +280,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 				catch: (e) => new DatabaseError({ message: `Failed to deactivate agent: ${e}`, cause: e }),
 			})
 
-			if (result.length === 0) {
-				return yield* Effect.fail(new DatabaseError({ message: 'Agent not found' }))
-			}
-
-			return result[0]
+			return yield* requireRow(result, 'Agent not found')
 		}),
 
 	reactivateAgent: (agentId: number) =>
@@ -312,11 +299,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 				catch: (e) => new DatabaseError({ message: `Failed to reactivate agent: ${e}`, cause: e }),
 			})
 
-			if (result.length === 0) {
-				return yield* Effect.fail(new DatabaseError({ message: 'Agent not found' }))
-			}
-
-			return result[0]
+			return yield* requireRow(result, 'Agent not found')
 		}),
 
 	deleteAgent: (agentId: number) =>
@@ -356,10 +339,6 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 					}),
 			})
 
-			if (result.length === 0) {
-				return Option.none()
-			}
-
-			return Option.some(result[0])
+			return Option.fromNullable(result[0])
 		}),
 })

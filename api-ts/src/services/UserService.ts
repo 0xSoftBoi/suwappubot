@@ -1,13 +1,13 @@
 import { eq } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
-import { type DrizzleService, requireDb, type User, users } from '../db'
+import { type DrizzleService, requireDb, requireRow, type User, users } from '../db'
 import { DatabaseError } from '../errors'
 
 export interface CreateUserParams {
 	telegramId: number
-	username?: string
-	firstName?: string
-	lastName?: string
+	username?: string | undefined
+	firstName?: string | undefined
+	lastName?: string | undefined
 }
 
 export interface UpdateUserPreferencesParams {
@@ -51,7 +51,7 @@ export const UserServiceLive = Layer.succeed(UserService, {
 				catch: (e) => new DatabaseError({ message: `Failed to get user: ${e}`, cause: e }),
 			})
 
-			return result.length > 0 ? Option.some(result[0]) : Option.none()
+			return Option.fromNullable(result[0])
 		}),
 
 	getUserByTelegramId: (telegramId: number) =>
@@ -69,7 +69,7 @@ export const UserServiceLive = Layer.succeed(UserService, {
 					}),
 			})
 
-			return result.length > 0 ? Option.some(result[0]) : Option.none()
+			return Option.fromNullable(result[0])
 		}),
 
 	createUser: (params: CreateUserParams) =>
@@ -92,7 +92,7 @@ export const UserServiceLive = Layer.succeed(UserService, {
 				catch: (e) => new DatabaseError({ message: `Failed to create user: ${e}`, cause: e }),
 			})
 
-			return result[0]
+			return yield* requireRow(result, 'Failed to create user: no row returned')
 		}),
 
 	getOrCreateUser: (params: CreateUserParams) =>
@@ -108,8 +108,9 @@ export const UserServiceLive = Layer.succeed(UserService, {
 					new DatabaseError({ message: `Failed to check existing user: ${e}`, cause: e }),
 			})
 
-			if (existing.length > 0) {
-				return { user: existing[0], isNew: false }
+			const existingRow = existing[0]
+			if (existingRow) {
+				return { user: existingRow, isNew: false }
 			}
 
 			// Create new user
@@ -127,7 +128,8 @@ export const UserServiceLive = Layer.succeed(UserService, {
 				catch: (e) => new DatabaseError({ message: `Failed to create user: ${e}`, cause: e }),
 			})
 
-			return { user: created[0], isNew: true }
+			const user = yield* requireRow(created, 'Failed to create user: no row returned')
+			return { user, isNew: true }
 		}),
 
 	updateUserPreferences: (userId: number, params: UpdateUserPreferencesParams) =>
@@ -162,6 +164,6 @@ export const UserServiceLive = Layer.succeed(UserService, {
 					new DatabaseError({ message: `Failed to update user preferences: ${e}`, cause: e }),
 			})
 
-			return result[0]
+			return yield* requireRow(result, 'Failed to update user preferences: user not found')
 		}),
 })
