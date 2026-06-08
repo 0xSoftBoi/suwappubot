@@ -27,10 +27,12 @@ Once the zone is **Active** on Cloudflare (step 1) and you've run `bunx wrangler
 ```bash
 cd cloudflare && bunx wrangler deploy
 ```
-`wrangler.toml` has `custom_domain = true` for `api`, `www`, and the apex, so this single
-command deploys the Worker and creates each Custom Domain + edge TLS cert automatically —
-no dashboard clicking. (Dashboard equivalent: Workers & Pages → Create Worker `suwappu-router`,
-paste `suwappu-router.worker.js`, then Settings → Domains & Routes → add each Custom Domain.)
+`wrangler.toml` has `custom_domain = true` for `api`, `www`, apex, `terminal`, and `app`, so
+this single command deploys the Worker and creates each Custom Domain + edge TLS cert
+automatically — no dashboard clicking. (Dashboard equivalent: Workers & Pages → Create Worker
+`suwappu-router`, paste `suwappu-router.worker.js`, then Settings → Domains & Routes → add each
+Custom Domain.) Note: if a hostname already has a stale DNS record (e.g. an old ALB CNAME),
+delete it first or the Custom Domain bind returns error 100117.
 
 Client TLS is served by Cloudflare; the Worker fetches each origin over the valid
 `*.up.railway.app` cert. The hostname→origin map lives in `suwappu-router.worker.js`.
@@ -64,10 +66,10 @@ All three reaching the right backend = the ALB path-routing is restored, for $0.
 |----------|--------|--------|
 | `api.suwappu.bot` | ✅ live (python-api + api-ts) | bound |
 | `www.suwappu.bot` / `suwappu.bot` | ✅ live (showcase) | bound |
-| `terminal.suwappu.bot` | ✅ wired in Worker (terminal) | 502 fixed in PR #349 ($PORT); redeploy Worker + add Custom Domain |
-| `app.suwappu.bot` | ✅ wired in Worker (→ terminal) | old Mini App source is gone; `app` mirrors terminal. Delete stale `app` CNAME, then add Custom Domain |
-| `devapi.suwappu.bot` | ⛔ dev env has **no public domains** (python-api/api-ts dev not exposed) | generate dev auto-domains, then a second Worker/route mapping `devapi` → dev backends |
+| `terminal.suwappu.bot` | ✅ live (terminal) | bound; 502 fixed in PR #349 ($PORT) |
+| `app.suwappu.bot` | ✅ live (→ terminal) | bound; old Mini App source is gone so `app` mirrors terminal |
+| `devapi.suwappu.bot` | ⛔ dev env has **no public domains** (python-api/api-ts dev not exposed) | generate dev auto-domains, then add a `DEVAPI` origin + `devapi` hostname branch and bind the Custom Domain |
 
-`api`/`www`/apex are live now. `terminal`/`app` are wired in the Worker and just need the
-Worker redeployed + their Custom Domains bound (the `app` row also needs its dead CNAME
-removed first). `devapi` still needs a dev backend exposed.
+All five active hostnames (`api`, `www`, apex, `terminal`, `app`) are **live** and serving
+through the Worker with valid edge TLS. Only `devapi` remains — it needs its dev backend
+deployed first, then the same wire-up (origin + hostname branch + Custom Domain).
