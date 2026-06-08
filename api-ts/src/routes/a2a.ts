@@ -82,6 +82,33 @@ export function stopA2aCleanup() {
 	clearInterval(cleanupInterval)
 }
 
+// --- Agent-scoped quote pricing / ownership (H10) ---
+// Li.Fi requires a fromAddress; a quote priced against a shared placeholder is
+// non-executable. Quotes are cached per agent (cacheAgentQuote(..., agent.id)),
+// so price them against that agent's own wallet so any future executable tx can
+// only be signed by the requesting agent.
+const EVM_QUOTE_PLACEHOLDER_ADDRESS = '0x0000000000000000000000000000000000000001'
+const A2A_EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/
+
+/** The agent's recorded EVM wallet if well-formed, else the non-executable placeholder. */
+export function resolveAgentEvmAddress(agent: Agent): string {
+	const raw = (agent.metadata as Record<string, unknown> | null | undefined)?.wallet_address
+	if (typeof raw === 'string' && A2A_EVM_ADDRESS_RE.test(raw)) return raw
+	return EVM_QUOTE_PLACEHOLDER_ADDRESS
+}
+
+/**
+ * Mandatory ownership gate for any future A2A quote-execution path: a cached quote
+ * may only be executed by the agent that created it. A2A has no execution endpoint
+ * today, so this is exported and documented but not yet wired at runtime.
+ */
+export function isQuoteOwnedByAgent(
+	cached: { agentId?: number } | null | undefined,
+	agentId: number,
+): boolean {
+	return !!cached && cached.agentId === agentId
+}
+
 function isoNow(): string {
 	return new Date().toISOString()
 }
@@ -319,7 +346,7 @@ async function processEvmQuote(
 					fromToken: fromTokenInfo.address,
 					toToken: toTokenInfo.address,
 					fromAmount: fromAmountWei,
-					fromAddress: '0x0000000000000000000000000000000000000001',
+					fromAddress: resolveAgentEvmAddress(agent),
 					slippage: 0.03,
 					integrator: 'suwappu-a2a',
 				} as QuoteParams)
