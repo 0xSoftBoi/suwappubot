@@ -201,6 +201,7 @@ async def oauth_callback(
     error_description: Optional[str] = Query(None),
     response: Response = None,
     db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
 ):
     """
     Handle OAuth callback from provider.
@@ -228,6 +229,26 @@ async def oauth_callback(
         db.delete(oauth_state)
         db.commit()
         raise HTTPException(status_code=400, detail="OAuth state expired")
+
+    # For account-linking flows the OAuth identity must be bound to the user who
+    # actually initiated the flow and is currently authenticated. Without this,
+    # an attacker could pre-seed a "link" state bound to a victim's user_id and
+    # trick the victim into authorizing — binding the attacker's OAuth identity
+    # to the victim's account (or vice versa). Require the session to match the
+    # state's user_id. Login flows (action="login", no user_id) are unaffected.
+    if oauth_state.action == "link" or oauth_state.user_id is not None:
+        if current_user is None or current_user.id != oauth_state.user_id:
+            logger.warning(
+                "OAuth callback: link user mismatch "
+                f"(state_user={oauth_state.user_id}, "
+                f"session_user={getattr(current_user, 'id', None)})"
+            )
+            db.delete(oauth_state)
+            db.commit()
+            raise HTTPException(
+                status_code=403,
+                detail="Authentication required to link this account",
+            )
 
     oauth_service = get_oauth_service()
 
