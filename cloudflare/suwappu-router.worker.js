@@ -25,10 +25,13 @@ const ORIGINS = {
   TERMINAL: "https://terminal-production-7906.up.railway.app",
 };
 
-// On api.suwappu.bot, these top-level prefixes belong to python-api (JWT issuer +
-// bot/webhooks). Everything else falls through to api-ts. Validated live:
+// On api.suwappu.bot, these top-level prefixes belong to python-api. Everything else
+// falls through to api-ts. Validated live:
 //   /auth/refresh → python 401, api-ts 404 ; /v1/agent/chains → api-ts 200, python 404
-const PYTHON_PREFIXES = ["/auth", "/telegram", "/webhook", "/users", "/tools"];
+//   /terminal/* (orderbook,trades,chart,history) + /webapp/* (alerts,points,copy-trading,
+//   discovery,lending,limit-orders,portfolio,…) are python-api routes (api-ts 404s them) —
+//   the terminal SPA's data layer; without these here every chart/orderbook/token call 404'd.
+const PYTHON_PREFIXES = ["/auth", "/telegram", "/webhook", "/users", "/tools", "/terminal", "/webapp"];
 
 function pickOrigin(hostname, pathname) {
   if (hostname === "www.suwappu.bot" || hostname === "suwappu.bot") {
