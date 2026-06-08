@@ -27,13 +27,15 @@ Both backends are healthy on their free Railway URLs:
 2. Paste the contents of `suwappu-router.worker.js` and **Deploy**.
    (Or with wrangler: `npx wrangler deploy suwappu-router.worker.js --name suwappu-router`.)
 
-### 3. Bind the hostname (Worker Custom Domain — simplest, auto DNS + cert)
-1. Open the `suwappu-router` Worker → **Settings → Domains & Routes → Add → Custom Domain**.
-2. Enter `api.suwappu.bot`. Cloudflare creates the proxied DNS record and provisions the
-   edge TLS cert automatically — no manual record, no SSL-mode fiddling for this host.
+### 3. Bind the hostnames (Worker Custom Domain — simplest, auto DNS + cert)
+Open the `suwappu-router` Worker → **Settings → Domains & Routes → Add → Custom Domain**,
+and add each of these (Cloudflare auto-creates the proxied DNS record + edge TLS cert):
+- `api.suwappu.bot` → path-routed to python-api + api-ts
+- `www.suwappu.bot` → showcase
+- `suwappu.bot` (apex) → showcase
 
-That's it. Client TLS is served by Cloudflare; the Worker fetches each origin over the
-valid `*.up.railway.app` cert.
+Client TLS is served by Cloudflare; the Worker fetches each origin over the valid
+`*.up.railway.app` cert. The hostname→origin map lives in `suwappu-router.worker.js`.
 
 ## Verify
 ```bash
@@ -56,9 +58,17 @@ All three reaching the right backend = the ALB path-routing is restored, for $0.
   uptime monitors light, or point them at the railway URLs directly to save quota. If you
   outgrow it, Workers Paid is $5/mo — same price as Railway Hobby (which would instead give
   native custom domains and let you drop this Worker).
-- **Other hostnames** (`devapi`, `terminal`, `app`, `www`, apex `suwappu.bot`): once the zone
-  is on Cloudflare, restore each the same way — a Worker route (or a proxied CNAME to the
-  service's railway domain **only if** that custom domain is also registered on Railway).
-  `devapi` points at the python-api **development** environment.
-- If `api-ts`'s railway URL ever changes (it's `api-ts-production.up.railway.app` now),
-  update `API_TS` in the Worker and redeploy.
+- If a railway URL ever changes, update the matching entry in `ORIGINS` and redeploy. Current:
+  python-api `python-api-production-8526`, api-ts `api-ts-production`, showcase `showcase-production-6f89`.
+
+## Per-hostname status (June 2026)
+| Hostname | Status | Action |
+|----------|--------|--------|
+| `api.suwappu.bot` | ✅ wired (python-api + api-ts) | add Custom Domain |
+| `www.suwappu.bot` / `suwappu.bot` | ✅ wired (showcase, live 200) | add Custom Domain |
+| `terminal.suwappu.bot` | ⛔ backend down — `terminal-production-7906.up.railway.app/` returns **502** | fix the terminal service first, then add `terminal` to `ORIGINS` + a hostname branch |
+| `app.suwappu.bot` | ⛔ no host — webapp Mini App is **not a Railway service** (not in the deploy matrix) | host it (recommend **Cloudflare Pages**, free, builds `webapp/`), then point `app` at it |
+| `devapi.suwappu.bot` | ⛔ dev env has **no public domains** (python-api/api-ts dev not exposed) | generate dev auto-domains, then a second Worker/route mapping `devapi` → dev backends |
+
+The three ⛔ rows aren't DNS problems — each needs its backend stood up before a hostname
+helps. `api` + `www`/apex (the live ones) are what restores the core product.

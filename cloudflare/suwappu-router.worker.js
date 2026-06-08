@@ -1,48 +1,54 @@
 /**
- * Suwappu edge router — replaces the deleted AWS ALB that path-routed
- * `api.suwappu.bot` across two backends. Runs as a free Cloudflare Worker.
+ * Suwappu edge router — replaces the deleted AWS ALB that fronted every
+ * `*.suwappu.bot` hostname. Runs as a single free Cloudflare Worker bound to
+ * multiple Custom Domains; it branches on hostname, then (for the API) on path.
  *
  * Why a Worker (not a proxied CNAME + Host override): Railway routes by its
  * registered *.up.railway.app domain (SNI), so it rejects an unregistered Host.
  * A Worker's fetch() connects straight to the valid railway.app origin, so SNI
  * and Host both match and Railway routes correctly — no paid custom domain needed.
  *
- * Routing (mirrors the real architecture — see api-ts/src/app.ts + api/main.py):
- *   python-api  → /auth/*   (JWT ISSUER; api-ts has no /auth, it only consumes the JWT)
- *                 /telegram/*, /webhook/*  (Telegram + WhatsApp)
- *                 /users/*, /tools/*       (python-only)
- *   api-ts      → everything else: /v1/agent/*, /mcp, /a2a, /webapp/*, /public/*,
- *                 /staking/*, /billing/*, /health, /.well-known/*, agent cards, llms.txt
+ * Hostname map:
+ *   api.suwappu.bot            → path-routed across python-api + api-ts (the old ALB job)
+ *   www.suwappu.bot / apex     → showcase (Next.js marketing site)
  *
- * The webapp flow this preserves: login → python `/auth/verify` mints a JWT
- * (with both `user_id` and `userId` claims, per PR #345) → webapp calls api-ts
- * `/v1/agent/*` and `/webapp/*` with that JWT. Both halves must stay on one host.
+ * NOT wired here yet (backend not ready — see cloudflare/README.md):
+ *   terminal.suwappu.bot  — terminal service currently returns 502 (app down), fix it first
+ *   app.suwappu.bot       — webapp Mini App isn't a Railway service; needs a host (e.g. CF Pages)
+ *   devapi.suwappu.bot    — dev environment has no public domains; stand those up first
  */
 
-const PYTHON_API = "https://python-api-production-8526.up.railway.app";
-const API_TS = "https://api-ts-production.up.railway.app";
+const ORIGINS = {
+  PYTHON: "https://python-api-production-8526.up.railway.app",
+  API_TS: "https://api-ts-production.up.railway.app",
+  SHOWCASE: "https://showcase-production-6f89.up.railway.app",
+};
 
-// Top-level prefixes owned by python-api. Everything else falls through to api-ts.
+// On api.suwappu.bot, these top-level prefixes belong to python-api (JWT issuer +
+// bot/webhooks). Everything else falls through to api-ts. Validated live:
+//   /auth/refresh → python 401, api-ts 404 ; /v1/agent/chains → api-ts 200, python 404
 const PYTHON_PREFIXES = ["/auth", "/telegram", "/webhook", "/users", "/tools"];
 
-function pickOrigin(pathname) {
-  for (const p of PYTHON_PREFIXES) {
-    if (pathname === p || pathname.startsWith(p + "/")) return PYTHON_API;
+function pickOrigin(hostname, pathname) {
+  if (hostname === "www.suwappu.bot" || hostname === "suwappu.bot") {
+    return ORIGINS.SHOWCASE;
   }
-  return API_TS;
+  // api.suwappu.bot (and any other host that reaches this Worker) → API path-routing
+  for (const p of PYTHON_PREFIXES) {
+    if (pathname === p || pathname.startsWith(p + "/")) return ORIGINS.PYTHON;
+  }
+  return ORIGINS.API_TS;
 }
 
 export default {
   async fetch(request) {
     const url = new URL(request.url);
-    const origin = pickOrigin(url.pathname);
+    const origin = pickOrigin(url.hostname, url.pathname);
     const target = origin + url.pathname + url.search;
 
-    // Re-issue the request at the railway origin. In Workers, fetch() derives the
-    // Host header + TLS SNI from the target URL (not from copied headers), so the
-    // upstream sees its own railway.app host and routes to the right service.
+    // Re-issue at the railway origin. In Workers, fetch() derives Host + TLS SNI from
+    // the target URL (not copied headers), so the upstream sees its own railway.app host.
     const proxied = new Request(target, request);
-    // Preserve the public host/proto for any backend that logs or builds URLs.
     proxied.headers.set("X-Forwarded-Host", url.host);
     proxied.headers.set("X-Forwarded-Proto", "https");
 
