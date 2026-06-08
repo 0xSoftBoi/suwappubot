@@ -17,10 +17,19 @@ except ImportError:
     CPP_CORE_AVAILABLE = False
 
 
+EVM_ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+
 def validate_evm_address(address: str) -> bool:
-    """Validate an EVM (Ethereum-compatible) address. Requires 0x prefix."""
+    """Validate an EVM (Ethereum-compatible) address.
+
+    Requires 0x prefix, correct length, and rejects the zero address which
+    would silently burn funds on-chain.
+    """
     try:
         if not address.startswith("0x"):
+            return False
+        if address.lower() == EVM_ZERO_ADDRESS:
             return False
         return is_evm_address(address)
     except Exception:
@@ -28,8 +37,16 @@ def validate_evm_address(address: str) -> bool:
 
 
 def validate_solana_address(address: str) -> bool:
-    """Validate a Solana address (base58 encoded public key)."""
+    """Validate a Solana address (base58 encoded 32-byte public key).
+
+    Solana public keys are exactly 32 bytes when decoded. The base58
+    encoding of 32 bytes is exactly 44 characters; lengths of 32–43 chars
+    indicate a shorter byte sequence and are rejected.
+    """
     try:
+        # Solana base58 addresses are always exactly 44 characters.
+        if len(address) != 44:
+            return False
         decoded = base58.b58decode(address)
         return len(decoded) == 32
     except Exception:

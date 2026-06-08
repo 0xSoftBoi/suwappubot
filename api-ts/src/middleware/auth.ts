@@ -39,8 +39,24 @@ function safeCompare(a: string, b: string): boolean {
 	return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b))
 }
 
+// Per-IP failure tracking for admin key brute-force protection.
+// Sliding-window: up to MAX_FAILURES attempts per WINDOW_MS before lockout.
+const ADMIN_FAILURE_WINDOW_MS = 60_000 // 1 minute
+const ADMIN_MAX_FAILURES = 10
+const adminFailures = new Map<string, number[]>()
+
+setInterval(() => {
+	const cutoff = Date.now() - ADMIN_FAILURE_WINDOW_MS
+	for (const [ip, timestamps] of adminFailures) {
+		const recent = timestamps.filter((t) => t > cutoff)
+		if (recent.length === 0) adminFailures.delete(ip)
+		else adminFailures.set(ip, recent)
+	}
+}, ADMIN_FAILURE_WINDOW_MS)
+
 /**
- * Middleware to validate X-Admin-Key header
+ * Middleware to validate X-Admin-Key header with per-IP brute-force protection.
+ * Rejects after MAX_FAILURES failed attempts per IP within a sliding window.
  */
 export function adminKeyAuth(validKey: string | undefined) {
 	return async (c: Context, next: Next) => {
@@ -48,16 +64,35 @@ export function adminKeyAuth(validKey: string | undefined) {
 			throw new HTTPException(500, { message: 'Admin API key not configured' })
 		}
 
+		// Use rightmost x-forwarded-for hop (less spoofable) with socket fallback.
+		const forwarded = c.req.header('x-forwarded-for')
+		const hops = forwarded?.split(',').map((s) => s.trim()).filter(Boolean) ?? []
+		const ip = hops[hops.length - 1] ?? 'unknown'
+
+		const now = Date.now()
+		const cutoff = now - ADMIN_FAILURE_WINDOW_MS
+		const recent = (adminFailures.get(ip) ?? []).filter((t) => t > cutoff)
+
+		if (recent.length >= ADMIN_MAX_FAILURES) {
+			throw new HTTPException(429, { message: 'Too many failed admin key attempts' })
+		}
+
 		const apiKey = c.req.header('X-Admin-Key')
 
 		if (!apiKey) {
+			recent.push(now)
+			adminFailures.set(ip, recent)
 			throw new HTTPException(401, { message: 'Missing X-Admin-Key header' })
 		}
 
 		if (!safeCompare(apiKey, validKey)) {
+			recent.push(now)
+			adminFailures.set(ip, recent)
 			throw new HTTPException(401, { message: 'Invalid admin key' })
 		}
 
+		// Success — clear the failure record for this IP.
+		adminFailures.delete(ip)
 		await next()
 	}
 }
