@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import { SuwppuStaking } from "../SuwppuStaking.sol";
+import { SuwppuStaking } from "./SuwppuStaking.sol";
 
 // ─── Minimal self-contained mocks ────────────────────────────────────────────
 
