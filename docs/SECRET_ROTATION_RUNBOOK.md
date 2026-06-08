@@ -1,35 +1,50 @@
 # Secret Rotation + Git-History Purge Runbook
 
 Runbook for the **manual** remediations from the #311 red-team review (tracked in
-issue #331, findings **R1–R6**). These are secret-exposure issues that **code changes
-cannot fix**: a secret that has ever been committed, exported, or persisted must be
-treated as compromised — removing it from the current tree leaves it in git history,
-packfiles, forks, clones, CI caches, and any mirror.
+issue #331, findings **R1–R6**). The auto-fixed code findings (C1–C18, custodial guard,
+OAuth/RPC hardening) are already landed; this covers only what a human/ops must do.
 
-> **Golden rule: rotate first, purge second.** Invalidate every exposed secret (so a
-> leaked-but-not-yet-purged value is already dead) *before* rewriting history.
+## TL;DR — what a deep review (all 891 commits, every branch) actually found
 
-The auto-fixed code findings (C1/C2/C3, custodial guard, OAuth/RPC hardening) are already
-landed; this runbook covers only what a human must do.
+1. **Rotate the 3 beta codes; skip the git-history purge.** The *only* real secret ever
+   committed is three beta access codes (`waifu`, `suwappu`, `earlybird`). Rotating them in
+   the Railway `BETA_PASSWORDS` env var neutralizes the exposure **completely and instantly**.
+   A history rewrite is **not worth it** and can't even fully un-expose them — there is a
+   **fork you don't control** (`daceconomy/A-suwappubot`, a full copy of all history) and
+   GitHub keeps old commits reachable by direct-SHA URL. Everything else flagged in history
+   was a false positive (test fixtures, vendored forge-std/OZ constants, `.env` templates).
+2. **The Turnkey "key export" is encrypted and load-bearing — likely a non-issue.** The
+   backup is **AES-256-GCM envelope-encrypted (`kms_aesgcm_v2`)**, not plaintext at rest, and
+   it's *used* (fallback signing in `turnkey_fallback.py`) — so you can't just delete it. It
+   only ever ran if `WALLET_PROVIDER=turnkey` in prod. **Check one value to settle it:**
+   ```bash
+   railway variables --service python-api | grep -iE 'WALLET_PROVIDER|KMS_PROVIDER'
+   ```
+   - **unset / `local`** → the export never fired → `backup_key_exported_at` is uniformly NULL
+     → **R2/R3 blast radius is zero.** No DB query, no key rotation. Done.
+   - **`turnkey`** → run the blast-radius query (R2 below); rotate keys **only if**
+     `KMS_PROVIDER` ≠ `aws` (then the DEK is wrapped by an env-var KEK, weak) or you suspect a
+     host/KMS breach. If `KMS_PROVIDER=aws`, the fix is just R5 (scope `kms:Decrypt`).
+
+   Honest caveat: the key *did* leave the Turnkey TEE in plaintext transiently (in app
+   memory) during export, so custody dropped from TEE-grade to app-KMS-grade — the at-rest
+   safety is entirely contingent on `KMS_PROVIDER=aws` **with** R5 scoping.
+
+> **Golden rule when you do rotate: rotate first, purge second** — but per (1) the purge is
+> optional defense-in-depth here, not security-critical.
 
 ---
 
-## Severity-ranked exposures
+## Severity-ranked exposures (re-assessed)
 
-| # | Exposure | Where | Severity | Core action |
-|---|----------|-------|----------|-------------|
-| R1 | Beta access codes hardcoded in source (now env-driven, but the literals live in git history) | `bot/services/x402_service.py` (history: commit `5319d3c` and earlier) | High | Rotate the codes; purge the literals from history |
-| R2 | Plaintext private key **exported** from the Turnkey TEE and backed up to the DB | `bot/services/turnkey_export.py` | **Critical** | Treat exported keys as compromised → **rotate wallet keys / migrate funds** |
-| R3 | DB breach exposes all Turnkey backup keys at rest | `wallets.encrypted_private_key`, `backup_key_exported_at` | **Critical** | Same as R2 + segregate the backup-KMS credential from the app credential |
-| R4 | Backup-key decryption had no 2FA / authz gate | `bot/services/wallet.py` | High | Rotate affected keys if exposure suspected; the authz gate is part of the #311 wallet hardening (separate PR) |
-| R5 | Encrypted backup keys decryptable by any process holding KMS access | `bot/utils/envelope_crypto.py` | High | Restrict KMS `Decrypt` via IAM/key policy; rotate KMS keys |
-| R6 | Plaintext key in memory during predict signing | `bot/handlers/predict.py` | Medium | Operational; rotate only if a host/memory compromise is suspected |
-
-**Decision gate:** R2–R6 only require *key rotation* (an expensive, user-facing action —
-moving funds) **if you have reason to believe the keys were actually exposed** (DB dump,
-RCE, leaked logs, a real export having run against real funds). If the export path was
-never used against funded production wallets, the remediation is to **remove/guard the
-path** and tighten KMS — not to rotate every wallet. Establish that first (see R2 below).
+| # | Exposure | Where | Real severity | Core action |
+|---|----------|-------|---------------|-------------|
+| R1 | Beta access codes hardcoded in source (now env-driven; literals remain in history) | `bot/services/x402_service.py` (history: `01104ff` → removed in `5319d3c`) | High → **easy** | **Rotate the codes in env.** Purge optional (fork + SHA-cache make it incomplete). |
+| R2 | Private key exported from Turnkey TEE, stored **encrypted** (`kms_aesgcm_v2`) in DB | `bot/services/turnkey_export.py` (auto-runs in `wallet.py` `_create_turnkey_wallet`) | **Conditional** | If `WALLET_PROVIDER`≠turnkey → **zero**. Else: query blast radius; rotate only if KMS unsound / breach suspected. |
+| R3 | DB breach exposes backup keys at rest | `wallets.encrypted_private_key`, `backup_key_exported_at` | **Conditional** | Encrypted at rest; a DB-only breach doesn't expose keys **if** `KMS_PROVIDER=aws`. Segregate the backup KMS key (R5). |
+| R4 | Backup-key decryption has no 2FA / authz gate | `bot/services/wallet.py` | High | Add the authz gate (code — small, can be done now); rotate affected keys only if exposure suspected. |
+| R5 | Encrypted backup keys decryptable by any process with KMS access | `bot/utils/envelope_crypto.py`, `bot/services/kms_client.py` | High | If AWS KMS: dedicated CMK + scope `kms:Decrypt` to the service role. If `local`: KEK is an env var — restrict who can read the Railway secret. |
+| R6 | Plaintext key in memory during signing | `bot/handlers/predict.py` | Medium | Operational; rotate only on suspected host/memory compromise. |
 
 ---
 
@@ -38,13 +53,21 @@ path** and tighten KMS — not to rotate every wallet. Establish that first (see
 **State:** `x402_service.py` now reads `BETA_PASSWORDS` from the env (no hardcoded fallback
 — good). But the old literals are in git history and, if still accepted, are compromised.
 
-1. **Rotate.** Pick new codes and set the `BETA_PASSWORDS` env var (format
-   `code:TIER,code2:TIER2`) on Railway (production + development). Remove the old codes
-   from the env so they no longer grant access.
+1. **Rotate (this is the whole fix).** Pick new codes and set the `BETA_PASSWORDS` env var
+   (format `code:TIER,code2:TIER2`) on Railway (production + development). Remove the old
+   codes so reading them from history no longer grants anything. `x402_service.py` already
+   loads only from env, so this takes effect immediately.
 2. *(Optional, recommended)* Migrate beta codes to a DB table (bcrypt-hashed, with expiry +
    max-uses + tier) so future codes are never in env/source at all.
-3. **Purge the literals from history** — see [§ History purge](#history-purge) with a
-   `replacements.txt` mapping each old literal → `***REMOVED***`.
+3. **Purge is OPTIONAL, not required.** Rotation (step 1) fully neutralizes the exposure.
+   A purge can't be complete anyway (see [§ History purge](#history-purge) — the fork and
+   GitHub's SHA cache), so only do it as cosmetic hygiene, never as the security fix.
+
+> ⚠️ **Standing exposure — the fork.** `daceconomy/A-suwappubot` is a fork = a full,
+> independent copy of everything ever committed, which you don't control and **cannot
+> purge**. Rotation is the only lever that protects against it. After rotating, consider
+> asking the fork owner to delete/re-sync, but treat anything that was ever committed
+> (the beta codes) as permanently readable by whoever holds that fork.
 
 ---
 
@@ -85,6 +108,11 @@ affected wallet keys only if RCE/host compromise is suspected.
 ---
 
 ## History purge
+
+> 🛑 **Not recommended for this repo** (see TL;DR). The only real history secret is the beta
+> codes, which rotation already kills; a purge can't reach the fork or GitHub's SHA cache,
+> and rewriting 891 commits / 58 branches / 20+ open PRs is high-disruption. This section is
+> kept as reference **if** a future, genuinely-unrotatable secret is ever committed.
 
 Run **after** rotation. Rewriting history is destructive and forces every collaborator to
 re-clone — coordinate a window.
