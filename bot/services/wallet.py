@@ -1,8 +1,10 @@
 """Wallet management service for EVM and Solana chains."""
 
 import asyncio
+import hashlib
 import json
 import logging
+import threading
 import time
 from typing import Optional
 from web3 import Web3
@@ -30,6 +32,57 @@ from bot.models.user import User, Wallet
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Backup-key access guard (R4) — backup private keys are the highest-value secret
+# in the system. This logs every backup-key decryption (for downstream alerting)
+# and blocks a clear exfiltration loop (an attacker who controls a session
+# repeatedly triggering decryptions to dump every key). Limits are deliberately
+# generous so they never trip legitimate signing; with WALLET_PROVIDER=turnkey the
+# backup/fallback decrypt path is rarely hit at all.
+# ---------------------------------------------------------------------------
+try:
+    from bot.utils.rate_limiter import RateLimitExceeded
+except Exception:  # pragma: no cover - rate_limiter is always present in practice
+    class RateLimitExceeded(Exception):  # type: ignore
+        pass
+
+
+class _BackupKeyAccessGuard:
+    def __init__(self, max_burst: int = 60, burst_window_seconds: float = 60.0):
+        self.max_burst = max_burst
+        self.burst_window_seconds = burst_window_seconds
+        self._recent: dict[str, list] = {}
+        self._lock = threading.Lock()
+
+    def check(self, key_id: str) -> None:
+        """Log + anomaly-cap a backup-key decryption. Raises RateLimitExceeded on
+        a burst far above any legitimate signing rate (likely exfiltration)."""
+        now = time.monotonic()
+        with self._lock:
+            window_start = now - self.burst_window_seconds
+            recent = [t for t in self._recent.get(key_id, []) if t > window_start]
+            if len(recent) >= self.max_burst:
+                logger.error(
+                    "ANOMALY: backup key %s decrypted %d times in %.0fs — possible "
+                    "key exfiltration attempt; blocking.",
+                    key_id, len(recent), self.burst_window_seconds,
+                )
+                raise RateLimitExceeded(
+                    "Backup key access blocked: too many decryptions in a short window."
+                )
+            recent.append(now)
+            self._recent[key_id] = recent
+        logger.info("Backup private key decrypted (key=%s)", key_id)
+
+
+_backup_key_guard = _BackupKeyAccessGuard()
+
+
+def _key_fingerprint(encrypted_private_key: str) -> str:
+    """Stable per-wallet id for the access guard (hash of the ciphertext, not the key)."""
+    return hashlib.sha256((encrypted_private_key or "").encode("utf-8")).hexdigest()[:16]
 
 
 # ERC20 ABI for balance checking
@@ -1312,7 +1365,10 @@ class WalletService:
                 "Use sign_evm_transaction() with a Wallet object instead."
             )
         from bot.utils.envelope_crypto import decrypt_wallet_key
-        
+
+        # R4: throttle + log every backup-key decryption (exfiltration guard).
+        _backup_key_guard.check(_key_fingerprint(encrypted_private_key))
+
         private_key = decrypt_wallet_key(
             encrypted_private_key=encrypted_private_key,
             encryption_scheme=encryption_scheme,
@@ -1321,10 +1377,10 @@ class WalletService:
             kms_key_id=kms_key_id,
             key_version=key_version,
         )
-        
+
         if not private_key.startswith("0x"):
             private_key = "0x" + private_key
-        
+
         signed = Account.sign_transaction(transaction, private_key)
         return signed.raw_transaction.hex()
     
@@ -1363,7 +1419,10 @@ class WalletService:
             )
         from solders.transaction import VersionedTransaction
         from bot.utils.envelope_crypto import decrypt_wallet_key
-        
+
+        # R4: throttle + log every backup-key decryption (exfiltration guard).
+        _backup_key_guard.check(_key_fingerprint(encrypted_private_key))
+
         private_key = decrypt_wallet_key(
             encrypted_private_key=encrypted_private_key,
             encryption_scheme=encryption_scheme,
