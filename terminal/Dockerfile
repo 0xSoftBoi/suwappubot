@@ -29,18 +29,22 @@ RUN bun run build
 # Production stage - nginx to serve static files
 FROM public.ecr.aws/nginx/nginx:alpine
 
-# Copy custom nginx config
-COPY terminal/nginx.conf /etc/nginx/conf.d/default.conf
+# As a TEMPLATE: the nginx image entrypoint runs envsubst over /etc/nginx/templates/*.template
+# at startup, substituting only real env vars (e.g. $PORT) — nginx's own $uri /
+# $binary_remote_addr are left untouched since they aren't env vars.
+COPY terminal/nginx.conf /etc/nginx/templates/default.conf.template
+
+# Default for local runs; Railway injects its own $PORT and overrides this.
+ENV PORT=8080
 
 # Copy built files from builder
 COPY --from=builder /app/dist /usr/share/nginx/html
 RUN chmod -R 755 /usr/share/nginx/html
 
-# Expose port
-EXPOSE 80
+EXPOSE 8080
 
-# Health check
+# Health check must target the dynamic port (shell form so $PORT expands)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost/health || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT}/health || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
