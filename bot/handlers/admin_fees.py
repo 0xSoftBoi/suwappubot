@@ -3,17 +3,19 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
+from bot.config.settings import settings
 from bot.services.fee_service import fee_service
 from bot.utils.formatters import format_usd, format_amount
 from database.db import get_session
 
 
-# Admin IDs
-ADMIN_IDS = []  # Add your Telegram ID
+# Admin user IDs from settings, fail-closed if not configured
+ADMIN_IDS = [int(x) for x in settings.admin_telegram_ids.split(",") if x.strip()] if settings.admin_telegram_ids else []
 
 
 def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS or len(ADMIN_IDS) == 0
+    """Check if user is admin. Denies all if no admin IDs configured (fail-closed)."""
+    return len(ADMIN_IDS) > 0 and user_id in ADMIN_IDS
 
 
 async def fees_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
