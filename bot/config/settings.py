@@ -133,6 +133,16 @@ class Settings(BaseSettings):
         default="http://localhost:3000",
         description="Base URL for OAuth redirect URIs (e.g., https://app.suwappu.com)"
     )
+    webauthn_rp_id: str = Field(
+        default="suwappu.bot",
+        description=(
+            "WebAuthn Relying Party ID for Turnkey passkeys. MUST be a registrable domain "
+            "suffix of the page origin: 'suwappu.bot' is valid for app./terminal./www. "
+            "subdomains, so one passkey works across all of them. Decoupled from "
+            "oauth_redirect_base on purpose (that one defaults to localhost:3000, which is an "
+            "invalid rpId for prod and broke passkey connect). Set to 'localhost' for local dev."
+        ),
+    )
 
     # Infura RPC (primary, reliable RPCs for all major chains)
     infura_api_key: Optional[str] = Field(
