@@ -21,10 +21,13 @@ export function useMarketData(): MarketData {
       return { price: null, change24h: null, volume24h: null, marketCap: null, fundingRate: null, isLoading }
     }
 
+    // Candles are 1h; use only the last 24 for a true 24h window (was using all
+    // ~300 candles ≈ 12 days, so change/volume in the market bar were wrong).
+    const last24 = candles.slice(-24)
     const price = candles[candles.length - 1].close
-    const firstClose = candles[0].close
+    const firstClose = last24[0]?.close ?? price
     const change24h = firstClose !== 0 ? ((price - firstClose) / firstClose) * 100 : 0
-    const volume24h = candles.reduce((sum, c) => sum + c.volume, 0)
+    const volume24h = last24.reduce((sum, c) => sum + c.volume, 0)
 
     return { price, change24h, volume24h, marketCap: null, fundingRate: null, isLoading }
   }, [candles, isLoading])

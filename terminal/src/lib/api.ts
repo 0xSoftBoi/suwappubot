@@ -220,19 +220,24 @@ export const api = {
     return request<TokenSecurity>(`/webapp/discovery/security?chain=${chain}&address=${address}`)
   },
 
-  // Perps (HyperLiquid)
+  // Perps (HyperLiquid). api-ts wraps these in { markets } / { positions };
+  // unwrap to the bare array the panels expect (else markets.find/map -> TypeError).
   getPerpsMarkets() {
-    return request<HLMarket[]>('/v1/agent/perps/markets')
+    return request<{ markets: HLMarket[] }>('/v1/agent/perps/markets').then((r) => r.markets ?? [])
   },
 
   getPerpsPositions(walletAddress: string) {
-    return request<HLPosition[]>(`/v1/agent/perps/positions?address=${walletAddress}`)
+    return request<{ positions: HLPosition[] }>(
+      `/v1/agent/perps/positions?address=${walletAddress}`
+    ).then((r) => r.positions ?? [])
   },
 
-  // Predictions (Polymarket)
+  // Predictions (Polymarket). Also wrapped in { markets }.
   getPredictionMarkets(search?: string) {
     const params = search ? `?search=${encodeURIComponent(search)}` : ''
-    return request<PredictionMarket[]>(`/v1/agent/predict/markets${params}`)
+    return request<{ markets: PredictionMarket[] }>(
+      `/v1/agent/predict/markets${params}`
+    ).then((r) => r.markets ?? [])
   },
 
   // Copy Trading
