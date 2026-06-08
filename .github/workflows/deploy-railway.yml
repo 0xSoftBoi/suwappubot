@@ -108,7 +108,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Railway CLI
-        run: npm i -g @railway/cli
+        # The CLI's postinstall fetches a binary from GitHub releases, which
+        # intermittently 502/504s and fails the whole deploy. Retry with backoff.
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if npm i -g @railway/cli; then
+              railway --version && exit 0
+            fi
+            echo "::warning::Railway CLI install attempt ${attempt} failed; retrying in $((attempt * 10))s..."
+            sleep $((attempt * 10))
+          done
+          echo "::error::Railway CLI install failed after 5 attempts"
+          exit 1
       - name: Deploy
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
