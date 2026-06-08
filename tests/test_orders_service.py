@@ -6,35 +6,41 @@ All price fetches and swap execution are monkeypatched.
 """
 
 import os
+
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import asyncio
-from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, patch
+import asyncio  # noqa: E402
+from datetime import datetime, timedelta  # noqa: E402
+from unittest.mock import AsyncMock  # noqa: E402
 
-import pytest
+import pytest  # noqa: E402
 
-from database.db import get_session
-from bot.models.user import User, Wallet
-from bot.models.advanced import (
-    LimitOrder, DCAOrder,
-    OrderStatus, OrderType, DCAStatus,
+from database.db import get_session  # noqa: E402
+from bot.models.user import User, Wallet  # noqa: E402
+from bot.models.advanced import (  # noqa: E402
+    LimitOrder,
+    DCAOrder,
+    OrderStatus,
+    OrderType,
+    DCAStatus,
 )
-from bot.services.orders import OrderService
+from bot.services.orders import OrderService  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _seed_db(session):
     u = User(id=1, telegram_id=100, username="testuser")
     session.add(u)
     w = Wallet(
-        id=1, user_id=1,
+        id=1,
+        user_id=1,
         address="0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
         encrypted_private_key="enc",
         encryption_scheme="legacy_fernet_v1",
@@ -49,10 +55,13 @@ def _seed_db(session):
 def _mk_order(session, order_type, trigger_price=100.0, expires_at=None):
     """Insert a minimal pending limit order."""
     o = LimitOrder(
-        user_id=1, wallet_id=1,
+        user_id=1,
+        wallet_id=1,
         order_type=order_type,
-        from_chain="ethereum", from_token="USDC",
-        to_chain="ethereum", to_token="WETH",
+        from_chain="ethereum",
+        from_token="USDC",
+        to_chain="ethereum",
+        to_token="WETH",
         amount="1000000",
         trigger_price=trigger_price,
         slippage=0.5,
@@ -67,9 +76,12 @@ def _mk_order(session, order_type, trigger_price=100.0, expires_at=None):
 def _mk_dca(session, max_executions=None, executions_completed=0, ends_at=None, next_at=None):
     now = datetime.utcnow()
     o = DCAOrder(
-        user_id=1, wallet_id=1,
-        from_chain="ethereum", from_token="USDC",
-        to_chain="ethereum", to_token="WETH",
+        user_id=1,
+        wallet_id=1,
+        from_chain="ethereum",
+        from_token="USDC",
+        to_chain="ethereum",
+        to_token="WETH",
         amount_per_execution="100000",
         interval_hours=24,
         next_execution_at=next_at or (now - timedelta(minutes=1)),
@@ -87,17 +99,22 @@ def _mk_dca(session, max_executions=None, executions_completed=0, ends_at=None, 
 # create_limit_order
 # ---------------------------------------------------------------------------
 
+
 def test_create_limit_order_stores_pending_status(tmp_db):
     with get_session() as session:
         _seed_db(session)
 
     svc = OrderService()
     order = svc.create_limit_order(
-        user_id=1, wallet_id=1,
+        user_id=1,
+        wallet_id=1,
         order_type=OrderType.LIMIT_BUY.value,
-        from_chain="ethereum", from_token="USDC",
-        to_chain="ethereum", to_token="WETH",
-        amount="1000000", trigger_price=2000.0,
+        from_chain="ethereum",
+        from_token="USDC",
+        to_chain="ethereum",
+        to_token="WETH",
+        amount="1000000",
+        trigger_price=2000.0,
     )
 
     assert order.status == OrderStatus.PENDING.value
@@ -111,11 +128,15 @@ def test_create_limit_order_sets_expiry_when_provided(tmp_db):
 
     svc = OrderService()
     order = svc.create_limit_order(
-        user_id=1, wallet_id=1,
+        user_id=1,
+        wallet_id=1,
         order_type=OrderType.LIMIT_BUY.value,
-        from_chain="ethereum", from_token="USDC",
-        to_chain="ethereum", to_token="WETH",
-        amount="1000000", trigger_price=2000.0,
+        from_chain="ethereum",
+        from_token="USDC",
+        to_chain="ethereum",
+        to_token="WETH",
+        amount="1000000",
+        trigger_price=2000.0,
         expires_in_hours=24,
     )
 
@@ -127,15 +148,21 @@ def test_create_limit_order_sets_expiry_when_provided(tmp_db):
 # check_limit_orders — trigger logic (all 4 types)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("order_type,token_key,price,should_trigger", [
-    (OrderType.LIMIT_BUY.value,    "to_token",   95.0, True),   # buy triggers when price drops
-    (OrderType.LIMIT_BUY.value,    "to_token",  102.0, False),  # buy does NOT trigger above
-    (OrderType.LIMIT_SELL.value,   "from_token", 105.0, True),  # sell triggers when price rises
-    (OrderType.LIMIT_SELL.value,   "from_token",  95.0, False), # sell does NOT trigger below
-    (OrderType.STOP_LOSS.value,    "from_token",  90.0, True),  # stop-loss triggers on drop
-    (OrderType.TAKE_PROFIT.value,  "from_token", 110.0, True),  # take-profit triggers on rise
-])
-def test_check_limit_orders_trigger_logic(tmp_db, monkeypatch, order_type, token_key, price, should_trigger):
+
+@pytest.mark.parametrize(
+    "order_type,token_key,price,should_trigger",
+    [
+        (OrderType.LIMIT_BUY.value, "to_token", 95.0, True),  # buy triggers when price drops
+        (OrderType.LIMIT_BUY.value, "to_token", 102.0, False),  # buy does NOT trigger above
+        (OrderType.LIMIT_SELL.value, "from_token", 105.0, True),  # sell triggers when price rises
+        (OrderType.LIMIT_SELL.value, "from_token", 95.0, False),  # sell does NOT trigger below
+        (OrderType.STOP_LOSS.value, "from_token", 90.0, True),  # stop-loss triggers on drop
+        (OrderType.TAKE_PROFIT.value, "from_token", 110.0, True),  # take-profit triggers on rise
+    ],
+)
+def test_check_limit_orders_trigger_logic(
+    tmp_db, monkeypatch, order_type, token_key, price, should_trigger
+):
     with get_session() as session:
         _seed_db(session)
         o = _mk_order(session, order_type, trigger_price=100.0)
@@ -163,7 +190,8 @@ def test_check_limit_orders_marks_expired_past_deadline(tmp_db, monkeypatch):
     with get_session() as session:
         _seed_db(session)
         o = _mk_order(
-            session, OrderType.LIMIT_BUY.value,
+            session,
+            OrderType.LIMIT_BUY.value,
             expires_at=datetime.utcnow() - timedelta(hours=1),
         )
         order_id = o.id
@@ -184,6 +212,7 @@ def test_check_limit_orders_marks_expired_past_deadline(tmp_db, monkeypatch):
 # ---------------------------------------------------------------------------
 # DCA lifecycle
 # ---------------------------------------------------------------------------
+
 
 def test_check_dca_orders_marks_completed_on_max_executions(tmp_db):
     with get_session() as session:

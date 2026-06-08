@@ -7,22 +7,23 @@ calls are made.
 """
 
 import os
+
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
-from unittest.mock import MagicMock, patch
+import pytest  # noqa: E402
 
-from database.db import get_session
-from bot.models.user import User, Wallet
-from bot.services.wallet import WalletService
+from database.db import get_session  # noqa: E402
+from bot.models.user import User, Wallet  # noqa: E402
+from bot.services.wallet import WalletService  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_user(session, uid=1):
     u = User(id=uid, telegram_id=uid * 100, username=f"user{uid}")
@@ -67,18 +68,20 @@ def _make_turnkey_wallet(session, user_id):
 # Wallet creation
 # ---------------------------------------------------------------------------
 
+
 def test_create_evm_wallet_returns_valid_address():
     """create_evm_wallet() must return a checksummed 0x address + hex private key."""
     svc = WalletService()
     address, pk = svc.create_evm_wallet()
     assert address.startswith("0x")
     assert len(address) == 42
-    assert len(pk) in (64, 66)        # 64 hex chars or 0x-prefixed
+    assert len(pk) in (64, 66)  # 64 hex chars or 0x-prefixed
 
 
 def test_create_evm_wallet_address_derived_from_private_key():
     """The returned address must match what eth_account derives from the key."""
     from eth_account import Account
+
     svc = WalletService()
     address, pk = svc.create_evm_wallet()
     derived = Account.from_key(pk if pk.startswith("0x") else "0x" + pk).address
@@ -88,6 +91,7 @@ def test_create_evm_wallet_address_derived_from_private_key():
 # ---------------------------------------------------------------------------
 # save_wallet — encryption at rest
 # ---------------------------------------------------------------------------
+
 
 def test_save_wallet_stores_encrypted_not_plaintext(tmp_db, monkeypatch):
     """Private key must never be stored in plaintext."""
@@ -138,6 +142,7 @@ def test_save_wallet_unsets_other_defaults_for_same_chain(tmp_db, monkeypatch):
 # Wallet model properties
 # ---------------------------------------------------------------------------
 
+
 def test_wallet_is_turnkey_property(tmp_db):
     with get_session() as session:
         _make_user(session)
@@ -157,6 +162,7 @@ def test_wallet_is_local_property(tmp_db):
 # ---------------------------------------------------------------------------
 # get_private_key
 # ---------------------------------------------------------------------------
+
 
 def test_get_private_key_raises_for_turnkey_wallet(tmp_db):
     """Turnkey wallets have no local key — must raise ValueError."""
@@ -187,6 +193,7 @@ def test_get_private_key_decrypts_legacy_scheme(tmp_db, monkeypatch):
 # ---------------------------------------------------------------------------
 # Signing error paths
 # ---------------------------------------------------------------------------
+
 
 def test_sign_evm_local_zeroizes_key_even_on_exception(tmp_db, monkeypatch):
     """_zeroize_str must be called on the private key even if signing raises."""
@@ -230,6 +237,7 @@ def test_get_evm_token_balance_returns_zero_on_rpc_error(monkeypatch):
         raise ConnectionError("RPC down")
 
     import asyncio
+
     svc = WalletService()
     svc._evm_rpc_call = _raise
 
