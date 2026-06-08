@@ -1,0 +1,21 @@
+# Deploy the edge router + bind its hostnames in one command:
+#   cd cloudflare && bunx wrangler deploy
+#
+# Prereqs (operator-only, can't be automated from here):
+#   1. suwappu.bot added to this Cloudflare account as a site
+#   2. Gandi nameservers delegated to Cloudflare (zone shows "Active")
+#   3. bunx wrangler login   (interactive, like `railway login`)
+#
+# With custom_domain = true, `wrangler deploy` creates each Custom Domain and its
+# edge TLS cert automatically — no manual DNS records. Only hosts with a live
+# backend are listed; terminal/app/devapi are intentionally omitted (see README.md).
+
+name = "suwappu-router"
+main = "suwappu-router.worker.js"
+compatibility_date = "2026-06-01"
+
+routes = [
+  { pattern = "api.suwappu.bot", custom_domain = true },
+  { pattern = "www.suwappu.bot", custom_domain = true },
+  { pattern = "suwappu.bot",     custom_domain = true },
+]
