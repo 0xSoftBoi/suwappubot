@@ -253,47 +253,43 @@ agentRoutes.post('/sponge/callback', ipRateLimit(20), async (c) => {
 		}),
 	)
 
-	if (Either.isRight(envResult)) {
-		const env = envResult.right
-		if (env.SPONGE_WEBHOOK_SECRET) {
-			const signature = c.req.header('X-Sponge-Signature')
-			if (!signature) {
-				return c.json({ error: 'Missing X-Sponge-Signature header' }, 401)
-			}
+	// Fail closed: this callback must be HMAC-signed. If the secret isn't configured
+	// (or env is unavailable) reject — never accept an unverified callback, which
+	// could forge-register agents, trigger actions, or inject metadata.
+	if (Either.isLeft(envResult) || !envResult.right.SPONGE_WEBHOOK_SECRET) {
+		return c.json({ error: 'Sponge webhook is not configured' }, 503)
+	}
+	const webhookSecret = envResult.right.SPONGE_WEBHOOK_SECRET
 
-			const rawBody = await c.req.text()
-			const expected = crypto
-				.createHmac('sha256', env.SPONGE_WEBHOOK_SECRET)
-				.update(rawBody)
-				.digest('hex')
-
-			const sigBuf = Buffer.from(signature, 'hex')
-			const expBuf = Buffer.from(expected, 'hex')
-			if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
-				return c.json({ error: 'Invalid signature' }, 401)
-			}
-
-			// Re-parse body since we consumed it
-			let body: any
-			try {
-				body = JSON.parse(rawBody)
-			} catch {
-				return c.json({ error: 'Invalid JSON body' }, 400)
-			}
-
-			return handleSpongeCallback(c, body)
-		}
+	const signature = c.req.header('X-Sponge-Signature')
+	if (!signature) {
+		return c.json({ error: 'Missing X-Sponge-Signature header' }, 401)
 	}
 
-	// No webhook secret configured — accept without signature validation
-	let body: unknown
+	const rawBody = await c.req.text()
+	const expected = crypto
+		.createHmac('sha256', webhookSecret)
+		.update(rawBody)
+		.digest('hex')
+
+	// Reject a malformed signature (non-hex or wrong length) before constant-time compare.
+	if (!/^[0-9a-fA-F]+$/.test(signature) || signature.length !== expected.length) {
+		return c.json({ error: 'Invalid signature' }, 401)
+	}
+	const sigBuf = Buffer.from(signature, 'hex')
+	const expBuf = Buffer.from(expected, 'hex')
+	if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+		return c.json({ error: 'Invalid signature' }, 401)
+	}
+
+	let body: any
 	try {
-		body = await c.req.json()
+		body = JSON.parse(rawBody)
 	} catch {
 		return c.json({ error: 'Invalid JSON body' }, 400)
 	}
 
-	return handleSpongeCallback(c, body as any)
+	return handleSpongeCallback(c, body)
 })
 
 async function handleSpongeCallback(c: any, body: any) {
@@ -1884,6 +1880,11 @@ agentRoutes.get('/wallets', async (c) => {
 // WALLET POLICIES (Turnkey)
 // ===========================================
 
+// Agent-created policies are name-prefixed so the delete endpoint can distinguish
+// them from admin/guardrail policies (spending caps, whitelists) that an agent must
+// not be able to remove.
+const AGENT_POLICY_PREFIX = 'agent-'
+
 // POST /v1/agent/wallet/policy - Create a Turnkey policy for agent wallet
 agentRoutes.post('/wallet/policy', async (c) => {
 	const agent = c.get('agent')
@@ -1909,7 +1910,7 @@ agentRoutes.post('/wallet/policy', async (c) => {
 				const condition = `eth.value <= ${params.maxAmountWei}`
 				const policyId = yield* turnkeyService.createPolicy(
 					subOrgId,
-					`agent-spending-limit-${params.timeWindowSeconds}s`,
+					`${AGENT_POLICY_PREFIX}spending-limit-${params.timeWindowSeconds}s`,
 					'EFFECT_DENY',
 					condition,
 				)
@@ -1919,7 +1920,7 @@ agentRoutes.post('/wallet/policy', async (c) => {
 				const condition = `eth.tx.to in [${addresses}]`
 				const policyId = yield* turnkeyService.createPolicy(
 					subOrgId,
-					`agent-whitelist-${params.allowedAddresses!.length}`,
+					`${AGENT_POLICY_PREFIX}whitelist-${params.allowedAddresses!.length}`,
 					'EFFECT_ALLOW',
 					condition,
 				)
@@ -1971,12 +1972,26 @@ agentRoutes.delete('/wallet/policy/:policyId', async (c) => {
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const turnkeyService = yield* TurnkeyService
+			// Only allow deleting agent-created policies. An agent must not be able to
+			// remove admin/guardrail policies (spending caps, address whitelists) on its
+			// own sub-org and then swap freely. Identify by the agent name-prefix.
+			const policies = yield* turnkeyService.listPolicies(subOrgId)
+			const target = policies.find((p) => p.policyId === policyId)
+			if (!target) {
+				return yield* Effect.fail(new ValidationError({ message: 'Policy not found' }))
+			}
+			if (!target.policyName.startsWith(AGENT_POLICY_PREFIX)) {
+				return yield* Effect.fail(
+					new ValidationError({ message: 'Cannot delete a protected (non-agent) policy' }),
+				)
+			}
 			return yield* turnkeyService.deletePolicy(subOrgId, policyId)
 		})
 	)
 
 	if (Either.isLeft(result)) {
-		return c.json({ error: result.left.message }, 500)
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
 	}
 
 	return c.json({ success: true, deleted: true })
