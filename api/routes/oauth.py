@@ -112,6 +112,37 @@ async def get_oauth_providers():
     )
 
 
+def _is_allowed_redirect(redirect_url: Optional[str]) -> bool:
+    """
+    Validate a user-supplied OAuth redirect URL against the allowlist.
+
+    Only absolute URLs whose origin (scheme+host, optionally a path beneath it)
+    match one of the configured ``oauth_redirect_base`` entries are permitted —
+    preventing open-redirect / authorization-code interception via attacker-
+    controlled destinations. ``None`` is allowed (the callback falls back to the
+    default dashboard URL). ``oauth_redirect_base`` may be a single base or a
+    comma-separated list.
+    """
+    if redirect_url is None:
+        return True
+
+    allowed_bases = [
+        base.strip().rstrip("/")
+        for base in (settings.oauth_redirect_base or "").split(",")
+        if base.strip()
+    ]
+    if not allowed_bases:
+        return False
+
+    for base in allowed_bases:
+        # Exact base, or a path beneath it. The trailing "/" stops
+        # "https://app.example.com.attacker.com" from matching
+        # "https://app.example.com".
+        if redirect_url == base or redirect_url.startswith(base + "/"):
+            return True
+    return False
+
+
 @router.get("/{provider}/authorize")
 async def oauth_authorize(
     provider: str,
@@ -132,6 +163,12 @@ async def oauth_authorize(
 
     if not settings.is_oauth_configured(provider):
         raise HTTPException(status_code=501, detail=f"OAuth not configured for {provider}")
+
+    # Reject a non-allowlisted redirect_url before persisting any state, to
+    # prevent open redirect / authorization-code interception.
+    if not _is_allowed_redirect(redirect_url):
+        logger.warning(f"OAuth authorize: rejected redirect_url for provider {provider}")
+        raise HTTPException(status_code=400, detail="Invalid redirect URL")
 
     oauth_service = get_oauth_service()
 
@@ -263,8 +300,13 @@ async def oauth_callback(
         path="/",
     )
 
-    # Redirect to frontend success page
-    redirect_url = oauth_state.redirect_uri or f"{settings.oauth_redirect_base}/dashboard"
+    # Redirect to frontend success page. Re-validate the stored redirect_uri as
+    # defense-in-depth — never emit a Location header to a non-allowlisted
+    # destination even if a state row was somehow persisted with a bad value.
+    redirect_url = oauth_state.redirect_uri
+    if not redirect_url or not _is_allowed_redirect(redirect_url):
+        default_base = settings.oauth_redirect_base.split(",")[0].strip().rstrip("/")
+        redirect_url = f"{default_base}/dashboard"
     success_url = f"{redirect_url}?auth=success&provider={provider}"
 
     return RedirectResponse(url=success_url, status_code=302)

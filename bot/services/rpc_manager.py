@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional
+from urllib.parse import urlparse
 
 import aiohttp
 from web3 import Web3
@@ -47,6 +48,48 @@ POA_CHAINS = {
     "bsc", "polygon", "arbitrum", "optimism", "base", "gnosis", "scroll",
     "linea", "mantle", "opbnb", "zksync", "mode", "bob",
 }
+
+# Registrable domains we trust to host RPC endpoints. Only endpoints whose host
+# matches one of these (exact, or a subdomain) are accepted from the UNTRUSTED
+# chainlist.org discovery feed — this prevents a poisoned/MitM'd chainlist
+# response from injecting attacker-controlled RPC URLs that could read pending
+# transactions, front-run, or forge responses. Configured endpoints from
+# settings.py are trusted regardless of this list.
+TRUSTED_RPC_DOMAINS = frozenset({
+    # Multi-chain public/paid providers
+    "publicnode.com", "1rpc.io", "drpc.org", "llamarpc.com",
+    "blockpi.network", "alchemy.com", "infura.io", "ankr.com",
+    "blastapi.io", "nodereal.io", "meowrpc.com", "tenderly.co",
+    # Chain-native / first-party RPC domains
+    "binance.org", "bnbchain.org", "arbitrum.io", "optimism.io",
+    "base.org", "avax.network", "fantom.network", "ftm.tools",
+    "linea.build", "mantle.xyz", "gnosischain.com", "scroll.io",
+    "tempo.xyz", "soniclabs.com", "frax.com", "zksync.io",
+    "onflow.org", "hyperliquid.xyz", "lisk.com", "sei-apis.com",
+    "soneium.org", "alt.technology", "abs.xyz", "kaia.io",
+    "apechain.com", "mode.network", "hemi.network", "gobob.xyz",
+    "berachain.com", "taiko.xyz", "unichain.org", "flare.network",
+})
+
+
+def _is_trusted_rpc_url(url: str) -> bool:
+    """Return True only for https URLs whose host is a trusted RPC domain.
+
+    Used to gate endpoints discovered from the untrusted chainlist.org feed.
+    Rejects non-https schemes, missing/malformed hosts, and any host that is not
+    exactly a trusted domain or a subdomain of one (dot-anchored to block
+    registrable-suffix bypasses like ``evilpublicnode.com``).
+    """
+    try:
+        parsed = urlparse(url)
+    except (ValueError, TypeError):
+        return False
+    if parsed.scheme != "https":
+        return False
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return False
+    return any(host == d or host.endswith("." + d) for d in TRUSTED_RPC_DOMAINS)
 
 
 class RPCTier(Enum):
@@ -235,6 +278,12 @@ class RPCManager:
                     if tracking == "yes":
                         continue
                     if rpc_url in existing_urls:
+                        continue
+                    # SECURITY: chainlist.org is untrusted (no signature / cert
+                    # pinning). Only accept https endpoints on trusted domains to
+                    # prevent injection of attacker-controlled RPC URLs.
+                    if not _is_trusted_rpc_url(rpc_url):
+                        logger.debug(f"Chainlist: rejected untrusted RPC {rpc_url[:80]}")
                         continue
 
                     self._endpoints.setdefault(chain_name, []).append(RPCEndpoint(
