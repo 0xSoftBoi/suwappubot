@@ -32,15 +32,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -e ".[dev]" 2>/dev/null || pip install \
-            pytest pytest-asyncio pytest-cov \
-            black flake8 \
-            pydantic pydantic-settings \
-            eth-utils base58 \
-            aiohttp \
-            sqlalchemy \
-            python-telegram-bot \
-            cryptography
+          # Runtime deps from the source-of-truth requirements.txt (same file prod
+          # Docker installs), plus test/lint tooling which lives outside it.
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov black flake8
 
       - name: Format check (black)
         run: black --check --line-length=100 bot/ api/ tests/
