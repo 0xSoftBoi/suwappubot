@@ -6,6 +6,7 @@ import { BottomTabProvider } from './contexts/BottomTabContext'
 import { HotkeysProvider } from './contexts/HotkeysContext'
 import { TradingProvider } from './contexts/TradingContext'
 import { PairProvider } from './contexts/PairContext'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { App } from './App'
 import './index.css'
 
@@ -27,7 +28,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <BottomTabProvider>
             <TradingProvider>
               <HotkeysProvider>
-                <App />
+                <ErrorBoundary>
+                  <App />
+                </ErrorBoundary>
               </HotkeysProvider>
             </TradingProvider>
           </BottomTabProvider>
