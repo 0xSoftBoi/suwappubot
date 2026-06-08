@@ -45,6 +45,18 @@ export const TelegramAuthServiceLive = Layer.effect(
 						return Option.none<TelegramUser>()
 					}
 
+					// Validate auth_date is recent (±5 minutes) to reject replayed or
+					// fabricated init_data payloads.
+					const authDate = params.get('auth_date')
+					if (authDate) {
+						const authTimestamp = parseInt(authDate, 10)
+						const nowSec = Math.floor(Date.now() / 1000)
+						const MAX_AGE_SEC = 300 // 5 minutes
+						if (isNaN(authTimestamp) || Math.abs(nowSec - authTimestamp) > MAX_AGE_SEC) {
+							return Option.none<TelegramUser>()
+						}
+					}
+
 					// Remove hash for data_check_string
 					params.delete('hash')
 

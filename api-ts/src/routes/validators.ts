@@ -1,5 +1,67 @@
 import { z } from 'zod'
 
+// ---------------------------------------------------------------------------
+// Shared field schemas
+// ---------------------------------------------------------------------------
+
+/** Maximum swap amount in token units (prevents accidental whole-portfolio swaps). */
+const MAX_SWAP_AMOUNT = 1_000_000
+
+/**
+ * Rejects cloud-metadata endpoints, private IP ranges, and other SSRF targets.
+ * Used on any user-supplied callback URL before it is stored or fetched.
+ */
+function isPublicUrl(url: string): boolean {
+	try {
+		const { hostname } = new URL(url)
+		const h = hostname.toLowerCase()
+		// Cloud metadata services
+		if (h === '169.254.169.254') return false // AWS/GCP/Azure IMDS
+		if (h === 'metadata.google.internal') return false
+		if (h === 'instance-data.ec2.internal') return false
+		// Private / loopback ranges
+		if (/^(localhost|0\.0\.0\.0|::1)$/.test(h)) return false
+		if (/^127\./.test(h)) return false
+		if (/^10\./.test(h)) return false
+		if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return false
+		if (/^192\.168\./.test(h)) return false
+		return true
+	} catch {
+		return false
+	}
+}
+
+const callbackUrlSchema = z
+	.string()
+	.url('Invalid callback URL')
+	.refine(isPublicUrl, 'callback_url must not point to a private or metadata endpoint')
+
+/** EVM address: 0x + 40 hex chars, rejecting the zero address. */
+const evmAddressSchema = z
+	.string()
+	.regex(/^0x[0-9a-fA-F]{40}$/, 'Invalid EVM address format')
+	.refine(
+		(addr) => addr.toLowerCase() !== '0x0000000000000000000000000000000000000000',
+		'Zero address is not allowed',
+	)
+
+/** Positive token amount with an upper cap to prevent accidental whole-portfolio swaps. */
+const tokenAmountSchema = z
+	.string()
+	.min(1, 'amount is required')
+	.refine((v) => {
+		const n = parseFloat(v)
+		return !isNaN(n) && n > 0
+	}, 'amount must be a positive number')
+	.refine(
+		(v) => parseFloat(v) <= MAX_SWAP_AMOUNT,
+		`amount must not exceed ${MAX_SWAP_AMOUNT.toLocaleString()} units`,
+	)
+
+// ---------------------------------------------------------------------------
+// Exported schemas
+// ---------------------------------------------------------------------------
+
 export const RegisterAgentSchema = z.object({
 	name: z
 		.string()
@@ -7,25 +69,19 @@ export const RegisterAgentSchema = z.object({
 		.max(50, 'Name must be at most 50 characters')
 		.regex(/^[a-zA-Z0-9_-]+$/, 'Name must be alphanumeric with underscores and hyphens only'),
 	description: z.string().max(500).optional(),
-	callback_url: z.url('Invalid callback URL').optional(),
+	callback_url: callbackUrlSchema.optional(),
 	metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 export const QuoteRequestSchema = z.object({
 	from_token: z.string().min(1, 'from_token is required'),
 	to_token: z.string().min(1, 'to_token is required'),
-	amount: z
-		.string()
-		.min(1, 'amount is required')
-		.refine((v) => {
-			const n = parseFloat(v)
-			return !isNaN(n) && n > 0
-		}, 'amount must be a positive number'),
+	amount: tokenAmountSchema,
 	chain: z.string().optional(),
 	from_chain: z.string().optional(),
 	to_chain: z.string().optional(),
-	wallet_address: z.string().optional(),
-	slippage: z.number().min(0).max(1).optional(),
+	wallet_address: evmAddressSchema.optional(),
+	slippage: z.number().min(0).max(0.5).optional(),
 })
 
 export const SwapRequestSchema = z.object({
@@ -46,7 +102,7 @@ export const ExecuteCommandSchema = z.object({
 export const UpdateAgentSchema = z
 	.object({
 		description: z.string().max(500).optional(),
-		callback_url: z.url('Invalid callback URL').nullish(),
+		callback_url: callbackUrlSchema.nullish(),
 		metadata: z.record(z.string(), z.unknown()).optional(),
 	})
 	.refine(
