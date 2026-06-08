@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Meta, StoryObj } from "@storybook/react";
 import { AddWalletForm } from "../../components/tracker/AddWalletForm";
 import { CreateAlertForm } from "../../components/alerts/CreateAlertForm";
 import { AlertCard } from "../../components/alerts/AlertCard";

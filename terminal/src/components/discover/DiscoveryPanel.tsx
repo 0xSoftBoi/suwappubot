@@ -33,7 +33,6 @@ export function DiscoveryPanel() {
   const { data: newPools, isLoading: newLoading, dataUpdatedAt: newUpdated } = useNewPools(chain)
   const { data: trendingPools, isLoading: trendingLoading, dataUpdatedAt: trendingUpdated } = useTrendingPools(chain)
 
-  const pools = activeTab === 'new' ? newPools : trendingPools
   const isLoading = activeTab === 'new' ? newLoading : trendingLoading
   const lastUpdated = activeTab === 'pulse' ? null : (activeTab === 'new' ? newUpdated : trendingUpdated)
 

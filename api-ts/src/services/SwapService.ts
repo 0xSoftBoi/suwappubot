@@ -1,10 +1,11 @@
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq, notInArray } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { logger } from '../lib/logger'
 import {
 	type DrizzleService,
 	type NewSwapTransaction,
 	requireDb,
+	requireRow,
 	type SwapTransaction,
 	swapTransactions,
 } from '../db'
@@ -126,13 +127,13 @@ export interface SwapQuote {
 		address: string
 		symbol: string
 		decimals: number
-		logoURI?: string
+		logoURI?: string | undefined
 	}
 	toToken: {
 		address: string
 		symbol: string
 		decimals: number
-		logoURI?: string
+		logoURI?: string | undefined
 	}
 	fromAmount: string
 	toAmount: string
@@ -417,13 +418,34 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
+			// Idempotency: if a non-terminal record with this key already exists, return it
+			if (swap.idempotencyKey) {
+				const existing = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.select()
+							.from(swapTransactions)
+							.where(
+								and(
+									eq(swapTransactions.idempotencyKey, swap.idempotencyKey!),
+									notInArray(swapTransactions.status, ['failed', 'cancelled']),
+								),
+							)
+							.limit(1),
+					catch: (e) =>
+						new DatabaseError({ message: `Idempotency check failed: ${e}`, cause: e }),
+				})
+				const existingRecord = existing[0]
+				if (existingRecord) return existingRecord
+			}
+
 			const result = yield* Effect.tryPromise({
 				try: () => db.insert(swapTransactions).values(swap).returning(),
 				catch: (e) =>
 					new DatabaseError({ message: `Failed to create swap record: ${e}`, cause: e }),
 			})
 
-			return result[0]
+			return yield* requireRow(result, 'Failed to create swap record: no row returned')
 		}),
 
 	updateSwapStatus: (swapId: number, status: string, txHash?: string, errorMessage?: string) =>

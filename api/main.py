@@ -6,7 +6,7 @@ import uuid
 from contextvars import ContextVar
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Request-ID context variable — propagated into every service/log call within
 # the same async context without threading explicit parameters everywhere.
@@ -52,7 +52,7 @@ from bot.utils.preload import preload_config
 from bot.services.rpc_manager import rpc_manager
 from database.db import init_db, engine, get_session, DATABASE_AVAILABLE
 from bot.models.user import User, Wallet
-from bot.models.swap import SwapTransaction
+from bot.models.swap import SwapTransaction, SwapStatus
 from bot.models.advanced import LimitOrder, DCAOrder
 from bot.models.agent import RegisteredAgent
 from bot.utils.db_monitor import setup_db_monitoring
@@ -95,9 +95,29 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("⚠️ Database monitoring disabled (no connection)")
 
+    # Reconcile any EXECUTING rows that have no tx_hash (process died mid-execution)
+    if db_success:
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+            with get_session() as session:
+                orphaned = session.query(SwapTransaction).filter(
+                    SwapTransaction.status == SwapStatus.EXECUTING.value,
+                    SwapTransaction.tx_hash.is_(None),
+                    SwapTransaction.created_at < cutoff,
+                ).all()
+                if orphaned:
+                    for row in orphaned:
+                        row.status = SwapStatus.FAILED.value
+                        row.error_message = "Reconciled at startup: EXECUTING with no tx_hash"
+                    session.commit()
+                    logger.warning("Reconciled %d orphaned EXECUTING transactions", len(orphaned))
+        except Exception as e:
+            logger.warning(f"Orphan reconciliation error (non-fatal): {e}")
+
     # 2. Build Bot Application
     os.makedirs("data", exist_ok=True)
-    persistence = PicklePersistence(filepath="data/bot_persistence.pickle")
+    persistence_path = os.environ.get("BOT_PERSISTENCE_PATH", "data/bot_persistence.pickle")
+    persistence = PicklePersistence(filepath=persistence_path)
     bot_app = (
         Application.builder()
         .token(settings.telegram_bot_token)
@@ -545,16 +565,6 @@ class AgentWalletCreate(BaseModel):
     name: Optional[str] = "Agent Managed Wallet"
     chain_type: str = "evm"
 
-class AgentRegisterRequest(BaseModel):
-    name: str
-    description: Optional[str] = None
-    callback_url: Optional[str] = None
-
-class AgentRegisterResponse(BaseModel):
-    agent_id: int
-    name: str
-    api_key: str
-    message: str
 
 class SwapResponse(BaseModel):
     id: int
@@ -1321,38 +1331,6 @@ async def get_tools(agent_key: str = Depends(get_agent_key)):
             }
         ]
     }
-
-@app.post("/v1/agent/register", response_model=AgentRegisterResponse, status_code=201, tags=["Agents"], summary="Register an external agent")
-async def register_agent(
-    request: AgentRegisterRequest,
-    db: Session = Depends(get_db),
-):
-    """
-    Public endpoint for external A2A agents to self-register and obtain an API key.
-    No authentication required. The returned API key should be stored securely
-    by the caller — it cannot be retrieved again.
-    """
-    # Generate a unique prefixed API key
-    api_key = f"suw_ag_{secrets.token_urlsafe(32)}"
-
-    agent = RegisteredAgent(
-        name=request.name,
-        description=request.description,
-        callback_url=request.callback_url,
-        api_key=api_key,
-        is_active=True,
-        created_at=datetime.utcnow(),
-    )
-    db.add(agent)
-    db.commit()
-    db.refresh(agent)
-
-    return AgentRegisterResponse(
-        agent_id=agent.id,
-        name=agent.name,
-        api_key=api_key,
-        message="Store this key securely. It cannot be retrieved again.",
-    )
 
 
 @app.post("/v1/agent/execute", tags=["Agents"], summary="Execute natural language trading command")

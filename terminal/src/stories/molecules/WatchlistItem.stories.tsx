@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react-vite'
+import type { Meta, StoryObj } from '@storybook/react'
 import { WatchlistItem } from '../../components/watchlist/WatchlistItem'
 import type { WatchlistToken } from '../../hooks/useWatchlist'
 import type { TokenPriceData } from '../../hooks/useWatchlistPrices'

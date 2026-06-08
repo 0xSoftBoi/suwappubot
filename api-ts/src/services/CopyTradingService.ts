@@ -13,6 +13,7 @@ import {
 	copyTrades,
 	type DrizzleService,
 	requireDb,
+	requireRow,
 	type TraderStats,
 	type NewTraderStats,
 	traderStats,
@@ -98,7 +99,12 @@ export interface CopyTradingServiceInterface {
 
 	readonly getTopTraders: (
 		limit?: number,
-		filters?: { minTrades?: number; minWinRate?: number; chain?: string; sortBy?: string },
+		filters?: {
+			minTrades?: number | undefined
+			minWinRate?: number | undefined
+			chain?: string | undefined
+			sortBy?: string | undefined
+		},
 	) => Effect.Effect<TopTraderEntry[], DatabaseError, DrizzleService>
 
 	readonly getTraderStats: (
@@ -393,23 +399,24 @@ export const CopyTradingServiceLive = Layer.succeed(
 					catch: (e) => new DatabaseError({ message: `Failed to check existing follow: ${e}` }),
 				})
 
-				if (existing.length > 0) {
-					if (!existing[0].isActive) {
-						const [updated] = yield* Effect.tryPromise({
+				const current = existing[0]
+				if (current) {
+					if (!current.isActive) {
+						const updatedRows = yield* Effect.tryPromise({
 							try: () =>
 								db
 									.update(copyFollows)
 									.set({ isActive: true, updatedAt: new Date() })
-									.where(eq(copyFollows.id, existing[0].id))
+									.where(eq(copyFollows.id, current.id))
 									.returning(),
 							catch: (e) => new DatabaseError({ message: `Failed to reactivate follow: ${e}` }),
 						})
-						return updated
+						return yield* requireRow(updatedRows, 'Failed to reactivate follow: no row returned')
 					}
 					return yield* Effect.fail(new ValidationError({ message: 'Already following this trader' }))
 				}
 
-				const [follow] = yield* Effect.tryPromise({
+				const followRows = yield* Effect.tryPromise({
 					try: () =>
 						db
 							.insert(copyFollows)
@@ -439,6 +446,7 @@ export const CopyTradingServiceLive = Layer.succeed(
 					catch: () => new DatabaseError({ message: 'Failed to update follower count' }),
 				})
 
+				const follow = yield* requireRow(followRows, 'Failed to follow trader: no row returned')
 				return follow
 			}),
 
@@ -583,6 +591,11 @@ export const CopyTradingServiceLive = Layer.succeed(
 					catch: (e) => new DatabaseError({ message: `Failed to update trader stats: ${e}` }),
 				})
 
+				if (!result) {
+					return yield* Effect.fail(
+						new DatabaseError({ message: 'Failed to update trader stats: no row returned' }),
+					)
+				}
 				return result
 			}),
 
@@ -603,6 +616,11 @@ export const CopyTradingServiceLive = Layer.succeed(
 					catch: (e) => new DatabaseError({ message: `Failed to set visibility: ${e}` }),
 				})
 
+				if (!result) {
+					return yield* Effect.fail(
+						new DatabaseError({ message: 'Failed to set visibility: no row returned' }),
+					)
+				}
 				return result
 			}),
 
@@ -645,6 +663,11 @@ export const CopyTradingServiceLive = Layer.succeed(
 					})
 				}
 
+				if (!trade) {
+					return yield* Effect.fail(
+						new DatabaseError({ message: 'Failed to record copy trade: no row returned' }),
+					)
+				}
 				return trade
 			}),
 

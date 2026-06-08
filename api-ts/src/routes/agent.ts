@@ -10,6 +10,7 @@ import { requireDb, swapTransactions, webhookEvents } from '../db'
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { agentBearerAuth, agentBearerAuthAllowInactive } from '../middleware'
 import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
+import { ipRateLimit } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
 import { runEffectEither } from '../runtime'
 import {
@@ -130,6 +131,7 @@ async function fetchTokenPrices(
 				const data = (await res.json()) as Record<string, { usd?: number; usd_24h_change?: number }>
 				for (const sym of toFetch) {
 					const cgId = COINGECKO_IDS[sym]
+					if (!cgId) continue
 					const priceData = data[cgId]
 					if (priceData?.usd !== undefined) {
 						const entry = { usd: priceData.usd, change_24h: priceData.usd_24h_change ?? null }
@@ -168,7 +170,7 @@ function isSolanaChain(chain: string): boolean {
 // ===========================================
 
 // POST /v1/agent/register - Register a new agent
-agentRoutes.post('/register', async (c) => {
+agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 	let body: unknown
 	try {
 		body = await c.req.json()
@@ -243,7 +245,7 @@ agentRoutes.post('/register', async (c) => {
 })
 
 // POST /v1/agent/sponge/callback - Sponge Gateway agent connection callback (public)
-agentRoutes.post('/sponge/callback', async (c) => {
+agentRoutes.post('/sponge/callback', ipRateLimit(20), async (c) => {
 	// Validate X-Sponge-Signature if webhook secret is configured
 	const envResult = await runEffectEither(
 		Effect.gen(function* () {
@@ -1041,6 +1043,10 @@ agentRoutes.post('/execute', async (c) => {
 	if (swapMatch) {
 		const [, amount, fromToken, toToken, chain] = swapMatch
 
+		if (!amount || !fromToken || !toToken) {
+			return c.json({ error: 'Invalid swap command format' }, 400)
+		}
+
 		// Get a quote
 		const result = await runEffectEither(
 			Effect.gen(function* () {
@@ -1160,6 +1166,9 @@ agentRoutes.post('/execute', async (c) => {
 
 	if (quoteMatch) {
 		const [, amount, fromToken, toToken, chain] = quoteMatch
+		if (!amount || !fromToken || !toToken) {
+			return c.json({ error: 'Invalid quote command format' }, 400)
+		}
 		// Redirect to quote endpoint logic (same as swap but different message)
 		return c.json({
 			success: true,
@@ -1590,11 +1599,10 @@ agentRoutes.get('/swap/status/:swapId', async (c) => {
 				catch: (e) => new Error(`Database error: ${e}`),
 			})
 
-			if (rows.length === 0) {
+			const s = rows[0]
+			if (!s) {
 				return yield* Effect.fail(new ValidationError({ message: 'Swap not found' }))
 			}
-
-			const s = rows[0]
 			return {
 				swap_id: s.id,
 				status: s.status,

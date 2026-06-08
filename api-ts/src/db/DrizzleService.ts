@@ -47,3 +47,11 @@ export const requireDb = Effect.gen(function* () {
 	}
 	return dbOption.value
 })
+
+// Narrow a Drizzle insert/update `.returning()` result to its first row,
+// failing with DatabaseError if the write returned nothing. Under
+// noUncheckedIndexedAccess, `rows[0]` is `T | undefined`; this collapses it to `T`.
+export const requireRow = <T>(rows: T[], message: string): Effect.Effect<T, DatabaseError> => {
+	const row = rows[0]
+	return row === undefined ? Effect.fail(new DatabaseError({ message })) : Effect.succeed(row)
+}

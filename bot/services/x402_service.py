@@ -21,42 +21,57 @@ from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
-# Beta access passwords (case-insensitive)
-BETA_PASSWORDS = {
-    "waifu": SubscriptionTier.PREMIUM,      # Full premium access
-    "suwappu": SubscriptionTier.PRO,        # Pro access
-    "earlybird": SubscriptionTier.PRO,      # Pro access
-}
+import os as _os
+
+def _load_beta_passwords() -> dict:
+    raw = _os.getenv("BETA_PASSWORDS", "")
+    result = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if ":" in pair:
+            code, tier_name = pair.split(":", 1)
+            try:
+                result[code.strip().lower()] = SubscriptionTier[tier_name.strip().upper()]
+            except KeyError:
+                pass
+    return result
+
+BETA_PASSWORDS = _load_beta_passwords()
 
 
 # Subscription tier limits
 TIER_LIMITS = {
     SubscriptionTier.FREE: {
-        "daily_swaps": 5,
+        "daily_swaps": None,   # Unlimited — revenue comes from 1% fee
         "daily_api_calls": 100,
-        "max_swap_usd": 1000,
+        "max_swap_usd": None,  # No cap — fee applies to all volume
+        "fee_rate": 0.01,      # 1%
         "features": ["basic_swap", "balance", "history"],
         "price_usd": 0,
     },
     SubscriptionTier.PRO: {
-        "daily_swaps": 50,
+        "daily_swaps": None,   # Unlimited
         "daily_api_calls": 1000,
-        "max_swap_usd": 50000,
+        "max_swap_usd": None,  # No per-swap USD cap
+        "fee_rate": 0.005,     # 0.5%
         "features": ["basic_swap", "balance", "history", "alerts", "limit_orders", "dca", "portfolio"],
         "price_usd": 9.99,
     },
     SubscriptionTier.PREMIUM: {
-        "daily_swaps": 500,
+        "daily_swaps": None,   # Unlimited
         "daily_api_calls": 10000,
-        "max_swap_usd": 500000,
-        "features": ["basic_swap", "balance", "history", "alerts", "limit_orders", "dca", 
-                     "portfolio", "tax_export", "priority_execution", "custom_slippage"],
+        "max_swap_usd": None,  # No per-swap USD cap
+        "fee_rate": 0.003,     # 0.3%
+        "features": ["basic_swap", "balance", "history", "alerts", "limit_orders", "dca",
+                     "portfolio", "tax_export", "priority_execution", "custom_slippage",
+                     "copy_trading"],
         "price_usd": 29.99,
     },
     SubscriptionTier.ENTERPRISE: {
-        "daily_swaps": -1,  # Unlimited
+        "daily_swaps": -1,  # Unlimited (legacy sentinel)
         "daily_api_calls": -1,
         "max_swap_usd": -1,
+        "fee_rate": 0.001,  # 0.1%
         "features": ["all"],
         "price_usd": 99.99,
     },
@@ -239,7 +254,7 @@ class X402Service:
         # Grant beta access (lifetime = 365 days)
         await self.upgrade_subscription(user_id, tier, duration_days=365)
         
-        logger.info(f"User {user_id} activated beta code '{password_lower}' -> {tier.value}")
+        logger.info(f"User {user_id} activated beta code -> {tier.value}")
         return True, f"🎉 Beta access activated! You now have **{tier.value.upper()}** for 1 year!", tier
     
     
@@ -260,17 +275,19 @@ class X402Service:
         sub = await self.get_subscription(user_id)
         tier = await self.get_tier(user_id)
         limits = TIER_LIMITS.get(tier, TIER_LIMITS[SubscriptionTier.FREE])
-        
-        # Check daily swap count
+
+        # Check daily swap count.
+        # None = unlimited (paid tiers); -1 = unlimited (legacy ENTERPRISE sentinel).
         daily_limit = limits["daily_swaps"]
-        if daily_limit != -1 and sub.api_calls_today >= daily_limit:
+        if daily_limit is not None and daily_limit != -1 and sub.api_calls_today >= daily_limit:
             return False, f"Daily swap limit reached ({daily_limit}). Upgrade to increase limits."
-        
-        # Check max swap amount
+
+        # Check max swap amount.
+        # None = no cap (paid tiers); -1 = no cap (legacy ENTERPRISE sentinel).
         max_amount = limits["max_swap_usd"]
-        if max_amount != -1 and amount_usd > max_amount:
+        if max_amount is not None and max_amount != -1 and amount_usd > max_amount:
             return False, f"Swap amount exceeds limit (${max_amount:,.0f}). Upgrade for higher limits."
-        
+
         return True, "OK"
     
     async def record_api_call(self, user_id: int) -> None:

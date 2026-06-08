@@ -1,7 +1,7 @@
-import type { Meta, StoryObj } from '@storybook/react-vite'
+import type { Meta, StoryObj } from '@storybook/react'
 import { designTokens } from '@suwappu/design-tokens'
 
-const sections = [
+const sections: Array<{ name: string; items: Array<[string, string]> }> = [
   {
     name: 'Summer Breeze',
     items: [

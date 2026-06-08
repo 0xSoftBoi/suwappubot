@@ -148,17 +148,19 @@ async function processMessage(
 	)
 	if (swapMatch) {
 		const [, amount, fromToken, toToken, chain] = swapMatch
-		const chainKey = chain || 'ethereum'
-		if (isSolanaChain(chainKey)) {
-			return processSolanaQuote(amount, fromToken, toToken, agent)
+		if (amount && fromToken && toToken) {
+			const chainKey = chain || 'ethereum'
+			if (isSolanaChain(chainKey)) {
+				return processSolanaQuote(amount, fromToken, toToken, agent)
+			}
+			return processEvmQuote(amount, fromToken, toToken, chainKey, agent)
 		}
-		return processEvmQuote(amount, fromToken, toToken, chainKey, agent)
 	}
 
 	// --- Price check: "price of ETH" or "price ETH SOL USDC" ---
 	const priceMatch = lower.match(/(?:price|prices?)(?:\s+of)?\s+(.+)/)
 	if (priceMatch) {
-		const symbols = priceMatch[1].split(/[\s,]+/).map((s) => s.toUpperCase()).filter(Boolean)
+		const symbols = (priceMatch[1] ?? '').split(/[\s,]+/).map((s) => s.toUpperCase()).filter(Boolean)
 		if (symbols.length > 0 && symbols.length <= 20) {
 			const prices = await fetchTokenPrices(symbols)
 			const lines = Object.entries(prices).map(
@@ -560,7 +562,7 @@ async function handleMessageSend(c: any, req: JsonRpcRequest, agent: Agent) {
 		task.artifacts.push({
 			id: crypto.randomUUID(),
 			parts: result.parts,
-			metadata: result.metadata,
+			...(result.metadata !== undefined && { metadata: result.metadata }),
 		})
 
 		task.messages.push({

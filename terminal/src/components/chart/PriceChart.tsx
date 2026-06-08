@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
-import { createChart, type IChartApi, type ISeriesApi, ColorType, LineStyle } from 'lightweight-charts'
+import { createChart, type IChartApi, type ISeriesApi, type UTCTimestamp, ColorType, LineStyle } from 'lightweight-charts'
 import { ChartToolbar } from './ChartToolbar'
 import { useChartData } from '../../hooks/useChartData'
 import { usePair } from '../../contexts/PairContext'
@@ -15,13 +15,13 @@ const trading = designTokens.colors.trading
 const brand = designTokens.colors.brand
 
 function computeSMA(candles: OHLCVCandle[], period: number) {
-  const result: { time: number; value: number }[] = []
+  const result: { time: UTCTimestamp; value: number }[] = []
   for (let i = period - 1; i < candles.length; i++) {
     let sum = 0
     for (let j = i - period + 1; j <= i; j++) {
       sum += candles[j].close
     }
-    result.push({ time: candles[i].time, value: sum / period })
+    result.push({ time: candles[i].time as UTCTimestamp, value: sum / period })
   }
   return result
 }
@@ -176,7 +176,7 @@ export function PriceChart() {
     if (!candles || !candleSeriesRef.current || !volumeSeriesRef.current || !lineSeriesRef.current) return
 
     const candleData = candles.map(c => ({
-      time: c.time as number,
+      time: c.time as UTCTimestamp,
       open: c.open,
       high: c.high,
       low: c.low,
@@ -184,12 +184,12 @@ export function PriceChart() {
     }))
 
     const lineData = candles.map(c => ({
-      time: c.time as number,
+      time: c.time as UTCTimestamp,
       value: c.close,
     }))
 
     const volumeData = candles.map(c => ({
-      time: c.time as number,
+      time: c.time as UTCTimestamp,
       value: c.volume,
       color: c.close >= c.open ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)',
     }))

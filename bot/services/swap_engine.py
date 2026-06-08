@@ -309,7 +309,7 @@ class SwapEngine:
             SwapQuote with best output amount from all providers
         """
         # Check quote cache
-        cache_key = f"quote:{from_chain}:{to_chain}:{from_token}:{to_token}:{amount}:{slippage}"
+        cache_key = f"quote:{from_chain}:{to_chain}:{from_token}:{to_token}:{amount}:{slippage}:{from_address or 'none'}"
         cached = await quote_cache.get(cache_key)
         if cached is not None:
             return cached

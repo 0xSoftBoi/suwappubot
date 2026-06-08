@@ -90,7 +90,7 @@ export function TerminalTextField({
   suffix,
   mono = false,
   ...props
-}: InputHTMLAttributes<HTMLInputElement> & {
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "prefix"> & {
   label?: string;
   prefix?: ReactNode;
   suffix?: ReactNode;

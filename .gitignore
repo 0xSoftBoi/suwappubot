@@ -21,3 +21,11 @@ webapp/dist/
 
 # local dev venv
 .venv/
+
+# Local testnet deployer key (never commit)
+scripts/.deployer_key
+scripts/deployed_addresses.json
+
+# crypto sec-tool artifacts
+contracts/crytic-export/
+contracts/slither_results.json

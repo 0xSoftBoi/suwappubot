@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react-vite'
+import type { Meta, StoryObj } from '@storybook/react'
 import type { ReactNode } from 'react'
 import { TierBadge } from '../../components/points/TierBadge'
 import { TrustScoreBadge } from '../../components/discover/TrustScoreBadge'

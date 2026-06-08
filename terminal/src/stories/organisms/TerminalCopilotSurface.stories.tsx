@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { Meta, StoryObj } from '@storybook/react'
-import { TerminalCopilotSurface, type TerminalCopilotArtifact, type TerminalCopilotMessage, type TerminalCopilotSuggestion } from '../../components/copilot/TerminalCopilotSurface'
+import { TerminalCopilotSurface, type TerminalCopilotMessage, type TerminalCopilotSuggestion } from '../../components/copilot/TerminalCopilotSurface'
 import { TerminalMetricCard, TerminalPage, TerminalPanel, TerminalPanelHeader, TerminalStatusPill } from '../../components/foundation/TerminalPrimitives'
 
 type SurfaceMode = 'execution' | 'risk'

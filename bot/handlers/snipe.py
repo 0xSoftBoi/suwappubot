@@ -493,7 +493,10 @@ async def confirm_snipe_callback(update: Update, context: ContextTypes.DEFAULT_T
 
         wallet_service = WalletService()
         with get_session() as session:
-            wallet = session.query(Wallet).filter(Wallet.id == wallet_id).first()
+            wallet = session.query(Wallet).filter(
+                Wallet.id == wallet_id,
+                Wallet.user_id == user_id,
+            ).first()
             if not wallet:
                 raise Exception("Wallet not found")
 

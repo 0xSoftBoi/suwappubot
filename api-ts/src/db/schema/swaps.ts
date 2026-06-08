@@ -1,4 +1,5 @@
-import { index, integer, pgTable, real, serial, text, timestamp, varchar } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { index, integer, pgTable, real, serial, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core'
 import { users } from './users'
 
 export const swapTransactions = pgTable('swap_transactions', {
@@ -51,6 +52,9 @@ export const swapTransactions = pgTable('swap_transactions', {
 }, (table) => ({
 	userIdIdx: index('ix_swap_transactions_user_id').on(table.userId),
 	userIdCreatedAtIdx: index('ix_swap_transactions_user_id_created_at').on(table.userId, table.createdAt),
+	idempotencyKeyIdx: uniqueIndex('ux_swap_transactions_idempotency_key')
+		.on(table.idempotencyKey)
+		.where(sql`idempotency_key IS NOT NULL`),
 }))
 
 export type SwapTransaction = typeof swapTransactions.$inferSelect

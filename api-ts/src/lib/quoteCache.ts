@@ -7,8 +7,8 @@ import { TTLCache } from './cache'
 
 export interface CachedQuote {
 	quote: any
-	agentId?: number
-	isSolana?: boolean
+	agentId?: number | undefined
+	isSolana?: boolean | undefined
 }
 
 const AGENT_QUOTE_TTL = 60_000 // 60 seconds

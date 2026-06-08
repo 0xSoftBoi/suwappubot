@@ -26,7 +26,11 @@ class Settings(BaseSettings):
     # KMS Wallet Encryption (envelope encryption)
     kms_provider: str = Field(
         default="aws",
-        description="KMS provider: 'aws' (recommended), 'gcp', or 'dev' (local mock — NOT for production)"
+        description="KMS provider: 'aws', 'gcp', 'local' (env-var KEK, production-acceptable for the fallback/backup + OAuth tier), or 'dev' (local mock — NOT for production)"
+    )
+    wallet_master_kek: Optional[str] = Field(
+        default=None,
+        description="High-entropy base64/hex KEK used by the 'local' KMS provider to wrap per-wallet DEKs. Distinct from encryption_key. Generate: python3 -c \"import os,base64;print(base64.b64encode(os.urandom(32)).decode())\""
     )
     kms_key_id: Optional[str] = Field(
         default=None,
@@ -417,7 +421,35 @@ class Settings(BaseSettings):
     referral_reward_percentage: float = Field(default=30, description="Referral reward percentage (30% of fees)")
     fee_collector_address: Optional[str] = Field(default=None, description="EVM address for fee collection")
     fee_collector_solana: Optional[str] = Field(default=None, description="Solana address for fee collection")
-    
+
+    # Treasury Vault (Aave v3 on Base)
+    aave_enabled: bool = Field(
+        default=False,
+        description="Enable actual on-chain Aave v3 interactions (false = mock/safe mode)"
+    )
+    vault_type: str = Field(default="aave", description="Vault backend: 'aave' or 'morpho'")
+    morpho_vault_address: Optional[str] = Field(default=None, description="Morpho MetaMorpho vault address (ERC-4626)")
+    treasury_vault_hot_wallet_name: str = Field(
+        default="treasury_vault",
+        description="Name of the HotWallet DB record used to sign vault transactions"
+    )
+    vault_min_deposit_usdc: float = Field(
+        default=50.0,
+        description="Minimum USDC to trigger an automatic vault deposit"
+    )
+    distribution_wallet_address: Optional[str] = Field(
+        default=None,
+        description="Address to receive yield withdrawals for distribution"
+    )
+    staking_contract_address: Optional[str] = Field(
+        default=None,
+        description="Deployed SuwppuStaking contract address on Base (used by fundStream / distributeSuwpBonus)"
+    )
+    bonds_contract_address: Optional[str] = Field(
+        default=None,
+        description="Deployed SuwppuBonds contract address on Base (protocol-owned liquidity bonding)"
+    )
+
     model_config = ConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

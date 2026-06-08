@@ -1,7 +1,9 @@
+import type { UTCTimestamp } from 'lightweight-charts'
+
 export type HistoryPeriod = '24h' | '7d' | '30d' | 'all'
 
 export interface PortfolioHistoryPoint {
-  time: number
+  time: UTCTimestamp
   value: number
 }
 

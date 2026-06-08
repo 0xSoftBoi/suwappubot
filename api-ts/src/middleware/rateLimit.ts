@@ -46,7 +46,7 @@ export function rateLimit() {
 		}
 
 		const tier = agent.rateLimitTier || 'free'
-		const limit = TIER_LIMITS[tier] ?? TIER_LIMITS.free
+		const limit = TIER_LIMITS[tier] ?? TIER_LIMITS.free ?? 30
 		const key = `agent:${agent.id}`
 		const now = Date.now()
 
@@ -64,7 +64,7 @@ export function rateLimit() {
 		entry.timestamps = entry.timestamps.filter((t) => t > cutoff)
 
 		if (entry.timestamps.length >= limit) {
-			const oldestInWindow = entry.timestamps[0]
+			const oldestInWindow = entry.timestamps[0] ?? now
 			const retryAfter = Math.ceil((oldestInWindow + WINDOW_MS - now) / 1000)
 
 			c.header('Retry-After', String(retryAfter))

@@ -51,8 +51,9 @@ export function flexAuth() {
 					let walletAddress: string | null = null
 
 					const wallets = yield* walletService.getActiveWallets(user.id)
-					if (wallets.length > 0) {
-						walletAddress = wallets[0].address
+					const primaryWallet = wallets[0]
+					if (primaryWallet) {
+						walletAddress = primaryWallet.address
 					}
 
 					return { userId: user.id, walletAddress } as AuthUser

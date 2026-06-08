@@ -54,6 +54,10 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
             if "sslmode=" not in database_url:
                 connect_args["sslmode"] = "require"
             connect_args["connect_timeout"] = 10
+            # Cap runaway queries at 30 seconds to prevent pool starvation
+            connect_args["options"] = (
+                connect_args.get("options", "") + " -c statement_timeout=30000"
+            ).strip()
     
     # Retry logic for transient connection failures
     last_error = None
@@ -141,6 +145,17 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         from bot.models.token import PointsTier, FeeDiscount
         # Terminal tracking models
         from bot.models.tracking import TrackedWallet
+        # Prediction market models
+        from bot.models.predict import PredictionOrder, PredictionPosition
+        # Token staking models
+        from bot.models.token_staking import TokenClaim, StakingPosition, DistributionEpoch, EpochReward, TreasuryPosition
+
+        # Reconcile a cross-ORM table collision before create_all (which only creates
+        # MISSING tables, never fixes an existing one): api-ts (Drizzle) historically created
+        # `limit_orders` with an incompatible schema (no wallet_id). api-ts now owns
+        # `limit_orders_ts`, so drop an empty, wrong-shaped `limit_orders` and let create_all
+        # rebuild the SQLAlchemy schema.
+        _reconcile_cross_orm_tables(engine)
 
         # Create all tables
         Base.metadata.create_all(bind=engine)
@@ -156,6 +171,52 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
     
     DATABASE_AVAILABLE = True
     return True
+
+
+def _reconcile_cross_orm_tables(db_engine) -> None:
+    """One-time corrective for cross-ORM table collisions on the shared database.
+
+    api-ts (Drizzle) creates several feature tables (limit_orders, dca_orders, ...) with
+    schemas incompatible with the python SQLAlchemy models. `create_all` only creates
+    MISSING tables — it never fixes an existing one — so when api-ts created a table first,
+    python's expected columns are absent and the bot's background services error
+    (e.g. `column limit_orders.wallet_id does not exist`).
+
+    For each affected python-owned table: if it exists, is EMPTY, and is missing columns the
+    SQLAlchemy model defines, drop it so create_all rebuilds the correct schema. Drops ONLY
+    when empty, to never lose data.
+    """
+    try:
+        from bot.models.advanced import LimitOrder, DCAOrder, DCAExecution
+    except Exception:
+        return
+    try:
+        inspector = inspect(db_engine)
+        existing = set(inspector.get_table_names())
+        for model in (LimitOrder, DCAOrder, DCAExecution):
+            table = model.__tablename__
+            if table not in existing:
+                continue
+            db_cols = {c["name"] for c in inspector.get_columns(table)}
+            model_cols = {c.name for c in model.__table__.columns}
+            missing = model_cols - db_cols
+            if not missing:
+                continue  # already matches the SQLAlchemy schema
+            with db_engine.begin() as conn:
+                count = conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar() or 0
+                if count > 0:
+                    logger.warning(
+                        "%s is missing python columns %s but has %s row(s); NOT dropping — "
+                        "resolve manually.", table, sorted(missing), count
+                    )
+                    continue
+                conn.execute(text(f"DROP TABLE {table} CASCADE"))
+            logger.info(
+                "Reconciled cross-ORM table %s: dropped empty wrong-shaped table; "
+                "create_all will rebuild the SQLAlchemy schema", table
+            )
+    except Exception as e:
+        logger.warning("cross-ORM table reconcile skipped: %s", e)
 
 
 def _ensure_schema(db_engine) -> None:
@@ -284,6 +345,10 @@ def _ensure_schema(db_engine) -> None:
             conn.execute(text("ALTER TABLE registered_agents RENAME TO agents"))
             logger.info("Renamed registered_agents -> agents")
 
+    # --- staking tables: token_claims, staking_positions, distribution_epochs, epoch_rewards ---
+    _add_staking_tables(db_engine, inspector, is_sqlite)
+    _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite)
+
     # --- performance indexes ---
     _add_performance_indexes(db_engine, inspector, is_sqlite)
 
@@ -319,6 +384,51 @@ def _add_agent_drizzle_columns(db_engine, inspector, table_name: str, is_sqlite:
         ))
 
 
+def _add_staking_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create SUWP staking tables (token_claims, staking_positions, distribution_epochs, epoch_rewards) idempotently."""
+    try:
+        from bot.models.token_staking import TokenClaim, StakingPosition, DistributionEpoch, EpochReward
+
+        for model in (TokenClaim, StakingPosition, DistributionEpoch, EpochReward):
+            if not inspector.has_table(model.__tablename__):
+                model.__table__.create(bind=db_engine)
+                logger.info(f"Created {model.__tablename__} table")
+    except Exception as e:
+        logger.warning(f"Failed to create staking tables: {e}")
+
+
+def _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create treasury_positions table and add vault columns to distribution_epochs."""
+    try:
+        from bot.models.token_staking import TreasuryPosition
+        if not inspector.has_table("treasury_positions"):
+            TreasuryPosition.__table__.create(bind=db_engine)
+            logger.info("Created treasury_positions table")
+    except Exception as e:
+        logger.warning(f"Failed to create treasury_positions table: {e}")
+
+    if "distribution_epochs" in set(inspector.get_table_names()):
+        cols = {c["name"] for c in inspector.get_columns("distribution_epochs")}
+        new_columns = [
+            ("direct_fees_usdc", "NUMERIC(18,6)"),
+            ("treasury_yield_usdc", "NUMERIC(18,6)"),
+            ("total_staker_usdc", "NUMERIC(18,6)"),
+            ("treasury_aum_usdc", "NUMERIC(18,6)"),
+        ]
+        for col_name, col_type in new_columns:
+            if col_name not in cols:
+                if is_sqlite:
+                    ddl = f"ALTER TABLE distribution_epochs ADD COLUMN {col_name} {col_type}"
+                else:
+                    ddl = f"ALTER TABLE distribution_epochs ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+                try:
+                    with db_engine.begin() as conn:
+                        conn.execute(text(ddl))
+                    logger.info(f"Added distribution_epochs.{col_name}")
+                except Exception as e:
+                    logger.warning(f"Could not add {col_name}: {e}")
+
+
 def _add_performance_indexes(db_engine, inspector, is_sqlite: bool) -> None:
     """Add indexes for high-traffic query patterns."""
     indexes = [
@@ -326,6 +436,13 @@ def _add_performance_indexes(db_engine, inspector, is_sqlite: bool) -> None:
         ("ix_swap_transactions_user_created", "swap_transactions", "user_id, created_at DESC"),
         ("ix_swap_transactions_status", "swap_transactions", "status"),
         ("ix_agents_is_active", "agents", "is_active"),
+        # Added by audit — pollers and services do full-table scans without these
+        ("ix_swap_transactions_tx_hash", "swap_transactions", "tx_hash"),
+        ("ix_wallets_user_id_id", "wallets", "user_id, id"),
+        ("ix_referral_rewards_referral_id", "referral_rewards", "referral_id"),
+        ("ix_limit_orders_user_id_status", "limit_orders", "user_id, status"),
+        ("ix_dca_orders_status_next", "dca_orders", "status, next_execution_at"),
+        ("ix_advanced_price_alerts_active", "advanced_price_alerts", "is_active, is_triggered"),
     ]
     for idx_name, table, columns in indexes:
         try:
@@ -638,6 +755,7 @@ def _add_user_settings_columns(db_engine, inspector, is_sqlite: bool) -> None:
         ("two_fa_enabled", "BOOLEAN", "FALSE"),
         ("totp_secret", "VARCHAR(64)", "NULL"),
         ("two_fa_threshold", "INTEGER", "1000"),
+        ("gas_mode", "VARCHAR(10)", "'auto'"),  # read/written by api-ts (webapp gas settings)
     ]
 
     for col_name, col_type, default in new_columns:

@@ -145,42 +145,47 @@ async def history_stats_callback(update: Update, context: ContextTypes.DEFAULT_T
             await query.edit_message_text("❌ Please use /start first.")
             return
         
-        # Get all swaps
-        swaps = session.query(SwapTransaction).filter(
-            SwapTransaction.user_id == db_user.id
-        ).all()
-        
-        if not swaps:
+        from sqlalchemy import func, case as sa_case
+
+        # Aggregate all stats in a single SQL query — avoids loading all rows into RAM
+        row = session.query(
+            func.count(SwapTransaction.id).label('total'),
+            func.sum(sa_case((SwapTransaction.status == SwapStatus.COMPLETED.value, 1), else_=0)).label('completed'),
+            func.sum(sa_case((SwapTransaction.status == SwapStatus.FAILED.value, 1), else_=0)).label('failed'),
+            func.coalesce(func.sum(sa_case(
+                (SwapTransaction.status == SwapStatus.COMPLETED.value, SwapTransaction.from_amount_usd),
+                else_=None,
+            )), 0).label('volume'),
+            func.coalesce(func.sum(SwapTransaction.gas_fee), 0).label('gas'),
+            func.coalesce(func.sum(SwapTransaction.bridge_fee), 0).label('bridge'),
+        ).filter(SwapTransaction.user_id == db_user.id).one()
+
+        total_swaps = row.total or 0
+
+        if not total_swaps:
             await query.edit_message_text(
                 "📊 *Swap Statistics*\n\nNo swaps yet!",
                 parse_mode="Markdown"
             )
             return
-        
-        # Calculate stats
-        total_swaps = len(swaps)
-        completed = sum(1 for s in swaps if s.status == SwapStatus.COMPLETED.value)
-        failed = sum(1 for s in swaps if s.status == SwapStatus.FAILED.value)
+
+        completed = row.completed or 0
+        failed = row.failed or 0
         pending = total_swaps - completed - failed
-        
-        # Volume
-        total_volume = sum(
-            float(s.from_amount_usd or 0)
-            for s in swaps
-            if s.status == SwapStatus.COMPLETED.value
-        )
-        
-        # Fees
-        total_gas = sum(float(s.gas_fee or 0) for s in swaps)
-        total_bridge = sum(float(s.bridge_fee or 0) for s in swaps)
-        
-        # Most used pairs
-        pair_counts = {}
-        for s in swaps:
-            pair = f"{s.from_token}→{s.to_token}"
-            pair_counts[pair] = pair_counts.get(pair, 0) + 1
-        
-        top_pairs = sorted(pair_counts.items(), key=lambda x: -x[1])[:3]
+        total_volume = float(row.volume or 0)
+        total_gas = float(row.gas or 0)
+        total_bridge = float(row.bridge or 0)
+
+        # Top pairs via SQL aggregation
+        top_pairs_raw = session.query(
+            SwapTransaction.from_token,
+            SwapTransaction.to_token,
+            func.count(SwapTransaction.id).label('cnt'),
+        ).filter(SwapTransaction.user_id == db_user.id).group_by(
+            SwapTransaction.from_token, SwapTransaction.to_token,
+        ).order_by(func.count(SwapTransaction.id).desc()).limit(3).all()
+
+        top_pairs = [(f"{r.from_token}→{r.to_token}", r.cnt) for r in top_pairs_raw]
         
         text = (
             f"📊 *Your Swap Statistics*\n\n"

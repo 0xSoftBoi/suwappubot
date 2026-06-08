@@ -10,6 +10,7 @@ import {
 	a2aRoutes,
 	adminRoutes,
 	agentRoutes,
+	billingRoutes,
 	healthRoutes,
 	internalRoutes,
 	lendRoutes,
@@ -17,18 +18,22 @@ import {
 	perpsRoutes,
 	predictRoutes,
 	publicSwapRoutes,
+	stakingRoutes,
 	swapRoutes,
 	webappRoutes,
 } from './routes'
 
 export interface AppConfig {
 	allowedOrigins: string
-	adminApiKey?: string
-	internalApiKey?: string
+	adminApiKey?: string | undefined
+	internalApiKey?: string | undefined
 }
 
+// Per-request context variables set by middleware (see request-ID middleware below).
+type AppVariables = { requestId: string }
+
 export function createApp(config: AppConfig) {
-	const app = new Hono()
+	const app = new Hono<{ Variables: AppVariables }>()
 
 	// Global middleware
 	app.use('*', honoLogger())
@@ -56,7 +61,7 @@ export function createApp(config: AppConfig) {
 
 	// Global error handler — standardized error envelope with requestId + timestamp.
 	app.onError((err, c) => {
-		const requestId = (c.get('requestId') as string | undefined) ?? 'unknown'
+		const requestId = c.get('requestId') ?? 'unknown'
 		const timestamp = new Date().toISOString()
 
 		if (err instanceof HTTPException) {
@@ -81,6 +86,12 @@ export function createApp(config: AppConfig) {
 
 	// Webapp routes - Telegram auth
 	app.route('/webapp', webappRoutes)
+
+	// Staking routes - SUWP token staking dashboard
+	app.route('/staking', stakingRoutes)
+
+	// Billing routes - Stripe subscription management
+	app.route('/billing', billingRoutes)
 
 	// Agent A2A API routes (v1/agent/*) - uses Bearer token auth internally
 	// Registration is public, other endpoints require Bearer token

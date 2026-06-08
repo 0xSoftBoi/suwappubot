@@ -116,9 +116,14 @@ export const UpdateAgentSchema = z
 export const CreatePolicySchema = z.object({
 	type: z.enum(['spending_limit', 'whitelist']),
 	params: z.object({
-		maxAmountWei: z.string().optional(),
+		maxAmountWei: z
+			.string()
+			.regex(/^\d+$/, 'maxAmountWei must be a decimal integer string')
+			.optional(),
 		timeWindowSeconds: z.number().optional(),
-		allowedAddresses: z.array(z.string()).optional(),
+		allowedAddresses: z
+			.array(z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'Must be a valid EVM address'))
+			.optional(),
 	}),
 })
 

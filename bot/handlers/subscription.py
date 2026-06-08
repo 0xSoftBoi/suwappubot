@@ -47,8 +47,8 @@ async def subscription_command(update: Update, context: ContextTypes.DEFAULT_TYP
 {status_emoji.get(tier, "📋")} **Your Subscription**
 
 **Tier:** {tier.value.upper()}
-**Daily Swaps:** {sub.api_calls_today} / {tier_info['daily_swaps'] if tier_info['daily_swaps'] != -1 else '∞'}
-**Max Swap:** ${tier_info['max_swap_usd']:,.0f if tier_info['max_swap_usd'] != -1 else '∞'}
+**Daily Swaps:** {sub.api_calls_today} / {tier_info['daily_swaps'] if tier_info['daily_swaps'] not in (None, -1) else '∞'}
+**Max Swap:** {'$' + f"{tier_info['max_swap_usd']:,.0f}" if tier_info['max_swap_usd'] not in (None, -1) else '∞'}
 
 **Features:**
 {_format_features(tier_info['features'])}
@@ -80,30 +80,24 @@ async def compare_plans_callback(update: Update, context: ContextTypes.DEFAULT_T
 📊 **Subscription Plans**
 
 🆓 **FREE** - $0/month
-• 5 swaps/day
-• $1,000 max swap
+• 1% swap fee
+• Unlimited swaps
 • Basic features
 
 ⭐ **PRO** - $9.99/month
-• 50 swaps/day
-• $50,000 max swap
-• Price alerts & limit orders
-• DCA automation
-• Portfolio tracking
+• 0.5% swap fee
+• Unlimited swaps
+• Alerts, DCA, Limit Orders
 
 💎 **PREMIUM** - $29.99/month
-• 500 swaps/day
-• $500,000 max swap
-• All PRO features
-• Tax export
-• Priority execution
-• Custom slippage
+• 0.3% swap fee
+• Unlimited swaps
+• Copy Trading, Priority Execution
 
 🏢 **ENTERPRISE** - $99.99/month
+• 0.1% swap fee
 • Unlimited swaps
-• No amount limits
-• All features
-• Priority support
+• All features + Priority support
 
 """
     
@@ -166,22 +160,64 @@ async def select_tier_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     
     context.user_data["selected_tier"] = tier
     tier_info = x402_service.get_tier_info(tier)
-    
+
+    # Get user's Telegram ID for Stripe checkout URL
+    user = update.effective_user
+
     message = f"""
 💳 **Payment for {tier.value.upper()}**
 
 **Price:** ${tier_info['price_usd']}/month
 
+Choose how to pay:
+"""
+
+    stripe_url = (
+        f"https://apits.suwappu.bot/billing/stripe/checkout"
+        f"?tier={tier.value}&telegram_id={user.id}"
+    )
+
+    keyboard = [
+        [InlineKeyboardButton("💎 Pay with USDC (crypto)", callback_data="sub_pay_crypto")],
+        [InlineKeyboardButton("💳 Pay with card (Stripe)", url=stripe_url)],
+        [InlineKeyboardButton("🔙 Cancel", callback_data="sub_back")],
+    ]
+
+    await query.edit_message_text(
+        message,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return SELECTING_CHAIN
+
+
+async def pay_crypto_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle 'Pay with USDC (crypto)' — show chain selection."""
+    query = update.callback_query
+    await query.answer()
+
+    tier = context.user_data.get("selected_tier")
+    if not tier:
+        await query.edit_message_text("Session expired. Please start again.")
+        return ConversationHandler.END
+
+    tier_info = x402_service.get_tier_info(tier)
+
+    message = f"""
+💳 **Pay with USDC — {tier.value.upper()}**
+
+**Price:** ${tier_info['price_usd']}/month
+
 Select payment chain:
 """
-    
+
     keyboard = [
         [InlineKeyboardButton("🔵 Base (USDC)", callback_data="chain_base")],
         [InlineKeyboardButton("🟣 ETH (USDC)", callback_data="chain_ethereum")],
         [InlineKeyboardButton("🟢 POL (USDC)", callback_data="chain_polygon")],
         [InlineKeyboardButton("🔙 Cancel", callback_data="sub_back")],
     ]
-    
+
     await query.edit_message_text(
         message,
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -406,6 +442,7 @@ subscription_conversation = ConversationHandler(
             CallbackQueryHandler(select_tier_callback, pattern="^sub_buy_"),
         ],
         SELECTING_CHAIN: [
+            CallbackQueryHandler(pay_crypto_callback, pattern="^sub_pay_crypto$"),
             CallbackQueryHandler(select_chain_callback, pattern="^chain_"),
         ],
         CONFIRMING_PAYMENT: [

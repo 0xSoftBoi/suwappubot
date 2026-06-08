@@ -728,7 +728,13 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         # (in a professional setup we'd get individual quotes, but here 
         # we'll start with the default wallet's quote as a reference)
         with get_session() as session:
-            ref_wallet = session.query(Wallet).filter(Wallet.id == selected_wallet_ids[0]).first()
+            ref_wallet = session.query(Wallet).filter(
+                Wallet.id == selected_wallet_ids[0],
+                Wallet.user_id == user_id,
+            ).first()
+            if not ref_wallet:
+                await query.edit_message_text("❌ Invalid wallet selection.")
+                return ConversationHandler.END
             wallet_address = ref_wallet.address
             
         quote = await swap_engine.get_quote(
@@ -746,10 +752,12 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         from_chain_config = get_chain_by_name(swap_data["from_chain"])
         to_chain_config = get_chain_by_name(swap_data["to_chain"])
         
-        # Fees info
+        # Fees info — use tier-specific rate (Option B hybrid pricing)
+        user_tier = await x402_service.get_tier(context.user_data["user_id"])
         fee_amount, fee_percentage, fee_usd = await fee_service.calculate_fee_with_price(
             amount=quote.from_amount_human,
             token_symbol=swap_data["from_token"],
+            tier=user_tier,
         )
         # Persist fee values so post-execution can record them
         context.user_data["swap"]["fee_amount"] = fee_amount
@@ -860,7 +868,10 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     selected_wallet_ids = swap_data.get("selected_wallets", [swap_data.get("wallet_id")])
 
     with get_session() as session:
-        wallets = session.query(Wallet).filter(Wallet.id.in_(selected_wallet_ids)).all()
+        wallets = session.query(Wallet).filter(
+            Wallet.id.in_(selected_wallet_ids),
+            Wallet.user_id == user_id,
+        ).all()
         wallet_map = {w.id: w for w in wallets}
 
         for wid in selected_wallet_ids:

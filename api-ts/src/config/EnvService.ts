@@ -61,6 +61,12 @@ export const EnvSchema = Schema.Struct({
 
 	// Polymarket
 	POLYMARKET_CREDENTIAL_KEY: Schema.optional(Schema.String),
+
+	// Stripe billing
+	STRIPE_SECRET_KEY: Schema.optional(Schema.String),
+	STRIPE_WEBHOOK_SECRET: Schema.optional(Schema.String),
+	STRIPE_PRO_PRICE_ID: Schema.optional(Schema.String),
+	STRIPE_PREMIUM_PRICE_ID: Schema.optional(Schema.String),
 })
 
 export type Env = Schema.Schema.Type<typeof EnvSchema>

@@ -136,6 +136,9 @@ export const TurnkeyServiceLive = Layer.effect(
 
 				// addresses is an array of address strings
 				const address = wallet.addresses[0]
+				if (!address) {
+					return yield* Effect.fail(new Error('Wallet creation failed - no address returned'))
+				}
 
 				return {
 					subOrgId,
@@ -197,6 +200,9 @@ export const TurnkeyServiceLive = Layer.effect(
 				}
 
 				const address = wallet.addresses[0]
+				if (!address) {
+					return yield* Effect.fail(new Error('OAuth wallet creation failed - no address returned'))
+				}
 
 				return {
 					subOrgId,
@@ -294,6 +300,9 @@ export const TurnkeyServiceLive = Layer.effect(
 				}
 
 				const address = wallet.addresses[0]
+				if (!address) {
+					return yield* Effect.fail(new Error('Agent wallet creation failed - no address returned'))
+				}
 
 				return {
 					subOrgId,

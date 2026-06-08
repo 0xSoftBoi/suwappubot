@@ -1,8 +1,11 @@
 # Base with bun installed (from ECR Public to avoid Docker Hub rate limits)
 FROM public.ecr.aws/docker/library/debian:bookworm-slim AS bun-base
+# Install bun into /usr/local (world-accessible) rather than /root/.bun — the runtime
+# stage runs as the non-root `bun` user, which cannot traverse /root (mode 700) and would
+# otherwise hit "bun: Permission denied" at container start.
 RUN apt-get update && apt-get install -y curl unzip ca-certificates && \
+    export BUN_INSTALL=/usr/local && \
     curl -fsSL https://bun.sh/install | bash && \
-    ln -s /root/.bun/bin/bun /usr/local/bin/bun && \
     rm -rf /var/lib/apt/lists/*
 
 # Build stage

@@ -71,10 +71,8 @@ export const PolymarketCredentialServiceLive = Layer.effect(
 					catch: (e) => new Error(`Failed to fetch polymarket credentials: ${e}`),
 				})
 
-				if (rows.length === 0) return null
-
 				const row = rows[0]
-				if (!row.isActive) return null
+				if (!row || !row.isActive) return null
 
 				const nonce = row.aesgcmNonce || ''
 

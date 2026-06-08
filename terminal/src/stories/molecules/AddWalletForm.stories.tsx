@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Meta, StoryObj } from '@storybook/react-vite'
+import type { Meta, StoryObj } from '@storybook/react'
 import { AddWalletForm } from '../../components/tracker/AddWalletForm'
 
 type WalletSeed = {

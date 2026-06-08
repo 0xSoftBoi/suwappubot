@@ -344,20 +344,25 @@ class ReferralService:
                 Referral.created_at.desc()
             ).limit(limit).all()
             
+            # Batch-load all referral rewards in a single query to avoid N+1
+            ref_ids = [ref.id for ref, _ in referrals]
+            reward_map: dict = {}
+            if ref_ids:
+                reward_rows = session.query(
+                    ReferralReward.referral_id,
+                    func.sum(ReferralReward.reward_amount_usd),
+                ).filter(
+                    ReferralReward.referral_id.in_(ref_ids)
+                ).group_by(ReferralReward.referral_id).all()
+                reward_map = {rid: (total or 0) for rid, total in reward_rows}
+
             result = []
             for ref, referee in referrals:
-                # Get rewards from this referral
-                total_rewards = session.query(
-                    func.sum(ReferralReward.reward_amount_usd)
-                ).filter(
-                    ReferralReward.referral_id == ref.id
-                ).scalar() or 0
-                
                 result.append({
                     "user_id": referee.id,
                     "username": referee.username or f"User{referee.id}",
                     "joined_at": ref.created_at,
-                    "total_rewards_usd": float(total_rewards),
+                    "total_rewards_usd": float(reward_map.get(ref.id, 0)),
                 })
             
             return result
