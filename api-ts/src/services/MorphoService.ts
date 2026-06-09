@@ -53,7 +53,7 @@ async function getMarketsImpl(chainId = 8453): Promise<LendingMarket[]> {
 	const query = `{
 		markets(first: 50, where: { chainId_in: [${chainId}] }, orderBy: SupplyAssetsUsd, orderDirection: Desc) {
 			items {
-				uniqueKey
+				marketId
 				loanAsset { symbol }
 				collateralAsset { symbol }
 				lltv
@@ -80,7 +80,7 @@ async function getMarketsImpl(chainId = 8453): Promise<LendingMarket[]> {
 		data?: {
 			markets?: {
 				items?: Array<{
-					uniqueKey: string
+					marketId: string
 					loanAsset: { symbol: string } | null
 					collateralAsset: { symbol: string } | null
 					lltv: string
@@ -99,7 +99,7 @@ async function getMarketsImpl(chainId = 8453): Promise<LendingMarket[]> {
 	const items = json.data?.markets?.items ?? []
 
 	return items.map((m) => ({
-		id: m.uniqueKey,
+		id: m.marketId,
 		loanToken: m.loanAsset?.symbol ?? 'Unknown',
 		collateralToken: m.collateralAsset?.symbol ?? 'None',
 		lltv: parseFloat(m.lltv) / 1e18,
@@ -114,20 +114,23 @@ async function getMarketsImpl(chainId = 8453): Promise<LendingMarket[]> {
 
 async function getMarketImpl(id: string): Promise<LendingMarketDetail> {
 	const query = `{
-		market(uniqueKey: "${id}") {
-			uniqueKey
-			loanAsset { symbol }
-			collateralAsset { symbol }
-			lltv
-			oracleAddress
-			irmAddress
-			creationTimestamp
-			state {
-				supplyApy
-				borrowApy
-				supplyAssetsUsd
-				borrowAssetsUsd
-				utilization
+		markets(first: 1, where: { uniqueKey_in: ["${id}"] }) {
+			items {
+				marketId
+				loanAsset { symbol }
+				collateralAsset { symbol }
+				lltv
+				oracle { address }
+				irmAddress
+				creationTimestamp
+				chain { id }
+				state {
+					supplyApy
+					borrowApy
+					supplyAssetsUsd
+					borrowAssetsUsd
+					utilization
+				}
 			}
 		}
 	}`
@@ -142,30 +145,33 @@ async function getMarketImpl(id: string): Promise<LendingMarketDetail> {
 
 	const json = (await res.json()) as {
 		data?: {
-			market?: {
-				uniqueKey: string
-				loanAsset: { symbol: string } | null
-				collateralAsset: { symbol: string } | null
-				lltv: string
-				oracleAddress: string
-				irmAddress: string
-				creationTimestamp: number
-				state: {
-					supplyApy: number
-					borrowApy: number
-					supplyAssetsUsd: number
-					borrowAssetsUsd: number
-					utilization: number
-				}
+			markets?: {
+				items?: Array<{
+					marketId: string
+					loanAsset: { symbol: string } | null
+					collateralAsset: { symbol: string } | null
+					lltv: string
+					oracle: { address: string } | null
+					irmAddress: string
+					creationTimestamp: number
+					chain: { id: number } | null
+					state: {
+						supplyApy: number
+						borrowApy: number
+						supplyAssetsUsd: number
+						borrowAssetsUsd: number
+						utilization: number
+					}
+				}>
 			}
 		}
 	}
 
-	const m = json.data?.market
+	const m = json.data?.markets?.items?.[0]
 	if (!m) throw new Error(`Market ${id} not found`)
 
 	return {
-		id: m.uniqueKey,
+		id: m.marketId,
 		loanToken: m.loanAsset?.symbol ?? 'Unknown',
 		collateralToken: m.collateralAsset?.symbol ?? 'None',
 		lltv: parseFloat(m.lltv) / 1e18,
@@ -174,8 +180,8 @@ async function getMarketImpl(id: string): Promise<LendingMarketDetail> {
 		totalSupply: m.state.supplyAssetsUsd,
 		totalBorrow: m.state.borrowAssetsUsd,
 		utilization: m.state.utilization * 100,
-		chainId: 8453,
-		oracle: m.oracleAddress,
+		chainId: m.chain?.id ?? 8453,
+		oracle: m.oracle?.address ?? '',
 		irm: m.irmAddress,
 		createdAt: new Date(m.creationTimestamp * 1000).toISOString(),
 	}

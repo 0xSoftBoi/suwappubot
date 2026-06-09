@@ -131,7 +131,10 @@ export class PolymarketService extends Context.Tag('PolymarketService')<
 
 // ---------- Gamma API response type ----------
 interface GammaMarketRaw {
-	condition_id: string
+	// Gamma API uses a numeric string `id` as the /markets/{id} detail path param;
+	// `conditionId` is the on-chain 0x hash and is NOT accepted there (returns 422).
+	id: string
+	conditionId?: string
 	question: string
 	description?: string
 	outcomes: string
@@ -139,11 +142,11 @@ interface GammaMarketRaw {
 	clobTokenIds?: string
 	volume: string
 	liquidity: string
-	end_date_iso: string
+	endDate: string
 	active: boolean
 	category: string
-	created_at?: string
-	resolved_outcome?: string | null
+	createdAt?: string
+	resolvedOutcome?: string | null
 }
 
 function parseTokens(raw: GammaMarketRaw): MarketToken[] {
@@ -166,14 +169,14 @@ function parsePrices(raw: string): number[] {
 
 function mapGammaMarket(m: GammaMarketRaw): PredictionMarket {
 	return {
-		id: m.condition_id,
+		id: m.id ?? '',
 		question: m.question,
 		outcomes: parseOutcomes(m.outcomes),
 		outcomePrices: parsePrices(m.outcomePrices),
 		tokens: parseTokens(m),
 		volume: parseFloat(m.volume || '0'),
 		liquidity: parseFloat(m.liquidity || '0'),
-		endDate: m.end_date_iso || '',
+		endDate: m.endDate || '',
 		active: m.active,
 		category: m.category || '',
 	}
@@ -206,8 +209,8 @@ async function getMarketImpl(id: string): Promise<PredictionMarketDetail> {
 	return {
 		...mapGammaMarket(m),
 		description: m.description || '',
-		createdAt: m.created_at || '',
-		resolvedOutcome: m.resolved_outcome ?? null,
+		createdAt: m.createdAt || '',
+		resolvedOutcome: m.resolvedOutcome ?? null,
 	}
 }
 
