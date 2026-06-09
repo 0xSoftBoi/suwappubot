@@ -1,32 +1,24 @@
 import { useWatchlist, type WatchlistToken } from '../../hooks/useWatchlist'
 import { useWatchlistPrices } from '../../hooks/useWatchlistPrices'
 import { usePair } from '../../contexts/PairContext'
+import { pairFromToken } from '../../lib/quoteTokens'
 import { WatchlistItem } from './WatchlistItem'
 
 export function WatchlistPanel() {
   const { watchlist, removeToken } = useWatchlist()
   const { getPrice, refetch } = useWatchlistPrices(watchlist)
-  const { setSelectedPair, setSelectedChain } = usePair()
+  const { setSelectedPair } = usePair()
 
   const handleTokenClick = (token: WatchlistToken) => {
-    // Navigate to token chart by setting it as the selected pair
-    setSelectedChain(token.chain)
-    setSelectedPair({
-      base: {
-        symbol: token.symbol,
-        name: token.name,
-        address: token.address,
-        chain: token.chain,
-        decimals: 18,
-      },
-      quote: {
-        symbol: 'USDC',
-        name: 'USD Coin',
-        address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-        chain: token.chain,
-        decimals: 6,
-      },
-    })
+    // Navigate to token chart by setting it as the selected pair. Quotes against
+    // the chain's canonical USDC (setSelectedPair also syncs the active chain).
+    setSelectedPair(pairFromToken({
+      symbol: token.symbol,
+      name: token.name,
+      address: token.address,
+      chain: token.chain,
+      decimals: 18,
+    }))
   }
 
   return (

@@ -75,6 +75,53 @@ test.describe('Terminal Layout', () => {
     await expect(inputs.first()).toBeVisible()
   })
 
+  test('swap panel follows the active pair (regression: token switching)', async ({ page }) => {
+    await page.goto('/')
+
+    // The swap panel derives its from/to tokens from the active pair, so the
+    // default ETH/USDC pair must surface both tokens inside the trade panel —
+    // not the empty "Select" placeholders the old disconnected state showed.
+    const swapPanel = page.getByTestId('swap-panel')
+    await expect(swapPanel).toBeVisible()
+    await expect(swapPanel.getByRole('button', { name: /ETH/ })).toBeVisible()
+    await expect(swapPanel.getByRole('button', { name: /USDC/ })).toBeVisible()
+
+    // Flipping buy/sell swaps the trade direction without losing either token,
+    // proving from/to stay bound to the same pair.
+    await swapPanel.getByRole('button', { name: 'Sell' }).click()
+    await expect(swapPanel.getByRole('button', { name: /ETH/ })).toBeVisible()
+    await expect(swapPanel.getByRole('button', { name: /USDC/ })).toBeVisible()
+  })
+
+  test('switching token propagates into the swap panel (the actual complaint)', async ({ page }) => {
+    // Seed a non-ETH token into the localStorage-backed watchlist so we can
+    // exercise the full journey backend-free: click token -> setSelectedPair ->
+    // SwapPanel derives the new target. This is the regression guard for the
+    // literal "I switch tokens but the trade panel doesn't follow" bug.
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        'suwappu_watchlist',
+        JSON.stringify([
+          { symbol: 'PEPE', name: 'Pepe', address: '0x6982508145454ce325ddbe47a25d4ec3d2311933', chain: 'ethereum' },
+        ]),
+      )
+    })
+    await page.goto('/')
+
+    const swapPanel = page.getByTestId('swap-panel')
+    await expect(swapPanel).toBeVisible()
+    // Buy side: the target ("To") token starts as the default base, ETH.
+    await expect(swapPanel.getByRole('button', { name: /ETH/ })).toBeVisible()
+
+    // Open the Watchlist bottom tab and click the seeded token.
+    await page.getByTestId('bottom-tabs').getByRole('button', { name: 'Watchlist' }).click()
+    await page.getByTestId('watchlist-item').first().click()
+
+    // The swap panel must now be trading PEPE — proof the switch propagated.
+    await expect(swapPanel.getByRole('button', { name: /PEPE/ })).toBeVisible()
+    await expect(swapPanel.getByRole('button', { name: /USDC/ })).toBeVisible()
+  })
+
   test('has slippage control', async ({ page }) => {
     await page.goto('/')
 
@@ -96,7 +143,7 @@ test.describe('Terminal Layout', () => {
   test('shows connect wallet message when not authenticated', async ({ page }) => {
     await page.goto('/')
 
-    await expect(page.getByText('Connect wallet to view portfolio')).toBeVisible()
+    await expect(page.getByText('Create a Turnkey wallet to view portfolio')).toBeVisible()
   })
 
   test('has chart toolbar with time intervals', async ({ page }) => {
@@ -114,7 +161,7 @@ test.describe('Terminal Layout', () => {
     await page.getByRole('button', { name: 'Limit' }).click()
 
     // Limit-specific fields
-    await expect(page.getByText('Limit Price (USD)')).toBeVisible()
+    await expect(page.getByText('Target USD')).toBeVisible()
     await expect(page.getByText('Expires')).toBeVisible()
     await expect(page.getByRole('button', { name: '24h' })).toBeVisible()
   })
@@ -135,8 +182,8 @@ test.describe('Terminal Layout', () => {
   test('connect wallet button is present', async ({ page }) => {
     await page.goto('/')
 
-    // RainbowKit connect button
-    await expect(page.getByText('Connect Wallet').first()).toBeVisible()
+    // Turnkey passkey auth button (replaced the old RainbowKit connect button)
+    await expect(page.getByRole('button', { name: 'Turnkey' })).toBeVisible()
   })
 
   test('bottom panel has feature tabs', async ({ page }) => {
