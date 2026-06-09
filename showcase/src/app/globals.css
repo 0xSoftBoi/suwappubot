@@ -1334,6 +1334,16 @@ button:focus:not(:focus-visible) {
   box-shadow: 0 4px 16px rgba(244, 114, 182, 0.3);
 }
 
+.nav__cta--whatsapp {
+  background: var(--suwappu-whatsapp-green);
+  margin-left: 0.5rem;
+}
+
+.nav__cta--whatsapp:hover {
+  background: #1fb855;
+  box-shadow: 0 4px 16px rgba(37, 211, 102, 0.3);
+}
+
 /* Hamburger button (hidden on desktop) */
 .nav__hamburger {
   display: none;
@@ -1427,6 +1437,15 @@ button:focus:not(:focus-visible) {
 
 .nav__drawer-cta:hover {
   background: #ec4899;
+}
+
+.nav__drawer-cta--whatsapp {
+  background: var(--suwappu-whatsapp-green);
+  margin-top: 0.75rem;
+}
+
+.nav__drawer-cta--whatsapp:hover {
+  background: #1fb855;
 }
 
 /* ================================================================
@@ -1637,6 +1656,18 @@ button:focus:not(:focus-visible) {
 
 .btn--secondary:hover {
   background: #333;
+  transform: translateY(-1px);
+}
+
+.btn--whatsapp {
+  background: var(--suwappu-whatsapp-green);
+  color: white;
+  box-shadow: 0 2px 8px rgba(37, 211, 102, 0.25);
+}
+
+.btn--whatsapp:hover {
+  background: #1fb855;
+  box-shadow: 0 4px 16px rgba(37, 211, 102, 0.35);
   transform: translateY(-1px);
 }
 

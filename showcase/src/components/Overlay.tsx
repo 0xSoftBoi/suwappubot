@@ -5,6 +5,7 @@ import { motion, useInView, useReducedMotion } from 'framer-motion';
 import Terminal from './Terminal';
 import TerminalErrorBoundary from './TerminalErrorBoundary';
 import DocsMasonry from './DocsMasonry';
+import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
 
 /* ================================================================
    Data
@@ -110,7 +111,7 @@ const FEATURES = [
     icon: '🔌',
     title: 'Multi-platform access',
     description:
-      'TypeScript SDK, Telegram bot, MCP server, REST API. Pick the interface that fits your workflow.',
+      'TypeScript SDK, Telegram bot, WhatsApp bot, MCP server, REST API. Pick the interface that fits your workflow.',
   },
 ];
 
@@ -229,7 +230,7 @@ export default function Overlay() {
             </p>
             <div className="hero__actions" style={{ justifyContent: 'center' }}>
               <motion.a
-                href="https://t.me/suwappu_bot"
+                href={TELEGRAM_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn btn--primary"
@@ -238,8 +239,20 @@ export default function Overlay() {
               >
                 Start Trading
               </motion.a>
+              {WHATSAPP_ENABLED && (
+                <motion.a
+                  href={WHATSAPP_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn--whatsapp"
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                >
+                  Chat on WhatsApp
+                </motion.a>
+              )}
               <motion.a
-                href="https://t.me/suwappu_bot"
+                href={TELEGRAM_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn btn--secondary"
@@ -465,7 +478,7 @@ export default function Overlay() {
           <code className="cta__code">bun add @suwappu/sdk</code>
           <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
             <motion.a
-              href="https://t.me/suwappu_bot"
+              href={TELEGRAM_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="btn btn--primary"
@@ -474,6 +487,18 @@ export default function Overlay() {
             >
               Open @suwappu_bot
             </motion.a>
+            {WHATSAPP_ENABLED && (
+              <motion.a
+                href={WHATSAPP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn--whatsapp"
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+              >
+                Chat on WhatsApp
+              </motion.a>
+            )}
             <motion.a
               href="/docs"
               className="btn btn--secondary"

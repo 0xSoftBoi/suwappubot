@@ -40,4 +40,6 @@
   --suwappu-summer-radius-inset: 8px;
   --suwappu-summer-radius-card: 6px;
   --suwappu-summer-radius-control: 8px;
+  /* Brand color for WhatsApp CTAs (not part of the generated token set). */
+  --suwappu-whatsapp-green: #25D366;
 }

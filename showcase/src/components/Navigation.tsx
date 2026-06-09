@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
 
 export default function Navigation() {
   const [scrolled, setScrolled] = useState(false);
@@ -38,9 +39,14 @@ export default function Navigation() {
         <a href="#features" className="nav__link">Features</a>
         <a href="/docs" className="nav__link">Docs</a>
         <a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer" className="nav__link">GitHub</a>
-        <a href="https://t.me/suwappu_bot" target="_blank" rel="noopener noreferrer" className="nav__cta">
+        <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="nav__cta">
           Open Bot
         </a>
+        {WHATSAPP_ENABLED && (
+          <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className="nav__cta nav__cta--whatsapp">
+            WhatsApp
+          </a>
+        )}
       </div>
 
       {/* Mobile hamburger */}
@@ -69,9 +75,14 @@ export default function Navigation() {
         <a href="#features" className="nav__drawer-link" onClick={closeMenu}>Features</a>
         <a href="/docs" className="nav__drawer-link" onClick={closeMenu}>Docs</a>
         <a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer" className="nav__drawer-link" onClick={closeMenu}>GitHub</a>
-        <a href="https://t.me/suwappu_bot" target="_blank" rel="noopener noreferrer" className="nav__drawer-cta" onClick={closeMenu}>
+        <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="nav__drawer-cta" onClick={closeMenu}>
           Open Bot
         </a>
+        {WHATSAPP_ENABLED && (
+          <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className="nav__drawer-cta nav__drawer-cta--whatsapp" onClick={closeMenu}>
+            Chat on WhatsApp
+          </a>
+        )}
       </div>
     </nav>
   );
