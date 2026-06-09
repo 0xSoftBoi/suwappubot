@@ -12,81 +12,180 @@ from telegram.ext import (
 
 from bot.config.settings import settings
 from bot.handlers.start import (
-    start_handler, help_handler, help_callback,
-    main_menu_callback, more_menu_callback, noop_callback,
-    tos_accept_callback, tos_decline_callback
+    start_handler,
+    help_handler,
+    help_callback,
+    main_menu_callback,
+    more_menu_callback,
+    noop_callback,
+    tos_accept_callback,
+    tos_decline_callback,
 )
 from bot.handlers.balance import balance_handler, balance_callback
-from bot.handlers.wallet import wallet_handler, wallet_menu_callback, wallet_create_callback, wallet_qr_callback, wallet_import_handler
+from bot.handlers.wallet import (
+    wallet_handler,
+    wallet_menu_callback,
+    wallet_create_callback,
+    wallet_qr_callback,
+    wallet_import_handler,
+)
 from bot.handlers.swap import swap_conversation_handler, check_swap_status
-from bot.handlers.history import history_handler, history_callback, history_menu_callback, history_page_handler, share_pnl_handler
+from bot.handlers.history import (
+    history_handler,
+    history_callback,
+    history_menu_callback,
+    history_page_handler,
+    share_pnl_handler,
+)
 from bot.handlers.portfolio import portfolio_handler, portfolio_callback
 from bot.handlers.positions import (
     positions_command_handler,
     positions_menu_callback_handler,
     positions_refresh_callback_handler,
+    pos_manage_callback_handler,
+    pos_sell_callback_handler,
 )
 from bot.handlers.gas import gas_handler, gas_callback, gas_menu_callback
-from bot.handlers.favorites import favorites_handler, favorites_callback, use_favorite_callback, delete_favorite_callback
+from bot.handlers.favorites import (
+    favorites_handler,
+    favorites_callback,
+    use_favorite_callback,
+    delete_favorite_callback,
+)
 from bot.handlers.settings import (
-    settings_handler, settings_callback, toggle_notify_handler,
-    slippage_conversation, toggle_panic_handler, settings_menu_callback,
-    recovery_handler, limits_handler, recovery_menu_callback,
-    recovery_conversation, limits_conversation
+    settings_handler,
+    settings_callback,
+    toggle_notify_handler,
+    slippage_conversation,
+    toggle_panic_handler,
+    settings_menu_callback,
+    recovery_handler,
+    limits_handler,
+    recovery_menu_callback,
+    recovery_conversation,
+    limits_conversation,
+    toggle_mev_handler,
+    speed_menu_handler,
+    speed_set_handler,
+    chain_menu_handler,
+    chain_set_handler,
 )
 from bot.handlers.admin import status_handler, clear_cache_handler, broadcast_handler
-from bot.handlers.quickswap import quickswap_handler, quickswap_confirm_callback, quickswap_menu_callback
+from bot.handlers.quickswap import (
+    quickswap_handler,
+    quickswap_confirm_callback,
+    quickswap_menu_callback,
+)
 from bot.handlers.custodial import (
-    custodial_handler, custodial_callback, deposit_callback, 
-    deposit_qr_callback, withdrawal_conversation
+    custodial_handler,
+    custodial_callback,
+    deposit_callback,
+    deposit_qr_callback,
+    withdrawal_conversation,
 )
 from bot.handlers.admin_custodial import (
-    admin_hot_wallets_handler, admin_wallets_callback,
-    create_evm_wallet, create_sol_wallet, gas_config, configure_gas_chain
+    admin_hot_wallets_handler,
+    admin_wallets_callback,
+    create_evm_wallet,
+    create_sol_wallet,
+    gas_config,
+    configure_gas_chain,
 )
-from bot.handlers.admin_fees import fees_handler, set_fee_callback, fees_refresh_callback, sweep_fees_callback
+from bot.handlers.admin_fees import (
+    fees_handler,
+    set_fee_callback,
+    fees_refresh_callback,
+    sweep_fees_callback,
+)
+
 # New handlers
 from bot.handlers.alerts import alerts_handler, alert_conversation, alerts_menu_callback
 from bot.handlers.referral import (
-    referral_handler, ref_menu_callback_handler, ref_list_callback_handler, ref_claim_callback_handler,
-    fees_command_handler, rewards_command_handler, fees_callback_handler,
-    rewards_callback_handler as ref_rewards_callback_handler
+    referral_handler,
+    ref_menu_callback_handler,
+    ref_list_callback_handler,
+    ref_claim_callback_handler,
+    fees_command_handler,
+    rewards_command_handler,
+    fees_callback_handler,
+    rewards_callback_handler as ref_rewards_callback_handler,
 )
 from bot.handlers.limit_orders import (
-    orders_handler, dca_handler, limit_order_conversation,
-    dca_view_handler, dca_actions_handler, dca_menu_callback,
-    limit_orders_menu_callback_handler
+    orders_handler,
+    dca_handler,
+    limit_order_conversation,
+    dca_view_handler,
+    dca_actions_handler,
+    dca_menu_callback,
+    limit_orders_menu_callback_handler,
 )
 from bot.handlers.tax import (
-    tax_handler, tax_year_callback_handler, tax_download_callback_handler, tax_menu_callback_handler
+    tax_handler,
+    tax_year_callback_handler,
+    tax_download_callback_handler,
+    tax_menu_callback_handler,
 )
 from bot.handlers.admin_metrics import (
-    metrics_handler, metrics_volume_handler, metrics_fees_handler, metrics_users_handler,
-    metrics_chains_handler, metrics_wallets_handler, metrics_errors_handler, metrics_refresh_handler
+    metrics_handler,
+    metrics_volume_handler,
+    metrics_fees_handler,
+    metrics_users_handler,
+    metrics_chains_handler,
+    metrics_wallets_handler,
+    metrics_errors_handler,
+    metrics_refresh_handler,
 )
 from bot.handlers.admin_performance import (
-    perf_handler, perf_refresh_handler, perf_reset_handler, perf_slow_queries_handler
+    perf_handler,
+    perf_refresh_handler,
+    perf_reset_handler,
+    perf_slow_queries_handler,
 )
 from bot.handlers.subscription import (
-    subscription_handler, subscription_conversation,
-    sub_compare_callback, sub_back_callback
+    subscription_handler,
+    subscription_conversation,
+    sub_compare_callback,
+    sub_back_callback,
 )
+
 # Points/XP system handlers
 from bot.handlers.points import (
-    xp_handler, checkin_handler, leaderboard_handler, rewards_handler,
-    xp_callback_handler, checkin_callback_handler, leaderboard_callback_handler,
-    rewards_callback_handler, redeem_callback_handler, noop_callback_handler as xp_noop_handler,
-    points_menu_callback_handler
+    xp_handler,
+    checkin_handler,
+    leaderboard_handler,
+    rewards_handler,
+    xp_callback_handler,
+    checkin_callback_handler,
+    leaderboard_callback_handler,
+    rewards_callback_handler,
+    redeem_callback_handler,
+    noop_callback_handler as xp_noop_handler,
+    points_menu_callback_handler,
 )
+
 # Copy Trading handlers
 from bot.handlers.copy import (
-    traders_handler, following_handler, profile_handler, stats_handler,
-    traders_callback_handler, view_trader_callback_handler, follow_callback_handler,
-    unfollow_callback_handler, following_callback_handler, profile_callback_handler,
-    toggle_public_callback_handler, edit_emoji_callback_handler, set_emoji_callback_handler,
-    my_followers_callback_handler, mystats_callback_handler, copy_now_callback_handler,
-    skip_copy_callback_handler, profile_edit_conversation, copy_menu_callback_handler
+    traders_handler,
+    following_handler,
+    profile_handler,
+    stats_handler,
+    traders_callback_handler,
+    view_trader_callback_handler,
+    follow_callback_handler,
+    unfollow_callback_handler,
+    following_callback_handler,
+    profile_callback_handler,
+    toggle_public_callback_handler,
+    edit_emoji_callback_handler,
+    set_emoji_callback_handler,
+    my_followers_callback_handler,
+    mystats_callback_handler,
+    copy_now_callback_handler,
+    skip_copy_callback_handler,
+    profile_edit_conversation,
+    copy_menu_callback_handler,
 )
+
 # Token Sniping handlers
 from bot.handlers.snipe import snipe_conversation_handler
 from bot.handlers.predict import predict_conversation_handler
@@ -117,6 +216,7 @@ from database.db import init_db, DATABASE_AVAILABLE
 # Try to import C++ core for high-performance operations
 try:
     import suwappu_core
+
     CPP_CORE_AVAILABLE = True
 except ImportError:
     suwappu_core = None
@@ -134,14 +234,14 @@ logger = logging.getLogger(__name__)
 async def error_handler(update: Update, context) -> None:
     """Handle errors with user-friendly messages."""
     logger.error(f"Exception while handling an update: {context.error}")
-    
+
     if update and update.effective_message:
         # Try to get user-friendly error message
         try:
             user_message = handle_swap_error(context.error)
         except Exception:
             user_message = "❌ An error occurred. Please try again later."
-        
+
         try:
             await update.effective_message.reply_text(user_message)
         except Exception:
@@ -156,62 +256,64 @@ def add_handlers(application: Application) -> None:
     application.add_handler(balance_handler)
     application.add_handler(wallet_handler)
     application.add_handler(quickswap_handler)  # /s shortcut
-    application.add_handler(history_handler)     # /hx
-    application.add_handler(portfolio_handler)   # /p
-    application.add_handler(positions_command_handler)          # /pos
-    application.add_handler(positions_menu_callback_handler)    # 💼 Positions button
-    application.add_handler(positions_refresh_callback_handler) # Refresh
-    application.add_handler(gas_handler)         # /g
-    application.add_handler(favorites_handler)   # /f
-    application.add_handler(settings_handler)    # /set
-    application.add_handler(recovery_handler)    # /recovery
-    application.add_handler(limits_handler)      # /limits
-    
+    application.add_handler(history_handler)  # /hx
+    application.add_handler(portfolio_handler)  # /p
+    application.add_handler(positions_command_handler)  # /pos
+    application.add_handler(positions_menu_callback_handler)  # 💼 Positions button
+    application.add_handler(positions_refresh_callback_handler)  # Refresh
+    application.add_handler(pos_manage_callback_handler)  # Positions → Manage token
+    application.add_handler(pos_sell_callback_handler)  # Positions → Sell %
+    application.add_handler(gas_handler)  # /g
+    application.add_handler(favorites_handler)  # /f
+    application.add_handler(settings_handler)  # /set
+    application.add_handler(recovery_handler)  # /recovery
+    application.add_handler(limits_handler)  # /limits
+
     # Custodial
-    application.add_handler(custodial_handler)   # /c
-    
+    application.add_handler(custodial_handler)  # /c
+
     # New feature commands
-    application.add_handler(alerts_handler)      # /a
-    application.add_handler(referral_handler)    # /ref
-    application.add_handler(fees_command_handler)    # /fees
-    application.add_handler(rewards_command_handler) # /rewards
-    application.add_handler(orders_handler)      # /o (limit orders)
-    application.add_handler(dca_handler)         # /dca
-    application.add_handler(tax_handler)         # /tax
+    application.add_handler(alerts_handler)  # /a
+    application.add_handler(referral_handler)  # /ref
+    application.add_handler(fees_command_handler)  # /fees
+    application.add_handler(rewards_command_handler)  # /rewards
+    application.add_handler(orders_handler)  # /o (limit orders)
+    application.add_handler(dca_handler)  # /dca
+    application.add_handler(tax_handler)  # /tax
     application.add_handler(subscription_handler)  # /sub (x402)
-    application.add_handler(dashboard_handler)    # /dashboard (Mini App)
+    application.add_handler(dashboard_handler)  # /dashboard (Mini App)
 
     # Perps Trading
     # Note: perps_conversation_handler added below with other conversation handlers
 
     # Points/XP system
-    application.add_handler(xp_handler)          # /xp
-    application.add_handler(checkin_handler)     # /checkin
-    application.add_handler(leaderboard_handler) # /lb
-    application.add_handler(rewards_handler)     # /rewards (XP rewards)
-    
+    application.add_handler(xp_handler)  # /xp
+    application.add_handler(checkin_handler)  # /checkin
+    application.add_handler(leaderboard_handler)  # /lb
+    application.add_handler(rewards_handler)  # /rewards (XP rewards)
+
     # Copy Trading
-    application.add_handler(traders_handler)     # /traders
-    application.add_handler(following_handler)   # /following
-    application.add_handler(profile_handler)     # /profile
-    application.add_handler(stats_handler)       # /tstats (trader stats)
-    
+    application.add_handler(traders_handler)  # /traders
+    application.add_handler(following_handler)  # /following
+    application.add_handler(profile_handler)  # /profile
+    application.add_handler(stats_handler)  # /tstats (trader stats)
+
     # Admin commands
-    application.add_handler(status_handler)      # /status
-    application.add_handler(clear_cache_handler) # /clearcache
-    application.add_handler(broadcast_handler)   # /broadcast
+    application.add_handler(status_handler)  # /status
+    application.add_handler(clear_cache_handler)  # /clearcache
+    application.add_handler(broadcast_handler)  # /broadcast
     application.add_handler(admin_hot_wallets_handler)  # /hotwallets
-    application.add_handler(fees_handler)               # /fees
-    application.add_handler(metrics_handler)            # /metrics
-    application.add_handler(perf_handler)               # /perf
-    
+    application.add_handler(fees_handler)  # /fees
+    application.add_handler(metrics_handler)  # /metrics
+    application.add_handler(perf_handler)  # /perf
+
     # ============ CONVERSATION HANDLERS ============
     # Must be added before generic callback handlers
     application.add_handler(swap_conversation_handler)
     application.add_handler(wallet_import_handler)
     application.add_handler(slippage_conversation)
     application.add_handler(recovery_conversation)  # settings_recovery -> set email
-    application.add_handler(limits_conversation)    # settings_limits -> set spend limits
+    application.add_handler(limits_conversation)  # settings_limits -> set spend limits
     application.add_handler(withdrawal_conversation)
     application.add_handler(alert_conversation)
     application.add_handler(limit_order_conversation)
@@ -220,10 +322,10 @@ def add_handlers(application: Application) -> None:
     application.add_handler(snipe_conversation_handler)  # Token sniping /snipe
     application.add_handler(perps_conversation_handler)  # Perps trading /perps
     application.add_handler(predict_conversation_handler)  # Prediction markets /predict
-    application.add_handler(token_conv_handler)           # SUWP token /token /suwp
+    application.add_handler(token_conv_handler)  # SUWP token /token /suwp
 
     # ============ CALLBACK QUERY HANDLERS ============
-    
+
     # Navigation
     application.add_handler(CallbackQueryHandler(help_callback, pattern="^help$"))
     application.add_handler(CallbackQueryHandler(main_menu_callback, pattern="^main_menu$"))
@@ -231,66 +333,75 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
     application.add_handler(CallbackQueryHandler(tos_accept_callback, pattern="^tos_accept$"))
     application.add_handler(CallbackQueryHandler(tos_decline_callback, pattern="^tos_decline$"))
-    
+
     # Balance & Portfolio
     application.add_handler(CallbackQueryHandler(balance_callback, pattern="^balance$"))
     application.add_handler(CallbackQueryHandler(portfolio_callback, pattern="^portfolio"))
     application.add_handler(history_callback)
     application.add_handler(history_menu_callback)
     application.add_handler(history_page_handler)
-    
+
     # Wallet
     application.add_handler(CallbackQueryHandler(wallet_menu_callback, pattern="^wallet_menu$"))
     application.add_handler(CallbackQueryHandler(wallet_create_callback, pattern="^wallet_create_"))
     application.add_handler(CallbackQueryHandler(wallet_qr_callback, pattern="^wallet_qr_"))
-    
+
     # Swap
     application.add_handler(CallbackQueryHandler(check_swap_status, pattern="^swap_status_"))
-    application.add_handler(CallbackQueryHandler(quickswap_confirm_callback, pattern="^quickswap_confirm$"))
-    application.add_handler(CallbackQueryHandler(quickswap_menu_callback, pattern="^quickswap_menu$"))
-    
+    application.add_handler(
+        CallbackQueryHandler(quickswap_confirm_callback, pattern="^quickswap_confirm$")
+    )
+    application.add_handler(
+        CallbackQueryHandler(quickswap_menu_callback, pattern="^quickswap_menu$")
+    )
+
     # Gas
     application.add_handler(CallbackQueryHandler(gas_callback, pattern="^gas_refresh$"))
     application.add_handler(CallbackQueryHandler(gas_menu_callback, pattern="^gas_menu$"))
-    
+
     # Favorites
     application.add_handler(CallbackQueryHandler(favorites_callback, pattern="^favorites$"))
     application.add_handler(CallbackQueryHandler(favorites_callback, pattern="^favorites_menu$"))
     application.add_handler(CallbackQueryHandler(use_favorite_callback, pattern="^fav_use_"))
     application.add_handler(CallbackQueryHandler(delete_favorite_callback, pattern="^fav_delete_"))
-    
+
     # Settings
     application.add_handler(settings_menu_callback)
     application.add_handler(toggle_notify_handler)
     application.add_handler(toggle_panic_handler)
+    application.add_handler(toggle_mev_handler)  # Settings → MEV protection toggle
+    application.add_handler(speed_menu_handler)  # Settings → tx speed menu
+    application.add_handler(speed_set_handler)  # Settings → tx speed set
+    application.add_handler(chain_menu_handler)  # Settings → default chain menu
+    application.add_handler(chain_set_handler)  # Settings → default chain set
     application.add_handler(recovery_menu_callback)  # settings_recovery button
-    
+
     # Custodial
     application.add_handler(CallbackQueryHandler(custodial_callback, pattern="^custodial_menu$"))
     application.add_handler(CallbackQueryHandler(deposit_callback, pattern="^custodial_deposit$"))
     application.add_handler(CallbackQueryHandler(deposit_qr_callback, pattern="^deposit_qr_"))
-    
+
     # Admin custodial
     application.add_handler(CallbackQueryHandler(admin_wallets_callback, pattern="^admin_wallets$"))
     application.add_handler(CallbackQueryHandler(create_evm_wallet, pattern="^admin_create_evm$"))
     application.add_handler(CallbackQueryHandler(create_sol_wallet, pattern="^admin_create_sol$"))
     application.add_handler(CallbackQueryHandler(gas_config, pattern="^admin_gas_config$"))
     application.add_handler(CallbackQueryHandler(configure_gas_chain, pattern="^admin_gas_"))
-    
+
     # Fees admin
     application.add_handler(CallbackQueryHandler(set_fee_callback, pattern="^set_fee_"))
     application.add_handler(CallbackQueryHandler(fees_refresh_callback, pattern="^fees_refresh$"))
     application.add_handler(CallbackQueryHandler(sweep_fees_callback, pattern="^sweep_all_fees$"))
-    
+
     # DCA and Limit Orders management
     application.add_handler(dca_view_handler)
     application.add_handler(dca_actions_handler)
     application.add_handler(dca_menu_callback)
     application.add_handler(limit_orders_menu_callback_handler)
-    
+
     # Alerts
     application.add_handler(CallbackQueryHandler(alerts_menu_callback, pattern="^alerts_menu$"))
-    
+
     # Referrals & Fees
     application.add_handler(ref_menu_callback_handler)
     application.add_handler(ref_list_callback_handler)
@@ -304,8 +415,10 @@ def add_handlers(application: Application) -> None:
     application.add_handler(tax_menu_callback_handler)
 
     # Dashboard
-    application.add_handler(CallbackQueryHandler(dashboard_menu_callback, pattern="^dashboard_menu$"))
-    
+    application.add_handler(
+        CallbackQueryHandler(dashboard_menu_callback, pattern="^dashboard_menu$")
+    )
+
     # Admin metrics
     application.add_handler(metrics_volume_handler)
     application.add_handler(metrics_fees_handler)
@@ -314,16 +427,16 @@ def add_handlers(application: Application) -> None:
     application.add_handler(metrics_wallets_handler)
     application.add_handler(metrics_errors_handler)
     application.add_handler(metrics_refresh_handler)
-    
+
     # Admin performance
     application.add_handler(perf_refresh_handler)
     application.add_handler(perf_reset_handler)
     application.add_handler(perf_slow_queries_handler)
-    
+
     # x402 Subscription
     application.add_handler(sub_compare_callback)
     application.add_handler(sub_back_callback)
-    
+
     # Points/XP callbacks
     application.add_handler(points_menu_callback_handler)
     application.add_handler(xp_callback_handler)
@@ -332,7 +445,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(rewards_callback_handler)
     application.add_handler(redeem_callback_handler)
     application.add_handler(xp_noop_handler)
-    
+
     # Perps Trading callbacks
     application.add_handler(perps_menu_callback_handler)
 
@@ -358,7 +471,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(mystats_callback_handler)
     application.add_handler(copy_now_callback_handler)
     application.add_handler(skip_copy_callback_handler)
-    
+
     # Error handler
     application.add_error_handler(error_handler)
 
@@ -371,8 +484,7 @@ async def post_init(application) -> None:
     try:
         await application.bot.set_chat_menu_button(
             menu_button=MenuButtonWebApp(
-                text="📊 Dashboard",
-                web_app=WebAppInfo(url=settings.webapp_url)
+                text="📊 Dashboard", web_app=WebAppInfo(url=settings.webapp_url)
             )
         )
         logger.info(f"✓ Menu button set to Mini App: {settings.webapp_url}")
@@ -419,11 +531,12 @@ async def post_init(application) -> None:
 
     # Seed default milestones and rewards for points system
     from bot.services.points_service import points_service
+
     points_service.seed_milestones_and_rewards()
     logger.info("✓ Points milestones and rewards seeded")
-    
+
     # Get admin IDs from settings
-    admin_ids = getattr(settings, 'admin_ids', [])
+    admin_ids = getattr(settings, "admin_ids", [])
 
     if not settings.enable_background_services:
         logger.info("⏭️ Background services DISABLED via ENABLE_BACKGROUND_SERVICES=false")
@@ -468,7 +581,7 @@ async def post_shutdown(application) -> None:
         await tx_poller.stop()
         await health_monitor.stop()
         await launch_detector.stop()
-    
+
     logger.info("Closing HTTP session pool...")
     await close_http_session()
 
@@ -476,13 +589,13 @@ async def post_shutdown(application) -> None:
 async def run_headless() -> None:
     """Run background services without Telegram polling."""
     logger.warning("⚠️ Starting in HEADLESS MODE (Telegram token invalid/missing)")
-    
+
     # Initialize background services manually
-    admin_ids = getattr(settings, 'admin_ids', [])
-    
+    admin_ids = getattr(settings, "admin_ids", [])
+
     await fee_sweeper.start()
     logger.info("✓ Fee sweeper started")
-    
+
     # These services usually need a bot to send messages
     # We pass None and they should handle it gracefully
     await alert_service.start(bot=None)
@@ -490,9 +603,9 @@ async def run_headless() -> None:
     await tx_poller.start(bot=None)
     await health_monitor.start(bot=None, admin_ids=admin_ids)
     await rug_service.start(swap_engine=SwapEngine())
-    
+
     logger.info("✅ Headless services are running. Press Ctrl+C to stop.")
-    
+
     try:
         while True:
             await asyncio.sleep(3600)
@@ -508,11 +621,11 @@ def main() -> None:
         logger.info(f"✓ C++ core v{suwappu_core.__version__} loaded (high-performance mode)")
     else:
         logger.info("C++ core not available, using Python fallback (pip install -e . to build)")
-    
+
     # Preload config for fast lookups
     logger.info("Preloading configurations...")
     preload_config()
-    
+
     # Initialize database with error handling
     logger.info("Initializing database...")
     db_success = False
@@ -523,17 +636,19 @@ def main() -> None:
     except Exception as e:
         logger.error(f"Database initialization error: {e}")
         logger.warning("⚠️ Bot will run in degraded mode without database")
-    
+
     # Set up database monitoring if database is available
     from database.db import engine
+
     if engine and db_success:
         setup_db_monitoring(engine)
         logger.info("✓ Database monitoring enabled")
     else:
         logger.warning("⚠️ Database monitoring disabled (no connection)")
-    
+
     # Ensure data directory exists for persistence
     import os
+
     os.makedirs("data", exist_ok=True)
 
     # Create persistence to survive bot restarts
@@ -549,17 +664,21 @@ def main() -> None:
         .post_shutdown(post_shutdown)
         .build()
     )
-    
+
     # Add all handlers
     add_handlers(application)
-    
+
     # Log available commands
     logger.info("User commands: /start, /h, /w, /b, /s, /hx, /p, /g, /f, /set, /c")
-    logger.info("Trading commands: /a, /o, /dca, /ref, /tax, /sub, /snipe, /perps, /predict, /dashboard")
+    logger.info(
+        "Trading commands: /a, /o, /dca, /ref, /tax, /sub, /snipe, /perps, /predict, /dashboard"
+    )
     logger.info("Growth commands: /xp, /checkin, /lb, /traders, /following, /profile")
     logger.info("Admin commands: /st, /hw, /fee, /m")
-    logger.info("Background services: Fee sweeper, Price alerts, Limit orders/DCA, Tx poller, Health monitor, Launch detector")
-    
+    logger.info(
+        "Background services: Fee sweeper, Price alerts, Limit orders/DCA, Tx poller, Health monitor, Launch detector"
+    )
+
     # Start the bot
     logger.info("Starting bot...")
     try:

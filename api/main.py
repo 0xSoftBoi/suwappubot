@@ -67,6 +67,7 @@ logger = logging.getLogger(__name__)
 
 # --- Lifespan Manager ---
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle manager for the consolidated API + Bot service."""
@@ -75,6 +76,7 @@ async def lifespan(app: FastAPI):
     # 1. Initialize DB, Cache & Config
     preload_config()
     from bot.utils.redis_cache import redis_cache
+
     await redis_cache.connect()
     await rpc_manager.start()
 
@@ -100,11 +102,15 @@ async def lifespan(app: FastAPI):
         try:
             cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
             with get_session() as session:
-                orphaned = session.query(SwapTransaction).filter(
-                    SwapTransaction.status == SwapStatus.EXECUTING.value,
-                    SwapTransaction.tx_hash.is_(None),
-                    SwapTransaction.created_at < cutoff,
-                ).all()
+                orphaned = (
+                    session.query(SwapTransaction)
+                    .filter(
+                        SwapTransaction.status == SwapStatus.EXECUTING.value,
+                        SwapTransaction.tx_hash.is_(None),
+                        SwapTransaction.created_at < cutoff,
+                    )
+                    .all()
+                )
                 if orphaned:
                     for row in orphaned:
                         row.status = SwapStatus.FAILED.value
@@ -119,10 +125,7 @@ async def lifespan(app: FastAPI):
     persistence_path = os.environ.get("BOT_PERSISTENCE_PATH", "data/bot_persistence.pickle")
     persistence = PicklePersistence(filepath=persistence_path)
     bot_app = (
-        Application.builder()
-        .token(settings.telegram_bot_token)
-        .persistence(persistence)
-        .build()
+        Application.builder().token(settings.telegram_bot_token).persistence(persistence).build()
     )
     add_handlers(bot_app)
 
@@ -151,18 +154,46 @@ async def lifespan(app: FastAPI):
                         url=settings.webhook_url,
                         secret_token=webhook_secret,
                         allowed_updates=Update.ALL_TYPES,
-                        drop_pending_updates=True
+                        drop_pending_updates=True,
                     )
                     using_webhook = True
                     logger.info(f"✓ Telegram webhook set: {settings.webhook_url}")
                 else:
-                    # Polling mode for local development
-                    logger.info("✓ Starting Telegram polling background task")
-                    # drop_pending_updates=True helps avoid conflicts during redeploys
-                    polling_task = asyncio.create_task(bot_app.updater.start_polling(
-                        allowed_updates=Update.ALL_TYPES,
-                        drop_pending_updates=True
-                    ))
+                    # Guard: refuse to start polling when multiple replicas are
+                    # detected.  Telegram only allows one concurrent getUpdates
+                    # consumer per bot token; a second poller causes 409 conflicts
+                    # and message duplication.  Railway exposes
+                    # RAILWAY_SERVICE_INSTANCE_COUNT (configured replicas) and
+                    # RAILWAY_REPLICA_ID (present on every replica instance).
+                    # We block when the configured count is explicitly > 1.
+                    # Unknown / unset values default to 1 (safe for local dev).
+                    _raw_replica_count = os.environ.get("RAILWAY_SERVICE_INSTANCE_COUNT", "1")
+                    try:
+                        _replica_count = int(_raw_replica_count)
+                    except (ValueError, TypeError):
+                        _replica_count = 1
+
+                    if _replica_count > 1:
+                        logger.error(
+                            "POLLING DISABLED: %d replicas detected "
+                            "(RAILWAY_SERVICE_INSTANCE_COUNT=%s) but USE_WEBHOOK=false. "
+                            "Running multiple polling instances against the same bot token "
+                            "will cause Telegram 409 conflicts. "
+                            "Fix: set USE_WEBHOOK=true and configure WEBHOOK_URL + "
+                            "WEBHOOK_SECRET_TOKEN, then redeploy.",
+                            _replica_count,
+                            _raw_replica_count,
+                        )
+                        # Leave polling_task = None so shutdown is unaffected.
+                    else:
+                        # Polling mode for local development / single-instance deploys
+                        logger.info("✓ Starting Telegram polling background task")
+                        # drop_pending_updates=True helps avoid conflicts during redeploys
+                        polling_task = asyncio.create_task(
+                            bot_app.updater.start_polling(
+                                allowed_updates=Update.ALL_TYPES, drop_pending_updates=True
+                            )
+                        )
             else:
                 logger.warning("⚠️ Placeholder or missing Telegram token. Skipping polling/webhook.")
         except Exception as e:
@@ -175,6 +206,7 @@ async def lifespan(app: FastAPI):
     if db_success and settings.discord_bot_token:
         try:
             from bot.platforms.discord_bot import SuwappuDiscordBot
+
             discord_bot = SuwappuDiscordBot()
             discord_task = asyncio.create_task(discord_bot.start())
             app.state.discord_bot = discord_bot
@@ -183,7 +215,7 @@ async def lifespan(app: FastAPI):
             logger.warning(f"⚠️ Discord bot failed to start: {e}")
 
     # 5. Start Background Services (only if database is available AND enabled)
-    admin_ids = getattr(settings, 'admin_ids', [])
+    admin_ids = getattr(settings, "admin_ids", [])
     enable_background_services = getattr(settings, "enable_background_services", True)
 
     if not enable_background_services:
@@ -194,11 +226,15 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)
         await alert_service.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
-        await order_service.start(bot=bot_app.bot if bot_initialized else None, swap_engine=SwapEngine())
+        await order_service.start(
+            bot=bot_app.bot if bot_initialized else None, swap_engine=SwapEngine()
+        )
         await asyncio.sleep(2)
         await tx_poller.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
-        await health_monitor.start(bot=bot_app.bot if bot_initialized else None, admin_ids=admin_ids)
+        await health_monitor.start(
+            bot=bot_app.bot if bot_initialized else None, admin_ids=admin_ids
+        )
         await asyncio.sleep(2)
         await balance_refresher.start()
         await asyncio.sleep(2)
@@ -209,6 +245,7 @@ async def lifespan(app: FastAPI):
         if discord_bot:
             try:
                 from bot.services.discord_alerts import discord_alert_service
+
                 await discord_alert_service.start(discord_bot)
                 logger.info("✓ Discord alert service started")
             except Exception as e:
@@ -221,6 +258,7 @@ async def lifespan(app: FastAPI):
     # 5b. Periodic cleanup for auth challenge storage (prevents memory leak)
     async def _cleanup_auth_challenges_loop():
         from bot.services.turnkey_client import cleanup_expired_challenges
+
         while True:
             await asyncio.sleep(300)  # every 5 minutes
             try:
@@ -300,6 +338,7 @@ async def lifespan(app: FastAPI):
 
     logger.info("✓ Cleanup complete")
 
+
 app = FastAPI(
     title="Suwappu Agent Infrastructure",
     description="""
@@ -312,7 +351,7 @@ app = FastAPI(
     - For swaps, use the Unified Bot logic via the WhatsApp/Telegram integration modules for best results.
     """,
     version="1.1.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # --- Agent Authentication ---
@@ -335,8 +374,14 @@ async def get_agent_key(
     valid_key = getattr(settings, "agent_api_key", None)
     if not valid_key:
         import logging
-        logging.getLogger(__name__).warning("AGENT_API_KEY not set — all agent endpoints require authentication. Set AGENT_API_KEY env var.")
-        raise HTTPException(status_code=403, detail="Agent API key not configured. Set AGENT_API_KEY environment variable.")
+
+        logging.getLogger(__name__).warning(
+            "AGENT_API_KEY not set — all agent endpoints require authentication. Set AGENT_API_KEY env var."
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Agent API key not configured. Set AGENT_API_KEY environment variable.",
+        )
 
     # Fast path: check global key
     if api_key == valid_key:
@@ -344,6 +389,7 @@ async def get_agent_key(
 
     # Check in-memory cache first (avoids DB hit on every request)
     import time as _time
+
     if api_key in _agent_key_cache:
         _, cached_at = _agent_key_cache[api_key]
         if _time.time() - cached_at < _AGENT_KEY_CACHE_TTL:
@@ -356,10 +402,14 @@ async def get_agent_key(
 
             def _lookup_agent():
                 with get_session() as session:
-                    agent = session.query(RegisteredAgent).filter(
-                        RegisteredAgent.api_key == api_key,
-                        RegisteredAgent.is_active == True,
-                    ).first()
+                    agent = (
+                        session.query(RegisteredAgent)
+                        .filter(
+                            RegisteredAgent.api_key == api_key,
+                            RegisteredAgent.is_active == True,
+                        )
+                        .first()
+                    )
                     return agent.id if agent else None
 
             agent_id = await run_in_db(_lookup_agent)
@@ -371,7 +421,7 @@ async def get_agent_key(
 
     raise HTTPException(
         status_code=403,
-        detail="Invalid or missing Agent API Key. Discovery requires authentication."
+        detail="Invalid or missing Agent API Key. Discovery requires authentication.",
     )
 
 
@@ -382,8 +432,14 @@ async def get_admin_key(
     valid_key = getattr(settings, "admin_api_key", None)
     if not valid_key:
         import logging
-        logging.getLogger(__name__).warning("ADMIN_API_KEY not set — all admin endpoints locked. Set ADMIN_API_KEY env var.")
-        raise HTTPException(status_code=403, detail="Admin API key not configured. Set ADMIN_API_KEY environment variable.")
+
+        logging.getLogger(__name__).warning(
+            "ADMIN_API_KEY not set — all admin endpoints locked. Set ADMIN_API_KEY env var."
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Admin API key not configured. Set ADMIN_API_KEY environment variable.",
+        )
 
     if api_key == valid_key:
         return api_key
@@ -400,6 +456,7 @@ async def get_agent_or_admin_key(
         return await get_admin_key(admin_key)
     return await get_agent_key(agent_key)
 
+
 # Setup CORS
 _cors_origins = os.environ.get(
     "CORS_ORIGINS",
@@ -410,7 +467,13 @@ app.add_middleware(
     allow_origins=[o.strip() for o in _cors_origins],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Agent-Key", "X-Admin-Key", "X-Telegram-Init-Data"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Agent-Key",
+        "X-Admin-Key",
+        "X-Telegram-Init-Data",
+    ],
 )
 
 
@@ -474,54 +537,65 @@ if webapp_router:
 
 # --- Import and register OAuth routes ---
 from api.routes.oauth import router as oauth_router
+
 app.include_router(oauth_router)
 
 # --- Import and register mobile app API routes ---
 from api.routes.settings import router as settings_router
+
 app.include_router(settings_router)
 
 # --- Import and register Phase 2 mobile feature routes ---
 from api.routes.mobile import router as mobile_router
+
 app.include_router(mobile_router)
 
 # --- Import and register new webapp routes (TS API parity) ---
 try:
     from api.routes.webapp import router as webapp_v2_router
+
     app.include_router(webapp_v2_router)
 except ImportError as e:
     print(f"Warning: Could not load webapp_v2_router: {e}")
 
 try:
     from api.routes.swap import router as swap_router
+
     app.include_router(swap_router)
 except ImportError as e:
     print(f"Warning: Could not load swap_router: {e}")
 
 try:
     from api.routes.a2a import router as a2a_router
+
     app.include_router(a2a_router)
 except ImportError as e:
     print(f"Warning: Could not load a2a_router: {e}")
 
 try:
     from api.routes.internal import router as internal_router
+
     app.include_router(internal_router)
     print(f"✓ Internal router loaded ({len(internal_router.routes)} routes)")
 except Exception as e:
     import traceback
+
     print(f"WARNING: Could not load internal_router: {e}")
     traceback.print_exc()
 
 try:
     from api.routes.terminal import router as terminal_router
+
     app.include_router(terminal_router)
     print(f"✓ Terminal router loaded ({len(terminal_router.routes)} routes)")
 except Exception as e:
     import traceback
+
     print(f"WARNING: Could not load terminal_router: {e}")
     traceback.print_exc()
 
 # --- Pydantic Models (Aligned with Mobile/Web) ---
+
 
 class TokenInfo(BaseModel):
     id: str
@@ -531,6 +605,7 @@ class TokenInfo(BaseModel):
     address: str
     chainId: str
 
+
 class TokenBalance(BaseModel):
     id: str
     token: TokenInfo
@@ -538,6 +613,7 @@ class TokenBalance(BaseModel):
     balanceHuman: float
     balanceUSD: float
     chainId: str
+
 
 class WalletResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -550,15 +626,18 @@ class WalletResponse(BaseModel):
     isDefault: bool
     createdAt: datetime
 
+
 class PortfolioResponse(BaseModel):
     totalUSD: float
     tokens: List[TokenBalance]
     chains: Dict[str, float]
 
+
 class AgentExecuteRequest(BaseModel):
     text: str
     user_id: int
     context: Optional[Dict] = None
+
 
 class AgentWalletCreate(BaseModel):
     user_id: int
@@ -578,20 +657,25 @@ class SwapResponse(BaseModel):
     timestamp: datetime
     txHash: Optional[str]
 
+
 # --- Turnkey Auth Models ---
+
 
 class AuthChallengeRequest(BaseModel):
     address: str
+
 
 class AuthChallengeResponse(BaseModel):
     challenge: str
     nonce: str
     expiresAt: datetime
 
+
 class AuthVerifyRequest(BaseModel):
     address: str
     signature: str
     nonce: str
+
 
 class AuthVerifyResponse(BaseModel):
     success: bool
@@ -599,21 +683,27 @@ class AuthVerifyResponse(BaseModel):
     user: Optional[Dict] = None
     expiresAt: datetime
 
+
 class AuthMeResponse(BaseModel):
     authenticated: bool
     address: Optional[str] = None
     userId: Optional[int] = None
     createdAt: Optional[datetime] = None
 
+
 # --- JWT Configuration ---
 
 JWT_SECRET = getattr(settings, "secret_key", None) or os.environ.get("SECRET_KEY")
 if not JWT_SECRET:
     import logging as _jwt_log
-    _jwt_log.getLogger(__name__).warning("SECRET_KEY not set — generating ephemeral JWT secret (tokens will not survive restarts)")
+
+    _jwt_log.getLogger(__name__).warning(
+        "SECRET_KEY not set — generating ephemeral JWT secret (tokens will not survive restarts)"
+    )
     JWT_SECRET = secrets.token_hex(32)
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24 * 7  # 7 days
+
 
 def create_jwt_token(address: str, user_id: int) -> str:
     """Create a JWT token for authenticated user."""
@@ -627,6 +717,7 @@ def create_jwt_token(address: str, user_id: int) -> str:
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
+
 def decode_jwt_token(token: str) -> Optional[Dict]:
     """Decode and validate a JWT token."""
     try:
@@ -637,6 +728,7 @@ def decode_jwt_token(token: str) -> Optional[Dict]:
     except jwt.InvalidTokenError:
         return None
 
+
 async def get_current_user_from_token(
     request: Request,
     auth_token: Optional[str] = Cookie(default=None, alias="suwappu_auth"),
@@ -644,25 +736,29 @@ async def get_current_user_from_token(
     """Extract current user from JWT token in cookie or header."""
     # Try cookie first
     token = auth_token
-    
+
     # Fallback to Authorization header
     if not token:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header[7:]
-    
+
     if not token:
         return None
-    
+
     return decode_jwt_token(token)
 
+
 # --- Dependencies ---
+
 
 def get_db():
     with get_session() as session:
         yield session
 
+
 # --- Health Checks ---
+
 
 @app.get("/health/live", tags=["Health"], summary="Liveness probe")
 async def health_live():
@@ -748,6 +844,7 @@ async def health_check():
 
 # ============ Turnkey Web Authentication ============
 
+
 @app.post("/auth/turnkey/challenge", response_model=AuthChallengeResponse, tags=["Auth"])
 async def auth_challenge(request: AuthChallengeRequest):
     """
@@ -755,11 +852,11 @@ async def auth_challenge(request: AuthChallengeRequest):
     The user signs this message with their wallet to prove ownership.
     """
     from bot.services.turnkey_client import generate_auth_challenge
-    
+
     address = request.address.strip()
     if not address.startswith("0x") or len(address) != 42:
         raise HTTPException(status_code=400, detail="Invalid Ethereum address format")
-    
+
     # generate_auth_challenge returns a dict (challenge/nonce/expiresAt); unpacking
     # it into two vars raised "too many values to unpack" -> 500 on every challenge.
     result = generate_auth_challenge(address)
@@ -767,52 +864,42 @@ async def auth_challenge(request: AuthChallengeRequest):
     return AuthChallengeResponse(
         challenge=result["challenge"],
         nonce=result["nonce"],
-        expiresAt=datetime.utcnow() + timedelta(minutes=5)
+        expiresAt=datetime.utcnow() + timedelta(minutes=5),
     )
 
 
 @app.post("/auth/turnkey/verify", response_model=AuthVerifyResponse, tags=["Auth"])
 async def auth_verify(
-    request: AuthVerifyRequest,
-    response: Response,
-    db: Session = Depends(get_db)
+    request: AuthVerifyRequest, response: Response, db: Session = Depends(get_db)
 ):
     """
     Verify the signed challenge and create a session.
     Returns a JWT token for subsequent authenticated requests.
     """
     from bot.services.turnkey_client import verify_auth_signature
-    
+
     address = request.address.strip().lower()
-    
+
     # Verify the signature
     is_valid = verify_auth_signature(
-        address=address,
-        signature=request.signature,
-        nonce=request.nonce
+        address=address, signature=request.signature, nonce=request.nonce
     )
-    
+
     if not is_valid:
         raise HTTPException(status_code=401, detail="Invalid signature or expired challenge")
-    
+
     # Find or create user by wallet address
-    wallet = db.query(Wallet).filter(
-        Wallet.address.ilike(address)
-    ).first()
-    
+    wallet = db.query(Wallet).filter(Wallet.address.ilike(address)).first()
+
     if wallet:
         user = db.query(User).filter(User.id == wallet.user_id).first()
     else:
         # Create new user and wallet for first-time login
-        user = User(
-            telegram_id=None,
-            username=f"web_{address[:8]}",
-            created_at=datetime.utcnow()
-        )
+        user = User(telegram_id=None, username=f"web_{address[:8]}", created_at=datetime.utcnow())
         db.add(user)
         db.commit()
         db.refresh(user)
-        
+
         # Create wallet linked to user
         wallet = Wallet(
             user_id=user.id,
@@ -821,15 +908,15 @@ async def auth_verify(
             is_active=True,
             is_default=True,
             name="Web Wallet",
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
         )
         db.add(wallet)
         db.commit()
-    
+
     # Create JWT token
     token = create_jwt_token(address, user.id)
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
-    
+
     # Set secure HTTP-only cookie
     response.set_cookie(
         key="suwappu_auth",
@@ -838,18 +925,14 @@ async def auth_verify(
         secure=True,
         samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
-        path="/"
+        path="/",
     )
-    
+
     return AuthVerifyResponse(
         success=True,
         token=token,
-        user={
-            "id": user.id,
-            "address": address,
-            "username": user.username
-        },
-        expiresAt=expires_at
+        user={"id": user.id, "address": address, "username": user.username},
+        expiresAt=expires_at,
     )
 
 
@@ -857,32 +940,34 @@ async def auth_verify(
 async def auth_me(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: Optional[Dict] = Depends(get_current_user_from_token)
+    current_user: Optional[Dict] = Depends(get_current_user_from_token),
 ):
     """
     Get the currently authenticated user's information.
     """
     if not current_user:
         return AuthMeResponse(authenticated=False)
-    
+
     user = db.query(User).filter(User.id == current_user.get("user_id")).first()
-    
+
     if not user:
         return AuthMeResponse(authenticated=False)
-    
+
     return AuthMeResponse(
         authenticated=True,
         address=current_user.get("address"),
         userId=user.id,
-        createdAt=user.created_at
+        createdAt=user.created_at,
     )
 
 
 # ============ Telegram Mini App (initData) Authentication ============
 
+
 class TelegramAuthRequest(BaseModel):
     """Request body for /auth/telegram. initData may also come from the
     X-Telegram-Init-Data header, so it is optional here."""
+
     initData: Optional[str] = None
 
 
@@ -944,14 +1029,20 @@ async def auth_telegram(
 
     # Reuse the user's existing default wallet if present; otherwise provision one
     # the same way the bot does (WalletService — NOT a duplicated key-gen path).
-    wallet = db.query(Wallet).filter(
-        Wallet.user_id == user.id,
-        Wallet.is_active == True,
-    ).order_by(Wallet.is_default.desc(), Wallet.id.asc()).first()
+    wallet = (
+        db.query(Wallet)
+        .filter(
+            Wallet.user_id == user.id,
+            Wallet.is_active == True,
+        )
+        .order_by(Wallet.is_default.desc(), Wallet.id.asc())
+        .first()
+    )
 
     wallet_address = wallet.address if wallet else None
     if not wallet_address:
         from bot.services.wallet import WalletService
+
         wallet_service = WalletService()
         existing_evm = wallet_service.get_user_wallets(user.id, chain_type="evm")
         if existing_evm:
@@ -1000,16 +1091,28 @@ REFRESH_COOKIE = "suwappu_refresh"
 REFRESH_TTL_SECONDS = 30 * 24 * 3600
 
 
-def _set_session_cookies(response: Response, access_token: str, refresh_token: Optional[str]) -> None:
+def _set_session_cookies(
+    response: Response, access_token: str, refresh_token: Optional[str]
+) -> None:
     """Set the access (and optionally refresh) cookies with the standard attributes."""
     response.set_cookie(
-        key="suwappu_auth", value=access_token, httponly=True, secure=True,
-        samesite="lax", max_age=JWT_EXPIRY_HOURS * 3600, path="/",
+        key="suwappu_auth",
+        value=access_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=JWT_EXPIRY_HOURS * 3600,
+        path="/",
     )
     if refresh_token is not None:
         response.set_cookie(
-            key=REFRESH_COOKIE, value=refresh_token, httponly=True, secure=True,
-            samesite="lax", max_age=REFRESH_TTL_SECONDS, path="/",
+            key=REFRESH_COOKIE,
+            value=refresh_token,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            max_age=REFRESH_TTL_SECONDS,
+            path="/",
         )
 
 
@@ -1053,6 +1156,7 @@ async def auth_logout(request: Request, response: Response, body: Optional[Refre
     if token:
         try:
             from bot.services.refresh_token_service import revoke_refresh_token
+
             revoke_refresh_token(token)
         except Exception as e:
             logger.warning(f"Refresh-token revoke on logout failed: {e}")
@@ -1063,9 +1167,11 @@ async def auth_logout(request: Request, response: Response, body: Optional[Refre
 
 # ============ Passkey Authentication ============
 
+
 class PasskeyRegisterInitRequest(BaseModel):
     email: Optional[str] = None
     displayName: Optional[str] = None
+
 
 class PasskeyRegisterInitResponse(BaseModel):
     challenge: str
@@ -1075,12 +1181,14 @@ class PasskeyRegisterInitResponse(BaseModel):
     rpName: str
     attestation: str
 
+
 class PasskeyRegisterCompleteRequest(BaseModel):
     credentialId: str
     attestationObject: str
     clientDataJSON: str
     userHandle: Optional[str] = None
     transports: List[str] = []
+
 
 class PasskeyRegisterCompleteResponse(BaseModel):
     success: bool
@@ -1090,10 +1198,12 @@ class PasskeyRegisterCompleteResponse(BaseModel):
     token: str
     expiresAt: datetime
 
+
 class PasskeyAuthInitResponse(BaseModel):
     challenge: str
     rpId: str
     allowCredentials: Optional[List[Dict]] = None
+
 
 class PasskeyAuthCompleteRequest(BaseModel):
     credentialId: str
@@ -1101,6 +1211,7 @@ class PasskeyAuthCompleteRequest(BaseModel):
     clientDataJSON: str
     signature: str
     userHandle: Optional[str] = None
+
 
 class PasskeyAuthCompleteResponse(BaseModel):
     success: bool
@@ -1174,7 +1285,9 @@ async def _verify_passkey_challenge(client_data_json: str, expected_type: str) -
         raise HTTPException(status_code=400, detail="Passkey challenge type mismatch")
 
 
-@app.post("/auth/passkey/register/init", response_model=PasskeyRegisterInitResponse, tags=["Passkey"])
+@app.post(
+    "/auth/passkey/register/init", response_model=PasskeyRegisterInitResponse, tags=["Passkey"]
+)
 async def passkey_register_init(request: PasskeyRegisterInitRequest):
     """
     Initialize passkey registration.
@@ -1189,13 +1302,18 @@ async def passkey_register_init(request: PasskeyRegisterInitRequest):
 
     # Store challenge for verification (shared across replicas via Redis)
     from bot.utils.redis_cache import redis_cache
-    await redis_cache.set(_passkey_key(challenge), {
-        "user_id": user_id,
-        "email": request.email,
-        "display_name": request.displayName or request.email or "Suwappu User",
-        "timestamp": time.time(),
-        "type": "registration",
-    }, ttl_seconds=PASSKEY_CHALLENGE_TTL)
+
+    await redis_cache.set(
+        _passkey_key(challenge),
+        {
+            "user_id": user_id,
+            "email": request.email,
+            "display_name": request.displayName or request.email or "Suwappu User",
+            "timestamp": time.time(),
+            "type": "registration",
+        },
+        ttl_seconds=PASSKEY_CHALLENGE_TTL,
+    )
 
     # WebAuthn RP ID — must be a registrable suffix of the page origin (suwappu.bot
     # covers app./terminal./www.). Decoupled from oauth_redirect_base (see settings).
@@ -1211,7 +1329,11 @@ async def passkey_register_init(request: PasskeyRegisterInitRequest):
     )
 
 
-@app.post("/auth/passkey/register/complete", response_model=PasskeyRegisterCompleteResponse, tags=["Passkey"])
+@app.post(
+    "/auth/passkey/register/complete",
+    response_model=PasskeyRegisterCompleteResponse,
+    tags=["Passkey"],
+)
 async def passkey_register_complete(
     request: PasskeyRegisterCompleteRequest,
     response: Response,
@@ -1225,23 +1347,28 @@ async def passkey_register_complete(
 
     await _verify_passkey_challenge(request.clientDataJSON, "webauthn.create")
 
-    existing_user = db.query(User).filter(
-        User.passkey_credential_id == request.credentialId
-    ).first()
+    existing_user = (
+        db.query(User).filter(User.passkey_credential_id == request.credentialId).first()
+    )
     if not existing_user and request.userHandle:
-        existing_user = db.query(User).filter(
-            User.passkey_user_handle == request.userHandle
-        ).first()
+        existing_user = (
+            db.query(User).filter(User.passkey_user_handle == request.userHandle).first()
+        )
     if not existing_user:
-        existing_user = db.query(User).filter(
-            User.username == f"passkey_{request.credentialId[:8]}"
-        ).first()
+        existing_user = (
+            db.query(User).filter(User.username == f"passkey_{request.credentialId[:8]}").first()
+        )
 
     if existing_user:
-        wallet = db.query(Wallet).filter(
-            Wallet.user_id == existing_user.id,
-            Wallet.is_active == True,
-        ).order_by(Wallet.is_default.desc(), Wallet.id.asc()).first()
+        wallet = (
+            db.query(Wallet)
+            .filter(
+                Wallet.user_id == existing_user.id,
+                Wallet.is_active == True,
+            )
+            .order_by(Wallet.is_default.desc(), Wallet.id.asc())
+            .first()
+        )
         wallet_address = wallet.address if wallet else ""
         if not existing_user.passkey_credential_id:
             existing_user.passkey_credential_id = request.credentialId
@@ -1356,7 +1483,9 @@ async def passkey_register_complete(
     )
 
 
-@app.post("/auth/passkey/authenticate/init", response_model=PasskeyAuthInitResponse, tags=["Passkey"])
+@app.post(
+    "/auth/passkey/authenticate/init", response_model=PasskeyAuthInitResponse, tags=["Passkey"]
+)
 async def passkey_auth_init():
     """
     Initialize passkey authentication.
@@ -1369,10 +1498,15 @@ async def passkey_auth_init():
     challenge = secrets.token_urlsafe(32)
 
     from bot.utils.redis_cache import redis_cache
-    await redis_cache.set(_passkey_key(challenge), {
-        "timestamp": time.time(),
-        "type": "authentication",
-    }, ttl_seconds=PASSKEY_CHALLENGE_TTL)
+
+    await redis_cache.set(
+        _passkey_key(challenge),
+        {
+            "timestamp": time.time(),
+            "type": "authentication",
+        },
+        ttl_seconds=PASSKEY_CHALLENGE_TTL,
+    )
 
     rp_id = settings.webauthn_rp_id
 
@@ -1383,7 +1517,11 @@ async def passkey_auth_init():
     )
 
 
-@app.post("/auth/passkey/authenticate/complete", response_model=PasskeyAuthCompleteResponse, tags=["Passkey"])
+@app.post(
+    "/auth/passkey/authenticate/complete",
+    response_model=PasskeyAuthCompleteResponse,
+    tags=["Passkey"],
+)
 async def passkey_auth_complete(
     request: PasskeyAuthCompleteRequest,
     response: Response,
@@ -1406,10 +1544,14 @@ async def passkey_auth_complete(
         raise HTTPException(status_code=401, detail="No matching passkey found")
 
     # Get user's wallet
-    wallet = db.query(Wallet).filter(
-        Wallet.user_id == user.id,
-        Wallet.is_active == True,
-    ).first()
+    wallet = (
+        db.query(Wallet)
+        .filter(
+            Wallet.user_id == user.id,
+            Wallet.is_active == True,
+        )
+        .first()
+    )
 
     if wallet:
         wallet_address = wallet.address
@@ -1447,11 +1589,13 @@ async def get_plugin_manifest():
     with open("api/ai-plugin.json", "r") as f:
         return json.load(f)
 
+
 @app.get("/agent-card.json", tags=["Discovery"])
 async def get_agent_card():
     """Returns the A2A Agent Card for decentralized discovery."""
     with open("api/agent-card.json", "r") as f:
         return json.load(f)
+
 
 @app.get("/tools", tags=["Agents"], summary="Agent tool discovery")
 async def get_tools(agent_key: str = Depends(get_agent_key)):
@@ -1468,28 +1612,21 @@ async def get_tools(agent_key: str = Depends(get_agent_key)):
                 "endpoint": "/users/{user_id}/portfolio",
                 "method": "GET",
                 "description": "Check multi-chain balances for a user to ensure sufficient liquidity.",
-                "parameters": {
-                    "user_id": "The database ID of the user."
-                }
+                "parameters": {"user_id": "The database ID of the user."},
             },
             {
                 "name": "get_wallets",
                 "endpoint": "/users/{user_id}/wallets",
                 "method": "GET",
                 "description": "Retrieve wallet addresses for deposit or swap targets.",
-                "parameters": {
-                    "user_id": "The database ID of the user."
-                }
+                "parameters": {"user_id": "The database ID of the user."},
             },
             {
                 "name": "provision_wallet",
                 "endpoint": "/v1/agent/wallets",
                 "method": "POST",
                 "description": "Programmatically create a new managed wallet for a user.",
-                "parameters": {
-                    "user_id": "The target user ID.",
-                    "chain_type": "evm or solana"
-                }
+                "parameters": {"user_id": "The target user ID.", "chain_type": "evm or solana"},
             },
             {
                 "name": "execute_command",
@@ -1498,10 +1635,10 @@ async def get_tools(agent_key: str = Depends(get_agent_key)):
                 "description": "Submit a natural language trading command (e.g., 'buy 0.1 eth on base'). Returns machine-readable results.",
                 "parameters": {
                     "text": "The trading command string.",
-                    "user_id": "The target database user ID."
-                }
-            }
-        ]
+                    "user_id": "The target database user ID.",
+                },
+            },
+        ],
     }
 
 
@@ -1509,51 +1646,53 @@ async def get_tools(agent_key: str = Depends(get_agent_key)):
 async def agent_execute(
     request: AgentExecuteRequest,
     agent_key: str = Depends(get_agent_key),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Direct bridge to Suwappu's Natural Language Trading Engine.
     Agents can send raw strings and receive structured execution results.
     """
     from bot.services.unified_bot_service import unified_bot_service
-    
+
     # 1. Resolve user
     user = db.query(User).filter(User.id == request.user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-        
+
     # 2. Execute via unified service
     response = await unified_bot_service.handle_command(
-        platform="agent",
-        user_id=f"agent_{request.user_id}",
-        text=request.text
+        platform="agent", user_id=f"agent_{request.user_id}", text=request.text
     )
-    
+
     return {
         "status": "success",
         "input": request.text,
         "response": response.text,
         "buttons": response.buttons,
-        "timestamp": datetime.utcnow()
+        "timestamp": datetime.utcnow(),
     }
 
-@app.post("/v1/agent/wallets", response_model=WalletResponse, tags=["Agents"], summary="Provision a new wallet")
+
+@app.post(
+    "/v1/agent/wallets",
+    response_model=WalletResponse,
+    tags=["Agents"],
+    summary="Provision a new wallet",
+)
 async def provision_agent_wallet(
     request: AgentWalletCreate,
     agent_key: str = Depends(get_agent_key),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Programmatically provision a new wallet for an agent-managed user."""
     user = db.query(User).filter(User.id == request.user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-        
+
     wallet = await wallet_service.create_wallet(
-        user_id=user.id,
-        name=request.name,
-        chain_type=request.chain_type
+        user_id=user.id, name=request.name, chain_type=request.chain_type
     )
-    
+
     return WalletResponse(
         id=wallet.id,
         userId=wallet.user_id,
@@ -1562,12 +1701,14 @@ async def provision_agent_wallet(
         chainType=wallet.chain_type,
         isActive=wallet.is_active,
         isDefault=wallet.is_default,
-        createdAt=wallet.created_at
+        createdAt=wallet.created_at,
     )
+
 
 # ==========================================
 # Internal API — service-to-service only
 # ==========================================
+
 
 @app.post("/internal/agent/provision-wallet", tags=["Internal"])
 async def internal_provision_wallet(request: Request):
@@ -1588,7 +1729,9 @@ async def internal_provision_wallet(request: Request):
     with get_session() as session:
         user = session.query(User).filter(User.telegram_id == agent_int_id).first()
         if not user:
-            user = User(telegram_id=agent_int_id, username=f"agent_{agent_uuid[:8]}", first_name="Agent")
+            user = User(
+                telegram_id=agent_int_id, username=f"agent_{agent_uuid[:8]}", first_name="Agent"
+            )
             session.add(user)
             session.flush()
         user_id = user.id
@@ -1629,6 +1772,7 @@ async def internal_execute_swap(request: Request):
 
     body = await request.json()
     from bot.services.swap_engine import SwapEngine, SwapQuote
+
     swap_engine = SwapEngine()
 
     qd = body.get("quote_data", {})
@@ -1668,11 +1812,15 @@ async def health():
     """Returns the operational status of the Suwappu Monolith. Agents should check this before trade batches."""
     return {"status": "ok", "timestamp": datetime.utcnow()}
 
-@app.get("/users/{user_id}/wallets", response_model=List[WalletResponse], tags=["Wallets"], summary="List user wallets")
+
+@app.get(
+    "/users/{user_id}/wallets",
+    response_model=List[WalletResponse],
+    tags=["Wallets"],
+    summary="List user wallets",
+)
 async def get_wallets(
-    user_id: int, 
-    db: Session = Depends(get_db),
-    agent_key: str = Depends(get_agent_key)
+    user_id: int, db: Session = Depends(get_db), agent_key: str = Depends(get_agent_key)
 ):
     """
     Retrieve all active wallets for a specific user.
@@ -1682,77 +1830,91 @@ async def get_wallets(
     # Map camelCase for iOS compatibility
     res = []
     for w in wallets:
-        res.append(WalletResponse(
-            id=w.id,
-            userId=w.user_id,
-            name=w.name or "Primary Wallet",
-            address=w.address,
-            chainType=w.chain_type,
-            isActive=w.is_active,
-            isDefault=w.is_default,
-            createdAt=w.created_at or datetime.utcnow()
-        ))
+        res.append(
+            WalletResponse(
+                id=w.id,
+                userId=w.user_id,
+                name=w.name or "Primary Wallet",
+                address=w.address,
+                chainType=w.chain_type,
+                isActive=w.is_active,
+                isDefault=w.is_default,
+                createdAt=w.created_at or datetime.utcnow(),
+            )
+        )
     return res
 
-@app.get("/users/{user_id}/portfolio", response_model=PortfolioResponse, tags=["Portfolio"], summary="Get user portfolio balances")
+
+@app.get(
+    "/users/{user_id}/portfolio",
+    response_model=PortfolioResponse,
+    tags=["Portfolio"],
+    summary="Get user portfolio balances",
+)
 async def get_portfolio(
-    user_id: int, 
-    db: Session = Depends(get_db),
-    agent_key: str = Depends(get_agent_key)
+    user_id: int, db: Session = Depends(get_db), agent_key: str = Depends(get_agent_key)
 ):
     """
     Fetches a real-time consolidated balance sheet for a user across all supported chains.
     Agents must call this to verify sufficient liquidity before initiating swap orders.
     """
     wallets = db.query(Wallet).filter(Wallet.user_id == user_id, Wallet.is_active == True).all()
-    
+
     total_usd = 0.0
     all_token_balances = []
     chains_value = {}
-    
+
     for wallet in wallets:
         balances = await wallet_service.get_all_balances(wallet)
         for chain_name, tokens in balances.items():
             chain_total = chains_value.get(chain_name, 0.0)
             for symbol, bal in tokens.items():
                 # Mock token info for now
-                token_val = bal # Assuming 1:1 for stables in mock
-                all_token_balances.append(TokenBalance(
-                    id=f"{chain_name}-{symbol}",
-                    token=TokenInfo(
+                token_val = bal  # Assuming 1:1 for stables in mock
+                all_token_balances.append(
+                    TokenBalance(
                         id=f"{chain_name}-{symbol}",
-                        symbol=symbol,
-                        name=symbol,
-                        decimals=18,
-                        address="0x...",
-                        chainId=chain_name
-                    ),
-                    balance=str(int(bal * 10**18)),
-                    balanceHuman=bal,
-                    balanceUSD=token_val,
-                    chainId=chain_name
-                ))
+                        token=TokenInfo(
+                            id=f"{chain_name}-{symbol}",
+                            symbol=symbol,
+                            name=symbol,
+                            decimals=18,
+                            address="0x...",
+                            chainId=chain_name,
+                        ),
+                        balance=str(int(bal * 10**18)),
+                        balanceHuman=bal,
+                        balanceUSD=token_val,
+                        chainId=chain_name,
+                    )
+                )
                 total_usd += token_val
                 chain_total += token_val
             chains_value[chain_name] = chain_total
-            
-    return PortfolioResponse(
-        totalUSD=total_usd,
-        tokens=all_token_balances,
-        chains=chains_value
-    )
 
-@app.get("/users/{user_id}/swaps", response_model=List[SwapResponse], tags=["Swaps"], summary="Get user swap history")
+    return PortfolioResponse(totalUSD=total_usd, tokens=all_token_balances, chains=chains_value)
+
+
+@app.get(
+    "/users/{user_id}/swaps",
+    response_model=List[SwapResponse],
+    tags=["Swaps"],
+    summary="Get user swap history",
+)
 async def get_swaps(
     user_id: int,
     limit: int = 50,
     db: Session = Depends(get_db),
     _key: str = Depends(get_agent_or_admin_key),
 ):
-    swaps = db.query(SwapTransaction).filter(
-        SwapTransaction.user_id == user_id
-    ).order_by(SwapTransaction.created_at.desc()).limit(limit).all()
-    
+    swaps = (
+        db.query(SwapTransaction)
+        .filter(SwapTransaction.user_id == user_id)
+        .order_by(SwapTransaction.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
     return [
         SwapResponse(
             id=s.id,
@@ -1764,8 +1926,9 @@ async def get_swaps(
             toAmount=s.to_amount,
             status=s.status,
             timestamp=s.created_at,
-            txHash=s.tx_hash
-        ) for s in swaps
+            txHash=s.tx_hash,
+        )
+        for s in swaps
     ]
 
 
@@ -1820,20 +1983,20 @@ from fastapi.responses import PlainTextResponse
 from bot.services.whatsapp_service import whatsapp_service
 from bot.services.unified_bot_service import unified_bot_service
 
+
 @app.get("/webhook")
-async def verify_whatsapp_webhook(
-    request: Request
-):
+async def verify_whatsapp_webhook(request: Request):
     """Verify webhook subscription from Meta."""
     params = request.query_params
     mode = params.get("hub.mode")
     token = params.get("hub.verify_token")
     challenge = params.get("hub.challenge")
-    
+
     result = whatsapp_service.verify_webhook(mode, token, challenge)
     if result:
         return PlainTextResponse(content=result)
     raise HTTPException(status_code=403, detail="Verification failed")
+
 
 @app.post("/webhook")
 async def receive_whatsapp_message(request: Request):
@@ -1847,15 +2010,13 @@ async def receive_whatsapp_message(request: Request):
 
     # Rate limit WhatsApp ingress (per sender)
     from bot.utils.rate_limiter import UserRateLimiter, RateLimitExceeded
+
     if not hasattr(receive_whatsapp_message, "_limiter"):
         receive_whatsapp_message._limiter = UserRateLimiter(max_requests=30, window_seconds=60)
     try:
         await receive_whatsapp_message._limiter.check(message.from_number)
     except RateLimitExceeded as e:
-        await whatsapp_service.send_text_message(
-            message.from_number,
-            f"⏳ {e}"
-        )
+        await whatsapp_service.send_text_message(message.from_number, f"⏳ {e}")
         return {"status": "rate_limited"}
 
     # Mark as read
@@ -1863,12 +2024,14 @@ async def receive_whatsapp_message(request: Request):
 
     # Route through flow-aware router (activates swap_flow, wallet_flow, etc.)
     from bot.services.whatsapp_router import whatsapp_router
+
     await whatsapp_router.route(message)
 
     return {"status": "ok"}
 
 
 # ============ Telegram Webhook ============
+
 
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
@@ -1914,4 +2077,5 @@ async def root_redirect():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

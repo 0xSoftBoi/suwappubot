@@ -7,8 +7,12 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from bot.models.advanced import (
-    LimitOrder, OrderStatus, OrderType,
-    DCAOrder, DCAExecution, DCAStatus,
+    LimitOrder,
+    OrderStatus,
+    OrderType,
+    DCAOrder,
+    DCAExecution,
+    DCAStatus,
     SwapTemplate,
 )
 from bot.models.swap import SwapStatus
@@ -21,16 +25,16 @@ logger = logging.getLogger(__name__)
 
 class OrderService:
     """Service for managing limit orders and DCA."""
-    
+
     def __init__(self):
         self._running = False
         self._task = None
         self._check_interval = 30  # Check every 30 seconds
         self._bot = None
         self._swap_engine = None
-    
+
     # === Limit Orders ===
-    
+
     def create_limit_order(
         self,
         user_id: int,
@@ -59,17 +63,17 @@ class OrderService:
                 trigger_price=trigger_price,
                 slippage=slippage,
             )
-            
+
             if expires_in_hours:
                 order.expires_at = datetime.utcnow() + timedelta(hours=expires_in_hours)
-            
+
             session.add(order)
             session.flush()
             order_id = order.id
-        
+
         with get_session() as session:
             return session.query(LimitOrder).filter(LimitOrder.id == order_id).first()
-    
+
     def get_user_orders(
         self,
         user_id: int,
@@ -79,31 +83,39 @@ class OrderService:
         """Get limit orders for a user."""
         with get_session() as session:
             query = session.query(LimitOrder).filter(LimitOrder.user_id == user_id)
-            
+
             if status:
                 query = query.filter(LimitOrder.status == status)
             elif not include_expired:
-                query = query.filter(LimitOrder.status.in_([
-                    OrderStatus.PENDING.value,
-                    OrderStatus.TRIGGERED.value,
-                ]))
-            
+                query = query.filter(
+                    LimitOrder.status.in_(
+                        [
+                            OrderStatus.PENDING.value,
+                            OrderStatus.TRIGGERED.value,
+                        ]
+                    )
+                )
+
             return query.order_by(LimitOrder.created_at.desc()).all()
-    
+
     def cancel_order(self, order_id: int, user_id: int) -> bool:
         """Cancel a limit order."""
         with get_session() as session:
-            order = session.query(LimitOrder).filter(
-                LimitOrder.id == order_id,
-                LimitOrder.user_id == user_id,
-                LimitOrder.status == OrderStatus.PENDING.value,
-            ).first()
-            
+            order = (
+                session.query(LimitOrder)
+                .filter(
+                    LimitOrder.id == order_id,
+                    LimitOrder.user_id == user_id,
+                    LimitOrder.status == OrderStatus.PENDING.value,
+                )
+                .first()
+            )
+
             if order:
                 order.status = OrderStatus.CANCELLED.value
                 return True
             return False
-    
+
     async def check_limit_orders(self) -> List[LimitOrder]:
         """Check all pending limit orders and return triggered ones.
 
@@ -111,12 +123,17 @@ class OrderService:
         Phase 1: read from DB (thread pool). Phase 2: async price fetch.
         Phase 3: write updates back (thread pool).
         """
+
         # Phase 1: Read pending orders from DB (non-blocking)
         def _fetch_pending():
             with get_session() as session:
-                orders = session.query(LimitOrder).filter(
-                    LimitOrder.status == OrderStatus.PENDING.value,
-                ).all()
+                orders = (
+                    session.query(LimitOrder)
+                    .filter(
+                        LimitOrder.status == OrderStatus.PENDING.value,
+                    )
+                    .all()
+                )
                 # Detach from session by extracting needed fields
                 result = []
                 now = datetime.utcnow()
@@ -125,11 +142,15 @@ class OrderService:
                     if o.expires_at and o.expires_at < now:
                         expired_ids.append(o.id)
                         continue
-                    result.append({
-                        "id": o.id, "order_type": o.order_type,
-                        "from_token": o.from_token, "to_token": o.to_token,
-                        "trigger_price": o.trigger_price,
-                    })
+                    result.append(
+                        {
+                            "id": o.id,
+                            "order_type": o.order_type,
+                            "from_token": o.from_token,
+                            "to_token": o.to_token,
+                            "trigger_price": o.trigger_price,
+                        }
+                    )
                 # Mark expired in same session
                 if expired_ids:
                     for oid in expired_ids:
@@ -150,7 +171,11 @@ class OrderService:
             else:
                 tokens.add(od["from_token"])
 
-        prices = await price_service.get_prices(list(tokens))
+        try:
+            prices = await asyncio.wait_for(price_service.get_prices(list(tokens)), timeout=10)
+        except asyncio.TimeoutError:
+            logger.warning("Limit-order price fetch timed out; skipping this cycle")
+            return []
 
         # Phase 3: Evaluate triggers and write back (non-blocking)
         triggered_ids = []
@@ -189,9 +214,9 @@ class OrderService:
                 return triggered
 
         return await run_in_db(_mark_triggered)
-    
+
     # === DCA Orders ===
-    
+
     def create_dca_order(
         self,
         user_id: int,
@@ -219,17 +244,17 @@ class OrderService:
                 next_execution_at=datetime.utcnow(),  # Execute first one immediately
                 max_executions=max_executions,
             )
-            
+
             if ends_in_days:
                 order.ends_at = datetime.utcnow() + timedelta(days=ends_in_days)
-            
+
             session.add(order)
             session.flush()
             order_id = order.id
-        
+
         with get_session() as session:
             return session.query(DCAOrder).filter(DCAOrder.id == order_id).first()
-    
+
     def get_user_dca_orders(
         self,
         user_id: int,
@@ -238,66 +263,83 @@ class OrderService:
         """Get DCA orders for a user."""
         with get_session() as session:
             query = session.query(DCAOrder).filter(DCAOrder.user_id == user_id)
-            
+
             if active_only:
                 query = query.filter(DCAOrder.status == DCAStatus.ACTIVE.value)
-            
+
             return query.order_by(DCAOrder.created_at.desc()).all()
-    
+
     def pause_dca(self, order_id: int, user_id: int) -> bool:
         """Pause a DCA order."""
         with get_session() as session:
-            order = session.query(DCAOrder).filter(
-                DCAOrder.id == order_id,
-                DCAOrder.user_id == user_id,
-                DCAOrder.status == DCAStatus.ACTIVE.value,
-            ).first()
-            
+            order = (
+                session.query(DCAOrder)
+                .filter(
+                    DCAOrder.id == order_id,
+                    DCAOrder.user_id == user_id,
+                    DCAOrder.status == DCAStatus.ACTIVE.value,
+                )
+                .first()
+            )
+
             if order:
                 order.status = DCAStatus.PAUSED.value
                 return True
             return False
-    
+
     def resume_dca(self, order_id: int, user_id: int) -> bool:
         """Resume a paused DCA order."""
         with get_session() as session:
-            order = session.query(DCAOrder).filter(
-                DCAOrder.id == order_id,
-                DCAOrder.user_id == user_id,
-                DCAOrder.status == DCAStatus.PAUSED.value,
-            ).first()
-            
+            order = (
+                session.query(DCAOrder)
+                .filter(
+                    DCAOrder.id == order_id,
+                    DCAOrder.user_id == user_id,
+                    DCAOrder.status == DCAStatus.PAUSED.value,
+                )
+                .first()
+            )
+
             if order:
                 order.status = DCAStatus.ACTIVE.value
                 order.next_execution_at = datetime.utcnow()
                 return True
             return False
-    
+
     def cancel_dca(self, order_id: int, user_id: int) -> bool:
         """Cancel a DCA order."""
         with get_session() as session:
-            order = session.query(DCAOrder).filter(
-                DCAOrder.id == order_id,
-                DCAOrder.user_id == user_id,
-                DCAOrder.status.in_([DCAStatus.ACTIVE.value, DCAStatus.PAUSED.value]),
-            ).first()
-            
+            order = (
+                session.query(DCAOrder)
+                .filter(
+                    DCAOrder.id == order_id,
+                    DCAOrder.user_id == user_id,
+                    DCAOrder.status.in_([DCAStatus.ACTIVE.value, DCAStatus.PAUSED.value]),
+                )
+                .first()
+            )
+
             if order:
                 order.status = DCAStatus.CANCELLED.value
                 return True
             return False
-    
+
     async def check_dca_orders(self) -> List[DCAOrder]:
         """Check DCA orders due for execution."""
+
         def _check():
             due_orders = []
             now = datetime.utcnow()
 
             with get_session() as session:
-                orders = session.query(DCAOrder).filter(
-                    DCAOrder.status == DCAStatus.ACTIVE.value,
-                    DCAOrder.next_execution_at <= now,
-                ).all()
+                orders = (
+                    session.query(DCAOrder)
+                    .filter(
+                        DCAOrder.status == DCAStatus.ACTIVE.value,
+                        DCAOrder.next_execution_at <= now,
+                    )
+                    .all()
+                )
 
                 for order in orders:
                     if order.ends_at and order.ends_at < now:
@@ -313,9 +355,9 @@ class OrderService:
             return due_orders
 
         return await run_in_db(_check)
-    
+
     # === Swap Templates ===
-    
+
     def create_template(
         self,
         user_id: int,
@@ -342,57 +384,68 @@ class OrderService:
             session.add(template)
             session.flush()
             template_id = template.id
-        
+
         with get_session() as session:
             return session.query(SwapTemplate).filter(SwapTemplate.id == template_id).first()
-    
+
     def get_user_templates(self, user_id: int) -> List[SwapTemplate]:
         """Get swap templates for a user."""
         with get_session() as session:
-            return session.query(SwapTemplate).filter(
-                SwapTemplate.user_id == user_id
-            ).order_by(SwapTemplate.use_count.desc()).all()
-    
+            return (
+                session.query(SwapTemplate)
+                .filter(SwapTemplate.user_id == user_id)
+                .order_by(SwapTemplate.use_count.desc())
+                .all()
+            )
+
     def use_template(self, template_id: int, user_id: int) -> Optional[SwapTemplate]:
         """Mark template as used and return it."""
         with get_session() as session:
-            template = session.query(SwapTemplate).filter(
-                SwapTemplate.id == template_id,
-                SwapTemplate.user_id == user_id,
-            ).first()
-            
+            template = (
+                session.query(SwapTemplate)
+                .filter(
+                    SwapTemplate.id == template_id,
+                    SwapTemplate.user_id == user_id,
+                )
+                .first()
+            )
+
             if template:
                 template.use_count += 1
                 template.last_used_at = datetime.utcnow()
                 return template
             return None
-    
+
     def delete_template(self, template_id: int, user_id: int) -> bool:
         """Delete a swap template."""
         with get_session() as session:
-            template = session.query(SwapTemplate).filter(
-                SwapTemplate.id == template_id,
-                SwapTemplate.user_id == user_id,
-            ).first()
-            
+            template = (
+                session.query(SwapTemplate)
+                .filter(
+                    SwapTemplate.id == template_id,
+                    SwapTemplate.user_id == user_id,
+                )
+                .first()
+            )
+
             if template:
                 session.delete(template)
                 return True
             return False
-    
+
     # === Background Task ===
-    
+
     async def start(self, bot=None, swap_engine: SwapEngine = None):
         """Start the order checking background task."""
         if self._running:
             return
-        
+
         self._running = True
         self._bot = bot
         self._swap_engine = swap_engine or SwapEngine()
         self._task = asyncio.create_task(self._order_loop())
         logger.info("Order service started")
-    
+
     async def stop(self):
         """Stop the order checking task."""
         self._running = False
@@ -403,7 +456,7 @@ class OrderService:
             except asyncio.CancelledError:
                 pass
         logger.info("Order service stopped")
-    
+
     async def _order_loop(self):
         """Main order checking loop."""
         while self._running:
@@ -411,32 +464,43 @@ class OrderService:
                 # Check limit orders
                 triggered_limits = await self.check_limit_orders()
                 for order in triggered_limits:
-                    await self._execute_limit_order(order)
-                
+                    try:
+                        await self._execute_limit_order(order)
+                    except Exception as e:
+                        logger.error(f"Limit order loop item failed: {e}")
+                        continue
+
                 # Check DCA orders
                 due_dca = await self.check_dca_orders()
                 for order in due_dca:
-                    await self._execute_dca_order(order)
-                    
+                    try:
+                        await self._execute_dca_order(order)
+                    except Exception as e:
+                        logger.error(f"DCA order loop item failed: {e}")
+                        continue
+
             except Exception as e:
                 logger.error(f"Order check error: {e}")
-            
+
             await asyncio.sleep(self._check_interval)
-    
+
     async def _execute_limit_order(self, order: LimitOrder):
         """Execute a triggered limit order using SwapEngine."""
         if not self._swap_engine:
             logger.error("No swap engine configured for Limit Order execution")
             return
-        
-        logger.info(f"Executing Limit Order {order.id} ({order.order_type}) for user {order.user_id}")
-        
+
+        logger.info(
+            f"Executing Limit Order {order.id} ({order.order_type}) for user {order.user_id}"
+        )
+
         try:
             # 1. Get Wallet
             from bot.services.wallet import WalletService
+
             ws = WalletService()
             wallet = ws.get_wallet_by_id(order.wallet_id)
-            
+
             if not wallet:
                 logger.error(f"Wallet {order.wallet_id} not found for Limit Order {order.id}")
                 return
@@ -445,9 +509,10 @@ class OrderService:
             # Note: order.amount is stored as raw string
             # We need to convert it to human-readable for SwapEngine.get_quote
             from bot.config.tokens import get_token_decimals
+
             decimals = get_token_decimals(order.from_token, order.from_chain)
-            amount_human = float(order.amount) / (10 ** decimals)
-            
+            amount_human = float(order.amount) / (10**decimals)
+
             quote = await self._swap_engine.get_quote(
                 from_chain=order.from_chain,
                 to_chain=order.to_chain,
@@ -455,62 +520,67 @@ class OrderService:
                 to_token=order.to_token,
                 amount=amount_human,
                 from_address=wallet.address,
-                slippage=order.slippage
+                slippage=order.slippage,
             )
-            
+
             # 3. Execute Swap
             idempotency_key = f"lo:{order.id}:{datetime.utcnow().strftime('%Y%m%d%H')}"
-            
+
             swap_tx = await self._swap_engine.execute_swap(
                 quote=quote,
                 wallet_id=order.wallet_id,
                 user_id=order.user_id,
                 idempotency_key=idempotency_key,
             )
-            
+
             # 4. Update status on submission
-            if swap_tx and swap_tx.status in [SwapStatus.SUBMITTED.value, SwapStatus.COMPLETED.value]:
+            if swap_tx and swap_tx.status in [
+                SwapStatus.SUBMITTED.value,
+                SwapStatus.COMPLETED.value,
+            ]:
                 with get_session() as session:
                     db_order = session.query(LimitOrder).filter(LimitOrder.id == order.id).first()
                     if db_order:
                         db_order.status = OrderStatus.EXECUTED.value
                         db_order.executed_at = datetime.utcnow()
                         db_order.tx_hash = swap_tx.tx_hash
-                
+
                 # Notify user
                 if self._bot:
                     await self._notify_order_executed(order, swap_tx)
-            
+
         except Exception as e:
             logger.error(f"Limit order execution failed for order {order.id}: {e}")
             with get_session() as session:
                 db_order = session.query(LimitOrder).filter(LimitOrder.id == order.id).first()
                 if db_order:
                     db_order.status = OrderStatus.FAILED.value
-    
+
     async def _execute_dca_order(self, order: DCAOrder):
         """Execute a due DCA order using SwapEngine."""
         if not self._swap_engine:
             logger.error("No swap engine configured for DCA execution")
             return
-        
+
         logger.info(f"Executing DCA order {order.id} for user {order.user_id}")
-        
+
         try:
             # 1. Get Quote
             from bot.services.wallet import WalletService
+
             ws = WalletService()
             wallet = ws.get_wallet_by_id(order.wallet_id)
-            
+
             if not wallet:
                 logger.error(f"Wallet {order.wallet_id} not found for DCA {order.id}")
                 return
 
             # Convert amount for quote
             from bot.config.tokens import get_token_decimals
+
             decimals = get_token_decimals(order.from_token, order.from_chain)
-            amount_human = float(order.amount_per_execution) / (10 ** decimals)
-            
+            amount_human = float(order.amount_per_execution) / (10**decimals)
+
             quote = await self._swap_engine.get_quote(
                 from_chain=order.from_chain,
                 to_chain=order.to_chain,
@@ -519,27 +589,34 @@ class OrderService:
                 amount=amount_human,
                 from_address=wallet.address,
             )
-            
+
             # 2. Execute Swap
             idempotency_key = f"dca:{order.id}:{order.executions_completed}:{datetime.utcnow().strftime('%Y%m%d%H')}"
-            
+
             swap_tx = await self._swap_engine.execute_swap(
                 quote=quote,
                 wallet_id=order.wallet_id,
                 user_id=order.user_id,
                 idempotency_key=idempotency_key,
             )
-            
+
             # 3. Update DCA Stats on success
-            if swap_tx and swap_tx.status in [SwapStatus.SUBMITTED.value, SwapStatus.COMPLETED.value]:
+            if swap_tx and swap_tx.status in [
+                SwapStatus.SUBMITTED.value,
+                SwapStatus.COMPLETED.value,
+            ]:
                 with get_session() as session:
                     db_order = session.query(DCAOrder).filter(DCAOrder.id == order.id).first()
                     if db_order:
                         db_order.executions_completed += 1
-                        db_order.total_spent = str(int(db_order.total_spent) + int(order.amount_per_execution))
+                        db_order.total_spent = str(
+                            int(db_order.total_spent) + int(order.amount_per_execution)
+                        )
                         # Update next execution time
-                        db_order.next_execution_at = datetime.utcnow() + timedelta(hours=db_order.interval_hours)
-                        
+                        db_order.next_execution_at = datetime.utcnow() + timedelta(
+                            hours=db_order.interval_hours
+                        )
+
                         # Record individual execution
                         execution = DCAExecution(
                             dca_order_id=order.id,
@@ -549,26 +626,28 @@ class OrderService:
                             tx_hash=swap_tx.tx_hash,
                         )
                         session.add(execution)
-                
+
                 # Notify user
                 if self._bot:
                     await self._notify_dca_executed(order, swap_tx)
-            
+
         except Exception as e:
             logger.error(f"DCA execution failed for order {order.id}: {e}")
             # If it fails, we might want to retry later or pause it
             # For now, just log and wait for next interval
-    
+
     async def _notify_order_executed(self, order: LimitOrder, swap_tx=None):
         """Notify user of executed limit order."""
         try:
             from bot.models.user import User
+
             with get_session() as session:
                 user = session.query(User).filter(User.id == order.user_id).first()
                 if user:
                     tx_info = ""
                     if swap_tx and swap_tx.tx_hash:
                         from bot.utils.formatters import format_tx_link
+
                         tx_info = f"\n🔗 {format_tx_link(swap_tx.tx_hash, order.from_chain)}"
 
                     text = (
@@ -582,23 +661,25 @@ class OrderService:
                         chat_id=user.telegram_id,
                         text=text,
                         parse_mode="Markdown",
-                        disable_web_page_preview=True
+                        disable_web_page_preview=True,
                     )
         except Exception as e:
             logger.error(f"Order notification failed: {e}")
-    
+
     async def _notify_dca_executed(self, order: DCAOrder, swap_tx=None):
         """Notify user of executed DCA."""
         try:
             from bot.models.user import User
+
             with get_session() as session:
                 user = session.query(User).filter(User.id == order.user_id).first()
                 if user:
                     tx_info = ""
                     if swap_tx and swap_tx.tx_hash:
                         from bot.utils.formatters import format_tx_link
+
                         tx_info = f"\n🔗 {format_tx_link(swap_tx.tx_hash, order.from_chain)}"
-                        
+
                     text = (
                         f"📊 *DCA Trade Executed!*\n\n"
                         f"Order: {order.from_token} → {order.to_token}\n"
@@ -610,7 +691,7 @@ class OrderService:
                         chat_id=user.telegram_id,
                         text=text,
                         parse_mode="Markdown",
-                        disable_web_page_preview=True
+                        disable_web_page_preview=True,
                     )
         except Exception as e:
             logger.error(f"DCA notification failed: {e}")

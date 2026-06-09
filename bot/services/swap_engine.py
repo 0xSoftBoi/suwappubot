@@ -44,9 +44,20 @@ from bot.services.jito_api import JitoAPI, jito_api, JitoError, TipPriority
 from bot.services.sunswap_api import SunSwapAPI, SunSwapQuote, SunSwapError
 from bot.services.tempo_dex_api import TempoDexAPI, tempo_dex_api
 from bot.services.okx_dex_api import OKXDEXAPI, OKXDEXQuote, OKXDEXError, OKX_CHAIN_IDS
-from bot.services.oneinch_api import OneInchAPI, OneInchQuote, OneInchError, ONEINCH_CHAIN_IDS, ONEINCH_NATIVE_TOKEN
+from bot.services.oneinch_api import (
+    OneInchAPI,
+    OneInchQuote,
+    OneInchError,
+    ONEINCH_CHAIN_IDS,
+    ONEINCH_NATIVE_TOKEN,
+)
 from bot.services.zerox_api import ZeroXAPI, ZeroXQuote, ZEROX_CHAIN_IDS, ZEROX_NATIVE_TOKEN
-from bot.services.kyberswap_api import KyberSwapAPI, KyberSwapQuote, KYBERSWAP_CHAIN_SLUGS, KYBERSWAP_NATIVE_TOKEN
+from bot.services.kyberswap_api import (
+    KyberSwapAPI,
+    KyberSwapQuote,
+    KYBERSWAP_CHAIN_SLUGS,
+    KYBERSWAP_NATIVE_TOKEN,
+)
 from bot.utils.http_client import get_session as get_http_session
 from bot.services.tax_export import TaxExportService
 from bot.services.token_security.simulation import simulation_service
@@ -65,6 +76,7 @@ logger = logging.getLogger(__name__)
 # Try to import C++ core for performance
 try:
     import suwappu_core
+
     USE_CPP_CORE = True
     logger.info("Using C++ core for high-performance math operations")
 except ImportError:
@@ -75,6 +87,7 @@ except ImportError:
 @dataclass
 class SwapQuote:
     """Unified swap quote from any provider."""
+
     provider: str  # "cow", "socket", "jito", "lifi", "jupiter", "layerzero", "ccip", etc.
     from_chain: str
     to_chain: str
@@ -92,7 +105,9 @@ class SwapQuote:
     price_impact: float
     exchange_rate: float
     raw_quote: dict  # Original quote data for execution
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))  # When quote was created
+    timestamp: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )  # When quote was created
     expires_in: int = 30  # Quote expires in seconds
 
 
@@ -129,13 +144,13 @@ class SwapEngine:
     - LayerZero/Stargate: Same-token bridges
     - Chainlink CCIP: Cross-chain messaging
     """
-    
+
     def __init__(self):
         # New high-value providers
         self.cow = cow_api
         self.socket = socket_api
         self.jito = jito_api
-        
+
         # Existing providers
         self.lifi = LiFiAPI()
         self.jupiter = JupiterAPI()
@@ -157,13 +172,30 @@ class SwapEngine:
         # aggregator is loud, not invisible (OKX never races + never errors when
         # its creds are unset — that should be visible in the logs).
         try:
-            okx_state = "configured" if getattr(self.okx_dex, "is_configured", False) else "OFF (creds unset)"
-            oneinch_state = "configured" if getattr(self.oneinch, "is_configured", False) else "OFF (creds unset)"
-            zerox_state = "configured" if getattr(self.zerox, "is_configured", False) else "OFF (creds unset)"
-            kyber_state = "ON" if getattr(self.kyberswap, "is_configured", False) else "OFF (KYBERSWAP_ENABLED unset)"
+            okx_state = (
+                "configured"
+                if getattr(self.okx_dex, "is_configured", False)
+                else "OFF (creds unset)"
+            )
+            oneinch_state = (
+                "configured"
+                if getattr(self.oneinch, "is_configured", False)
+                else "OFF (creds unset)"
+            )
+            zerox_state = (
+                "configured" if getattr(self.zerox, "is_configured", False) else "OFF (creds unset)"
+            )
+            kyber_state = (
+                "ON"
+                if getattr(self.kyberswap, "is_configured", False)
+                else "OFF (KYBERSWAP_ENABLED unset)"
+            )
             logger.info(
                 "Swap aggregators ready — LiFi/CoW/Jupiter active; OKX=%s; 1inch=%s; 0x=%s; KyberSwap=%s",
-                okx_state, oneinch_state, zerox_state, kyber_state,
+                okx_state,
+                oneinch_state,
+                zerox_state,
+                kyber_state,
             )
         except Exception:
             pass
@@ -176,18 +208,22 @@ class SwapEngine:
 
         wallet_id = wallet_data.get("id") or wallet_data.get("wallet_id")
         if wallet_id:
+
             def _get_by_id():
                 with get_session() as session:
                     return session.query(Wallet).filter(Wallet.id == wallet_id).first()
+
             wallet = await run_in_db(_get_by_id)
             if wallet:
                 return wallet
         # Fallback: lookup by address
         address = wallet_data.get("address")
         if address:
+
             def _get_by_addr():
                 with get_session() as session:
                     return session.query(Wallet).filter(Wallet.address == address).first()
+
             return await run_in_db(_get_by_addr)
         return None
 
@@ -208,35 +244,45 @@ class SwapEngine:
         chains = (from_chain.lower(), to_chain.lower())
         return "tron" in chains and chains[0] != chains[1]
 
-    def _is_ccip_route(self, from_chain: str, to_chain: str, from_token: str, to_token: str) -> bool:
+    def _is_ccip_route(
+        self, from_chain: str, to_chain: str, from_token: str, to_token: str
+    ) -> bool:
         """Check if this route can use Chainlink CCIP (same token cross-chain EVM)."""
         # CCIP is for same-token transfers across EVM chains
         if from_token != to_token:
             return False
-        
+
         # Check if CCIP supports this route
         return self.ccip.is_supported_route(from_chain, to_chain, from_token)
-    
-    def _is_layerzero_route(self, from_chain: str, to_chain: str, from_token: str, to_token: str) -> bool:
+
+    def _is_layerzero_route(
+        self, from_chain: str, to_chain: str, from_token: str, to_token: str
+    ) -> bool:
         """Check if this route can use LayerZero/Stargate (same stablecoin cross-chain)."""
         # LayerZero is good for same-token cross-chain transfers
         if from_token != to_token:
             return False
         return self.layerzero.is_supported_route(from_chain, to_chain, from_token)
 
-    def _is_cctp_route(self, from_chain: str, to_chain: str, from_token: str, to_token: str) -> bool:
+    def _is_cctp_route(
+        self, from_chain: str, to_chain: str, from_token: str, to_token: str
+    ) -> bool:
         """Circle CCTP: zero-fee native USDC cross-chain (same token)."""
         if from_token != to_token:
             return False
         return self.cctp.is_supported_route(from_chain, to_chain, from_token)
 
-    def _is_across_route(self, from_chain: str, to_chain: str, from_token: str, to_token: str) -> bool:
+    def _is_across_route(
+        self, from_chain: str, to_chain: str, from_token: str, to_token: str
+    ) -> bool:
         """Across: fast intent-based same-token cross-chain on supported EVM chains."""
         if from_token != to_token:
             return False
         return self.across.is_supported_route(from_chain, to_chain, from_token)
 
-    def _is_wormhole_route(self, from_chain: str, to_chain: str, from_token: str, to_token: str) -> bool:
+    def _is_wormhole_route(
+        self, from_chain: str, to_chain: str, from_token: str, to_token: str
+    ) -> bool:
         """Wormhole: same-token cross-chain incl. Solana<->EVM.
 
         Solana->EVM execution is not yet implemented (see #250 and
@@ -255,25 +301,27 @@ class SwapEngine:
 
     def _is_socket_route(self, from_chain: str, to_chain: str) -> bool:
         """Socket/Bungee: super-aggregator across many EVM chains (same- or cross-chain)."""
-        return self.socket.is_supported_chain(from_chain) and self.socket.is_supported_chain(to_chain)
-    
+        return self.socket.is_supported_chain(from_chain) and self.socket.is_supported_chain(
+            to_chain
+        )
+
     def _get_token_amount_raw(self, amount: float, token_symbol: str, chain_name: str) -> str:
         """Convert human-readable amount to raw amount string."""
         decimals = get_token_decimals(token_symbol, chain_name)
         # Use C++ core if available for faster conversion
         if USE_CPP_CORE:
             return suwappu_core.to_raw_amount(amount, decimals)
-        raw = int(amount * (10 ** decimals))
+        raw = int(amount * (10**decimals))
         return str(raw)
-    
+
     def _get_token_amount_human(self, amount_raw: str, token_symbol: str, chain_name: str) -> float:
         """Convert raw amount to human-readable float."""
         decimals = get_token_decimals(token_symbol, chain_name)
         # Use C++ core if available for faster conversion
         if USE_CPP_CORE:
             return suwappu_core.to_human_amount(amount_raw, decimals)
-        return int(amount_raw) / (10 ** decimals)
-    
+        return int(amount_raw) / (10**decimals)
+
     async def _gather_quotes(self, tasks: list) -> list:
         """Run quote tasks in parallel, return successful SwapQuote results."""
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -336,7 +384,9 @@ class SwapEngine:
             return cached
 
         if self._is_tron_cross_chain(from_chain, to_chain):
-            raise SwapError("Cross-chain swaps from/to TRON are not yet supported. Phase 2 will add TRON bridging.")
+            raise SwapError(
+                "Cross-chain swaps from/to TRON are not yet supported. Phase 2 will add TRON bridging."
+            )
 
         amount_raw = self._get_token_amount_raw(amount, from_token, from_chain)
         slippage_bps = int(slippage * 100)
@@ -345,26 +395,34 @@ class SwapEngine:
         tasks = []
 
         if self._is_tempo_only_swap(from_chain, to_chain):
-            tasks.append(self._get_tempo_dex_quote(
-                from_token, to_token, amount, amount_raw
-            ))
+            tasks.append(self._get_tempo_dex_quote(from_token, to_token, amount, amount_raw))
 
         if self._is_solana_only_swap(from_chain, to_chain):
-            tasks.append(self._get_jupiter_quote(
-                from_token, to_token, amount, amount_raw, from_address, slippage_bps
-            ))
+            tasks.append(
+                self._get_jupiter_quote(
+                    from_token, to_token, amount, amount_raw, from_address, slippage_bps
+                )
+            )
 
         if self._is_tron_only_swap(from_chain, to_chain):
-            tasks.append(self._get_sunswap_quote(
-                from_token, to_token, amount, amount_raw, slippage_bps
-            ))
+            tasks.append(
+                self._get_sunswap_quote(from_token, to_token, amount, amount_raw, slippage_bps)
+            )
 
         # OKX DEX covers TRON, EVM, and Solana (same-chain only) — add if configured
         if self.okx_dex.is_configured and from_chain.lower() == to_chain.lower():
-            tasks.append(self._get_okx_dex_quote(
-                from_chain, to_chain, from_token, to_token,
-                amount, amount_raw, from_address, slippage
-            ))
+            tasks.append(
+                self._get_okx_dex_quote(
+                    from_chain,
+                    to_chain,
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    from_address,
+                    slippage,
+                )
+            )
 
         # 1inch (EVM same-chain only) — add if configured
         if (
@@ -372,10 +430,18 @@ class SwapEngine:
             and from_chain.lower() == to_chain.lower()
             and ONEINCH_CHAIN_IDS.get(from_chain.lower())
         ):
-            tasks.append(self._get_1inch_quote(
-                from_chain, to_chain, from_token, to_token,
-                amount, amount_raw, from_address, slippage
-            ))
+            tasks.append(
+                self._get_1inch_quote(
+                    from_chain,
+                    to_chain,
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    from_address,
+                    slippage,
+                )
+            )
 
         # 0x Swap API v2 (EVM same-chain only) — add if configured
         if (
@@ -383,10 +449,18 @@ class SwapEngine:
             and from_chain.lower() == to_chain.lower()
             and ZEROX_CHAIN_IDS.get(from_chain.lower())
         ):
-            tasks.append(self._get_0x_quote(
-                from_chain, to_chain, from_token, to_token,
-                amount, amount_raw, from_address, slippage
-            ))
+            tasks.append(
+                self._get_0x_quote(
+                    from_chain,
+                    to_chain,
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    from_address,
+                    slippage,
+                )
+            )
 
         # KyberSwap (EVM same-chain only) — add if enabled (no key, gated on flag)
         if (
@@ -394,57 +468,105 @@ class SwapEngine:
             and from_chain.lower() == to_chain.lower()
             and KYBERSWAP_CHAIN_SLUGS.get(from_chain.lower())
         ):
-            tasks.append(self._get_kyberswap_quote(
-                from_chain, to_chain, from_token, to_token,
-                amount, amount_raw, from_address, slippage
-            ))
+            tasks.append(
+                self._get_kyberswap_quote(
+                    from_chain,
+                    to_chain,
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    from_address,
+                    slippage,
+                )
+            )
 
         # EVM routing: Li.Fi + LayerZero (not for Solana-only, TRON-only, or Tempo-only)
-        if not self._is_solana_only_swap(from_chain, to_chain) and not self._is_tron_only_swap(from_chain, to_chain) and not self._is_tempo_only_swap(from_chain, to_chain):
+        if (
+            not self._is_solana_only_swap(from_chain, to_chain)
+            and not self._is_tron_only_swap(from_chain, to_chain)
+            and not self._is_tempo_only_swap(from_chain, to_chain)
+        ):
             if self._is_layerzero_route(from_chain, to_chain, from_token, to_token):
-                tasks.append(self._get_layerzero_quote(
-                    from_chain, to_chain, from_token, amount, amount_raw,
-                    from_address, slippage
-                ))
-            tasks.append(self._get_lifi_quote(
-                from_chain, to_chain, from_token, to_token,
-                amount, amount_raw, from_address, to_address, slippage
-            ))
+                tasks.append(
+                    self._get_layerzero_quote(
+                        from_chain, to_chain, from_token, amount, amount_raw, from_address, slippage
+                    )
+                )
+            tasks.append(
+                self._get_lifi_quote(
+                    from_chain,
+                    to_chain,
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    from_address,
+                    to_address,
+                    slippage,
+                )
+            )
 
             # Additional providers — raced in parallel; best price wins.
             # CCTP: preferred for native USDC (zero fee).
             if self._is_cctp_route(from_chain, to_chain, from_token, to_token):
-                tasks.append(self._get_cctp_quote(
-                    from_chain, to_chain, from_token, amount, amount_raw, slippage
-                ))
+                tasks.append(
+                    self._get_cctp_quote(
+                        from_chain, to_chain, from_token, amount, amount_raw, slippage
+                    )
+                )
             # CCIP: same-token cross-chain EVM (#257 — was only in get_all_quotes).
             if self._is_ccip_route(from_chain, to_chain, from_token, to_token):
-                tasks.append(self._get_ccip_quote(
-                    from_chain, to_chain, from_token, amount, from_address, to_address
-                ))
+                tasks.append(
+                    self._get_ccip_quote(
+                        from_chain, to_chain, from_token, amount, from_address, to_address
+                    )
+                )
             # Across: fast intent-based cross-chain.
             if self._is_across_route(from_chain, to_chain, from_token, to_token):
-                tasks.append(self._get_across_quote(
-                    from_chain, to_chain, from_token, amount, amount_raw,
-                    from_address, to_address
-                ))
+                tasks.append(
+                    self._get_across_quote(
+                        from_chain,
+                        to_chain,
+                        from_token,
+                        amount,
+                        amount_raw,
+                        from_address,
+                        to_address,
+                    )
+                )
             # Wormhole: cross-chain incl. EVM->Solana (Solana->EVM gated, see #250).
             if self._is_wormhole_route(from_chain, to_chain, from_token, to_token):
-                tasks.append(self._get_wormhole_quote(
-                    from_chain, to_chain, from_token, amount, amount_raw
-                ))
+                tasks.append(
+                    self._get_wormhole_quote(from_chain, to_chain, from_token, amount, amount_raw)
+                )
             # CoW: gasless, MEV-protected same-chain EVM swaps.
             if self._is_cow_route(from_chain, to_chain):
-                tasks.append(self._get_cow_quote(
-                    from_chain, from_token, to_token, amount, amount_raw,
-                    from_address, to_address
-                ))
+                tasks.append(
+                    self._get_cow_quote(
+                        from_chain,
+                        from_token,
+                        to_token,
+                        amount,
+                        amount_raw,
+                        from_address,
+                        to_address,
+                    )
+                )
             # Socket: super-aggregator fallback across many EVM chains.
             if self._is_socket_route(from_chain, to_chain):
-                tasks.append(self._get_socket_quote(
-                    from_chain, to_chain, from_token, to_token,
-                    amount, amount_raw, from_address, to_address
-                ))
+                tasks.append(
+                    self._get_socket_quote(
+                        from_chain,
+                        to_chain,
+                        from_token,
+                        to_token,
+                        amount,
+                        amount_raw,
+                        from_address,
+                        to_address,
+                    )
+                )
 
         # Adaptive timeout: 3s fast path, extend to 8s total if no fast results
         FAST_TIMEOUT = 3.0
@@ -458,8 +580,12 @@ class SwapEngine:
             quotes = self._extract_quotes(done)
 
             if not quotes and pending:
-                logger.info("No quotes in %.0fs fast path, extending to %.0fs for %d pending providers",
-                            FAST_TIMEOUT, FAST_TIMEOUT + EXTENDED_TIMEOUT, len(pending))
+                logger.info(
+                    "No quotes in %.0fs fast path, extending to %.0fs for %d pending providers",
+                    FAST_TIMEOUT,
+                    FAST_TIMEOUT + EXTENDED_TIMEOUT,
+                    len(pending),
+                )
                 done2, still_pending = await asyncio.wait(pending, timeout=EXTENDED_TIMEOUT)
                 quotes = self._extract_quotes(done2)
                 # Cancel and await remaining tasks to prevent connection leaks
@@ -489,7 +615,7 @@ class SwapEngine:
 
         await quote_cache.set(cache_key, best)
         return best
-    
+
     async def _get_lifi_quote(
         self,
         from_chain: str,
@@ -505,10 +631,12 @@ class SwapEngine:
         """Get quote from Li.Fi for cross-chain or EVM swaps."""
         from_token_address = get_token_address(from_token, from_chain)
         to_token_address = get_token_address(to_token, to_chain)
-        
+
         if not from_token_address or not to_token_address:
-            raise SwapError(f"Token not supported: {from_token} on {from_chain} or {to_token} on {to_chain}")
-        
+            raise SwapError(
+                f"Token not supported: {from_token} on {from_chain} or {to_token} on {to_chain}"
+            )
+
         quote = await self.lifi.get_quote(
             from_chain=from_chain,
             to_chain=to_chain,
@@ -519,13 +647,13 @@ class SwapEngine:
             to_address=to_address,
             slippage=slippage,
         )
-        
+
         to_amount_human = self._get_token_amount_human(quote.to_amount, to_token, to_chain)
         to_amount_min_human = self._get_token_amount_human(quote.to_amount_min, to_token, to_chain)
-        
+
         # Calculate exchange rate
         exchange_rate = to_amount_human / amount if amount > 0 else 0
-        
+
         return SwapQuote(
             provider="lifi",
             from_chain=from_chain,
@@ -545,7 +673,7 @@ class SwapEngine:
             exchange_rate=exchange_rate,
             raw_quote=quote.raw_response,
         )
-    
+
     async def _get_jupiter_quote(
         self,
         from_token: str,
@@ -558,22 +686,22 @@ class SwapEngine:
         """Get quote from Jupiter for Solana swaps."""
         from_token_address = get_token_address(from_token, "solana")
         to_token_address = get_token_address(to_token, "solana")
-        
+
         if not from_token_address or not to_token_address:
             raise SwapError(f"Token not supported on Solana: {from_token} or {to_token}")
-        
+
         quote = await self.jupiter.get_quote(
             input_mint=from_token_address,
             output_mint=to_token_address,
             amount=amount_raw,
             slippage_bps=slippage_bps,
         )
-        
+
         to_amount_human = self._get_token_amount_human(quote.out_amount, to_token, "solana")
-        
+
         # Calculate exchange rate
         exchange_rate = to_amount_human / amount if amount > 0 else 0
-        
+
         return SwapQuote(
             provider="jupiter",
             from_chain="solana",
@@ -708,7 +836,9 @@ class SwapEngine:
         to_token_address = get_token_address(to_token, to_chain)
 
         if not from_token_address or not to_token_address:
-            raise SwapError(f"Token not supported: {from_token} on {from_chain} or {to_token} on {to_chain}")
+            raise SwapError(
+                f"Token not supported: {from_token} on {from_chain} or {to_token} on {to_chain}"
+            )
 
         # Use lightweight /quote endpoint (tx data fetched at execution time)
         quote = await self.okx_dex.get_quote(
@@ -1021,7 +1151,7 @@ class SwapEngine:
             exchange_rate=1.0,
             raw_quote=quote.raw_data,
         )
-    
+
     async def _get_ccip_quote(
         self,
         from_chain: str,
@@ -1040,13 +1170,13 @@ class SwapEngine:
             from_address=from_address,
             to_address=to_address,
         )
-        
+
         # Include router info in raw_quote for execution
         raw_data = quote.raw_data.copy()
         raw_data["router_address"] = quote.router_address
         raw_data["destination_chain_selector"] = quote.destination_chain_selector
         raw_data["fee_token"] = quote.fee_token
-        
+
         return SwapQuote(
             provider="ccip",
             from_chain=from_chain,
@@ -1066,44 +1196,71 @@ class SwapEngine:
             exchange_rate=1.0,
             raw_quote=raw_data,
         )
-    
+
     @staticmethod
     def _rate(to_amount_human: float, amount: float) -> float:
         return (to_amount_human / amount) if amount else 0.0
 
     async def _get_cctp_quote(
-        self, from_chain: str, to_chain: str, token: str, amount: float,
-        amount_raw: str, slippage: float,
+        self,
+        from_chain: str,
+        to_chain: str,
+        token: str,
+        amount: float,
+        amount_raw: str,
+        slippage: float,
     ) -> SwapQuote:
         """Circle CCTP quote (zero-fee 1:1 native USDC bridging)."""
-        quote = await self.cctp.get_quote(from_chain=from_chain, to_chain=to_chain,
-                                          amount=amount_raw, slippage=slippage)
+        quote = await self.cctp.get_quote(
+            from_chain=from_chain, to_chain=to_chain, amount=amount_raw, slippage=slippage
+        )
         raw = dict(quote.raw_data or {})
-        raw.update({
-            "token_messenger": quote.token_messenger,
-            "message_transmitter": quote.message_transmitter,
-            "destination_domain": quote.destination_domain,
-            "usdc_address": quote.usdc_address,
-        })
+        raw.update(
+            {
+                "token_messenger": quote.token_messenger,
+                "message_transmitter": quote.message_transmitter,
+                "destination_domain": quote.destination_domain,
+                "usdc_address": quote.usdc_address,
+            }
+        )
         return SwapQuote(
-            provider="cctp", from_chain=from_chain, to_chain=to_chain,
-            from_token=token, to_token=token,
-            from_amount=quote.from_amount, from_amount_human=amount,
-            to_amount=quote.to_amount, to_amount_human=quote.to_amount_human,
+            provider="cctp",
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=token,
+            to_token=token,
+            from_amount=quote.from_amount,
+            from_amount_human=amount,
+            to_amount=quote.to_amount,
+            to_amount_human=quote.to_amount_human,
             to_amount_min=quote.to_amount,  # 1:1
-            gas_cost_usd=quote.gas_cost_usd, fee_cost_usd=quote.bridge_fee_usd,
-            total_cost_usd=quote.total_cost_usd, estimated_time=quote.estimated_time,
-            price_impact=0, exchange_rate=1.0, raw_quote=raw,
+            gas_cost_usd=quote.gas_cost_usd,
+            fee_cost_usd=quote.bridge_fee_usd,
+            total_cost_usd=quote.total_cost_usd,
+            estimated_time=quote.estimated_time,
+            price_impact=0,
+            exchange_rate=1.0,
+            raw_quote=raw,
         )
 
     async def _get_across_quote(
-        self, from_chain: str, to_chain: str, token: str, amount: float,
-        amount_raw: str, from_address: str, to_address: Optional[str],
+        self,
+        from_chain: str,
+        to_chain: str,
+        token: str,
+        amount: float,
+        amount_raw: str,
+        from_address: str,
+        to_address: Optional[str],
     ) -> SwapQuote:
         """Across Protocol quote (intent-based cross-chain)."""
         quote = await self.across.get_quote(
-            from_chain=from_chain, to_chain=to_chain, token=token,
-            amount=amount_raw, from_address=from_address, to_address=to_address,
+            from_chain=from_chain,
+            to_chain=to_chain,
+            token=token,
+            amount=amount_raw,
+            from_address=from_address,
+            to_address=to_address,
         )
         # Persist the intended recipient so execution deposits to it rather than
         # defaulting to the sender wallet (the SwapQuote itself carries no
@@ -1112,39 +1269,69 @@ class SwapEngine:
         if to_address:
             raw_quote["recipient"] = to_address
         return SwapQuote(
-            provider="across", from_chain=from_chain, to_chain=to_chain,
-            from_token=token, to_token=token,
-            from_amount=quote.from_amount, from_amount_human=quote.from_amount_human,
-            to_amount=quote.to_amount, to_amount_human=quote.to_amount_human,
+            provider="across",
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=token,
+            to_token=token,
+            from_amount=quote.from_amount,
+            from_amount_human=quote.from_amount_human,
+            to_amount=quote.to_amount,
+            to_amount_human=quote.to_amount_human,
             to_amount_min=quote.to_amount,
-            gas_cost_usd=quote.gas_cost_usd, fee_cost_usd=quote.relay_fee_usd,
-            total_cost_usd=quote.total_cost_usd, estimated_time=quote.estimated_fill_time,
-            price_impact=0, exchange_rate=self._rate(quote.to_amount_human, amount),
+            gas_cost_usd=quote.gas_cost_usd,
+            fee_cost_usd=quote.relay_fee_usd,
+            total_cost_usd=quote.total_cost_usd,
+            estimated_time=quote.estimated_fill_time,
+            price_impact=0,
+            exchange_rate=self._rate(quote.to_amount_human, amount),
             raw_quote=raw_quote,
         )
 
     async def _get_wormhole_quote(
-        self, from_chain: str, to_chain: str, token: str, amount: float, amount_raw: str,
+        self,
+        from_chain: str,
+        to_chain: str,
+        token: str,
+        amount: float,
+        amount_raw: str,
     ) -> SwapQuote:
         """Wormhole quote (cross-chain incl. EVM->Solana)."""
         quote = await self.wormhole.get_quote(
-            from_chain=from_chain, to_chain=to_chain, token=token, amount=amount_raw,
+            from_chain=from_chain,
+            to_chain=to_chain,
+            token=token,
+            amount=amount_raw,
         )
         return SwapQuote(
-            provider="wormhole", from_chain=from_chain, to_chain=to_chain,
-            from_token=token, to_token=token,
-            from_amount=quote.from_amount, from_amount_human=quote.from_amount_human,
-            to_amount=quote.to_amount, to_amount_human=quote.to_amount_human,
+            provider="wormhole",
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=token,
+            to_token=token,
+            from_amount=quote.from_amount,
+            from_amount_human=quote.from_amount_human,
+            to_amount=quote.to_amount,
+            to_amount_human=quote.to_amount_human,
             to_amount_min=quote.to_amount,
-            gas_cost_usd=quote.gas_cost_usd, fee_cost_usd=quote.relayer_fee_usd,
-            total_cost_usd=quote.total_cost_usd, estimated_time=quote.estimated_time,
-            price_impact=0, exchange_rate=self._rate(quote.to_amount_human, amount),
+            gas_cost_usd=quote.gas_cost_usd,
+            fee_cost_usd=quote.relayer_fee_usd,
+            total_cost_usd=quote.total_cost_usd,
+            estimated_time=quote.estimated_time,
+            price_impact=0,
+            exchange_rate=self._rate(quote.to_amount_human, amount),
             raw_quote=quote.raw_data,
         )
 
     async def _get_cow_quote(
-        self, from_chain: str, from_token: str, to_token: str, amount: float,
-        amount_raw: str, from_address: str, to_address: Optional[str],
+        self,
+        from_chain: str,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: str,
+        from_address: str,
+        to_address: Optional[str],
     ) -> SwapQuote:
         """CoW Protocol quote (gasless, MEV-protected, same-chain EVM)."""
         # CoW expects token *addresses* (it calls Web3.to_checksum_address
@@ -1152,24 +1339,43 @@ class SwapEngine:
         from_token_address = get_token_address(from_token, from_chain)
         to_token_address = get_token_address(to_token, from_chain)
         quote = await self.cow.get_quote(
-            chain=from_chain, from_token=from_token_address, to_token=to_token_address,
-            amount=amount_raw, from_address=from_address, receiver=to_address,
+            chain=from_chain,
+            from_token=from_token_address,
+            to_token=to_token_address,
+            amount=amount_raw,
+            from_address=from_address,
+            receiver=to_address,
         )
         return SwapQuote(
-            provider="cow", from_chain=from_chain, to_chain=from_chain,
-            from_token=from_token, to_token=to_token,
-            from_amount=quote.from_amount, from_amount_human=amount,
-            to_amount=quote.to_amount, to_amount_human=quote.to_amount_human,
+            provider="cow",
+            from_chain=from_chain,
+            to_chain=from_chain,
+            from_token=from_token,
+            to_token=to_token,
+            from_amount=quote.from_amount,
+            from_amount_human=amount,
+            to_amount=quote.to_amount,
+            to_amount_human=quote.to_amount_human,
             to_amount_min=quote.to_amount,
             gas_cost_usd=0.0,  # CoW is gasless (fee taken from sell token)
-            fee_cost_usd=0.0, total_cost_usd=0.0, estimated_time=60,
-            price_impact=0, exchange_rate=self._rate(quote.to_amount_human, amount),
+            fee_cost_usd=0.0,
+            total_cost_usd=0.0,
+            estimated_time=60,
+            price_impact=0,
+            exchange_rate=self._rate(quote.to_amount_human, amount),
             raw_quote=quote.raw_quote,
         )
 
     async def _get_socket_quote(
-        self, from_chain: str, to_chain: str, from_token: str, to_token: str,
-        amount: float, amount_raw: str, from_address: str, to_address: Optional[str],
+        self,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: str,
+        from_address: str,
+        to_address: Optional[str],
     ) -> SwapQuote:
         """Socket/Bungee super-aggregator quote (best route across bridges+DEXes)."""
         # Socket passes from/to token straight through as address query params,
@@ -1177,23 +1383,39 @@ class SwapEngine:
         from_token_address = get_token_address(from_token, from_chain)
         to_token_address = get_token_address(to_token, to_chain)
         quote = await self.socket.get_quote(
-            from_chain=from_chain, to_chain=to_chain, from_token=from_token_address,
-            to_token=to_token_address, from_amount=amount_raw, from_address=from_address,
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=from_token_address,
+            to_token=to_token_address,
+            from_amount=amount_raw,
+            from_address=from_address,
             to_address=to_address,
         )
         route = quote.best_route
         if route is None:
             raise SocketError("Socket returned no viable route")
-        raw = {"routeId": route.route_id, "bridgeName": route.bridge_name, **(route.raw_route or {})}
+        raw = {
+            "routeId": route.route_id,
+            "bridgeName": route.bridge_name,
+            **(route.raw_route or {}),
+        }
         return SwapQuote(
-            provider="socket", from_chain=from_chain, to_chain=to_chain,
-            from_token=from_token, to_token=to_token,
-            from_amount=route.from_amount, from_amount_human=amount,
-            to_amount=route.to_amount, to_amount_human=route.to_amount_human,
+            provider="socket",
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=from_token,
+            to_token=to_token,
+            from_amount=route.from_amount,
+            from_amount_human=amount,
+            to_amount=route.to_amount,
+            to_amount_human=route.to_amount_human,
             to_amount_min=route.to_amount,
-            gas_cost_usd=route.gas_usd, fee_cost_usd=route.service_fee_usd,
-            total_cost_usd=route.total_fee_usd, estimated_time=route.estimated_time_seconds,
-            price_impact=0, exchange_rate=self._rate(route.to_amount_human, amount),
+            gas_cost_usd=route.gas_usd,
+            fee_cost_usd=route.service_fee_usd,
+            total_cost_usd=route.total_fee_usd,
+            estimated_time=route.estimated_time_seconds,
+            price_impact=0,
+            exchange_rate=self._rate(route.to_amount_human, amount),
             raw_quote=raw,
         )
 
@@ -1219,76 +1441,110 @@ class SwapEngine:
         tasks = []
 
         # Always try Li.Fi for EVM
-        if not self._is_solana_only_swap(from_chain, to_chain) and not self._is_tron_only_swap(from_chain, to_chain):
-            tasks.append(self._get_lifi_quote(
-                from_chain, to_chain, from_token, to_token,
-                amount, amount_raw, from_address, to_address, slippage
-            ))
+        if not self._is_solana_only_swap(from_chain, to_chain) and not self._is_tron_only_swap(
+            from_chain, to_chain
+        ):
+            tasks.append(
+                self._get_lifi_quote(
+                    from_chain,
+                    to_chain,
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    from_address,
+                    to_address,
+                    slippage,
+                )
+            )
 
         # LayerZero for same-token cross-chain
         if self._is_layerzero_route(from_chain, to_chain, from_token, to_token):
-            tasks.append(self._get_layerzero_quote(
-                from_chain, to_chain, from_token, amount, amount_raw,
-                from_address, slippage
-            ))
+            tasks.append(
+                self._get_layerzero_quote(
+                    from_chain, to_chain, from_token, amount, amount_raw, from_address, slippage
+                )
+            )
 
         # CCIP for same-token cross-chain EVM
         if self._is_ccip_route(from_chain, to_chain, from_token, to_token):
-            tasks.append(self._get_ccip_quote(
-                from_chain, to_chain, from_token, amount, from_address, to_address
-            ))
+            tasks.append(
+                self._get_ccip_quote(
+                    from_chain, to_chain, from_token, amount, from_address, to_address
+                )
+            )
 
         # CCTP — zero-fee native USDC
         if self._is_cctp_route(from_chain, to_chain, from_token, to_token):
-            tasks.append(self._get_cctp_quote(
-                from_chain, to_chain, from_token, amount, amount_raw, slippage
-            ))
+            tasks.append(
+                self._get_cctp_quote(from_chain, to_chain, from_token, amount, amount_raw, slippage)
+            )
 
         # Across — fast intent-based cross-chain
         if self._is_across_route(from_chain, to_chain, from_token, to_token):
-            tasks.append(self._get_across_quote(
-                from_chain, to_chain, from_token, amount, amount_raw,
-                from_address, to_address
-            ))
+            tasks.append(
+                self._get_across_quote(
+                    from_chain, to_chain, from_token, amount, amount_raw, from_address, to_address
+                )
+            )
 
         # Wormhole — cross-chain incl. EVM->Solana (Solana->EVM gated, #250)
         if self._is_wormhole_route(from_chain, to_chain, from_token, to_token):
-            tasks.append(self._get_wormhole_quote(
-                from_chain, to_chain, from_token, amount, amount_raw
-            ))
+            tasks.append(
+                self._get_wormhole_quote(from_chain, to_chain, from_token, amount, amount_raw)
+            )
 
         # CoW — gasless, MEV-protected same-chain EVM
         if self._is_cow_route(from_chain, to_chain):
-            tasks.append(self._get_cow_quote(
-                from_chain, from_token, to_token, amount, amount_raw,
-                from_address, to_address
-            ))
+            tasks.append(
+                self._get_cow_quote(
+                    from_chain, from_token, to_token, amount, amount_raw, from_address, to_address
+                )
+            )
 
         # Socket — super-aggregator across many EVM chains
         if self._is_socket_route(from_chain, to_chain):
-            tasks.append(self._get_socket_quote(
-                from_chain, to_chain, from_token, to_token,
-                amount, amount_raw, from_address, to_address
-            ))
+            tasks.append(
+                self._get_socket_quote(
+                    from_chain,
+                    to_chain,
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    from_address,
+                    to_address,
+                )
+            )
 
         # Jupiter for Solana
         if self._is_solana_only_swap(from_chain, to_chain):
-            tasks.append(self._get_jupiter_quote(
-                from_token, to_token, amount, amount_raw, from_address, slippage_bps
-            ))
+            tasks.append(
+                self._get_jupiter_quote(
+                    from_token, to_token, amount, amount_raw, from_address, slippage_bps
+                )
+            )
 
         # SunSwap for TRON
         if self._is_tron_only_swap(from_chain, to_chain):
-            tasks.append(self._get_sunswap_quote(
-                from_token, to_token, amount, amount_raw, slippage_bps
-            ))
+            tasks.append(
+                self._get_sunswap_quote(from_token, to_token, amount, amount_raw, slippage_bps)
+            )
 
         # OKX DEX for all chains
         if self.okx_dex.is_configured and from_chain.lower() == to_chain.lower():
-            tasks.append(self._get_okx_dex_quote(
-                from_chain, to_chain, from_token, to_token,
-                amount, amount_raw, from_address, slippage
-            ))
+            tasks.append(
+                self._get_okx_dex_quote(
+                    from_chain,
+                    to_chain,
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    from_address,
+                    slippage,
+                )
+            )
 
         # 1inch (EVM same-chain only)
         if (
@@ -1296,10 +1552,18 @@ class SwapEngine:
             and from_chain.lower() == to_chain.lower()
             and ONEINCH_CHAIN_IDS.get(from_chain.lower())
         ):
-            tasks.append(self._get_1inch_quote(
-                from_chain, to_chain, from_token, to_token,
-                amount, amount_raw, from_address, slippage
-            ))
+            tasks.append(
+                self._get_1inch_quote(
+                    from_chain,
+                    to_chain,
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    from_address,
+                    slippage,
+                )
+            )
 
         # 0x Swap API v2 (EVM same-chain only)
         if (
@@ -1307,10 +1571,18 @@ class SwapEngine:
             and from_chain.lower() == to_chain.lower()
             and ZEROX_CHAIN_IDS.get(from_chain.lower())
         ):
-            tasks.append(self._get_0x_quote(
-                from_chain, to_chain, from_token, to_token,
-                amount, amount_raw, from_address, slippage
-            ))
+            tasks.append(
+                self._get_0x_quote(
+                    from_chain,
+                    to_chain,
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    from_address,
+                    slippage,
+                )
+            )
 
         # KyberSwap (EVM same-chain only)
         if (
@@ -1318,18 +1590,24 @@ class SwapEngine:
             and from_chain.lower() == to_chain.lower()
             and KYBERSWAP_CHAIN_SLUGS.get(from_chain.lower())
         ):
-            tasks.append(self._get_kyberswap_quote(
-                from_chain, to_chain, from_token, to_token,
-                amount, amount_raw, from_address, slippage
-            ))
+            tasks.append(
+                self._get_kyberswap_quote(
+                    from_chain,
+                    to_chain,
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    from_address,
+                    slippage,
+                )
+            )
 
-        quotes = await self._gather_quotes([
-            asyncio.wait_for(t, timeout=8.0) for t in tasks
-        ])
+        quotes = await self._gather_quotes([asyncio.wait_for(t, timeout=8.0) for t in tasks])
 
         quotes.sort(key=lambda q: q.to_amount_human, reverse=True)
         return quotes
-    
+
     @track_time(MetricNames.SWAP_EXECUTE)
     async def execute_swap(
         self,
@@ -1340,15 +1618,15 @@ class SwapEngine:
     ) -> SwapTransaction:
         """
         Execute a swap based on a quote.
-        
+
         Args:
             quote: SwapQuote from get_quote
             wallet_id: User's wallet ID to execute from
             user_id: Database user ID
-            
+
         Returns:
             SwapTransaction record
-            
+
         Raises:
             SwapError: If validation fails or swap execution fails
         """
@@ -1357,24 +1635,28 @@ class SwapEngine:
             if len(self._wallet_locks) >= self._wallet_locks_max:
                 # Evict unlocked entries to prevent unbounded memory growth
                 to_remove = [k for k, v in self._wallet_locks.items() if not v.locked()]
-                for k in to_remove[:len(to_remove) // 2]:
+                for k in to_remove[: len(to_remove) // 2]:
                     del self._wallet_locks[k]
             self._wallet_locks[wallet_id] = asyncio.Lock()
-        
+
         async with self._wallet_locks[wallet_id]:
             # Idempotency: if we already created/submitted this attempt, return it
             if idempotency_key:
+
                 def _check_idempotency():
                     with get_session() as session:
-                        existing = session.query(SwapTransaction).filter(
-                            SwapTransaction.idempotency_key == idempotency_key
-                        ).first()
+                        existing = (
+                            session.query(SwapTransaction)
+                            .filter(SwapTransaction.idempotency_key == idempotency_key)
+                            .first()
+                        )
                         if existing and existing.status not in [
                             SwapStatus.FAILED.value,
                             SwapStatus.CANCELLED.value,
                         ]:
                             return existing
                         return None
+
                 existing = await run_in_db(_check_idempotency)
                 if existing:
                     return existing
@@ -1397,6 +1679,7 @@ class SwapEngine:
                         "chain_type": wallet_obj.chain_type,
                         "encrypted_private_key": wallet_obj.encrypted_private_key,
                     }
+
             wallet = await run_in_db(_get_wallet)
             if not wallet:
                 raise SwapError("Wallet not found")
@@ -1418,7 +1701,7 @@ class SwapEngine:
                 quote=quote,
                 wallet_service=self.wallet_service,
             )
-            
+
             # Gas check removed — providers (Li.Fi, Stargate) handle gas
             # in cross-chain routes. On-chain failures are caught below.
 
@@ -1444,45 +1727,61 @@ class SwapEngine:
                     session.add(swap_tx)
                     session.flush()
                     return swap_tx.id
+
             swap_id = await run_in_db(_create_swap_record)
-            
+
             # Create a simple wallet data object for signing
             wallet_data = {
                 "address": wallet_address,
                 "encrypted_private_key": wallet_encrypted_key,
                 "chain_type": wallet_chain_type,
             }
-            
+
             # Phase 2: Deep State Simulation (Solana Anti-Honeypot)
             if quote.from_chain == "solana" and quote.to_chain == "solana":
                 tier = await x402_service.get_tier(user_id)
-                if tier in [SubscriptionTier.PRO, SubscriptionTier.PREMIUM, SubscriptionTier.ENTERPRISE]:
+                if tier in [
+                    SubscriptionTier.PRO,
+                    SubscriptionTier.PREMIUM,
+                    SubscriptionTier.ENTERPRISE,
+                ]:
                     logger.info(f"Running Deep Simulation for user {user_id} on {quote.to_token}")
-                    
+
                     # We simulate with a small amount of SOL for the safety test
                     # Usually 0.1 SOL is enough to trigger most tax/revert logic
-                    sim_amount = min(0.1, quote.from_amount_human) 
-                    
+                    sim_amount = min(0.1, quote.from_amount_human)
+
                     sim_res = await simulation_service.simulate_swap_cycle(
-                        token_mint=get_token_address(quote.to_token, "solana"), # Address from quote
+                        token_mint=get_token_address(
+                            quote.to_token, "solana"
+                        ),  # Address from quote
                         amount_sol=sim_amount,
-                        user_pubkey=wallet_address
+                        user_pubkey=wallet_address,
                     )
-                    
+
                     if not sim_res["is_safe"]:
                         error_msg = f"Deep Simulation Blocked: {sim_res.get('reason')} - {sim_res.get('error')}"
                         logger.warning(error_msg)
-                        
+
                         def _mark_sim_failed():
                             with get_session() as session:
-                                db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
+                                db_tx = (
+                                    session.query(SwapTransaction)
+                                    .filter(SwapTransaction.id == swap_id)
+                                    .first()
+                                )
                                 db_tx.status = SwapStatus.FAILED.value
                                 db_tx.error_message = error_msg
+
                         await run_in_db(_mark_sim_failed)
 
-                        raise SwapError(f"⚠️ Safety simulation FAILED: {sim_res.get('reason')}. Trade blocked to protect your funds.")
-                    
-                    logger.info(f"Deep Simulation PASSED for {quote.to_token}. Proceeding with trade.")
+                        raise SwapError(
+                            f"⚠️ Safety simulation FAILED: {sim_res.get('reason')}. Trade blocked to protect your funds."
+                        )
+
+                    logger.info(
+                        f"Deep Simulation PASSED for {quote.to_token}. Proceeding with trade."
+                    )
 
             try:
                 # Route to appropriate execution method based on provider
@@ -1516,35 +1815,45 @@ class SwapEngine:
                     tx_hash = await self._execute_kyberswap_swap(quote, wallet)
                 else:
                     tx_hash = await self._execute_lifi_swap(quote, wallet)
-                
+
                 # Persist tx_hash to the database record
                 def _update_tx_hash():
                     with get_session() as session:
-                        db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
+                        db_tx = (
+                            session.query(SwapTransaction)
+                            .filter(SwapTransaction.id == swap_id)
+                            .first()
+                        )
                         if db_tx:
                             db_tx.tx_hash = tx_hash
                             db_tx.status = SwapStatus.SUBMITTED.value
+
                 await run_in_db(_update_tx_hash)
 
                 # Invalidate balance cache so user sees updated balance
                 try:
                     from bot.utils.cache import balance_cache
+
                     await balance_cache.delete(f"bal:{wallet_address}:{wallet_chain_type}")
                 except Exception as e:
                     logger.debug(f"Failed to invalidate balance cache: {e}")
 
                 # Publish swap.submitted event
-                await event_bus.publish("swap.submitted", {
-                    "userId": user_id,
-                    "swapId": swap_id,
-                    "txHash": tx_hash,
-                    "fromChain": quote.from_chain,
-                    "toChain": quote.to_chain,
-                    "provider": quote.provider,
-                })
+                await event_bus.publish(
+                    "swap.submitted",
+                    {
+                        "userId": user_id,
+                        "swapId": swap_id,
+                        "txHash": tx_hash,
+                        "fromChain": quote.from_chain,
+                        "toChain": quote.to_chain,
+                        "provider": quote.provider,
+                    },
+                )
 
                 try:
                     from bot.services.copy_service import copy_service
+
                     await copy_service.handle_swap_submitted(swap_id)
                 except Exception as e:
                     logger.warning(f"Copy-trading hook failed for swap {swap_id}: {e}")
@@ -1563,38 +1872,52 @@ class SwapEngine:
                 # Re-fetch the updated record to return
                 def _refetch():
                     with get_session() as session:
-                        return session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
+                        return (
+                            session.query(SwapTransaction)
+                            .filter(SwapTransaction.id == swap_id)
+                            .first()
+                        )
+
                 swap_tx = await run_in_db(_refetch)
 
                 return swap_tx
 
             except Exception as e:
                 logger.error(f"Swap execution failed: {e}", exc_info=True)
+
                 # Mark as failed
                 def _mark_failed():
                     with get_session() as session:
-                        db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
+                        db_tx = (
+                            session.query(SwapTransaction)
+                            .filter(SwapTransaction.id == swap_id)
+                            .first()
+                        )
                         if db_tx:
                             db_tx.status = SwapStatus.FAILED.value
                             db_tx.error_message = str(e)
+
                 await run_in_db(_mark_failed)
 
                 # Publish swap.failed event
-                await event_bus.publish("swap.failed", {
-                    "userId": user_id,
-                    "swapId": swap_id,
-                    "error": str(e),
-                    "fromChain": quote.from_chain,
-                    "toChain": quote.to_chain,
-                    "fromToken": quote.from_token,
-                    "toToken": quote.to_token,
-                })
+                await event_bus.publish(
+                    "swap.failed",
+                    {
+                        "userId": user_id,
+                        "swapId": swap_id,
+                        "error": str(e),
+                        "fromChain": quote.from_chain,
+                        "toChain": quote.to_chain,
+                        "fromToken": quote.from_token,
+                        "toToken": quote.to_token,
+                    },
+                )
 
                 # Clean up local references
                 wallet_encrypted_key = None
 
                 raise SwapError(f"Swap execution failed: {repr(e)}")
-    
+
     async def _execute_lifi_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via Li.Fi."""
         tx_request = quote.raw_quote.get("transactionRequest", {})
@@ -1625,8 +1948,8 @@ class SwapEngine:
                     "method": "sendTransaction",
                     "params": [
                         base64.b64encode(signed_tx).decode(),
-                        {"encoding": "base64", "skipPreflight": False}
-                    ]
+                        {"encoding": "base64", "skipPreflight": False},
+                    ],
                 }
                 async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                     result = await resp.json()
@@ -1670,82 +1993,106 @@ class SwapEngine:
         web3: Web3,
         tx_request: dict,
     ) -> str:
-            """Execute an EVM Li.Fi route with a selected Web3 provider."""
-            sender = Web3.to_checksum_address(wallet_data["address"])
-            nonce = web3.eth.get_transaction_count(sender)
+        """Execute an EVM Li.Fi route with a selected Web3 provider."""
+        sender = Web3.to_checksum_address(wallet_data["address"])
+        nonce = web3.eth.get_transaction_count(sender)
 
-            # ERC20 approval: if swapping a token (not native), approve the LiFi contract
-            from_token_address = get_token_address(quote.from_token, quote.from_chain)
-            spender = Web3.to_checksum_address(tx_request.get("to"))
+        # ERC20 approval: if swapping a token (not native), approve the LiFi contract
+        from_token_address = get_token_address(quote.from_token, quote.from_chain)
+        spender = Web3.to_checksum_address(tx_request.get("to"))
 
-            if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
-                # Check native balance before attempting approval — need ETH for gas
-                native_balance_wei = web3.eth.get_balance(sender)
-                gas_price = web3.eth.gas_price
-                # Approval costs ~50k gas; swap ~200k gas; require enough for both
-                min_gas_wei = gas_price * 300_000
-                if native_balance_wei < min_gas_wei:
-                    native_symbol = chain.native_token if chain else "ETH"
-                    min_eth = min_gas_wei / 1e18
-                    raise SwapError(
-                        f"Insufficient gas. You need at least {min_eth:.5f} {native_symbol} "
-                        f"on {quote.from_chain.title()} to cover transaction fees. "
-                        f"Send some {native_symbol} to your wallet first."
-                    )
+        if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
+            # Check native balance before attempting approval — need ETH for gas
+            native_balance_wei = web3.eth.get_balance(sender)
+            gas_price = web3.eth.gas_price
+            # Approval costs ~50k gas; swap ~200k gas; require enough for both
+            min_gas_wei = gas_price * 300_000
+            if native_balance_wei < min_gas_wei:
+                native_symbol = chain.native_token if chain else "ETH"
+                min_eth = min_gas_wei / 1e18
+                raise SwapError(
+                    f"Insufficient gas. You need at least {min_eth:.5f} {native_symbol} "
+                    f"on {quote.from_chain.title()} to cover transaction fees. "
+                    f"Send some {native_symbol} to your wallet first."
+                )
 
-                token_addr = Web3.to_checksum_address(from_token_address)
-                erc20_abi = [
-                    {"inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "type": "function", "stateMutability": "view"},
-                    {"inputs": [{"name": "spender", "type": "address"}, {"name": "amount", "type": "uint256"}], "name": "approve", "outputs": [{"name": "", "type": "bool"}], "type": "function", "stateMutability": "nonpayable"},
-                ]
-                token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
-                amount_needed = int(quote.from_amount)
-                current_allowance = token_contract.functions.allowance(sender, spender).call()
+            token_addr = Web3.to_checksum_address(from_token_address)
+            erc20_abi = [
+                {
+                    "inputs": [
+                        {"name": "owner", "type": "address"},
+                        {"name": "spender", "type": "address"},
+                    ],
+                    "name": "allowance",
+                    "outputs": [{"name": "", "type": "uint256"}],
+                    "type": "function",
+                    "stateMutability": "view",
+                },
+                {
+                    "inputs": [
+                        {"name": "spender", "type": "address"},
+                        {"name": "amount", "type": "uint256"},
+                    ],
+                    "name": "approve",
+                    "outputs": [{"name": "", "type": "bool"}],
+                    "type": "function",
+                    "stateMutability": "nonpayable",
+                },
+            ]
+            token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
+            amount_needed = int(quote.from_amount)
+            current_allowance = token_contract.functions.allowance(sender, spender).call()
 
-                if current_allowance < amount_needed:
-                    max_approval = 2**256 - 1
-                    # Pass gas explicitly to skip eth_estimateGas simulation
-                    approve_data = token_contract.functions.approve(spender, max_approval).build_transaction({
+            if current_allowance < amount_needed:
+                max_approval = 2**256 - 1
+                # Pass gas explicitly to skip eth_estimateGas simulation
+                approve_data = token_contract.functions.approve(
+                    spender, max_approval
+                ).build_transaction(
+                    {
                         "from": sender,
                         "nonce": nonce,
                         "chainId": chain.chain_id,
                         "gasPrice": gas_price,
                         "gas": 100_000,
-                    })
-                    approve_tx = {
-                        "to": token_addr,
-                        "data": approve_data["data"],
-                        "value": 0,
-                        "gas": approve_data.get("gas", 60000),
-                        "gasPrice": approve_data["gasPrice"],
-                        "nonce": nonce,
-                        "chainId": chain.chain_id,
                     }
-                    signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-                    approve_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approve.replace("0x", "")))
-                    logger.info(f"LiFi approval tx: {approve_hash.hex()}")
-                    web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
-                    nonce += 1
+                )
+                approve_tx = {
+                    "to": token_addr,
+                    "data": approve_data["data"],
+                    "value": 0,
+                    "gas": approve_data.get("gas", 60000),
+                    "gasPrice": approve_data["gasPrice"],
+                    "nonce": nonce,
+                    "chainId": chain.chain_id,
+                }
+                signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
+                approve_hash = web3.eth.send_raw_transaction(
+                    bytes.fromhex(signed_approve.replace("0x", ""))
+                )
+                logger.info(f"LiFi approval tx: {approve_hash.hex()}")
+                web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                nonce += 1
 
-            # Re-fetch nonce to account for any approval tx or pending txs
-            nonce = web3.eth.get_transaction_count(sender)
+        # Re-fetch nonce to account for any approval tx or pending txs
+        nonce = web3.eth.get_transaction_count(sender)
 
-            # Build swap transaction - parse hex values from Li.Fi
-            tx = {
-                "to": spender,
-                "data": tx_request.get("data"),
-                "value": _parse_int(tx_request.get("value"), 0),
-                "gas": _parse_int(tx_request.get("gasLimit"), 500000),
-                "gasPrice": _parse_int(tx_request.get("gasPrice"), web3.eth.gas_price),
-                "nonce": nonce,
-                "chainId": chain.chain_id,
-            }
+        # Build swap transaction - parse hex values from Li.Fi
+        tx = {
+            "to": spender,
+            "data": tx_request.get("data"),
+            "value": _parse_int(tx_request.get("value"), 0),
+            "gas": _parse_int(tx_request.get("gasLimit"), 500000),
+            "gasPrice": _parse_int(tx_request.get("gasPrice"), web3.eth.gas_price),
+            "nonce": nonce,
+            "chainId": chain.chain_id,
+        }
 
-            # Sign and send
-            signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-            tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        # Sign and send
+        signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
+        tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
 
-            return tx_hash.hex()
+        return tx_hash.hex()
 
     @staticmethod
     def _is_retryable_rpc_error(error: Exception) -> bool:
@@ -1763,7 +2110,7 @@ class SwapEngine:
         url = getattr(provider, "endpoint_uri", None)
         if url:
             rpc_manager.report_failure(chain_name, url, str(error)[:120])
-    
+
     async def _execute_jupiter_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via Jupiter."""
         wallet = await self._get_wallet_for_signing(wallet_data)
@@ -1788,15 +2135,15 @@ class SwapEngine:
                 "method": "sendTransaction",
                 "params": [
                     base64.b64encode(signed_tx).decode(),
-                    {"encoding": "base64", "skipPreflight": False}
-                ]
+                    {"encoding": "base64", "skipPreflight": False},
+                ],
             }
             async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                 result = await resp.json()
                 if "error" in result:
                     raise SwapError(f"Transaction failed: {result['error']}")
                 return result["result"]
-    
+
     async def _execute_cow_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via CoW Protocol (MEV-protected batch auction).
 
@@ -1870,7 +2217,7 @@ class SwapEngine:
 
         # Return the order UID as the "tx_hash" - it can be tracked via CoW API
         return cow_order.order_uid
-    
+
     async def _execute_socket_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via Socket super-aggregator.
 
@@ -1937,8 +2284,12 @@ class SwapEngine:
                     "chainId": chain.chain_id,
                 }
 
-                signed_approval_hex = await self.wallet_service.sign_evm_transaction(wallet, approval_tx)
-                approval_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approval_hex.replace("0x", "")))
+                signed_approval_hex = await self.wallet_service.sign_evm_transaction(
+                    wallet, approval_tx
+                )
+                approval_hash = web3.eth.send_raw_transaction(
+                    bytes.fromhex(signed_approval_hex.replace("0x", ""))
+                )
                 logger.info(f"Socket approval tx: {approval_hash.hex()}")
 
                 # Wait for approval
@@ -1961,7 +2312,7 @@ class SwapEngine:
 
         logger.info(f"Socket swap tx: {tx_hash.hex()}")
         return tx_hash.hex()
-    
+
     async def _execute_jito_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a Solana swap via Jupiter with Jito MEV protection.
 
@@ -2015,15 +2366,15 @@ class SwapEngine:
                     "method": "sendTransaction",
                     "params": [
                         base64.b64encode(signed_tx).decode(),
-                        {"encoding": "base64", "skipPreflight": False}
-                    ]
+                        {"encoding": "base64", "skipPreflight": False},
+                    ],
                 }
                 async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                     result = await resp.json()
                     if "error" in result:
                         raise SwapError(f"Transaction failed: {result['error']}")
                     return result["result"]
-    
+
     async def _execute_ccip_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a cross-chain transfer via Chainlink CCIP."""
         from bot.services.ccip_api import CCIPQuote
@@ -2077,8 +2428,12 @@ class SwapEngine:
             approval_tx["chainId"] = chain.chain_id
             approval_tx["gasPrice"] = web3.eth.gas_price
 
-            signed_approval_hex = await self.wallet_service.sign_evm_transaction(wallet, approval_tx)
-            approval_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approval_hex.replace("0x", "")))
+            signed_approval_hex = await self.wallet_service.sign_evm_transaction(
+                wallet, approval_tx
+            )
+            approval_hash = web3.eth.send_raw_transaction(
+                bytes.fromhex(signed_approval_hex.replace("0x", ""))
+            )
 
             # Wait for approval
             logger.info(f"CCIP approval tx: {approval_hash.hex()}")
@@ -2103,10 +2458,11 @@ class SwapEngine:
 
         logger.info(f"CCIP transfer tx: {tx_hash.hex()}")
         return tx_hash.hex()
-    
+
     def _get_web3_with_fallback(self, chain_name: str) -> Web3:
         """Get a Web3 instance via RPCManager (health-tracked, auto-failover)."""
         from bot.services.rpc_manager import rpc_manager
+
         return rpc_manager.get_web3(chain_name)
 
     async def _execute_layerzero_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
@@ -2128,6 +2484,7 @@ class SwapEngine:
         # Rebuild LZ quote from stored raw_quote data (avoids extra RPC round-trip)
         raw = quote.raw_quote
         from bot.services.layerzero_api import LayerZeroQuote
+
         lz_quote = LayerZeroQuote(
             src_chain=quote.from_chain,
             dst_chain=quote.to_chain,
@@ -2181,12 +2538,14 @@ class SwapEngine:
         # Estimate gas with fallback
         gas_estimate = 350_000
         try:
-            gas_estimate = web3.eth.estimate_gas({
-                "from": Web3.to_checksum_address(sender),
-                "to": Web3.to_checksum_address(send_tx_data["to"]),
-                "data": send_tx_data["data"],
-                "value": send_tx_data["value"],
-            })
+            gas_estimate = web3.eth.estimate_gas(
+                {
+                    "from": Web3.to_checksum_address(sender),
+                    "to": Web3.to_checksum_address(send_tx_data["to"]),
+                    "data": send_tx_data["data"],
+                    "value": send_tx_data["value"],
+                }
+            )
             gas_estimate = int(gas_estimate * 1.3)  # 30% buffer for LZ overhead
         except Exception as e:
             logger.warning(f"Gas estimate failed, using default 350k: {e}")
@@ -2202,16 +2561,14 @@ class SwapEngine:
         }
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, send_tx)
-        tx_hash = web3.eth.send_raw_transaction(
-            bytes.fromhex(signed_tx_hex.replace("0x", ""))
-        )
+        tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
 
         logger.info(
             f"Stargate V2 sendToken: {tx_hash.hex()} "
             f"({quote.from_chain}→{quote.to_chain} {quote.from_token})"
         )
         return tx_hash.hex()
-    
+
     async def _execute_cctp_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a USDC transfer via Circle CCTP (cheapest for USDC)."""
         wallet = await self._get_wallet_for_signing(wallet_data)
@@ -2237,7 +2594,9 @@ class SwapEngine:
         approve_tx["chainId"] = chain.chain_id
 
         signed_approve_hex = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-        approve_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approve_hex.replace("0x", "")))
+        approve_hash = web3.eth.send_raw_transaction(
+            bytes.fromhex(signed_approve_hex.replace("0x", ""))
+        )
         logger.info(f"CCTP approval tx: {approve_hash.hex()}")
 
         # Wait for approval confirmation
@@ -2245,9 +2604,7 @@ class SwapEngine:
 
         # Step 2: Execute depositForBurn
         burn_tx = self.cctp.build_burn_transaction(
-            cctp_quote,
-            wallet_data["address"],
-            wallet_data["address"]  # Same recipient
+            cctp_quote, wallet_data["address"], wallet_data["address"]  # Same recipient
         )
 
         nonce = web3.eth.get_transaction_count(wallet_data["address"])
@@ -2261,7 +2618,7 @@ class SwapEngine:
 
         logger.info(f"CCTP burn tx: {burn_hash.hex()}")
         return burn_hash.hex()
-    
+
     async def _execute_across_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a bridge via Across Protocol (cheap EVM bridges)."""
         wallet = await self._get_wallet_for_signing(wallet_data)
@@ -2285,32 +2642,34 @@ class SwapEngine:
         )
 
         # Check if token needs approval (not ETH)
-        if quote.from_token.upper() not in ["ETH", "WETH"] or self.across.get_token_address(quote.from_token, quote.from_chain) != "0x0000000000000000000000000000000000000000":
+        if (
+            quote.from_token.upper() not in ["ETH", "WETH"]
+            or self.across.get_token_address(quote.from_token, quote.from_chain)
+            != "0x0000000000000000000000000000000000000000"
+        ):
             # Approve token for SpokePool
             token_address = self.across.get_token_address(quote.from_token, quote.from_chain)
 
-            erc20_approve_abi = [{
-                "inputs": [
-                    {"name": "spender", "type": "address"},
-                    {"name": "amount", "type": "uint256"}
-                ],
-                "name": "approve",
-                "outputs": [{"name": "", "type": "bool"}],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            }]
+            erc20_approve_abi = [
+                {
+                    "inputs": [
+                        {"name": "spender", "type": "address"},
+                        {"name": "amount", "type": "uint256"},
+                    ],
+                    "name": "approve",
+                    "outputs": [{"name": "", "type": "bool"}],
+                    "stateMutability": "nonpayable",
+                    "type": "function",
+                }
+            ]
 
             token_contract = web3.eth.contract(
-                address=Web3.to_checksum_address(token_address),
-                abi=erc20_approve_abi
+                address=Web3.to_checksum_address(token_address), abi=erc20_approve_abi
             )
 
             approve_data = token_contract.encode_abi(
                 fn_name="approve",
-                args=[
-                    Web3.to_checksum_address(across_quote.spoke_pool),
-                    int(quote.from_amount)
-                ]
+                args=[Web3.to_checksum_address(across_quote.spoke_pool), int(quote.from_amount)],
             )
 
             nonce = web3.eth.get_transaction_count(wallet_data["address"])
@@ -2325,7 +2684,9 @@ class SwapEngine:
             }
 
             signed_approve_hex = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-            approve_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approve_hex.replace("0x", "")))
+            approve_hash = web3.eth.send_raw_transaction(
+                bytes.fromhex(signed_approve_hex.replace("0x", ""))
+            )
             logger.info(f"Across approval tx: {approve_hash.hex()}")
 
             # Wait for approval
@@ -2345,11 +2706,13 @@ class SwapEngine:
         deposit_tx["chainId"] = chain.chain_id
 
         signed_deposit_hex = await self.wallet_service.sign_evm_transaction(wallet, deposit_tx)
-        deposit_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_deposit_hex.replace("0x", "")))
+        deposit_hash = web3.eth.send_raw_transaction(
+            bytes.fromhex(signed_deposit_hex.replace("0x", ""))
+        )
 
         logger.info(f"Across deposit tx: {deposit_hash.hex()}")
         return deposit_hash.hex()
-    
+
     async def _execute_wormhole_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a bridge via Wormhole (Solana <-> EVM)."""
         is_solana_source = quote.from_chain.lower() == "solana"
@@ -2381,28 +2744,25 @@ class SwapEngine:
         token_address = self.wormhole.get_token_address(quote.from_token, quote.from_chain)
         token_bridge = self.wormhole.get_token_bridge(quote.from_chain)
 
-        erc20_approve_abi = [{
-            "inputs": [
-                {"name": "spender", "type": "address"},
-                {"name": "amount", "type": "uint256"}
-            ],
-            "name": "approve",
-            "outputs": [{"name": "", "type": "bool"}],
-            "stateMutability": "nonpayable",
-            "type": "function"
-        }]
+        erc20_approve_abi = [
+            {
+                "inputs": [
+                    {"name": "spender", "type": "address"},
+                    {"name": "amount", "type": "uint256"},
+                ],
+                "name": "approve",
+                "outputs": [{"name": "", "type": "bool"}],
+                "stateMutability": "nonpayable",
+                "type": "function",
+            }
+        ]
 
         token_contract = web3.eth.contract(
-            address=Web3.to_checksum_address(token_address),
-            abi=erc20_approve_abi
+            address=Web3.to_checksum_address(token_address), abi=erc20_approve_abi
         )
 
         approve_data = token_contract.encode_abi(
-            fn_name="approve",
-            args=[
-                Web3.to_checksum_address(token_bridge),
-                int(quote.from_amount)
-            ]
+            fn_name="approve", args=[Web3.to_checksum_address(token_bridge), int(quote.from_amount)]
         )
 
         nonce = web3.eth.get_transaction_count(wallet_data["address"])
@@ -2417,7 +2777,9 @@ class SwapEngine:
         }
 
         signed_approve_hex = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-        approve_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approve_hex.replace("0x", "")))
+        approve_hash = web3.eth.send_raw_transaction(
+            bytes.fromhex(signed_approve_hex.replace("0x", ""))
+        )
         logger.info(f"Wormhole approval tx: {approve_hash.hex()}")
 
         # Wait for approval
@@ -2436,7 +2798,9 @@ class SwapEngine:
         transfer_tx["chainId"] = chain.chain_id
 
         signed_transfer_hex = await self.wallet_service.sign_evm_transaction(wallet, transfer_tx)
-        transfer_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_transfer_hex.replace("0x", "")))
+        transfer_hash = web3.eth.send_raw_transaction(
+            bytes.fromhex(signed_transfer_hex.replace("0x", ""))
+        )
 
         logger.info(f"Wormhole transfer tx: {transfer_hash.hex()}")
         return transfer_hash.hex()
@@ -2541,8 +2905,8 @@ class SwapEngine:
                 "method": "sendTransaction",
                 "params": [
                     base64.b64encode(signed_tx).decode(),
-                    {"encoding": "base64", "skipPreflight": False}
-                ]
+                    {"encoding": "base64", "skipPreflight": False},
+                ],
             }
             async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                 result = await resp.json()
@@ -2570,8 +2934,26 @@ class SwapEngine:
             if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
                 token_addr = Web3.to_checksum_address(from_token_address)
                 erc20_abi = [
-                    {"inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "type": "function", "stateMutability": "view"},
-                    {"inputs": [{"name": "spender", "type": "address"}, {"name": "amount", "type": "uint256"}], "name": "approve", "outputs": [{"name": "", "type": "bool"}], "type": "function", "stateMutability": "nonpayable"},
+                    {
+                        "inputs": [
+                            {"name": "owner", "type": "address"},
+                            {"name": "spender", "type": "address"},
+                        ],
+                        "name": "allowance",
+                        "outputs": [{"name": "", "type": "uint256"}],
+                        "type": "function",
+                        "stateMutability": "view",
+                    },
+                    {
+                        "inputs": [
+                            {"name": "spender", "type": "address"},
+                            {"name": "amount", "type": "uint256"},
+                        ],
+                        "name": "approve",
+                        "outputs": [{"name": "", "type": "bool"}],
+                        "type": "function",
+                        "stateMutability": "nonpayable",
+                    },
                 ]
                 token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
                 amount_needed = int(quote.from_amount)
@@ -2580,12 +2962,16 @@ class SwapEngine:
                 if current_allowance < amount_needed:
                     nonce = web3.eth.get_transaction_count(sender)
                     max_approval = 2**256 - 1
-                    approve_data = token_contract.functions.approve(spender, max_approval).build_transaction({
-                        "from": sender,
-                        "nonce": nonce,
-                        "chainId": chain.chain_id,
-                        "gasPrice": web3.eth.gas_price,
-                    })
+                    approve_data = token_contract.functions.approve(
+                        spender, max_approval
+                    ).build_transaction(
+                        {
+                            "from": sender,
+                            "nonce": nonce,
+                            "chainId": chain.chain_id,
+                            "gasPrice": web3.eth.gas_price,
+                        }
+                    )
                     approve_tx = {
                         "to": token_addr,
                         "data": approve_data["data"],
@@ -2595,8 +2981,12 @@ class SwapEngine:
                         "nonce": nonce,
                         "chainId": chain.chain_id,
                     }
-                    signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-                    approve_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approve.replace("0x", "")))
+                    signed_approve = await self.wallet_service.sign_evm_transaction(
+                        wallet, approve_tx
+                    )
+                    approve_hash = web3.eth.send_raw_transaction(
+                        bytes.fromhex(signed_approve.replace("0x", ""))
+                    )
                     logger.info(f"OKX DEX approval tx: {approve_hash.hex()}")
                     web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
 
@@ -2628,7 +3018,9 @@ class SwapEngine:
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
-        chain_id = quote.raw_quote.get("chain_id") or ONEINCH_CHAIN_IDS.get(quote.from_chain.lower())
+        chain_id = quote.raw_quote.get("chain_id") or ONEINCH_CHAIN_IDS.get(
+            quote.from_chain.lower()
+        )
         if not chain_id:
             raise SwapError(f"1inch does not support chain: {quote.from_chain}")
 
@@ -2657,8 +3049,26 @@ class SwapEngine:
         if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
             token_addr = Web3.to_checksum_address(from_token_address)
             erc20_abi = [
-                {"inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "type": "function", "stateMutability": "view"},
-                {"inputs": [{"name": "spender", "type": "address"}, {"name": "amount", "type": "uint256"}], "name": "approve", "outputs": [{"name": "", "type": "bool"}], "type": "function", "stateMutability": "nonpayable"},
+                {
+                    "inputs": [
+                        {"name": "owner", "type": "address"},
+                        {"name": "spender", "type": "address"},
+                    ],
+                    "name": "allowance",
+                    "outputs": [{"name": "", "type": "uint256"}],
+                    "type": "function",
+                    "stateMutability": "view",
+                },
+                {
+                    "inputs": [
+                        {"name": "spender", "type": "address"},
+                        {"name": "amount", "type": "uint256"},
+                    ],
+                    "name": "approve",
+                    "outputs": [{"name": "", "type": "bool"}],
+                    "type": "function",
+                    "stateMutability": "nonpayable",
+                },
             ]
             token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
             amount_needed = int(quote.from_amount)
@@ -2667,12 +3077,16 @@ class SwapEngine:
             if current_allowance < amount_needed:
                 nonce = web3.eth.get_transaction_count(sender)
                 max_approval = 2**256 - 1
-                approve_data = token_contract.functions.approve(spender, max_approval).build_transaction({
-                    "from": sender,
-                    "nonce": nonce,
-                    "chainId": chain.chain_id,
-                    "gasPrice": web3.eth.gas_price,
-                })
+                approve_data = token_contract.functions.approve(
+                    spender, max_approval
+                ).build_transaction(
+                    {
+                        "from": sender,
+                        "nonce": nonce,
+                        "chainId": chain.chain_id,
+                        "gasPrice": web3.eth.gas_price,
+                    }
+                )
                 approve_tx = {
                     "to": token_addr,
                     "data": approve_data["data"],
@@ -2683,7 +3097,9 @@ class SwapEngine:
                     "chainId": chain.chain_id,
                 }
                 signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-                approve_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approve.replace("0x", "")))
+                approve_hash = web3.eth.send_raw_transaction(
+                    bytes.fromhex(signed_approve.replace("0x", ""))
+                )
                 logger.info(f"1inch approval tx: {approve_hash.hex()}")
                 web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
 
@@ -2758,8 +3174,26 @@ class SwapEngine:
                 spender = Web3.to_checksum_address(spender_raw)
                 token_addr = Web3.to_checksum_address(from_token_address)
                 erc20_abi = [
-                    {"inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "type": "function", "stateMutability": "view"},
-                    {"inputs": [{"name": "spender", "type": "address"}, {"name": "amount", "type": "uint256"}], "name": "approve", "outputs": [{"name": "", "type": "bool"}], "type": "function", "stateMutability": "nonpayable"},
+                    {
+                        "inputs": [
+                            {"name": "owner", "type": "address"},
+                            {"name": "spender", "type": "address"},
+                        ],
+                        "name": "allowance",
+                        "outputs": [{"name": "", "type": "uint256"}],
+                        "type": "function",
+                        "stateMutability": "view",
+                    },
+                    {
+                        "inputs": [
+                            {"name": "spender", "type": "address"},
+                            {"name": "amount", "type": "uint256"},
+                        ],
+                        "name": "approve",
+                        "outputs": [{"name": "", "type": "bool"}],
+                        "type": "function",
+                        "stateMutability": "nonpayable",
+                    },
                 ]
                 token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
                 amount_needed = int(quote.from_amount)
@@ -2768,12 +3202,16 @@ class SwapEngine:
                 if current_allowance < amount_needed:
                     nonce = web3.eth.get_transaction_count(sender)
                     max_approval = 2**256 - 1
-                    approve_data = token_contract.functions.approve(spender, max_approval).build_transaction({
-                        "from": sender,
-                        "nonce": nonce,
-                        "chainId": chain.chain_id,
-                        "gasPrice": web3.eth.gas_price,
-                    })
+                    approve_data = token_contract.functions.approve(
+                        spender, max_approval
+                    ).build_transaction(
+                        {
+                            "from": sender,
+                            "nonce": nonce,
+                            "chainId": chain.chain_id,
+                            "gasPrice": web3.eth.gas_price,
+                        }
+                    )
                     approve_tx = {
                         "to": token_addr,
                         "data": approve_data["data"],
@@ -2783,8 +3221,12 @@ class SwapEngine:
                         "nonce": nonce,
                         "chainId": chain.chain_id,
                     }
-                    signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-                    approve_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approve.replace("0x", "")))
+                    signed_approve = await self.wallet_service.sign_evm_transaction(
+                        wallet, approve_tx
+                    )
+                    approve_hash = web3.eth.send_raw_transaction(
+                        bytes.fromhex(signed_approve.replace("0x", ""))
+                    )
                     logger.info(f"0x approval tx (spender={spender}): {approve_hash.hex()}")
                     web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
 
@@ -2817,7 +3259,9 @@ class SwapEngine:
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
-        chain_slug = quote.raw_quote.get("chain_slug") or KYBERSWAP_CHAIN_SLUGS.get(quote.from_chain.lower())
+        chain_slug = quote.raw_quote.get("chain_slug") or KYBERSWAP_CHAIN_SLUGS.get(
+            quote.from_chain.lower()
+        )
         if not chain_slug:
             raise SwapError(f"KyberSwap does not support chain: {quote.from_chain}")
 
@@ -2847,8 +3291,26 @@ class SwapEngine:
         if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
             token_addr = Web3.to_checksum_address(from_token_address)
             erc20_abi = [
-                {"inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "type": "function", "stateMutability": "view"},
-                {"inputs": [{"name": "spender", "type": "address"}, {"name": "amount", "type": "uint256"}], "name": "approve", "outputs": [{"name": "", "type": "bool"}], "type": "function", "stateMutability": "nonpayable"},
+                {
+                    "inputs": [
+                        {"name": "owner", "type": "address"},
+                        {"name": "spender", "type": "address"},
+                    ],
+                    "name": "allowance",
+                    "outputs": [{"name": "", "type": "uint256"}],
+                    "type": "function",
+                    "stateMutability": "view",
+                },
+                {
+                    "inputs": [
+                        {"name": "spender", "type": "address"},
+                        {"name": "amount", "type": "uint256"},
+                    ],
+                    "name": "approve",
+                    "outputs": [{"name": "", "type": "bool"}],
+                    "type": "function",
+                    "stateMutability": "nonpayable",
+                },
             ]
             token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
             amount_needed = int(quote.from_amount)
@@ -2857,12 +3319,16 @@ class SwapEngine:
             if current_allowance < amount_needed:
                 nonce = web3.eth.get_transaction_count(sender)
                 max_approval = 2**256 - 1
-                approve_data = token_contract.functions.approve(router, max_approval).build_transaction({
-                    "from": sender,
-                    "nonce": nonce,
-                    "chainId": chain.chain_id,
-                    "gasPrice": web3.eth.gas_price,
-                })
+                approve_data = token_contract.functions.approve(
+                    router, max_approval
+                ).build_transaction(
+                    {
+                        "from": sender,
+                        "nonce": nonce,
+                        "chainId": chain.chain_id,
+                        "gasPrice": web3.eth.gas_price,
+                    }
+                )
                 approve_tx = {
                     "to": token_addr,
                     "data": approve_data["data"],
@@ -2873,7 +3339,9 @@ class SwapEngine:
                     "chainId": chain.chain_id,
                 }
                 signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-                approve_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approve.replace("0x", "")))
+                approve_hash = web3.eth.send_raw_transaction(
+                    bytes.fromhex(signed_approve.replace("0x", ""))
+                )
                 logger.info(f"KyberSwap approval tx (router={router}): {approve_hash.hex()}")
                 web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
 
@@ -2917,7 +3385,7 @@ class SwapEngine:
             if qty <= 0:
                 continue
             try:
-                price = await price_service.get_price(sym)
+                price = await asyncio.wait_for(price_service.get_price(sym), timeout=5)
             except Exception:
                 price = None
             if price:
@@ -2947,17 +3415,23 @@ class SwapEngine:
             with get_session() as session:
                 # SELL leg: realize PnL on the disposed token vs tracked basis.
                 if from_qty > 0:
-                    pos = session.query(UserPosition).filter(
-                        UserPosition.user_id == user_id,
-                        UserPosition.token == from_token,
-                        UserPosition.chain == from_chain,
-                    ).first()
+                    pos = (
+                        session.query(UserPosition)
+                        .filter(
+                            UserPosition.user_id == user_id,
+                            UserPosition.token == from_token,
+                            UserPosition.chain == from_chain,
+                        )
+                        .first()
+                    )
                     if pos and pos.qty > 0:
                         avg_cost = pos.cost_usd / pos.qty
                         qty_sold = min(from_qty, pos.qty)
                         cost_of_sold = avg_cost * qty_sold
                         proceeds = swap_usd * (qty_sold / from_qty)  # tracked portion
-                        pos.realized_pnl_usd = (pos.realized_pnl_usd or 0.0) + (proceeds - cost_of_sold)
+                        pos.realized_pnl_usd = (pos.realized_pnl_usd or 0.0) + (
+                            proceeds - cost_of_sold
+                        )
                         pos.qty -= qty_sold
                         pos.cost_usd = max(0.0, pos.cost_usd - cost_of_sold)
                         if pos.qty <= 1e-12:
@@ -2967,15 +3441,23 @@ class SwapEngine:
 
                 # BUY leg: add the acquired token to cost basis.
                 if to_qty > 0:
-                    pos = session.query(UserPosition).filter(
-                        UserPosition.user_id == user_id,
-                        UserPosition.token == to_token,
-                        UserPosition.chain == to_chain,
-                    ).first()
+                    pos = (
+                        session.query(UserPosition)
+                        .filter(
+                            UserPosition.user_id == user_id,
+                            UserPosition.token == to_token,
+                            UserPosition.chain == to_chain,
+                        )
+                        .first()
+                    )
                     if not pos:
                         pos = UserPosition(
-                            user_id=user_id, token=to_token, chain=to_chain,
-                            qty=0.0, cost_usd=0.0, realized_pnl_usd=0.0,
+                            user_id=user_id,
+                            token=to_token,
+                            chain=to_chain,
+                            qty=0.0,
+                            cost_usd=0.0,
+                            realized_pnl_usd=0.0,
                         )
                         session.add(pos)
                     pos.qty += to_qty
@@ -2988,12 +3470,12 @@ class SwapEngine:
     async def check_status(self, swap_tx: SwapTransaction) -> SwapTransaction:
         """
         Check the status of a swap transaction.
-        
+
         Updates the SwapTransaction record and returns it.
         """
         if not swap_tx.tx_hash:
             return swap_tx
-        
+
         if swap_tx.route_provider == "jupiter":
             # Check Solana transaction status
             status = await self._check_solana_tx_status(swap_tx.tx_hash)
@@ -3007,22 +3489,22 @@ class SwapEngine:
             else:
                 # Same-chain EVM swap
                 status = await self._check_evm_tx_status(swap_tx)
-        
+
         # Update database
         def _update_status():
             with get_session() as session:
-                tx = session.query(SwapTransaction).filter(
-                    SwapTransaction.id == swap_tx.id
-                ).first()
+                tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_tx.id).first()
                 tx.status = status
                 if status == SwapStatus.COMPLETED.value:
                     from datetime import datetime, timezone
+
                     tx.completed_at = datetime.now(timezone.utc)
+
         await run_in_db(_update_status)
 
         swap_tx.status = status
         return swap_tx
-    
+
     async def _check_solana_tx_status(self, tx_hash: str) -> str:
         """Check Solana transaction status."""
         async with aiohttp.ClientSession() as session:
@@ -3032,22 +3514,22 @@ class SwapEngine:
                 "method": "getTransaction",
                 "params": [
                     tx_hash,
-                    {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}
-                ]
+                    {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0},
+                ],
             }
             async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                 result = await resp.json()
-                
+
                 if "error" in result:
                     return SwapStatus.PENDING.value
-                
+
                 tx_data = result.get("result")
                 if tx_data is None:
                     return SwapStatus.PENDING.value
-                
+
                 if tx_data.get("meta", {}).get("err") is not None:
                     return SwapStatus.FAILED.value
-                
+
                 return SwapStatus.COMPLETED.value
 
     async def _check_tron_tx_status(self, tx_hash: str) -> str:
@@ -3090,10 +3572,10 @@ class SwapEngine:
         try:
             web3 = self.wallet_service._get_web3(swap_tx.from_chain)
             receipt = web3.eth.get_transaction_receipt(swap_tx.tx_hash)
-            
+
             if receipt is None:
                 return SwapStatus.PENDING.value
-            
+
             if receipt["status"] == 1:
                 return SwapStatus.COMPLETED.value
             else:
@@ -3113,18 +3595,22 @@ class SwapEngine:
                 from_chain=swap_tx.from_chain,
                 to_chain=swap_tx.to_chain,
             )
-            
+
             if status.status == "DONE":
                 # Update destination tx hash
                 if status.receiving_tx_hash:
+
                     def _update_dest_hash():
                         with get_session() as session:
-                            tx = session.query(SwapTransaction).filter(
-                                SwapTransaction.id == swap_tx.id
-                            ).first()
+                            tx = (
+                                session.query(SwapTransaction)
+                                .filter(SwapTransaction.id == swap_tx.id)
+                                .first()
+                            )
                             tx.destination_tx_hash = status.receiving_tx_hash
+
                     await run_in_db(_update_dest_hash)
-                
+
                 return SwapStatus.COMPLETED.value
             elif status.status == "FAILED":
                 return SwapStatus.FAILED.value
@@ -3145,12 +3631,12 @@ class SwapEngine:
     ) -> List[SwapTransaction]:
         """
         Execute multiple swaps concurrently across different wallets.
-        
+
         Args:
             quotes_with_wallets: List of (SwapQuote, wallet_id) tuples
             user_id: Database user ID
             attempt_id: Base attempt ID for idempotency
-            
+
         Returns:
             List of SwapTransaction records
         """
@@ -3166,11 +3652,11 @@ class SwapEngine:
                     idempotency_key=idempotency_key,
                 )
             )
-        
+
         # Execute all swaps in parallel
         # Note: exceptions are captured so one failure doesn't stop others
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         swap_transactions = []
         for res in results:
             if isinstance(res, SwapTransaction):
@@ -3178,5 +3664,5 @@ class SwapEngine:
             else:
                 # Log the error but keep the successful ones
                 logger.error(f"Multi-swap sub-task failed: {res}")
-                
+
         return swap_transactions
