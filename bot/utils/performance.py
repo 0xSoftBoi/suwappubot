@@ -223,6 +223,7 @@ class MetricNames:
     API_COINGECKO = "api_coingecko"
     API_SUNSWAP = "api_sunswap"
     API_OKX_DEX = "api_okx_dex"
+    API_1INCH = "api_1inch"
     HANDLER_COMMAND = "handler_command"
     HANDLER_CALLBACK = "handler_callback"
 

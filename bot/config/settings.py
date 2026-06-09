@@ -376,7 +376,10 @@ class Settings(BaseSettings):
     okx_dex_secret_key: Optional[str] = Field(default=None, description="OKX DEX secret key for HMAC signing")
     okx_dex_passphrase: Optional[str] = Field(default=None, description="OKX DEX API passphrase")
     okx_dex_project_id: Optional[str] = Field(default=None, description="OKX DEX project ID")
-    
+
+    # 1inch Aggregation Protocol (EVM-only, v6)
+    oneinch_api_key: Optional[str] = Field(default=None, description="1inch Developer Portal API key (Bearer auth)")
+
     # WhatsApp Business API (Optional)
     whatsapp_phone_number_id: Optional[str] = Field(default=None, description="WhatsApp Business Phone Number ID")
     whatsapp_access_token: Optional[str] = Field(default=None, description="WhatsApp Cloud API Access Token")
