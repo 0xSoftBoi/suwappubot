@@ -147,6 +147,15 @@ class SwapEngine:
         self._wallet_locks: dict[int, asyncio.Lock] = {}  # Per-wallet locks
         self._wallet_locks_max = 1000  # Cap to prevent unbounded growth
 
+        # Surface optional-provider config at startup so a silently-disabled
+        # aggregator is loud, not invisible (OKX never races + never errors when
+        # its creds are unset — that should be visible in the logs).
+        try:
+            okx_state = "configured" if getattr(self.okx_dex, "is_configured", False) else "OFF (creds unset)"
+            logger.info("Swap aggregators ready — LiFi/CoW/Jupiter active; OKX=%s", okx_state)
+        except Exception:
+            pass
+
     async def _get_wallet_for_signing(self, wallet_data) -> Wallet:
         """Get Wallet model object for signing operations."""
         # Already a Wallet object
@@ -421,7 +430,12 @@ class SwapEngine:
         if not quotes:
             raise SwapError("No provider returned a valid quote. Please try again.")
 
-        best = max(quotes, key=lambda q: q.to_amount_human)
+        # Wormhole returns an optimistic 1:1 placeholder quote (no real fee netting),
+        # so it would unfairly win this max() against aggregators that net out fees.
+        # Prefer real quotes; fall back to Wormhole only when it's the sole route.
+        # (CCTP's 1:1 is genuine — native USDC, zero fee — so it stays in the race.)
+        ranked = [q for q in quotes if q.provider != "wormhole"] or quotes
+        best = max(ranked, key=lambda q: q.to_amount_human)
         if len(quotes) > 1:
             logger.info(
                 f"Best quote: {best.provider} ({best.to_amount_human:.6f} {best.to_token}) "
