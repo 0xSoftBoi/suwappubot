@@ -19,7 +19,7 @@ from bot.config.chains import get_chain_by_name
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapStatus, SwapTransaction
 from bot.models.copy_trading import (
-    TraderProfile, CopyFollow, CopyTrade, CopyNotification, TraderTrade
+    TraderProfile, CopyFollow, CopyTrade, CopyNotification, TraderTrade, TraderPosition
 )
 from bot.services.points_service import points_service, POINT_ACTIONS
 from database.db import get_session
@@ -283,7 +283,67 @@ class CopyService:
             ]
     
     # ==================== Trade Recording & Notifications ====================
-    
+
+    @staticmethod
+    def _settle_pnl(session, trader_id: int, swap, amount_usd: float):
+        """Average-cost realized PnL for one swap.
+
+        Reduces the from_token position (realizing PnL = proceeds - avg_cost*qty_sold)
+        and adds the to_token to cost basis. Returns (pnl_usd, pnl_percent, is_winning)
+        for the realized sell side. A pure buy (USDC->X) realizes ~0, which is correct.
+        Tokens are keyed by (symbol, chain) — the best identity the stored data offers.
+        """
+        def _f(x):
+            try:
+                return float(x)
+            except (TypeError, ValueError):
+                return 0.0
+
+        from_qty = _f(swap.from_amount)
+        from_usd = _f(swap.from_amount_usd) or amount_usd
+        to_qty = _f(swap.to_amount)
+        to_usd = _f(swap.to_amount_usd) or amount_usd
+
+        pnl = 0.0
+        cost_of_sold = 0.0
+
+        # SELL side: realize PnL on the disposed (from) token against tracked basis.
+        if from_qty > 0:
+            pos = session.query(TraderPosition).filter(
+                TraderPosition.trader_id == trader_id,
+                TraderPosition.token == swap.from_token,
+                TraderPosition.chain == swap.from_chain,
+            ).first()
+            if pos and pos.qty > 0:
+                avg_cost = pos.cost_usd / pos.qty
+                qty_sold = min(from_qty, pos.qty)
+                cost_of_sold = avg_cost * qty_sold
+                proceeds = from_usd * (qty_sold / from_qty)  # tracked portion only
+                pnl = proceeds - cost_of_sold
+                pos.qty -= qty_sold
+                pos.cost_usd = max(0.0, pos.cost_usd - cost_of_sold)
+                if pos.qty <= 1e-12:
+                    session.delete(pos)
+
+        # BUY side: add the acquired (to) token to cost basis.
+        if to_qty > 0:
+            pos = session.query(TraderPosition).filter(
+                TraderPosition.trader_id == trader_id,
+                TraderPosition.token == swap.to_token,
+                TraderPosition.chain == swap.to_chain,
+            ).first()
+            if not pos:
+                pos = TraderPosition(
+                    trader_id=trader_id, token=swap.to_token,
+                    chain=swap.to_chain, qty=0.0, cost_usd=0.0,
+                )
+                session.add(pos)
+            pos.qty += to_qty
+            pos.cost_usd += to_usd
+
+        pnl_pct = (pnl / cost_of_sold * 100.0) if cost_of_sold > 0 else 0.0
+        return pnl, pnl_pct, (pnl > 0)
+
     async def record_trade(
         self,
         trader_id: int,
@@ -323,12 +383,19 @@ class CopyService:
                     amount_usd=amount_usd,
                 )
                 session.add(trader_trade)
-                
-                # Update stats (assume neutral PnL until closed)
-                profile.total_trades += 1
-                profile.total_volume_usd += amount_usd
-                profile.avg_trade_size_usd = profile.total_volume_usd / profile.total_trades
-        
+
+                # Realized PnL via average-cost basis: the sell side realizes PnL
+                # against the trader's tracked cost; the buy side adds to it.
+                pnl, pnl_pct, is_win = self._settle_pnl(session, trader_id, swap, amount_usd)
+                trader_trade.pnl_usd = pnl
+                trader_trade.pnl_percent = pnl_pct
+                trader_trade.is_winning = is_win
+                if pnl != 0.0:
+                    trader_trade.is_closed = True
+                    trader_trade.closed_at = datetime.utcnow()
+                # update_stats rolls up total_trades/volume/pnl/win_rate/best/worst/rank.
+                profile.update_stats(pnl, amount_usd, is_win)
+
         # Award points to trader for potential copy trades
         if created_trader_trade and profile.is_public:
             points_service.award_points(
