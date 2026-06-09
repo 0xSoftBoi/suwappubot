@@ -286,10 +286,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️ Internal API client failed to init: {e}")
 
+    # Start the per-user WhatsApp message queue (ordered processing).
+    try:
+        await _wa_queue.start()
+    except Exception as e:
+        logger.warning(f"⚠️ WhatsApp message queue failed to start: {e}")
+
     yield
 
     # --- Shutdown ---
     logger.info("🛑 Shutting down Suwappu Monolith...")
+    try:
+        await _wa_queue.stop()
+    except Exception as e:
+        logger.warning(f"WhatsApp queue stop failed: {e}")
     await redis_cache.close()
 
     # Stop Discord bot
@@ -1982,6 +1992,35 @@ from fastapi import Request
 from fastapi.responses import PlainTextResponse
 from bot.services.whatsapp_service import whatsapp_service
 from bot.services.unified_bot_service import unified_bot_service
+from bot.services.whatsapp_voice import voice_handler
+from bot.services.whatsapp_queue import WhatsAppMessageQueue
+
+
+async def _wa_dispatch(message):
+    """Queue handler: transcribe voice notes, then route through the flow router."""
+    from bot.services.whatsapp_router import whatsapp_router
+
+    if message.message_type == "audio" and message.audio_id:
+        transcript = None
+        try:
+            transcript = await voice_handler.handle_voice(message)
+        except Exception as e:
+            logger.warning(f"WhatsApp voice transcription failed: {e}")
+        if transcript:
+            message.text = transcript
+            message.message_type = "text"
+        else:
+            await whatsapp_service.send_text_message(
+                message.from_number,
+                "🎤 Sorry, I couldn't understand that voice note — please type your request.",
+            )
+            return
+    await whatsapp_router.route(message)
+
+
+# Per-user ordered message queue (prevents burst race conditions on conversation
+# state). Started/stopped in the app lifespan.
+_wa_queue = WhatsAppMessageQueue(handler=_wa_dispatch)
 
 
 @app.get("/webhook")
@@ -2001,7 +2040,19 @@ async def verify_whatsapp_webhook(request: Request):
 @app.post("/webhook")
 async def receive_whatsapp_message(request: Request):
     """Handle incoming WhatsApp messages."""
-    payload = await request.json()
+    # Read the RAW body first — the signature is computed over these exact bytes.
+    raw_body = await request.body()
+
+    # Verify Meta's X-Hub-Signature-256 before trusting any of the payload.
+    # Fail-closed when WHATSAPP_APP_SECRET is set; skipped (with a warning) if not.
+    if not whatsapp_service.verify_signature(raw_body, request.headers.get("X-Hub-Signature-256")):
+        logger.warning("Rejected WhatsApp webhook: invalid X-Hub-Signature-256")
+        raise HTTPException(status_code=403, detail="Invalid signature")
+
+    try:
+        payload = json.loads(raw_body)
+    except Exception:
+        return {"status": "bad_payload"}
 
     # Parse the incoming message
     message = whatsapp_service.parse_webhook_message(payload)
@@ -2022,10 +2073,16 @@ async def receive_whatsapp_message(request: Request):
     # Mark as read
     await whatsapp_service.mark_as_read(message.message_id)
 
-    # Route through flow-aware router (activates swap_flow, wallet_flow, etc.)
-    from bot.services.whatsapp_router import whatsapp_router
-
-    await whatsapp_router.route(message)
+    # Hand off to the per-user ordered queue (voice transcription + flow routing
+    # happen in the consumer). Fall back to direct dispatch if the queue is full
+    # or errors, so a queue problem never drops a message.
+    try:
+        queued = await _wa_queue.enqueue(message)
+    except Exception as e:
+        logger.warning(f"WhatsApp enqueue failed, dispatching directly: {e}")
+        queued = False
+    if not queued:
+        await _wa_dispatch(message)
 
     return {"status": "ok"}
 
