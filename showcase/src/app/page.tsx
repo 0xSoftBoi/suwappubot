@@ -1,5 +1,6 @@
 import Analytics from '@/components/Analytics';
 import StructuredData from '@/components/StructuredData';
+import { TELEGRAM_URL } from '@/lib/links';
 
 const TERMINAL_URL = 'https://terminal.suwappu.bot';
 
@@ -130,7 +131,15 @@ function Hero() {
           bot commands, and route-aware swaps.
         </p>
         <div className="summer-actions">
-          <a className="summer-button summer-button--primary" href={TERMINAL_URL}>
+          <a
+            className="summer-button summer-button--primary"
+            href={TELEGRAM_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open Telegram Bot
+          </a>
+          <a className="summer-button summer-button--secondary" href={TERMINAL_URL}>
             Open Terminal
           </a>
           <a className="summer-button summer-button--secondary" href="/docs">
@@ -175,7 +184,10 @@ export default function Home() {
             <a href="#bot">Bot</a>
             <a href="/docs">Docs</a>
           </nav>
-          <a className="summer-nav__cta" href={TERMINAL_URL}>
+          <a className="summer-nav__cta" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
+            Open Bot
+          </a>
+          <a className="summer-nav__cta summer-nav__cta--ghost" href={TERMINAL_URL}>
             Open Terminal
           </a>
         </header>
