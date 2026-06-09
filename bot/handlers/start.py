@@ -39,7 +39,7 @@ def _build_main_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("💰 Balance", callback_data="balance"),
         ],
         [
-            InlineKeyboardButton("📊 Portfolio", callback_data="portfolio"),
+            InlineKeyboardButton("💼 Positions", callback_data="positions_menu"),
             InlineKeyboardButton("📜 History", callback_data="history_menu"),
         ],
         [

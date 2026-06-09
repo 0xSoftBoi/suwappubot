@@ -1549,6 +1549,14 @@ class SwapEngine:
                 except Exception as e:
                     logger.warning(f"Copy-trading hook failed for swap {swap_id}: {e}")
 
+                # Update the user's average-cost spot basis for the Positions /
+                # PnL view. Best-effort — the swap already succeeded, so a
+                # settlement error must never propagate.
+                try:
+                    await self._settle_user_position(user_id, quote)
+                except Exception as e:
+                    logger.warning(f"User-position settlement failed for swap {swap_id}: {e}")
+
                 # Clean up local references
                 wallet_encrypted_key = None
 
@@ -2885,6 +2893,97 @@ class SwapEngine:
 
         logger.info(f"KyberSwap swap tx: {tx_hash.hex()}")
         return tx_hash.hex()
+
+    async def _estimate_swap_usd(self, quote: SwapQuote) -> float:
+        """Best-effort USD value of a swap. Prefer a stablecoin leg (exact);
+        otherwise price the to-token, then the from-token. Returns 0.0 if it
+        can't be valued (caller then skips settlement rather than record garbage).
+        """
+        from bot.config.tokens import get_token_by_symbol
+        from bot.services.price_service import price_service
+
+        def _is_stable(sym: str) -> bool:
+            cfg = get_token_by_symbol(sym)
+            return bool(cfg and getattr(cfg, "is_stablecoin", False))
+
+        from_qty = float(quote.from_amount_human or 0)
+        to_qty = float(quote.to_amount_human or 0)
+
+        if _is_stable(quote.to_token) and to_qty > 0:
+            return to_qty
+        if _is_stable(quote.from_token) and from_qty > 0:
+            return from_qty
+        for sym, qty in ((quote.to_token, to_qty), (quote.from_token, from_qty)):
+            if qty <= 0:
+                continue
+            try:
+                price = await price_service.get_price(sym)
+            except Exception:
+                price = None
+            if price:
+                return float(price) * qty
+        return 0.0
+
+    async def _settle_user_position(self, user_id: int, quote: SwapQuote) -> None:
+        """Update the user's average-cost spot basis after a successful swap.
+
+        A swap disposes from_token (realize PnL vs avg cost) and acquires
+        to_token (add to cost basis); both legs share one USD value (value is
+        conserved across a swap). Mirrors the copy-trading _settle_pnl. Keyed by
+        (user, token, chain) so cross-chain swaps settle each leg on its chain.
+        """
+        from bot.models.positions import UserPosition
+
+        swap_usd = await self._estimate_swap_usd(quote)
+        if swap_usd <= 0:
+            return
+
+        from_token, from_chain = quote.from_token, quote.from_chain
+        to_token, to_chain = quote.to_token, quote.to_chain
+        from_qty = float(quote.from_amount_human or 0)
+        to_qty = float(quote.to_amount_human or 0)
+
+        def _work():
+            with get_session() as session:
+                # SELL leg: realize PnL on the disposed token vs tracked basis.
+                if from_qty > 0:
+                    pos = session.query(UserPosition).filter(
+                        UserPosition.user_id == user_id,
+                        UserPosition.token == from_token,
+                        UserPosition.chain == from_chain,
+                    ).first()
+                    if pos and pos.qty > 0:
+                        avg_cost = pos.cost_usd / pos.qty
+                        qty_sold = min(from_qty, pos.qty)
+                        cost_of_sold = avg_cost * qty_sold
+                        proceeds = swap_usd * (qty_sold / from_qty)  # tracked portion
+                        pos.realized_pnl_usd = (pos.realized_pnl_usd or 0.0) + (proceeds - cost_of_sold)
+                        pos.qty -= qty_sold
+                        pos.cost_usd = max(0.0, pos.cost_usd - cost_of_sold)
+                        if pos.qty <= 1e-12:
+                            # Keep the row (preserves realized PnL) but zero the holding.
+                            pos.qty = 0.0
+                            pos.cost_usd = 0.0
+
+                # BUY leg: add the acquired token to cost basis.
+                if to_qty > 0:
+                    pos = session.query(UserPosition).filter(
+                        UserPosition.user_id == user_id,
+                        UserPosition.token == to_token,
+                        UserPosition.chain == to_chain,
+                    ).first()
+                    if not pos:
+                        pos = UserPosition(
+                            user_id=user_id, token=to_token, chain=to_chain,
+                            qty=0.0, cost_usd=0.0, realized_pnl_usd=0.0,
+                        )
+                        session.add(pos)
+                    pos.qty += to_qty
+                    pos.cost_usd += swap_usd
+
+                session.commit()
+
+        await run_in_db(_work)
 
     async def check_status(self, swap_tx: SwapTransaction) -> SwapTransaction:
         """

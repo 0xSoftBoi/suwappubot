@@ -127,6 +127,8 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         # Points/XP and Copy Trading models
         from bot.models.points import UserPoints, PointTransaction, PointRedemption, Milestone, UserMilestone, Reward
         from bot.models.copy_trading import TraderProfile, CopyFollow, CopyTrade, CopyNotification, TraderTrade, TraderPosition
+        # User spot-position cost basis (unified Positions / PnL view)
+        from bot.models.positions import UserPosition
         # Token Sniping models
         from bot.models.snipe import SnipeOrder, SnipeConfig, SnipeHistory, WatchedToken, AutoSnipeRule
         # OAuth models

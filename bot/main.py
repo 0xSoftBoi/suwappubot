@@ -21,6 +21,11 @@ from bot.handlers.wallet import wallet_handler, wallet_menu_callback, wallet_cre
 from bot.handlers.swap import swap_conversation_handler, check_swap_status
 from bot.handlers.history import history_handler, history_callback, history_menu_callback, history_page_handler, share_pnl_handler
 from bot.handlers.portfolio import portfolio_handler, portfolio_callback
+from bot.handlers.positions import (
+    positions_command_handler,
+    positions_menu_callback_handler,
+    positions_refresh_callback_handler,
+)
 from bot.handlers.gas import gas_handler, gas_callback, gas_menu_callback
 from bot.handlers.favorites import favorites_handler, favorites_callback, use_favorite_callback, delete_favorite_callback
 from bot.handlers.settings import (
@@ -153,6 +158,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(quickswap_handler)  # /s shortcut
     application.add_handler(history_handler)     # /hx
     application.add_handler(portfolio_handler)   # /p
+    application.add_handler(positions_command_handler)          # /pos
+    application.add_handler(positions_menu_callback_handler)    # 💼 Positions button
+    application.add_handler(positions_refresh_callback_handler) # Refresh
     application.add_handler(gas_handler)         # /g
     application.add_handler(favorites_handler)   # /f
     application.add_handler(settings_handler)    # /set
@@ -379,6 +387,7 @@ async def post_init(application) -> None:
             BotCommand("w", "Wallet management"),
             BotCommand("b", "Check balances"),
             BotCommand("p", "Portfolio overview"),
+            BotCommand("pos", "Positions & PnL (spot + perps + predictions)"),
             BotCommand("a", "Price alerts"),
             BotCommand("o", "Limit orders"),
             BotCommand("dca", "Dollar-cost averaging"),
