@@ -80,12 +80,17 @@ export function SwapPanel() {
     )
   }
 
-  // Flipping from/to is equivalent to toggling buy/sell, since both derive from
-  // the same pair + side. This keeps the swap direction and the chart in sync.
-  const flipTokens = () => {
-    setSide(side === 'buy' ? 'sell' : 'buy')
+  // Buy, Sell and the flip arrow now all perform the same operation: from/to
+  // derive from `side`, so switching side swaps the trade direction. Clear the
+  // amount on a real side change so a value typed for the old `from` token isn't
+  // silently re-quoted against the new one. Guard re-clicks of the active side.
+  const changeSide = (next: 'buy' | 'sell') => {
+    if (next === side) return
+    setSide(next)
     setAmount('')
   }
+
+  const flipTokens = () => changeSide(side === 'buy' ? 'sell' : 'buy')
 
   if (activeTab === 'limit') {
     return (
@@ -110,7 +115,7 @@ export function SwapPanel() {
       {/* Buy/Sell toggle */}
       <div className="grid grid-cols-2 gap-1">
         <button
-          onClick={() => setSide('buy')}
+          onClick={() => changeSide('buy')}
           className={`py-2 rounded text-sm font-semibold transition-colors
             ${side === 'buy'
               ? 'bg-bull/20 text-bull'
@@ -120,7 +125,7 @@ export function SwapPanel() {
           Buy
         </button>
         <button
-          onClick={() => setSide('sell')}
+          onClick={() => changeSide('sell')}
           className={`py-2 rounded text-sm font-semibold transition-colors
             ${side === 'sell'
               ? 'bg-bear/20 text-bear'
