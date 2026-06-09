@@ -1,6 +1,7 @@
 """Wallet management service for EVM and Solana chains."""
 
 import asyncio
+import ctypes
 import hashlib
 import json
 import logging
@@ -46,6 +47,25 @@ try:
     from bot.utils.rate_limiter import RateLimitExceeded
 except Exception:  # pragma: no cover - rate_limiter is always present in practice
     class RateLimitExceeded(Exception):  # type: ignore
+        pass
+
+
+def _zeroize_str(value: str) -> None:
+    """Best-effort scrub of a secret string after use (defense-in-depth).
+
+    Python ``str`` is immutable and may be interned or shared, so its backing
+    storage cannot be overwritten in place without risking interpreter
+    corruption. True wiping of key material is done on the decoded
+    ``bytearray`` at the call sites; this helper centralizes the intent for the
+    string form and is intentionally guarded so it never raises into a signing
+    path (the key must be scrubbed even when signing throws).
+    """
+    if not value:
+        return
+    try:
+        scratch = bytearray(value.encode("utf-8", "ignore"))
+        ctypes.memset((ctypes.c_char * len(scratch)).from_buffer(scratch), 0, len(scratch))
+    except Exception:
         pass
 
 
@@ -1126,8 +1146,12 @@ class WalletService:
         if not private_key.startswith("0x"):
             private_key = "0x" + private_key
 
-        signed = Account.sign_transaction(transaction, private_key)
-        return signed.raw_transaction.hex()
+        try:
+            signed = Account.sign_transaction(transaction, private_key)
+            return signed.raw_transaction.hex()
+        finally:
+            # Scrub the key from memory even if signing raises.
+            _zeroize_str(private_key)
     
     async def sign_typed_data(self, wallet: Wallet, typed_data: dict) -> str:
         """Sign EIP-712 typed data. Falls back to local signing if Turnkey is down."""

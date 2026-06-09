@@ -82,7 +82,6 @@ def test_get_quote_raises_when_all_providers_fail(monkeypatch):
                 from_token="USDC",
                 to_token="WETH",
                 amount=1.0,
-                amount_raw="1000000",
                 from_address="0x" + "a" * 40,
             )
         )
@@ -99,14 +98,16 @@ def test_get_quote_returns_best_when_some_providers_fail(monkeypatch):
         return _make_quote("socket", to_amount_human=0.95)
 
     async def _high(*args, **kwargs):
-        return _make_quote("across", to_amount_human=1.02)
+        return _make_quote("lifi", to_amount_human=1.02)
 
-    # Most fail, two succeed with different prices
-    for method in ["_get_lifi_quote", "_get_cctp_quote", "_get_ccip_quote", "_get_cow_quote"]:
+    # socket and lifi both genuinely race for an ethereum->base USDC->WETH swap
+    # (across/cctp/ccip require same-token routes, so they aren't in this race).
+    # The higher-priced quote must win.
+    for method in ["_get_cctp_quote", "_get_ccip_quote", "_get_cow_quote",
+                   "_get_across_quote", "_get_wormhole_quote"]:
         monkeypatch.setattr(engine, method, _fail)
     monkeypatch.setattr(engine, "_get_socket_quote", _low)
-    monkeypatch.setattr(engine, "_get_across_quote", _high)
-    monkeypatch.setattr(engine, "_get_wormhole_quote", _fail)
+    monkeypatch.setattr(engine, "_get_lifi_quote", _high)
 
     result = asyncio.run(
         engine.get_quote(
@@ -115,13 +116,12 @@ def test_get_quote_returns_best_when_some_providers_fail(monkeypatch):
             from_token="USDC",
             to_token="WETH",
             amount=1.0,
-            amount_raw="1000000",
             from_address="0x" + "a" * 40,
         )
     )
     # Best price wins
     assert result.to_amount_human == 1.02
-    assert result.provider == "across"
+    assert result.provider == "lifi"
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +140,6 @@ def test_get_quote_raises_for_tron_cross_chain():
                 from_token="USDT",
                 to_token="USDC",
                 amount=1.0,
-                amount_raw="1000000",
                 from_address="T" + "x" * 33,
             )
         )
