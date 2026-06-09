@@ -18,6 +18,7 @@ import pytest  # noqa: E402
 from database.db import get_session  # noqa: E402
 from bot.models.user import User, Wallet  # noqa: E402
 from bot.services.wallet import WalletService  # noqa: E402
+from bot.config.settings import settings as app_settings  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -100,8 +101,7 @@ def test_save_wallet_stores_encrypted_not_plaintext(tmp_db, monkeypatch):
         lambda pk, key: "ENCRYPTED_SENTINEL",
     )
     monkeypatch.setattr(
-        "bot.config.settings.settings.wallet_encryption_scheme",
-        "legacy_fernet_v1",
+        app_settings, "wallet_encryption_scheme", "legacy_fernet_v1"
     )
     with get_session() as session:
         _make_user(session)
@@ -121,8 +121,7 @@ def test_save_wallet_unsets_other_defaults_for_same_chain(tmp_db, monkeypatch):
         lambda pk, key: "ENCRYPTED",
     )
     monkeypatch.setattr(
-        "bot.config.settings.settings.wallet_encryption_scheme",
-        "legacy_fernet_v1",
+        app_settings, "wallet_encryption_scheme", "legacy_fernet_v1"
     )
     with get_session() as session:
         _make_user(session)

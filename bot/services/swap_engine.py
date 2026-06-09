@@ -1184,6 +1184,10 @@ class SwapEngine:
                 if existing:
                     return existing
 
+            # Validate quote freshness first — reject a stale quote before doing
+            # any DB work or moving funds (fail-fast).
+            quote_validator.validate_quote_freshness(quote)
+
             # Get wallet data within session
             def _get_wallet():
                 with get_session() as session:
@@ -1212,10 +1216,7 @@ class SwapEngine:
             wallet_address = wallet["address"]
             wallet_chain_type = wallet["chain_type"]
             wallet_encrypted_key = wallet["encrypted_private_key"]
-            
-            # Validate quote freshness
-            quote_validator.validate_quote_freshness(quote)
-            
+
             # Validate balance
             await quote_validator.validate_balance(
                 wallet_id=wallet_id,

@@ -82,7 +82,6 @@ def test_get_quote_raises_when_all_providers_fail(monkeypatch):
                 from_token="USDC",
                 to_token="WETH",
                 amount=1.0,
-                amount_raw="1000000",
                 from_address="0x" + "a" * 40,
             )
         )
@@ -115,7 +114,6 @@ def test_get_quote_returns_best_when_some_providers_fail(monkeypatch):
             from_token="USDC",
             to_token="WETH",
             amount=1.0,
-            amount_raw="1000000",
             from_address="0x" + "a" * 40,
         )
     )
@@ -140,7 +138,6 @@ def test_get_quote_raises_for_tron_cross_chain():
                 from_token="USDT",
                 to_token="USDC",
                 amount=1.0,
-                amount_raw="1000000",
                 from_address="T" + "x" * 33,
             )
         )
