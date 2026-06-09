@@ -186,6 +186,16 @@ async def positions_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await update.effective_message.reply_text("❌ Please use /start first.")
             return
         user_id = db_user.id
+        needs_backfill = db_user.positions_backfilled_at is None
+
+    # One-time: seed spot cost-basis from swap history so existing holdings show
+    # immediately instead of building up from the next swap. Best-effort.
+    if needs_backfill:
+        try:
+            from bot.services.positions_service import backfill_user_positions
+            await backfill_user_positions(user_id)
+        except Exception as e:
+            logger.warning(f"Positions backfill failed for {user_id}: {e}")
 
     try:
         text = await _build_positions(user_id)
