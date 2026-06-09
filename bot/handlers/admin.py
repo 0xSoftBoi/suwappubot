@@ -139,7 +139,7 @@ async def _check_external_apis() -> dict:
     # Check Jupiter
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get("https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000", timeout=5) as resp:
+            async with session.get("https://lite-api.jup.ag/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000", timeout=5) as resp:
                 results["Jupiter"] = {"ok": resp.status == 200}
     except Exception as e:
         results["Jupiter"] = {"ok": False, "error": str(e)[:50]}

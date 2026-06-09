@@ -3,7 +3,7 @@ import { ValidationError } from '../errors'
 import { logger } from '../lib/logger'
 
 // Jupiter API base URL
-const JUPITER_API_BASE = 'https://quote-api.jup.ag/v6'
+const JUPITER_API_BASE = 'https://lite-api.jup.ag/swap/v1'
 
 // Solana token addresses
 export const SOLANA_TOKENS: Record<string, { address: string; decimals: number; name: string }> = {

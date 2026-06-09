@@ -10,7 +10,9 @@ from bot.utils.rate_limiter import api_limiter
 from bot.utils.performance import track_time, MetricNames
 
 
-JUPITER_BASE_URL = "https://quote-api.jup.ag/v6"
+# Jupiter retired quote-api.jup.ag/v6 (now NXDOMAIN); the public host is lite-api.jup.ag.
+# /swap/v1 keeps the same /quote, /swap, /swap-instructions request+response shapes as v6.
+JUPITER_BASE_URL = "https://lite-api.jup.ag/swap/v1"
 
 
 @dataclass
@@ -223,17 +225,23 @@ class JupiterAPI:
         Returns:
             Dict of token_id -> price info
         """
-        # Jupiter Price API v2
-        url = "https://price.jup.ag/v6/price"
-        
+        # price.jup.ag/v6 is dead; Price API v3 lives at lite-api.jup.ag/price/v3 and
+        # returns { <mint>: { usdPrice, ... } } (no "data" wrapper, field renamed).
+        # Adapt back to the { <mint>: { price } } shape callers expect.
+        url = "https://lite-api.jup.ag/price/v3"
+
         params = {
             "ids": ",".join(token_ids),
         }
-        
+
         async with aiohttp.ClientSession() as session:
             async with session.get(url, params=params) as response:
                 data = await response.json()
-                return data.get("data", {})
+                return {
+                    mint: {"price": info.get("usdPrice", info.get("price"))}
+                    for mint, info in (data or {}).items()
+                    if isinstance(info, dict)
+                }
     
     async def get_token_list(self) -> list[dict]:
         """Get list of all tradeable tokens on Jupiter."""

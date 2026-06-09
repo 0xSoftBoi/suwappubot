@@ -39,8 +39,8 @@ from database.db import get_session as get_db_session
 logger = logging.getLogger(__name__)
 
 # Jupiter aggregator
-JUPITER_API = "https://quote-api.jup.ag/v6"
-JUPITER_SWAP_API = "https://quote-api.jup.ag/v6/swap"
+JUPITER_API = "https://lite-api.jup.ag/swap/v1"
+JUPITER_SWAP_API = "https://lite-api.jup.ag/swap/v1/swap"
 
 # Compute budget settings for speed
 HIGH_PRIORITY_COMPUTE_UNITS = 200_000

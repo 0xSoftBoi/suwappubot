@@ -80,7 +80,7 @@ class HoneypotDetector:
     def __init__(self):
         self._cache: Dict[str, tuple[HoneypotResult, datetime]] = {}
         self._cache_ttl = 300  # 5 minutes
-        self._jupiter_api = "https://quote-api.jup.ag/v6"
+        self._jupiter_api = "https://lite-api.jup.ag/swap/v1"
 
     async def detect(
         self,
