@@ -50,6 +50,18 @@ export const EnvSchema = Schema.Struct({
 	MPP_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
 	MPP_SWAP_PRICE_USD: Schema.optionalWith(Schema.String, { default: () => '0.001' }),
 
+	// Agent pay-per-call metering (x402 prepaid credits).
+	// Default OFF so deploying this never blocks existing free agents.
+	AGENT_METERING_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	// Address that receives USDC topups. Falls back to FEE_WALLET_EVM in code if unset.
+	AGENT_METERING_COLLECTOR_ADDRESS: Schema.optional(Schema.String),
+	// Network + USDC asset address used in the x402 402 challenge body.
+	AGENT_METERING_NETWORK: Schema.optionalWith(Schema.String, { default: () => 'base' }),
+	// Base mainnet native USDC (0x833589...2913). Override per-network as needed.
+	AGENT_METERING_USDC_ADDRESS: Schema.optionalWith(Schema.String, {
+		default: () => '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+	}),
+
 	// Fee Collection
 	FEE_WALLET_EVM: Schema.optionalWith(Schema.String, {
 		default: () => '0x6456f69215C470e1545Ed6eea4621C136B30D85d',

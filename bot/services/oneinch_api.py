@@ -85,6 +85,27 @@ class OneInchAPI:
         """Get the 1inch chain ID for a chain name."""
         return ONEINCH_CHAIN_IDS.get(chain_name.lower())
 
+    @staticmethod
+    def _fee_params(platform_fee_bps: Optional[int]) -> dict:
+        """Build 1inch partner-fee params, gated on (fee bps AND collector set).
+
+        1inch takes `fee` as a percent number (100 bps -> 1.0) plus a `referrer`
+        wallet. CAVEAT: 1inch rejects fee-on-transfer tokens when fee+referrer
+        are set — that surfaces as an API error, which is caught by the engine's
+        gather(return_exceptions=True), so other providers still win the race.
+        Returns an empty dict when the fee is off (default behavior unchanged).
+        """
+        collector = settings.fee_collector_address
+        if not platform_fee_bps or not collector:
+            return {}
+        fee_percent = int(platform_fee_bps) / 100.0
+        if fee_percent <= 0:
+            return {}
+        return {
+            "fee": fee_percent,
+            "referrer": collector,
+        }
+
     def _get_headers(self) -> dict:
         """Build authenticated headers for the 1inch API."""
         return {
@@ -125,6 +146,7 @@ class OneInchAPI:
         to_token: str,
         amount: str,
         slippage: float = 0.5,
+        platform_fee_bps: Optional[int] = None,
     ) -> OneInchQuote:
         """Get a swap quote from 1inch (price discovery, no tx calldata).
 
@@ -140,6 +162,7 @@ class OneInchAPI:
             "dst": to_token,
             "amount": amount,
             "includeGas": "true",
+            **self._fee_params(platform_fee_bps),
         }
 
         # v6 /quote returns {dstAmount, gas?} — no tx data.
@@ -173,6 +196,7 @@ class OneInchAPI:
         amount: str,
         user_address: str,
         slippage: float = 0.5,
+        platform_fee_bps: Optional[int] = None,
     ) -> OneInchQuote:
         """Get a swap quote WITH transaction calldata for execution.
 
@@ -188,6 +212,7 @@ class OneInchAPI:
             # We run our own ERC20 approval + broadcast (like OKX/Li.Fi), so skip
             # 1inch's on-chain eth_call estimate which would fail pre-approval.
             "disableEstimate": "true",
+            **self._fee_params(platform_fee_bps),
         }
 
         data = await self._request(chain_id, "swap", params)

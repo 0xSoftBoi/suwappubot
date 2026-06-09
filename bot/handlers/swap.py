@@ -736,7 +736,13 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
                 await query.edit_message_text("❌ Invalid wallet selection.")
                 return ConversationHandler.END
             wallet_address = ref_wallet.address
-            
+
+        # Resolve tier first so the SAME rate drives the on-chain fee we send to
+        # the aggregator (platform_fee_bps), the quote we display, and the fee we
+        # record — single source of truth, no drift.
+        user_tier = await x402_service.get_tier(context.user_data["user_id"])
+        platform_fee_bps = fee_service.get_fee_bps(user_tier)
+
         quote = await swap_engine.get_quote(
             from_chain=swap_data["from_chain"],
             to_chain=swap_data["to_chain"],
@@ -744,16 +750,16 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
             to_token=swap_data["to_token"],
             amount=swap_data["amount"],
             from_address=wallet_address,
+            platform_fee_bps=platform_fee_bps,
         )
-        
+
         context.user_data["swap"]["quote"] = quote
         context.user_data["swap"]["attempt_id"] = secrets.token_urlsafe(16)
-        
+
         from_chain_config = get_chain_by_name(swap_data["from_chain"])
         to_chain_config = get_chain_by_name(swap_data["to_chain"])
-        
+
         # Fees info — use tier-specific rate (Option B hybrid pricing)
-        user_tier = await x402_service.get_tier(context.user_data["user_id"])
         fee_amount, fee_percentage, fee_usd = await fee_service.calculate_fee_with_price(
             amount=quote.from_amount_human,
             token_symbol=swap_data["from_token"],

@@ -514,6 +514,27 @@ class Settings(BaseSettings):
     fee_collector_solana: Optional[str] = Field(
         default=None, description="Solana address for fee collection"
     )
+    jupiter_referral_account: Optional[str] = Field(
+        default=None,
+        description=(
+            "Jupiter Referral Program token account (ATA) used as feeAccount on swaps. "
+            "MUST be a referral token account created via the Jupiter Referral Program "
+            "(program 45ruCyfdRkWpRNGEqWzjCiXRHkZs8WXCLQ67Pnpye7Hp) for the fee mint — "
+            "a plain wallet will cause /swap to fail. Leave unset to disable Solana fee "
+            "collection (swaps still work, no platform fee taken)."
+        ),
+    )
+    jupiter_referral_fee_mint: Optional[str] = Field(
+        default=None,
+        description=(
+            "The token mint that jupiter_referral_account holds (e.g. wSOL "
+            "So11111111111111111111111111111111111111112 or USDC). Jupiter requires "
+            "the feeAccount's mint to be the input OR output mint of the swap, so the "
+            "platform fee is only applied when this mint is one side of the pair — "
+            "otherwise the swap proceeds with no fee (rather than failing). Set together "
+            "with jupiter_referral_account."
+        ),
+    )
 
     # Treasury Vault (Aave v3 on Base)
     aave_enabled: bool = Field(
