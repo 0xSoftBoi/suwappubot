@@ -49,6 +49,10 @@ class User(Base):
     recovery_email = Column(String(255), nullable=True)
     recovery_setup_at = Column(DateTime, nullable=True)
 
+    # Set once the user's spot cost-basis has been seeded from swap history
+    # (one-time backfill for the Positions view). Null = not yet backfilled.
+    positions_backfilled_at = Column(DateTime, nullable=True)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
