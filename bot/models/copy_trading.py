@@ -7,7 +7,7 @@ Enables social trading where users can:
 """
 
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, JSON, Index
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, JSON, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from database.db import Base
@@ -243,5 +243,24 @@ class TraderTrade(Base):
     # Index for performance queries
     __table_args__ = (
         Index('ix_trader_trades_trader_date', 'trader_id', 'created_at'),
+    )
+
+
+class TraderPosition(Base):
+    """Average-cost basis per (trader, token, chain), so realized PnL can be
+    computed when a trader sells. A buy adds qty + USD cost; a sell realizes
+    PnL = proceeds - avg_cost * qty_sold and reduces the position."""
+    __tablename__ = "trader_positions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trader_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token = Column(String(20), nullable=False)   # symbol (matches swap.from/to_token)
+    chain = Column(String(20), nullable=False)
+    qty = Column(Float, default=0.0)             # accumulated token quantity (token units)
+    cost_usd = Column(Float, default=0.0)        # total USD cost of the held qty
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint('trader_id', 'token', 'chain', name='uq_trader_position'),
     )
 

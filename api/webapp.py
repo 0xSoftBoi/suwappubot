@@ -1104,6 +1104,26 @@ async def get_terminal_trending_pools(chain: str = "ethereum", limit: int = Quer
     return await _fetch_dex_pools(chain, limit, "trending")
 
 
+def _windowed_trader_pnl(db, trader_user_ids):
+    """Real realized 7d/30d PnL per trader, summed from TraderTrade.pnl_usd (now
+    populated by the copy-trade settlement pipeline). One grouped query, no N+1."""
+    from bot.models.copy_trading import TraderTrade
+    from sqlalchemy import func, case
+    if not trader_user_ids:
+        return {}
+    now = datetime.utcnow()
+    d7, d30 = now - timedelta(days=7), now - timedelta(days=30)
+    rows = db.query(
+        TraderTrade.trader_id,
+        func.sum(case((TraderTrade.created_at >= d7, TraderTrade.pnl_usd), else_=0.0)).label("p7"),
+        func.sum(case((TraderTrade.created_at >= d30, TraderTrade.pnl_usd), else_=0.0)).label("p30"),
+    ).filter(
+        TraderTrade.trader_id.in_(trader_user_ids),
+        TraderTrade.created_at >= d30,
+    ).group_by(TraderTrade.trader_id).all()
+    return {r.trader_id: (float(r.p7 or 0), float(r.p30 or 0)) for r in rows}
+
+
 @router.get("/copy-trading/top-traders")
 async def get_terminal_top_traders(
     timeframe: Optional[str] = None,
@@ -1125,13 +1145,15 @@ async def get_terminal_top_traders(
         TraderProfile.total_trades.desc(),
     ).limit(limit).all()
 
+    pnl_windows = _windowed_trader_pnl(db, [p.user_id for p, _u in profiles])
+
     return [
         {
             "id": str(profile.id),
             "address": _trader_address(db, profile.user_id),
             "name": _trader_name(profile, user),
-            "pnl7d": float(profile.total_pnl_usd or 0),
-            "pnl30d": float(profile.total_pnl_usd or 0),
+            "pnl7d": pnl_windows.get(profile.user_id, (0.0, 0.0))[0],
+            "pnl30d": pnl_windows.get(profile.user_id, (0.0, 0.0))[1],
             "winRate": float(profile.win_rate or 0),
             "followers": int(profile.follower_count or 0),
             "copiers": int(profile.times_copied or 0),
@@ -1163,12 +1185,13 @@ async def get_terminal_trader_profile(
         CopyFollow.is_active == True,
     ).first()
 
+    _pw = _windowed_trader_pnl(db, [profile.user_id]).get(profile.user_id, (0.0, 0.0))
     return {
         "id": str(profile.id),
         "address": _trader_address(db, profile.user_id),
         "name": _trader_name(profile),
-        "pnl7d": float(profile.total_pnl_usd or 0),
-        "pnl30d": float(profile.total_pnl_usd or 0),
+        "pnl7d": _pw[0],
+        "pnl30d": _pw[1],
         "winRate": float(profile.win_rate or 0),
         "followers": int(profile.follower_count or 0),
         "totalTrades": int(profile.total_trades or 0),
