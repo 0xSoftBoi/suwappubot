@@ -1,5 +1,7 @@
 name: Deploy Frontend
 
+# NOTE: the trading terminal moved to Railway (railway.terminal.json, auto-deploys
+# on push to main). Only the showcase site still deploys to ECS via this workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -10,8 +12,6 @@ on:
         type: choice
         options:
           - showcase
-          - terminal
-          - all
 
 permissions:
   contents: read
@@ -27,14 +27,12 @@ env:
   ECS_CLUSTER: suwappu-cluster
   SHOWCASE_REPOSITORY: suwappu-showcase
   SHOWCASE_SERVICE: suwappu-showcase
-  TERMINAL_REPOSITORY: suwappu-terminal
-  TERMINAL_SERVICE: suwappu-terminal-prod
 
 jobs:
   deploy-showcase:
     name: Deploy Showcase
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.target == 'showcase' || github.event.inputs.target == 'all' }}
+    if: ${{ github.event.inputs.target == 'showcase' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -87,61 +85,3 @@ jobs:
           curl -fsS https://suwappu.bot/ >/tmp/showcase.html
           grep -q "Open Terminal" /tmp/showcase.html
           grep -q "summer-page" /tmp/showcase.html
-
-  deploy-terminal:
-    name: Deploy Terminal
-    runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.target == 'terminal' || github.event.inputs.target == 'all' }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and push terminal image
-        env:
-          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-          VITE_WC_PROJECT_ID: ${{ secrets.VITE_WC_PROJECT_ID }}
-        run: |
-          set -euo pipefail
-          IMAGE="${ECR_REGISTRY}/${TERMINAL_REPOSITORY}"
-
-          docker build \
-            --platform linux/amd64 \
-            -f terminal/Dockerfile \
-            --build-arg VITE_API_URL=https://api.suwappu.bot \
-            --build-arg VITE_WC_PROJECT_ID="${VITE_WC_PROJECT_ID:-}" \
-            -t "${IMAGE}:${IMAGE_TAG}" \
-            -t "${IMAGE}:latest" \
-            .
-
-          docker push "${IMAGE}:${IMAGE_TAG}"
-          docker push "${IMAGE}:latest"
-
-      - name: Redeploy terminal service
-        run: |
-          set -euo pipefail
-          aws ecs update-service \
-            --region "${AWS_REGION}" \
-            --cluster "${ECS_CLUSTER}" \
-            --service "${TERMINAL_SERVICE}" \
-            --force-new-deployment
-
-          aws ecs wait services-stable \
-            --region "${AWS_REGION}" \
-            --cluster "${ECS_CLUSTER}" \
-            --services "${TERMINAL_SERVICE}"
-
-      - name: Verify terminal
-        run: |
-          set -euo pipefail
-          curl -fsS https://terminal.suwappu.bot/health
