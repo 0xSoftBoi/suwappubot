@@ -20,6 +20,7 @@ interface AuthContextType {
   signOut: () => void
   clearError: () => void
   isPasskeySupported: boolean
+  isTelegram: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -33,6 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPasskeySupported, setIsPasskeySupported] = useState(false)
+  const [isTelegram, setIsTelegram] = useState(false)
 
   const toBase64Url = (buffer: BufferSource): string => {
     const bytes =
@@ -65,6 +67,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         !!window.PublicKeyCredential &&
         window.isSecureContext,
       )
+
+      // Telegram Mini App: when launched inside Telegram, window.Telegram.WebApp
+      // exposes signed initData. Exchange it for a session JWT silently — no
+      // passkey/OAuth prompt. This runs BEFORE the passkey/cookie resume below.
+      const tgInitData =
+        typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined
+      if (tgInitData) {
+        try {
+          window.Telegram?.WebApp?.ready()
+          window.Telegram?.WebApp?.expand()
+        } catch {
+          // SDK methods are best-effort; ignore if unavailable.
+        }
+        try {
+          const result = await api.telegramAuth(tgInitData)
+          setAuthToken(result.token, result.expiresAt)
+          setUserId(result.userId)
+          setWalletAddress(result.walletAddress)
+          setIsAuthenticated(true)
+          setIsTelegram(true)
+          setIsLoading(false)
+          return
+        } catch (err: unknown) {
+          // Fall through to the standard passkey/cookie flow if Telegram auth fails.
+          setError(errorDetail(err))
+        }
+      }
 
       // OAuth sessions live in an httponly cookie (invisible to document.cookie),
       // so the only authority on whether a session exists is the server. Always
@@ -316,6 +345,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signOut,
         clearError,
         isPasskeySupported,
+        isTelegram,
       }}
     >
       {children}

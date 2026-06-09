@@ -114,6 +114,28 @@ export const api = {
     return { userId: result.userId, walletAddress: result.address }
   },
 
+  // Telegram Mini App login: validate the WebApp initData server-side (HMAC over
+  // the bot token), resolve/create the user + wallet, and mint the same session
+  // JWT the passkey/OAuth flows mint (also sets the httponly suwappu_auth cookie).
+  async telegramAuth(initData: string) {
+    const result = await request<{
+      token: string
+      expiresAt: string
+      user?: { id?: number }
+      address?: string
+    }>('/auth/telegram', {
+      method: 'POST',
+      headers: { 'X-Telegram-Init-Data': initData },
+      body: JSON.stringify({ initData }),
+    })
+    return {
+      token: result.token,
+      expiresAt: result.expiresAt,
+      userId: result.user?.id ?? 0,
+      walletAddress: result.address ?? '',
+    }
+  },
+
   passkeyRegisterInit(displayName?: string) {
     return request<{
       challenge: string
