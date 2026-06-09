@@ -19,6 +19,7 @@ export function Header() {
     clearError,
     error,
     isPasskeySupported,
+    isTelegram,
   } = useAuth()
   const isMobile = useIsMobile()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -46,7 +47,7 @@ export function Header() {
   // Google "one-tap" social login. Shown alongside the passkey button only when
   // signed out — passkey stays the primary option. A single icon button keeps
   // the dense terminal header tidy; hands off to the backend OAuth flow.
-  const googleButton = !isAuthenticated ? (
+  const googleButton = !isAuthenticated && !isTelegram ? (
     <button
       type="button"
       onClick={() => signInWithGoogle()}
@@ -71,7 +72,13 @@ export function Header() {
       onClick={handleAuthClick}
       disabled={isLoading || (!isAuthenticated && !isPasskeySupported)}
       className="terminal-theme-control h-8 rounded-[7px] px-3 text-xs font-semibold text-terminal-text transition-colors hover:text-sakura-700 disabled:cursor-not-allowed disabled:opacity-60"
-      title={isAuthenticated ? 'Sign out' : 'Create a Turnkey passkey wallet'}
+      title={
+        isAuthenticated
+          ? isTelegram
+            ? 'Signed in via Telegram'
+            : 'Sign out'
+          : 'Create a Turnkey passkey wallet'
+      }
     >
       {authLabel}
     </button>

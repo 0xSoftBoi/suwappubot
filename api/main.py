@@ -878,6 +878,122 @@ async def auth_me(
     )
 
 
+# ============ Telegram Mini App (initData) Authentication ============
+
+class TelegramAuthRequest(BaseModel):
+    """Request body for /auth/telegram. initData may also come from the
+    X-Telegram-Init-Data header, so it is optional here."""
+    initData: Optional[str] = None
+
+
+class TelegramAuthResponse(BaseModel):
+    token: str
+    expiresAt: datetime
+    user: Dict[str, Any]
+    address: str
+
+
+@app.post("/auth/telegram", response_model=TelegramAuthResponse, tags=["Auth"])
+async def auth_telegram(
+    request: Request,
+    response: Response,
+    body: Optional[TelegramAuthRequest] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Authenticate a Telegram Mini App user via validated WebApp initData.
+
+    Mirrors the passkey/oauth callback flow: validate the HMAC-signed initData,
+    resolve (or create) the user by their telegram_id reusing the bot's wallet
+    provisioning, mint the same session JWT the other auth flows mint, set the
+    httponly 'suwappu_auth' cookie, and return the token + wallet address.
+    """
+    from api.webapp import validate_telegram_init_data
+
+    # initData may arrive in the JSON body or the X-Telegram-Init-Data header.
+    init_data = (body.initData if body else None) or request.headers.get("X-Telegram-Init-Data")
+    if not init_data:
+        raise HTTPException(status_code=401, detail="Missing Telegram initData")
+
+    tg_user = validate_telegram_init_data(init_data, settings.telegram_bot_token)
+    if not tg_user or not tg_user.get("id"):
+        # Never log the raw initData.
+        logger.warning("auth/telegram: invalid or unverifiable initData")
+        raise HTTPException(status_code=401, detail="Invalid Telegram initData")
+
+    telegram_id = int(tg_user["id"])
+
+    # Resolve or create the user by telegram_id (same shape the bot's /start uses).
+    user = db.query(User).filter(User.telegram_id == telegram_id).first()
+    if user is None:
+        user = User(
+            telegram_id=telegram_id,
+            username=tg_user.get("username"),
+            first_name=tg_user.get("first_name"),
+            last_name=tg_user.get("last_name"),
+            created_at=datetime.utcnow(),
+        )
+        db.add(user)
+    else:
+        user.last_active_at = datetime.now(timezone.utc)
+        if tg_user.get("username"):
+            user.username = tg_user.get("username")
+    # Commit so the user (and its id) is visible to the WalletService session below.
+    db.commit()
+    db.refresh(user)
+
+    # Reuse the user's existing default wallet if present; otherwise provision one
+    # the same way the bot does (WalletService — NOT a duplicated key-gen path).
+    wallet = db.query(Wallet).filter(
+        Wallet.user_id == user.id,
+        Wallet.is_active == True,
+    ).order_by(Wallet.is_default.desc(), Wallet.id.asc()).first()
+
+    wallet_address = wallet.address if wallet else None
+    if not wallet_address:
+        from bot.services.wallet import WalletService
+        wallet_service = WalletService()
+        existing_evm = wallet_service.get_user_wallets(user.id, chain_type="evm")
+        if existing_evm:
+            wallet_address = existing_evm[0].address
+        else:
+            try:
+                new_wallet = await wallet_service.create_wallet(
+                    user_id=user.id,
+                    name="Default EVM",
+                    chain_type="evm",
+                )
+                wallet_address = new_wallet.address
+                with get_session() as s:
+                    w = s.query(Wallet).filter(Wallet.id == new_wallet.id).first()
+                    if w and not w.is_default:
+                        w.is_default = True
+            except Exception as e:
+                logger.error(f"auth/telegram: failed to provision wallet for user {user.id}: {e}")
+
+    # Mint the same session JWT the passkey/oauth flows mint.
+    session_address = wallet_address or f"telegram:{telegram_id}"
+    token = create_jwt_token(address=session_address, user_id=user.id)
+    expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
+
+    response.set_cookie(
+        key="suwappu_auth",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=JWT_EXPIRY_HOURS * 3600,
+        path="/",
+    )
+
+    return TelegramAuthResponse(
+        token=token,
+        expiresAt=expires_at,
+        user={"id": user.id},
+        address=wallet_address or "",
+    )
+
+
 # --- Refresh tokens (H13): short-lived access JWT + rotating refresh token ---
 
 REFRESH_COOKIE = "suwappu_refresh"
