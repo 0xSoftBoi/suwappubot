@@ -14,14 +14,14 @@ logger = logging.getLogger(__name__)
 
 class AlertService:
     """Service for managing price alerts."""
-    
+
     def __init__(self):
         self._running = False
         self._task = None
         self._check_interval = 60  # Check every 60 seconds
-    
+
     # === Alert Management ===
-    
+
     def create_alert(
         self,
         user_id: int,
@@ -41,19 +41,19 @@ class AlertService:
                 target_price=target_price,
                 percent_threshold=percent_threshold,
             )
-            
+
             # For percent change alerts, get current price as base
             if alert_type == AlertType.PERCENT_CHANGE.value:
                 # Will be set on first check
                 alert.base_price = None
-            
+
             session.add(alert)
             session.flush()
             alert_id = alert.id
-        
+
         with get_session() as session:
             return session.query(PriceAlert).filter(PriceAlert.id == alert_id).first()
-    
+
     def get_user_alerts(self, user_id: int, active_only: bool = True) -> List[PriceAlert]:
         """Get all alerts for a user."""
         with get_session() as session:
@@ -61,51 +61,65 @@ class AlertService:
             if active_only:
                 query = query.filter(PriceAlert.is_active == True)
             return query.order_by(PriceAlert.created_at.desc()).all()
-    
+
     def delete_alert(self, alert_id: int, user_id: int) -> bool:
         """Delete an alert."""
         with get_session() as session:
-            alert = session.query(PriceAlert).filter(
-                PriceAlert.id == alert_id,
-                PriceAlert.user_id == user_id,
-            ).first()
-            
+            alert = (
+                session.query(PriceAlert)
+                .filter(
+                    PriceAlert.id == alert_id,
+                    PriceAlert.user_id == user_id,
+                )
+                .first()
+            )
+
             if alert:
                 session.delete(alert)
                 return True
             return False
-    
+
     def toggle_alert(self, alert_id: int, user_id: int) -> Optional[bool]:
         """Toggle alert active status. Returns new status."""
         with get_session() as session:
-            alert = session.query(PriceAlert).filter(
-                PriceAlert.id == alert_id,
-                PriceAlert.user_id == user_id,
-            ).first()
-            
+            alert = (
+                session.query(PriceAlert)
+                .filter(
+                    PriceAlert.id == alert_id,
+                    PriceAlert.user_id == user_id,
+                )
+                .first()
+            )
+
             if alert:
                 alert.is_active = not alert.is_active
                 return alert.is_active
             return None
-    
+
     # === Alert Checking ===
-    
+
     async def check_alerts(self) -> List[dict]:
         """Check all active alerts and return triggered ones.
 
         Refactored: DB reads/writes run in thread pool, async price fetch
         happens outside the DB session to avoid blocking the event loop.
         """
+
         # Phase 1: Read active alerts from DB (non-blocking)
         def _fetch_active():
             with get_session() as session:
-                alerts = session.query(PriceAlert).filter(
-                    PriceAlert.is_active == True,
-                    PriceAlert.is_triggered == False,
-                ).all()
+                alerts = (
+                    session.query(PriceAlert)
+                    .filter(
+                        PriceAlert.is_active == True,
+                        PriceAlert.is_triggered == False,
+                    )
+                    .all()
+                )
                 return [
                     {
-                        "id": a.id, "user_id": a.user_id,
+                        "id": a.id,
+                        "user_id": a.user_id,
                         "token_symbol": a.token_symbol,
                         "alert_type": a.alert_type,
                         "target_price": a.target_price,
@@ -122,7 +136,11 @@ class AlertService:
 
         # Phase 2: Fetch prices (async, non-blocking)
         tokens = list(set(a["token_symbol"] for a in alert_data))
-        prices = await price_service.get_prices(tokens)
+        try:
+            prices = await asyncio.wait_for(price_service.get_prices(tokens), timeout=10)
+        except asyncio.TimeoutError:
+            logger.warning("Alert price fetch timed out; skipping this cycle")
+            return []
 
         # Phase 3: Evaluate triggers
         triggered_updates = []  # (alert_id, triggered_price, deactivate)
@@ -146,18 +164,21 @@ class AlertService:
 
             if should_trigger and current_price > 0:
                 triggered_updates.append((ad["id"], current_price, ad["notify_once"]))
-                triggered_results.append({
-                    "alert_id": ad["id"],
-                    "user_id": ad["user_id"],
-                    "token": ad["token_symbol"],
-                    "alert_type": ad["alert_type"],
-                    "target_price": ad["target_price"],
-                    "current_price": current_price,
-                    "percent_threshold": ad["percent_threshold"],
-                })
+                triggered_results.append(
+                    {
+                        "alert_id": ad["id"],
+                        "user_id": ad["user_id"],
+                        "token": ad["token_symbol"],
+                        "alert_type": ad["alert_type"],
+                        "target_price": ad["target_price"],
+                        "current_price": current_price,
+                        "percent_threshold": ad["percent_threshold"],
+                    }
+                )
 
         # Phase 4: Write trigger updates to DB (non-blocking)
         if triggered_updates:
+
             def _mark_triggered():
                 with get_session() as session:
                     for aid, tprice, notify_once in triggered_updates:
@@ -168,22 +189,23 @@ class AlertService:
                             alert.triggered_price = tprice
                             if notify_once:
                                 alert.is_active = False
+
             await run_in_db(_mark_triggered)
 
         return triggered_results
-    
+
     # === Background Task ===
-    
+
     async def start(self, bot=None):
         """Start the alert checking background task."""
         if self._running:
             return
-        
+
         self._running = True
         self._bot = bot
         self._task = asyncio.create_task(self._alert_loop())
         logger.info("Price alert service started")
-    
+
     async def stop(self):
         """Stop the alert checking task."""
         self._running = False
@@ -194,27 +216,31 @@ class AlertService:
             except asyncio.CancelledError:
                 pass
         logger.info("Price alert service stopped")
-    
+
     async def _alert_loop(self):
         """Main alert checking loop."""
         while self._running:
             try:
                 triggered = await self.check_alerts()
-                
+
                 # Send notifications
                 for alert in triggered:
-                    await self._send_notification(alert)
-                    
+                    try:
+                        await self._send_notification(alert)
+                    except Exception as e:
+                        logger.error(f"Alert notification loop item failed: {e}")
+                        continue
+
             except Exception as e:
                 logger.error(f"Alert check error: {e}")
-            
+
             await asyncio.sleep(self._check_interval)
-    
+
     async def _send_notification(self, alert: dict):
         """Send alert notification to user."""
         if not self._bot:
             return
-        
+
         try:
             if alert["alert_type"] == AlertType.PRICE_ABOVE.value:
                 text = (
@@ -234,9 +260,10 @@ class AlertService:
                     f"📊 {alert['token']} moved {alert['percent_threshold']:.1f}%\n"
                     f"Current: ${alert['current_price']:.4f}"
                 )
-            
+
             # Get user's telegram_id
             from bot.models.user import User
+
             with get_session() as session:
                 user = session.query(User).filter(User.id == alert["user_id"]).first()
                 if user:
@@ -251,4 +278,3 @@ class AlertService:
 
 # Global instance
 alert_service = AlertService()
-

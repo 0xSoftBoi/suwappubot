@@ -7,131 +7,120 @@ import random
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
-    
+
     # Telegram
     telegram_bot_token: str = Field(..., description="Telegram bot token from BotFather")
-    use_webhook: bool = Field(default=False, description="Use webhooks instead of polling (required for multiple replicas)")
-    webhook_url: Optional[str] = Field(default=None, description="Public URL for Telegram webhook (e.g., https://api.example.com/telegram/webhook)")
-    webhook_secret_token: Optional[str] = Field(default=None, description="Secret token for webhook verification")
+    use_webhook: bool = Field(
+        default=False,
+        description="Use webhooks instead of polling (required for multiple replicas)",
+    )
+    webhook_url: Optional[str] = Field(
+        default=None,
+        description="Public URL for Telegram webhook (e.g., https://api.example.com/telegram/webhook)",
+    )
+    webhook_secret_token: Optional[str] = Field(
+        default=None, description="Secret token for webhook verification"
+    )
 
     # Background Services Control
-    enable_background_services: bool = Field(default=True, description="Enable background services (fee sweeper, alerts, orders, tx poller, balance refresher). Set to false for API-only mode.")
+    enable_background_services: bool = Field(
+        default=True,
+        description="Enable background services (fee sweeper, alerts, orders, tx poller, balance refresher). Set to false for API-only mode.",
+    )
 
     # Database
     database_url: str = Field(default="sqlite:///bot.db", description="Database connection URL")
-    
+
     # Encryption
-    encryption_key: str = Field(..., description="32-byte key for encrypting private keys (legacy/fallback)")
-    
+    encryption_key: str = Field(
+        ..., description="32-byte key for encrypting private keys (legacy/fallback)"
+    )
+
     # KMS Wallet Encryption (envelope encryption)
     kms_provider: str = Field(
         default="aws",
-        description="KMS provider: 'aws', 'gcp', 'local' (env-var KEK, production-acceptable for the fallback/backup + OAuth tier), or 'dev' (local mock — NOT for production)"
+        description="KMS provider: 'aws', 'gcp', 'local' (env-var KEK, production-acceptable for the fallback/backup + OAuth tier), or 'dev' (local mock — NOT for production)",
     )
     wallet_master_kek: Optional[str] = Field(
         default=None,
-        description="High-entropy base64/hex KEK used by the 'local' KMS provider to wrap per-wallet DEKs. Distinct from encryption_key. Generate: python3 -c \"import os,base64;print(base64.b64encode(os.urandom(32)).decode())\""
+        description="High-entropy base64/hex KEK used by the 'local' KMS provider to wrap per-wallet DEKs. Distinct from encryption_key. Generate: python3 -c \"import os,base64;print(base64.b64encode(os.urandom(32)).decode())\"",
     )
     kms_key_id: Optional[str] = Field(
-        default=None,
-        description="KMS key ID/ARN (required for aws/gcp providers)"
+        default=None, description="KMS key ID/ARN (required for aws/gcp providers)"
     )
     kms_region: Optional[str] = Field(
-        default=None,
-        description="AWS region for KMS (e.g., 'us-east-1')"
+        default=None, description="AWS region for KMS (e.g., 'us-east-1')"
     )
-    gcp_project_id: Optional[str] = Field(
-        default=None,
-        description="GCP project ID for KMS"
-    )
+    gcp_project_id: Optional[str] = Field(default=None, description="GCP project ID for KMS")
     gcp_kms_location: str = Field(
-        default="global",
-        description="GCP KMS location (e.g., 'global', 'us-east1')"
+        default="global", description="GCP KMS location (e.g., 'global', 'us-east1')"
     )
-    gcp_kms_keyring: Optional[str] = Field(
-        default=None,
-        description="GCP KMS keyring name"
-    )
+    gcp_kms_keyring: Optional[str] = Field(default=None, description="GCP KMS keyring name")
     wallet_encryption_scheme: str = Field(
         default="kms_aesgcm_v2",
-        description="Default encryption scheme for new wallets: 'legacy_fernet_v1' or 'kms_aesgcm_v2'"
+        description="Default encryption scheme for new wallets: 'legacy_fernet_v1' or 'kms_aesgcm_v2'",
     )
     auto_migrate_legacy_wallets: bool = Field(
-        default=True,
-        description="Auto-migrate legacy wallets to v2 on first use"
+        default=True, description="Auto-migrate legacy wallets to v2 on first use"
     )
-    
+
     # Turnkey Wallet Infrastructure
     wallet_provider: str = Field(
         default="local",
-        description="Wallet provider: 'local' (encrypted in DB) or 'turnkey' (TEE-backed)"
+        description="Wallet provider: 'local' (encrypted in DB) or 'turnkey' (TEE-backed)",
     )
     turnkey_organization_id: Optional[str] = Field(
-        default=None,
-        description="Turnkey parent organization ID"
+        default=None, description="Turnkey parent organization ID"
     )
     turnkey_api_public_key: Optional[str] = Field(
-        default=None,
-        description="Turnkey API keypair public key (hex-encoded)"
+        default=None, description="Turnkey API keypair public key (hex-encoded)"
     )
     turnkey_api_private_key: Optional[str] = Field(
-        default=None,
-        description="Turnkey API keypair private key (hex-encoded)"
+        default=None, description="Turnkey API keypair private key (hex-encoded)"
     )
     # Internal API (service-to-service between TS API and Python)
     internal_api_key: str = Field(default="", description="Shared secret for internal API calls")
 
     turnkey_base_url: str = Field(
-        default="https://api.turnkey.com",
-        description="Turnkey API base URL"
+        default="https://api.turnkey.com", description="Turnkey API base URL"
     )
     turnkey_default_evm_curve: str = Field(
-        default="CURVE_SECP256K1",
-        description="Default curve for EVM wallets"
+        default="CURVE_SECP256K1", description="Default curve for EVM wallets"
     )
     turnkey_default_solana_curve: str = Field(
-        default="CURVE_ED25519",
-        description="Default curve for Solana wallets"
+        default="CURVE_ED25519", description="Default curve for Solana wallets"
     )
 
     # Turnkey Fallback Signing
     turnkey_fallback_enabled: bool = Field(
-        default=True,
-        description="Enable fallback to local signing when Turnkey is unavailable"
+        default=True, description="Enable fallback to local signing when Turnkey is unavailable"
     )
     turnkey_fallback_mode: str = Field(
         default="auto",
-        description="Fallback mode: 'auto' (circuit breaker), 'manual' (always local), 'disabled'"
+        description="Fallback mode: 'auto' (circuit breaker), 'manual' (always local), 'disabled'",
     )
     turnkey_circuit_breaker_threshold: int = Field(
         default=3,
-        description="Number of consecutive Turnkey failures before opening circuit breaker"
+        description="Number of consecutive Turnkey failures before opening circuit breaker",
     )
     turnkey_circuit_breaker_recovery_seconds: int = Field(
-        default=300,
-        description="Seconds to wait before testing if Turnkey recovered"
+        default=300, description="Seconds to wait before testing if Turnkey recovered"
     )
 
     # OAuth Configuration (Google + Twitter)
-    google_client_id: Optional[str] = Field(
-        default=None,
-        description="Google OAuth 2.0 client ID"
-    )
+    google_client_id: Optional[str] = Field(default=None, description="Google OAuth 2.0 client ID")
     google_client_secret: Optional[str] = Field(
-        default=None,
-        description="Google OAuth 2.0 client secret"
+        default=None, description="Google OAuth 2.0 client secret"
     )
     twitter_client_id: Optional[str] = Field(
-        default=None,
-        description="Twitter/X OAuth 2.0 client ID"
+        default=None, description="Twitter/X OAuth 2.0 client ID"
     )
     twitter_client_secret: Optional[str] = Field(
-        default=None,
-        description="Twitter/X OAuth 2.0 client secret"
+        default=None, description="Twitter/X OAuth 2.0 client secret"
     )
     oauth_redirect_base: str = Field(
         default="http://localhost:3000",
-        description="Base URL for OAuth redirect URIs (e.g., https://app.suwappu.com)"
+        description="Base URL for OAuth redirect URIs (e.g., https://app.suwappu.com)",
     )
     webauthn_rp_id: str = Field(
         default="suwappu.bot",
@@ -146,122 +135,133 @@ class Settings(BaseSettings):
 
     # Infura RPC (primary, reliable RPCs for all major chains)
     infura_api_key: Optional[str] = Field(
-        default=None,
-        description="Infura API key — used as primary RPC for supported chains"
+        default=None, description="Infura API key — used as primary RPC for supported chains"
     )
 
     # Alchemy Configuration (Full Suite)
     alchemy_api_key: Optional[str] = Field(
-        default=None,
-        description="Alchemy API key for enhanced RPC, Token API, NFT API"
+        default=None, description="Alchemy API key for enhanced RPC, Token API, NFT API"
     )
     alchemy_webhook_auth_token: Optional[str] = Field(
-        default=None,
-        description="Alchemy webhook authentication token"
+        default=None, description="Alchemy webhook authentication token"
     )
     alchemy_network_overrides: Optional[str] = Field(
-        default=None,
-        description="JSON map of chain->network overrides for Alchemy"
+        default=None, description="JSON map of chain->network overrides for Alchemy"
     )
 
     # JWT Configuration
     jwt_secret_key: Optional[str] = Field(
-        default=None,
-        description="Secret key for JWT signing (auto-generated if not set)"
+        default=None, description="Secret key for JWT signing (auto-generated if not set)"
     )
     jwt_expiry_hours: int = Field(
-        default=168,
-        description="JWT token expiry in hours (default: 7 days)"
+        default=168, description="JWT token expiry in hours (default: 7 days)"
     )
 
     # EVM RPC Endpoints — sourced from chainlist.org, no API keys needed
     # Infura/Alchemy are prepended automatically when keys are set
     ethereum_rpc_url: str = Field(
         default="https://ethereum-rpc.publicnode.com,https://1rpc.io/eth,https://eth.drpc.org,https://eth.llamarpc.com",
-        description="Ethereum mainnet RPC URL(s)"
+        description="Ethereum mainnet RPC URL(s)",
     )
     bsc_rpc_url: str = Field(
         default="https://bsc-dataseed.binance.org,https://bsc-rpc.publicnode.com,https://1rpc.io/bnb,https://bsc.drpc.org",
-        description="BSC mainnet RPC URL(s)"
+        description="BSC mainnet RPC URL(s)",
     )
     polygon_rpc_url: str = Field(
         default="https://polygon-bor-rpc.publicnode.com,https://1rpc.io/matic,https://polygon.drpc.org",
-        description="Polygon mainnet RPC URL(s)"
+        description="Polygon mainnet RPC URL(s)",
     )
     arbitrum_rpc_url: str = Field(
         default="https://arb1.arbitrum.io/rpc,https://arbitrum-one-rpc.publicnode.com,https://1rpc.io/arb,https://arbitrum.drpc.org",
-        description="Arbitrum mainnet RPC URL(s)"
+        description="Arbitrum mainnet RPC URL(s)",
     )
     optimism_rpc_url: str = Field(
         default="https://mainnet.optimism.io,https://optimism-rpc.publicnode.com,https://1rpc.io/op,https://optimism.drpc.org",
-        description="Optimism mainnet RPC URL(s)"
+        description="Optimism mainnet RPC URL(s)",
     )
     base_rpc_url: str = Field(
         default="https://mainnet.base.org,https://base-rpc.publicnode.com,https://1rpc.io/base,https://base.drpc.org",
-        description="Base mainnet RPC URL(s)"
+        description="Base mainnet RPC URL(s)",
     )
     avalanche_rpc_url: str = Field(
         default="https://api.avax.network/ext/bc/C/rpc,https://avalanche-c-chain-rpc.publicnode.com,https://1rpc.io/avax/c,https://avalanche.drpc.org",
-        description="Avalanche C-Chain RPC URL(s)"
+        description="Avalanche C-Chain RPC URL(s)",
     )
     fantom_rpc_url: str = Field(
         default="https://rpcapi.fantom.network,https://fantom-rpc.publicnode.com,https://1rpc.io/ftm,https://fantom.drpc.org,https://rpc.ftm.tools",
-        description="Fantom mainnet RPC URL(s)"
+        description="Fantom mainnet RPC URL(s)",
     )
     linea_rpc_url: str = Field(
         default="https://rpc.linea.build,https://linea-rpc.publicnode.com,https://1rpc.io/linea,https://linea.drpc.org,https://linea.blockpi.network/v1/rpc/public",
-        description="Linea mainnet RPC URL(s)"
+        description="Linea mainnet RPC URL(s)",
     )
     mantle_rpc_url: str = Field(
         default="https://rpc.mantle.xyz,https://mantle-rpc.publicnode.com,https://1rpc.io/mantle,https://mantle.drpc.org",
-        description="Mantle mainnet RPC URL(s)"
+        description="Mantle mainnet RPC URL(s)",
     )
     gnosis_rpc_url: str = Field(
         default="https://rpc.gnosischain.com,https://gnosis-rpc.publicnode.com,https://1rpc.io/gnosis,https://gnosis.drpc.org",
-        description="Gnosis Chain RPC URL(s)"
+        description="Gnosis Chain RPC URL(s)",
     )
     scroll_rpc_url: str = Field(
         default="https://rpc.scroll.io,https://scroll-rpc.publicnode.com,https://1rpc.io/scroll,https://scroll.drpc.org,https://scroll.blockpi.network/v1/rpc/public",
-        description="Scroll mainnet RPC URL(s)"
+        description="Scroll mainnet RPC URL(s)",
     )
     tempo_rpc_url: str = Field(
         default="https://tempo-mainnet.drpc.org,https://rpc.tempo.xyz",
-        description="Tempo mainnet RPC URL(s)"
+        description="Tempo mainnet RPC URL(s)",
     )
 
     # New Li.Fi chains (RPCManager auto-discovers from chainlist.org)
     sonic_rpc_url: str = Field(default="https://rpc.soniclabs.com", description="Sonic RPC")
-    opbnb_rpc_url: str = Field(default="https://opbnb-mainnet-rpc.bnbchain.org", description="opBNB RPC")
+    opbnb_rpc_url: str = Field(
+        default="https://opbnb-mainnet-rpc.bnbchain.org", description="opBNB RPC"
+    )
     fraxtal_rpc_url: str = Field(default="https://rpc.frax.com", description="Fraxtal RPC")
-    zksync_rpc_url: str = Field(default="https://mainnet.era.zksync.io", description="zkSync Era RPC")
-    worldchain_rpc_url: str = Field(default="https://worldchain-mainnet.g.alchemy.com/public", description="World Chain RPC")
-    flow_rpc_url: str = Field(default="https://mainnet.evm.nodes.onflow.org", description="Flow RPC")
-    hyperevm_rpc_url: str = Field(default="https://rpc.hyperliquid.xyz/evm", description="HyperEVM RPC")
+    zksync_rpc_url: str = Field(
+        default="https://mainnet.era.zksync.io", description="zkSync Era RPC"
+    )
+    worldchain_rpc_url: str = Field(
+        default="https://worldchain-mainnet.g.alchemy.com/public", description="World Chain RPC"
+    )
+    flow_rpc_url: str = Field(
+        default="https://mainnet.evm.nodes.onflow.org", description="Flow RPC"
+    )
+    hyperevm_rpc_url: str = Field(
+        default="https://rpc.hyperliquid.xyz/evm", description="HyperEVM RPC"
+    )
     lisk_rpc_url: str = Field(default="https://rpc.api.lisk.com", description="Lisk RPC")
     sei_rpc_url: str = Field(default="https://evm-rpc.sei-apis.com", description="Sei RPC")
     soneium_rpc_url: str = Field(default="https://rpc.soneium.org", description="Soneium RPC")
-    swellchain_rpc_url: str = Field(default="https://swell-mainnet.alt.technology", description="Swellchain RPC")
+    swellchain_rpc_url: str = Field(
+        default="https://swell-mainnet.alt.technology", description="Swellchain RPC"
+    )
     abstract_rpc_url: str = Field(default="https://api.mainnet.abs.xyz", description="Abstract RPC")
     kaia_rpc_url: str = Field(default="https://public-en.node.kaia.io", description="Kaia RPC")
-    apechain_rpc_url: str = Field(default="https://rpc.apechain.com/http", description="Apechain RPC")
+    apechain_rpc_url: str = Field(
+        default="https://rpc.apechain.com/http", description="Apechain RPC"
+    )
     mode_rpc_url: str = Field(default="https://mainnet.mode.network", description="Mode RPC")
     hemi_rpc_url: str = Field(default="https://rpc.hemi.network/rpc", description="Hemi RPC")
     bob_rpc_url: str = Field(default="https://rpc.gobob.xyz", description="BOB RPC")
     berachain_rpc_url: str = Field(default="https://rpc.berachain.com", description="Berachain RPC")
     taiko_rpc_url: str = Field(default="https://rpc.mainnet.taiko.xyz", description="Taiko RPC")
-    unichain_rpc_url: str = Field(default="https://mainnet.unichain.org", description="Unichain RPC")
-    flare_rpc_url: str = Field(default="https://flare-api.flare.network/ext/C/rpc", description="Flare RPC")
+    unichain_rpc_url: str = Field(
+        default="https://mainnet.unichain.org", description="Unichain RPC"
+    )
+    flare_rpc_url: str = Field(
+        default="https://flare-api.flare.network/ext/C/rpc", description="Flare RPC"
+    )
 
     # Solana RPC
     solana_rpc_url: str = Field(
         default="https://api.mainnet-beta.solana.com,https://solana-mainnet.rpc.extrnode.com",
-        description="Solana mainnet RPC URL(s)"
+        description="Solana mainnet RPC URL(s)",
     )
 
     # TRON RPC
     tron_rpc_url: str = Field(
-        default="https://api.trongrid.io",
-        description="TRON mainnet RPC URL(s)"
+        default="https://api.trongrid.io", description="TRON mainnet RPC URL(s)"
     )
 
     # Infura network name mappings
@@ -329,6 +329,7 @@ class Settings(BaseSettings):
         if self.alchemy_network_overrides:
             try:
                 import json
+
                 overrides = json.loads(self.alchemy_network_overrides)
                 alchemy_networks.update(overrides)
             except (json.JSONDecodeError, TypeError):
@@ -360,50 +361,88 @@ class Settings(BaseSettings):
         if self.webhook_secret_token:
             return self.webhook_secret_token
         import hashlib
+
         return hashlib.sha256(self.telegram_bot_token.encode()).hexdigest()
-    
+
     # TronGrid API Key (optional for higher rate limits)
-    trongrid_api_key: Optional[str] = Field(default=None, description="TronGrid API key for higher rate limits")
+    trongrid_api_key: Optional[str] = Field(
+        default=None, description="TronGrid API key for higher rate limits"
+    )
 
     # API Keys (optional for higher rate limits)
     lifi_api_key: Optional[str] = Field(default=None, description="Li.Fi API key")
-    lifi_integrator_id: str = Field(default="SuwappuProduction", description="Li.Fi integrator ID for fee collection")
+    lifi_integrator_id: str = Field(
+        default="SuwappuProduction", description="Li.Fi integrator ID for fee collection"
+    )
     jupiter_api_key: Optional[str] = Field(default=None, description="Jupiter API key")
-    socket_api_key: Optional[str] = Field(default=None, description="Socket/Bungee API key for super-aggregation")
+    socket_api_key: Optional[str] = Field(
+        default=None, description="Socket/Bungee API key for super-aggregation"
+    )
 
     # OKX DEX Aggregator
     okx_dex_api_key: Optional[str] = Field(default=None, description="OKX DEX API key")
-    okx_dex_secret_key: Optional[str] = Field(default=None, description="OKX DEX secret key for HMAC signing")
+    okx_dex_secret_key: Optional[str] = Field(
+        default=None, description="OKX DEX secret key for HMAC signing"
+    )
     okx_dex_passphrase: Optional[str] = Field(default=None, description="OKX DEX API passphrase")
     okx_dex_project_id: Optional[str] = Field(default=None, description="OKX DEX project ID")
 
     # 1inch Aggregation Protocol (EVM-only, v6)
-    oneinch_api_key: Optional[str] = Field(default=None, description="1inch Developer Portal API key (Bearer auth)")
+    oneinch_api_key: Optional[str] = Field(
+        default=None, description="1inch Developer Portal API key (Bearer auth)"
+    )
 
     # 0x Swap API v2 (allowance-holder, EVM-only)
-    zerox_api_key: Optional[str] = Field(default=None, description="0x Dashboard API key (0x-api-key header)")
+    zerox_api_key: Optional[str] = Field(
+        default=None, description="0x Dashboard API key (0x-api-key header)"
+    )
 
     # KyberSwap Aggregator (EVM-only, no API key). Gated behind an explicit
     # enable flag (not a key) so it ships dark and has a no-redeploy kill switch
     # — execution is verified for quote+build but not yet run on-chain.
-    kyberswap_enabled: bool = Field(default=False, description="Enable KyberSwap in the best-price race (no API key needed)")
-    kyberswap_client_id: str = Field(default="suwappu-bot", description="KyberSwap x-client-id header (free identifier, avoids anon 429s)")
+    kyberswap_enabled: bool = Field(
+        default=False, description="Enable KyberSwap in the best-price race (no API key needed)"
+    )
+    kyberswap_client_id: str = Field(
+        default="suwappu-bot",
+        description="KyberSwap x-client-id header (free identifier, avoids anon 429s)",
+    )
 
     # WhatsApp Business API (Optional)
-    whatsapp_phone_number_id: Optional[str] = Field(default=None, description="WhatsApp Business Phone Number ID")
-    whatsapp_access_token: Optional[str] = Field(default=None, description="WhatsApp Cloud API Access Token")
-    whatsapp_verify_token: Optional[str] = Field(default=None, description="Webhook verification token — must be set explicitly")
+    whatsapp_phone_number_id: Optional[str] = Field(
+        default=None, description="WhatsApp Business Phone Number ID"
+    )
+    whatsapp_access_token: Optional[str] = Field(
+        default=None, description="WhatsApp Cloud API Access Token"
+    )
+    whatsapp_verify_token: Optional[str] = Field(
+        default=None, description="Webhook verification token — must be set explicitly"
+    )
 
     # Discord Bot
     discord_bot_token: Optional[str] = Field(default=None, description="Discord bot token")
-    discord_guild_ids: Optional[str] = Field(default=None, description="Comma-separated guild IDs for slash command sync")
-    discord_whale_channel_id: Optional[str] = Field(default=None, description="Channel ID for whale alerts")
-    discord_trending_channel_id: Optional[str] = Field(default=None, description="Channel ID for trending tokens")
-    discord_leaderboard_channel_id: Optional[str] = Field(default=None, description="Channel ID for leaderboard posts")
-    discord_alerts_channel_id: Optional[str] = Field(default=None, description="Channel ID for general alerts")
-    discord_forum_channel_id: Optional[str] = Field(default=None, description="Forum channel ID for token analysis")
+    discord_guild_ids: Optional[str] = Field(
+        default=None, description="Comma-separated guild IDs for slash command sync"
+    )
+    discord_whale_channel_id: Optional[str] = Field(
+        default=None, description="Channel ID for whale alerts"
+    )
+    discord_trending_channel_id: Optional[str] = Field(
+        default=None, description="Channel ID for trending tokens"
+    )
+    discord_leaderboard_channel_id: Optional[str] = Field(
+        default=None, description="Channel ID for leaderboard posts"
+    )
+    discord_alerts_channel_id: Optional[str] = Field(
+        default=None, description="Channel ID for general alerts"
+    )
+    discord_forum_channel_id: Optional[str] = Field(
+        default=None, description="Forum channel ID for token analysis"
+    )
     discord_admin_role_id: Optional[str] = Field(default=None, description="Admin role ID")
-    discord_vip_role_ids: Optional[str] = Field(default=None, description="Comma-separated VIP role IDs")
+    discord_vip_role_ids: Optional[str] = Field(
+        default=None, description="Comma-separated VIP role IDs"
+    )
 
     def get_discord_guild_ids(self) -> list[int]:
         if not self.discord_guild_ids:
@@ -414,69 +453,93 @@ class Settings(BaseSettings):
         if not self.discord_vip_role_ids:
             return []
         return [int(rid.strip()) for rid in self.discord_vip_role_ids.split(",") if rid.strip()]
-    
+
     # Telegram Mini App
     webapp_url: str = Field(
-        default="https://app.suwappu.bot",
-        description="URL for the Telegram Mini App dashboard"
+        default="https://app.suwappu.bot", description="URL for the Telegram Mini App dashboard"
     )
 
     # Agent Interoperability
-    agent_api_key: Optional[str] = Field(default=None, description="Secret key for other AI agents to access the API")
+    agent_api_key: Optional[str] = Field(
+        default=None, description="Secret key for other AI agents to access the API"
+    )
 
     # Admin API (for dashboard / ops tooling)
-    admin_api_key: Optional[str] = Field(default=None, description="Secret key for admin dashboard access")
-    admin_telegram_ids: str = Field(default="", description="Comma-separated Telegram user IDs for admin access")
-    
+    admin_api_key: Optional[str] = Field(
+        default=None, description="Secret key for admin dashboard access"
+    )
+    admin_telegram_ids: str = Field(
+        default="", description="Comma-separated Telegram user IDs for admin access"
+    )
+
     # Application Settings
     log_level: str = Field(default="INFO", description="Logging level")
     max_swap_amount: float = Field(default=100000, description="Maximum swap amount in USD")
     default_slippage: float = Field(default=0.5, description="Default slippage tolerance in %")
-    
+    default_output_token: str = Field(
+        default="USDC",
+        description="Global default output token for sell-to operations (e.g. USDC, ETH)",
+    )
+    default_tx_speed: str = Field(
+        default="normal",
+        description="Global default transaction speed preset: slow | normal | fast",
+    )
+
     # Polymarket API (optional — for pre-configured CLOB credentials)
-    polymarket_clob_api_key: Optional[str] = Field(default=None, description="Polymarket CLOB API key (optional)")
-    polymarket_clob_secret: Optional[str] = Field(default=None, description="Polymarket CLOB API secret (optional)")
-    polymarket_clob_passphrase: Optional[str] = Field(default=None, description="Polymarket CLOB API passphrase (optional)")
+    polymarket_clob_api_key: Optional[str] = Field(
+        default=None, description="Polymarket CLOB API key (optional)"
+    )
+    polymarket_clob_secret: Optional[str] = Field(
+        default=None, description="Polymarket CLOB API secret (optional)"
+    )
+    polymarket_clob_passphrase: Optional[str] = Field(
+        default=None, description="Polymarket CLOB API passphrase (optional)"
+    )
 
     # Fee Configuration (competitive pricing)
-    swap_fee_percentage: float = Field(default=0.8, description="Swap fee percentage (0.8% = competitive rate)")
-    referral_reward_percentage: float = Field(default=30, description="Referral reward percentage (30% of fees)")
-    fee_collector_address: Optional[str] = Field(default=None, description="EVM address for fee collection")
-    fee_collector_solana: Optional[str] = Field(default=None, description="Solana address for fee collection")
+    swap_fee_percentage: float = Field(
+        default=0.8, description="Swap fee percentage (0.8% = competitive rate)"
+    )
+    referral_reward_percentage: float = Field(
+        default=30, description="Referral reward percentage (30% of fees)"
+    )
+    fee_collector_address: Optional[str] = Field(
+        default=None, description="EVM address for fee collection"
+    )
+    fee_collector_solana: Optional[str] = Field(
+        default=None, description="Solana address for fee collection"
+    )
 
     # Treasury Vault (Aave v3 on Base)
     aave_enabled: bool = Field(
         default=False,
-        description="Enable actual on-chain Aave v3 interactions (false = mock/safe mode)"
+        description="Enable actual on-chain Aave v3 interactions (false = mock/safe mode)",
     )
     vault_type: str = Field(default="aave", description="Vault backend: 'aave' or 'morpho'")
-    morpho_vault_address: Optional[str] = Field(default=None, description="Morpho MetaMorpho vault address (ERC-4626)")
+    morpho_vault_address: Optional[str] = Field(
+        default=None, description="Morpho MetaMorpho vault address (ERC-4626)"
+    )
     treasury_vault_hot_wallet_name: str = Field(
         default="treasury_vault",
-        description="Name of the HotWallet DB record used to sign vault transactions"
+        description="Name of the HotWallet DB record used to sign vault transactions",
     )
     vault_min_deposit_usdc: float = Field(
-        default=50.0,
-        description="Minimum USDC to trigger an automatic vault deposit"
+        default=50.0, description="Minimum USDC to trigger an automatic vault deposit"
     )
     distribution_wallet_address: Optional[str] = Field(
-        default=None,
-        description="Address to receive yield withdrawals for distribution"
+        default=None, description="Address to receive yield withdrawals for distribution"
     )
     staking_contract_address: Optional[str] = Field(
         default=None,
-        description="Deployed SuwppuStaking contract address on Base (used by fundStream / distributeSuwpBonus)"
+        description="Deployed SuwppuStaking contract address on Base (used by fundStream / distributeSuwpBonus)",
     )
     bonds_contract_address: Optional[str] = Field(
         default=None,
-        description="Deployed SuwppuBonds contract address on Base (protocol-owned liquidity bonding)"
+        description="Deployed SuwppuBonds contract address on Base (protocol-owned liquidity bonding)",
     )
 
     model_config = ConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore"
+        env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
     )
 
 
@@ -500,11 +563,8 @@ def get_settings() -> Settings:
                 "KMS_REGION is required when KMS_PROVIDER='aws' (e.g. KMS_REGION=us-east-1)."
             )
         if s.kms_provider == "gcp" and not s.gcp_project_id:
-            raise ValueError(
-                "GCP_PROJECT_ID is required when KMS_PROVIDER='gcp'."
-            )
+            raise ValueError("GCP_PROJECT_ID is required when KMS_PROVIDER='gcp'.")
     return s
 
 
 settings = get_settings()
-

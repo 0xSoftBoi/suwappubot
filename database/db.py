@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 class Base(DeclarativeBase):
     """Base class for all database models."""
+
     pass
 
 
@@ -24,16 +25,16 @@ DATABASE_AVAILABLE = False  # Flag for degraded mode
 def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -> bool:
     """
     Initialize database connection and create tables.
-    
+
     Returns True if successful, False if database is unavailable.
     Does not raise exceptions - allows app to run in degraded mode.
     """
     global engine, SessionLocal, DATABASE_AVAILABLE
-    
+
     if not database_url:
         logger.error("No DATABASE_URL provided")
         return False
-    
+
     # Log the database type (mask credentials)
     if "postgresql" in database_url or "postgres" in database_url:
         logger.info("Connecting to PostgreSQL database...")
@@ -44,7 +45,7 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
 
     connect_args = {}
     is_sqlite = database_url.startswith("sqlite")
-    
+
     if is_sqlite:
         connect_args["check_same_thread"] = False
     else:
@@ -58,7 +59,7 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
             connect_args["options"] = (
                 connect_args.get("options", "") + " -c statement_timeout=30000"
             ).strip()
-    
+
     # Retry logic for transient connection failures
     last_error = None
     for attempt in range(1, max_retries + 1):
@@ -70,33 +71,38 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
                 echo=False,
                 pool_pre_ping=True,  # Check connections before use
                 pool_size=10 if not is_sqlite else 5,  # 10 base connections per instance
-                max_overflow=15 if not is_sqlite else 5,  # 25 max per instance (3×25=75 < 100 default)
+                max_overflow=(
+                    15 if not is_sqlite else 5
+                ),  # 25 max per instance (3×25=75 < 100 default)
                 pool_recycle=3600,  # Recycle connections hourly
                 pool_timeout=10,  # Fail fast instead of hanging when pool exhausted
             )
-            
+
             # Test the connection
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
-            
+
             logger.info(f"✓ Database connection established (attempt {attempt}/{max_retries})")
             break
-            
+
         except Exception as e:
             last_error = e
             logger.warning(f"Database connection attempt {attempt}/{max_retries} failed: {e}")
-            
+
             if attempt < max_retries:
                 logger.info(f"Retrying in {retry_delay} seconds...")
                 time.sleep(retry_delay)
                 retry_delay *= 2  # Exponential backoff
             else:
-                logger.error(f"Failed to connect to database after {max_retries} attempts: {last_error}")
+                logger.error(
+                    f"Failed to connect to database after {max_retries} attempts: {last_error}"
+                )
                 engine = None
                 return False
-    
+
     # SQLite optimizations
     if is_sqlite and engine:
+
         @event.listens_for(engine, "connect")
         def set_sqlite_pragma(dbapi_connection, connection_record):
             cursor = dbapi_connection.cursor()
@@ -106,51 +112,92 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
             cursor.execute("PRAGMA temp_store=MEMORY")  # Temp tables in memory
             cursor.execute("PRAGMA mmap_size=268435456")  # 256MB memory map
             cursor.close()
-    
+
     SessionLocal = sessionmaker(
-        autocommit=False, 
-        autoflush=False, 
+        autocommit=False,
+        autoflush=False,
         bind=engine,
         expire_on_commit=False,  # Don't expire objects after commit (faster)
     )
-    
+
     # Import models to ensure they're registered with Base
     try:
         from bot.models.user import User, Wallet
         from bot.models.swap import SwapTransaction
         from bot.models.subscription import Subscription, X402Payment, APICredit, MPPSessionRecord
+
         # Common operational tables used by services/background tasks
         from bot.models.fees import FeeConfig, FeeTransaction, FeeSummary
         from bot.models.advanced import LimitOrder, DCAOrder, DCAExecution, SwapTemplate, RugMonitor
+
         # Referral system models
         from bot.models.referral import Referral, ReferralCode, ReferralReward, ReferralPayout
+
         # Points/XP and Copy Trading models
-        from bot.models.points import UserPoints, PointTransaction, PointRedemption, Milestone, UserMilestone, Reward
-        from bot.models.copy_trading import TraderProfile, CopyFollow, CopyTrade, CopyNotification, TraderTrade, TraderPosition
+        from bot.models.points import (
+            UserPoints,
+            PointTransaction,
+            PointRedemption,
+            Milestone,
+            UserMilestone,
+            Reward,
+        )
+        from bot.models.copy_trading import (
+            TraderProfile,
+            CopyFollow,
+            CopyTrade,
+            CopyNotification,
+            TraderTrade,
+            TraderPosition,
+        )
+
         # User spot-position cost basis (unified Positions / PnL view)
         from bot.models.positions import UserPosition
+
         # Token Sniping models
-        from bot.models.snipe import SnipeOrder, SnipeConfig, SnipeHistory, WatchedToken, AutoSnipeRule
+        from bot.models.snipe import (
+            SnipeOrder,
+            SnipeConfig,
+            SnipeHistory,
+            WatchedToken,
+            AutoSnipeRule,
+        )
+
         # OAuth models
         from bot.models.oauth import OAuthIdentity, OAuthToken, OAuthState
+
         # Agent registration models
         from bot.models.agent import RegisteredAgent
+
         # PnL tracking
         from bot.models.pnl import TokenPosition
+
         # Webhook events
         from bot.models.webhook_event import WebhookEvent
+
         # Security models (audit logs, withdrawal whitelist, backup codes)
         from bot.models.security import AuditLog, WithdrawalWhitelist, BackupCode
+
         # Perpetual trading models
         from bot.models.perps import PerpPosition, PerpOrder, HyperLiquidAccount
+
         # Points rewards models
         from bot.models.token import PointsTier, FeeDiscount
+
         # Terminal tracking models
         from bot.models.tracking import TrackedWallet
+
         # Prediction market models
         from bot.models.predict import PredictionOrder, PredictionPosition
+
         # Token staking models
-        from bot.models.token_staking import TokenClaim, StakingPosition, DistributionEpoch, EpochReward, TreasuryPosition
+        from bot.models.token_staking import (
+            TokenClaim,
+            StakingPosition,
+            DistributionEpoch,
+            EpochReward,
+            TreasuryPosition,
+        )
 
         # Reconcile a cross-ORM table collision before create_all (which only creates
         # MISSING tables, never fixes an existing one): api-ts (Drizzle) historically created
@@ -166,11 +213,11 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         # Lightweight schema migrations (no Alembic)
         _ensure_schema(engine)
         logger.info("✓ Database schema migrations complete")
-        
+
     except Exception as e:
         logger.error(f"Failed to create database tables: {e}")
         return False
-    
+
     DATABASE_AVAILABLE = True
     return True
 
@@ -209,13 +256,17 @@ def _reconcile_cross_orm_tables(db_engine) -> None:
                 if count > 0:
                     logger.warning(
                         "%s is missing python columns %s but has %s row(s); NOT dropping — "
-                        "resolve manually.", table, sorted(missing), count
+                        "resolve manually.",
+                        table,
+                        sorted(missing),
+                        count,
                     )
                     continue
                 conn.execute(text(f"DROP TABLE {table} CASCADE"))
             logger.info(
                 "Reconciled cross-ORM table %s: dropped empty wrong-shaped table; "
-                "create_all will rebuild the SQLAlchemy schema", table
+                "create_all will rebuild the SQLAlchemy schema",
+                table,
             )
     except Exception as e:
         logger.warning("cross-ORM table reconcile skipped: %s", e)
@@ -252,10 +303,12 @@ def _ensure_schema(db_engine) -> None:
 
         # Unique index to enforce idempotency (NULLs allowed)
         with db_engine.begin() as conn:
-            conn.execute(text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ux_swap_transactions_idempotency_key "
-                "ON swap_transactions(idempotency_key)"
-            ))
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_swap_transactions_idempotency_key "
+                    "ON swap_transactions(idempotency_key)"
+                )
+            )
 
     # --- wallets: envelope encryption columns ---
     if "wallets" in tables:
@@ -268,13 +321,19 @@ def _ensure_schema(db_engine) -> None:
         _add_turnkey_columns(db_engine, inspector, "hot_wallets", is_sqlite, include_sub_org=False)
 
     # --- agents: unique index on api_key + Drizzle schema alignment ---
-    agents_table = "agents" if "agents" in tables else "registered_agents" if "registered_agents" in tables else None
+    agents_table = (
+        "agents"
+        if "agents" in tables
+        else "registered_agents" if "registered_agents" in tables else None
+    )
     if agents_table:
         with db_engine.begin() as conn:
-            conn.execute(text(
-                f"CREATE UNIQUE INDEX IF NOT EXISTS ux_agents_api_key "
-                f"ON {agents_table}(api_key)"
-            ))
+            conn.execute(
+                text(
+                    f"CREATE UNIQUE INDEX IF NOT EXISTS ux_agents_api_key "
+                    f"ON {agents_table}(api_key)"
+                )
+            )
         _add_agent_drizzle_columns(db_engine, inspector, agents_table, is_sqlite)
 
     # --- swap_transactions: agent linkage columns ---
@@ -286,6 +345,7 @@ def _ensure_schema(db_engine) -> None:
     if "user_settings" in tables:
         _add_user_settings_mev_column(db_engine, inspector, is_sqlite)
         _add_quicktrade_columns(db_engine, inspector, is_sqlite)
+        _add_user_settings_trading_prefs(db_engine, inspector, is_sqlite)
 
     # --- referral_rewards: multi-tier column ---
     _add_referral_tier_column(db_engine, inspector, is_sqlite)
@@ -328,6 +388,7 @@ def _ensure_schema(db_engine) -> None:
     # --- rug_monitors table ---
     if not inspector.has_table("rug_monitors"):
         from bot.models.advanced import RugMonitor
+
         RugMonitor.__table__.create(bind=db_engine)
         logger.info("Created rug_monitors table")
 
@@ -385,10 +446,11 @@ def _add_agent_drizzle_columns(db_engine, inspector, table_name: str, is_sqlite:
 
     # Unique index on uuid
     with db_engine.begin() as conn:
-        conn.execute(text(
-            f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{table_name}_uuid "
-            f"ON {table_name}(uuid)"
-        ))
+        conn.execute(
+            text(
+                f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{table_name}_uuid " f"ON {table_name}(uuid)"
+            )
+        )
 
 
 def _add_auth_tables(db_engine, inspector, is_sqlite: bool) -> None:
@@ -406,7 +468,12 @@ def _add_auth_tables(db_engine, inspector, is_sqlite: bool) -> None:
 def _add_staking_tables(db_engine, inspector, is_sqlite: bool) -> None:
     """Create SUWP staking tables (token_claims, staking_positions, distribution_epochs, epoch_rewards) idempotently."""
     try:
-        from bot.models.token_staking import TokenClaim, StakingPosition, DistributionEpoch, EpochReward
+        from bot.models.token_staking import (
+            TokenClaim,
+            StakingPosition,
+            DistributionEpoch,
+            EpochReward,
+        )
 
         for model in (TokenClaim, StakingPosition, DistributionEpoch, EpochReward):
             if not inspector.has_table(model.__tablename__):
@@ -420,6 +487,7 @@ def _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite: bool) -> N
     """Create treasury_positions table and add vault columns to distribution_epochs."""
     try:
         from bot.models.token_staking import TreasuryPosition
+
         if not inspector.has_table("treasury_positions"):
             TreasuryPosition.__table__.create(bind=db_engine)
             logger.info("Created treasury_positions table")
@@ -468,7 +536,9 @@ def _add_performance_indexes(db_engine, inspector, is_sqlite: bool) -> None:
             tables = set(inspector.get_table_names())
             if table in tables:
                 with db_engine.begin() as conn:
-                    conn.execute(text(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table}({columns})"))
+                    conn.execute(
+                        text(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table}({columns})")
+                    )
         except Exception:
             pass  # Index may already exist or table missing
 
@@ -492,8 +562,7 @@ def _add_phase4_tables(db_engine, inspector, is_sqlite: bool) -> None:
         from bot.models.perps import PerpPosition, PerpOrder, HyperLiquidAccount
         from bot.models.token import PointsTier, FeeDiscount
 
-        for model in (PerpPosition, PerpOrder, HyperLiquidAccount,
-                      PointsTier, FeeDiscount):
+        for model in (PerpPosition, PerpOrder, HyperLiquidAccount, PointsTier, FeeDiscount):
             if not inspector.has_table(model.__tablename__):
                 model.__table__.create(bind=db_engine)
                 logger.info(f"Created {model.__tablename__} table")
@@ -586,9 +655,9 @@ def _encrypt_plaintext_totp_secrets(db_engine, is_sqlite: bool) -> None:
     key = settings.encryption_key
     try:
         with db_engine.begin() as conn:
-            rows = conn.execute(text(
-                "SELECT id, totp_secret FROM users WHERE totp_secret IS NOT NULL"
-            )).fetchall()
+            rows = conn.execute(
+                text("SELECT id, totp_secret FROM users WHERE totp_secret IS NOT NULL")
+            ).fetchall()
             migrated = 0
             skipped = 0
             for row in rows:
@@ -601,7 +670,8 @@ def _encrypt_plaintext_totp_secrets(db_engine, is_sqlite: bool) -> None:
                 if not _is_legacy_plaintext_secret(stored):
                     logger.warning(
                         "User %s TOTP secret failed to decrypt and is not valid "
-                        "legacy base32; skipping to avoid corrupting it.", row[0]
+                        "legacy base32; skipping to avoid corrupting it.",
+                        row[0],
                     )
                     skipped += 1
                     continue
@@ -613,8 +683,9 @@ def _encrypt_plaintext_totp_secrets(db_engine, is_sqlite: bool) -> None:
                 migrated += 1
             if migrated or skipped:
                 logger.info(
-                    "TOTP backfill: encrypted %s legacy plaintext, skipped %s "
-                    "corrupted/invalid", migrated, skipped
+                    "TOTP backfill: encrypted %s legacy plaintext, skipped %s " "corrupted/invalid",
+                    migrated,
+                    skipped,
                 )
     except Exception as e:
         logger.warning(f"TOTP secret backfill skipped: {e}")
@@ -650,14 +721,14 @@ def _widen_user_telegram_id(db_engine, inspector, is_sqlite: bool) -> None:
         return
     try:
         with db_engine.begin() as conn:
-            current_type = conn.execute(text(
-                "SELECT data_type FROM information_schema.columns "
-                "WHERE table_name = 'users' AND column_name = 'telegram_id'"
-            )).scalar()
+            current_type = conn.execute(
+                text(
+                    "SELECT data_type FROM information_schema.columns "
+                    "WHERE table_name = 'users' AND column_name = 'telegram_id'"
+                )
+            ).scalar()
             if current_type == "integer":
-                conn.execute(text(
-                    "ALTER TABLE users ALTER COLUMN telegram_id TYPE BIGINT"
-                ))
+                conn.execute(text("ALTER TABLE users ALTER COLUMN telegram_id TYPE BIGINT"))
                 logger.info("Widened users.telegram_id from INTEGER to BIGINT")
     except Exception as exc:
         logger.warning(f"Could not widen users.telegram_id to BIGINT: {exc}")
@@ -724,12 +795,12 @@ def _reconcile_user_columns(db_engine, is_sqlite: bool) -> None:
 def _add_tos_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Add Terms of Service columns to users table idempotently."""
     cols = {c["name"] for c in inspector.get_columns("users")}
-    
+
     new_columns = [
         ("tos_accepted", "BOOLEAN", "FALSE"),
         ("tos_accepted_at", "TIMESTAMP", "NULL"),
     ]
-    
+
     for col_name, col_type, default in new_columns:
         if col_name not in cols:
             if is_sqlite:
@@ -743,14 +814,14 @@ def _add_tos_columns(db_engine, inspector, is_sqlite: bool) -> None:
 def _add_referral_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Add referral tracking columns to users table idempotently."""
     cols = {c["name"] for c in inspector.get_columns("users")}
-    
+
     # Columns for quick referral stats access (denormalized for performance)
     new_columns = [
         ("referred_by_user_id", "INTEGER", "NULL"),
         ("total_referral_rewards", "FLOAT", "0.0"),
         ("referral_count", "INTEGER", "0"),
     ]
-    
+
     for col_name, col_type, default in new_columns:
         if col_name not in cols:
             if is_sqlite:
@@ -793,14 +864,18 @@ def _add_passkey_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 conn.execute(text(ddl))
 
     with db_engine.begin() as conn:
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_users_passkey_credential_id "
-            "ON users(passkey_credential_id)"
-        ))
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_users_passkey_user_handle "
-            "ON users(passkey_user_handle)"
-        ))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_users_passkey_credential_id "
+                "ON users(passkey_credential_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_users_passkey_user_handle "
+                "ON users(passkey_user_handle)"
+            )
+        )
 
 
 def _add_user_settings_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -890,7 +965,35 @@ def _add_quicktrade_columns(db_engine, inspector, is_sqlite: bool) -> None:
     for col_name, col_type, default in new_columns:
         if col_name not in cols:
             if is_sqlite:
-                ddl = f"ALTER TABLE user_settings ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+                ddl = (
+                    f"ALTER TABLE user_settings ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+                )
+            else:
+                ddl = f"ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+
+def _add_user_settings_trading_prefs(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add trading preference columns to user_settings table idempotently.
+
+    Adds:
+    - tx_speed_preset: transaction priority-fee preset (slow/normal/fast), default 'normal'
+    - default_output_token: user's preferred sell-to token (e.g. USDC), nullable
+    """
+    cols = {c["name"] for c in inspector.get_columns("user_settings")}
+
+    new_columns = [
+        ("tx_speed_preset", "VARCHAR(10)", "'normal'"),
+        ("default_output_token", "VARCHAR(20)", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = (
+                    f"ALTER TABLE user_settings ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+                )
             else:
                 ddl = f"ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
             with db_engine.begin() as conn:
@@ -941,7 +1044,9 @@ def _add_encryption_columns(db_engine, inspector, table_name: str, is_sqlite: bo
                 conn.execute(text(ddl))
 
 
-def _add_turnkey_columns(db_engine, inspector, table_name: str, is_sqlite: bool, include_sub_org: bool = False) -> None:
+def _add_turnkey_columns(
+    db_engine, inspector, table_name: str, is_sqlite: bool, include_sub_org: bool = False
+) -> None:
     """Add Turnkey wallet infrastructure columns to a wallet table idempotently."""
     cols = {c["name"] for c in inspector.get_columns(table_name)}
 
@@ -987,10 +1092,12 @@ def _add_swap_agent_columns(db_engine, inspector, is_sqlite: bool) -> None:
 
     # Index for efficient agent swap lookups
     with db_engine.begin() as conn:
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_swap_transactions_agent_id "
-            "ON swap_transactions(agent_id)"
-        ))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_swap_transactions_agent_id "
+                "ON swap_transactions(agent_id)"
+            )
+        )
 
 
 def _add_smart_notification_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -1051,7 +1158,9 @@ def _add_stars_payment_columns(db_engine, inspector, is_sqlite: bool) -> None:
     for col_name, col_type, default in new_columns:
         if col_name not in cols:
             if is_sqlite:
-                ddl = f"ALTER TABLE x402_payments ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+                ddl = (
+                    f"ALTER TABLE x402_payments ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+                )
             else:
                 ddl = f"ALTER TABLE x402_payments ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
             with db_engine.begin() as conn:
@@ -1069,7 +1178,9 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
         # --- daily_quests ---
         if "daily_quests" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS daily_quests (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         date VARCHAR(10) NOT NULL,
@@ -1080,9 +1191,13 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         xp_reward INTEGER DEFAULT 0,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS daily_quests (
                         id SERIAL PRIMARY KEY,
                         date VARCHAR(10) NOT NULL,
@@ -1093,16 +1208,18 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         xp_reward INTEGER DEFAULT 0,
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
 
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_daily_quests_date ON daily_quests(date)"
-        ))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_quests_date ON daily_quests(date)"))
 
         # --- user_quests ---
         if "user_quests" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS user_quests (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         user_id INTEGER NOT NULL REFERENCES users(id),
@@ -1113,9 +1230,13 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         claimed BOOLEAN DEFAULT FALSE,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS user_quests (
                         id SERIAL PRIMARY KEY,
                         user_id INTEGER NOT NULL REFERENCES users(id),
@@ -1126,19 +1247,25 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         claimed BOOLEAN DEFAULT FALSE,
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
 
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_user_quests_user_id ON user_quests(user_id)"
-        ))
-        conn.execute(text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS ix_user_quests_user_quest ON user_quests(user_id, quest_id)"
-        ))
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_user_quests_user_id ON user_quests(user_id)")
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_user_quests_user_quest ON user_quests(user_id, quest_id)"
+            )
+        )
 
         # --- jackpot_pools ---
         if "jackpot_pools" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS jackpot_pools (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         date VARCHAR(10) NOT NULL UNIQUE,
@@ -1149,9 +1276,13 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         drawn_at DATETIME,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS jackpot_pools (
                         id SERIAL PRIMARY KEY,
                         date VARCHAR(10) NOT NULL UNIQUE,
@@ -1162,11 +1293,13 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         drawn_at TIMESTAMP,
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
 
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_jackpot_pools_date ON jackpot_pools(date)"
-        ))
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_jackpot_pools_date ON jackpot_pools(date)")
+        )
 
 
 def _add_copy_trading_columns(db_engine, inspector, is_sqlite: bool) -> None:

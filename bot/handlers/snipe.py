@@ -47,7 +47,10 @@ from bot.services.sniping import (
     snipe_executor,
     pump_fun_api,
 )
-from bot.services.sniping.snipe_executor import SnipeConfig as ExecutorConfig, SnipeMode as ExecutorSnipeMode
+from bot.services.sniping.snipe_executor import (
+    SnipeConfig as ExecutorConfig,
+    SnipeMode as ExecutorSnipeMode,
+)
 from bot.services.sniping.launch_detector import TokenLaunch, LaunchPlatform
 from bot.services.wallet import WalletService
 from bot.utils.rate_limiter import UserRateLimiter
@@ -87,7 +90,7 @@ def format_sol(amount: float) -> str:
 
 def format_token_amount(amount: int, decimals: int = 9) -> str:
     """Format token amount."""
-    value = amount / (10 ** decimals)
+    value = amount / (10**decimals)
     if value >= 1_000_000:
         return f"{value / 1_000_000:.2f}M"
     if value >= 1_000:
@@ -96,6 +99,7 @@ def format_token_amount(amount: int, decimals: int = 9) -> str:
 
 
 # ============ MAIN SNIPE COMMAND ============
+
 
 @enforce_tos
 async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -118,28 +122,27 @@ async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
         if not db_user:
-            await update.message.reply_text(
-                "Please use /start first to create your account."
-            )
+            await update.message.reply_text("Please use /start first to create your account.")
             return ConversationHandler.END
 
-        wallet = session.query(Wallet).filter(
-            Wallet.user_id == db_user.id,
-            Wallet.chain_type == "solana",
-            Wallet.is_default == True,
-        ).first()
+        wallet = (
+            session.query(Wallet)
+            .filter(
+                Wallet.user_id == db_user.id,
+                Wallet.chain_type == "solana",
+                Wallet.is_default == True,
+            )
+            .first()
+        )
 
         if not wallet:
             await update.message.reply_text(
-                "You need a Solana wallet to snipe tokens.\n"
-                "Use /wallet to create one."
+                "You need a Solana wallet to snipe tokens.\n" "Use /wallet to create one."
             )
             return ConversationHandler.END
 
         # Get or create snipe config
-        config = session.query(SnipeConfig).filter(
-            SnipeConfig.user_id == db_user.id
-        ).first()
+        config = session.query(SnipeConfig).filter(SnipeConfig.user_id == db_user.id).first()
 
         if not config:
             config = SnipeConfig(user_id=db_user.id)
@@ -236,9 +239,9 @@ async def snipe_token_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         "Send the Solana token mint address you want to snipe.\n\n"
         "_Example: 7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr_",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Cancel", callback_data="snipe_cancel")]
-        ]),
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Cancel", callback_data="snipe_cancel")]]
+        ),
     )
 
     return ENTER_CONTRACT
@@ -252,9 +255,9 @@ async def receive_contract(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text(
             "That doesn't look like a valid Solana address.\n"
             "Please enter a valid token mint address.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Cancel", callback_data="snipe_cancel")]
-            ]),
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("Cancel", callback_data="snipe_cancel")]]
+            ),
         )
         return ENTER_CONTRACT
 
@@ -289,10 +292,12 @@ async def show_amount_selection(
     amount_buttons = []
     row = []
     for i, amount in enumerate(quick_amounts):
-        row.append(InlineKeyboardButton(
-            f"{format_sol(amount)} SOL",
-            callback_data=f"snipe_amount_{amount}",
-        ))
+        row.append(
+            InlineKeyboardButton(
+                f"{format_sol(amount)} SOL",
+                callback_data=f"snipe_amount_{amount}",
+            )
+        )
         if (i + 1) % 2 == 0:
             amount_buttons.append(row)
             row = []
@@ -304,11 +309,7 @@ async def show_amount_selection(
         [InlineKeyboardButton("Cancel", callback_data="snipe_cancel")],
     ]
 
-    text = (
-        f"*Snipe Token*\n\n"
-        f"{token_info}\n"
-        f"Select amount of SOL to spend:"
-    )
+    text = f"*Snipe Token*\n\n" f"{token_info}\n" f"Select amount of SOL to spend:"
 
     if update.callback_query:
         await update.callback_query.edit_message_text(
@@ -355,9 +356,9 @@ async def custom_amount_callback(update: Update, context: ContextTypes.DEFAULT_T
         "Enter the amount of SOL you want to spend:\n\n"
         "_Example: 0.25_",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Cancel", callback_data="snipe_cancel")]
-        ]),
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Cancel", callback_data="snipe_cancel")]]
+        ),
     )
 
     context.user_data["snipe"]["awaiting_custom_amount"] = True
@@ -385,8 +386,7 @@ async def receive_custom_amount(update: Update, context: ContextTypes.DEFAULT_TY
 
     except ValueError:
         await update.message.reply_text(
-            "Invalid amount. Please enter a valid number.\n"
-            "_Example: 0.5_",
+            "Invalid amount. Please enter a valid number.\n" "_Example: 0.5_",
             parse_mode="Markdown",
         )
         return SELECT_AMOUNT
@@ -493,10 +493,14 @@ async def confirm_snipe_callback(update: Update, context: ContextTypes.DEFAULT_T
 
         wallet_service = WalletService()
         with get_session() as session:
-            wallet = session.query(Wallet).filter(
-                Wallet.id == wallet_id,
-                Wallet.user_id == user_id,
-            ).first()
+            wallet = (
+                session.query(Wallet)
+                .filter(
+                    Wallet.id == wallet_id,
+                    Wallet.user_id == user_id,
+                )
+                .first()
+            )
             if not wallet:
                 raise Exception("Wallet not found")
 
@@ -506,6 +510,7 @@ async def confirm_snipe_callback(update: Update, context: ContextTypes.DEFAULT_T
             key_bytes = base58.b58decode(private_key)
         except Exception:
             import json as _json
+
             key_bytes = bytes(_json.loads(private_key))
 
         keypair = Keypair.from_bytes(key_bytes)
@@ -590,8 +595,7 @@ async def confirm_snipe_callback(update: Update, context: ContextTypes.DEFAULT_T
                 session.commit()
 
         await query.edit_message_text(
-            f"*Snipe Failed*\n\n"
-            f"An unexpected error occurred. Please try again.",
+            f"*Snipe Failed*\n\n" f"An unexpected error occurred. Please try again.",
             parse_mode="Markdown",
         )
 
@@ -601,6 +605,7 @@ async def confirm_snipe_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 
 # ============ NEW LAUNCHES ============
+
 
 async def launches_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show recent token launches."""
@@ -616,10 +621,12 @@ async def launches_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             "No recent launches detected.\n"
             "Launches will appear here as they happen.",
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Refresh", callback_data="snipe_launches")],
-                [InlineKeyboardButton("Back", callback_data="snipe_menu")],
-            ]),
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("Refresh", callback_data="snipe_launches")],
+                    [InlineKeyboardButton("Back", callback_data="snipe_menu")],
+                ]
+            ),
         )
         return SELECT_ACTION
 
@@ -637,17 +644,21 @@ async def launches_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             f"Score: {launch.quality_score:.0f}\n\n"
         )
 
-        keyboard.append([
-            InlineKeyboardButton(
-                f"Snipe {launch.symbol or launch.token_mint[:6]}",
-                callback_data=f"snipe_quick_{launch.token_mint[:20]}",
-            )
-        ])
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    f"Snipe {launch.symbol or launch.token_mint[:6]}",
+                    callback_data=f"snipe_quick_{launch.token_mint[:20]}",
+                )
+            ]
+        )
 
-    keyboard.extend([
-        [InlineKeyboardButton("Refresh", callback_data="snipe_launches")],
-        [InlineKeyboardButton("Back", callback_data="snipe_menu")],
-    ])
+    keyboard.extend(
+        [
+            [InlineKeyboardButton("Refresh", callback_data="snipe_launches")],
+            [InlineKeyboardButton("Back", callback_data="snipe_menu")],
+        ]
+    )
 
     await query.edit_message_text(
         text,
@@ -660,6 +671,7 @@ async def launches_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 # ============ WATCHLIST ============
 
+
 async def watchlist_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show user's watchlist."""
     query = update.callback_query
@@ -668,10 +680,16 @@ async def watchlist_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = context.user_data.get("snipe", {}).get("user_id")
 
     with get_session() as session:
-        watched = session.query(WatchedToken).filter(
-            WatchedToken.user_id == user_id,
-            WatchedToken.is_active == True,
-        ).order_by(WatchedToken.created_at.desc()).limit(10).all()
+        watched = (
+            session.query(WatchedToken)
+            .filter(
+                WatchedToken.user_id == user_id,
+                WatchedToken.is_active == True,
+            )
+            .order_by(WatchedToken.created_at.desc())
+            .limit(10)
+            .all()
+        )
 
         if not watched:
             await query.edit_message_text(
@@ -680,10 +698,12 @@ async def watchlist_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 "Add tokens to watch for migration events\n"
                 "(pump.fun -> Raydium graduations).",
                 parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Add Token", callback_data="snipe_watch_add")],
-                    [InlineKeyboardButton("Back", callback_data="snipe_menu")],
-                ]),
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton("Add Token", callback_data="snipe_watch_add")],
+                        [InlineKeyboardButton("Back", callback_data="snipe_menu")],
+                    ]
+                ),
             )
             return SELECT_ACTION
 
@@ -699,17 +719,21 @@ async def watchlist_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 f"   Progress: {progress:.1f}%\n\n"
             )
 
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"Remove {token.token_symbol or token.token_mint[:6]}",
-                    callback_data=f"snipe_unwatch_{token.id}",
-                )
-            ])
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"Remove {token.token_symbol or token.token_mint[:6]}",
+                        callback_data=f"snipe_unwatch_{token.id}",
+                    )
+                ]
+            )
 
-    keyboard.extend([
-        [InlineKeyboardButton("Add Token", callback_data="snipe_watch_add")],
-        [InlineKeyboardButton("Back", callback_data="snipe_menu")],
-    ])
+    keyboard.extend(
+        [
+            [InlineKeyboardButton("Add Token", callback_data="snipe_watch_add")],
+            [InlineKeyboardButton("Back", callback_data="snipe_menu")],
+        ]
+    )
 
     await query.edit_message_text(
         text,
@@ -722,6 +746,7 @@ async def watchlist_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # ============ SNIPE HISTORY ============
 
+
 async def history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show snipe history."""
     query = update.callback_query
@@ -730,19 +755,25 @@ async def history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     user_id = context.user_data.get("snipe", {}).get("user_id")
 
     with get_session() as session:
-        history = session.query(SnipeHistory).filter(
-            SnipeHistory.user_id == user_id,
-        ).order_by(SnipeHistory.sniped_at.desc()).limit(10).all()
+        history = (
+            session.query(SnipeHistory)
+            .filter(
+                SnipeHistory.user_id == user_id,
+            )
+            .order_by(SnipeHistory.sniped_at.desc())
+            .limit(10)
+            .all()
+        )
 
         if not history:
             await query.edit_message_text(
-                "*Snipe History*\n\n"
-                "No snipes yet.\n"
-                "Your snipe history will appear here.",
+                "*Snipe History*\n\n" "No snipes yet.\n" "Your snipe history will appear here.",
                 parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Back", callback_data="snipe_menu")],
-                ]),
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton("Back", callback_data="snipe_menu")],
+                    ]
+                ),
             )
             return SELECT_ACTION
 
@@ -767,15 +798,322 @@ async def history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await query.edit_message_text(
         text,
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Back", callback_data="snipe_menu")],
-        ]),
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("Back", callback_data="snipe_menu")],
+            ]
+        ),
     )
 
     return SELECT_ACTION
 
 
+# ============ AUTO-SNIPE ============
+
+
+async def auto_snipe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show auto-snipe rules and management."""
+    from bot.utils.telegram_safe import safe_md
+
+    query = update.callback_query
+    await query.answer()
+
+    user_id = context.user_data.get("snipe", {}).get("user_id")
+
+    with get_session() as session:
+        rules = (
+            session.query(AutoSnipeRule)
+            .filter(
+                AutoSnipeRule.user_id == user_id,
+            )
+            .order_by(AutoSnipeRule.created_at.desc())
+            .all()
+        )
+
+        if not rules:
+            await query.edit_message_text(
+                "*Auto-Snipe Rules*\n\n"
+                "No rules configured yet.\n\n"
+                "Auto-Snipe automatically buys new token launches that match\n"
+                "your criteria (platform, liquidity, quality score).\n\n"
+                "Create a rule to get started:",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton("Create Rule", callback_data="snipe_auto_create")],
+                        [InlineKeyboardButton("Back", callback_data="snipe_menu")],
+                    ]
+                ),
+            )
+            return SELECT_ACTION
+
+        text = "*Auto-Snipe Rules*\n\n"
+        keyboard = []
+
+        for rule in rules:
+            status_emoji = "✅" if rule.is_active else "⏸"
+            rule_name = safe_md(rule.name)
+            text += (
+                f"{status_emoji} *{rule_name}*\n"
+                f"   Amount: {rule.sol_amount} SOL | "
+                f"Daily limit: {rule.max_snipes_per_day} snipes\n"
+                f"   Today: {rule.snipes_today}/{rule.max_snipes_per_day} snipes\n\n"
+            )
+            toggle_label = "Pause" if rule.is_active else "Enable"
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"{toggle_label} {rule_name}",
+                        callback_data=f"snipe_auto_toggle_{rule.id}",
+                    ),
+                ]
+            )
+
+        keyboard.extend(
+            [
+                [InlineKeyboardButton("Create Rule", callback_data="snipe_auto_create")],
+                [InlineKeyboardButton("Back", callback_data="snipe_menu")],
+            ]
+        )
+
+        await query.edit_message_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+
+    return SELECT_ACTION
+
+
+async def auto_snipe_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Toggle an auto-snipe rule on/off."""
+    query = update.callback_query
+    await query.answer()
+
+    try:
+        rule_id = int(query.data.replace("snipe_auto_toggle_", ""))
+    except ValueError:
+        await query.answer("Invalid rule.", show_alert=True)
+        return SELECT_ACTION
+
+    user_id = context.user_data.get("snipe", {}).get("user_id")
+
+    with get_session() as session:
+        rule = (
+            session.query(AutoSnipeRule)
+            .filter(
+                AutoSnipeRule.id == rule_id,
+                AutoSnipeRule.user_id == user_id,
+            )
+            .first()
+        )
+
+        if not rule:
+            await query.answer("Rule not found.", show_alert=True)
+            return SELECT_ACTION
+
+        rule.is_active = not rule.is_active
+        session.commit()
+
+    # Refresh auto-snipe view
+    return await auto_snipe_callback(update, context)
+
+
+async def auto_snipe_create_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start rule creation — prompt for rule name."""
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data.setdefault("snipe", {})
+    context.user_data["snipe"]["auto_create"] = {}
+
+    await query.edit_message_text(
+        "*New Auto-Snipe Rule*\n\n" "Step 1/2: Enter a name for this rule (e.g. `Quick 0.1 SOL`):",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("Cancel", callback_data="snipe_cancel")],
+            ]
+        ),
+    )
+    return CONFIGURE_AUTOSNIPE
+
+
+async def auto_snipe_create_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive rule name, prompt for SOL amount."""
+    name = update.message.text.strip()[:50]
+    context.user_data["snipe"]["auto_create"]["name"] = name
+
+    await update.message.reply_text(
+        f"*Rule name:* {name}\n\n"
+        "Step 2/2: Enter the SOL amount to spend per snipe (e.g. `0.1`):",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("Cancel", callback_data="snipe_cancel")],
+            ]
+        ),
+    )
+    context.user_data["snipe"]["auto_create"]["step"] = "amount"
+    return CONFIGURE_AUTOSNIPE
+
+
+async def auto_snipe_create_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive SOL amount and create the rule."""
+    from bot.utils.telegram_safe import safe_md
+
+    auto_data = context.user_data.get("snipe", {}).get("auto_create", {})
+    step = auto_data.get("step")
+
+    # Route based on step: first text input is name (handled above), second is amount
+    if step != "amount":
+        return await auto_snipe_create_name(update, context)
+
+    try:
+        sol_amount = float(update.message.text.strip().replace(",", ""))
+        if sol_amount <= 0:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text(
+            "Invalid amount. Enter a positive number (e.g. `0.1`):",
+            parse_mode="Markdown",
+        )
+        return CONFIGURE_AUTOSNIPE
+
+    user_id = context.user_data.get("snipe", {}).get("user_id")
+    wallet_id = context.user_data.get("snipe", {}).get("wallet_id")
+    name = auto_data.get("name", "Auto Rule")
+
+    with get_session() as session:
+        rule = AutoSnipeRule(
+            user_id=user_id,
+            wallet_id=wallet_id,
+            name=name,
+            sol_amount=sol_amount,
+            is_active=True,
+        )
+        session.add(rule)
+        session.commit()
+
+    context.user_data["snipe"].pop("auto_create", None)
+
+    await update.message.reply_text(
+        f"✅ *Auto-Snipe Rule Created*\n\n"
+        f"Name: {safe_md(name)}\n"
+        f"Amount: {sol_amount} SOL per snipe\n\n"
+        f"The rule is now active and will snipe matching launches automatically.",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("View Rules", callback_data="snipe_auto")],
+                [InlineKeyboardButton("Back to Menu", callback_data="snipe_menu")],
+            ]
+        ),
+    )
+    return SELECT_ACTION
+
+
+# ============ SNIPE SETTINGS ============
+
+
+async def snipe_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show and edit snipe settings (slippage, Jito, quick amounts)."""
+    from bot.utils.telegram_safe import safe_md
+
+    query = update.callback_query
+    await query.answer()
+
+    user_id = context.user_data.get("snipe", {}).get("user_id")
+
+    with get_session() as session:
+        config = (
+            session.query(SnipeConfig)
+            .filter(
+                SnipeConfig.user_id == user_id,
+            )
+            .first()
+        )
+
+        if not config:
+            config = SnipeConfig(
+                user_id=user_id,
+                slippage_bps=1000,
+                use_jito=True,
+                quick_amounts=[0.1, 0.5, 1.0, 5.0],
+            )
+            session.add(config)
+            session.commit()
+
+        slippage_pct = (config.slippage_bps or 1000) / 100
+        jito_status = "ON" if config.use_jito else "OFF"
+
+    text = (
+        f"*Snipe Settings*\n\n"
+        f"Slippage: {slippage_pct:.1f}%\n"
+        f"MEV Protection (Jito): {jito_status}\n\n"
+        f"Adjust settings below:"
+    )
+
+    keyboard = [
+        [
+            InlineKeyboardButton("Slippage: 5%", callback_data="snipe_set_slip_500"),
+            InlineKeyboardButton("Slippage: 10%", callback_data="snipe_set_slip_1000"),
+            InlineKeyboardButton("Slippage: 20%", callback_data="snipe_set_slip_2000"),
+        ],
+        [
+            InlineKeyboardButton(
+                f"Jito: {'OFF' if config.use_jito else 'ON'} (toggle)",
+                callback_data="snipe_set_jito_toggle",
+            ),
+        ],
+        [InlineKeyboardButton("Back", callback_data="snipe_menu")],
+    ]
+
+    await query.edit_message_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+    return SELECT_ACTION
+
+
+async def snipe_set_slippage_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Set slippage."""
+    query = update.callback_query
+    await query.answer()
+
+    try:
+        bps = int(query.data.replace("snipe_set_slip_", ""))
+    except ValueError:
+        return SELECT_ACTION
+
+    user_id = context.user_data.get("snipe", {}).get("user_id")
+    with get_session() as session:
+        config = session.query(SnipeConfig).filter(SnipeConfig.user_id == user_id).first()
+        if config:
+            config.slippage_bps = bps
+            session.commit()
+
+    return await snipe_settings_callback(update, context)
+
+
+async def snipe_set_jito_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Toggle Jito MEV protection."""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = context.user_data.get("snipe", {}).get("user_id")
+    with get_session() as session:
+        config = session.query(SnipeConfig).filter(SnipeConfig.user_id == user_id).first()
+        if config:
+            config.use_jito = not config.use_jito
+            session.commit()
+
+    return await snipe_settings_callback(update, context)
+
+
 # ============ CANCEL ============
+
 
 async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle cancel."""
@@ -807,7 +1145,17 @@ snipe_conversation_handler = ConversationHandler(
             CallbackQueryHandler(launches_callback, pattern="^snipe_launches$"),
             CallbackQueryHandler(watchlist_callback, pattern="^snipe_watchlist$"),
             CallbackQueryHandler(history_callback, pattern="^snipe_history$"),
+            CallbackQueryHandler(auto_snipe_callback, pattern="^snipe_auto$"),
+            CallbackQueryHandler(auto_snipe_toggle_callback, pattern=r"^snipe_auto_toggle_\d+$"),
+            CallbackQueryHandler(auto_snipe_create_start, pattern="^snipe_auto_create$"),
+            CallbackQueryHandler(snipe_settings_callback, pattern="^snipe_settings$"),
+            CallbackQueryHandler(snipe_set_slippage_callback, pattern=r"^snipe_set_slip_\d+$"),
+            CallbackQueryHandler(snipe_set_jito_callback, pattern="^snipe_set_jito_toggle$"),
             CallbackQueryHandler(menu_callback, pattern="^snipe_menu$"),
+            CallbackQueryHandler(cancel_callback, pattern="^snipe_cancel$"),
+        ],
+        CONFIGURE_AUTOSNIPE: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, auto_snipe_create_amount),
             CallbackQueryHandler(cancel_callback, pattern="^snipe_cancel$"),
         ],
         ENTER_CONTRACT: [

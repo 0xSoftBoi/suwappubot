@@ -3,18 +3,24 @@
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ContextTypes, CommandHandler, CallbackQueryHandler,
-    ConversationHandler, MessageHandler, filters,
+    ContextTypes,
+    CommandHandler,
+    CallbackQueryHandler,
+    ConversationHandler,
+    MessageHandler,
+    filters,
 )
 
 from bot.services.perps_service import perps_service
 from bot.services.hyperliquid_client import hyperliquid_client
+from bot.utils.telegram_safe import safe_md, send_md_safe
 
 logger = logging.getLogger(__name__)
 
 # Conversation states
 PERPS_MENU, PERPS_MARKET, PERPS_SIDE, PERPS_AMOUNT, PERPS_LEVERAGE, PERPS_CONFIRM = range(6)
 PERPS_SETUP_KEY, PERPS_SETUP_SECRET = range(10, 12)
+PERPS_TPSL_INPUT = 20  # Text input state for TP/SL price entry
 
 
 async def _send_perps(update: Update, text: str, keyboard: list):
@@ -28,11 +34,15 @@ async def _send_perps(update: Update, text: str, keyboard: list):
     markup = InlineKeyboardMarkup(keyboard)
     if update.callback_query is not None:
         await update.callback_query.edit_message_text(
-            text, reply_markup=markup, parse_mode="Markdown",
+            text,
+            reply_markup=markup,
+            parse_mode="Markdown",
         )
     else:
         await update.message.reply_text(
-            text, reply_markup=markup, parse_mode="Markdown",
+            text,
+            reply_markup=markup,
+            parse_mode="Markdown",
         )
 
 
@@ -44,8 +54,16 @@ async def perps_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not account:
         keyboard = [
-            [InlineKeyboardButton("\U0001f511 Setup HyperLiquid Account", callback_data="perps_setup")],
-            [InlineKeyboardButton("\u2139\ufe0f What is Perps Trading?", callback_data="perps_info")],
+            [
+                InlineKeyboardButton(
+                    "\U0001f511 Setup HyperLiquid Account", callback_data="perps_setup"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "\u2139\ufe0f What is Perps Trading?", callback_data="perps_info"
+                )
+            ],
             [InlineKeyboardButton("\U0001f519 Back", callback_data="main_menu")],
         ]
         await _send_perps(
@@ -146,10 +164,9 @@ async def perps_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         keyboard.append([InlineKeyboardButton("\U0001f519 Back", callback_data="perps_back")])
 
         side = context.user_data["perps_side"]
-        side_emoji = '\U0001f4c8' if side == 'long' else '\U0001f4c9'
+        side_emoji = "\U0001f4c8" if side == "long" else "\U0001f4c9"
         await query.edit_message_text(
-            f"{side_emoji} **Open {side.title()} Position**\n\n"
-            "Select a market:",
+            f"{side_emoji} **Open {side.title()} Position**\n\n" "Select a market:",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown",
         )
@@ -173,10 +190,14 @@ async def perps_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"   Size: {float(pos.size):.4f} | Entry: ${float(pos.entry_price):,.2f}\n"
                 f"   Mark: ${float(pos.mark_price or 0):,.2f} | PnL: ${pnl:,.2f}\n"
             )
-            keyboard.append([
-                InlineKeyboardButton(f"Close {pos.market}", callback_data=f"perps_close_{pos.id}"),
-                InlineKeyboardButton(f"TP/SL", callback_data=f"perps_tpsl_{pos.id}"),
-            ])
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"Close {pos.market}", callback_data=f"perps_close_{pos.id}"
+                    ),
+                    InlineKeyboardButton(f"TP/SL", callback_data=f"perps_tpsl_{pos.id}"),
+                ]
+            )
 
         keyboard.append([InlineKeyboardButton("\U0001f519 Back", callback_data="perps_back")])
 
@@ -207,7 +228,7 @@ async def perps_market_callback(update: Update, context: ContextTypes.DEFAULT_TY
     price_str = f"${price:,.2f}" if price else "N/A"
 
     side = context.user_data.get("perps_side", "long")
-    side_emoji = '\U0001f4c8' if side == 'long' else '\U0001f4c9'
+    side_emoji = "\U0001f4c8" if side == "long" else "\U0001f4c9"
 
     await query.edit_message_text(
         f"{side_emoji} **{side.title()} {market}**\n\n"
@@ -274,7 +295,9 @@ async def perps_leverage_callback(update: Update, context: ContextTypes.DEFAULT_
 
     price = await hyperliquid_client.get_mark_price(market)
     size = (amount * leverage) / price if price else 0
-    liq_estimate = price * (1 - 1/leverage) if side == "long" else price * (1 + 1/leverage) if price else 0
+    liq_estimate = (
+        price * (1 - 1 / leverage) if side == "long" else price * (1 + 1 / leverage) if price else 0
+    )
 
     keyboard = [
         [
@@ -381,6 +404,7 @@ async def perps_setup_secret(update: Update, context: ContextTypes.DEFAULT_TYPE)
         hl_address = ""
         try:
             from eth_account import Account
+
             hl_address = Account.from_key(api_secret).address
         except Exception as e:
             logger.warning(f"Could not derive HL address from key: {e}")
@@ -470,6 +494,143 @@ async def perps_close_amount_callback(update: Update, context: ContextTypes.DEFA
     return PERPS_MENU
 
 
+async def perps_tpsl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show TP/SL setup prompt for a position."""
+    query = update.callback_query
+    await query.answer()
+
+    try:
+        position_id = int(query.data.replace("perps_tpsl_", ""))
+    except ValueError:
+        await query.edit_message_text("❌ Invalid position.")
+        return PERPS_MENU
+
+    # Verify position belongs to this user
+    positions = perps_service.get_positions(query.from_user.id)
+    position = next((p for p in positions if p.id == position_id), None)
+    if not position:
+        await query.edit_message_text("❌ Position not found.")
+        return PERPS_MENU
+
+    context.user_data["perps_tpsl_position_id"] = position_id
+    context.user_data["perps_tpsl_step"] = "tp"
+
+    current_tp = float(position.tp_price) if position.tp_price else None
+    current_sl = float(position.sl_price) if position.sl_price else None
+    mark = float(position.mark_price or position.entry_price or 0)
+
+    tp_str = f"${current_tp:,.2f}" if current_tp else "not set"
+    sl_str = f"${current_sl:,.2f}" if current_sl else "not set"
+
+    market_safe = safe_md(position.market)
+    text = (
+        f"⚙️ *TP/SL for {market_safe} {position.side.upper()}*\n\n"
+        f"Mark price: ${mark:,.2f}\n"
+        f"Current TP: {tp_str}\n"
+        f"Current SL: {sl_str}\n\n"
+        f"Enter *take profit price* (or `skip` to keep current):"
+    )
+    keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="perps_tpsl_cancel")]]
+    await send_md_safe(update, text, reply_markup=InlineKeyboardMarkup(keyboard))
+    return PERPS_TPSL_INPUT
+
+
+async def perps_tpsl_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancel TP/SL entry and return to positions."""
+    query = update.callback_query
+    await query.answer()
+    context.user_data.pop("perps_tpsl_position_id", None)
+    context.user_data.pop("perps_tpsl_step", None)
+    context.user_data.pop("perps_tpsl_tp", None)
+    return await perps_menu_callback(update, context)
+
+
+async def perps_tpsl_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle TP and SL price text inputs."""
+    text = update.message.text.strip().lower()
+    step = context.user_data.get("perps_tpsl_step")
+    position_id = context.user_data.get("perps_tpsl_position_id")
+
+    if step == "tp":
+        # Parse TP price
+        if text == "skip":
+            context.user_data["perps_tpsl_tp"] = None
+        else:
+            try:
+                tp = float(text.replace("$", "").replace(",", ""))
+                context.user_data["perps_tpsl_tp"] = tp
+            except ValueError:
+                await update.message.reply_text(
+                    "Invalid price. Enter a number or `skip`:",
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(
+                        [[InlineKeyboardButton("❌ Cancel", callback_data="perps_tpsl_cancel")]]
+                    ),
+                )
+                return PERPS_TPSL_INPUT
+
+        context.user_data["perps_tpsl_step"] = "sl"
+        await update.message.reply_text(
+            "Now enter *stop loss price* (or `skip` to keep current):",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Cancel", callback_data="perps_tpsl_cancel")]]
+            ),
+        )
+        return PERPS_TPSL_INPUT
+
+    elif step == "sl":
+        # Parse SL price
+        if text == "skip":
+            sl = None
+        else:
+            try:
+                sl = float(text.replace("$", "").replace(",", ""))
+            except ValueError:
+                await update.message.reply_text(
+                    "Invalid price. Enter a number or `skip`:",
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(
+                        [[InlineKeyboardButton("❌ Cancel", callback_data="perps_tpsl_cancel")]]
+                    ),
+                )
+                return PERPS_TPSL_INPUT
+
+        tp = context.user_data.pop("perps_tpsl_tp", None)
+        context.user_data.pop("perps_tpsl_position_id", None)
+        context.user_data.pop("perps_tpsl_step", None)
+
+        try:
+            await perps_service.modify_tp_sl(
+                user_id=update.effective_user.id,
+                position_id=position_id,
+                tp_price=tp,
+                sl_price=sl,
+            )
+            tp_str = f"${tp:,.2f}" if tp is not None else "cleared"
+            sl_str = f"${sl:,.2f}" if sl is not None else "cleared"
+            await update.message.reply_text(
+                f"✅ *TP/SL updated*\n\nTake Profit: {safe_md(tp_str)}\nStop Loss: {safe_md(sl_str)}",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "\U0001f4cb Back to Positions", callback_data="perps_positions"
+                            )
+                        ]
+                    ]
+                ),
+            )
+        except Exception as e:
+            logger.error(f"Error setting TP/SL: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ Failed to update TP/SL: {safe_md(str(e))}")
+
+        return PERPS_MENU
+
+    return PERPS_TPSL_INPUT
+
+
 # Conversation handler
 perps_conversation_handler = ConversationHandler(
     name="perps",
@@ -481,9 +642,16 @@ perps_conversation_handler = ConversationHandler(
     ],
     states={
         PERPS_MENU: [
-            CallbackQueryHandler(perps_menu_callback, pattern="^perps_"),
+            # Specific patterns must come before the catch-all ^perps_ to avoid shadowing.
+            CallbackQueryHandler(perps_tpsl_callback, pattern=r"^perps_tpsl_\d+$"),
+            CallbackQueryHandler(perps_tpsl_cancel_callback, pattern="^perps_tpsl_cancel$"),
             CallbackQueryHandler(perps_close_callback, pattern="^perps_close_"),
             CallbackQueryHandler(perps_close_amount_callback, pattern="^perps_closeamt_"),
+            CallbackQueryHandler(perps_menu_callback, pattern="^perps_"),
+        ],
+        PERPS_TPSL_INPUT: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, perps_tpsl_input_handler),
+            CallbackQueryHandler(perps_tpsl_cancel_callback, pattern="^perps_tpsl_cancel$"),
         ],
         PERPS_MARKET: [
             CallbackQueryHandler(perps_market_callback, pattern="^perps_market_"),
