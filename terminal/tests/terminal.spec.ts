@@ -122,6 +122,23 @@ test.describe('Terminal Layout', () => {
     await expect(swapPanel.getByRole('button', { name: /USDC/ })).toBeVisible()
   })
 
+  test('toggling buy/sell clears the typed amount (no accidental re-quote)', async ({ page }) => {
+    await page.goto('/')
+
+    const swapPanel = page.getByTestId('swap-panel')
+    await expect(swapPanel).toBeVisible()
+
+    // Type an amount on the buy side (spending USDC), then flip to sell.
+    // Because from/to derive from `side`, the amount must NOT carry over —
+    // otherwise it would re-quote as "sell <amount> ETH", which the user never chose.
+    const amountInput = swapPanel.getByPlaceholder('0.0').first()
+    await amountInput.fill('100')
+    await expect(amountInput).toHaveValue('100')
+
+    await swapPanel.getByRole('button', { name: 'Sell' }).click()
+    await expect(amountInput).toHaveValue('')
+  })
+
   test('has slippage control', async ({ page }) => {
     await page.goto('/')
 
