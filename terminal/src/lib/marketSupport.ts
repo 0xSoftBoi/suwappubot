@@ -18,4 +18,17 @@ export function cexSymbol(baseAddress: string | undefined | null, chain: string)
   return null
 }
 
+/**
+ * Maps the internal CEX symbol (from `cexSymbol`) to the Coinbase Exchange
+ * product id used on the public WS feed (`wss://ws-feed.exchange.coinbase.com`).
+ * Coinbase quotes ETH against USD (not USDC) on the Exchange order book, so
+ * ETH/USDC in our UI maps to the ETH-USD product. Returns null when there's no
+ * public Coinbase market for the symbol.
+ */
+export function coinbaseProductId(symbol: string | null | undefined): string | null {
+  if (!symbol) return null
+  if (symbol === 'ETHUSDC') return 'ETH-USD'
+  return null
+}
+
 export type FeedStatus = 'connected' | 'loading' | 'error' | 'unsupported'
