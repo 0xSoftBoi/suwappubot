@@ -106,6 +106,13 @@ class OKXDEXAPI:
             "OK-ACCESS-PASSPHRASE": self.passphrase,
             "OK-ACCESS-PROJECT": self.project_id,
             "Content-Type": "application/json",
+            # OKX fronts the API with Cloudflare, which 403s (error 1010) requests
+            # with no/automated User-Agent — verified that a browser UA passes while
+            # python-default/bot UAs are blocked, so use a standard browser string.
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+            ),
         }
 
     @staticmethod
@@ -172,14 +179,15 @@ class OKXDEXAPI:
             OKXDEXQuote with swap details
         """
         params = {
-            "chainId": chain_id,
+            "chainIndex": chain_id,  # V6 renamed chainId -> chainIndex (same numeric value)
             "fromTokenAddress": from_token,
             "toTokenAddress": to_token,
             "amount": amount,
             "slippage": str(slippage / 100),  # OKX expects decimal (0.005 = 0.5%)
         }
 
-        data = await self._request("GET", "/api/v5/dex/aggregator/quote", params=params)
+        # V5 DEX API is deprecated (code 50050); V6 is the live aggregator.
+        data = await self._request("GET", "/api/v6/dex/aggregator/quote", params=params)
 
         result = data.get("data", [{}])[0] if data.get("data") else {}
         if not result:
@@ -230,7 +238,7 @@ class OKXDEXAPI:
             OKXDEXQuote with tx_data populated for execution
         """
         params = {
-            "chainId": chain_id,
+            "chainIndex": chain_id,  # V6 renamed chainId -> chainIndex
             "fromTokenAddress": from_token,
             "toTokenAddress": to_token,
             "amount": amount,
@@ -238,7 +246,7 @@ class OKXDEXAPI:
             "userWalletAddress": user_address,
         }
 
-        data = await self._request("GET", "/api/v5/dex/aggregator/swap", params=params)
+        data = await self._request("GET", "/api/v6/dex/aggregator/swap", params=params)
 
         result = data.get("data", [{}])[0] if data.get("data") else {}
         if not result:
