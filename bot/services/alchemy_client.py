@@ -114,6 +114,7 @@ class AssetTransfer:
     asset: str
     category: str  # "external", "internal", "erc20", "erc721", "erc1155"
     raw_contract: Optional[Dict[str, Any]] = None
+    block_timestamp: Optional[str] = None  # ISO timestamp from withMetadata
 
 
 @dataclass
@@ -425,6 +426,7 @@ class AlchemyClient:
                 "fromBlock": from_block,
                 "toBlock": to_block,
                 "withMetadata": True,
+                "order": "desc",  # newest first so maxCount caps the most recent
             }
 
             payload = {
@@ -455,6 +457,7 @@ class AlchemyClient:
                         asset=tx.get("asset", "ETH"),
                         category=tx.get("category", "external"),
                         raw_contract=tx.get("rawContract"),
+                        block_timestamp=(tx.get("metadata") or {}).get("blockTimestamp"),
                     ))
 
             except Exception as e:

@@ -7,6 +7,7 @@ per https://core.telegram.org/bots/webapps#validating-data
 import hmac
 import hashlib
 import json
+import logging
 import os
 import re
 import time
@@ -33,9 +34,14 @@ from bot.services.turnkey_client import (
     verify_auth_signature,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/webapp", tags=["WebApp"])
 _terminal_quote_cache: Dict[str, Dict[str, Any]] = {}
 _QUOTE_TTL_SECONDS = 45
+# user_id -> (expires_at_monotonic, activities list)
+_terminal_activity_cache: Dict[int, tuple] = {}
+_ACTIVITY_TTL_SECONDS = 30
 _MORPHO_API_URL = "https://api.morpho.org/graphql"
 _MORPHO_CHAIN_IDS = [1, 8453, 42161, 10]
 _MORPHO_CHAIN_NAMES = {
@@ -1462,9 +1468,134 @@ async def delete_terminal_tracked_wallet(
 @router.get("/wallet-tracker/activities")
 async def get_terminal_wallet_activities(
     auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
 ):
-    _require_terminal_user(auth_payload)
-    return []
+    """Recent on-chain transfers for the user's tracked wallets.
+
+    Aggregates incoming/outgoing transfers across every active tracked wallet
+    via Alchemy's ``alchemy_getAssetTransfers``, normalizes to the terminal's
+    ``WalletActivity`` shape, sorts newest-first and caps the result.
+    Returns ``[]`` gracefully when there are no tracked wallets or Alchemy is
+    unavailable.
+    """
+    user_id = _require_terminal_user(auth_payload)
+
+    # Short-lived per-user cache to avoid hammering Alchemy on each poll.
+    cached = _terminal_activity_cache.get(user_id)
+    if cached and cached[0] > time.monotonic():
+        return cached[1]
+
+    from bot.models.tracking import TrackedWallet
+
+    wallets = db.query(TrackedWallet).filter(
+        TrackedWallet.user_id == user_id,
+        TrackedWallet.is_active == True,
+    ).all()
+    if not wallets:
+        _terminal_activity_cache[user_id] = (
+            time.monotonic() + _ACTIVITY_TTL_SECONDS, []
+        )
+        return []
+
+    try:
+        activities = await _build_wallet_activities(wallets)
+    except Exception as exc:  # never break the panel on upstream errors
+        logger.warning("wallet-tracker activities failed for user %s: %s", user_id, exc)
+        activities = []
+
+    _terminal_activity_cache[user_id] = (
+        time.monotonic() + _ACTIVITY_TTL_SECONDS, activities
+    )
+    return activities
+
+
+# Categories Alchemy understands for getAssetTransfers (native + tokens).
+_ACTIVITY_TRANSFER_CATEGORIES = ["external", "erc20", "erc1155", "erc721"]
+_ACTIVITY_MAX = 50
+_ACTIVITY_PER_WALLET = 25
+# Cache symbol -> usd price within a single request to avoid duplicate lookups.
+
+
+async def _build_wallet_activities(wallets) -> List[Dict[str, Any]]:
+    from bot.services.alchemy_client import get_alchemy_client
+    from bot.services.price_service import price_service
+
+    client = get_alchemy_client()
+    if not client.is_configured:
+        return []
+
+    raw: List[Dict[str, Any]] = []
+    symbols_seen: set = set()
+
+    for wallet in wallets:
+        chain = (wallet.chain or "ethereum").lower()
+        if not client.supports_chain(chain):
+            continue
+        address = wallet.address
+        try:
+            transfers = await client.get_asset_transfers(
+                address=address,
+                chain=chain,
+                category=_ACTIVITY_TRANSFER_CATEGORIES,
+                max_count=_ACTIVITY_PER_WALLET,
+            )
+        except Exception as exc:
+            logger.debug("asset transfers failed for %s on %s: %s", address, chain, exc)
+            continue
+
+        addr_lower = address.lower()
+        for t in transfers:
+            qty = t.value
+            if qty is None or qty <= 0:
+                continue
+            is_incoming = (t.to_address or "").lower() == addr_lower
+            symbol = (t.asset or "").upper() or "?"
+            symbols_seen.add(symbol)
+            token_address = ""
+            if isinstance(t.raw_contract, dict):
+                token_address = t.raw_contract.get("address") or ""
+            raw.append({
+                "wallet": wallet,
+                "transfer": t,
+                "qty": float(qty),
+                "action": "buy" if is_incoming else "sell",
+                "symbol": symbol,
+                "tokenAddress": token_address,
+                "timestamp": t.block_timestamp,
+                "block_num": t.block_num,
+            })
+
+    if not raw:
+        return []
+
+    # Price lookups (best-effort; missing prices -> 0 USD).
+    prices: Dict[str, float] = {}
+    try:
+        fetched = await price_service.get_prices(list(symbols_seen))
+        prices = {sym: (val or 0.0) for sym, val in (fetched or {}).items()}
+    except Exception as exc:
+        logger.debug("price lookup failed for activities: %s", exc)
+
+    activities: List[Dict[str, Any]] = []
+    for item in raw:
+        t = item["transfer"]
+        price = float(prices.get(item["symbol"], 0.0) or 0.0)
+        activities.append({
+            "id": f"{t.tx_hash}:{item['wallet'].address.lower()}:{item['action']}",
+            "walletAddress": item["wallet"].address,
+            "walletLabel": item["wallet"].label,
+            "action": item["action"],
+            "tokenSymbol": item["symbol"],
+            "tokenAddress": item["tokenAddress"],
+            "amount": item["qty"] * price,
+            "priceUsd": price,
+            "chain": (item["wallet"].chain or "ethereum").lower(),
+            "timestamp": item["timestamp"] or "",
+            "txHash": t.tx_hash,
+        })
+
+    activities.sort(key=lambda a: a["timestamp"], reverse=True)
+    return activities[:_ACTIVITY_MAX]
 
 
 @router.get("/tweets/accounts")
