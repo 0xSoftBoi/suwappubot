@@ -45,6 +45,7 @@ from bot.services.sunswap_api import SunSwapAPI, SunSwapQuote, SunSwapError
 from bot.services.tempo_dex_api import TempoDexAPI, tempo_dex_api
 from bot.services.okx_dex_api import OKXDEXAPI, OKXDEXQuote, OKXDEXError, OKX_CHAIN_IDS
 from bot.services.oneinch_api import OneInchAPI, OneInchQuote, OneInchError, ONEINCH_CHAIN_IDS, ONEINCH_NATIVE_TOKEN
+from bot.services.zerox_api import ZeroXAPI, ZeroXQuote, ZEROX_CHAIN_IDS, ZEROX_NATIVE_TOKEN
 from bot.utils.http_client import get_session as get_http_session
 from bot.services.tax_export import TaxExportService
 from bot.services.token_security.simulation import simulation_service
@@ -145,6 +146,7 @@ class SwapEngine:
         self.sunswap = SunSwapAPI()
         self.okx_dex = OKXDEXAPI()
         self.oneinch = OneInchAPI()
+        self.zerox = ZeroXAPI()
         self.wallet_service = WalletService()
         self._wallet_locks: dict[int, asyncio.Lock] = {}  # Per-wallet locks
         self._wallet_locks_max = 1000  # Cap to prevent unbounded growth
@@ -155,9 +157,10 @@ class SwapEngine:
         try:
             okx_state = "configured" if getattr(self.okx_dex, "is_configured", False) else "OFF (creds unset)"
             oneinch_state = "configured" if getattr(self.oneinch, "is_configured", False) else "OFF (creds unset)"
+            zerox_state = "configured" if getattr(self.zerox, "is_configured", False) else "OFF (creds unset)"
             logger.info(
-                "Swap aggregators ready — LiFi/CoW/Jupiter active; OKX=%s; 1inch=%s",
-                okx_state, oneinch_state,
+                "Swap aggregators ready — LiFi/CoW/Jupiter active; OKX=%s; 1inch=%s; 0x=%s",
+                okx_state, oneinch_state, zerox_state,
             )
         except Exception:
             pass
@@ -367,6 +370,17 @@ class SwapEngine:
             and ONEINCH_CHAIN_IDS.get(from_chain.lower())
         ):
             tasks.append(self._get_1inch_quote(
+                from_chain, to_chain, from_token, to_token,
+                amount, amount_raw, from_address, slippage
+            ))
+
+        # 0x Swap API v2 (EVM same-chain only) — add if configured
+        if (
+            self.zerox.is_configured
+            and from_chain.lower() == to_chain.lower()
+            and ZEROX_CHAIN_IDS.get(from_chain.lower())
+        ):
+            tasks.append(self._get_0x_quote(
                 from_chain, to_chain, from_token, to_token,
                 amount, amount_raw, from_address, slippage
             ))
@@ -807,6 +821,82 @@ class SwapEngine:
             },
         )
 
+    @staticmethod
+    def _to_0x_token(address: str) -> str:
+        """Map this codebase's native sentinel (0x000…0) to 0x's (0xEeee…EEeE)."""
+        if not address or address == NATIVE_TOKEN_ADDRESS:
+            return ZEROX_NATIVE_TOKEN
+        return address
+
+    async def _get_0x_quote(
+        self,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: str,
+        from_address: str,
+        slippage: float,
+    ) -> SwapQuote:
+        """Get quote from the 0x Swap API v2 (EVM same-chain)."""
+        chain_id = ZEROX_CHAIN_IDS.get(from_chain.lower())
+        if not chain_id:
+            raise SwapError(f"0x does not support chain: {from_chain}")
+
+        if from_chain.lower() != to_chain.lower():
+            raise SwapError("0x only supports same-chain swaps")
+
+        from_token_address = get_token_address(from_token, from_chain)
+        to_token_address = get_token_address(to_token, to_chain)
+
+        if from_token_address is None or to_token_address is None:
+            raise SwapError(f"Token not supported: {from_token} or {to_token} on {from_chain}")
+
+        quote = await self.zerox.get_quote(
+            chain_id=chain_id,
+            from_token=self._to_0x_token(from_token_address),
+            to_token=self._to_0x_token(to_token_address),
+            amount=amount_raw,
+            slippage=slippage,
+        )
+
+        to_amount_human = self._get_token_amount_human(quote.to_amount, to_token, to_chain)
+        exchange_rate = to_amount_human / amount if amount > 0 else 0
+
+        # Rough gas estimate in USD (0x returns gas units in the response).
+        gas_cost_usd = 0.0
+        try:
+            gas_cost_usd = float(quote.estimated_gas) * 1e-9 * 2000  # rough ETH estimate
+            if from_chain.lower() in ("bsc", "polygon", "fantom", "gnosis"):
+                gas_cost_usd *= 0.01
+        except (ValueError, TypeError):
+            pass
+
+        return SwapQuote(
+            provider="0x",
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=from_token,
+            to_token=to_token,
+            from_amount=amount_raw,
+            from_amount_human=amount,
+            to_amount=quote.to_amount,
+            to_amount_human=to_amount_human,
+            to_amount_min=quote.to_amount_min,
+            gas_cost_usd=gas_cost_usd,
+            fee_cost_usd=0,
+            total_cost_usd=gas_cost_usd,
+            estimated_time=15,
+            price_impact=quote.price_impact if hasattr(quote, "price_impact") else 0.0,
+            exchange_rate=exchange_rate,
+            raw_quote={
+                "zerox_quote": quote.raw_response,
+                "tx_data": quote.tx_data,
+                "chain_id": chain_id,
+            },
+        )
+
     async def _get_layerzero_quote(
         self,
         from_chain: str,
@@ -1128,6 +1218,17 @@ class SwapEngine:
                 amount, amount_raw, from_address, slippage
             ))
 
+        # 0x Swap API v2 (EVM same-chain only)
+        if (
+            self.zerox.is_configured
+            and from_chain.lower() == to_chain.lower()
+            and ZEROX_CHAIN_IDS.get(from_chain.lower())
+        ):
+            tasks.append(self._get_0x_quote(
+                from_chain, to_chain, from_token, to_token,
+                amount, amount_raw, from_address, slippage
+            ))
+
         quotes = await self._gather_quotes([
             asyncio.wait_for(t, timeout=8.0) for t in tasks
         ])
@@ -1315,6 +1416,8 @@ class SwapEngine:
                     tx_hash = await self._execute_okx_dex_swap(quote, wallet)
                 elif quote.provider == "1inch":
                     tx_hash = await self._execute_1inch_swap(quote, wallet)
+                elif quote.provider == "0x":
+                    tx_hash = await self._execute_0x_swap(quote, wallet)
                 else:
                     tx_hash = await self._execute_lifi_swap(quote, wallet)
                 
@@ -2495,6 +2598,107 @@ class SwapEngine:
         tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
 
         logger.info(f"1inch swap tx: {tx_hash.hex()}")
+        return tx_hash.hex()
+
+    async def _execute_0x_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a swap via the 0x Swap API v2 allowance-holder flow (EVM-only).
+
+        0x returns ready-to-broadcast tx calldata in `transaction` ({to, data,
+        value, gas}). CRITICAL: the ERC20 spender to approve is the
+        AllowanceHolder contract at `issues.allowance.spender` — NOT
+        transaction.to, which is the Settler execution contract. We approve the
+        spender, then sign and broadcast the tx to transaction.to — the same
+        EVM flow as the OKX / Li.Fi / 1inch path.
+        """
+        wallet = await self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
+        chain_id = quote.raw_quote.get("chain_id") or ZEROX_CHAIN_IDS.get(quote.from_chain.lower())
+        if not chain_id:
+            raise SwapError(f"0x does not support chain: {quote.from_chain}")
+
+        from_token_address = get_token_address(quote.from_token, quote.from_chain)
+        to_token_address = get_token_address(quote.to_token, quote.to_chain)
+
+        # Always fetch fresh tx calldata at execution time (the race used /price only).
+        swap_result = await self.zerox.get_swap(
+            chain_id=chain_id,
+            from_token=self._to_0x_token(from_token_address),
+            to_token=self._to_0x_token(to_token_address),
+            amount=quote.from_amount,
+            user_address=wallet_data["address"],
+            slippage=0.5,
+        )
+        tx_data = swap_result.tx_data
+        if not tx_data:
+            raise SwapError("0x did not return transaction data")
+
+        chain = get_chain_by_name(quote.from_chain)
+        web3 = self.wallet_service._get_web3(quote.from_chain)
+        sender = Web3.to_checksum_address(wallet_data["address"])
+
+        # 0x v2: the tx target (Settler) is transaction.to; the ERC20 spender to
+        # approve is the AllowanceHolder at issues.allowance.spender — these differ.
+        tx_to = Web3.to_checksum_address(tx_data.get("to", ""))
+
+        # ERC20 approval to the 0x AllowanceHolder spender if spending a token
+        # (not native). 0x sets issues.allowance to null when no approval is
+        # needed (already approved) — guard against that.
+        if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
+            issues = swap_result.raw_response.get("issues") or {}
+            allowance_issue = issues.get("allowance") or {}
+            spender_raw = allowance_issue.get("spender")
+
+            if spender_raw:
+                spender = Web3.to_checksum_address(spender_raw)
+                token_addr = Web3.to_checksum_address(from_token_address)
+                erc20_abi = [
+                    {"inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "type": "function", "stateMutability": "view"},
+                    {"inputs": [{"name": "spender", "type": "address"}, {"name": "amount", "type": "uint256"}], "name": "approve", "outputs": [{"name": "", "type": "bool"}], "type": "function", "stateMutability": "nonpayable"},
+                ]
+                token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
+                amount_needed = int(quote.from_amount)
+                current_allowance = token_contract.functions.allowance(sender, spender).call()
+
+                if current_allowance < amount_needed:
+                    nonce = web3.eth.get_transaction_count(sender)
+                    max_approval = 2**256 - 1
+                    approve_data = token_contract.functions.approve(spender, max_approval).build_transaction({
+                        "from": sender,
+                        "nonce": nonce,
+                        "chainId": chain.chain_id,
+                        "gasPrice": web3.eth.gas_price,
+                    })
+                    approve_tx = {
+                        "to": token_addr,
+                        "data": approve_data["data"],
+                        "value": 0,
+                        "gas": approve_data.get("gas", 60000),
+                        "gasPrice": approve_data["gasPrice"],
+                        "nonce": nonce,
+                        "chainId": chain.chain_id,
+                    }
+                    signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
+                    approve_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approve.replace("0x", "")))
+                    logger.info(f"0x approval tx (spender={spender}): {approve_hash.hex()}")
+                    web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+
+        nonce = web3.eth.get_transaction_count(sender)
+        tx = {
+            "to": tx_to,
+            "data": tx_data.get("data", ""),
+            "value": _parse_int(tx_data.get("value"), 0),
+            "gas": _parse_int(tx_data.get("gas"), 500000),
+            "gasPrice": _parse_int(tx_data.get("gasPrice"), web3.eth.gas_price),
+            "nonce": nonce,
+            "chainId": chain.chain_id,
+        }
+
+        signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
+        tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+
+        logger.info(f"0x swap tx: {tx_hash.hex()}")
         return tx_hash.hex()
 
     async def check_status(self, swap_tx: SwapTransaction) -> SwapTransaction:

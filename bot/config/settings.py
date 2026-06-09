@@ -380,6 +380,9 @@ class Settings(BaseSettings):
     # 1inch Aggregation Protocol (EVM-only, v6)
     oneinch_api_key: Optional[str] = Field(default=None, description="1inch Developer Portal API key (Bearer auth)")
 
+    # 0x Swap API v2 (allowance-holder, EVM-only)
+    zerox_api_key: Optional[str] = Field(default=None, description="0x Dashboard API key (0x-api-key header)")
+
     # WhatsApp Business API (Optional)
     whatsapp_phone_number_id: Optional[str] = Field(default=None, description="WhatsApp Business Phone Number ID")
     whatsapp_access_token: Optional[str] = Field(default=None, description="WhatsApp Cloud API Access Token")

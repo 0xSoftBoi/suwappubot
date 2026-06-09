@@ -23,9 +23,9 @@ jobs:
       DATABASE_URL: "sqlite:///test.db"
       KMS_PROVIDER: dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -57,7 +57,7 @@ jobs:
         # Ratchet up ~10 pp each sprint toward 70 % as tests are added.
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         if: always()
         with:
           files: ./coverage.xml
@@ -73,7 +73,7 @@ jobs:
       run:
         working-directory: api-ts
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -96,9 +96,9 @@ jobs:
     name: Dependency security scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
