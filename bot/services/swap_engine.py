@@ -46,6 +46,7 @@ from bot.services.tempo_dex_api import TempoDexAPI, tempo_dex_api
 from bot.services.okx_dex_api import OKXDEXAPI, OKXDEXQuote, OKXDEXError, OKX_CHAIN_IDS
 from bot.services.oneinch_api import OneInchAPI, OneInchQuote, OneInchError, ONEINCH_CHAIN_IDS, ONEINCH_NATIVE_TOKEN
 from bot.services.zerox_api import ZeroXAPI, ZeroXQuote, ZEROX_CHAIN_IDS, ZEROX_NATIVE_TOKEN
+from bot.services.kyberswap_api import KyberSwapAPI, KyberSwapQuote, KYBERSWAP_CHAIN_SLUGS, KYBERSWAP_NATIVE_TOKEN
 from bot.utils.http_client import get_session as get_http_session
 from bot.services.tax_export import TaxExportService
 from bot.services.token_security.simulation import simulation_service
@@ -147,6 +148,7 @@ class SwapEngine:
         self.okx_dex = OKXDEXAPI()
         self.oneinch = OneInchAPI()
         self.zerox = ZeroXAPI()
+        self.kyberswap = KyberSwapAPI()
         self.wallet_service = WalletService()
         self._wallet_locks: dict[int, asyncio.Lock] = {}  # Per-wallet locks
         self._wallet_locks_max = 1000  # Cap to prevent unbounded growth
@@ -158,9 +160,10 @@ class SwapEngine:
             okx_state = "configured" if getattr(self.okx_dex, "is_configured", False) else "OFF (creds unset)"
             oneinch_state = "configured" if getattr(self.oneinch, "is_configured", False) else "OFF (creds unset)"
             zerox_state = "configured" if getattr(self.zerox, "is_configured", False) else "OFF (creds unset)"
+            kyber_state = "ON" if getattr(self.kyberswap, "is_configured", False) else "OFF (KYBERSWAP_ENABLED unset)"
             logger.info(
-                "Swap aggregators ready — LiFi/CoW/Jupiter active; OKX=%s; 1inch=%s; 0x=%s",
-                okx_state, oneinch_state, zerox_state,
+                "Swap aggregators ready — LiFi/CoW/Jupiter active; OKX=%s; 1inch=%s; 0x=%s; KyberSwap=%s",
+                okx_state, oneinch_state, zerox_state, kyber_state,
             )
         except Exception:
             pass
@@ -381,6 +384,17 @@ class SwapEngine:
             and ZEROX_CHAIN_IDS.get(from_chain.lower())
         ):
             tasks.append(self._get_0x_quote(
+                from_chain, to_chain, from_token, to_token,
+                amount, amount_raw, from_address, slippage
+            ))
+
+        # KyberSwap (EVM same-chain only) — add if enabled (no key, gated on flag)
+        if (
+            self.kyberswap.is_configured
+            and from_chain.lower() == to_chain.lower()
+            and KYBERSWAP_CHAIN_SLUGS.get(from_chain.lower())
+        ):
+            tasks.append(self._get_kyberswap_quote(
                 from_chain, to_chain, from_token, to_token,
                 amount, amount_raw, from_address, slippage
             ))
@@ -897,6 +911,75 @@ class SwapEngine:
             },
         )
 
+    @staticmethod
+    def _to_kyber_token(address: str) -> str:
+        """Map this codebase's native sentinel (0x000…0) to KyberSwap's (0xEeee…EEeE)."""
+        if not address or address == NATIVE_TOKEN_ADDRESS:
+            return KYBERSWAP_NATIVE_TOKEN
+        return address
+
+    async def _get_kyberswap_quote(
+        self,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: str,
+        from_address: str,
+        slippage: float,
+    ) -> SwapQuote:
+        """Get quote from the KyberSwap Aggregator (EVM same-chain)."""
+        chain_slug = KYBERSWAP_CHAIN_SLUGS.get(from_chain.lower())
+        if not chain_slug:
+            raise SwapError(f"KyberSwap does not support chain: {from_chain}")
+
+        if from_chain.lower() != to_chain.lower():
+            raise SwapError("KyberSwap only supports same-chain swaps")
+
+        from_token_address = get_token_address(from_token, from_chain)
+        to_token_address = get_token_address(to_token, to_chain)
+
+        if from_token_address is None or to_token_address is None:
+            raise SwapError(f"Token not supported: {from_token} or {to_token} on {from_chain}")
+
+        quote = await self.kyberswap.get_quote(
+            chain_slug=chain_slug,
+            from_token=self._to_kyber_token(from_token_address),
+            to_token=self._to_kyber_token(to_token_address),
+            amount=amount_raw,
+            slippage=slippage,
+        )
+
+        to_amount_human = self._get_token_amount_human(quote.to_amount, to_token, to_chain)
+        exchange_rate = to_amount_human / amount if amount > 0 else 0
+
+        # KyberSwap returns gasUsd directly — no heuristic needed.
+        gas_cost_usd = quote.gas_usd
+
+        return SwapQuote(
+            provider="kyberswap",
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=from_token,
+            to_token=to_token,
+            from_amount=amount_raw,
+            from_amount_human=amount,
+            to_amount=quote.to_amount,
+            to_amount_human=to_amount_human,
+            to_amount_min=quote.to_amount_min,
+            gas_cost_usd=gas_cost_usd,
+            fee_cost_usd=0,
+            total_cost_usd=gas_cost_usd,
+            estimated_time=15,
+            price_impact=0.0,
+            exchange_rate=exchange_rate,
+            raw_quote={
+                "kyberswap_quote": quote.raw_response,
+                "chain_slug": chain_slug,
+            },
+        )
+
     async def _get_layerzero_quote(
         self,
         from_chain: str,
@@ -1229,6 +1312,17 @@ class SwapEngine:
                 amount, amount_raw, from_address, slippage
             ))
 
+        # KyberSwap (EVM same-chain only)
+        if (
+            self.kyberswap.is_configured
+            and from_chain.lower() == to_chain.lower()
+            and KYBERSWAP_CHAIN_SLUGS.get(from_chain.lower())
+        ):
+            tasks.append(self._get_kyberswap_quote(
+                from_chain, to_chain, from_token, to_token,
+                amount, amount_raw, from_address, slippage
+            ))
+
         quotes = await self._gather_quotes([
             asyncio.wait_for(t, timeout=8.0) for t in tasks
         ])
@@ -1418,6 +1512,8 @@ class SwapEngine:
                     tx_hash = await self._execute_1inch_swap(quote, wallet)
                 elif quote.provider == "0x":
                     tx_hash = await self._execute_0x_swap(quote, wallet)
+                elif quote.provider == "kyberswap":
+                    tx_hash = await self._execute_kyberswap_swap(quote, wallet)
                 else:
                     tx_hash = await self._execute_lifi_swap(quote, wallet)
                 
@@ -2699,6 +2795,95 @@ class SwapEngine:
         tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
 
         logger.info(f"0x swap tx: {tx_hash.hex()}")
+        return tx_hash.hex()
+
+    async def _execute_kyberswap_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a swap via the KyberSwap Aggregator (EVM-only).
+
+        KyberSwap's router is a single contract: it is both the ERC20 spender to
+        approve AND the tx `to` target (simpler than 0x's Settler/AllowanceHolder
+        split). We re-fetch a fresh route + build tx calldata at execution time,
+        approve the router for token sells, then sign and broadcast.
+        """
+        wallet = await self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
+        chain_slug = quote.raw_quote.get("chain_slug") or KYBERSWAP_CHAIN_SLUGS.get(quote.from_chain.lower())
+        if not chain_slug:
+            raise SwapError(f"KyberSwap does not support chain: {quote.from_chain}")
+
+        from_token_address = get_token_address(quote.from_token, quote.from_chain)
+        to_token_address = get_token_address(quote.to_token, quote.to_chain)
+
+        # Re-fetch a fresh route + build tx calldata (routes expire).
+        swap_result = await self.kyberswap.get_swap(
+            chain_slug=chain_slug,
+            from_token=self._to_kyber_token(from_token_address),
+            to_token=self._to_kyber_token(to_token_address),
+            amount=quote.from_amount,
+            user_address=wallet_data["address"],
+            slippage=0.5,
+        )
+        tx_data = swap_result.tx_data
+        if not tx_data:
+            raise SwapError("KyberSwap did not return transaction data")
+
+        chain = get_chain_by_name(quote.from_chain)
+        web3 = self.wallet_service._get_web3(quote.from_chain)
+        sender = Web3.to_checksum_address(wallet_data["address"])
+        # Single contract: router is both the spender and the tx target.
+        router = Web3.to_checksum_address(tx_data.get("to", ""))
+
+        # ERC20 approval to the KyberSwap router for token sells (not native).
+        if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
+            token_addr = Web3.to_checksum_address(from_token_address)
+            erc20_abi = [
+                {"inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "type": "function", "stateMutability": "view"},
+                {"inputs": [{"name": "spender", "type": "address"}, {"name": "amount", "type": "uint256"}], "name": "approve", "outputs": [{"name": "", "type": "bool"}], "type": "function", "stateMutability": "nonpayable"},
+            ]
+            token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
+            amount_needed = int(quote.from_amount)
+            current_allowance = token_contract.functions.allowance(sender, router).call()
+
+            if current_allowance < amount_needed:
+                nonce = web3.eth.get_transaction_count(sender)
+                max_approval = 2**256 - 1
+                approve_data = token_contract.functions.approve(router, max_approval).build_transaction({
+                    "from": sender,
+                    "nonce": nonce,
+                    "chainId": chain.chain_id,
+                    "gasPrice": web3.eth.gas_price,
+                })
+                approve_tx = {
+                    "to": token_addr,
+                    "data": approve_data["data"],
+                    "value": 0,
+                    "gas": approve_data.get("gas", 60000),
+                    "gasPrice": approve_data["gasPrice"],
+                    "nonce": nonce,
+                    "chainId": chain.chain_id,
+                }
+                signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
+                approve_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_approve.replace("0x", "")))
+                logger.info(f"KyberSwap approval tx (router={router}): {approve_hash.hex()}")
+                web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+
+        nonce = web3.eth.get_transaction_count(sender)
+        tx = {
+            "to": router,
+            "data": tx_data.get("data", ""),
+            "value": _parse_int(tx_data.get("value"), 0),
+            "gas": _parse_int(tx_data.get("gas"), 500000),
+            "gasPrice": _parse_int(tx_data.get("gasPrice"), web3.eth.gas_price),
+            "nonce": nonce,
+            "chainId": chain.chain_id,
+        }
+
+        signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
+        tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+
+        logger.info(f"KyberSwap swap tx: {tx_hash.hex()}")
         return tx_hash.hex()
 
     async def check_status(self, swap_tx: SwapTransaction) -> SwapTransaction:

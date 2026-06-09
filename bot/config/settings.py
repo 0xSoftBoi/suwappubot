@@ -383,6 +383,12 @@ class Settings(BaseSettings):
     # 0x Swap API v2 (allowance-holder, EVM-only)
     zerox_api_key: Optional[str] = Field(default=None, description="0x Dashboard API key (0x-api-key header)")
 
+    # KyberSwap Aggregator (EVM-only, no API key). Gated behind an explicit
+    # enable flag (not a key) so it ships dark and has a no-redeploy kill switch
+    # — execution is verified for quote+build but not yet run on-chain.
+    kyberswap_enabled: bool = Field(default=False, description="Enable KyberSwap in the best-price race (no API key needed)")
+    kyberswap_client_id: str = Field(default="suwappu-bot", description="KyberSwap x-client-id header (free identifier, avoids anon 429s)")
+
     # WhatsApp Business API (Optional)
     whatsapp_phone_number_id: Optional[str] = Field(default=None, description="WhatsApp Business Phone Number ID")
     whatsapp_access_token: Optional[str] = Field(default=None, description="WhatsApp Cloud API Access Token")

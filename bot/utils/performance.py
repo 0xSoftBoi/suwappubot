@@ -225,6 +225,7 @@ class MetricNames:
     API_OKX_DEX = "api_okx_dex"
     API_1INCH = "api_1inch"
     API_0X = "api_0x"
+    API_KYBERSWAP = "api_kyberswap"
     HANDLER_COMMAND = "handler_command"
     HANDLER_CALLBACK = "handler_callback"
 
