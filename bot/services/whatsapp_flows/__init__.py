@@ -43,6 +43,8 @@ def _bootstrap() -> None:
     from bot.services.whatsapp_flows import token_flow  # noqa: F401
     from bot.services.whatsapp_flows import points_flow  # noqa: F401
     from bot.services.whatsapp_flows import favorites_flow  # noqa: F401
+    from bot.services.whatsapp_flows import subscription_flow  # noqa: F401
+    from bot.services.whatsapp_flows import dashboard_flow  # noqa: F401
 
 
 _bootstrap()
