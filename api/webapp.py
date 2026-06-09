@@ -1135,6 +1135,8 @@ async def get_terminal_top_traders(
     _require_terminal_user(auth_payload)
     from bot.models.copy_trading import TraderProfile
 
+    # Pull a generous pool by all-time rank, then (if a timeframe is selected) re-rank
+    # by real windowed PnL so the 7d/30d toggle actually changes the order.
     profiles = db.query(TraderProfile, User).join(
         User, TraderProfile.user_id == User.id
     ).filter(
@@ -1143,9 +1145,15 @@ async def get_terminal_top_traders(
         TraderProfile.rank_score.desc(),
         TraderProfile.total_pnl_usd.desc(),
         TraderProfile.total_trades.desc(),
-    ).limit(limit).all()
+    ).limit(max(limit, 100)).all()
 
     pnl_windows = _windowed_trader_pnl(db, [p.user_id for p, _u in profiles])
+
+    tf = (timeframe or "").lower()
+    if tf in ("7d", "30d"):
+        idx = 0 if tf == "7d" else 1
+        profiles.sort(key=lambda pu: pnl_windows.get(pu[0].user_id, (0.0, 0.0))[idx], reverse=True)
+    profiles = profiles[:limit]
 
     return [
         {
