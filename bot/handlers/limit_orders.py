@@ -17,7 +17,13 @@ from database.db import get_session
 
 
 from bot.config.chains import CHAINS, get_chain_by_name
-from bot.config.tokens import get_tokens_for_chain, get_token_address
+from bot.config.tokens import get_tokens_for_chain, get_token_address, get_token_decimals
+
+# Module-level wallet service singleton (matches the pattern used in other
+# handlers, e.g. balance.py / swap.py). Previously `wallet_service` was
+# referenced in dca_confirm() and lo_confirm() without ever being defined,
+# which raised NameError and crashed every order confirmation.
+wallet_service = WalletService()
 
 # States
 LO_TYPE, LO_FROM_CHAIN, LO_FROM_TOKEN, LO_TO_CHAIN, LO_TO_TOKEN, LO_AMOUNT, LO_PRICE, LO_CONFIRM = range(8)
@@ -194,6 +200,10 @@ async def dca_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await query.edit_message_text("❌ No EVM wallet found.")
         return ConversationHandler.END
 
+    # Amount is denominated in USDC. Use the real token decimals so the raw
+    # amount matches what _execute_dca_order() decodes via get_token_decimals
+    # (USDC = 6 on ethereum). Hardcoding 10**18 here caused a 10^12x mismatch.
+    usdc_decimals = get_token_decimals("USDC", "ethereum")
     order_service.create_dca_order(
         user_id=user_id,
         wallet_id=wallet.id,
@@ -201,7 +211,7 @@ async def dca_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         from_token="USDC",
         to_chain="ethereum",
         to_token=dca_token,
-        amount_per_execution=str(int(dca_amount * 10**18)),
+        amount_per_execution=str(int(dca_amount * 10**usdc_decimals)),
         interval_hours=dca_interval
     )
     

@@ -366,10 +366,12 @@ class PerpsService:
 
     def _decrypt_credentials(self, account: HyperLiquidAccount) -> tuple[str, str]:
         """Decrypt API credentials from account."""
-        from bot.utils.encryption import decrypt_value
+        from bot.utils.encryption import decrypt_private_key
+        from bot.config.settings import settings
 
-        api_key = decrypt_value(account.api_key_encrypted) if account.api_key_encrypted else ""
-        api_secret = decrypt_value(account.api_secret_encrypted) if account.api_secret_encrypted else ""
+        key = settings.encryption_key
+        api_key = decrypt_private_key(account.api_key_encrypted, key) if account.api_key_encrypted else ""
+        api_secret = decrypt_private_key(account.api_secret_encrypted, key) if account.api_secret_encrypted else ""
         return api_key, api_secret
 
 

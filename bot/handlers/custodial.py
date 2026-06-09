@@ -88,10 +88,6 @@ async def custodial_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             InlineKeyboardButton("📥 Deposit", callback_data="custodial_deposit"),
             InlineKeyboardButton("📤 Withdraw", callback_data="custodial_withdraw"),
         ],
-        [
-            InlineKeyboardButton("🔄 Swap", callback_data="custodial_swap"),
-            InlineKeyboardButton("📜 History", callback_data="custodial_history"),
-        ],
         [InlineKeyboardButton("« Back", callback_data="main_menu")],
     ]
     
@@ -155,10 +151,6 @@ async def custodial_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         [
             InlineKeyboardButton("📥 Deposit", callback_data="custodial_deposit"),
             InlineKeyboardButton("📤 Withdraw", callback_data="custodial_withdraw"),
-        ],
-        [
-            InlineKeyboardButton("🔄 Swap", callback_data="custodial_swap"),
-            InlineKeyboardButton("📜 History", callback_data="custodial_history"),
         ],
         [InlineKeyboardButton("« Back", callback_data="main_menu")],
     ]

@@ -113,7 +113,7 @@ class PointsService:
                 description=description or action_info.get("description", action),
                 swap_id=swap_id,
                 referral_id=referral_id,
-                metadata=metadata,
+                extra_data=metadata,
             )
             session.add(tx)
         
@@ -306,7 +306,7 @@ class PointsService:
                 amount=-amount,
                 action="redemption",
                 description=f"Redeemed: {reward_type}",
-                metadata={"reward_type": reward_type, "reward_value": reward_value},
+                extra_data={"reward_type": reward_type, "reward_value": reward_value},
             )
             session.add(tx)
         
@@ -442,7 +442,7 @@ class PointsService:
                         amount=milestone.points_reward,
                         action="milestone",
                         description=f"🏆 {milestone.name}",
-                        metadata={"milestone": milestone.name},
+                        extra_data={"milestone": milestone.name},
                     )
                     session.add(tx)
                     

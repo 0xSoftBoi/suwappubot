@@ -305,19 +305,71 @@ class PolymarketClient:
 
     # ============ Helpers ============
 
+    @staticmethod
+    def _maybe_json_list(value) -> list:
+        """Gamma returns outcomes/prices/clobTokenIds as JSON-encoded strings."""
+        if isinstance(value, list):
+            return value
+        if isinstance(value, str) and value:
+            try:
+                parsed = json.loads(value)
+                return parsed if isinstance(parsed, list) else []
+            except (ValueError, TypeError):
+                return []
+        return []
+
     def _parse_market(self, data: dict) -> MarketInfo:
-        """Parse raw Gamma API market response into MarketInfo."""
-        tokens = data.get("tokens", [])
+        """Parse raw Gamma API market response into MarketInfo.
+
+        The Gamma /markets endpoint does NOT include a `tokens` array; it
+        provides `clobTokenIds` (JSON string of token ids) aligned with
+        `outcomes` and `outcomePrices` (also JSON strings). We reconstruct a
+        token list shaped as ``{"token_id": ..., "outcome": ...}`` so the bot
+        helpers (`_get_yes_token`/`_get_no_token`) and order flow keep working.
+        """
+        tokens = data.get("tokens") or []
+        outcomes = self._maybe_json_list(data.get("outcomes"))
+        prices = self._maybe_json_list(data.get("outcomePrices"))
+
+        # Reconstruct tokens from clobTokenIds when no explicit tokens array.
+        if not tokens:
+            token_ids = self._maybe_json_list(data.get("clobTokenIds"))
+            tokens = [
+                {
+                    "token_id": tid,
+                    "outcome": outcomes[i] if i < len(outcomes) else f"Outcome {i}",
+                }
+                for i, tid in enumerate(token_ids)
+            ]
 
         yes_price = 0.0
         no_price = 0.0
-        for token in tokens:
-            outcome = token.get("outcome", "").lower()
-            price = float(token.get("price", 0) or 0)
-            if outcome == "yes":
-                yes_price = price
-            elif outcome == "no":
-                no_price = price
+        # Prefer prices aligned to outcomes (Gamma list endpoint shape).
+        if outcomes and prices:
+            for i, outcome in enumerate(outcomes):
+                if i >= len(prices):
+                    break
+                try:
+                    p = float(prices[i] or 0)
+                except (ValueError, TypeError):
+                    p = 0.0
+                name = str(outcome).lower()
+                if name == "yes":
+                    yes_price = p
+                elif name == "no":
+                    no_price = p
+        # Fallback: per-token price field (single-market shape, if present).
+        if yes_price == 0.0 and no_price == 0.0:
+            for token in tokens:
+                name = str(token.get("outcome", "")).lower()
+                try:
+                    p = float(token.get("price", 0) or 0)
+                except (ValueError, TypeError):
+                    p = 0.0
+                if name == "yes":
+                    yes_price = p
+                elif name == "no":
+                    no_price = p
 
         return MarketInfo(
             condition_id=data.get("conditionId", data.get("condition_id", "")),

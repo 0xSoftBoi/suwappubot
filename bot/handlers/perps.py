@@ -17,6 +17,25 @@ PERPS_MENU, PERPS_MARKET, PERPS_SIDE, PERPS_AMOUNT, PERPS_LEVERAGE, PERPS_CONFIR
 PERPS_SETUP_KEY, PERPS_SETUP_SECRET = range(10, 12)
 
 
+async def _send_perps(update: Update, text: str, keyboard: list):
+    """Render perps output whether invoked from a command or a callback query.
+
+    On a callback update ``update.message`` is None, so the original code's
+    ``update.message.reply_text`` raised AttributeError when Back/Cancel routed
+    through perps_command. This edits the message for callbacks, replies for
+    commands.
+    """
+    markup = InlineKeyboardMarkup(keyboard)
+    if update.callback_query is not None:
+        await update.callback_query.edit_message_text(
+            text, reply_markup=markup, parse_mode="Markdown",
+        )
+    else:
+        await update.message.reply_text(
+            text, reply_markup=markup, parse_mode="Markdown",
+        )
+
+
 async def perps_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /perps command — show perps menu."""
     account = perps_service.get_account(update.effective_user.id)
@@ -27,12 +46,12 @@ async def perps_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("\u2139\ufe0f What is Perps Trading?", callback_data="perps_info")],
             [InlineKeyboardButton("\U0001f519 Back", callback_data="main_menu")],
         ]
-        await update.message.reply_text(
+        await _send_perps(
+            update,
             "\U0001f4ca **Perpetual Trading**\n\n"
             "Trade perpetual futures with up to 20x leverage on HyperLiquid.\n\n"
             "To get started, set up your HyperLiquid account first.",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown",
+            keyboard,
         )
         return PERPS_MENU
 
@@ -346,14 +365,27 @@ async def perps_setup_secret(update: Update, context: ContextTypes.DEFAULT_TYPE)
         pass
 
     try:
-        from bot.utils.encryption import encrypt_value
+        from bot.utils.encryption import encrypt_private_key
+        from bot.config.settings import settings
 
-        encrypted_key = encrypt_value(api_key)
-        encrypted_secret = encrypt_value(api_secret)
+        key = settings.encryption_key
+        encrypted_key = encrypt_private_key(api_key, key)
+        encrypted_secret = encrypt_private_key(api_secret, key)
+
+        # Derive the HyperLiquid account address from the private key (api_secret).
+        # Required for position sync / monitoring: clearinghouseState is keyed by
+        # address. Without it, get_open_positions("") and the perps monitor are
+        # no-ops for every user.
+        hl_address = ""
+        try:
+            from eth_account import Account
+            hl_address = Account.from_key(api_secret).address
+        except Exception as e:
+            logger.warning(f"Could not derive HL address from key: {e}")
 
         account = perps_service.setup_account(
             user_id=update.effective_user.id,
-            hl_address="",  # Will be derived from API key
+            hl_address=hl_address,
             api_key_encrypted=encrypted_key,
             api_secret_encrypted=encrypted_secret,
         )

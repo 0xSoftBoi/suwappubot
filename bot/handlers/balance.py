@@ -110,7 +110,7 @@ async def balance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         ).all()
         
         if not wallets:
-            keyboard = [[InlineKeyboardButton("👛 Add Wallet", callback_data="wallet_add")]]
+            keyboard = [[InlineKeyboardButton("👛 Add Wallet", callback_data="wallet_menu")]]
             await query.edit_message_text(
                 "👛 You don't have any wallets yet.\n\nAdd a wallet to check your balances!",
                 reply_markup=InlineKeyboardMarkup(keyboard),

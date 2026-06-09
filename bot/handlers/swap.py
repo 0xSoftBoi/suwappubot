@@ -843,10 +843,13 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         return ConversationHandler.END
 
     swap_data = context.user_data.get("swap")
+    if not swap_data:
+        await query.edit_message_text("❌ Session expired. Start again with /s")
+        return ConversationHandler.END
     quote: SwapQuote = swap_data.get("quote")
     user_id = context.user_data.get("user_id")
     wallet_id = swap_data.get("wallet_id")
-    
+
     if not quote:
         await query.edit_message_text("❌ Quote expired. Please start over.")
         return ConversationHandler.END

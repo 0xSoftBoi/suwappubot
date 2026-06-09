@@ -8,10 +8,13 @@ from bot.utils.db_monitor import query_monitor
 from bot.config.settings import settings
 
 
+# Admin user IDs from settings, fail-closed if not configured
+ADMIN_IDS = [int(x) for x in settings.admin_telegram_ids.split(",") if x.strip()] if settings.admin_telegram_ids else []
+
+
 def is_admin(user_id: int) -> bool:
-    """Check if user is admin."""
-    admin_ids = getattr(settings, 'admin_ids', [])
-    return user_id in admin_ids
+    """Check if user is admin. Denies all if no admin IDs configured (fail-closed)."""
+    return len(ADMIN_IDS) > 0 and user_id in ADMIN_IDS
 
 
 async def perf_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
