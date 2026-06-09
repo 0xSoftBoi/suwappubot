@@ -37,7 +37,9 @@ async def _send_perps(update: Update, text: str, keyboard: list):
 
 
 async def perps_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /perps command — show perps menu."""
+    """Handle /perps command or the 'perps_open' menu button — show perps menu."""
+    if update.callback_query:
+        await update.callback_query.answer()
     account = perps_service.get_account(update.effective_user.id)
 
     if not account:
@@ -472,7 +474,11 @@ async def perps_close_amount_callback(update: Update, context: ContextTypes.DEFA
 perps_conversation_handler = ConversationHandler(
     name="perps",
     persistent=True,
-    entry_points=[CommandHandler("perps", perps_command)],
+    entry_points=[
+        CommandHandler("perps", perps_command),
+        # Inline-button entry from the main menu ("📈 Perps").
+        CallbackQueryHandler(perps_command, pattern="^perps_open$"),
+    ],
     states={
         PERPS_MENU: [
             CallbackQueryHandler(perps_menu_callback, pattern="^perps_"),

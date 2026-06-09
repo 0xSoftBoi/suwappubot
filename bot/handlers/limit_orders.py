@@ -64,16 +64,22 @@ async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def dca_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /dca command."""
+    """Handle /dca command or the 'dca_menu' menu button.
+
+    Callback-safe: on a button press update.message is None, so reply via
+    effective_message for the guard and edit the menu message for the render.
+    """
     user = update.effective_user
-    
+    if update.callback_query:
+        await update.callback_query.answer()
+
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
         if not db_user:
-            await update.message.reply_text("❌ Please use /start first.")
+            await update.effective_message.reply_text("❌ Please use /start first.")
             return
         user_id = db_user.id
-    
+
     orders = order_service.get_user_dca_orders(user_id)
 
     keyboard = []
@@ -89,8 +95,11 @@ async def dca_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     keyboard.append([InlineKeyboardButton("➕ Create DCA", callback_data="dca_create")])
     keyboard.append([InlineKeyboardButton("« Back", callback_data="main_menu")])
 
-    await update.message.reply_text(text, parse_mode="Markdown",
-                                     reply_markup=InlineKeyboardMarkup(keyboard))
+    markup = InlineKeyboardMarkup(keyboard)
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, parse_mode="Markdown", reply_markup=markup)
+    else:
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=markup)
 
 
 async def dca_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

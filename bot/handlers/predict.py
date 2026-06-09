@@ -137,18 +137,25 @@ def _get_no_token(market: MarketInfo) -> Optional[dict]:
 
 @enforce_tos
 async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle /predict command."""
+    """Handle /predict command or the 'predict_open' menu button.
+
+    Works for both a slash command (update.message) and an inline-button entry
+    point (update.callback_query) — use effective_message for any pre-menu
+    replies and answer the callback to clear the button spinner.
+    """
     user = update.effective_user
+    if update.callback_query:
+        await update.callback_query.answer()
 
     if not await predict_limiter.check(str(user.id)):
-        await update.message.reply_text("Please wait before using this command again.")
+        await update.effective_message.reply_text("Please wait before using this command again.")
         return ConversationHandler.END
 
     # Check user exists and has wallet
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
         if not db_user:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "Please use /start first to create your account."
             )
             return ConversationHandler.END
@@ -160,7 +167,7 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         ).first()
 
         if not wallet:
-            await update.message.reply_text(
+            await update.effective_message.reply_text(
                 "You need an EVM wallet to trade on prediction markets.\n"
                 "Use /wallet to create one."
             )
@@ -1174,6 +1181,8 @@ predict_conversation_handler = ConversationHandler(
     persistent=True,
     entry_points=[
         CommandHandler("predict", predict_command),
+        # Inline-button entry from the main menu ("🔮 Predictions").
+        CallbackQueryHandler(predict_command, pattern="^predict_open$"),
     ],
     states={
         MAIN_MENU: [

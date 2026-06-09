@@ -18,12 +18,21 @@ wallet_service = WalletService()
 
 
 def _build_main_keyboard() -> InlineKeyboardMarkup:
-    """Build the compact main menu keyboard (5 rows)."""
+    """Build the compact main menu keyboard.
+
+    Action-first, like the leading bots — but the second row surfaces our
+    differentiators (perps + prediction markets) one tap away instead of
+    burying them behind typed commands.
+    """
     keyboard = [
         [InlineKeyboardButton(f"━━ 🌸 SUWAPPU v{__version__} ━━", callback_data="noop")],
         [
             InlineKeyboardButton("🔄 Swap", callback_data="swap_start"),
             InlineKeyboardButton("⚡ Quick Swap", callback_data="quickswap_menu"),
+        ],
+        [
+            InlineKeyboardButton("📈 Perps", callback_data="perps_open"),
+            InlineKeyboardButton("🔮 Predictions", callback_data="predict_open"),
         ],
         [
             InlineKeyboardButton("👛 Wallets", callback_data="wallet_menu"),
@@ -47,11 +56,15 @@ def _build_more_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("━━ 📂 More Features ━━", callback_data="noop")],
         [
             InlineKeyboardButton("📈 Limit Orders", callback_data="limit_orders_menu"),
-            InlineKeyboardButton("🎯 Snipe", callback_data="snipe_menu"),
+            InlineKeyboardButton("🔁 DCA", callback_data="dca_menu"),
         ],
         [
+            InlineKeyboardButton("🎯 Snipe", callback_data="snipe_menu"),
             InlineKeyboardButton("🔔 Price Alerts", callback_data="alerts_menu"),
+        ],
+        [
             InlineKeyboardButton("📋 Copy Trading", callback_data="copy_menu"),
+            InlineKeyboardButton("🪙 Token / Staking", callback_data="token_menu"),
         ],
         [
             InlineKeyboardButton("⭐ Favorites", callback_data="favorites_menu"),
@@ -63,12 +76,13 @@ def _build_more_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("✨ Points", callback_data="points_menu"),
-            InlineKeyboardButton("📊 Dashboard", callback_data="dashboard_menu"),
+            InlineKeyboardButton("🏆 Leaderboard", callback_data="xp_leaderboard"),
         ],
         [
+            InlineKeyboardButton("📊 Dashboard", callback_data="dashboard_menu"),
             InlineKeyboardButton("📝 Tax Export", callback_data="tax_menu"),
-            InlineKeyboardButton("📖 Help", callback_data="help"),
         ],
+        [InlineKeyboardButton("📖 Help", callback_data="help")],
         [InlineKeyboardButton("« Back to Main", callback_data="main_menu")],
     ]
     return InlineKeyboardMarkup(keyboard)
