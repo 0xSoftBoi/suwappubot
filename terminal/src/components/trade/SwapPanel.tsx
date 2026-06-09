@@ -9,6 +9,7 @@ import { useSwapQuote } from '../../hooks/useSwapQuote'
 import { useSwapExecute } from '../../hooks/useSwapExecute'
 import { useAuth } from '../../contexts/AuthContext'
 import { useTrading } from '../../contexts/TradingContext'
+import { usePair } from '../../contexts/PairContext'
 import type { SwapToken, SwapQuoteRequest } from '../../types/api'
 import toast from 'react-hot-toast'
 
@@ -17,14 +18,35 @@ type OrderTab = 'swap' | 'limit' | 'dca'
 export function SwapPanel() {
   const { isAuthenticated } = useAuth()
   const { side, setSide } = useTrading()
+  const { selectedPair, setSelectedPair } = usePair()
   const [activeTab, setActiveTab] = useState<OrderTab>('swap')
-  const [fromToken, setFromToken] = useState<SwapToken | null>(null)
-  const [toToken, setToToken] = useState<SwapToken | null>(null)
   const [amount, setAmount] = useState('')
   const [slippage, setSlippage] = useState(0.5)
   const [showTpSl, setShowTpSl] = useState(false)
   const [tpPrice, setTpPrice] = useState('')
   const [slPrice, setSlPrice] = useState('')
+
+  // Single source of truth: the from/to tokens are *derived* from the active
+  // pair + side, so switching the pair anywhere (header search, watchlist,
+  // pulse feed) instantly updates what you're trading. Buying spends the quote
+  // (e.g. USDC) to acquire the base; selling does the reverse.
+  const baseToken = selectedPair.base
+  const quoteToken = selectedPair.quote
+  const fromToken = side === 'buy' ? quoteToken : baseToken
+  const toToken = side === 'buy' ? baseToken : quoteToken
+
+  // Write a token change back into the shared pair so the chart, order book and
+  // header all follow. Token selectors stay free to pick any chain — overriding
+  // a token just updates the pair (keeps cross-chain swaps working).
+  const setPairFromTokens = (nextFrom: SwapToken | null, nextTo: SwapToken | null) => {
+    if (!nextFrom || !nextTo) return
+    const nextBase = side === 'buy' ? nextTo : nextFrom
+    const nextQuote = side === 'buy' ? nextFrom : nextTo
+    setSelectedPair({ base: nextBase, quote: nextQuote })
+  }
+
+  const setFromToken = (token: SwapToken) => setPairFromTokens(token, toToken)
+  const setToToken = (token: SwapToken) => setPairFromTokens(fromToken, token)
 
   const quoteRequest: Partial<SwapQuoteRequest> | null = fromToken && toToken && amount ? {
     fromToken: fromToken.address,
@@ -58,10 +80,10 @@ export function SwapPanel() {
     )
   }
 
+  // Flipping from/to is equivalent to toggling buy/sell, since both derive from
+  // the same pair + side. This keeps the swap direction and the chart in sync.
   const flipTokens = () => {
-    const temp = fromToken
-    setFromToken(toToken)
-    setToToken(temp)
+    setSide(side === 'buy' ? 'sell' : 'buy')
     setAmount('')
   }
 
@@ -84,7 +106,7 @@ export function SwapPanel() {
   }
 
   return (
-    <div className="p-4 flex flex-col gap-3">
+    <div className="p-4 flex flex-col gap-3" data-testid="swap-panel">
       {/* Buy/Sell toggle */}
       <div className="grid grid-cols-2 gap-1">
         <button

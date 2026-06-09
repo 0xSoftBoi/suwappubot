@@ -5,6 +5,8 @@ import { NewPairsTable } from './NewPairsTable'
 import { TrendingTable } from './TrendingTable'
 import { PulseTab } from './PulseTab'
 import { TokenDetailView } from './TokenDetailView'
+import { usePair } from '../../contexts/PairContext'
+import { pairFromToken } from '../../lib/quoteTokens'
 
 type Tab = 'pulse' | 'new' | 'trending'
 
@@ -29,6 +31,20 @@ export function DiscoveryPanel() {
   const [securityMap, setSecurityMap] = useState<Record<string, TokenSecurity>>({})
   const [securityLoading, setSecurityLoading] = useState<Set<string>>(new Set())
   const [selectedToken, setSelectedToken] = useState<PulseToken | null>(null)
+  const { setSelectedPair } = usePair()
+
+  // Clicking a token in the feed loads it everywhere: it becomes the active
+  // pair (chart + order book + swap panel all follow) and opens its detail view.
+  const handleSelectToken = (token: PulseToken) => {
+    setSelectedPair(pairFromToken({
+      symbol: token.symbol,
+      name: token.name,
+      address: token.address,
+      chain: token.chain,
+      decimals: 18,
+    }))
+    setSelectedToken(token)
+  }
 
   const { data: newPools, isLoading: newLoading, dataUpdatedAt: newUpdated } = useNewPools(chain)
   const { data: trendingPools, isLoading: trendingLoading, dataUpdatedAt: trendingUpdated } = useTrendingPools(chain)
@@ -91,7 +107,7 @@ export function DiscoveryPanel() {
         {selectedToken ? (
           <TokenDetailView token={selectedToken} onBack={() => setSelectedToken(null)} />
         ) : activeTab === 'pulse' ? (
-          <PulseTab onSelectToken={setSelectedToken} />
+          <PulseTab onSelectToken={handleSelectToken} />
         ) : isLoading ? (
           <div className="flex items-center justify-center h-32 text-terminal-text-muted text-sm animate-pulse">
             Loading {activeTab === 'new' ? 'new pairs' : 'trending pools'}...
