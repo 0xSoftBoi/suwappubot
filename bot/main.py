@@ -25,7 +25,9 @@ from bot.handlers.gas import gas_handler, gas_callback, gas_menu_callback
 from bot.handlers.favorites import favorites_handler, favorites_callback, use_favorite_callback, delete_favorite_callback
 from bot.handlers.settings import (
     settings_handler, settings_callback, toggle_notify_handler,
-    slippage_conversation, toggle_panic_handler, settings_menu_callback
+    slippage_conversation, toggle_panic_handler, settings_menu_callback,
+    recovery_handler, limits_handler, recovery_menu_callback,
+    recovery_conversation, limits_conversation
 )
 from bot.handlers.admin import status_handler, clear_cache_handler, broadcast_handler
 from bot.handlers.quickswap import quickswap_handler, quickswap_confirm_callback, quickswap_menu_callback
@@ -154,6 +156,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(gas_handler)         # /g
     application.add_handler(favorites_handler)   # /f
     application.add_handler(settings_handler)    # /set
+    application.add_handler(recovery_handler)    # /recovery
+    application.add_handler(limits_handler)      # /limits
     
     # Custodial
     application.add_handler(custodial_handler)   # /c
@@ -198,6 +202,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(swap_conversation_handler)
     application.add_handler(wallet_import_handler)
     application.add_handler(slippage_conversation)
+    application.add_handler(recovery_conversation)  # settings_recovery -> set email
+    application.add_handler(limits_conversation)    # settings_limits -> set spend limits
     application.add_handler(withdrawal_conversation)
     application.add_handler(alert_conversation)
     application.add_handler(limit_order_conversation)
@@ -249,6 +255,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(settings_menu_callback)
     application.add_handler(toggle_notify_handler)
     application.add_handler(toggle_panic_handler)
+    application.add_handler(recovery_menu_callback)  # settings_recovery button
     
     # Custodial
     application.add_handler(CallbackQueryHandler(custodial_callback, pattern="^custodial_menu$"))

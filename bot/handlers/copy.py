@@ -155,9 +155,12 @@ async def view_trader_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     is_following = any(f["trader_id"] == trader_id for f in following)
     
     if is_following:
+        # NOTE: the previous "⚙️ Settings" button emitted callback_data
+        # "copy_settings_<id>", which has NO registered CallbackQueryHandler in
+        # bot/main.py — it was a dead button (Telegram spinner would hang). Removed
+        # until a real copy-settings screen + handler are added. Unfollow works.
         buttons = [
             [
-                InlineKeyboardButton("⚙️ Settings", callback_data=f"copy_settings_{trader_id}"),
                 InlineKeyboardButton("🚫 Unfollow", callback_data=f"copy_unfollow_{trader_id}"),
             ]
         ]
