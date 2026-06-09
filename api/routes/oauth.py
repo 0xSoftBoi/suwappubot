@@ -302,10 +302,18 @@ async def oauth_callback(
     db.delete(oauth_state)
     db.commit()
 
-    # Create JWT token
+    # Create JWT token. Mirror the passkey flow: put the user's real wallet
+    # address in the session so address-keyed features (portfolio, perps
+    # positions, the terminal header) work. Fall back to a synthetic identifier
+    # only when no wallet exists yet (e.g. Turnkey wasn't configured).
     from api.main import create_jwt_token, JWT_EXPIRY_HOURS
+    wallet = db.query(Wallet).filter(
+        Wallet.user_id == user.id,
+        Wallet.is_active == True,
+    ).order_by(Wallet.is_default.desc(), Wallet.id.asc()).first()
+    session_address = wallet.address if wallet else f"oauth:{provider}:{user_info.provider_user_id}"
     jwt_token = create_jwt_token(
-        address=f"oauth:{provider}:{user_info.provider_user_id}",
+        address=session_address,
         user_id=user.id,
     )
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)

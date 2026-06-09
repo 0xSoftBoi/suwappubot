@@ -8,6 +8,7 @@ import { SuwappuBotSiteReplacement } from './components/templates/SuwappuBotSite
 import { TerminalSiteReplacement } from './components/templates/TerminalSiteReplacement'
 import { PersimmonStemMotif, SakuraBloomMotif } from './components/brand/PersimmonLogo'
 import { TerminalThemeScope } from './theme/TerminalThemeScope'
+import { OAuthCallback } from './components/auth/OAuthCallback'
 
 function isTerminalHost() {
   if (typeof window === 'undefined') return false
@@ -46,7 +47,14 @@ function TradingWorkspace() {
 export function App() {
   return (
     <BrowserRouter>
-      {isTerminalHost() ? (
+      <Routes>
+        {/* OAuth provider landing — must win over host-based branching so the
+            callback forwards to the backend regardless of which origin (terminal
+            or root) the oauth_redirect_base allowlist points Google back to. */}
+        <Route path="/auth/callback/:provider" element={<OAuthCallback />} />
+        <Route
+          path="*"
+          element={isTerminalHost() ? (
         <TradingWorkspace />
       ) : (
         <div className="min-h-screen bg-terminal-bg text-terminal-text font-sans">
@@ -59,6 +67,8 @@ export function App() {
           </Routes>
         </div>
       )}
+        />
+      </Routes>
       <HotkeysHelpOverlay />
       <Toaster
         position="bottom-right"

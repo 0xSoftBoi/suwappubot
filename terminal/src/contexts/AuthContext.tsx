@@ -16,6 +16,7 @@ interface AuthContextType {
   walletAddress: string | null
   error: string | null
   signIn: () => Promise<void>
+  signInWithGoogle: () => void
   signOut: () => void
   clearError: () => void
   isPasskeySupported: boolean
@@ -65,19 +66,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         window.isSecureContext,
       )
 
+      // OAuth sessions live in an httponly cookie (invisible to document.cookie),
+      // so the only authority on whether a session exists is the server. Always
+      // attempt getMe() on mount: it sends the cookie via credentials:'include'
+      // (OAuth) and the Bearer token if present (passkey). This is what makes a
+      // cookie-only OAuth session resume across reloads.
       const token = getAuthToken()
-      if (!token) {
-        setIsLoading(false)
-        return
-      }
+      const returningFromOAuth =
+        typeof window !== 'undefined' &&
+        new URLSearchParams(window.location.search).get('auth') === 'success'
+
       try {
         const me = await api.getMe()
         setUserId(me.userId)
         setWalletAddress(me.walletAddress)
         setIsAuthenticated(true)
       } catch {
-        clearAuthToken()
+        if (token) clearAuthToken()
       } finally {
+        // Strip the one-time ?auth=success&provider=… params after handling.
+        if (returningFromOAuth && typeof window !== 'undefined') {
+          const url = new URL(window.location.href)
+          url.searchParams.delete('auth')
+          url.searchParams.delete('provider')
+          window.history.replaceState({}, '', url.toString())
+        }
         setIsLoading(false)
       }
     }
@@ -267,6 +280,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [authenticateWithPasskey, createPasskeyWallet])
 
+  // One-tap social login: hand off to the backend OAuth start endpoint, which
+  // 302-redirects to Google. After consent, the provider returns to the
+  // terminal's /auth/callback/google route (see OAuthCallback), which forwards
+  // code+state to the backend; the backend sets the httponly session cookie and
+  // redirects back here with ?auth=success, picked up by the mount effect.
+  const signInWithGoogle = useCallback(() => {
+    if (typeof window === 'undefined') return
+    setError(null)
+    // Return the user to the page they started from (origin + path), minus any
+    // stale query string. Must be on the oauth_redirect_base allowlist.
+    const returnUrl = `${window.location.origin}${window.location.pathname}`
+    window.location.assign(api.oauthStartUrl('google', returnUrl))
+  }, [])
+
   const signOut = useCallback(() => {
     clearAuthToken()
     setIsAuthenticated(false)
@@ -285,6 +312,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         walletAddress,
         error,
         signIn,
+        signInWithGoogle,
         signOut,
         clearError,
         isPasskeySupported,
