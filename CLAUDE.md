@@ -163,8 +163,18 @@ bash scripts/verify.sh api    # Run only api-ts checks
 bash scripts/verify.sh agent  # Run only agent card/registry checks
 ```
 
+## Standing rules (hard-won — follow these)
+
+1. **CI green ≠ the bot boots.** The "Tests & Quality Gates" job does not exercise `bot/main.py`'s startup import chain, so a bad import passes CI and then crashes the bot. After every deploy, verify: `curl https://api.suwappu.bot/health` → 200 **and** `railway logs --service python-api | grep -iE "ImportError|ModuleNotFound|cannot import"` is empty. The `/ship` skill does this.
+2. **Don't call an integration "live" without a real end-to-end test.** Parse/boot/CI prove the code *loads*, not that the feature *works*. Send the actual message, do the actual (testnet/small) swap, fetch a real record through the new path. Use the `verify` / `run` skills. If a live test is genuinely blocked, say "code-complete, not functionally verified — needs X," not "live."
+3. **For implementation, prefer `Explore` agents + direct edits over the `Workflow` tool.** Workflow schema-agents drop `StructuredOutput` on most runs → later phases skip and the work needs full hand-finishing (salvage ladder: parse → boot-import gate → dead-button audit → money-path review). Use `Workflow` only for read-only research fan-out.
+4. **Model tiers:** Opus = money-path code + adversarial review; Sonnet = feature work, sweeps, research; Haiku = grep/parse/registration audits + `Explore` fan-out. Don't run cheap mechanical checks on the main Opus loop.
+5. **Reuse before building:** use the repo skills (`/migrations`, `/new-handler`, `/new-route`, `/new-test`, `/ship`) and the **Blockscout MCP** for on-chain checks (router contracts, real tx) rather than hand-rolling.
+6. **Pre-merge formatting:** CI runs `black --check --line-length=100 bot/ api/ tests/`. Run black on changed Python before pushing or CI fails on style.
+
 ## Custom Skills
 
+- `/ship` — Branch → commit → PR → wait for CI green → merge → verify the bot boots
 - `/deploy` — Deploy services to AWS ECS
 - `/worktree` — Manage git worktrees for parallel development
 - `/migrations` — Database migration tutorial
