@@ -5,7 +5,7 @@ import { motion, useInView, useReducedMotion } from 'framer-motion';
 import Terminal from './Terminal';
 import TerminalErrorBoundary from './TerminalErrorBoundary';
 import DocsMasonry from './DocsMasonry';
-import { TELEGRAM_URL, WHATSAPP_URL } from '@/lib/links';
+import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
 
 /* ================================================================
    Data
@@ -239,16 +239,18 @@ export default function Overlay() {
               >
                 Start Trading
               </motion.a>
-              <motion.a
-                href={WHATSAPP_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn--whatsapp"
-                whileHover={{ scale: 1.03 }}
-                whileTap={{ scale: 0.97 }}
-              >
-                Chat on WhatsApp
-              </motion.a>
+              {WHATSAPP_ENABLED && (
+                <motion.a
+                  href={WHATSAPP_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn--whatsapp"
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                >
+                  Chat on WhatsApp
+                </motion.a>
+              )}
               <motion.a
                 href={TELEGRAM_URL}
                 target="_blank"
@@ -485,16 +487,18 @@ export default function Overlay() {
             >
               Open @suwappu_bot
             </motion.a>
-            <motion.a
-              href={WHATSAPP_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn btn--whatsapp"
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
-            >
-              Chat on WhatsApp
-            </motion.a>
+            {WHATSAPP_ENABLED && (
+              <motion.a
+                href={WHATSAPP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn--whatsapp"
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+              >
+                Chat on WhatsApp
+              </motion.a>
+            )}
             <motion.a
               href="/docs"
               className="btn btn--secondary"

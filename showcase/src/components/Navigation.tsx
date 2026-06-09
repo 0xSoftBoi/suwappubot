@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { TELEGRAM_URL, WHATSAPP_URL } from '@/lib/links';
+import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
 
 export default function Navigation() {
   const [scrolled, setScrolled] = useState(false);
@@ -42,9 +42,11 @@ export default function Navigation() {
         <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="nav__cta">
           Open Bot
         </a>
-        <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className="nav__cta nav__cta--whatsapp">
-          WhatsApp
-        </a>
+        {WHATSAPP_ENABLED && (
+          <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className="nav__cta nav__cta--whatsapp">
+            WhatsApp
+          </a>
+        )}
       </div>
 
       {/* Mobile hamburger */}
@@ -76,9 +78,11 @@ export default function Navigation() {
         <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="nav__drawer-cta" onClick={closeMenu}>
           Open Bot
         </a>
-        <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className="nav__drawer-cta nav__drawer-cta--whatsapp" onClick={closeMenu}>
-          Chat on WhatsApp
-        </a>
+        {WHATSAPP_ENABLED && (
+          <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className="nav__drawer-cta nav__drawer-cta--whatsapp" onClick={closeMenu}>
+            Chat on WhatsApp
+          </a>
+        )}
       </div>
     </nav>
   );
