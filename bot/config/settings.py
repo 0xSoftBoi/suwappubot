@@ -418,6 +418,11 @@ class Settings(BaseSettings):
     whatsapp_verify_token: Optional[str] = Field(
         default=None, description="Webhook verification token — must be set explicitly"
     )
+    whatsapp_app_secret: Optional[str] = Field(
+        default=None,
+        description="Meta App Secret — used to verify X-Hub-Signature-256 on inbound webhooks. "
+        "When set, unsigned/forged requests are rejected (fail-closed).",
+    )
 
     # Discord Bot
     discord_bot_token: Optional[str] = Field(default=None, description="Discord bot token")

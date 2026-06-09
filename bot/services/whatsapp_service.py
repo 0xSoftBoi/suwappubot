@@ -1,6 +1,8 @@
 """WhatsApp Business Cloud API Service for Suwappu Bot."""
 
 import asyncio
+import hashlib
+import hmac
 import logging
 import aiohttp
 from typing import Optional, List, Dict, Any
@@ -20,6 +22,7 @@ _RETRY_BACKOFF = 1.0  # seconds, doubles each retry
 @dataclass
 class WhatsAppMessage:
     """Parsed incoming WhatsApp message."""
+
     from_number: str
     message_id: str
     timestamp: str
@@ -39,6 +42,7 @@ class WhatsAppService:
         self.phone_number_id = settings.whatsapp_phone_number_id
         self.access_token = settings.whatsapp_access_token
         self.verify_token = settings.whatsapp_verify_token
+        self.app_secret = settings.whatsapp_app_secret
         self._session: Optional[aiohttp.ClientSession] = None
 
     @property
@@ -54,8 +58,8 @@ class WhatsAppService:
                 timeout=timeout,
                 headers={
                     "Authorization": f"Bearer {self.access_token}",
-                    "Content-Type": "application/json"
-                }
+                    "Content-Type": "application/json",
+                },
             )
         return self._session
 
@@ -74,7 +78,7 @@ class WhatsAppService:
                     if resp.status == 200:
                         return result
                     if resp.status == 429 or resp.status >= 500:
-                        wait = _RETRY_BACKOFF * (2 ** attempt)
+                        wait = _RETRY_BACKOFF * (2**attempt)
                         logger.warning(f"WhatsApp API {resp.status}, retry {attempt+1} in {wait}s")
                         await asyncio.sleep(wait)
                         last_error = result
@@ -82,7 +86,7 @@ class WhatsAppService:
                     logger.error(f"WhatsApp API error {resp.status}: {result}")
                     return result
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                wait = _RETRY_BACKOFF * (2 ** attempt)
+                wait = _RETRY_BACKOFF * (2**attempt)
                 logger.warning(f"WhatsApp request error: {e}, retry {attempt+1} in {wait}s")
                 await asyncio.sleep(wait)
                 last_error = {"error": str(e)}
@@ -99,7 +103,7 @@ class WhatsAppService:
             "recipient_type": "individual",
             "to": to,
             "type": "text",
-            "text": {"body": text}
+            "text": {"body": text},
         }
         return await self._post_with_retry(url, payload)
 
@@ -109,7 +113,7 @@ class WhatsAppService:
         body_text: str,
         buttons: List[Dict[str, str]],
         header: Optional[str] = None,
-        footer: Optional[str] = None
+        footer: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Send interactive button message (max 3 buttons)."""
         url = f"{WHATSAPP_API_URL}/{self.phone_number_id}/messages"
@@ -122,7 +126,7 @@ class WhatsAppService:
         interactive = {
             "type": "button",
             "body": {"text": body_text},
-            "action": {"buttons": action_buttons}
+            "action": {"buttons": action_buttons},
         }
 
         if header:
@@ -135,7 +139,7 @@ class WhatsAppService:
             "recipient_type": "individual",
             "to": to,
             "type": "interactive",
-            "interactive": interactive
+            "interactive": interactive,
         }
         return await self._post_with_retry(url, payload)
 
@@ -264,11 +268,7 @@ class WhatsAppService:
     async def mark_as_read(self, message_id: str) -> Dict[str, Any]:
         """Mark a message as read."""
         url = f"{WHATSAPP_API_URL}/{self.phone_number_id}/messages"
-        payload = {
-            "messaging_product": "whatsapp",
-            "status": "read",
-            "message_id": message_id
-        }
+        payload = {"messaging_product": "whatsapp", "status": "read", "message_id": message_id}
         return await self._post_with_retry(url, payload)
 
     # === Parsing Incoming Messages ===
@@ -319,6 +319,7 @@ class WhatsAppService:
                     nfm_reply_data = interactive.get("nfm_reply", {}).get("response_json")
                     if isinstance(nfm_reply_data, str):
                         import json
+
                         try:
                             nfm_reply_data = json.loads(nfm_reply_data)
                         except Exception as e:
@@ -352,6 +353,23 @@ class WhatsAppService:
             return challenge
         logger.warning(f"WhatsApp webhook verification failed: mode={mode}")
         return None
+
+    def verify_signature(self, raw_body: bytes, signature_header: Optional[str]) -> bool:
+        """Verify Meta's X-Hub-Signature-256 over the RAW request body.
+
+        Meta signs the exact bytes it sent with the App Secret (HMAC-SHA256), so
+        the check MUST run on the raw body, not a re-serialized JSON. Fail-closed
+        when an app secret is configured; if no secret is set we skip (return
+        True) so an unconfigured environment isn't bricked — but log a warning.
+        """
+        if not self.app_secret:
+            logger.warning("WHATSAPP_APP_SECRET unset — inbound webhook signature NOT verified")
+            return True
+        if not signature_header or not signature_header.startswith("sha256="):
+            return False
+        provided = signature_header.split("=", 1)[1].strip()
+        expected = hmac.new(self.app_secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, provided)
 
 
 # Singleton instance
