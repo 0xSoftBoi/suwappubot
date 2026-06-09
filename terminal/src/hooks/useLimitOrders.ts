@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
+import { optimisticRemoveById } from '../lib/optimistic'
 import type { CreateLimitOrderParams } from '../types/api'
 
 export function useLimitOrders() {
@@ -21,9 +22,7 @@ export function useLimitOrders() {
 
   const cancelOrder = useMutation({
     mutationFn: (orderId: string) => api.cancelLimitOrder(orderId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['limit-orders'] })
-    },
+    ...optimisticRemoveById(queryClient, ['limit-orders']),
   })
 
   return { orders, createOrder, cancelOrder }

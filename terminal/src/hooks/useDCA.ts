@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
+import { optimisticRemoveById } from '../lib/optimistic'
 import type { CreateDCAParams } from '../types/api'
 
 export function useDCA() {
@@ -21,9 +22,7 @@ export function useDCA() {
 
   const cancelOrder = useMutation({
     mutationFn: (orderId: string) => api.cancelDCAOrder(orderId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['dca-orders'] })
-    },
+    ...optimisticRemoveById(queryClient, ['dca-orders']),
   })
 
   const pauseOrder = useMutation({
