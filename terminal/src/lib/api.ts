@@ -148,6 +148,24 @@ export const api = {
     })
   },
 
+  // OAuth (Google one-tap / social login). The start endpoint 302-redirects to
+  // the provider, so callers must do a full-page navigation to oauthStartUrl()
+  // rather than fetch() it (XHR can't follow the cross-origin redirect).
+  oauthStartUrl(provider: 'google' | 'twitter', redirectUrl: string) {
+    const params = new URLSearchParams({ redirect_url: redirectUrl })
+    return `${BASE_URL}/auth/oauth/${provider}/authorize?${params}`
+  },
+
+  // Forward the provider's callback (code+state) to the backend so it can
+  // exchange the code, provision/link the wallet, mint the session JWT and set
+  // the httponly cookie. Returns the backend's callback URL so the caller can
+  // do a full-page navigation (which lets the browser persist the Set-Cookie
+  // from the backend's 302 response).
+  oauthCallbackUrl(provider: 'google' | 'twitter', search: string) {
+    const qs = search.startsWith('?') ? search.slice(1) : search
+    return `${BASE_URL}/auth/oauth/${provider}/callback?${qs}`
+  },
+
   passkeyAuthenticateInit() {
     return request<PasskeyAuthInitResponse>('/auth/passkey/authenticate/init', {
       method: 'POST',
