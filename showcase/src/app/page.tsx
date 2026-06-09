@@ -1,8 +1,35 @@
 import Analytics from '@/components/Analytics';
 import StructuredData from '@/components/StructuredData';
-import { TELEGRAM_URL } from '@/lib/links';
+import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
 
 const TERMINAL_URL = 'https://terminal.suwappu.bot';
+
+const features = [
+  {
+    icon: '🌐',
+    title: 'Cross-chain by default',
+    description:
+      'Ethereum, Base, Arbitrum, Solana, Polygon, BSC, Avalanche, and more — one engine routes across all of them.',
+  },
+  {
+    icon: '🛡️',
+    title: 'Best-price routing',
+    description:
+      'Every swap races LiFi, CoW, OKX, 1inch and KyberSwap (plus Jupiter on Solana). You get the best quote, not the first one.',
+  },
+  {
+    icon: '🔑',
+    title: 'Non-custodial execution',
+    description:
+      'Keys never leave your wallet. Suwappu finds the route — you sign and submit. We never touch your funds.',
+  },
+  {
+    icon: '🔌',
+    title: 'Everywhere you work',
+    description:
+      'Telegram bot, WhatsApp bot, TypeScript SDK, MCP server, and REST API. Pick the interface that fits.',
+  },
+];
 
 const modules = [
   {
@@ -277,6 +304,57 @@ export default function Home() {
                   <span>{row[3]}</span>
                 </div>
               ))}
+            </div>
+          </section>
+
+          <section id="features" className="summer-features" aria-label="Why Suwappu">
+            <div className="summer-features__head">
+              <p className="summer-kicker">Why Suwappu</p>
+              <h2>Built for agents and humans.</h2>
+            </div>
+            <div className="summer-features__grid">
+              {features.map((feature) => (
+                <article className="summer-feature" key={feature.title}>
+                  <span className="summer-feature__icon" aria-hidden="true">
+                    {feature.icon}
+                  </span>
+                  <h3>{feature.title}</h3>
+                  <p>{feature.description}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="summer-cta" aria-label="Get started">
+            <p className="summer-kicker">Start now</p>
+            <h2>Your next swap is one line away.</h2>
+            <p className="summer-cta__lead">
+              Open the bot, or install the SDK and connect your agent — best-price
+              swaps across 15 chains.
+            </p>
+            <code className="summer-cta__code">bun add @suwappu/sdk</code>
+            <div className="summer-actions summer-cta__actions">
+              <a
+                className="summer-button summer-button--primary"
+                href={TELEGRAM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open Telegram Bot
+              </a>
+              {WHATSAPP_ENABLED && (
+                <a
+                  className="summer-button summer-button--whatsapp"
+                  href={WHATSAPP_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Chat on WhatsApp
+                </a>
+              )}
+              <a className="summer-button summer-button--secondary" href="/docs">
+                Read the docs
+              </a>
             </div>
           </section>
         </div>

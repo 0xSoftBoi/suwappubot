@@ -267,6 +267,90 @@ html {
   box-shadow: none;
 }
 
+/* ── Features grid (ported from the old homepage into the Summer Breeze design) ── */
+.summer-features {
+  margin-top: 40px;
+}
+.summer-features__head {
+  margin-bottom: 20px;
+}
+.summer-features__head h2 {
+  margin: 6px 0 0;
+  color: var(--suwappu-summer-ink, #17324a);
+}
+.summer-features__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.summer-feature {
+  padding: 20px;
+  border-radius: 18px;
+  background: var(--suwappu-summer-card-background, rgba(255, 255, 255, 0.96));
+  border: 1px solid rgba(13, 149, 189, 0.16);
+  box-shadow: 0 12px 24px rgba(33, 88, 110, 0.08);
+}
+.summer-feature__icon {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+.summer-feature h3 {
+  margin: 12px 0 6px;
+  color: var(--suwappu-summer-ink, #17324a);
+}
+.summer-feature p {
+  margin: 0;
+  color: rgba(23, 50, 74, 0.78);
+  font-size: 0.95rem;
+}
+
+/* ── Closing CTA ── */
+.summer-cta {
+  margin-top: 44px;
+  text-align: center;
+  padding: 40px 24px;
+  border-radius: 22px;
+  background: var(--suwappu-summer-card-background, rgba(255, 255, 255, 0.96));
+  border: 1px solid rgba(13, 149, 189, 0.16);
+  box-shadow: 0 16px 30px rgba(33, 88, 110, 0.1);
+}
+.summer-cta h2 {
+  margin: 6px 0 10px;
+  color: var(--suwappu-summer-ink, #17324a);
+}
+.summer-cta__lead {
+  max-width: 520px;
+  margin: 0 auto 18px;
+  color: rgba(23, 50, 74, 0.78);
+}
+.summer-cta__code {
+  display: inline-block;
+  padding: 8px 14px;
+  margin-bottom: 18px;
+  border-radius: 8px;
+  background: rgba(23, 50, 74, 0.06);
+  border: 1px solid rgba(13, 149, 189, 0.18);
+  font-family: var(--font-mono, monospace);
+  color: var(--suwappu-summer-ink, #17324a);
+}
+.summer-cta__actions {
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* WhatsApp button (green) — rendered only when WHATSAPP_ENABLED */
+.summer-button--whatsapp {
+  border: 1px solid #1da851;
+  color: white;
+  background: linear-gradient(180deg, #25d366, #1da851);
+}
+
+@media (max-width: 720px) {
+  .summer-features__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .summer-hero {
   position: relative;
   display: grid;
