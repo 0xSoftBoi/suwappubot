@@ -605,6 +605,60 @@ class WalletService:
 
     # === Balance Checking ===
 
+    async def _fetch_evm_chain_multicall(
+        self, chain_name: str, chain, address: str
+    ) -> tuple[str, dict[str, float]]:
+        """Fetch native + all token balances for a chain in ONE eth_call via Multicall3.
+
+        Raises on failure (chain without Multicall3, RPC error) — caller falls
+        back to the per-token RPC path.
+        """
+        from bot.config.tokens import TOKENS, get_token_decimals
+        from bot.utils.multicall import multicall_balances, NATIVE_KEY
+
+        # Map token contract address (as passed) -> (symbol, decimals)
+        token_addrs: list[str] = []
+        addr_meta: dict[str, tuple[str, int]] = {}
+        for token_symbol, token in TOKENS.items():
+            token_addr = token.addresses.get(chain_name)
+            if not token_addr:
+                continue
+            # Skip zero/null addresses (native tokens listed as 0x000...0)
+            if token_addr.replace("0x", "").strip("0") == "":
+                continue
+            token_addrs.append(token_addr)
+            addr_meta[token_addr] = (
+                token_symbol,
+                get_token_decimals(token_symbol, chain_name),
+            )
+
+        w3 = self._get_web3(chain_name)
+        raw = await multicall_balances(w3, address, token_addrs)
+
+        chain_balances: dict[str, float] = {}
+
+        # Native balance (Tempo has no native gas token)
+        native_raw = raw.get(NATIVE_KEY)
+        if native_raw is not None and chain_name != "tempo":
+            native_balance = native_raw / (10**chain.native_decimals)
+            if native_balance > 0:
+                chain_balances[chain.native_token] = native_balance
+
+        for token_addr in token_addrs:
+            symbol, decimals = addr_meta[token_addr]
+            raw_balance = raw.get(token_addr)
+            if raw_balance is None:
+                # Inner call reverted — fall back per-token for just this one
+                fallback = await self.get_evm_token_balance(chain_name, symbol, address)
+                if fallback and fallback > 0:
+                    chain_balances[symbol] = fallback
+                continue
+            balance = raw_balance / (10**decimals)
+            if balance > 0:
+                chain_balances[symbol] = balance
+
+        return chain_name, chain_balances
+
     async def get_evm_token_balance(
         self,
         chain_name: str,
@@ -1015,7 +1069,19 @@ class WalletService:
             return chain_name, chain_balances
 
         async def _fetch_evm_chain_rpc(chain_name, chain):
-            """Fetch all balances for a single EVM chain via individual RPC calls."""
+            """Fetch all balances for a single EVM chain — Multicall3 batch first,
+            per-token RPC calls as fallback."""
+            try:
+                return await asyncio.wait_for(
+                    self._fetch_evm_chain_multicall(chain_name, chain, address),
+                    timeout=CALL_TIMEOUT,
+                )
+            except Exception as e:
+                logger.debug(
+                    f"Multicall3 fetch failed for {chain_name}, "
+                    f"falling back to per-token RPC: {e}"
+                )
+
             chain_balances: dict[str, float] = {}
 
             tasks = []
