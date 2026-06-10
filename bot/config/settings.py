@@ -29,10 +29,14 @@ class Settings(BaseSettings):
         ),
     )
 
-    # Background Services Control
+    # Service-split knobs (env: ENABLE_BACKGROUND_SERVICES / RUN_TELEGRAM_BOT)
     enable_background_services: bool = Field(
         default=True,
-        description="Enable background services (fee sweeper, alerts, orders, tx poller, balance refresher). Set to false for API-only mode.",
+        description="Enable background services (fee sweeper, alerts, orders, tx poller, balance refresher). Set to false on the 'python-api' service when a dedicated 'python-worker' runs them.",
+    )
+    run_telegram_bot: bool = Field(
+        default=True,
+        description="Run the Telegram bot (Application build + webhook/polling). Set to false on the 'python-worker' service so only one instance consumes Telegram updates.",
     )
 
     # Database

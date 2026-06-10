@@ -130,25 +130,31 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Orphan reconciliation error (non-fatal): {e}")
 
-    # 2. Build Bot Application
-    os.makedirs("data", exist_ok=True)
-    persistence_path = os.environ.get("BOT_PERSISTENCE_PATH", "data/bot_persistence.pickle")
-    persistence = PicklePersistence(filepath=persistence_path)
-    _bot_builder = Application.builder().token(settings.telegram_bot_token).persistence(persistence)
-    if settings.bot_concurrent_updates > 0:
-        from bot.utils.update_processor import PerUserSerializingProcessor
-
+    # 2. Build Bot Application (skipped entirely in worker mode: RUN_TELEGRAM_BOT=false)
+    bot_app = None
+    if settings.run_telegram_bot:
+        os.makedirs("data", exist_ok=True)
+        persistence_path = os.environ.get("BOT_PERSISTENCE_PATH", "data/bot_persistence.pickle")
+        persistence = PicklePersistence(filepath=persistence_path)
         _bot_builder = (
-            _bot_builder.concurrent_updates(
-                PerUserSerializingProcessor(max_concurrent_updates=settings.bot_concurrent_updates)
-            )
-            .connection_pool_size(512)
-            .rate_limiter(AIORateLimiter(max_retries=3))
+            Application.builder().token(settings.telegram_bot_token).persistence(persistence)
         )
-    bot_app = _bot_builder.build()
-    add_handlers(bot_app)
+        if settings.bot_concurrent_updates > 0:
+            from bot.utils.update_processor import PerUserSerializingProcessor
 
-    # Store bot_app in app.state for webhook endpoint access
+            _bot_builder = (
+                _bot_builder.concurrent_updates(
+                    PerUserSerializingProcessor(
+                        max_concurrent_updates=settings.bot_concurrent_updates
+                    )
+                )
+                .connection_pool_size(512)
+                .rate_limiter(AIORateLimiter(max_retries=3))
+            )
+        bot_app = _bot_builder.build()
+        add_handlers(bot_app)
+
+    # Store bot_app (or None in worker mode) in app.state for webhook endpoint access
     app.state.bot_app = bot_app
 
     # 3. Start Bot Hooks (only if database is available)
@@ -156,7 +162,9 @@ async def lifespan(app: FastAPI):
     bot_initialized = False
     using_webhook = False
 
-    if not db_success:
+    if not settings.run_telegram_bot:
+        logger.info("⏭️ Telegram bot DISABLED via RUN_TELEGRAM_BOT=false (worker mode)")
+    elif not db_success:
         logger.warning("⚠️ Skipping bot initialization - database not available")
     else:
         try:
@@ -830,6 +838,8 @@ async def health_ready():
             bot_status = "webhook"
         elif bot_app:
             bot_status = "not_running"
+        elif not settings.run_telegram_bot:
+            bot_status = "disabled"
         else:
             bot_status = "no_bot_app"
     except Exception:
@@ -2133,6 +2143,10 @@ async def telegram_webhook(request: Request):
     # Get the bot application from app state
     bot_app = getattr(request.app.state, "bot_app", None)
     if not bot_app:
+        if not settings.run_telegram_bot:
+            # Worker mode: this service intentionally runs without the Telegram bot.
+            logger.warning("Telegram webhook hit on a service with RUN_TELEGRAM_BOT=false")
+            raise HTTPException(status_code=503, detail="Telegram bot disabled on this service")
         logger.error("Bot application not initialized")
         raise HTTPException(status_code=500, detail="Bot not initialized")
 

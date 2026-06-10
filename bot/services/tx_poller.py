@@ -15,8 +15,15 @@ from database.db import get_session as get_db_session
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.services.lifi_api import LiFiAPI
+from bot.utils import ws_confirm
 
 logger = logging.getLogger(__name__)
+
+# Solana websocket subscription timeout (seconds) before falling back to polling
+SOLANA_WS_TIMEOUT = 90.0
+# When recently-submitted txs are pending, poll faster for snappier feedback
+FAST_POLL_INTERVAL = 3
+FAST_POLL_AGE_SECONDS = 30
 
 
 class TransactionPoller:
@@ -29,6 +36,8 @@ class TransactionPoller:
         self._max_age_hours = max_age_hours
         self._bot = None
         self._lifi = LiFiAPI()
+        # Active Solana websocket watchers keyed by tx id (avoid duplicate subscriptions)
+        self._ws_watchers: dict[int, asyncio.Task] = {}
         logger.info(f"Transaction poller initialized (interval: {poll_interval}s)")
 
     async def start(self, bot=None):
@@ -50,6 +59,9 @@ class TransactionPoller:
                 await self._task
             except asyncio.CancelledError:
                 pass
+        for watcher in list(self._ws_watchers.values()):
+            watcher.cancel()
+        self._ws_watchers.clear()
         logger.info("Transaction poller stopped")
 
     async def _poll_loop(self):
@@ -57,21 +69,30 @@ class TransactionPoller:
         from bot.utils.redis_cache import redis_cache
 
         while self._running:
+            has_recent_pending = False
             try:
-                await self._check_pending_transactions()
+                has_recent_pending = await self._check_pending_transactions()
                 await redis_cache.set("service:tx_poller:heartbeat", time.time(), ttl_seconds=60)
             except Exception as e:
                 logger.error(f"Transaction poll error: {e}")
 
-            await asyncio.sleep(self._poll_interval)
+            # Adaptive interval: poll faster while freshly-submitted txs are pending
+            interval = (
+                min(FAST_POLL_INTERVAL, self._poll_interval)
+                if has_recent_pending
+                else self._poll_interval
+            )
+            await asyncio.sleep(interval)
 
-    async def _check_pending_transactions(self):
+    async def _check_pending_transactions(self) -> bool:
         """Check all pending/submitted transactions using Phase 1/2/3 pattern.
 
         Phase 1: load rows to plain dicts and close the session immediately so
                  the connection is not held across async RPC calls.
         Phase 2: async RPC calls with no open DB session.
         Phase 3: write results back in short-lived per-row sessions.
+
+        Returns True if any pending tx was created recently (fast-poll hint).
         """
         cutoff = datetime.now(timezone.utc) - timedelta(hours=self._max_age_hours)
 
@@ -94,7 +115,7 @@ class TransactionPoller:
             )
 
             if not pending_txs:
-                return
+                return False
 
             logger.info(f"Checking {len(pending_txs)} pending transactions")
             tx_data = [
@@ -110,9 +131,14 @@ class TransactionPoller:
                     "to_token": tx.to_token,
                     "from_amount": tx.from_amount,
                     "error_message": tx.error_message,
+                    "created_at": tx.created_at,
                 }
                 for tx in pending_txs
             ]
+
+        # Spawn websocket watchers for pending Solana txs (instant confirmation path)
+        for tx_dict in tx_data:
+            self._maybe_start_ws_watcher(tx_dict)
 
         # Phase 2 — async RPC calls, no session open
         updates = []
@@ -126,30 +152,106 @@ class TransactionPoller:
 
         # Phase 3 — write results back
         for tx_dict, new_status, dest_tx_hash in updates:
-            old_status = tx_dict["status"]
-            try:
-                with get_db_session() as session:
-                    tx = (
-                        session.query(SwapTransaction)
-                        .filter(SwapTransaction.id == tx_dict["id"])
-                        .first()
-                    )
-                    if not tx:
-                        continue
-                    tx.status = new_status
-                    if new_status == SwapStatus.COMPLETED.value:
-                        tx.completed_at = datetime.now(timezone.utc)
-                    if dest_tx_hash:
-                        tx.destination_tx_hash = dest_tx_hash
-                    session.commit()
+            await self._apply_status_update(tx_dict, new_status, dest_tx_hash)
 
-                logger.info(f"Transaction {tx_dict['id']} status: {old_status} -> {new_status}")
+        # Fast-poll hint: any pending tx submitted within the last FAST_POLL_AGE_SECONDS
+        now = datetime.now(timezone.utc)
+        for tx_dict in tx_data:
+            created_at = tx_dict.get("created_at")
+            if created_at is None:
+                continue
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            if (now - created_at).total_seconds() <= FAST_POLL_AGE_SECONDS:
+                return True
+        return False
 
-                if new_status in (SwapStatus.COMPLETED.value, SwapStatus.FAILED.value):
-                    await self._invalidate_balance_cache_dict(tx_dict)
-                await self._notify_user_dict(tx_dict, old_status, new_status)
-            except Exception as e:
-                logger.error(f"Error writing tx {tx_dict['id']} result: {e}")
+    async def _apply_status_update(
+        self, tx_dict: dict, new_status: str, dest_tx_hash: Optional[str] = None
+    ):
+        """Persist a status change and notify the user (idempotent).
+
+        Shared by the polling loop and the websocket confirmation path. Re-reads
+        the current DB status so a tx already moved to a terminal state (e.g. by
+        the ws watcher racing the poller) is not double-updated or double-notified.
+        """
+        old_status = tx_dict["status"]
+        try:
+            with get_db_session() as session:
+                tx = (
+                    session.query(SwapTransaction)
+                    .filter(SwapTransaction.id == tx_dict["id"])
+                    .first()
+                )
+                if not tx:
+                    return
+                if tx.status == new_status or tx.status in (
+                    SwapStatus.COMPLETED.value,
+                    SwapStatus.FAILED.value,
+                ):
+                    # Already applied (or terminal) — skip to avoid duplicate notifications
+                    return
+                old_status = tx.status
+                tx.status = new_status
+                if new_status == SwapStatus.COMPLETED.value:
+                    tx.completed_at = datetime.now(timezone.utc)
+                if dest_tx_hash:
+                    tx.destination_tx_hash = dest_tx_hash
+                session.commit()
+
+            logger.info(f"Transaction {tx_dict['id']} status: {old_status} -> {new_status}")
+
+            if new_status in (SwapStatus.COMPLETED.value, SwapStatus.FAILED.value):
+                await self._invalidate_balance_cache_dict(tx_dict)
+            await self._notify_user_dict(tx_dict, old_status, new_status)
+        except Exception as e:
+            logger.error(f"Error writing tx {tx_dict['id']} result: {e}")
+
+    def _maybe_start_ws_watcher(self, tx_dict: dict):
+        """Start a websocket confirmation watcher for a pending Solana tx.
+
+        Best-effort only — any failure is logged and the polling backstop
+        continues to handle the transaction as before.
+        """
+        try:
+            tx_id = tx_dict["id"]
+            if tx_id in self._ws_watchers:
+                return
+            if tx_dict["from_chain"] != tx_dict["to_chain"]:
+                return  # cross-chain handled by Li.Fi status polling
+            chain = get_chain_by_name(tx_dict["from_chain"])
+            if not chain or chain.chain_type != ChainType.SOLANA:
+                return
+
+            ws_url = ws_confirm.derive_ws_url(rpc_manager.get_rpc_url("solana"))
+            if not ws_url:
+                return
+
+            task = asyncio.create_task(self._ws_watch_solana(tx_dict, ws_url))
+            self._ws_watchers[tx_id] = task
+            task.add_done_callback(lambda _t, _id=tx_id: self._ws_watchers.pop(_id, None))
+        except Exception as e:
+            logger.warning(f"Failed to start ws watcher for tx {tx_dict.get('id')}: {e}")
+
+    async def _ws_watch_solana(self, tx_dict: dict, ws_url: str):
+        """Wait for a Solana signature over websocket and apply the result.
+
+        On timeout or any ws failure this does nothing — the HTTP polling loop
+        remains the backstop.
+        """
+        try:
+            result = await ws_confirm.ws_wait_for_signature(
+                ws_url, tx_dict["tx_hash"], timeout=SOLANA_WS_TIMEOUT
+            )
+            if result == ws_confirm.CONFIRMED:
+                await self._apply_status_update(tx_dict, SwapStatus.COMPLETED.value)
+            elif result == ws_confirm.FAILED:
+                await self._apply_status_update(tx_dict, SwapStatus.FAILED.value)
+            # timeout -> fall through to polling backstop
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(f"ws watcher error for tx {tx_dict.get('id')}: {e}")
 
     async def _check_tx_status_dict(self, tx_dict: dict) -> tuple[Optional[str], Optional[str]]:
         """Check transaction status; return (new_status, dest_tx_hash)."""
