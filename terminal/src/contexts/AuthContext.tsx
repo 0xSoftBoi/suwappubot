@@ -6,6 +6,7 @@ import {
   useCallback,
   type ReactNode,
 } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { setAuthToken, getAuthToken, clearAuthToken } from '../lib/auth'
 import { api } from '../lib/api'
 
@@ -35,6 +36,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [isPasskeySupported, setIsPasskeySupported] = useState(false)
   const [isTelegram, setIsTelegram] = useState(false)
+  const queryClient = useQueryClient()
+
+  // Data hooks (portfolio, wallet tracker, etc.) fire on mount — before the user
+  // signs in — and 401, landing in React Query's error state. Nothing refetches
+  // them on its own, so panels stayed stuck on "request failed" after sign-in.
+  // Invalidate every query the moment auth succeeds so they refetch with the
+  // bearer token; on sign-out, drop the now-unauthorized cached data.
+  useEffect(() => {
+    void queryClient.invalidateQueries()
+  }, [isAuthenticated, queryClient])
 
   const toBase64Url = (buffer: BufferSource): string => {
     const bytes =
