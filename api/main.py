@@ -1351,10 +1351,9 @@ async def passkey_register_complete(
 ):
     """
     Complete passkey registration.
-    Verifies the WebAuthn credential and creates user + Turnkey wallet.
+    Verifies the WebAuthn credential and creates user + wallet (Turnkey if
+    configured, otherwise a local encrypted wallet via WalletService).
     """
-    from bot.services.turnkey_client import get_turnkey_client, is_turnkey_configured
-
     await _verify_passkey_challenge(request.clientDataJSON, "webauthn.create")
 
     existing_user = (
@@ -1379,6 +1378,19 @@ async def passkey_register_complete(
             .order_by(Wallet.is_default.desc(), Wallet.id.asc())
             .first()
         )
+        if not wallet:
+            # Heal accounts that were created without a wallet (e.g. by the
+            # earlier Turnkey-only path that returned an empty wallet when
+            # Turnkey was unconfigured). Provision one now via the shared,
+            # provider-aware service so the user actually connects.
+            try:
+                from bot.services.wallet import WalletService
+
+                wallet = await WalletService().create_wallet(
+                    user_id=existing_user.id, name="Passkey Wallet", chain_type="evm"
+                )
+            except Exception as e:
+                logger.error(f"Failed to backfill wallet for passkey user {existing_user.id}: {e}")
         wallet_address = wallet.address if wallet else ""
         if not existing_user.passkey_credential_id:
             existing_user.passkey_credential_id = request.credentialId
@@ -1427,43 +1439,23 @@ async def passkey_register_complete(
     wallet_address = ""
     sub_org_id = ""
 
-    # Create Turnkey wallet if configured
-    if is_turnkey_configured():
-        try:
-            turnkey = get_turnkey_client()
+    # Provision a wallet through the shared WalletService, which routes to
+    # Turnkey when wallet_provider=turnkey is configured and otherwise creates a
+    # local encrypted wallet — the same path Telegram users get on /start.
+    # Previously this hardcoded Turnkey and silently returned an empty wallet
+    # when Turnkey was not configured (the default), leaving passkey users with
+    # no wallet and a "connected" account that looked dead in the UI.
+    try:
+        from bot.services.wallet import WalletService
 
-            # Create sub-organization for user
-            sub_org_name = f"passkey_user_{user.id}"
-            sub_org = await turnkey.create_sub_organization(name=sub_org_name)
-            sub_org_id = sub_org.sub_org_id
-
-            # Create EVM wallet
-            turnkey_wallet = await turnkey.create_wallet(
-                wallet_name="Passkey Wallet",
-                chain_type="evm",
-                organization_id=sub_org_id,
-            )
-            wallet_address = turnkey_wallet.address or ""
-
-            # Store wallet in database
-            wallet = Wallet(
-                user_id=user.id,
-                name="Passkey Wallet",
-                address=wallet_address,
-                chain_type="evm",
-                wallet_provider="turnkey",
-                turnkey_sub_org_id=sub_org_id,
-                turnkey_wallet_id=turnkey_wallet.wallet_id,
-                turnkey_account_id=turnkey_wallet.account_id,
-                is_active=True,
-                is_default=True,
-            )
-            db.add(wallet)
-            db.commit()
-
-        except Exception as e:
-            logger.error(f"Failed to create Turnkey wallet for passkey user: {e}")
-            # Continue without wallet
+        wallet = await WalletService().create_wallet(
+            user_id=user.id, name="Passkey Wallet", chain_type="evm"
+        )
+        wallet_address = wallet.address or ""
+        sub_org_id = wallet.turnkey_sub_org_id or ""
+    except Exception as e:
+        logger.error(f"Failed to provision wallet for passkey user {user.id}: {e}")
+        # Continue without wallet
 
     # Create JWT token
     token = create_jwt_token(
