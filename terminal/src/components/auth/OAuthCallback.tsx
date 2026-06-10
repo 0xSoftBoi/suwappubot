@@ -25,9 +25,11 @@ export function OAuthCallback() {
     const search = window.location.search
     const params = new URLSearchParams(search)
 
-    // Provider returned an error (e.g. user denied consent) — bounce home.
+    // Provider returned an error (e.g. user denied consent) — bounce home
+    // with a signal so the landing page can explain why sign-in failed.
     if (params.get('error') || !params.get('code') || !params.get('state')) {
-      window.location.replace('/')
+      const reason = params.get('error') || 'auth_failed'
+      window.location.replace(`/?auth_error=${encodeURIComponent(reason)}`)
       return
     }
 

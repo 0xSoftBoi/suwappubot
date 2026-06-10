@@ -623,6 +623,7 @@ async def select_to_token(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 InlineKeyboardButton("50%", callback_data="swap_pct_50"),
                 InlineKeyboardButton("100%", callback_data="swap_pct_100"),
             ],
+            [InlineKeyboardButton("« Back", callback_data=f"to_chain_{swap_data['to_chain']}")],
             [InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")],
         ]
     )
@@ -925,9 +926,7 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
                 dest_token_address = get_token_address(swap_data["to_token"], "solana")
                 if dest_token_address:
                     report = await token_analyzer.analyze(dest_token_address)
-                    security_text = (
-                        f"\n\n�️ *Security Shield*\n{token_analyzer.get_safety_summary(report)}"
-                    )
+                    security_text = f"\n\n\U0001f6e1️ *Security Shield*\n{token_analyzer.get_safety_summary(report)}"
             except Exception as e:
                 logger.debug(f"Security analysis failed: {e}")
 
@@ -981,7 +980,7 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
             exc_info=True,
         )
         await query.edit_message_text(
-            f"❌ Unexpected error: {str(e)}",
+            "❌ Something went wrong. Please try again.",
             reply_markup=InlineKeyboardMarkup(
                 [
                     [InlineKeyboardButton("🔄 Try Again", callback_data="swap_start")],
@@ -1058,7 +1057,7 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                     f"❌ Insufficient funds on wallet {wallet.name[:20]}\n\n{str(e)}",
                     reply_markup=InlineKeyboardMarkup(
                         [
-                            [InlineKeyboardButton("« Back", callback_data="swap_back_to_wallets")],
+                            [InlineKeyboardButton("🔄 Try Again", callback_data="swap_start")],
                             [InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")],
                         ]
                     ),
@@ -1160,7 +1159,7 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             f"• Success: *{num_success}* wallets\n"
             f"• Failed: *{num_fail}* wallets\n\n"
             f"💰 *+{total_points} XP earned!*\n"
-            f"Total platform fee: {format_usd(total_fee_usd)} (0.8%)\n\n"
+            f"Total platform fee: {format_usd(total_fee_usd)} ({swap_data.get('fee_percentage', 0.8)}%)\n\n"
             f"Check individual status in /hx."
         )
 
@@ -1191,7 +1190,7 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             f"Swap unexpected error for user {context.user_data.get('user_id')}: {e}", exc_info=True
         )
         await query.edit_message_text(
-            f"❌ Unexpected error: {str(e)}",
+            "❌ Something went wrong. Please try again.",
             reply_markup=InlineKeyboardMarkup(
                 [
                     [InlineKeyboardButton("🔄 Try Again", callback_data="swap_start")],
@@ -1486,6 +1485,7 @@ swap_conversation_handler = ConversationHandler(
         ],
         ENTER_AMOUNT: [
             CallbackQueryHandler(swap_pct_callback, pattern="^swap_pct_"),
+            CallbackQueryHandler(select_to_chain, pattern="^to_chain_"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, enter_amount),
         ],
         SELECT_WALLETS: [

@@ -199,8 +199,9 @@ export function SwapPanel() {
                     key={pct}
                     onClick={() => {
                       if (!quote) return
-                      const mult = 1 + parseInt(pct) / 100
-                      setTpPrice((parseFloat(quote.toAmount) * mult).toFixed(6))
+                      const pctNum = parseFloat(pct)
+                      if (isNaN(pctNum)) return
+                      setTpPrice((parseFloat(quote.toAmount) * (1 + pctNum / 100)).toFixed(6))
                     }}
                     className="text-xs px-2 py-0.5 rounded bg-terminal-bg-tertiary text-terminal-text-secondary
                                hover:text-bull transition-colors"
@@ -225,8 +226,9 @@ export function SwapPanel() {
                     key={pct}
                     onClick={() => {
                       if (!quote) return
-                      const mult = 1 + parseInt(pct) / 100
-                      setSlPrice((parseFloat(quote.toAmount) * mult).toFixed(6))
+                      const pctNum = parseFloat(pct)
+                      if (isNaN(pctNum)) return
+                      setSlPrice((parseFloat(quote.toAmount) * (1 + pctNum / 100)).toFixed(6))
                     }}
                     className="text-xs px-2 py-0.5 rounded bg-terminal-bg-tertiary text-terminal-text-secondary
                                hover:text-bear transition-colors"

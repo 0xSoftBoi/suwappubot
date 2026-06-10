@@ -116,6 +116,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         typeof window !== 'undefined' &&
         new URLSearchParams(window.location.search).get('auth') === 'success'
 
+      // OAuthCallback bounces failed sign-ins back with ?auth_error=<reason>.
+      const authError =
+        typeof window !== 'undefined'
+          ? new URLSearchParams(window.location.search).get('auth_error')
+          : null
+      if (authError) {
+        setError(`Sign-in failed: ${authError.replace(/_/g, ' ')}`)
+        const url = new URL(window.location.href)
+        url.searchParams.delete('auth_error')
+        window.history.replaceState({}, '', url.toString())
+      }
+
       try {
         const me = await api.getMe()
         setUserId(me.userId)

@@ -21,14 +21,31 @@ logger = logging.getLogger(__name__)
 
 # Commands handled directly by unified_bot_service (no flow needed)
 _SIMPLE_COMMANDS = {
-    "/start", "start", "hi", "hello",
-    "/help", "help",
-    "/b", "b", "balance",
-    "/p", "p", "portfolio",
-    "/hx", "hx", "history",
-    "/w", "w", "wallet", "wallets",
-    "/g", "g", "gas",
-    "accept", "i accept", "agree",
+    "/start",
+    "start",
+    "hi",
+    "hello",
+    "/help",
+    "help",
+    "/b",
+    "b",
+    "balance",
+    "/p",
+    "p",
+    "portfolio",
+    "/hx",
+    "hx",
+    "history",
+    "/w",
+    "w",
+    "wallet",
+    "wallets",
+    "/g",
+    "g",
+    "gas",
+    "accept",
+    "i accept",
+    "agree",
 }
 
 
@@ -37,11 +54,27 @@ class WhatsAppRouter:
 
     async def route(self, message: WhatsAppMessage) -> None:
         """Main entry point — decide where to send a message and respond."""
+        try:
+            await self._route_inner(message)
+        except Exception:
+            logger.exception(f"Unhandled error routing WhatsApp message from {message.from_number}")
+            try:
+                await whatsapp_service.send_text_message(
+                    message.from_number,
+                    "⚠️ Something went wrong. Please try again or type *help*.",
+                )
+                await conversation_manager.clear_state(message.from_number)
+            except Exception:
+                logger.exception("Failed to send error message to WhatsApp user")
+
+    async def _route_inner(self, message: WhatsAppMessage) -> None:
         user_id = message.from_number
         text = (message.button_payload or message.list_reply_id or message.text or "").strip()
 
         if not text:
-            await whatsapp_service.send_text_message(user_id, "Send a text message or tap a button to interact.")
+            await whatsapp_service.send_text_message(
+                user_id, "Send a text message or tap a button to interact."
+            )
             return
 
         # 1. Check for active conversation state → dispatch to flow.handle()
@@ -79,9 +112,13 @@ class WhatsAppRouter:
 
     async def _get_user_db_id(self, whatsapp_id: str) -> Optional[int]:
         """Look up the internal DB user ID from a WhatsApp phone number."""
-        with get_session() as session:
-            user = session.query(User).filter(User.whatsapp_id == whatsapp_id).first()
-            return user.id if user else None
+        try:
+            with get_session() as session:
+                user = session.query(User).filter(User.whatsapp_id == whatsapp_id).first()
+                return user.id if user else None
+        except Exception:
+            logger.exception(f"DB lookup failed for WhatsApp ID {whatsapp_id}")
+            return None
 
     # === Response rendering ===
 

@@ -35,7 +35,7 @@ export default function Navigation() {
 
       {/* Desktop links */}
       <div className="nav__links">
-        <a href="#how-it-works" className="nav__link">How it works</a>
+        <a href="#terminal" className="nav__link">How it works</a>
         <a href="#features" className="nav__link">Features</a>
         <a href="/docs" className="nav__link">Docs</a>
         <a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer" className="nav__link">GitHub</a>
@@ -71,7 +71,7 @@ export default function Navigation() {
         aria-modal="true"
         aria-label="Navigation menu"
       >
-        <a href="#how-it-works" className="nav__drawer-link" onClick={closeMenu}>How it works</a>
+        <a href="#terminal" className="nav__drawer-link" onClick={closeMenu}>How it works</a>
         <a href="#features" className="nav__drawer-link" onClick={closeMenu}>Features</a>
         <a href="/docs" className="nav__drawer-link" onClick={closeMenu}>Docs</a>
         <a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer" className="nav__drawer-link" onClick={closeMenu}>GitHub</a>
