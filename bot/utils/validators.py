@@ -93,10 +93,16 @@ def is_valid_starknet_address(address: str) -> bool:
 
 
 def validate_starknet_private_key(private_key: str) -> bool:
-    """Validate a Starknet private key (hex felt: 0 < key < STARK_PRIME)."""
+    """Validate a Starknet private key (0x-prefixed hex felt: 0 < key < STARK_PRIME).
+
+    Policy: only 0x-prefixed hex is accepted — bare strings are ambiguous
+    (hex vs decimal) and rejecting them avoids silently importing the wrong key.
+    """
     try:
         key = private_key.strip()
-        value = int(key, 16) if key.lower().startswith("0x") else int(key, 16)
+        if not key.lower().startswith("0x"):
+            return False
+        value = int(key, 16)
         return 0 < value < STARK_PRIME
     except Exception:
         return False

@@ -77,9 +77,13 @@ class TestValidateStarknetPrivateKey:
         key = hex(STARK_PRIME - 1)
         assert validate_starknet_private_key(key) is True
 
-    def test_valid_hex_without_prefix(self):
+    def test_hex_without_prefix_rejected(self):
+        # Policy: 0x-prefixed hex only — bare strings are ambiguous (hex vs decimal)
         key = hex(0x1234567890ABCDEF)[2:]  # strip 0x
-        assert validate_starknet_private_key(key) is True
+        assert validate_starknet_private_key(key) is False
+
+    def test_decimal_string_rejected(self):
+        assert validate_starknet_private_key("123456789") is False
 
     def test_zero_key_rejected(self):
         assert validate_starknet_private_key("0x0") is False
@@ -259,6 +263,33 @@ class TestNormalizeCalls:
         assert result[0]["calldata"] == []
 
 
+class TestResolveApproveSpender:
+    """Approve spender: takerTokenApprovalAddress preferred, AVNU_EXCHANGE fallback."""
+
+    def test_prefers_taker_token_approval_address(self):
+        build = {
+            "takerTokenApprovalAddress": "0x1234",
+            "calls": [{"contractAddress": "0xattacker", "entrypoint": "e", "calldata": []}],
+        }
+        assert AvnuAPI.resolve_approve_spender(build) == 0x1234
+
+    def test_falls_back_to_avnu_exchange_constant(self):
+        from bot.config.starknet_addresses import AVNU_EXCHANGE
+
+        build = {"calls": [{"contractAddress": "0xattacker", "entrypoint": "e", "calldata": []}]}
+        assert AvnuAPI.resolve_approve_spender(build) == int(AVNU_EXCHANGE, 16)
+
+    def test_empty_string_approval_address_falls_back(self):
+        from bot.config.starknet_addresses import AVNU_EXCHANGE
+
+        build = {"takerTokenApprovalAddress": ""}
+        assert AvnuAPI.resolve_approve_spender(build) == int(AVNU_EXCHANGE, 16)
+
+    def test_never_uses_first_call_target(self):
+        build = {"calls": [{"contractAddress": "0xdeadbeef", "entrypoint": "e", "calldata": []}]}
+        assert AvnuAPI.resolve_approve_spender(build) != 0xDEADBEEF
+
+
 # ---------------------------------------------------------------------------
 # swap_engine routing helpers — no heavy service dependencies needed
 # ---------------------------------------------------------------------------
@@ -372,7 +403,12 @@ async def _simulate_check_starknet_tx(response_body: dict, http_status: int = 20
             return None
         data = await r.json()
         if "error" in data:
-            return SUBMITTED
+            # Only TXN_HASH_NOT_FOUND (spec code 29) means still-pending;
+            # any other RPC error is indeterminate → None.
+            err = data.get("error") or {}
+            if isinstance(err, dict) and err.get("code") == 29:
+                return SUBMITTED
+            return None
         result = data.get("result") or {}
         finality = result.get("finality_status")
         execution = result.get("execution_status")
@@ -407,6 +443,19 @@ class TestCheckStarknetTx:
         body = {"error": {"code": 29, "message": "Transaction hash not found"}}
         assert self._run(body) == SUBMITTED
 
+    def test_other_rpc_error_codes_return_none(self):
+        for code in (20, 24, 63, -32603):
+            body = {"error": {"code": code, "message": "some other error"}}
+            assert self._run(body) is None, f"code {code} should map to None"
+
+    def test_error_without_code_returns_none(self):
+        body = {"error": {"message": "malformed"}}
+        assert self._run(body) is None
+
+    def test_non_dict_error_returns_none(self):
+        body = {"error": "boom"}
+        assert self._run(body) is None
+
     def test_http_non_200_returns_none(self):
         body = {}
         assert self._run(body, http_status=500) is None
@@ -418,3 +467,55 @@ class TestCheckStarknetTx:
     def test_l2_finality_with_reverted_is_failed_not_completed(self):
         body = {"result": {"finality_status": "ACCEPTED_ON_L2", "execution_status": "REVERTED"}}
         assert self._run(body) == FAILED
+
+
+# ---------------------------------------------------------------------------
+# swap_engine — _get_avnu_quote guards (mocked AVNU API, no network)
+# ---------------------------------------------------------------------------
+
+
+class TestGetAvnuQuoteGuards:
+    def _engine(self):
+        from bot.services.swap_engine import SwapEngine
+
+        # Bypass __init__ — _get_avnu_quote does not touch instance state
+        # until after the zero-buy-amount guard.
+        return SwapEngine.__new__(SwapEngine)
+
+    def test_zero_buy_amount_raises_swap_error(self):
+        from bot.services.avnu_api import AvnuQuote
+        from bot.services.swap_engine import SwapError
+
+        zero_quote = AvnuQuote(
+            quote_id="q-1",
+            sell_token_address="0xa",
+            buy_token_address="0xb",
+            sell_amount=1_000_000,
+            buy_amount=0,  # AVNU returned nothing to buy
+            gas_fees_in_usd=0.01,
+            integrator_fees_bps=0,
+            raw_response={"quoteId": "q-1", "sellAmount": hex(1_000_000), "buyAmount": "0x0"},
+        )
+
+        engine = self._engine()
+        with (
+            patch(
+                "bot.services.swap_engine.get_token_address",
+                side_effect=lambda token, chain: "0xtoken",
+            ),
+            patch(
+                "bot.services.avnu_api.avnu_api.get_quote",
+                new=AsyncMock(return_value=zero_quote),
+            ),
+        ):
+            with pytest.raises(SwapError, match="zero buy amount"):
+                asyncio.run(
+                    engine._get_avnu_quote(
+                        from_token="ETH",
+                        to_token="USDC",
+                        amount=1.0,
+                        amount_raw="1000000000000000000",
+                        from_address="0xuser",
+                        slippage_bps=50,
+                    )
+                )

@@ -124,6 +124,14 @@ async def get_starknet_client() -> "FullNodeClient":
     return await starknet_client_manager.get_client()
 
 
+def get_starknet_chain_id() -> "StarknetChainId":
+    """Resolve the configured Starknet chain id (settings.starknet_chain_id)."""
+    _require_starknet_py()
+    if str(settings.starknet_chain_id).strip().lower() == "sepolia":
+        return StarknetChainId.SEPOLIA
+    return StarknetChainId.MAINNET
+
+
 async def get_starknet_account(private_key: str, address: str) -> "Account":
     """Build a starknet_py Account for signing v3 (STRK-fee) transactions.
 
@@ -132,7 +140,8 @@ async def get_starknet_account(private_key: str, address: str) -> "Account":
         address: The account contract address (hex string)
 
     Returns:
-        starknet_py Account bound to a healthy RPC client (chain SN_MAIN).
+        starknet_py Account bound to a healthy RPC client (chain from
+        settings.starknet_chain_id, default SN_MAIN).
     """
     _require_starknet_py()
     client = await get_starknet_client()
@@ -142,5 +151,5 @@ async def get_starknet_account(private_key: str, address: str) -> "Account":
         address=int(address, 16),
         client=client,
         key_pair=key_pair,
-        chain=StarknetChainId.MAINNET,
+        chain=get_starknet_chain_id(),
     )

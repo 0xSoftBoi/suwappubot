@@ -68,6 +68,10 @@ class AvnuError(Exception):
         super().__init__(self.message)
 
 
+class AvnuNotFoundError(AvnuError):
+    """Raised when an AVNU endpoint returns 404 (drives v3→v2 build fallback)."""
+
+
 class AvnuAPI:
     """Client for the AVNU DEX aggregator API on Starknet."""
 
@@ -218,6 +222,17 @@ class AvnuAPI:
             return await self._request("POST", AVNU_BUILD_ENDPOINT_FALLBACK, json_data=payload)
 
     @staticmethod
+    def resolve_approve_spender(build_response: dict) -> int:
+        """Spender for the exact-amount approve: AVNU's takerTokenApprovalAddress
+        when present, else the known AVNU exchange constant. NEVER the first
+        call's target — a multi-call build could put an arbitrary contract there.
+        """
+        spender = build_response.get("takerTokenApprovalAddress")
+        if spender:
+            return _to_int(spender)
+        return _to_int(AVNU_EXCHANGE)
+
+    @staticmethod
     def normalize_calls(build_response: dict) -> list[dict]:
         """Normalize a build response to a list of {to, selector_name, calldata_ints}."""
         raw_calls = build_response.get("calls")
@@ -245,8 +260,8 @@ class AvnuAPI:
         """Build, sign and send the swap as ONE approve+swap multicall (v3/STRK gas).
 
         The approve is exact-amount (never infinite): u256(sell_amount) split
-        into low/high limbs, spender = the AVNU exchange (or the build call's
-        target). Returns the transaction hash (hex string).
+        into low/high limbs, spender = AVNU's takerTokenApprovalAddress (or the
+        AVNU exchange constant). Returns the transaction hash (hex string).
         """
         from starknet_py.hash.selector import get_selector_from_name
         from starknet_py.net.client_models import Call
@@ -260,7 +275,7 @@ class AvnuAPI:
         if not swap_calls_raw:
             raise AvnuError("AVNU build returned no calls", build)
 
-        spender = _to_int(swap_calls_raw[0]["to"])
+        spender = self.resolve_approve_spender(build)
         low, high = split_u256(quote.sell_amount)
         approve_call = Call(
             to_addr=_to_int(quote.sell_token_address),
@@ -283,10 +298,6 @@ class AvnuAPI:
         tx_hash = hex(response.transaction_hash)
         logger.info("AVNU swap submitted: %s", tx_hash)
         return tx_hash
-
-
-class AvnuNotFoundError(AvnuError):
-    """Raised when an AVNU endpoint returns 404 (drives v3→v2 build fallback)."""
 
 
 def _to_int(value) -> int:

@@ -288,6 +288,10 @@ class Settings(BaseSettings):
         default="https://rpc.starknet.lava.build",
         description="Starknet fallback RPC (Lava, keyless, verified live)",
     )
+    starknet_chain_id: str = Field(
+        default="mainnet",
+        description="Starknet chain: 'mainnet' (SN_MAIN) or 'sepolia' (SN_SEPOLIA)",
+    )
 
     # AVNU (Starknet swap aggregator)
     avnu_integrator_fee_bps: int = Field(

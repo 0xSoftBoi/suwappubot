@@ -418,8 +418,13 @@ class TransactionPoller:
                         return None
                     data = await response.json()
                     if "error" in data:
-                        # TXN_HASH_NOT_FOUND → not yet in the mempool/blocks
-                        return SwapStatus.SUBMITTED.value
+                        # Only TXN_HASH_NOT_FOUND (spec code 29) means "not yet
+                        # in the mempool/blocks" → still submitted. Any other
+                        # RPC error is indeterminate → None (re-check later).
+                        err = data.get("error") or {}
+                        if isinstance(err, dict) and err.get("code") == 29:
+                            return SwapStatus.SUBMITTED.value
+                        return None
                     result = data.get("result") or {}
                     finality = result.get("finality_status")
                     execution = result.get("execution_status")

@@ -1057,10 +1057,9 @@ class WalletService:
             )
 
         from starknet_py.net.account.account import Account as StarknetAccount
-        from starknet_py.net.models.chains import StarknetChainId
         from starknet_py.net.signer.stark_curve_signer import KeyPair
         from bot.config.starknet_addresses import ARGENT_V040_CLASS_HASH
-        from bot.services.starknet.client import get_starknet_client
+        from bot.services.starknet.client import get_starknet_chain_id, get_starknet_client
 
         private_key = self.get_private_key(wallet)
         try:
@@ -1075,12 +1074,19 @@ class WalletService:
                 key_pair=key_pair,
                 client=client,
                 constructor_calldata=[0, key_pair.public_key, 0],
-                chain=StarknetChainId.MAINNET,
+                chain=get_starknet_chain_id(),
                 auto_estimate=True,
             )
             await result.wait_for_acceptance()
+            # REVERTED deploys pass wait_for_acceptance silently — re-check the
+            # class hash so a reverted deploy doesn't masquerade as success.
+            if not await self.is_starknet_deployed(wallet.address):
+                raise RuntimeError(
+                    "Starknet account deployment reverted — STRK fee consumed, "
+                    "account not deployed"
+                )
             logger.info(f"Starknet account deployed: {wallet.address}")
-        except ValueError:
+        except (ValueError, RuntimeError):
             raise
         except Exception as e:
             msg = str(e)

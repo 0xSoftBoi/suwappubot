@@ -952,9 +952,19 @@ class SwapEngine:
             integrator_fee_bps=effective_fee_bps,
         )
 
+        if quote.buy_amount <= 0:
+            raise SwapError(
+                f"AVNU returned a zero buy amount for {from_token}→{to_token} — "
+                "refusing to quote (min-out would be 0 = unlimited slippage)"
+            )
+
         to_amount_human = self._get_token_amount_human(str(quote.buy_amount), to_token, "starknet")
         exchange_rate = to_amount_human / amount if amount > 0 else 0
         min_out = int(quote.buy_amount * (10_000 - slippage_bps) / 10_000)
+
+        # Stash the user's slippage on the raw quote so execution uses the exact
+        # tolerance from quote time instead of lossily re-deriving it from min_out.
+        quote.raw_response["suwappu_slippage_bps"] = slippage_bps
 
         return SwapQuote(
             provider="avnu",
@@ -3185,8 +3195,9 @@ class SwapEngine:
         2. Build calldata from the quote, then sign+send approve+swap as a single
            v3 (STRK-fee) multicall — the approval is exact-amount, never infinite.
         """
-        from bot.services.avnu_api import avnu_api, AvnuQuote
+        from bot.services.avnu_api import avnu_api, AvnuQuote, _to_int
         from bot.services.starknet.client import get_starknet_account
+        from bot.services.wallet import _zeroize_str
 
         wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
@@ -3202,11 +3213,17 @@ class SwapEngine:
                 f"Token not supported on Starknet: {quote.from_token} or {quote.to_token}"
             )
 
+        # The approve amount must be AVNU's own sellAmount (the value the route
+        # was built for), not our pre-quote input — they can differ.
+        sell_amount = _to_int(quote.raw_quote.get("sellAmount"))
+        if sell_amount <= 0:
+            raise SwapError("AVNU quote is missing sellAmount — re-quote and try again")
+
         avnu_quote = AvnuQuote(
             quote_id=quote.raw_quote.get("quoteId", ""),
             sell_token_address=sell_token_address,
             buy_token_address=buy_token_address,
-            sell_amount=int(quote.from_amount),
+            sell_amount=sell_amount,
             buy_amount=int(quote.to_amount),
             gas_fees_in_usd=quote.gas_cost_usd,
             integrator_fees_bps=quote.platform_fee_bps or 0,
@@ -3215,17 +3232,22 @@ class SwapEngine:
         if not avnu_quote.quote_id:
             raise SwapError("AVNU quote is missing quoteId — re-quote and try again")
 
-        # Recover the slippage tolerance from the quote's min-out bound
-        to_amount = int(quote.to_amount)
-        to_amount_min = int(quote.to_amount_min)
-        slippage = max(0.001, 1 - (to_amount_min / to_amount)) if to_amount > 0 else 0.005
+        # Use the exact slippage the user quoted with (stashed at quote time);
+        # only fall back to the lossy min-out derivation for stale quotes.
+        slippage_bps = quote.raw_quote.get("suwappu_slippage_bps")
+        if slippage_bps is not None:
+            slippage = max(0.001, int(slippage_bps) / 10_000)
+        else:
+            to_amount = int(quote.to_amount)
+            to_amount_min = int(quote.to_amount_min)
+            slippage = max(0.001, 1 - (to_amount_min / to_amount)) if to_amount > 0 else 0.005
 
         private_key = self.wallet_service.get_private_key(wallet)
         try:
             account = await get_starknet_account(private_key, wallet.address)
             tx_hash = await avnu_api.execute_swap(account, avnu_quote, slippage=slippage)
         finally:
-            private_key = None
+            _zeroize_str(private_key)
 
         logger.info(f"AVNU swap tx: {tx_hash} ({quote.from_token}→{quote.to_token})")
         return tx_hash
