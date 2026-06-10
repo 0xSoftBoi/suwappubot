@@ -1,7 +1,8 @@
 """Start and help command handlers."""
 
+import asyncio
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Message, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler
 from datetime import datetime, timezone
 
@@ -88,11 +89,28 @@ def _build_more_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+# Per-user locks so a concurrent double-/start can't double-provision wallets
+_wallet_locks: dict[int, asyncio.Lock] = {}
+
+
+def _get_wallet_lock(user_id: int) -> asyncio.Lock:
+    lock = _wallet_locks.get(user_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _wallet_locks[user_id] = lock
+    return lock
+
+
 async def _ensure_wallets(user_id: int) -> dict:
     """Auto-create EVM, Solana, and TRON wallets if user doesn't have them.
 
     Returns dict with 'evm', 'solana', and 'tron' wallet addresses (or None if creation failed).
     """
+    async with _get_wallet_lock(user_id):
+        return await _ensure_wallets_inner(user_id)
+
+
+async def _ensure_wallets_inner(user_id: int) -> dict:
     result = {"evm": None, "solana": None, "tron": None}
 
     for chain_type in ("evm", "solana", "tron"):
@@ -112,7 +130,9 @@ async def _ensure_wallets(user_id: int) -> dict:
                 w = session.query(Wallet).filter(Wallet.id == wallet.id).first()
                 if w:
                     w.is_default = True
-            logger.info(f"Auto-created {chain_type} wallet for user {user_id}: {wallet.address[:10]}...")
+            logger.info(
+                f"Auto-created {chain_type} wallet for user {user_id}: {wallet.address[:10]}..."
+            )
         except Exception as e:
             logger.error(f"Failed to auto-create {chain_type} wallet for user {user_id}: {e}")
 
@@ -124,6 +144,54 @@ def _format_address(addr: str | None) -> str:
     if not addr:
         return "❌ _not created_"
     return f"`{addr[:6]}...{addr[-4:]}`"
+
+
+def _build_wallet_info(wallets: dict, show_deposit_hint: bool) -> str:
+    """Build the '👛 Your Wallets' block for the welcome message."""
+    wallet_info = ""
+    if wallets["evm"] or wallets["solana"] or wallets["tron"]:
+        wallet_info = (
+            "\n\n👛 *Your Wallets*\n"
+            f"  EVM: {_format_address(wallets['evm'])}\n"
+            f"  SOL: {_format_address(wallets['solana'])}\n"
+            f"  TRX: {_format_address(wallets['tron'])}"
+        )
+        if show_deposit_hint:
+            wallet_info += "\n_Deposit funds to start trading!_"
+    return wallet_info
+
+
+async def _provision_wallets_and_update(
+    user_id: int,
+    message: Message,
+    suffix: str,
+    reply_markup: InlineKeyboardMarkup,
+) -> None:
+    """Background task: create wallets, then edit the already-sent welcome message.
+
+    Used on the first-/start fast path so the menu appears instantly instead of
+    blocking ~3s on sequential KMS create_wallet calls.
+    """
+    try:
+        wallets = await _ensure_wallets(user_id)
+        wallet_info = _build_wallet_info(wallets, show_deposit_hint=True)
+        if not wallet_info:
+            wallet_info = "\n\n⚠️ _Wallet creation failed — use /w to retry._"
+        await message.edit_text(
+            WELCOME_MESSAGE + wallet_info + suffix,
+            parse_mode="Markdown",
+            reply_markup=reply_markup,
+        )
+    except Exception:
+        logger.exception(f"Background wallet provisioning failed for user {user_id}")
+        try:
+            await message.edit_text(
+                WELCOME_MESSAGE + "\n\n⚠️ _Wallet creation failed — use /w to retry._" + suffix,
+                parse_mode="Markdown",
+                reply_markup=reply_markup,
+            )
+        except Exception:
+            logger.exception(f"Failed to edit welcome message for user {user_id}")
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -171,29 +239,28 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     # Check TOS
     if not tos_accepted:
-        await update.message.reply_text(
-            TOS_TEXT,
+        await update.message.reply_text(TOS_TEXT, parse_mode="Markdown", reply_markup=TOS_KEYBOARD)
+        return
+
+    reply_markup = _build_main_keyboard()
+
+    # Fast path: no wallets yet → reply instantly, create wallets in the background
+    if not wallet_service.get_user_wallets(user_id):
+        sent = await update.message.reply_text(
+            WELCOME_MESSAGE + "\n\n👛 _Creating your wallets…_" + referral_message,
             parse_mode="Markdown",
-            reply_markup=TOS_KEYBOARD
+            reply_markup=reply_markup,
+        )
+        asyncio.create_task(
+            _provision_wallets_and_update(user_id, sent, referral_message, reply_markup)
         )
         return
 
-    # Auto-create wallets (EVM + Solana) if missing
+    # Existing users: synchronous path (wallets already exist, this is fast)
     wallets = await _ensure_wallets(user_id)
 
-    reply_markup = _build_main_keyboard()
-    
     # Build wallet info line
-    wallet_info = ""
-    if wallets["evm"] or wallets["solana"] or wallets["tron"]:
-        wallet_info = (
-            "\n\n👛 *Your Wallets*\n"
-            f"  EVM: {_format_address(wallets['evm'])}\n"
-            f"  SOL: {_format_address(wallets['solana'])}\n"
-            f"  TRX: {_format_address(wallets['tron'])}"
-        )
-    if is_new_user and (wallets["evm"] or wallets["solana"] or wallets["tron"]):
-        wallet_info += "\n_Deposit funds to start trading!_"
+    wallet_info = _build_wallet_info(wallets, show_deposit_hint=is_new_user)
 
     welcome_text = WELCOME_MESSAGE + wallet_info + referral_message
     await update.message.reply_text(
@@ -217,7 +284,20 @@ async def tos_accept_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             db_user.tos_accepted_at = datetime.now(timezone.utc)
             user_id = db_user.id
 
-    # Auto-create wallets immediately after TOS acceptance
+    reply_markup = _build_main_keyboard()
+
+    # Fast path: no wallets yet → show the menu instantly, create wallets in background
+    if not wallet_service.get_user_wallets(user_id):
+        sent = await query.edit_message_text(
+            WELCOME_MESSAGE + "\n\n👛 _Creating your wallets…_",
+            parse_mode="Markdown",
+            reply_markup=reply_markup,
+        )
+        if isinstance(sent, Message):
+            asyncio.create_task(_provision_wallets_and_update(user_id, sent, "", reply_markup))
+        return
+
+    # Wallets already exist — keep the synchronous path
     await _ensure_wallets(user_id)
 
     # Redirect to main menu
@@ -228,10 +308,10 @@ async def tos_decline_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     """Handle TOS decline callback."""
     query = update.callback_query
     await query.answer()
-    
+
     await query.edit_message_text(
         "❌ *Terms Declined*\n\nYou must accept the Terms of Service to use Suwappu Bot\\. If you change your mind, use /start to try again\\.",
-        parse_mode="MarkdownV2"
+        parse_mode="MarkdownV2",
     )
 
 
@@ -244,7 +324,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     await update.message.reply_text(
         HELP_MESSAGE,
         parse_mode="Markdown",
@@ -256,7 +336,7 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     """Handle help button callback."""
     query = update.callback_query
     await query.answer()
-    
+
     keyboard = [
         [
             InlineKeyboardButton("🔄 Start Swap", callback_data="swap_start"),
@@ -265,7 +345,7 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         [InlineKeyboardButton("« Back", callback_data="main_menu")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     await query.edit_message_text(
         HELP_MESSAGE,
         parse_mode="Markdown",
@@ -277,18 +357,14 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Handle main menu callback."""
     query = update.callback_query
     await query.answer()
-    
+
     user = update.effective_user
     if not tos_service.is_accepted_telegram(user.id):
-        await query.edit_message_text(
-            TOS_TEXT,
-            parse_mode="Markdown",
-            reply_markup=TOS_KEYBOARD
-        )
+        await query.edit_message_text(TOS_TEXT, parse_mode="Markdown", reply_markup=TOS_KEYBOARD)
         return
 
     reply_markup = _build_main_keyboard()
-    
+
     # If coming from a photo (QR code), delete and send new message
     if query.message.photo:
         await query.message.delete()
@@ -327,6 +403,3 @@ async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 # Create handlers
 start_handler = CommandHandler("start", start_command)
 help_handler = CommandHandler("h", help_command)
-
-
-

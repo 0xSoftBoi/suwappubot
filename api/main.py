@@ -67,7 +67,7 @@ from bot.models.advanced import LimitOrder, DCAOrder
 from bot.models.agent import RegisteredAgent
 from bot.utils.db_monitor import setup_db_monitoring
 from bot.main import add_handlers
-from telegram.ext import Application, PicklePersistence
+from telegram.ext import AIORateLimiter, Application, PicklePersistence
 from telegram import Update
 from contextlib import asynccontextmanager
 
@@ -134,9 +134,18 @@ async def lifespan(app: FastAPI):
     os.makedirs("data", exist_ok=True)
     persistence_path = os.environ.get("BOT_PERSISTENCE_PATH", "data/bot_persistence.pickle")
     persistence = PicklePersistence(filepath=persistence_path)
-    bot_app = (
-        Application.builder().token(settings.telegram_bot_token).persistence(persistence).build()
-    )
+    _bot_builder = Application.builder().token(settings.telegram_bot_token).persistence(persistence)
+    if settings.bot_concurrent_updates > 0:
+        from bot.utils.update_processor import PerUserSerializingProcessor
+
+        _bot_builder = (
+            _bot_builder.concurrent_updates(
+                PerUserSerializingProcessor(max_concurrent_updates=settings.bot_concurrent_updates)
+            )
+            .connection_pool_size(512)
+            .rate_limiter(AIORateLimiter(max_retries=3))
+        )
+    bot_app = _bot_builder.build()
     add_handlers(bot_app)
 
     # Store bot_app in app.state for webhook endpoint access
@@ -165,6 +174,7 @@ async def lifespan(app: FastAPI):
                         secret_token=webhook_secret,
                         allowed_updates=Update.ALL_TYPES,
                         drop_pending_updates=True,
+                        max_connections=40,
                     )
                     using_webhook = True
                     logger.info(f"✓ Telegram webhook set: {settings.webhook_url}")
@@ -2122,8 +2132,10 @@ async def telegram_webhook(request: Request):
         payload = await request.json()
         update = Update.de_json(payload, bot_app.bot)
 
-        # Process the update
-        await bot_app.process_update(update)
+        # Enqueue the update so the endpoint ACKs immediately; the running
+        # Application (initialize() + start() in lifespan) drains the queue
+        # through the configured update processor.
+        await bot_app.update_queue.put(update)
 
     except Exception as e:
         logger.error(f"Error processing Telegram webhook: {e}")
