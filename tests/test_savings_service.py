@@ -108,6 +108,7 @@ class TestDeposit:
         with (
             patch.object(service, "_get_web3", return_value=mock_web3),
             patch.object(service, "_erc20", return_value=erc20),
+            patch.object(service, "_get_private_key", return_value="ab" * 32),
         ):
             with pytest.raises(SavingsError, match="Insufficient USDC"):
                 service.deposit(_wallet(), Decimal("100"))
@@ -137,6 +138,7 @@ class TestWithdraw:
         with (
             patch.object(service, "_get_web3", return_value=mock_web3),
             patch.object(service, "_erc20", return_value=erc20),
+            patch.object(service, "_get_private_key", return_value="ab" * 32),
         ):
             with pytest.raises(SavingsError, match="Insufficient savings"):
                 service.withdraw(_wallet(), Decimal("100"))

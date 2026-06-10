@@ -36,6 +36,10 @@ def _build_main_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("🔮 Predictions", callback_data="predict_open"),
         ],
         [
+            InlineKeyboardButton("🏦 Savings (Earn)", callback_data="save_menu"),
+            InlineKeyboardButton("📊 Portfolio", callback_data="portfolio"),
+        ],
+        [
             InlineKeyboardButton("👛 Wallets", callback_data="wallet_menu"),
             InlineKeyboardButton("💰 Balance", callback_data="balance"),
         ],

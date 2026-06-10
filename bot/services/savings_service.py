@@ -12,11 +12,14 @@ asyncio.to_thread from async handlers.
 """
 
 import logging
+import time
 from decimal import Decimal
-from typing import Optional
+from typing import Callable, Optional, TypeVar
 
 from web3 import Web3
 from eth_account import Account
+
+T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +122,10 @@ class SavingsError(Exception):
     """User-safe savings error — message is safe to surface in the UI."""
 
 
+class _SentTx(Exception):
+    """A raw tx was broadcast but a follow-up step failed — never retry elsewhere."""
+
+
 class SavingsService:
     """Non-custodial USDC savings on Aave V3 (Base)."""
 
@@ -128,6 +135,40 @@ class SavingsService:
         from bot.services.rpc_manager import rpc_manager
 
         return rpc_manager.get_web3("base")
+
+    def _failover(self, op: Callable[[Web3], T], attempts: int = 4) -> T:
+        """Run `op(web3)` against Base RPCs, failing over across endpoints.
+
+        Some public Base endpoints reject eth_call or rate-limit (429), and a
+        single rpc_manager pick can land on one. Try the healthiest endpoints in
+        order and report success/failure back so broken endpoints get
+        deprioritized globally. A `_SentTx` failure (tx already broadcast) is
+        NEVER retried on another endpoint — that could double-send.
+        """
+        from bot.services.rpc_manager import rpc_manager
+
+        urls = rpc_manager.get_all_urls("base")[:attempts]
+        if not urls:
+            return op(self._get_web3())
+
+        last_exc: Optional[Exception] = None
+        for url in urls:
+            web3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 15}))
+            started = time.monotonic()
+            try:
+                result = op(web3)
+                rpc_manager.report_success("base", url, (time.monotonic() - started) * 1000)
+                return result
+            except _SentTx:
+                rpc_manager.report_failure("base", url, "post-send failure")
+                raise
+            except SavingsError:
+                raise  # validation/user error, not an RPC problem
+            except Exception as e:
+                rpc_manager.report_failure("base", url, str(e))
+                logger.warning(f"savings RPC failed on {url[:48]}: {e}")
+                last_exc = e
+        raise last_exc if last_exc is not None else SavingsError("No Base RPC available.")
 
     def _usdc_to_wei(self, amount: Decimal) -> int:
         return int(Decimal(str(amount)) * Decimal(10**USDC_DECIMALS))
@@ -177,7 +218,12 @@ class SavingsService:
         signed = Account.sign_transaction(tx, private_key)
         raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
         tx_hash = web3.eth.send_raw_transaction(raw)
-        receipt = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
+        # Point of no return: the tx is broadcast. Any failure after this must
+        # surface as _SentTx so the failover loop never re-sends elsewhere.
+        try:
+            receipt = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
+        except Exception as e:
+            raise _SentTx(f"receipt wait failed for {tx_hash.hex()}: {e}") from e
         if receipt.get("status") != 1:
             raise SavingsError("Transaction failed on-chain. No funds were moved.")
         return tx_hash.hex()
@@ -192,9 +238,8 @@ class SavingsService:
         are immaterial for display.
         """
         try:
-            web3 = self._get_web3()
-            reserve = (
-                self._pool(web3)
+            reserve = self._failover(
+                lambda web3: self._pool(web3)
                 .functions.getReserveData(Web3.to_checksum_address(USDC_ADDRESS))
                 .call()
             )
@@ -214,9 +259,8 @@ class SavingsService:
         The aToken rebases, so its balance IS the redeemable USDC amount.
         """
         try:
-            web3 = self._get_web3()
-            balance_wei = (
-                self._erc20(web3, ABASUSDC_ADDRESS)
+            balance_wei = self._failover(
+                lambda web3: self._erc20(web3, ABASUSDC_ADDRESS)
                 .functions.balanceOf(Web3.to_checksum_address(wallet_address))
                 .call()
             )
@@ -228,9 +272,8 @@ class SavingsService:
     def get_usdc_balance(self, wallet_address: str) -> Decimal:
         """Return the wallet's idle (un-supplied) USDC balance on Base."""
         try:
-            web3 = self._get_web3()
-            balance_wei = (
-                self._erc20(web3, USDC_ADDRESS)
+            balance_wei = self._failover(
+                lambda web3: self._erc20(web3, USDC_ADDRESS)
                 .functions.balanceOf(Web3.to_checksum_address(wallet_address))
                 .call()
             )
@@ -253,22 +296,8 @@ class SavingsService:
             raise SavingsError("Amount must be greater than zero.")
 
         amount_wei = self._usdc_to_wei(amount)
-        web3 = self._get_web3()
         owner = Web3.to_checksum_address(wallet.address)
         pool_addr = Web3.to_checksum_address(AAVE_POOL_ADDRESS)
-        usdc = self._erc20(web3, USDC_ADDRESS)
-
-        try:
-            balance_wei = usdc.functions.balanceOf(owner).call()
-        except Exception as e:
-            logger.warning(f"deposit: balance read failed: {e}")
-            raise SavingsError("Could not verify your USDC balance. Try again shortly.")
-
-        if balance_wei < amount_wei:
-            have = self._wei_to_usdc(balance_wei)
-            raise SavingsError(
-                f"Insufficient USDC. You have {have:.2f} USDC but tried to deposit {amount:.2f}."
-            )
 
         try:
             private_key = self._get_private_key(wallet)
@@ -276,9 +305,17 @@ class SavingsService:
             logger.warning(f"deposit: key access failed: {e}")
             raise SavingsError("Could not access this wallet for signing.")
 
-        tx_hashes: list[str] = []
+        def _op(web3: Web3) -> list[str]:
+            usdc = self._erc20(web3, USDC_ADDRESS)
+            balance_wei = usdc.functions.balanceOf(owner).call()
+            if balance_wei < amount_wei:
+                have = self._wei_to_usdc(balance_wei)
+                raise SavingsError(
+                    f"Insufficient USDC. You have {have:.2f} USDC "
+                    f"but tried to deposit {amount:.2f}."
+                )
 
-        try:
+            tx_hashes: list[str] = []
             allowance = usdc.functions.allowance(owner, pool_addr).call()
             if allowance < amount_wei:
                 approve_fn = usdc.functions.approve(pool_addr, amount_wei)
@@ -293,8 +330,18 @@ class SavingsService:
             tx_hashes.append(supply_hash)
             logger.info(f"savings deposit: supplied {amount} USDC tx={supply_hash}")
             return tx_hashes
+
+        try:
+            return self._failover(_op)
         except SavingsError:
             raise
+        except _SentTx as e:
+            # Tx was broadcast; treat optimistically but tell the user to check.
+            logger.error(f"savings deposit post-send failure: {e}")
+            raise SavingsError(
+                "Your deposit was submitted but confirmation timed out. "
+                "Check your wallet on basescan before retrying."
+            )
         except Exception as e:
             logger.error(f"savings deposit failed: {e}", exc_info=True)
             raise SavingsError("Deposit failed. Your funds were not moved. Try again shortly.")
@@ -305,7 +352,6 @@ class SavingsService:
         Aave burns the aToken and returns USDC to the user's wallet. Returns the
         withdraw tx hash.
         """
-        web3 = self._get_web3()
         owner = Web3.to_checksum_address(wallet.address)
 
         if amount is None:
@@ -316,34 +362,38 @@ class SavingsService:
                 raise SavingsError("Amount must be greater than zero.")
             amount_wei = self._usdc_to_wei(amount)
 
-            try:
-                position_wei = self._erc20(web3, ABASUSDC_ADDRESS).functions.balanceOf(owner).call()
-            except Exception as e:
-                logger.warning(f"withdraw: position read failed: {e}")
-                raise SavingsError("Could not verify your savings balance. Try again shortly.")
-
-            if position_wei < amount_wei:
-                have = self._wei_to_usdc(position_wei)
-                raise SavingsError(
-                    f"Insufficient savings. You have {have:.2f} USDC saved "
-                    f"but tried to withdraw {amount:.2f}."
-                )
-
         try:
             private_key = self._get_private_key(wallet)
         except Exception as e:
             logger.warning(f"withdraw: key access failed: {e}")
             raise SavingsError("Could not access this wallet for signing.")
 
-        try:
+        def _op(web3: Web3) -> str:
+            if amount_wei != MAX_UINT256:
+                position_wei = self._erc20(web3, ABASUSDC_ADDRESS).functions.balanceOf(owner).call()
+                if position_wei < amount_wei:
+                    have = self._wei_to_usdc(position_wei)
+                    raise SavingsError(
+                        f"Insufficient savings. You have {have:.2f} USDC saved "
+                        f"but tried to withdraw {amount:.2f}."
+                    )
             withdraw_fn = self._pool(web3).functions.withdraw(
                 Web3.to_checksum_address(USDC_ADDRESS), amount_wei, owner
             )
             tx_hash = self._build_and_send(web3, wallet, withdraw_fn, private_key)
             logger.info(f"savings withdraw: tx={tx_hash} amount_wei={amount_wei}")
             return tx_hash
+
+        try:
+            return self._failover(_op)
         except SavingsError:
             raise
+        except _SentTx as e:
+            logger.error(f"savings withdraw post-send failure: {e}")
+            raise SavingsError(
+                "Your withdrawal was submitted but confirmation timed out. "
+                "Check your wallet on basescan before retrying."
+            )
         except Exception as e:
             logger.error(f"savings withdraw failed: {e}", exc_info=True)
             raise SavingsError("Withdrawal failed. Your funds were not moved. Try again shortly.")
