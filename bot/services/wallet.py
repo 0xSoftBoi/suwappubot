@@ -7,6 +7,7 @@ import json
 import logging
 import threading
 import time
+import uuid
 from typing import Optional
 from web3 import Web3
 from eth_account import Account
@@ -267,9 +268,13 @@ class WalletService:
         # Ensure user has a sub-organization
         sub_org_id = await self._ensure_user_sub_org(user_id)
         
-        # Create wallet in user's sub-org
+        # Create wallet in user's sub-org. Turnkey requires wallet labels to be
+        # unique within a sub-org, so append a short random suffix — otherwise a
+        # user's second wallet of the same type (e.g. two "SOL Wallet"s) collides
+        # on label "{name}_{user_id}_{chain_type}" and Turnkey returns 400. The
+        # user-facing label stored in the DB (`name`) is unaffected.
         turnkey_wallet = await client.create_wallet(
-            wallet_name=f"{name}_{user_id}_{chain_type}",
+            wallet_name=f"{name}_{user_id}_{chain_type}_{uuid.uuid4().hex[:8]}",
             chain_type=chain_type,
             organization_id=sub_org_id,
         )
