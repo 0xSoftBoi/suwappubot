@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 try:
     from bot.utils.rate_limiter import RateLimitExceeded
 except Exception:  # pragma: no cover - rate_limiter is always present in practice
+
     class RateLimitExceeded(Exception):  # type: ignore
         pass
 
@@ -88,7 +89,9 @@ class _BackupKeyAccessGuard:
                 logger.error(
                     "ANOMALY: backup key %s decrypted %d times in %.0fs — possible "
                     "key exfiltration attempt; blocking.",
-                    key_id, len(recent), self.burst_window_seconds,
+                    key_id,
+                    len(recent),
+                    self.burst_window_seconds,
                 )
                 raise RateLimitExceeded(
                     "Backup key access blocked: too many decryptions in a short window."
@@ -113,27 +116,28 @@ ERC20_ABI = [
         "inputs": [{"name": "_owner", "type": "address"}],
         "name": "balanceOf",
         "outputs": [{"name": "balance", "type": "uint256"}],
-        "type": "function"
+        "type": "function",
     },
     {
         "constant": True,
         "inputs": [],
         "name": "decimals",
         "outputs": [{"name": "", "type": "uint8"}],
-        "type": "function"
+        "type": "function",
     },
 ]
 
 
 class WalletService:
     """Service for managing user wallets across chains."""
-    
+
     def __init__(self):
         self._solana_client: Optional[SolanaClient] = None
 
     def _get_web3(self, chain_name: str) -> Web3:
         """Get Web3 instance for a chain via RPCManager."""
         from bot.services.rpc_manager import rpc_manager
+
         return rpc_manager.get_web3(chain_name)
 
     def _web3_cache_url(self, chain_name: str) -> str:
@@ -144,6 +148,7 @@ class WalletService:
     def _invalidate_web3(self, chain_name: str):
         """Invalidate cached Web3 so next call picks a fresh RPC."""
         from bot.services.rpc_manager import rpc_manager
+
         rpc_manager.invalidate(chain_name)
 
     async def _evm_rpc_call(self, chain_name: str, method: str, params: list, timeout: float = 3.5):
@@ -154,7 +159,8 @@ class WalletService:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    url, json=payload,
+                    url,
+                    json=payload,
                     timeout=aiohttp.ClientTimeout(total=timeout),
                 ) as resp:
                     if resp.status == 429:
@@ -169,30 +175,30 @@ class WalletService:
         except Exception as e:
             rpc_manager.report_failure(chain_name, url, str(e)[:80])
             raise
-    
+
     async def _get_solana_client(self) -> SolanaClient:
         """Get or create a Solana RPC client."""
         if self._solana_client is None:
             rpc_url = rpc_manager.get_rpc_url("solana")
             self._solana_client = SolanaClient(rpc_url)
         return self._solana_client
-    
+
     # === Wallet Creation ===
-    
+
     def create_evm_wallet(self) -> tuple[str, str]:
         """
         Create a new EVM wallet.
-        
+
         Returns:
             Tuple of (address, private_key)
         """
         account = Account.create()
         return account.address, account.key.hex()
-    
+
     def create_solana_wallet(self) -> tuple[str, str]:
         """
         Create a new Solana wallet.
-        
+
         Returns:
             Tuple of (address, private_key as base58)
         """
@@ -209,9 +215,46 @@ class WalletService:
             Tuple of (address, private_key as hex)
         """
         from tronpy.keys import PrivateKey
+
         pk = PrivateKey.random()
         address = pk.public_key.to_base58check_address()
         return address, pk.hex()
+
+    @staticmethod
+    def _compute_starknet_address(public_key: int) -> str:
+        """Compute the counterfactual Argent v0.4.0 account address for a pubkey.
+
+        Argent v0.4.0 deploys guardian-less with constructor calldata
+        [0, owner_pubkey, 0] (signer_type=Starknet, pubkey, guardian=None) and
+        salt=pubkey, deployer_address=0 — the standard counterfactual scheme.
+        """
+        from starknet_py.hash.address import compute_address
+        from bot.config.starknet_addresses import ARGENT_V040_CLASS_HASH
+
+        address = compute_address(
+            salt=public_key,
+            class_hash=int(ARGENT_V040_CLASS_HASH, 16),
+            constructor_calldata=[0, public_key, 0],
+            deployer_address=0,
+        )
+        return hex(address)
+
+    def create_starknet_wallet(self) -> tuple[str, str]:
+        """
+        Create a new Starknet wallet (Argent v0.4.0, counterfactual address).
+
+        The account contract is NOT deployed here — receiving tokens at the
+        computed address is safe pre-deployment; the first outgoing action
+        must call ensure_starknet_deployed() first.
+
+        Returns:
+            Tuple of (address, private_key as hex felt)
+        """
+        from starknet_py.net.signer.stark_curve_signer import KeyPair
+
+        key_pair = KeyPair.generate()
+        address = self._compute_starknet_address(key_pair.public_key)
+        return address, hex(key_pair.private_key)
 
     async def create_wallet(self, user_id: int, name: str, chain_type: str = "evm"):
         """
@@ -222,13 +265,13 @@ class WalletService:
         Args:
             user_id: Target user
             name: Label for the wallet
-            chain_type: "evm", "solana", or "tron"
+            chain_type: "evm", "solana", "tron", or "starknet"
 
         Returns:
             Wallet object
         """
-        # Check if Turnkey is configured (Turnkey doesn't support TRON yet)
-        if settings.wallet_provider == "turnkey" and chain_type != "tron":
+        # Check if Turnkey is configured (Turnkey doesn't support TRON/Starknet yet)
+        if settings.wallet_provider == "turnkey" and chain_type not in ("tron", "starknet"):
             return await self._create_turnkey_wallet(user_id, name, chain_type)
 
         # Local wallet creation
@@ -238,36 +281,34 @@ class WalletService:
             address, pk = self.create_solana_wallet()
         elif chain_type == "tron":
             address, pk = self.create_tron_wallet()
+        elif chain_type == "starknet":
+            address, pk = self.create_starknet_wallet()
         else:
             raise ValueError(f"Unsupported chain type: {chain_type}")
-            
+
         return self.save_wallet(
-            user_id=user_id,
-            address=address,
-            private_key=pk,
-            chain_type=chain_type,
-            name=name
+            user_id=user_id, address=address, private_key=pk, chain_type=chain_type, name=name
         )
-    
+
     async def _create_turnkey_wallet(self, user_id: int, name: str, chain_type: str) -> Wallet:
         """
         Create a wallet via Turnkey infrastructure.
-        
+
         Args:
             user_id: Target user
             name: Label for the wallet
             chain_type: "evm" or "solana"
-            
+
         Returns:
             Wallet object
         """
         from bot.services.turnkey_client import get_turnkey_client
-        
+
         client = get_turnkey_client()
-        
+
         # Ensure user has a sub-organization
         sub_org_id = await self._ensure_user_sub_org(user_id)
-        
+
         # Create wallet in user's sub-org. Turnkey requires wallet labels to be
         # unique within a sub-org, so append a short random suffix — otherwise a
         # user's second wallet of the same type (e.g. two "SOL Wallet"s) collides
@@ -278,10 +319,10 @@ class WalletService:
             chain_type=chain_type,
             organization_id=sub_org_id,
         )
-        
+
         if not turnkey_wallet.address:
             raise RuntimeError("Turnkey wallet creation failed: no address returned")
-        
+
         # Save wallet reference to database
         with get_session() as session:
             wallet = Wallet(
@@ -301,7 +342,7 @@ class WalletService:
             session.add(wallet)
             session.flush()
             wallet_id = wallet.id
-        
+
         logger.info(f"Created Turnkey wallet for user {user_id}: {turnkey_wallet.address}")
 
         # Export and backup private key from Turnkey (with retry)
@@ -311,6 +352,7 @@ class WalletService:
                 wallet_obj = self.get_wallet_by_id(wallet_id)
                 if wallet_obj:
                     from bot.services.turnkey_export import export_and_backup_wallet
+
                     with get_session() as session:
                         attached = session.query(Wallet).filter(Wallet.id == wallet_id).first()
                         if attached:
@@ -318,93 +360,102 @@ class WalletService:
                             export_success = True
                             break
             except Exception as e:
-                logger.warning(f"Backup key export attempt {attempt + 1}/2 failed for wallet {wallet_id}: {e}")
+                logger.warning(
+                    f"Backup key export attempt {attempt + 1}/2 failed for wallet {wallet_id}: {e}"
+                )
                 if attempt == 0:
                     import asyncio
+
                     await asyncio.sleep(2)
 
         if not export_success:
-            logger.error(f"Backup key export FAILED for wallet {wallet_id} after 2 attempts — fallback signing will NOT work for this wallet")
+            logger.error(
+                f"Backup key export FAILED for wallet {wallet_id} after 2 attempts — fallback signing will NOT work for this wallet"
+            )
 
         return self.get_wallet_by_id(wallet_id)
-    
+
     async def _ensure_user_sub_org(self, user_id: int) -> str:
         """
         Ensure user has a Turnkey sub-organization, creating one if needed.
-        
+
         Args:
             user_id: Database user ID
-            
+
         Returns:
             Sub-organization ID
         """
         from bot.services.turnkey_client import get_turnkey_client
-        
+
         # Check if user already has a sub-org
         with get_session() as session:
-            existing = session.query(Wallet).filter(
-                Wallet.user_id == user_id,
-                Wallet.wallet_provider == "turnkey",
-                Wallet.turnkey_sub_org_id.isnot(None),
-            ).first()
-            
+            existing = (
+                session.query(Wallet)
+                .filter(
+                    Wallet.user_id == user_id,
+                    Wallet.wallet_provider == "turnkey",
+                    Wallet.turnkey_sub_org_id.isnot(None),
+                )
+                .first()
+            )
+
             if existing and existing.turnkey_sub_org_id:
                 return existing.turnkey_sub_org_id
-        
+
         # Create new sub-organization
         client = get_turnkey_client()
         sub_org = await client.create_sub_organization(f"user_{user_id}")
-        
+
         logger.info(f"Created Turnkey sub-org for user {user_id}: {sub_org.sub_org_id}")
         return sub_org.sub_org_id
-    
+
     # === Wallet Import ===
-    
+
     def import_evm_wallet(self, private_key: str) -> str:
         """
         Import an EVM wallet from private key.
-        
+
         Args:
             private_key: Private key (hex string, with or without 0x prefix)
-            
+
         Returns:
             Wallet address
-            
+
         Raises:
             ValueError: If private key is invalid
         """
         if not validate_private_key(private_key, "evm"):
             raise ValueError("Invalid EVM private key")
-        
+
         if not private_key.startswith("0x"):
             private_key = "0x" + private_key
-        
+
         account = Account.from_key(private_key)
         return account.address
-    
+
     def import_solana_wallet(self, private_key: str) -> str:
         """
         Import a Solana wallet from private key.
-        
+
         Args:
             private_key: Private key (base58 encoded or JSON array)
-            
+
         Returns:
             Wallet address
-            
+
         Raises:
             ValueError: If private key is invalid
         """
         if not validate_private_key(private_key, "solana"):
             raise ValueError("Invalid Solana private key")
-        
+
         try:
             # Try base58 decoding
             key_bytes = base58.b58decode(private_key)
         except Exception:
             # Try JSON array
             key_bytes = bytes(json.loads(private_key))
-        
+
         keypair = Keypair.from_bytes(key_bytes)
         return str(keypair.pubkey())
 
@@ -425,12 +476,40 @@ class WalletService:
             raise ValueError("Invalid TRON private key")
 
         from tronpy.keys import PrivateKey as TronPrivateKey
+
         key_hex = private_key.replace("0x", "")
         pk = TronPrivateKey(bytes.fromhex(key_hex))
         return pk.public_key.to_base58check_address()
 
+    def import_starknet_wallet(self, private_key: str) -> str:
+        """
+        Import a Starknet wallet from a private key (hex felt).
+
+        The address is recomputed counterfactually for the Argent v0.4.0 class —
+        keys imported from other account classes (Braavos, OZ) will map to a
+        DIFFERENT address than the user's existing one.
+
+        Args:
+            private_key: Stark private key (hex felt, 0 < key < STARK prime)
+
+        Returns:
+            Starknet account address (hex)
+
+        Raises:
+            ValueError: If private key is invalid
+        """
+        if not validate_private_key(private_key, "starknet"):
+            raise ValueError("Invalid Starknet private key")
+
+        from starknet_py.net.signer.stark_curve_signer import KeyPair
+
+        key = private_key.strip()
+        key_int = int(key, 16)
+        key_pair = KeyPair.from_private_key(key_int)
+        return self._compute_starknet_address(key_pair.public_key)
+
     # === Database Operations ===
-    
+
     def save_wallet(
         self,
         user_id: int,
@@ -442,9 +521,9 @@ class WalletService:
     ) -> Wallet:
         """
         Save a wallet to the database with encrypted private key.
-        
+
         Uses KMS envelope encryption (v2) if configured, otherwise falls back to legacy.
-        
+
         Args:
             user_id: Database user ID
             address: Wallet address
@@ -452,13 +531,13 @@ class WalletService:
             chain_type: "evm" or "solana"
             name: Wallet name
             is_default: Whether this is the default wallet
-            
+
         Returns:
             Created Wallet object
         """
         # Determine encryption scheme based on settings
         use_v2 = settings.wallet_encryption_scheme == SCHEME_KMS_AESGCM_V2
-        
+
         if use_v2:
             # Use envelope encryption with KMS
             encrypted = encrypt_private_key_v2(private_key)
@@ -473,16 +552,16 @@ class WalletService:
                 "kms_key_id": None,
                 "key_version": 1,
             }
-        
+
         with get_session() as session:
             # If setting as default, unset other defaults of same type
             if is_default:
                 session.query(Wallet).filter(
                     Wallet.user_id == user_id,
                     Wallet.chain_type == chain_type,
-                    Wallet.is_default == True
+                    Wallet.is_default == True,
                 ).update({"is_default": False})
-            
+
             wallet = Wallet(
                 user_id=user_id,
                 address=address,
@@ -499,58 +578,68 @@ class WalletService:
             session.add(wallet)
             session.flush()
             wallet_id = wallet.id
-        
+
         return self.get_wallet_by_id(wallet_id)
-    
+
     def get_wallet_by_id(self, wallet_id: int) -> Optional[Wallet]:
         """Get a wallet by ID."""
         with get_session() as session:
             return session.query(Wallet).filter(Wallet.id == wallet_id).first()
-    
+
     def get_user_wallets(self, user_id: int, chain_type: Optional[str] = None) -> list[Wallet]:
         """Get all wallets for a user, optionally filtered by chain type."""
         with get_session() as session:
-            query = session.query(Wallet).filter(Wallet.user_id == user_id, Wallet.is_active == True)
+            query = session.query(Wallet).filter(
+                Wallet.user_id == user_id, Wallet.is_active == True
+            )
             if chain_type:
                 query = query.filter(Wallet.chain_type == chain_type)
             return query.all()
-    
+
     def get_default_wallet(self, user_id: int, chain_type: str) -> Optional[Wallet]:
         """Get the default wallet for a user and chain type."""
         with get_session() as session:
-            wallet = session.query(Wallet).filter(
-                Wallet.user_id == user_id,
-                Wallet.chain_type == chain_type,
-                Wallet.is_default == True,
-                Wallet.is_active == True,
-            ).first()
-            
-            if not wallet:
-                # Return first wallet of this type if no default
-                wallet = session.query(Wallet).filter(
+            wallet = (
+                session.query(Wallet)
+                .filter(
                     Wallet.user_id == user_id,
                     Wallet.chain_type == chain_type,
+                    Wallet.is_default == True,
                     Wallet.is_active == True,
-                ).first()
-            
+                )
+                .first()
+            )
+
+            if not wallet:
+                # Return first wallet of this type if no default
+                wallet = (
+                    session.query(Wallet)
+                    .filter(
+                        Wallet.user_id == user_id,
+                        Wallet.chain_type == chain_type,
+                        Wallet.is_active == True,
+                    )
+                    .first()
+                )
+
             return wallet
-    
+
     def get_private_key(self, wallet: Wallet, auto_migrate: bool = True) -> str:
         """
         Decrypt and return the private key for a wallet.
-        
+
         Handles both legacy (Fernet) and v2 (KMS + AES-GCM) encryption schemes.
         Optionally auto-migrates legacy wallets to v2 on first access.
-        
+
         Note: Turnkey wallets do not have accessible private keys - they stay in TEEs.
-        
+
         Args:
             wallet: Wallet object
             auto_migrate: Whether to migrate legacy wallets to v2
-            
+
         Returns:
             Decrypted private key string
-            
+
         Raises:
             ValueError: If wallet is a Turnkey wallet (keys don't leave Turnkey)
         """
@@ -560,7 +649,7 @@ class WalletService:
                 "Cannot access private key for Turnkey wallet. "
                 "Use sign_evm_transaction or sign_solana_transaction instead."
             )
-        
+
         with get_session() as session:
             # Re-attach wallet to session for potential migration update
             wallet = session.merge(wallet)
@@ -569,7 +658,7 @@ class WalletService:
                 session=session,
                 auto_migrate=auto_migrate,
             )
-    
+
     def get_backup_private_key(self, wallet: Wallet) -> str:
         """
         Get the backup private key for a Turnkey wallet.
@@ -690,7 +779,7 @@ class WalletService:
                 return 0.0
             balance_raw = int(result, 16)
             decimals = get_token_decimals(token_symbol, chain_name)
-            return balance_raw / (10 ** decimals)
+            return balance_raw / (10**decimals)
         except Exception:
             return 0.0
 
@@ -713,10 +802,10 @@ class WalletService:
             )
             if not result or not str(result).startswith("0x"):
                 return 0.0
-            return int(result, 16) / (10 ** chain.native_decimals)
+            return int(result, 16) / (10**chain.native_decimals)
         except Exception:
             return 0.0
-    
+
     async def get_solana_token_balance(
         self,
         token_symbol: str,
@@ -745,15 +834,13 @@ class WalletService:
                     "jsonrpc": "2.0",
                     "id": 1,
                     "method": "getTokenAccountsByOwner",
-                    "params": [
-                        address,
-                        {"mint": token_mint},
-                        {"encoding": "jsonParsed"}
-                    ]
+                    "params": [address, {"mint": token_mint}, {"encoding": "jsonParsed"}],
                 }
                 async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                     if resp.status == 429:
-                        logger.warning(f"Solana RPC rate limited (429) fetching {token_symbol} for {address[:8]}...")
+                        logger.warning(
+                            f"Solana RPC rate limited (429) fetching {token_symbol} for {address[:8]}..."
+                        )
                         raise ConnectionError("Solana RPC rate limited")
                     if resp.status >= 400:
                         logger.warning(f"Solana RPC HTTP {resp.status} fetching {token_symbol}")
@@ -762,7 +849,9 @@ class WalletService:
                     result = await resp.json()
 
                     if "error" in result:
-                        logger.warning(f"Solana RPC error fetching {token_symbol}: {result['error']}")
+                        logger.warning(
+                            f"Solana RPC error fetching {token_symbol}: {result['error']}"
+                        )
                         raise ConnectionError(f"Solana RPC error: {result['error']}")
 
                     if "result" in result and result["result"]["value"]:
@@ -772,7 +861,7 @@ class WalletService:
                             info = account["account"]["data"]["parsed"]["info"]
                             amount = int(info["tokenAmount"]["amount"])
                             decimals = info["tokenAmount"]["decimals"]
-                            total_balance += amount / (10 ** decimals)
+                            total_balance += amount / (10**decimals)
                         return total_balance
 
             return 0.0
@@ -786,15 +875,12 @@ class WalletService:
         """Get SOL balance for an address. Raises on RPC error."""
         try:
             async with aiohttp.ClientSession() as session:
-                payload = {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "getBalance",
-                    "params": [address]
-                }
+                payload = {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [address]}
                 async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                     if resp.status == 429:
-                        logger.warning(f"Solana RPC rate limited (429) fetching SOL for {address[:8]}...")
+                        logger.warning(
+                            f"Solana RPC rate limited (429) fetching SOL for {address[:8]}..."
+                        )
                         raise ConnectionError("Solana RPC rate limited")
                     if resp.status >= 400:
                         logger.warning(f"Solana RPC HTTP {resp.status} fetching SOL balance")
@@ -850,11 +936,162 @@ class WalletService:
                             if token_data.get("tokenId") == token_address:
                                 decimals = token_data.get("tokenDecimal", 6)
                                 balance = int(token_data.get("balance", 0))
-                                return balance / (10 ** decimals)
+                                return balance / (10**decimals)
             return 0.0
         except Exception as e:
             logger.warning(f"Failed to fetch TRC20 token balance for {address[:8]}...: {e}")
             return 0.0
+
+    # === Starknet ===
+
+    @staticmethod
+    def _starknet_selector(name: str) -> str:
+        """Compute a Starknet entrypoint selector (sn_keccak) as 0x hex.
+
+        sn_keccak(name) = keccak256(name) masked to 250 bits — computed via
+        web3's keccak so balance reads don't require starknet_py.
+        """
+        digest = int.from_bytes(Web3.keccak(text=name), "big")
+        return hex(digest & ((1 << 250) - 1))
+
+    async def _starknet_rpc_call(self, method: str, params, timeout: float = 6.0):
+        """JSON-RPC call against the Starknet RPC with primary→fallback failover."""
+        urls = []
+        if settings.starknet_rpc_url:
+            urls.append(settings.starknet_rpc_url)
+        if settings.starknet_rpc_fallback_url not in urls:
+            urls.append(settings.starknet_rpc_fallback_url)
+
+        payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
+        last_error: Optional[Exception] = None
+        for url in urls:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        url, json=payload, timeout=aiohttp.ClientTimeout(total=timeout)
+                    ) as resp:
+                        if resp.status != 200:
+                            raise ConnectionError(f"http_{resp.status}")
+                        data = await resp.json()
+                        if "error" in data:
+                            # Contract/RPC-level errors are real answers (e.g.
+                            # CONTRACT_NOT_FOUND for undeployed accounts) — surface them.
+                            return {"error": data["error"]}
+                        return data.get("result")
+            except Exception as e:
+                last_error = e
+                logger.warning("Starknet RPC %s failed on %s: %s", method, url, str(e)[:80])
+        raise ConnectionError(f"All Starknet RPCs failed for {method}: {last_error}")
+
+    async def get_starknet_token_balance(self, token_symbol: str, address: str) -> float:
+        """Get an ERC-20 token balance on Starknet via starknet_call balanceOf."""
+        token_address = get_token_address(token_symbol, "starknet")
+        if not token_address:
+            return 0.0
+
+        try:
+            result = await self._starknet_rpc_call(
+                "starknet_call",
+                [
+                    {
+                        "contract_address": token_address,
+                        "entry_point_selector": self._starknet_selector("balanceOf"),
+                        "calldata": [hex(int(address, 16))],
+                    },
+                    "latest",
+                ],
+            )
+            if isinstance(result, dict) and "error" in result:
+                return 0.0
+            if not isinstance(result, list) or not result:
+                return 0.0
+            # u256 -> (low, high) limbs
+            low = int(result[0], 16)
+            high = int(result[1], 16) if len(result) > 1 else 0
+            raw = (high << 128) | low
+            decimals = get_token_decimals(token_symbol, "starknet")
+            return raw / (10**decimals)
+        except ConnectionError:
+            raise  # Let RPC errors propagate to _safe_call
+        except Exception as e:
+            logger.warning(f"Failed to fetch Starknet {token_symbol} balance: {e}")
+            return 0.0
+
+    async def get_starknet_native_balance(self, address: str) -> dict[str, float]:
+        """Get the gas-relevant balances on Starknet: STRK (v3 fee token) + ETH."""
+        strk, eth = await asyncio.gather(
+            self.get_starknet_token_balance("STRK", address),
+            self.get_starknet_token_balance("ETH", address),
+        )
+        return {"STRK": strk, "ETH": eth}
+
+    async def is_starknet_deployed(self, address: str) -> bool:
+        """Check whether a Starknet account contract is deployed (has a class hash)."""
+        result = await self._starknet_rpc_call(
+            "starknet_getClassHashAt", ["latest", hex(int(address, 16))]
+        )
+        if isinstance(result, dict) and "error" in result:
+            return False  # CONTRACT_NOT_FOUND → undeployed
+        return bool(result)
+
+    async def ensure_starknet_deployed(self, wallet: Wallet) -> None:
+        """Deploy the user's Argent account if it isn't deployed yet (self-paid STRK).
+
+        Phase 1: DEPLOY_ACCOUNT v3 with auto-estimated STRK fees, paid from the
+        account's own pre-funded STRK balance. Phase 2 replaces this with the
+        AVNU paymaster's sponsored deploy_and_invoke.
+
+        Raises:
+            ValueError: If the account holds no STRK to pay the deployment fee.
+            RuntimeError: If the deployment transaction is not accepted.
+        """
+        if await self.is_starknet_deployed(wallet.address):
+            return
+
+        strk_balance = await self.get_starknet_token_balance("STRK", wallet.address)
+        if strk_balance <= 0:
+            raise ValueError(
+                "Your Starknet account is not deployed yet and holds no STRK to pay "
+                f"the deployment fee. Send a small amount of STRK (~0.5) to "
+                f"{wallet.address} and try again."
+            )
+
+        from starknet_py.net.account.account import Account as StarknetAccount
+        from starknet_py.net.models.chains import StarknetChainId
+        from starknet_py.net.signer.stark_curve_signer import KeyPair
+        from bot.config.starknet_addresses import ARGENT_V040_CLASS_HASH
+        from bot.services.starknet.client import get_starknet_client
+
+        private_key = self.get_private_key(wallet)
+        try:
+            key_int = int(private_key, 16)
+            key_pair = KeyPair.from_private_key(key_int)
+            client = await get_starknet_client()
+
+            result = await StarknetAccount.deploy_account_v3(
+                address=int(wallet.address, 16),
+                class_hash=int(ARGENT_V040_CLASS_HASH, 16),
+                salt=key_pair.public_key,
+                key_pair=key_pair,
+                client=client,
+                constructor_calldata=[0, key_pair.public_key, 0],
+                chain=StarknetChainId.MAINNET,
+                auto_estimate=True,
+            )
+            await result.wait_for_acceptance()
+            logger.info(f"Starknet account deployed: {wallet.address}")
+        except ValueError:
+            raise
+        except Exception as e:
+            msg = str(e)
+            if "INSUFFICIENT" in msg.upper():
+                raise ValueError(
+                    "Not enough STRK to pay the account deployment fee. Send a small "
+                    f"amount of STRK (~0.5) to {wallet.address} and try again."
+                ) from e
+            raise RuntimeError(f"Starknet account deployment failed: {msg[:200]}") from e
+        finally:
+            _zeroize_str(private_key)
 
     async def get_all_balances(self, wallet: Wallet) -> dict[str, dict[str, float]]:
         """
@@ -895,9 +1132,11 @@ class WalletService:
 
                 for token_symbol, token in TOKENS.items():
                     if chain_name in token.addresses:
-                        tasks.append(_safe_fetch(self.get_evm_token_balance(
-                            chain_name, token_symbol, wallet.address
-                        )))
+                        tasks.append(
+                            _safe_fetch(
+                                self.get_evm_token_balance(chain_name, token_symbol, wallet.address)
+                            )
+                        )
                         task_labels.append(token_symbol)
 
                 results = await asyncio.gather(*tasks)
@@ -932,7 +1171,9 @@ class WalletService:
 
             for token_symbol, token in TOKENS.items():
                 if "solana" in token.addresses:
-                    tasks.append(_safe_fetch(self.get_solana_token_balance(token_symbol, wallet.address)))
+                    tasks.append(
+                        _safe_fetch(self.get_solana_token_balance(token_symbol, wallet.address))
+                    )
                     task_labels.append(token_symbol)
 
             results = await asyncio.gather(*tasks)
@@ -955,7 +1196,9 @@ class WalletService:
 
             for token_symbol, token in TOKENS.items():
                 if "tron" in token.addresses and token.addresses["tron"] != "native":
-                    tasks.append(_safe_fetch(self.get_tron_token_balance(token_symbol, wallet.address)))
+                    tasks.append(
+                        _safe_fetch(self.get_tron_token_balance(token_symbol, wallet.address))
+                    )
                     task_labels.append(token_symbol)
 
             results = await asyncio.gather(*tasks)
@@ -966,9 +1209,32 @@ class WalletService:
             if chain_balances:
                 balances["tron"] = chain_balances
 
+        elif wallet.chain_type == "starknet":
+            chain_balances: dict[str, float] = {}
+
+            tasks = []
+            task_labels = []
+
+            for token_symbol, token in TOKENS.items():
+                if "starknet" in token.addresses:
+                    tasks.append(
+                        _safe_fetch(self.get_starknet_token_balance(token_symbol, wallet.address))
+                    )
+                    task_labels.append(token_symbol)
+
+            results = await asyncio.gather(*tasks)
+            for label, bal in zip(task_labels, results):
+                if isinstance(bal, (int, float)) and bal > 0:
+                    chain_balances[label] = bal
+
+            if chain_balances:
+                balances["starknet"] = chain_balances
+
         return balances
 
-    async def get_balances_by_address(self, address: str, chain_type: str) -> dict[str, dict[str, float]]:
+    async def get_balances_by_address(
+        self, address: str, chain_type: str
+    ) -> dict[str, dict[str, float]]:
         """
         Get all token balances for an address without needing a Wallet object.
 
@@ -997,7 +1263,9 @@ class WalletService:
 
         return balances
 
-    async def _fetch_balances_live(self, address: str, chain_type: str) -> dict[str, dict[str, float]]:
+    async def _fetch_balances_live(
+        self, address: str, chain_type: str
+    ) -> dict[str, dict[str, float]]:
         """Fetch balances from RPCs / Alchemy (no caching)."""
         from bot.config.tokens import TOKENS
 
@@ -1057,7 +1325,7 @@ class WalletService:
                     entry = addr_to_token.get(contract_lower)
                     if entry:
                         symbol, decimals = entry
-                        balance = raw_balance / (10 ** decimals)
+                        balance = raw_balance / (10**decimals)
                         if balance > 0:
                             chain_balances[symbol] = balance
 
@@ -1094,9 +1362,9 @@ class WalletService:
             # Token balances
             for token_symbol, token in TOKENS.items():
                 if chain_name in token.addresses:
-                    tasks.append(_safe_call(
-                        self.get_evm_token_balance(chain_name, token_symbol, address)
-                    ))
+                    tasks.append(
+                        _safe_call(self.get_evm_token_balance(chain_name, token_symbol, address))
+                    )
                     task_keys.append(token_symbol)
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -1139,9 +1407,9 @@ class WalletService:
 
                     for token_symbol, token in TOKENS.items():
                         if "solana" in token.addresses:
-                            tasks.append(_safe_call(
-                                self.get_solana_token_balance(token_symbol, address)
-                            ))
+                            tasks.append(
+                                _safe_call(self.get_solana_token_balance(token_symbol, address))
+                            )
                             task_keys.append(token_symbol)
 
                     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -1170,9 +1438,9 @@ class WalletService:
 
                     for token_symbol, token in TOKENS.items():
                         if "tron" in token.addresses and token.addresses["tron"] != "native":
-                            tasks.append(_safe_call(
-                                self.get_tron_token_balance(token_symbol, address)
-                            ))
+                            tasks.append(
+                                _safe_call(self.get_tron_token_balance(token_symbol, address))
+                            )
                             task_keys.append(token_symbol)
 
                     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -1184,13 +1452,35 @@ class WalletService:
                     if chain_balances:
                         balances["tron"] = chain_balances
 
+                elif chain_type == "starknet":
+                    chain_balances: dict[str, float] = {}
+
+                    tasks = []
+                    task_keys = []
+
+                    for token_symbol, token in TOKENS.items():
+                        if "starknet" in token.addresses:
+                            tasks.append(
+                                _safe_call(self.get_starknet_token_balance(token_symbol, address))
+                            )
+                            task_keys.append(token_symbol)
+
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                    for key, result in zip(task_keys, results):
+                        if isinstance(result, (int, float)) and result > 0:
+                            chain_balances[key] = result
+
+                    if chain_balances:
+                        balances["starknet"] = chain_balances
+
         except asyncio.TimeoutError:
             logger.warning(f"Global timeout fetching balances for {address}")
 
         return balances
-    
+
     # === Transaction Signing ===
-    
+
     async def sign_evm_transaction(self, wallet: Wallet, transaction: dict) -> str:
         """
         Sign an EVM transaction.
@@ -1207,6 +1497,7 @@ class WalletService:
         """
         if wallet.is_turnkey_wallet:
             from bot.services.turnkey_fallback import sign_evm_with_fallback
+
             return await sign_evm_with_fallback(self, wallet, transaction)
 
         return self._sign_evm_local(wallet, transaction)
@@ -1223,11 +1514,12 @@ class WalletService:
         finally:
             # Scrub the key from memory even if signing raises.
             _zeroize_str(private_key)
-    
+
     async def sign_typed_data(self, wallet: Wallet, typed_data: dict) -> str:
         """Sign EIP-712 typed data. Falls back to local signing if Turnkey is down."""
         if wallet.is_turnkey_wallet:
             from bot.services.turnkey_fallback import sign_typed_data_with_fallback
+
             return await sign_typed_data_with_fallback(self, wallet, typed_data)
 
         return self._sign_typed_data_local(wallet, typed_data)
@@ -1260,31 +1552,32 @@ class WalletService:
         """Sign EVM transaction via Turnkey API."""
         from bot.services.turnkey_client import get_turnkey_client
         from rlp import encode as rlp_encode
-        
+
         client = get_turnkey_client()
-        
+
         # Serialize transaction to hex for Turnkey
         # Turnkey expects the unsigned transaction as hex
         unsigned_tx_hex = self._serialize_evm_transaction(transaction)
-        
+
         signed_tx = await client.sign_transaction(
             unsigned_transaction=unsigned_tx_hex,
             sign_with=wallet.address,  # Sign with the wallet address
             transaction_type="TRANSACTION_TYPE_ETHEREUM",
             organization_id=wallet.turnkey_sub_org_id,
         )
-        
+
         return signed_tx
-    
+
     def _serialize_evm_transaction(self, transaction: dict) -> str:
         """Serialize an EVM transaction to hex for Turnkey signing."""
         # Create unsigned transaction bytes
         # For EIP-1559 transactions
         if "maxFeePerGas" in transaction:
             from eth_account._utils.typed_transactions import TypedTransaction
+
             typed_tx = TypedTransaction.from_dict(transaction)
             return "0x" + typed_tx.hash().hex()
-        
+
         # For legacy transactions, build the serialized form
         tx_data = {
             "nonce": transaction.get("nonce", 0),
@@ -1292,24 +1585,29 @@ class WalletService:
             "gas": transaction.get("gas", 21000),
             "to": bytes.fromhex(transaction["to"][2:]) if transaction.get("to") else b"",
             "value": transaction.get("value", 0),
-            "data": bytes.fromhex(transaction.get("data", "0x")[2:]) if transaction.get("data") else b"",
+            "data": (
+                bytes.fromhex(transaction.get("data", "0x")[2:]) if transaction.get("data") else b""
+            ),
         }
-        
+
         # Return as hex string
         import rlp
-        encoded = rlp.encode([
-            tx_data["nonce"],
-            tx_data["gasPrice"],
-            tx_data["gas"],
-            tx_data["to"],
-            tx_data["value"],
-            tx_data["data"],
-            transaction.get("chainId", 1),
-            0,
-            0,
-        ])
+
+        encoded = rlp.encode(
+            [
+                tx_data["nonce"],
+                tx_data["gasPrice"],
+                tx_data["gas"],
+                tx_data["to"],
+                tx_data["value"],
+                tx_data["data"],
+                transaction.get("chainId", 1),
+                0,
+                0,
+            ]
+        )
         return "0x" + encoded.hex()
-    
+
     async def sign_solana_transaction(self, wallet: Wallet, transaction_bytes: bytes) -> bytes:
         """
         Sign a Solana transaction. Falls back to local signing if Turnkey is down.
@@ -1323,6 +1621,7 @@ class WalletService:
         """
         if wallet.is_turnkey_wallet:
             from bot.services.turnkey_fallback import sign_solana_with_fallback
+
             return await sign_solana_with_fallback(self, wallet, transaction_bytes)
 
         return self._sign_solana_local(wallet, transaction_bytes)
@@ -1350,24 +1649,26 @@ class WalletService:
         finally:
             _zeroize_str(private_key)
             if key_bytes is not None:
-                ctypes.memset((ctypes.c_char * len(key_bytes)).from_buffer(key_bytes), 0, len(key_bytes))
-    
+                ctypes.memset(
+                    (ctypes.c_char * len(key_bytes)).from_buffer(key_bytes), 0, len(key_bytes)
+                )
+
     async def _sign_solana_via_turnkey(self, wallet: Wallet, transaction_bytes: bytes) -> bytes:
         """Sign Solana transaction via Turnkey API."""
         from bot.services.turnkey_client import get_turnkey_client
-        
+
         client = get_turnkey_client()
-        
+
         # Convert transaction bytes to hex
         unsigned_tx_hex = "0x" + transaction_bytes.hex()
-        
+
         signed_tx_hex = await client.sign_transaction(
             unsigned_transaction=unsigned_tx_hex,
             sign_with=wallet.address,
             transaction_type="TRANSACTION_TYPE_SOLANA",
             organization_id=wallet.turnkey_sub_org_id,
         )
-        
+
         # Convert back to bytes
         return bytes.fromhex(signed_tx_hex.replace("0x", ""))
 
@@ -1478,7 +1779,7 @@ class WalletService:
 
         signed = Account.sign_transaction(transaction, private_key)
         return signed.raw_transaction.hex()
-    
+
     def sign_solana_transaction_raw(
         self,
         encrypted_private_key: str,
@@ -1526,17 +1827,16 @@ class WalletService:
             kms_key_id=kms_key_id,
             key_version=key_version,
         )
-        
+
         try:
             key_bytes = base58.b58decode(private_key)
         except Exception:
             key_bytes = bytes(json.loads(private_key))
-        
+
         keypair = Keypair.from_bytes(key_bytes)
-        
+
         # Deserialize, sign, and serialize
         tx = VersionedTransaction.from_bytes(transaction_bytes)
         tx.sign([keypair])
-        
-        return bytes(tx)
 
+        return bytes(tx)

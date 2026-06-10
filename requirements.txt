@@ -91,6 +91,9 @@ jsonalias==0.1.1
 # ---- Tron (imported by bot/services) ----
 tronpy>=0.5,<1.0                      # not in local venv
 
+# ---- Starknet (lazy-imported; needs Python >= 3.10 — prod image is 3.12) ----
+starknet-py>=0.28.1; python_version >= "3.10"
+
 # ---- Perps / Polymarket / Hyperliquid ----
 hyperliquid-python-sdk==0.23.0
 py-clob-client>=0.20                  # Polymarket CLOB (imported as py_clob_client) — not in local venv

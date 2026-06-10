@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 # Try to import C++ core
 try:
     import suwappu_core
+
     CPP_CORE_AVAILABLE = True
 except ImportError:
     suwappu_core = None
@@ -64,13 +65,50 @@ def validate_tron_address(address: str) -> bool:
         return False
 
 
+# STARK field prime: 2^251 + 17*2^192 + 1 — all Starknet felts (addresses,
+# private keys) must be in (0, PRIME).
+STARK_PRIME = 2**251 + 17 * 2**192 + 1
+
+
+def validate_starknet_address(address: str) -> bool:
+    """Validate a Starknet address (0x-prefixed hex felt, <= 66 chars).
+
+    Starknet addresses are field elements: 0 < value < STARK_PRIME. The zero
+    address is rejected (would burn funds).
+    """
+    try:
+        if not address.startswith("0x"):
+            return False
+        if len(address) > 66:  # "0x" + up to 64 hex chars
+            return False
+        value = int(address, 16)
+        return 0 < value < STARK_PRIME
+    except Exception:
+        return False
+
+
+def is_valid_starknet_address(address: str) -> bool:
+    """Alias for validate_starknet_address (naming parity with callers)."""
+    return validate_starknet_address(address)
+
+
+def validate_starknet_private_key(private_key: str) -> bool:
+    """Validate a Starknet private key (hex felt: 0 < key < STARK_PRIME)."""
+    try:
+        key = private_key.strip()
+        value = int(key, 16) if key.lower().startswith("0x") else int(key, 16)
+        return 0 < value < STARK_PRIME
+    except Exception:
+        return False
+
+
 def validate_address(address: str, chain_type: str = "evm") -> bool:
     """
     Validate a blockchain address.
 
     Args:
         address: The address to validate
-        chain_type: "evm", "solana", or "tron"
+        chain_type: "evm", "solana", "tron", or "starknet"
 
     Returns:
         True if valid, False otherwise
@@ -79,6 +117,8 @@ def validate_address(address: str, chain_type: str = "evm") -> bool:
         return validate_solana_address(address)
     if chain_type == "tron":
         return validate_tron_address(address)
+    if chain_type == "starknet":
+        return validate_starknet_address(address)
     return validate_evm_address(address)
 
 
@@ -87,11 +127,11 @@ def validate_evm_private_key(private_key: str) -> bool:
     key = private_key.lower()
     if key.startswith("0x"):
         key = key[2:]
-    
+
     if len(key) != 64:
         return False
-    
-    return bool(re.match(r'^[0-9a-f]{64}$', key))
+
+    return bool(re.match(r"^[0-9a-f]{64}$", key))
 
 
 def validate_solana_private_key(private_key: str) -> bool:
@@ -105,6 +145,7 @@ def validate_solana_private_key(private_key: str) -> bool:
         # Try parsing as JSON array of bytes
         try:
             import json
+
             data = json.loads(private_key)
             if isinstance(data, list) and len(data) in [32, 64]:
                 return all(isinstance(b, int) and 0 <= b <= 255 for b in data)
@@ -124,7 +165,7 @@ def validate_private_key(private_key: str, chain_type: str = "evm") -> bool:
 
     Args:
         private_key: The private key to validate
-        chain_type: "evm", "solana", or "tron"
+        chain_type: "evm", "solana", "tron", or "starknet"
 
     Returns:
         True if valid, False otherwise
@@ -133,11 +174,13 @@ def validate_private_key(private_key: str, chain_type: str = "evm") -> bool:
         return validate_solana_private_key(private_key)
     if chain_type == "tron":
         return validate_tron_private_key(private_key)
+    if chain_type == "starknet":
+        return validate_starknet_private_key(private_key)
     return validate_evm_private_key(private_key)
 
 
 MAX_AMOUNT = 10_000_000  # $10M max per swap
-MAX_INPUT_LENGTH = 50    # Max chars for amount input
+MAX_INPUT_LENGTH = 50  # Max chars for amount input
 
 
 def validate_amount(amount_str: str) -> Optional[float]:
@@ -177,7 +220,7 @@ def validate_slippage(slippage_str: str) -> Optional[int]:
     """Validate and parse slippage as basis points."""
     try:
         slippage = float(slippage_str)
-        
+
         # Native C++ validation
         if CPP_CORE_AVAILABLE:
             try:
@@ -191,9 +234,8 @@ def validate_slippage(slippage_str: str) -> Optional[int]:
         # Must be between 0.01% and 50%
         if slippage < 0.01 or slippage > 50:
             return None
-        
+
         # Convert to basis points
         return int(slippage * 100)
     except (ValueError, TypeError):
         return None
-
