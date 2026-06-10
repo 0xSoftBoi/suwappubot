@@ -535,6 +535,18 @@ class Settings(BaseSettings):
             "with jupiter_referral_account."
         ),
     )
+    jupiter_referral_accounts: Optional[str] = Field(
+        default=None,
+        description=(
+            "JSON map of {mint: referralTokenAccount} for collecting Solana fees on "
+            "MULTIPLE mints, e.g. "
+            '{"So11111111111111111111111111111111111111112":"<wSOL acct>",'
+            '"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v":"<USDC acct>"}. '
+            "Each must be a Jupiter Referral Program token account for that exact mint. "
+            "Merged with the legacy single jupiter_referral_account pair. wSOL covers "
+            "the SOL-paired trades that are most of Solana volume."
+        ),
+    )
 
     # Treasury Vault (Aave v3 on Base)
     aave_enabled: bool = Field(

@@ -17,6 +17,7 @@ Providers:
 """
 
 import asyncio
+import json
 import logging
 from typing import Optional, List
 from dataclasses import dataclass, field
@@ -729,24 +730,50 @@ class SwapEngine:
             raw_quote=quote.raw_response,
         )
 
+    @staticmethod
+    def _jupiter_referral_accounts() -> dict:
+        """Map of mint -> Jupiter referral token account.
+
+        Built from JUPITER_REFERRAL_ACCOUNTS (JSON: {mint: tokenAccount}) merged
+        with the legacy single jupiter_referral_account/jupiter_referral_fee_mint
+        pair. Supporting multiple mints lets us collect on every Solana pair —
+        wSOL for SOL-paired trades (the bulk) AND USDC for USDC-paired trades.
+        """
+        accounts: dict = {}
+        raw = getattr(settings, "jupiter_referral_accounts", None)
+        if raw:
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    accounts.update({str(k): str(v) for k, v in parsed.items() if k and v})
+            except (ValueError, TypeError):
+                logger.warning("Invalid JUPITER_REFERRAL_ACCOUNTS JSON; ignoring")
+        acct = settings.jupiter_referral_account
+        mint = settings.jupiter_referral_fee_mint
+        if acct and mint:
+            accounts.setdefault(mint, acct)
+        return accounts
+
     def _jupiter_fee_account(self, from_token: str, to_token: str) -> Optional[str]:
         """Return the Jupiter referral feeAccount IFF it can legally receive the
         fee for this pair.
 
         Jupiter requires the feeAccount's mint to equal the swap's input OR output
-        mint (ExactIn). A referral token account is mint-specific, so for a pair
-        where neither side is the configured fee mint (e.g. USDC->BONK when the
-        fee account holds wSOL) attaching it would make Jupiter reject /swap.
-        In that case we return None and take no fee — the swap still succeeds.
-        Same predicate is used at quote time and execution time so they agree.
+        mint (ExactIn). Referral token accounts are mint-specific, so we keep one
+        per fee mint and pick the account matching whichever side of the pair is a
+        configured fee mint. If neither side matches, we return None and take no
+        fee — the swap still succeeds (rather than Jupiter rejecting it). The same
+        predicate is used at quote and execution time so they always agree.
         """
-        account = settings.jupiter_referral_account
-        fee_mint = settings.jupiter_referral_fee_mint
-        if not account or not fee_mint:
+        accounts = self._jupiter_referral_accounts()
+        if not accounts:
             return None
         from_addr = get_token_address(from_token, "solana")
         to_addr = get_token_address(to_token, "solana")
-        return account if fee_mint in (from_addr, to_addr) else None
+        for addr in (from_addr, to_addr):
+            if addr and addr in accounts:
+                return accounts[addr]
+        return None
 
     async def _get_jupiter_quote(
         self,
