@@ -79,7 +79,6 @@ class TestDeposit:
             patch.object(service, "_get_web3", return_value=mock_web3),
             patch.object(service, "_erc20", return_value=erc20),
             patch.object(service, "_pool", return_value=pool),
-            patch.object(service, "_get_private_key", return_value="ab" * 32),
             patch.object(service, "_build_and_send", return_value="0xsupplyhash") as send,
         ):
             tx_hashes = service.deposit(_wallet(), amount)
@@ -96,7 +95,6 @@ class TestDeposit:
             patch.object(service, "_get_web3", return_value=mock_web3),
             patch.object(service, "_erc20", return_value=erc20),
             patch.object(service, "_pool", return_value=pool),
-            patch.object(service, "_get_private_key", return_value="ab" * 32),
             patch.object(service, "_build_and_send", side_effect=["0xapprove", "0xsupply"]) as send,
         ):
             tx_hashes = service.deposit(_wallet(), amount)
@@ -108,7 +106,6 @@ class TestDeposit:
         with (
             patch.object(service, "_get_web3", return_value=mock_web3),
             patch.object(service, "_erc20", return_value=erc20),
-            patch.object(service, "_get_private_key", return_value="ab" * 32),
         ):
             with pytest.raises(SavingsError, match="Insufficient USDC"):
                 service.deposit(_wallet(), Decimal("100"))
@@ -124,7 +121,6 @@ class TestWithdraw:
         with (
             patch.object(service, "_get_web3", return_value=mock_web3),
             patch.object(service, "_pool", return_value=pool),
-            patch.object(service, "_get_private_key", return_value="ab" * 32),
             patch.object(service, "_build_and_send", return_value="0xwithdraw"),
         ):
             tx_hash = service.withdraw(_wallet(), None)
@@ -138,7 +134,6 @@ class TestWithdraw:
         with (
             patch.object(service, "_get_web3", return_value=mock_web3),
             patch.object(service, "_erc20", return_value=erc20),
-            patch.object(service, "_get_private_key", return_value="ab" * 32),
         ):
             with pytest.raises(SavingsError, match="Insufficient savings"):
                 service.withdraw(_wallet(), Decimal("100"))
