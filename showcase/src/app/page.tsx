@@ -151,7 +151,7 @@ function Hero() {
       </div>
       <img className="summer-hero__fruit" src="/logo.svg" alt="" aria-hidden="true" />
       <div className="summer-hero__copy">
-        <p className="summer-kicker">Summer Breeze system</p>
+        <p className="summer-kicker">Cross-chain execution</p>
         <h1>Suwappu</h1>
         <p className="summer-hero__lead">
           One execution workspace for terminal trading, agent APIs, wallet rails,
@@ -192,7 +192,7 @@ export default function Home() {
         <div className="summer-bg summer-bg--stem" aria-hidden="true" />
         <div className="summer-bg summer-bg--bloom" aria-hidden="true" />
         <div className="summer-mobile-rail" aria-hidden="true">
-          <img src="/logo.svg" alt="" />
+          <img src="/logo.svg" alt="" aria-hidden="true" />
           <span className="summer-flower summer-flower--soft" />
           <b>すわっぷ</b>
           <span className="summer-rail-loop summer-rail-loop--top" />
@@ -202,7 +202,7 @@ export default function Home() {
 
         <header className="summer-nav">
           <a className="summer-brand" href="/">
-            <img src="/logo.svg" alt="" />
+            <img src="/logo.svg" alt="" aria-hidden="true" />
             <span>suwappu</span>
           </a>
           <nav aria-label="Primary navigation">

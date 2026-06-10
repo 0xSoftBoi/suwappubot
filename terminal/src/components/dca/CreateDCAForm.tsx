@@ -35,13 +35,15 @@ export function CreateDCAForm({ onSubmit, isLoading }: Props) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!fromToken || !toToken || !totalAmount || !numberOfOrders) return
+    const totalNum = parseFloat(totalAmount)
+    const ordersInt = parseInt(numberOfOrders, 10)
+    if (!fromToken || !toToken || isNaN(totalNum) || totalNum <= 0 || isNaN(ordersInt) || ordersInt < 1) return
     onSubmit({
       fromToken: fromToken.toUpperCase(),
       toToken: toToken.toUpperCase(),
-      totalAmount: parseFloat(totalAmount),
+      totalAmount: totalNum,
       frequency,
-      numberOfOrders: parseInt(numberOfOrders),
+      numberOfOrders: ordersInt,
     })
     setTotalAmount('')
     setNumberOfOrders('7')

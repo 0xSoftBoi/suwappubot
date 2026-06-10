@@ -27,11 +27,12 @@ export function CreateAlertForm({ onSubmit, isLoading }: Props) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!tokenSymbol || !targetValue) return;
+    const parsed = parseFloat(targetValue);
+    if (!tokenSymbol || isNaN(parsed) || parsed <= 0) return;
     onSubmit({
       tokenSymbol: tokenSymbol.toUpperCase(),
       alertType,
-      targetValue: parseFloat(targetValue),
+      targetValue: parsed,
     });
     setTokenSymbol("");
     setTargetValue("");
@@ -95,7 +96,7 @@ export function CreateAlertForm({ onSubmit, isLoading }: Props) {
 
       <button
         type="submit"
-        disabled={isLoading || !tokenSymbol || !targetValue}
+        disabled={isLoading || !tokenSymbol || !targetValue || !(parseFloat(targetValue) > 0)}
         className="terminal-button text-sm px-3 py-1.5 flex-shrink-0 disabled:opacity-50"
       >
         {isLoading ? "..." : "Create Alert"}

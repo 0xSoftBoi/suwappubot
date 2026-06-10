@@ -44,6 +44,10 @@ class WhatsAppService:
         self.verify_token = settings.whatsapp_verify_token
         self.app_secret = settings.whatsapp_app_secret
         self._session: Optional[aiohttp.ClientSession] = None
+        if self.phone_number_id and not self.app_secret:
+            logger.warning(
+                "WHATSAPP_APP_SECRET unset — inbound webhook signatures will NOT be verified"
+            )
 
     @property
     def is_configured(self) -> bool:
@@ -363,7 +367,7 @@ class WhatsAppService:
         True) so an unconfigured environment isn't bricked — but log a warning.
         """
         if not self.app_secret:
-            logger.warning("WHATSAPP_APP_SECRET unset — inbound webhook signature NOT verified")
+            logger.debug("Skipping webhook signature check (no app secret configured)")
             return True
         if not signature_header or not signature_header.startswith("sha256="):
             return False

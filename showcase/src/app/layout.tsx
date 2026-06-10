@@ -65,6 +65,14 @@ export const metadata: Metadata = {
     siteName: 'Suwappu',
     url: 'https://suwappu.bot',
     locale: 'en_US',
+    images: [
+      {
+        url: '/social-card.svg',
+        width: 1200,
+        height: 630,
+        alt: 'Suwappu — Cross-chain DeFi SDK for AI Agents',
+      },
+    ],
   },
   twitter: {
     card: 'summary_large_image',
@@ -73,6 +81,7 @@ export const metadata: Metadata = {
     title: 'Suwappu — Cross-chain DeFi SDK for AI Agents',
     description:
       'Swap tokens across 15 chains, trade perps, access prediction markets — one SDK, three lines of code.',
+    images: ['/social-card.svg'],
   },
   alternates: {
     canonical: 'https://suwappu.bot',
