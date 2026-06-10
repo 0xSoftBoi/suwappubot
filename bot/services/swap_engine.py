@@ -364,6 +364,7 @@ class SwapEngine:
         to_address: Optional[str] = None,
         slippage: float = 0.5,
         platform_fee_bps: Optional[int] = None,
+        user_id: Optional[int] = None,
     ) -> SwapQuote:
         """
         Get the best swap quote by racing all eligible providers in parallel.
@@ -377,24 +378,31 @@ class SwapEngine:
             from_address: Sender wallet address
             to_address: Receiver wallet address (defaults to from_address)
             slippage: Slippage tolerance as percentage
-            platform_fee_bps: Platform fee in basis points to collect on-chain
-                (from fee_service.get_fee_bps(tier)). Applied to fee-capable
-                providers (Jupiter, Li.Fi). None = no platform fee sent.
+            platform_fee_bps: Platform fee in basis points to collect on-chain.
+                Takes precedence over user_id. Applied to fee-capable providers.
+            user_id: When platform_fee_bps is not given, resolve the fee from this
+                user's subscription tier so paid tiers get their discount on
+                automated paths (copy, orders, etc.), not the flat default.
 
         Returns:
             SwapQuote with best output amount from all providers
         """
-        # Default the platform fee to the standard rate when the caller didn't
-        # specify one, so EVERY swap path collects — agents, copy-trading, limit/
-        # DCA orders, sniping, quickswap, WhatsApp, webapp — not just the manual
-        # Telegram handler (which passes the tier-correct rate). Paid-tier discounts
-        # only apply where a caller threads the tier; other paths use the default
-        # rate. IMPORTANT: actual on-chain collection is still gated per-provider on
-        # a configured collector (fee_collector_address / jupiter_referral_account),
-        # so this is a no-op until collectors are set — safe to ship default-on.
+        # Resolve the platform fee so EVERY swap path collects — not just the
+        # manual handler. Precedence: explicit platform_fee_bps > user's tier
+        # (via user_id) > flat default. The snipe path does NOT route through
+        # here (it has its own Jupiter calls), so it is not covered by this.
+        # On-chain collection is still gated per-provider on a configured
+        # collector, so this is a no-op until collectors are set.
         if platform_fee_bps is None:
             from bot.services.fee_service import fee_service
-            platform_fee_bps = fee_service.get_fee_bps()
+            tier = None
+            if user_id is not None:
+                try:
+                    from bot.services.x402_service import x402_service
+                    tier = await x402_service.get_tier(user_id)
+                except Exception:
+                    tier = None  # tier lookup failure → flat default, never block the quote
+            platform_fee_bps = fee_service.get_fee_bps(tier)
 
         # Check quote cache — keyed on platform_fee_bps so quotes for different
         # tiers (different fee) never collide.
@@ -793,6 +801,7 @@ class SwapEngine:
             price_impact=quote.price_impact_pct,
             exchange_rate=exchange_rate,
             raw_quote=quote.raw_response,
+            platform_fee_bps=effective_fee_bps,
         )
 
     async def _get_sunswap_quote(
@@ -2202,12 +2211,20 @@ class SwapEngine:
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
-        # Get swap transaction from Jupiter. feeAccount must match the fee
-        # reserved in the quote (same mint-aware predicate) or Jupiter rejects it.
+        # Attach feeAccount ONLY when the quote response itself reserved a
+        # platformFee — otherwise Jupiter rejects a /swap that carries a
+        # feeAccount with no matching reserved fee. Gating on the quoteResponse
+        # (ground truth) keeps quote and execution in lockstep regardless of how
+        # the quote was produced (direct, rehydrated, snipe, get_all_quotes).
+        jup_fee_account = (
+            self._jupiter_fee_account(quote.from_token, quote.to_token)
+            if isinstance(quote.raw_quote, dict) and quote.raw_quote.get("platformFee")
+            else None
+        )
         swap_tx = await self.jupiter.get_swap_transaction(
             quote_response=quote.raw_quote,
             user_public_key=wallet_data["address"],
-            fee_account=self._jupiter_fee_account(quote.from_token, quote.to_token),
+            fee_account=jup_fee_account,
         )
 
         # Decode and sign transaction
@@ -2416,12 +2433,18 @@ class SwapEngine:
         jupiter_quote = raw_quote.get("jupiter_quote", {})
         jito_tip = raw_quote.get("jito_tip", TipPriority.MEDIUM.value)
 
-        # Get swap transaction from Jupiter (feeAccount must match the fee mint
-        # reserved in the quote, per the mint-aware predicate).
+        # Attach feeAccount only when the (jito-wrapped) jupiter quote reserved a
+        # platformFee — same ground-truth gate as the standard path, so we never
+        # send a feeAccount Jupiter would reject.
+        jup_fee_account = (
+            self._jupiter_fee_account(quote.from_token, quote.to_token)
+            if isinstance(jupiter_quote, dict) and jupiter_quote.get("platformFee")
+            else None
+        )
         swap_tx = await self.jupiter.get_swap_transaction(
             quote_response=jupiter_quote,
             user_public_key=wallet_data["address"],
-            fee_account=self._jupiter_fee_account(quote.from_token, quote.to_token),
+            fee_account=jup_fee_account,
         )
 
         try:

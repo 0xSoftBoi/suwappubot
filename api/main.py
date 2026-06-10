@@ -1782,10 +1782,14 @@ async def internal_execute_swap(request: Request):
 
     body = await request.json()
     from bot.services.swap_engine import SwapEngine, SwapQuote
+    from bot.services.fee_service import fee_service
 
     swap_engine = SwapEngine()
 
     qd = body.get("quote_data", {})
+    # Carry the platform fee so EVM execution re-fetches the tx WITH the fee
+    # (this internal/webapp execute path was dropping it). Falls back to the
+    # default rate; collection stays gated per-provider on a configured collector.
     quote = SwapQuote(
         provider=qd.get("provider", "lifi"),
         from_chain=str(qd.get("from_chain", "base")),
@@ -1805,6 +1809,7 @@ async def internal_execute_swap(request: Request):
         exchange_rate=float(qd.get("exchange_rate", 0)),
         raw_quote=qd.get("raw_quote", {}),
         timestamp=datetime.now(),
+        platform_fee_bps=qd.get("platform_fee_bps") or fee_service.get_fee_bps(),
     )
 
     swap_tx = await swap_engine.execute_swap(
