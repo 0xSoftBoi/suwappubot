@@ -1,6 +1,16 @@
 import sys
 import os
 import asyncio
+
+# Use uvloop for a faster event loop when available (no-op if not installed).
+# Must run before any event loop is created.
+try:
+    import uvloop
+
+    uvloop.install()
+except ImportError:
+    pass
+
 import time
 import uuid
 from contextvars import ContextVar

@@ -70,10 +70,8 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
                 connect_args=connect_args,
                 echo=False,
                 pool_pre_ping=True,  # Check connections before use
-                pool_size=10 if not is_sqlite else 5,  # 10 base connections per instance
-                max_overflow=(
-                    15 if not is_sqlite else 5
-                ),  # 25 max per instance (3×25=75 < 100 default)
+                pool_size=15 if not is_sqlite else 5,  # 15 base connections per instance
+                max_overflow=(25 if not is_sqlite else 5),  # 40 max per instance
                 pool_recycle=3600,  # Recycle connections hourly
                 pool_timeout=10,  # Fail fast instead of hanging when pool exhausted
             )
@@ -419,6 +417,7 @@ def _ensure_schema(db_engine) -> None:
 
     # --- performance indexes ---
     _add_performance_indexes(db_engine, inspector, is_sqlite)
+    _add_performance_indexes_v2(db_engine, inspector, is_sqlite)
 
 
 def _add_agent_drizzle_columns(db_engine, inspector, table_name: str, is_sqlite: bool) -> None:
@@ -530,6 +529,28 @@ def _add_performance_indexes(db_engine, inspector, is_sqlite: bool) -> None:
         ("ix_limit_orders_user_id_status", "limit_orders", "user_id, status"),
         ("ix_dca_orders_status_next", "dca_orders", "status, next_execution_at"),
         ("ix_advanced_price_alerts_active", "advanced_price_alerts", "is_active, is_triggered"),
+    ]
+    for idx_name, table, columns in indexes:
+        try:
+            tables = set(inspector.get_table_names())
+            if table in tables:
+                with db_engine.begin() as conn:
+                    conn.execute(
+                        text(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table}({columns})")
+                    )
+        except Exception:
+            pass  # Index may already exist or table missing
+
+
+def _add_performance_indexes_v2(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add second batch of indexes for high-traffic query patterns."""
+    indexes = [
+        ("ix_wallets_user_id_is_active", "wallets", "user_id, is_active"),
+        ("ix_users_referred_by_user_id", "users", "referred_by_user_id"),
+        ("ix_trader_profiles_public_rank", "trader_profiles", "is_public, rank_score"),
+        ("ix_user_points_xp", "user_points", "xp"),
+        ("ix_fee_transactions_collected", "fee_transactions", "collected"),
+        ("ix_copy_follows_trader_id_is_active", "copy_follows", "trader_id, is_active"),
     ]
     for idx_name, table, columns in indexes:
         try:
@@ -1343,7 +1364,7 @@ def get_session() -> Generator[Session, None, None]:
 T = TypeVar("T")
 
 # Dedicated thread pool for DB operations — avoids starving the default executor
-_db_executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="db")
+_db_executor = ThreadPoolExecutor(max_workers=24, thread_name_prefix="db")
 
 
 async def run_in_db(fn: Callable[..., T], *args, **kwargs) -> T:
