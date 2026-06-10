@@ -120,6 +120,25 @@ class OKXDEXAPI:
         """Get OKX chain ID for a chain name."""
         return OKX_CHAIN_IDS.get(chain_name.lower())
 
+    @staticmethod
+    def _fee_params(platform_fee_bps: Optional[int]) -> dict:
+        """Build OKX DEX referrer-fee params, gated on (fee bps AND collector set).
+
+        OKX charges the fee on the from-token referrer wallet as a percent
+        (100 bps -> 1.0), capped at 3% on EVM (clamped). Returns an empty dict
+        when the fee is off (default behavior unchanged).
+        """
+        collector = settings.fee_collector_address
+        if not platform_fee_bps or not collector:
+            return {}
+        fee_percent = min(int(platform_fee_bps) / 100.0, 3.0)
+        if fee_percent <= 0:
+            return {}
+        return {
+            "fromTokenReferrerWalletAddress": collector,
+            "feePercent": str(fee_percent),
+        }
+
     @track_time(MetricNames.API_OKX_DEX)
     async def _request(
         self,
@@ -165,6 +184,7 @@ class OKXDEXAPI:
         to_token: str,
         amount: str,
         slippage: float = 0.5,
+        platform_fee_bps: Optional[int] = None,
     ) -> OKXDEXQuote:
         """Get a swap quote from OKX DEX Aggregator.
 
@@ -174,6 +194,8 @@ class OKXDEXAPI:
             to_token: Destination token address
             amount: Input amount in smallest units
             slippage: Slippage tolerance as percentage (0.5 = 0.5%)
+            platform_fee_bps: Optional referrer fee in bps (collected to the
+                configured fee wallet); applied only when a collector is set.
 
         Returns:
             OKXDEXQuote with swap details
@@ -184,6 +206,7 @@ class OKXDEXAPI:
             "toTokenAddress": to_token,
             "amount": amount,
             "slippage": str(slippage / 100),  # OKX expects decimal (0.005 = 0.5%)
+            **self._fee_params(platform_fee_bps),
         }
 
         # V5 DEX API is deprecated (code 50050); V6 is the live aggregator.
@@ -220,6 +243,7 @@ class OKXDEXAPI:
         amount: str,
         user_address: str,
         slippage: float = 0.5,
+        platform_fee_bps: Optional[int] = None,
     ) -> OKXDEXQuote:
         """Get a swap quote with transaction data from OKX DEX.
 
@@ -233,6 +257,8 @@ class OKXDEXAPI:
             amount: Input amount in smallest units
             user_address: User's wallet address
             slippage: Slippage tolerance as percentage
+            platform_fee_bps: Optional referrer fee in bps; must match the value
+                used at quote time so the executed tx collects the fee.
 
         Returns:
             OKXDEXQuote with tx_data populated for execution
@@ -244,6 +270,7 @@ class OKXDEXAPI:
             "amount": amount,
             "slippage": str(slippage / 100),
             "userWalletAddress": user_address,
+            **self._fee_params(platform_fee_bps),
         }
 
         data = await self._request("GET", "/api/v6/dex/aggregator/swap", params=params)

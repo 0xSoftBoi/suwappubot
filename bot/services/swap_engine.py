@@ -109,6 +109,9 @@ class SwapQuote:
         default_factory=lambda: datetime.now(timezone.utc)
     )  # When quote was created
     expires_in: int = 30  # Quote expires in seconds
+    # Platform fee (bps) applied to this quote, so the execution call can
+    # re-send the SAME fee param and actually collect it (quote/exec must agree).
+    platform_fee_bps: Optional[int] = None
 
 
 def _parse_int(value, default: int = 0) -> int:
@@ -360,6 +363,8 @@ class SwapEngine:
         from_address: str,
         to_address: Optional[str] = None,
         slippage: float = 0.5,
+        platform_fee_bps: Optional[int] = None,
+        user_id: Optional[int] = None,
     ) -> SwapQuote:
         """
         Get the best swap quote by racing all eligible providers in parallel.
@@ -373,12 +378,35 @@ class SwapEngine:
             from_address: Sender wallet address
             to_address: Receiver wallet address (defaults to from_address)
             slippage: Slippage tolerance as percentage
+            platform_fee_bps: Platform fee in basis points to collect on-chain.
+                Takes precedence over user_id. Applied to fee-capable providers.
+            user_id: When platform_fee_bps is not given, resolve the fee from this
+                user's subscription tier so paid tiers get their discount on
+                automated paths (copy, orders, etc.), not the flat default.
 
         Returns:
             SwapQuote with best output amount from all providers
         """
-        # Check quote cache
-        cache_key = f"quote:{from_chain}:{to_chain}:{from_token}:{to_token}:{amount}:{slippage}:{from_address or 'none'}"
+        # Resolve the platform fee so EVERY swap path collects — not just the
+        # manual handler. Precedence: explicit platform_fee_bps > user's tier
+        # (via user_id) > flat default. The snipe path does NOT route through
+        # here (it has its own Jupiter calls), so it is not covered by this.
+        # On-chain collection is still gated per-provider on a configured
+        # collector, so this is a no-op until collectors are set.
+        if platform_fee_bps is None:
+            from bot.services.fee_service import fee_service
+            tier = None
+            if user_id is not None:
+                try:
+                    from bot.services.x402_service import x402_service
+                    tier = await x402_service.get_tier(user_id)
+                except Exception:
+                    tier = None  # tier lookup failure → flat default, never block the quote
+            platform_fee_bps = fee_service.get_fee_bps(tier)
+
+        # Check quote cache — keyed on platform_fee_bps so quotes for different
+        # tiers (different fee) never collide.
+        cache_key = f"quote:{from_chain}:{to_chain}:{from_token}:{to_token}:{amount}:{slippage}:{from_address or 'none'}:fee{platform_fee_bps or 0}"
         cached = await quote_cache.get(cache_key)
         if cached is not None:
             return cached
@@ -400,7 +428,8 @@ class SwapEngine:
         if self._is_solana_only_swap(from_chain, to_chain):
             tasks.append(
                 self._get_jupiter_quote(
-                    from_token, to_token, amount, amount_raw, from_address, slippage_bps
+                    from_token, to_token, amount, amount_raw, from_address, slippage_bps,
+                    platform_fee_bps=platform_fee_bps,
                 )
             )
 
@@ -421,6 +450,7 @@ class SwapEngine:
                     amount_raw,
                     from_address,
                     slippage,
+                    platform_fee_bps=platform_fee_bps,
                 )
             )
 
@@ -440,6 +470,7 @@ class SwapEngine:
                     amount_raw,
                     from_address,
                     slippage,
+                    platform_fee_bps=platform_fee_bps,
                 )
             )
 
@@ -459,6 +490,7 @@ class SwapEngine:
                     amount_raw,
                     from_address,
                     slippage,
+                    platform_fee_bps=platform_fee_bps,
                 )
             )
 
@@ -478,6 +510,7 @@ class SwapEngine:
                     amount_raw,
                     from_address,
                     slippage,
+                    platform_fee_bps=platform_fee_bps,
                 )
             )
 
@@ -504,6 +537,7 @@ class SwapEngine:
                     from_address,
                     to_address,
                     slippage,
+                    platform_fee_bps=platform_fee_bps,
                 )
             )
 
@@ -540,8 +574,15 @@ class SwapEngine:
                 tasks.append(
                     self._get_wormhole_quote(from_chain, to_chain, from_token, amount, amount_raw)
                 )
+            # Whether we're charging a platform fee on this swap. CoW and Socket
+            # don't carry our fee param, so if they were raced fee-free they'd win
+            # on output and we'd route AROUND the fee (collect nothing). Exclude
+            # them from the race whenever a fee is being charged; they still serve
+            # fee-free swaps (fee off / no collector configured).
+            charge_platform_fee = bool(platform_fee_bps and settings.fee_collector_address)
+
             # CoW: gasless, MEV-protected same-chain EVM swaps.
-            if self._is_cow_route(from_chain, to_chain):
+            if self._is_cow_route(from_chain, to_chain) and not charge_platform_fee:
                 tasks.append(
                     self._get_cow_quote(
                         from_chain,
@@ -554,7 +595,7 @@ class SwapEngine:
                     )
                 )
             # Socket: super-aggregator fallback across many EVM chains.
-            if self._is_socket_route(from_chain, to_chain):
+            if self._is_socket_route(from_chain, to_chain) and not charge_platform_fee:
                 tasks.append(
                     self._get_socket_quote(
                         from_chain,
@@ -627,6 +668,7 @@ class SwapEngine:
         from_address: str,
         to_address: Optional[str],
         slippage: float,
+        platform_fee_bps: Optional[int] = None,
     ) -> SwapQuote:
         """Get quote from Li.Fi for cross-chain or EVM swaps."""
         from_token_address = get_token_address(from_token, from_chain)
@@ -637,7 +679,20 @@ class SwapEngine:
                 f"Token not supported: {from_token} on {from_chain} or {to_token} on {to_chain}"
             )
 
+        # Li.Fi collects the integrator fee via its FeeCollection contract and
+        # forwards it to the registered integrator wallet (set up at portal.li.fi).
+        # Gate on fee_collector_address (our "fees are live" signal) like the other
+        # aggregators — otherwise we'd degrade the user's quote for a fee nobody
+        # collects. When live, pass the tier-correct rate so on-chain == displayed.
+        lifi_fee = (
+            (platform_fee_bps / 10_000.0)
+            if (platform_fee_bps and settings.fee_collector_address)
+            else 0.0
+        )
+
         quote = await self.lifi.get_quote(
+            integrator=settings.lifi_integrator_id,
+            fee=lifi_fee,
             from_chain=from_chain,
             to_chain=to_chain,
             from_token=from_token_address,
@@ -674,6 +729,25 @@ class SwapEngine:
             raw_quote=quote.raw_response,
         )
 
+    def _jupiter_fee_account(self, from_token: str, to_token: str) -> Optional[str]:
+        """Return the Jupiter referral feeAccount IFF it can legally receive the
+        fee for this pair.
+
+        Jupiter requires the feeAccount's mint to equal the swap's input OR output
+        mint (ExactIn). A referral token account is mint-specific, so for a pair
+        where neither side is the configured fee mint (e.g. USDC->BONK when the
+        fee account holds wSOL) attaching it would make Jupiter reject /swap.
+        In that case we return None and take no fee — the swap still succeeds.
+        Same predicate is used at quote time and execution time so they agree.
+        """
+        account = settings.jupiter_referral_account
+        fee_mint = settings.jupiter_referral_fee_mint
+        if not account or not fee_mint:
+            return None
+        from_addr = get_token_address(from_token, "solana")
+        to_addr = get_token_address(to_token, "solana")
+        return account if fee_mint in (from_addr, to_addr) else None
+
     async def _get_jupiter_quote(
         self,
         from_token: str,
@@ -682,6 +756,7 @@ class SwapEngine:
         amount_raw: str,
         from_address: str,
         slippage_bps: int,
+        platform_fee_bps: Optional[int] = None,
     ) -> SwapQuote:
         """Get quote from Jupiter for Solana swaps."""
         from_token_address = get_token_address(from_token, "solana")
@@ -690,11 +765,17 @@ class SwapEngine:
         if not from_token_address or not to_token_address:
             raise SwapError(f"Token not supported on Solana: {from_token} or {to_token}")
 
+        # Only reserve a platform fee in the quote when a referral feeAccount can
+        # actually receive it for THIS pair (mint must match input/output) —
+        # otherwise the fee would be uncollectable and /swap would later fail.
+        effective_fee_bps = platform_fee_bps if self._jupiter_fee_account(from_token, to_token) else None
+
         quote = await self.jupiter.get_quote(
             input_mint=from_token_address,
             output_mint=to_token_address,
             amount=amount_raw,
             slippage_bps=slippage_bps,
+            platform_fee_bps=effective_fee_bps,
         )
 
         to_amount_human = self._get_token_amount_human(quote.out_amount, to_token, "solana")
@@ -720,6 +801,7 @@ class SwapEngine:
             price_impact=quote.price_impact_pct,
             exchange_rate=exchange_rate,
             raw_quote=quote.raw_response,
+            platform_fee_bps=effective_fee_bps,
         )
 
     async def _get_sunswap_quote(
@@ -822,6 +904,7 @@ class SwapEngine:
         amount_raw: str,
         from_address: str,
         slippage: float,
+        platform_fee_bps: Optional[int] = None,
     ) -> SwapQuote:
         """Get quote from OKX DEX Aggregator (TRON, EVM, Solana)."""
         chain_id = OKX_CHAIN_IDS.get(from_chain.lower())
@@ -847,6 +930,7 @@ class SwapEngine:
             to_token=to_token_address,
             amount=amount_raw,
             slippage=slippage,
+            platform_fee_bps=platform_fee_bps,
         )
 
         to_amount_human = self._get_token_amount_human(quote.to_amount, to_token, to_chain)
@@ -887,6 +971,7 @@ class SwapEngine:
                 "tx_data": quote.tx_data,
                 "chain_id": chain_id,
             },
+            platform_fee_bps=platform_fee_bps,
         )
 
     @staticmethod
@@ -906,6 +991,7 @@ class SwapEngine:
         amount_raw: str,
         from_address: str,
         slippage: float,
+        platform_fee_bps: Optional[int] = None,
     ) -> SwapQuote:
         """Get quote from the 1inch Aggregation Protocol (EVM same-chain)."""
         chain_id = ONEINCH_CHAIN_IDS.get(from_chain.lower())
@@ -927,6 +1013,7 @@ class SwapEngine:
             to_token=self._to_1inch_token(to_token_address),
             amount=amount_raw,
             slippage=slippage,
+            platform_fee_bps=platform_fee_bps,
         )
 
         to_amount_human = self._get_token_amount_human(quote.to_amount, to_token, to_chain)
@@ -958,6 +1045,7 @@ class SwapEngine:
             estimated_time=15,
             price_impact=quote.price_impact if hasattr(quote, "price_impact") else 0.0,
             exchange_rate=exchange_rate,
+            platform_fee_bps=platform_fee_bps,
             raw_quote={
                 "oneinch_quote": quote.raw_response,
                 "tx_data": quote.tx_data,
@@ -982,6 +1070,7 @@ class SwapEngine:
         amount_raw: str,
         from_address: str,
         slippage: float,
+        platform_fee_bps: Optional[int] = None,
     ) -> SwapQuote:
         """Get quote from the 0x Swap API v2 (EVM same-chain)."""
         chain_id = ZEROX_CHAIN_IDS.get(from_chain.lower())
@@ -1003,6 +1092,7 @@ class SwapEngine:
             to_token=self._to_0x_token(to_token_address),
             amount=amount_raw,
             slippage=slippage,
+            platform_fee_bps=platform_fee_bps,
         )
 
         to_amount_human = self._get_token_amount_human(quote.to_amount, to_token, to_chain)
@@ -1034,6 +1124,7 @@ class SwapEngine:
             estimated_time=15,
             price_impact=quote.price_impact if hasattr(quote, "price_impact") else 0.0,
             exchange_rate=exchange_rate,
+            platform_fee_bps=platform_fee_bps,
             raw_quote={
                 "zerox_quote": quote.raw_response,
                 "tx_data": quote.tx_data,
@@ -1058,6 +1149,7 @@ class SwapEngine:
         amount_raw: str,
         from_address: str,
         slippage: float,
+        platform_fee_bps: Optional[int] = None,
     ) -> SwapQuote:
         """Get quote from the KyberSwap Aggregator (EVM same-chain)."""
         chain_slug = KYBERSWAP_CHAIN_SLUGS.get(from_chain.lower())
@@ -1079,6 +1171,7 @@ class SwapEngine:
             to_token=self._to_kyber_token(to_token_address),
             amount=amount_raw,
             slippage=slippage,
+            platform_fee_bps=platform_fee_bps,
         )
 
         to_amount_human = self._get_token_amount_human(quote.to_amount, to_token, to_chain)
@@ -1104,6 +1197,7 @@ class SwapEngine:
             estimated_time=15,
             price_impact=0.0,
             exchange_rate=exchange_rate,
+            platform_fee_bps=platform_fee_bps,
             raw_quote={
                 "kyberswap_quote": quote.raw_response,
                 "chain_slug": chain_slug,
@@ -2117,10 +2211,20 @@ class SwapEngine:
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
-        # Get swap transaction from Jupiter
+        # Attach feeAccount ONLY when the quote response itself reserved a
+        # platformFee — otherwise Jupiter rejects a /swap that carries a
+        # feeAccount with no matching reserved fee. Gating on the quoteResponse
+        # (ground truth) keeps quote and execution in lockstep regardless of how
+        # the quote was produced (direct, rehydrated, snipe, get_all_quotes).
+        jup_fee_account = (
+            self._jupiter_fee_account(quote.from_token, quote.to_token)
+            if isinstance(quote.raw_quote, dict) and quote.raw_quote.get("platformFee")
+            else None
+        )
         swap_tx = await self.jupiter.get_swap_transaction(
             quote_response=quote.raw_quote,
             user_public_key=wallet_data["address"],
+            fee_account=jup_fee_account,
         )
 
         # Decode and sign transaction
@@ -2329,10 +2433,18 @@ class SwapEngine:
         jupiter_quote = raw_quote.get("jupiter_quote", {})
         jito_tip = raw_quote.get("jito_tip", TipPriority.MEDIUM.value)
 
-        # Get swap transaction from Jupiter
+        # Attach feeAccount only when the (jito-wrapped) jupiter quote reserved a
+        # platformFee — same ground-truth gate as the standard path, so we never
+        # send a feeAccount Jupiter would reject.
+        jup_fee_account = (
+            self._jupiter_fee_account(quote.from_token, quote.to_token)
+            if isinstance(jupiter_quote, dict) and jupiter_quote.get("platformFee")
+            else None
+        )
         swap_tx = await self.jupiter.get_swap_transaction(
             quote_response=jupiter_quote,
             user_public_key=wallet_data["address"],
+            fee_account=jup_fee_account,
         )
 
         try:
@@ -2885,6 +2997,7 @@ class SwapEngine:
                 amount=quote.from_amount,
                 user_address=wallet_data["address"],
                 slippage=0.5,
+                platform_fee_bps=quote.platform_fee_bps,
             )
             tx_data = swap_result.tx_data
 
@@ -3035,6 +3148,7 @@ class SwapEngine:
             amount=quote.from_amount,
             user_address=wallet_data["address"],
             slippage=0.5,
+            platform_fee_bps=quote.platform_fee_bps,
         )
         tx_data = swap_result.tx_data
         if not tx_data:
@@ -3149,6 +3263,7 @@ class SwapEngine:
             amount=quote.from_amount,
             user_address=wallet_data["address"],
             slippage=0.5,
+            platform_fee_bps=quote.platform_fee_bps,
         )
         tx_data = swap_result.tx_data
         if not tx_data:
@@ -3276,6 +3391,7 @@ class SwapEngine:
             amount=quote.from_amount,
             user_address=wallet_data["address"],
             slippage=0.5,
+            platform_fee_bps=quote.platform_fee_bps,
         )
         tx_data = swap_result.tx_data
         if not tx_data:

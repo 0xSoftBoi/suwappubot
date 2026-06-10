@@ -521,6 +521,7 @@ class OrderService:
                 amount=amount_human,
                 from_address=wallet.address,
                 slippage=order.slippage,
+                user_id=order.user_id,
             )
 
             # 3. Execute Swap
@@ -588,6 +589,7 @@ class OrderService:
                 to_token=order.to_token,
                 amount=amount_human,
                 from_address=wallet.address,
+                user_id=order.user_id,
             )
 
             # 2. Execute Swap

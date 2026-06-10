@@ -6,12 +6,13 @@ import { z } from 'zod'
 import openApiSpec from '../../openapi-agent.json'
 import { EnvService } from '../config/EnvService'
 import type { Agent } from '../db'
-import { requireDb, swapTransactions, webhookEvents } from '../db'
+import { agentCredits, agentCreditTopups, requireDb, swapTransactions, webhookEvents } from '../db'
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { agentBearerAuth, agentBearerAuthAllowInactive } from '../middleware'
 import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
 import { ipRateLimit } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
+import { COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment } from '../middleware/x402Payment'
 import { runEffectEither } from '../runtime'
 import {
 	AgentService,
@@ -434,6 +435,8 @@ agentRoutes.use('/keys/*', agentBearerAuth())
 agentRoutes.use('/wallet/policy', agentBearerAuth())
 agentRoutes.use('/wallet/policy/*', agentBearerAuth())
 agentRoutes.use('/wallet/policies', agentBearerAuth())
+agentRoutes.use('/billing', agentBearerAuth())
+agentRoutes.use('/billing/*', agentBearerAuth())
 agentRoutes.use('/reactivate', agentBearerAuthAllowInactive())
 
 // Apply rate limiting to all authenticated endpoints
@@ -455,7 +458,24 @@ agentRoutes.use('/keys/*', rateLimit())
 agentRoutes.use('/wallet/policy', rateLimit())
 agentRoutes.use('/wallet/policy/*', rateLimit())
 agentRoutes.use('/wallet/policies', rateLimit())
+agentRoutes.use('/billing', rateLimit())
+agentRoutes.use('/billing/*', rateLimit())
 agentRoutes.use('/reactivate', rateLimit())
+
+// ===========================================
+// PAY-PER-CALL METERING (x402 prepaid credits)
+// ===========================================
+// Runs AFTER auth + rateLimit. No-op unless AGENT_METERING_ENABLED='true'.
+// Free tier keeps its rate-limit free quota; payment is only enforced when
+// metering is enabled AND the agent is on the free tier without credits.
+// NOTE: /billing and /billing/topup are intentionally NOT metered.
+agentRoutes.use('/quote', meteredPayment('quote'))
+agentRoutes.use('/swap', meteredPayment('swap'))
+agentRoutes.use('/execute', meteredPayment('execute'))
+agentRoutes.use('/swap/execute', meteredPayment('swap/execute'))
+agentRoutes.use('/portfolio', meteredPayment('portfolio'))
+agentRoutes.use('/prices', meteredPayment('prices'))
+agentRoutes.use('/tokens', meteredPayment('tokens'))
 
 // GET /v1/agent/me - Get current agent profile
 agentRoutes.get('/me', async (c) => {
@@ -2287,6 +2307,232 @@ agentRoutes.delete('/me', async (c) => {
 	}
 
 	return c.body(null, 204)
+})
+
+// ===========================================
+// BILLING / PAY-PER-CALL METERING
+// ===========================================
+
+const BYPASS_TIERS_DOC = ['agent', 'pro']
+
+// GET /v1/agent/billing - Current credit balance, usage, tier, cost weights
+agentRoutes.get('/billing', async (c) => {
+	const agent = c.get('agent')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const db = yield* requireDb
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db.select().from(agentCredits).where(eq(agentCredits.agentId, agent.id)).limit(1),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+			return { credit: rows[0] ?? null, meteringEnabled: env.AGENT_METERING_ENABLED === 'true' }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
+	}
+
+	const { credit, meteringEnabled } = result.right
+	const tier = agent.rateLimitTier || 'free'
+
+	return c.json({
+		success: true,
+		agent_id: agent.uuid,
+		tier,
+		metering_enabled: meteringEnabled,
+		// Tiers that bypass metering entirely (treated as paid / active subscription).
+		bypass_tiers: BYPASS_TIERS_DOC,
+		is_metered: !BYPASS_TIERS_DOC.includes(tier),
+		credits: {
+			balance: credit?.balance ?? 0,
+			lifetime_purchased: credit?.lifetimePurchased ?? 0,
+			lifetime_used: credit?.lifetimeUsed ?? 0,
+		},
+		credit_usd_value: CREDIT_USD_VALUE,
+		cost_weights: COST_WEIGHTS,
+		topup: {
+			endpoint: 'POST /v1/agent/billing/topup',
+			body: { txHash: '0x...', chain: 'base', amount: '<USDC amount paid>' },
+			note: '1 credit ≈ $0.001 USD. Pay USDC to the collector address, then submit the txHash here.',
+		},
+	})
+})
+
+// POST /v1/agent/billing/topup - Credit the agent's balance from an on-chain USDC payment.
+// Idempotent on txHash (no double-credit). Body: { txHash, chain, amount }.
+agentRoutes.post('/billing/topup', async (c) => {
+	const agent = c.get('agent')
+
+	let body: unknown
+	try {
+		body = await c.req.json()
+	} catch {
+		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+	}
+
+	const TopupSchema = z.object({
+		txHash: z.string().min(10).max(128),
+		chain: z.string().min(1).max(32).default('base'),
+		amount: z.union([z.string(), z.number()]).transform((v) => Number(v)),
+	})
+	const parsed = TopupSchema.safeParse(body)
+	if (!parsed.success) {
+		return c.json(
+			{ success: false, error: 'Validation error', fields: formatZodErrors(parsed.error) },
+			400,
+		)
+	}
+
+	const { txHash, chain, amount } = parsed.data
+	if (!Number.isFinite(amount) || amount <= 0) {
+		return c.json({ success: false, error: 'amount must be a positive number (USDC)' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const db = yield* requireDb
+
+			// 1) Fast idempotency pre-check: already processed this txHash?
+			const existing = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(agentCreditTopups)
+						.where(eq(agentCreditTopups.txHash, txHash))
+						.limit(1),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+			if (existing[0]) {
+				const balRows = yield* Effect.tryPromise({
+					try: () =>
+						db.select().from(agentCredits).where(eq(agentCredits.agentId, agent.id)).limit(1),
+					catch: (e) => new Error(`Database error: ${e}`),
+				})
+				return {
+					alreadyProcessed: true as const,
+					creditsAdded: existing[0].creditsAdded,
+					balance: balRows[0]?.balance ?? 0,
+				}
+			}
+
+			// 2) Verify the on-chain USDC payment via the internal Python x402 verifier
+			//    (same path mppAuth uses). If the internal API isn't configured, fail closed —
+			//    we must never credit an unverified payment.
+			if (!env.INTERNAL_API_KEY || !env.INTERNAL_API_URL) {
+				return yield* Effect.fail(
+					new ValidationError({ message: 'Payment verification is not configured' }),
+				)
+			}
+			const collector = env.AGENT_METERING_COLLECTOR_ADDRESS || env.FEE_WALLET_EVM
+			const internalUrl = env.INTERNAL_API_URL
+			const internalKey = env.INTERNAL_API_KEY
+
+			yield* Effect.tryPromise({
+				try: async () => {
+					const res = await fetch(`${internalUrl}/internal/x402/verify`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json', 'X-Internal-Key': internalKey },
+						body: JSON.stringify({
+							tx_hash: txHash,
+							chain,
+							expected_amount: String(amount),
+							expected_token: 'USDC',
+							expected_recipient: collector,
+						}),
+						signal: AbortSignal.timeout(15_000),
+					})
+					if (!res.ok) {
+						const errText = await res.text().catch(() => res.statusText)
+						throw new Error(`Payment verification failed: ${errText}`)
+					}
+					const verification = (await res.json()) as { verified?: boolean; error?: string }
+					if (!verification.verified) {
+						throw new Error(verification.error || 'Payment not verified on-chain')
+					}
+					return verification
+				},
+				catch: (e) =>
+					new ValidationError({ message: e instanceof Error ? e.message : String(e) }),
+			})
+
+			// 3) Credit atomically + idempotently inside a transaction.
+			//    Insert the ledger row with ON CONFLICT DO NOTHING — if a concurrent request
+			//    already inserted this txHash, we credit nothing (no double-credit).
+			const creditsAdded = amount / CREDIT_USD_VALUE
+
+			const txResult = yield* Effect.tryPromise({
+				try: () =>
+					db.transaction(async (tx) => {
+						const inserted = await tx
+							.insert(agentCreditTopups)
+							.values({ agentId: agent.id, txHash, chain, amountUsd: amount, creditsAdded })
+							.onConflictDoNothing({ target: agentCreditTopups.txHash })
+							.returning({ id: agentCreditTopups.id })
+
+						if (inserted.length === 0) {
+							// Lost the race — another request already processed this txHash.
+							const balRows = await tx
+								.select()
+								.from(agentCredits)
+								.where(eq(agentCredits.agentId, agent.id))
+								.limit(1)
+							return { credited: false, balance: balRows[0]?.balance ?? 0 }
+						}
+
+						// Upsert the credit balance (create row if first topup).
+						const upserted = await tx
+							.insert(agentCredits)
+							.values({
+								agentId: agent.id,
+								balance: creditsAdded,
+								lifetimePurchased: creditsAdded,
+								lifetimeUsed: 0,
+							})
+							.onConflictDoUpdate({
+								target: agentCredits.agentId,
+								set: {
+									balance: sql`${agentCredits.balance} + ${creditsAdded}`,
+									lifetimePurchased: sql`${agentCredits.lifetimePurchased} + ${creditsAdded}`,
+									updatedAt: new Date(),
+								},
+							})
+							.returning({ balance: agentCredits.balance })
+
+						return { credited: true, balance: upserted[0]?.balance ?? creditsAdded }
+					}),
+				catch: (e) => new Error(`Database error during topup: ${e}`),
+			})
+
+			return {
+				alreadyProcessed: !txResult.credited,
+				creditsAdded: txResult.credited ? creditsAdded : 0,
+				balance: txResult.balance,
+			}
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
+	}
+
+	const r = result.right
+	return c.json({
+		success: true,
+		already_processed: r.alreadyProcessed,
+		tx_hash: txHash,
+		credits_added: r.creditsAdded,
+		balance: r.balance,
+		message: r.alreadyProcessed
+			? 'This transaction was already credited (idempotent — no double-credit).'
+			: `Credited ${r.creditsAdded} credits.`,
+	})
 })
 
 // ===========================================

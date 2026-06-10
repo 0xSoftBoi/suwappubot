@@ -125,6 +125,26 @@ class ZeroXAPI:
         """Convert a percent slippage (0.5 = 0.5%) to integer basis points."""
         return int(round(slippage * 100))
 
+    @staticmethod
+    def _fee_params(platform_fee_bps: Optional[int], sell_token: str) -> dict:
+        """Build 0x partner-fee params, gated on (fee bps AND collector set).
+
+        0x's swapFeeBps must be 0–1000 (clamped). The fee is charged on the
+        sellToken (input side) and forwarded to swapFeeRecipient. Returns an
+        empty dict when the fee is off so default behavior is unchanged.
+        """
+        collector = settings.fee_collector_address
+        if not platform_fee_bps or not collector:
+            return {}
+        bps = max(0, min(int(platform_fee_bps), 1000))
+        if bps <= 0:
+            return {}
+        return {
+            "swapFeeRecipient": collector,
+            "swapFeeBps": bps,
+            "swapFeeToken": sell_token,
+        }
+
     async def get_quote(
         self,
         chain_id: int,
@@ -132,6 +152,7 @@ class ZeroXAPI:
         to_token: str,
         amount: str,
         slippage: float = 0.5,
+        platform_fee_bps: Optional[int] = None,
     ) -> ZeroXQuote:
         """Get a swap quote from 0x (price discovery, no tx calldata).
 
@@ -151,6 +172,7 @@ class ZeroXAPI:
             "buyToken": to_token,
             "sellAmount": amount,
             "slippageBps": self._slippage_bps(slippage),
+            **self._fee_params(platform_fee_bps, from_token),
         }
 
         data = await self._request(ZEROX_PRICE_PATH, params)
@@ -188,6 +210,7 @@ class ZeroXAPI:
         amount: str,
         user_address: str,
         slippage: float = 0.5,
+        platform_fee_bps: Optional[int] = None,
     ) -> ZeroXQuote:
         """Get a swap quote WITH transaction calldata for execution.
 
@@ -203,6 +226,7 @@ class ZeroXAPI:
             "sellAmount": amount,
             "taker": user_address,
             "slippageBps": self._slippage_bps(slippage),
+            **self._fee_params(platform_fee_bps, from_token),
         }
 
         data = await self._request(ZEROX_QUOTE_PATH, params)

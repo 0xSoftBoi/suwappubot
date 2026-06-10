@@ -604,6 +604,7 @@ class CopyService:
                 from_address=wallet.address,
                 to_address=wallet.address,
                 slippage=(follow.max_slippage_percent if follow else 1.0),
+                user_id=copy_trade.copier_id,
             )
             swap_tx = await swap_engine.execute_swap(
                 quote=quote,

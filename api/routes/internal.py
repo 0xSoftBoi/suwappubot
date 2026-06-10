@@ -230,10 +230,16 @@ async def execute_agent_swap(
 
     try:
         from bot.services.swap_engine import swap_engine, SwapQuote
+        from bot.services.fee_service import fee_service
         from datetime import datetime
 
         qd = request.quote_data
 
+        # Carry the platform fee onto the rehydrated quote so EVM execution
+        # re-fetches the swap tx WITH the fee param (agent/webapp swaps were
+        # previously dropping it → collecting $0). Use the value the caller sent;
+        # fall back to the default rate so collection still happens. On-chain
+        # collection stays gated per-provider on a configured collector.
         quote = SwapQuote(
             provider=qd.get("provider", "lifi"),
             from_chain=str(qd.get("from_chain", "base")),
@@ -253,6 +259,7 @@ async def execute_agent_swap(
             exchange_rate=float(qd.get("exchange_rate", 0)),
             raw_quote=qd.get("raw_quote", {}),
             timestamp=datetime.utcnow(),
+            platform_fee_bps=qd.get("platform_fee_bps") or fee_service.get_fee_bps(),
         )
 
         logger.info(f"Executing swap for agent {request.agent_uuid[:8]}: {quote.from_amount} {quote.from_token} → {quote.to_token}")

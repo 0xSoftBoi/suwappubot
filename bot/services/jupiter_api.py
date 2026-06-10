@@ -86,10 +86,11 @@ class JupiterAPI:
         slippage_bps: int = 50,
         only_direct_routes: bool = False,
         as_legacy_transaction: bool = False,
+        platform_fee_bps: Optional[int] = None,
     ) -> JupiterQuote:
         """
         Get a quote for a Solana swap.
-        
+
         Args:
             input_mint: Source token mint address
             output_mint: Destination token mint address
@@ -97,7 +98,11 @@ class JupiterAPI:
             slippage_bps: Slippage tolerance in basis points (50 = 0.5%)
             only_direct_routes: Only use direct routes (faster but possibly worse price)
             as_legacy_transaction: Return legacy transaction format
-            
+            platform_fee_bps: Optional platform fee in basis points (100 = 1%).
+                When set, Jupiter reserves this fee in the quote; it is only
+                actually collected if a matching ``feeAccount`` (referral token
+                account) is passed to the swap request.
+
         Returns:
             JupiterQuote with swap details
         """
@@ -109,6 +114,8 @@ class JupiterAPI:
             "onlyDirectRoutes": str(only_direct_routes).lower(),
             "asLegacyTransaction": str(as_legacy_transaction).lower(),
         }
+        if platform_fee_bps:
+            params["platformFeeBps"] = platform_fee_bps
         
         data = await self._request("GET", "/quote", params=params)
         

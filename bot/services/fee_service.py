@@ -86,7 +86,26 @@ class FeeService:
     def __init__(self):
         self.fee_percentage = SWAP_FEE_DECIMAL
         self.referral_percentage = REFERRAL_REWARD_DECIMAL
-    
+
+    # ---- Single source of truth for the fee RATE -------------------------
+    # Everything that needs the fee rate — the on-chain aggregator param we
+    # SEND (Jupiter platformFeeBps, Li.Fi fee), the quote we DISPLAY, and the
+    # amount we RECORD/pay referrers on — must derive from these, so the
+    # collected fee can never drift from the recorded one.
+
+    def get_fee_decimal(self, tier: "Optional[SubscriptionTier]" = None) -> float:
+        """Fee rate as a plain decimal (e.g. 0.01 = 1%) for the given tier."""
+        if tier is not None:
+            return TIER_FEE_RATES.get(tier, DEFAULT_FEE_RATE)
+        return DEFAULT_FEE_RATE
+
+    def get_fee_bps(self, tier: "Optional[SubscriptionTier]" = None) -> int:
+        """Fee rate in basis points (e.g. 100 = 1%) for the given tier.
+
+        This is the exact value passed to Jupiter as ``platformFeeBps``.
+        """
+        return int(round(self.get_fee_decimal(tier) * 10_000))
+
     def calculate_fee(
         self,
         swap_amount_usd: float,
@@ -107,9 +126,10 @@ class FeeService:
         """
         amount = Decimal(str(swap_amount_usd))
 
-        # Resolve tier-specific fee rate (as Decimal to avoid float arithmetic)
-        raw_rate = TIER_FEE_RATES.get(tier, DEFAULT_FEE_RATE) if tier is not None else DEFAULT_FEE_RATE
-        fee_rate = Decimal(str(raw_rate))
+        # Resolve tier-specific fee rate (as Decimal to avoid float arithmetic).
+        # Routed through get_fee_decimal so the recorded fee uses the SAME rate
+        # we send to the aggregators on-chain.
+        fee_rate = Decimal(str(self.get_fee_decimal(tier)))
         # fee_percentage_display is e.g. Decimal("1.0") meaning "1%"
         fee_percentage_display = fee_rate * Decimal("100")
 
@@ -408,8 +428,15 @@ class FeeService:
                 continue
 
             try:
-                # Mark fees as collected
-                # In production, this would transfer tokens to collector first
+                # NOTE: platform fees are collected ON-CHAIN by the aggregator at
+                # swap time, not transferred by this function:
+                #   • Li.Fi  — the FeeCollection contract forwards the integrator
+                #     fee to the registered fee wallet automatically.
+                #   • Jupiter — the platformFeeBps accrues to the referral token
+                #     account (feeAccount); it must be CLAIMED via the Jupiter
+                #     Referral Program to move it to the main treasury.
+                # This pass reconciles the internal ledger (marks recorded fees as
+                # accounted-for); it does NOT itself move tokens.
                 with get_session() as session:
                     session.query(FeeTransaction).filter(
                         FeeTransaction.chain == chain,
@@ -422,10 +449,13 @@ class FeeService:
                     "token": token,
                     "amount": amount,
                     "success": True,
-                    "message": f"Marked {batch['tx_count']} transactions as collected"
+                    "message": f"Reconciled {batch['tx_count']} fee records (on-chain collection via aggregator)"
                 })
 
-                logger.info(f"Swept {amount} {token} on {chain} to {collector}")
+                logger.info(
+                    f"Reconciled {amount} {token} on {chain} (collector={collector}); "
+                    f"on-chain fee captured by aggregator at swap time"
+                )
 
             except Exception as e:
                 results.append({

@@ -91,6 +91,28 @@ class KyberSwapAPI:
         """Get the KyberSwap chain slug for a chain name."""
         return KYBERSWAP_CHAIN_SLUGS.get(chain_name.lower())
 
+    @staticmethod
+    def _fee_params(platform_fee_bps: Optional[int]) -> dict:
+        """Build KyberSwap fee params for the /routes query, gated on (fee bps
+        AND collector set).
+
+        The fee is charged on the input currency in basis points and encoded
+        into the returned routeSummary, so /route/build carries it through.
+        Returns an empty dict when the fee is off (default behavior unchanged).
+        """
+        collector = settings.fee_collector_address
+        if not platform_fee_bps or not collector:
+            return {}
+        bps = max(0, int(platform_fee_bps))
+        if bps <= 0:
+            return {}
+        return {
+            "feeAmount": bps,
+            "isInBps": "true",
+            "chargeFeeBy": "currency_in",
+            "feeReceiver": collector,
+        }
+
     def _get_headers(self) -> dict:
         """Build headers. x-client-id is a free identifier (not a key) that
         lifts anonymous rate limits."""
@@ -141,6 +163,7 @@ class KyberSwapAPI:
         to_token: str,
         amount: str,
         slippage: float = 0.5,
+        platform_fee_bps: Optional[int] = None,
     ) -> KyberSwapQuote:
         """Get a swap quote (price discovery — no tx calldata).
 
@@ -155,6 +178,7 @@ class KyberSwapAPI:
             "tokenIn": from_token,
             "tokenOut": to_token,
             "amountIn": amount,
+            **self._fee_params(platform_fee_bps),
         }
         data = await self._routes(chain_slug, params)
 
@@ -193,17 +217,23 @@ class KyberSwapAPI:
         amount: str,
         user_address: str,
         slippage: float = 0.5,
+        platform_fee_bps: Optional[int] = None,
     ) -> KyberSwapQuote:
         """Get a swap quote WITH transaction calldata for execution.
 
         Re-fetches a fresh route (routes expire) then builds the tx. The router
         is both the ERC20 spender to approve and the tx `to` target.
+
+        The fee params go on this fresh /routes call (get_swap does NOT reuse the
+        quote's routeSummary); /route/build then carries them via the full
+        routeSummary passthrough below.
         """
         # 1. Fresh route
         route_data = await self._routes(chain_slug, {
             "tokenIn": from_token,
             "tokenOut": to_token,
             "amountIn": amount,
+            **self._fee_params(platform_fee_bps),
         })
         route_summary = route_data.get("routeSummary") or {}
         router_address = route_data.get("routerAddress", "")
