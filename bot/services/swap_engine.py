@@ -2035,21 +2035,21 @@ class SwapEngine:
             signed_tx = await self.wallet_service.sign_solana_transaction(wallet, tx_bytes)
 
             # Submit to Solana
-            async with aiohttp.ClientSession() as session:
-                payload = {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "sendTransaction",
-                    "params": [
-                        base64.b64encode(signed_tx).decode(),
-                        {"encoding": "base64", "skipPreflight": False},
-                    ],
-                }
-                async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
-                    result = await resp.json()
-                    if "error" in result:
-                        raise SwapError(f"Transaction failed: {result['error']}")
-                    return result["result"]
+            session = await get_http_session()
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "sendTransaction",
+                "params": [
+                    base64.b64encode(signed_tx).decode(),
+                    {"encoding": "base64", "skipPreflight": False},
+                ],
+            }
+            async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
+                result = await resp.json()
+                if "error" in result:
+                    raise SwapError(f"Transaction failed: {result['error']}")
+                return result["result"]
         elif chain.chain_type == ChainType.TRON:
             # TRON transaction via Li.Fi
             tx_hash = await self.wallet_service.sign_and_broadcast_tron_transaction(
@@ -2089,7 +2089,7 @@ class SwapEngine:
     ) -> str:
         """Execute an EVM Li.Fi route with a selected Web3 provider."""
         sender = Web3.to_checksum_address(wallet_data["address"])
-        nonce = web3.eth.get_transaction_count(sender)
+        nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
 
         # ERC20 approval: if swapping a token (not native), approve the LiFi contract
         from_token_address = get_token_address(quote.from_token, quote.from_chain)
@@ -2097,8 +2097,8 @@ class SwapEngine:
 
         if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
             # Check native balance before attempting approval — need ETH for gas
-            native_balance_wei = web3.eth.get_balance(sender)
-            gas_price = web3.eth.gas_price
+            native_balance_wei = await asyncio.to_thread(lambda: web3.eth.get_balance(sender))
+            gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
             # Approval costs ~50k gas; swap ~200k gas; require enough for both
             min_gas_wei = gas_price * 300_000
             if native_balance_wei < min_gas_wei:
@@ -2135,7 +2135,9 @@ class SwapEngine:
             ]
             token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
             amount_needed = int(quote.from_amount)
-            current_allowance = token_contract.functions.allowance(sender, spender).call()
+            current_allowance = await asyncio.to_thread(
+                lambda: token_contract.functions.allowance(sender, spender).call()
+            )
 
             if current_allowance < amount_needed:
                 max_approval = 2**256 - 1
@@ -2161,15 +2163,19 @@ class SwapEngine:
                     "chainId": chain.chain_id,
                 }
                 signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-                approve_hash = web3.eth.send_raw_transaction(
-                    bytes.fromhex(signed_approve.replace("0x", ""))
+                approve_hash = await asyncio.to_thread(
+                    lambda: web3.eth.send_raw_transaction(
+                        bytes.fromhex(signed_approve.replace("0x", ""))
+                    )
                 )
                 logger.info(f"LiFi approval tx: {approve_hash.hex()}")
-                web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                await asyncio.to_thread(
+                    lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                )
                 nonce += 1
 
         # Re-fetch nonce to account for any approval tx or pending txs
-        nonce = web3.eth.get_transaction_count(sender)
+        nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
 
         # Build swap transaction - parse hex values from Li.Fi
         tx = {
@@ -2177,14 +2183,18 @@ class SwapEngine:
             "data": tx_request.get("data"),
             "value": _parse_int(tx_request.get("value"), 0),
             "gas": _parse_int(tx_request.get("gasLimit"), 500000),
-            "gasPrice": _parse_int(tx_request.get("gasPrice"), web3.eth.gas_price),
+            "gasPrice": _parse_int(
+                tx_request.get("gasPrice"), await asyncio.to_thread(lambda: web3.eth.gas_price)
+            ),
             "nonce": nonce,
             "chainId": chain.chain_id,
         }
 
         # Sign and send
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        tx_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        )
 
         return tx_hash.hex()
 
@@ -2232,21 +2242,21 @@ class SwapEngine:
         signed_tx = await self.wallet_service.sign_solana_transaction(wallet, tx_bytes)
 
         # Submit to Solana
-        async with aiohttp.ClientSession() as session:
-            payload = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "sendTransaction",
-                "params": [
-                    base64.b64encode(signed_tx).decode(),
-                    {"encoding": "base64", "skipPreflight": False},
-                ],
-            }
-            async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
-                result = await resp.json()
-                if "error" in result:
-                    raise SwapError(f"Transaction failed: {result['error']}")
-                return result["result"]
+        session = await get_http_session()
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "sendTransaction",
+            "params": [
+                base64.b64encode(signed_tx).decode(),
+                {"encoding": "base64", "skipPreflight": False},
+            ],
+        }
+        async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
+            result = await resp.json()
+            if "error" in result:
+                raise SwapError(f"Transaction failed: {result['error']}")
+            return result["result"]
 
     async def _execute_cow_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via CoW Protocol (MEV-protected batch auction).
@@ -2377,13 +2387,15 @@ class SwapEngine:
                     amount=quote.from_amount,
                 )
 
-                nonce = web3.eth.get_transaction_count(wallet_data["address"])
+                nonce = await asyncio.to_thread(
+                    lambda: web3.eth.get_transaction_count(wallet_data["address"])
+                )
                 approval_tx = {
                     "to": Web3.to_checksum_address(approval_tx_data.get("to", token_address)),
                     "data": approval_tx_data.get("data", ""),
                     "value": 0,
                     "gas": 60000,
-                    "gasPrice": web3.eth.gas_price,
+                    "gasPrice": await asyncio.to_thread(lambda: web3.eth.gas_price),
                     "nonce": nonce,
                     "chainId": chain.chain_id,
                 }
@@ -2391,28 +2403,36 @@ class SwapEngine:
                 signed_approval_hex = await self.wallet_service.sign_evm_transaction(
                     wallet, approval_tx
                 )
-                approval_hash = web3.eth.send_raw_transaction(
-                    bytes.fromhex(signed_approval_hex.replace("0x", ""))
+                approval_hash = await asyncio.to_thread(
+                    lambda: web3.eth.send_raw_transaction(
+                        bytes.fromhex(signed_approval_hex.replace("0x", ""))
+                    )
                 )
                 logger.info(f"Socket approval tx: {approval_hash.hex()}")
 
                 # Wait for approval
-                web3.eth.wait_for_transaction_receipt(approval_hash, timeout=120)
+                await asyncio.to_thread(
+                    lambda: web3.eth.wait_for_transaction_receipt(approval_hash, timeout=120)
+                )
 
         # Execute the main transaction
-        nonce = web3.eth.get_transaction_count(wallet_data["address"])
+        nonce = await asyncio.to_thread(
+            lambda: web3.eth.get_transaction_count(wallet_data["address"])
+        )
         tx = {
             "to": Web3.to_checksum_address(socket_tx.to),
             "data": socket_tx.data,
             "value": int(socket_tx.value) if socket_tx.value else 0,
             "gas": int(socket_tx.gas_limit),
-            "gasPrice": web3.eth.gas_price,
+            "gasPrice": await asyncio.to_thread(lambda: web3.eth.gas_price),
             "nonce": nonce,
             "chainId": chain.chain_id,
         }
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        tx_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        )
 
         logger.info(f"Socket swap tx: {tx_hash.hex()}")
         return tx_hash.hex()
@@ -2471,21 +2491,21 @@ class SwapEngine:
             tx_bytes = base64.b64decode(swap_tx.swap_transaction)
             signed_tx = await self.wallet_service.sign_solana_transaction(wallet, tx_bytes)
 
-            async with aiohttp.ClientSession() as session:
-                payload = {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "sendTransaction",
-                    "params": [
-                        base64.b64encode(signed_tx).decode(),
-                        {"encoding": "base64", "skipPreflight": False},
-                    ],
-                }
-                async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
-                    result = await resp.json()
-                    if "error" in result:
-                        raise SwapError(f"Transaction failed: {result['error']}")
-                    return result["result"]
+            session = await get_http_session()
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "sendTransaction",
+                "params": [
+                    base64.b64encode(signed_tx).decode(),
+                    {"encoding": "base64", "skipPreflight": False},
+                ],
+            }
+            async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
+                result = await resp.json()
+                if "error" in result:
+                    raise SwapError(f"Transaction failed: {result['error']}")
+                return result["result"]
 
     async def _execute_ccip_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a cross-chain transfer via Chainlink CCIP."""
@@ -2535,38 +2555,48 @@ class SwapEngine:
 
         if approval_tx:
             # Send approval transaction
-            nonce = web3.eth.get_transaction_count(wallet_data["address"])
+            nonce = await asyncio.to_thread(
+                lambda: web3.eth.get_transaction_count(wallet_data["address"])
+            )
             approval_tx["nonce"] = nonce
             approval_tx["chainId"] = chain.chain_id
-            approval_tx["gasPrice"] = web3.eth.gas_price
+            approval_tx["gasPrice"] = await asyncio.to_thread(lambda: web3.eth.gas_price)
 
             signed_approval_hex = await self.wallet_service.sign_evm_transaction(
                 wallet, approval_tx
             )
-            approval_hash = web3.eth.send_raw_transaction(
-                bytes.fromhex(signed_approval_hex.replace("0x", ""))
+            approval_hash = await asyncio.to_thread(
+                lambda: web3.eth.send_raw_transaction(
+                    bytes.fromhex(signed_approval_hex.replace("0x", ""))
+                )
             )
 
             # Wait for approval
             logger.info(f"CCIP approval tx: {approval_hash.hex()}")
-            web3.eth.wait_for_transaction_receipt(approval_hash, timeout=120)
+            await asyncio.to_thread(
+                lambda: web3.eth.wait_for_transaction_receipt(approval_hash, timeout=120)
+            )
 
         # Build CCIP transfer transaction
-        nonce = web3.eth.get_transaction_count(wallet_data["address"])
+        nonce = await asyncio.to_thread(
+            lambda: web3.eth.get_transaction_count(wallet_data["address"])
+        )
 
         tx = {
             "to": Web3.to_checksum_address(transfer_data.router_address),
             "data": transfer_data.data,
             "value": int(transfer_data.value),
             "gas": transfer_data.gas_limit,
-            "gasPrice": web3.eth.gas_price,
+            "gasPrice": await asyncio.to_thread(lambda: web3.eth.gas_price),
             "nonce": nonce,
             "chainId": chain.chain_id,
         }
 
         # Sign and send
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        tx_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        )
 
         logger.info(f"CCIP transfer tx: {tx_hash.hex()}")
         return tx_hash.hex()
@@ -2617,8 +2647,10 @@ class SwapEngine:
             sender_address=sender,
         )
 
-        nonce = web3.eth.get_transaction_count(Web3.to_checksum_address(sender))
-        gas_price = web3.eth.gas_price
+        nonce = await asyncio.to_thread(
+            lambda: web3.eth.get_transaction_count(Web3.to_checksum_address(sender))
+        )
+        gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
 
         # Step 1: ERC20 approval (wait for confirmation before sendToken)
         if "approval_tx" in tx_bundle:
@@ -2632,13 +2664,17 @@ class SwapEngine:
                 "chainId": chain.chain_id,
             }
             signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-            approve_hash = web3.eth.send_raw_transaction(
-                bytes.fromhex(signed_approve.replace("0x", ""))
+            approve_hash = await asyncio.to_thread(
+                lambda: web3.eth.send_raw_transaction(
+                    bytes.fromhex(signed_approve.replace("0x", ""))
+                )
             )
             logger.info(f"Stargate approval tx: {approve_hash.hex()}")
 
             # Wait for approval to confirm (up to 60s)
-            receipt = web3.eth.wait_for_transaction_receipt(approve_hash, timeout=60)
+            receipt = await asyncio.to_thread(
+                lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=60)
+            )
             if receipt["status"] != 1:
                 raise SwapError(f"ERC20 approval failed (tx: {approve_hash.hex()})")
             logger.info(f"Stargate approval confirmed in block {receipt['blockNumber']}")
@@ -2650,13 +2686,15 @@ class SwapEngine:
         # Estimate gas with fallback
         gas_estimate = 350_000
         try:
-            gas_estimate = web3.eth.estimate_gas(
-                {
-                    "from": Web3.to_checksum_address(sender),
-                    "to": Web3.to_checksum_address(send_tx_data["to"]),
-                    "data": send_tx_data["data"],
-                    "value": send_tx_data["value"],
-                }
+            gas_estimate = await asyncio.to_thread(
+                lambda: web3.eth.estimate_gas(
+                    {
+                        "from": Web3.to_checksum_address(sender),
+                        "to": Web3.to_checksum_address(send_tx_data["to"]),
+                        "data": send_tx_data["data"],
+                        "value": send_tx_data["value"],
+                    }
+                )
             )
             gas_estimate = int(gas_estimate * 1.3)  # 30% buffer for LZ overhead
         except Exception as e:
@@ -2673,7 +2711,9 @@ class SwapEngine:
         }
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, send_tx)
-        tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        tx_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        )
 
         logger.info(
             f"Stargate V2 sendToken: {tx_hash.hex()} "
@@ -2699,34 +2739,44 @@ class SwapEngine:
 
         approve_tx = self.cctp.build_approve_transaction(cctp_quote, wallet_data["address"])
 
-        nonce = web3.eth.get_transaction_count(wallet_data["address"])
+        nonce = await asyncio.to_thread(
+            lambda: web3.eth.get_transaction_count(wallet_data["address"])
+        )
         approve_tx["gas"] = 60000
-        approve_tx["gasPrice"] = web3.eth.gas_price
+        approve_tx["gasPrice"] = await asyncio.to_thread(lambda: web3.eth.gas_price)
         approve_tx["nonce"] = nonce
         approve_tx["chainId"] = chain.chain_id
 
         signed_approve_hex = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-        approve_hash = web3.eth.send_raw_transaction(
-            bytes.fromhex(signed_approve_hex.replace("0x", ""))
+        approve_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(
+                bytes.fromhex(signed_approve_hex.replace("0x", ""))
+            )
         )
         logger.info(f"CCTP approval tx: {approve_hash.hex()}")
 
         # Wait for approval confirmation
-        web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+        await asyncio.to_thread(
+            lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+        )
 
         # Step 2: Execute depositForBurn
         burn_tx = self.cctp.build_burn_transaction(
             cctp_quote, wallet_data["address"], wallet_data["address"]  # Same recipient
         )
 
-        nonce = web3.eth.get_transaction_count(wallet_data["address"])
+        nonce = await asyncio.to_thread(
+            lambda: web3.eth.get_transaction_count(wallet_data["address"])
+        )
         burn_tx["gas"] = 200000
-        burn_tx["gasPrice"] = web3.eth.gas_price
+        burn_tx["gasPrice"] = await asyncio.to_thread(lambda: web3.eth.gas_price)
         burn_tx["nonce"] = nonce
         burn_tx["chainId"] = chain.chain_id
 
         signed_burn_hex = await self.wallet_service.sign_evm_transaction(wallet, burn_tx)
-        burn_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_burn_hex.replace("0x", "")))
+        burn_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_burn_hex.replace("0x", "")))
+        )
 
         logger.info(f"CCTP burn tx: {burn_hash.hex()}")
         return burn_hash.hex()
@@ -2784,25 +2834,31 @@ class SwapEngine:
                 args=[Web3.to_checksum_address(across_quote.spoke_pool), int(quote.from_amount)],
             )
 
-            nonce = web3.eth.get_transaction_count(wallet_data["address"])
+            nonce = await asyncio.to_thread(
+                lambda: web3.eth.get_transaction_count(wallet_data["address"])
+            )
             approve_tx = {
                 "to": Web3.to_checksum_address(token_address),
                 "data": approve_data,
                 "value": 0,
                 "gas": 60000,
-                "gasPrice": web3.eth.gas_price,
+                "gasPrice": await asyncio.to_thread(lambda: web3.eth.gas_price),
                 "nonce": nonce,
                 "chainId": chain.chain_id,
             }
 
             signed_approve_hex = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-            approve_hash = web3.eth.send_raw_transaction(
-                bytes.fromhex(signed_approve_hex.replace("0x", ""))
+            approve_hash = await asyncio.to_thread(
+                lambda: web3.eth.send_raw_transaction(
+                    bytes.fromhex(signed_approve_hex.replace("0x", ""))
+                )
             )
             logger.info(f"Across approval tx: {approve_hash.hex()}")
 
             # Wait for approval
-            web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+            await asyncio.to_thread(
+                lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+            )
 
         # Build deposit transaction — deposit to the intended recipient.
         deposit_tx = self.across.build_deposit_calldata(
@@ -2811,15 +2867,19 @@ class SwapEngine:
             to_address=recipient,
         )
 
-        nonce = web3.eth.get_transaction_count(wallet_data["address"])
+        nonce = await asyncio.to_thread(
+            lambda: web3.eth.get_transaction_count(wallet_data["address"])
+        )
         deposit_tx["gas"] = 300000
-        deposit_tx["gasPrice"] = web3.eth.gas_price
+        deposit_tx["gasPrice"] = await asyncio.to_thread(lambda: web3.eth.gas_price)
         deposit_tx["nonce"] = nonce
         deposit_tx["chainId"] = chain.chain_id
 
         signed_deposit_hex = await self.wallet_service.sign_evm_transaction(wallet, deposit_tx)
-        deposit_hash = web3.eth.send_raw_transaction(
-            bytes.fromhex(signed_deposit_hex.replace("0x", ""))
+        deposit_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(
+                bytes.fromhex(signed_deposit_hex.replace("0x", ""))
+            )
         )
 
         logger.info(f"Across deposit tx: {deposit_hash.hex()}")
@@ -2877,25 +2937,31 @@ class SwapEngine:
             fn_name="approve", args=[Web3.to_checksum_address(token_bridge), int(quote.from_amount)]
         )
 
-        nonce = web3.eth.get_transaction_count(wallet_data["address"])
+        nonce = await asyncio.to_thread(
+            lambda: web3.eth.get_transaction_count(wallet_data["address"])
+        )
         approve_tx = {
             "to": Web3.to_checksum_address(token_address),
             "data": approve_data,
             "value": 0,
             "gas": 60000,
-            "gasPrice": web3.eth.gas_price,
+            "gasPrice": await asyncio.to_thread(lambda: web3.eth.gas_price),
             "nonce": nonce,
             "chainId": chain.chain_id,
         }
 
         signed_approve_hex = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-        approve_hash = web3.eth.send_raw_transaction(
-            bytes.fromhex(signed_approve_hex.replace("0x", ""))
+        approve_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(
+                bytes.fromhex(signed_approve_hex.replace("0x", ""))
+            )
         )
         logger.info(f"Wormhole approval tx: {approve_hash.hex()}")
 
         # Wait for approval
-        web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+        await asyncio.to_thread(
+            lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+        )
 
         # Step 2: Transfer tokens via Token Bridge
         transfer_tx = self.wormhole.build_transfer_calldata_evm(
@@ -2903,15 +2969,19 @@ class SwapEngine:
             wallet_data["address"],
         )
 
-        nonce = web3.eth.get_transaction_count(wallet_data["address"])
+        nonce = await asyncio.to_thread(
+            lambda: web3.eth.get_transaction_count(wallet_data["address"])
+        )
         transfer_tx["gas"] = 300000
-        transfer_tx["gasPrice"] = web3.eth.gas_price
+        transfer_tx["gasPrice"] = await asyncio.to_thread(lambda: web3.eth.gas_price)
         transfer_tx["nonce"] = nonce
         transfer_tx["chainId"] = chain.chain_id
 
         signed_transfer_hex = await self.wallet_service.sign_evm_transaction(wallet, transfer_tx)
-        transfer_hash = web3.eth.send_raw_transaction(
-            bytes.fromhex(signed_transfer_hex.replace("0x", ""))
+        transfer_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(
+                bytes.fromhex(signed_transfer_hex.replace("0x", ""))
+            )
         )
 
         logger.info(f"Wormhole transfer tx: {transfer_hash.hex()}")
@@ -3070,10 +3140,12 @@ class SwapEngine:
                 ]
                 token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
                 amount_needed = int(quote.from_amount)
-                current_allowance = token_contract.functions.allowance(sender, spender).call()
+                current_allowance = await asyncio.to_thread(
+                    lambda: token_contract.functions.allowance(sender, spender).call()
+                )
 
                 if current_allowance < amount_needed:
-                    nonce = web3.eth.get_transaction_count(sender)
+                    nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
                     max_approval = 2**256 - 1
                     approve_data = token_contract.functions.approve(
                         spender, max_approval
@@ -3082,7 +3154,7 @@ class SwapEngine:
                             "from": sender,
                             "nonce": nonce,
                             "chainId": chain.chain_id,
-                            "gasPrice": web3.eth.gas_price,
+                            "gasPrice": await asyncio.to_thread(lambda: web3.eth.gas_price),
                         }
                     )
                     approve_tx = {
@@ -3097,25 +3169,35 @@ class SwapEngine:
                     signed_approve = await self.wallet_service.sign_evm_transaction(
                         wallet, approve_tx
                     )
-                    approve_hash = web3.eth.send_raw_transaction(
-                        bytes.fromhex(signed_approve.replace("0x", ""))
+                    approve_hash = await asyncio.to_thread(
+                        lambda: web3.eth.send_raw_transaction(
+                            bytes.fromhex(signed_approve.replace("0x", ""))
+                        )
                     )
                     logger.info(f"OKX DEX approval tx: {approve_hash.hex()}")
-                    web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                    await asyncio.to_thread(
+                        lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                    )
 
-            nonce = web3.eth.get_transaction_count(sender)
+            nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
             tx = {
                 "to": spender,
                 "data": tx_data.get("data", ""),
                 "value": _parse_int(tx_data.get("value"), 0),
                 "gas": _parse_int(tx_data.get("gas"), 500000),
-                "gasPrice": _parse_int(tx_data.get("gasPrice"), web3.eth.gas_price),
+                "gasPrice": _parse_int(
+                    tx_data.get("gasPrice"), await asyncio.to_thread(lambda: web3.eth.gas_price)
+                ),
                 "nonce": nonce,
                 "chainId": chain.chain_id,
             }
 
             signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-            tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+            tx_hash = await asyncio.to_thread(
+                lambda: web3.eth.send_raw_transaction(
+                    bytes.fromhex(signed_tx_hex.replace("0x", ""))
+                )
+            )
 
             logger.info(f"OKX DEX swap tx: {tx_hash.hex()}")
             return tx_hash.hex()
@@ -3186,10 +3268,12 @@ class SwapEngine:
             ]
             token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
             amount_needed = int(quote.from_amount)
-            current_allowance = token_contract.functions.allowance(sender, spender).call()
+            current_allowance = await asyncio.to_thread(
+                lambda: token_contract.functions.allowance(sender, spender).call()
+            )
 
             if current_allowance < amount_needed:
-                nonce = web3.eth.get_transaction_count(sender)
+                nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
                 max_approval = 2**256 - 1
                 approve_data = token_contract.functions.approve(
                     spender, max_approval
@@ -3198,7 +3282,7 @@ class SwapEngine:
                         "from": sender,
                         "nonce": nonce,
                         "chainId": chain.chain_id,
-                        "gasPrice": web3.eth.gas_price,
+                        "gasPrice": await asyncio.to_thread(lambda: web3.eth.gas_price),
                     }
                 )
                 approve_tx = {
@@ -3211,25 +3295,33 @@ class SwapEngine:
                     "chainId": chain.chain_id,
                 }
                 signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-                approve_hash = web3.eth.send_raw_transaction(
-                    bytes.fromhex(signed_approve.replace("0x", ""))
+                approve_hash = await asyncio.to_thread(
+                    lambda: web3.eth.send_raw_transaction(
+                        bytes.fromhex(signed_approve.replace("0x", ""))
+                    )
                 )
                 logger.info(f"1inch approval tx: {approve_hash.hex()}")
-                web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                await asyncio.to_thread(
+                    lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                )
 
-        nonce = web3.eth.get_transaction_count(sender)
+        nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
         tx = {
             "to": spender,
             "data": tx_data.get("data", ""),
             "value": _parse_int(tx_data.get("value"), 0),
             "gas": _parse_int(tx_data.get("gas"), 500000),
-            "gasPrice": _parse_int(tx_data.get("gasPrice"), web3.eth.gas_price),
+            "gasPrice": _parse_int(
+                tx_data.get("gasPrice"), await asyncio.to_thread(lambda: web3.eth.gas_price)
+            ),
             "nonce": nonce,
             "chainId": chain.chain_id,
         }
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        tx_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        )
 
         logger.info(f"1inch swap tx: {tx_hash.hex()}")
         return tx_hash.hex()
@@ -3312,10 +3404,12 @@ class SwapEngine:
                 ]
                 token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
                 amount_needed = int(quote.from_amount)
-                current_allowance = token_contract.functions.allowance(sender, spender).call()
+                current_allowance = await asyncio.to_thread(
+                    lambda: token_contract.functions.allowance(sender, spender).call()
+                )
 
                 if current_allowance < amount_needed:
-                    nonce = web3.eth.get_transaction_count(sender)
+                    nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
                     max_approval = 2**256 - 1
                     approve_data = token_contract.functions.approve(
                         spender, max_approval
@@ -3324,7 +3418,7 @@ class SwapEngine:
                             "from": sender,
                             "nonce": nonce,
                             "chainId": chain.chain_id,
-                            "gasPrice": web3.eth.gas_price,
+                            "gasPrice": await asyncio.to_thread(lambda: web3.eth.gas_price),
                         }
                     )
                     approve_tx = {
@@ -3339,25 +3433,33 @@ class SwapEngine:
                     signed_approve = await self.wallet_service.sign_evm_transaction(
                         wallet, approve_tx
                     )
-                    approve_hash = web3.eth.send_raw_transaction(
-                        bytes.fromhex(signed_approve.replace("0x", ""))
+                    approve_hash = await asyncio.to_thread(
+                        lambda: web3.eth.send_raw_transaction(
+                            bytes.fromhex(signed_approve.replace("0x", ""))
+                        )
                     )
                     logger.info(f"0x approval tx (spender={spender}): {approve_hash.hex()}")
-                    web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                    await asyncio.to_thread(
+                        lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                    )
 
-        nonce = web3.eth.get_transaction_count(sender)
+        nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
         tx = {
             "to": tx_to,
             "data": tx_data.get("data", ""),
             "value": _parse_int(tx_data.get("value"), 0),
             "gas": _parse_int(tx_data.get("gas"), 500000),
-            "gasPrice": _parse_int(tx_data.get("gasPrice"), web3.eth.gas_price),
+            "gasPrice": _parse_int(
+                tx_data.get("gasPrice"), await asyncio.to_thread(lambda: web3.eth.gas_price)
+            ),
             "nonce": nonce,
             "chainId": chain.chain_id,
         }
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        tx_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        )
 
         logger.info(f"0x swap tx: {tx_hash.hex()}")
         return tx_hash.hex()
@@ -3430,10 +3532,12 @@ class SwapEngine:
             ]
             token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
             amount_needed = int(quote.from_amount)
-            current_allowance = token_contract.functions.allowance(sender, router).call()
+            current_allowance = await asyncio.to_thread(
+                lambda: token_contract.functions.allowance(sender, router).call()
+            )
 
             if current_allowance < amount_needed:
-                nonce = web3.eth.get_transaction_count(sender)
+                nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
                 max_approval = 2**256 - 1
                 approve_data = token_contract.functions.approve(
                     router, max_approval
@@ -3442,7 +3546,7 @@ class SwapEngine:
                         "from": sender,
                         "nonce": nonce,
                         "chainId": chain.chain_id,
-                        "gasPrice": web3.eth.gas_price,
+                        "gasPrice": await asyncio.to_thread(lambda: web3.eth.gas_price),
                     }
                 )
                 approve_tx = {
@@ -3455,25 +3559,33 @@ class SwapEngine:
                     "chainId": chain.chain_id,
                 }
                 signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-                approve_hash = web3.eth.send_raw_transaction(
-                    bytes.fromhex(signed_approve.replace("0x", ""))
+                approve_hash = await asyncio.to_thread(
+                    lambda: web3.eth.send_raw_transaction(
+                        bytes.fromhex(signed_approve.replace("0x", ""))
+                    )
                 )
                 logger.info(f"KyberSwap approval tx (router={router}): {approve_hash.hex()}")
-                web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                await asyncio.to_thread(
+                    lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                )
 
-        nonce = web3.eth.get_transaction_count(sender)
+        nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
         tx = {
             "to": router,
             "data": tx_data.get("data", ""),
             "value": _parse_int(tx_data.get("value"), 0),
             "gas": _parse_int(tx_data.get("gas"), 500000),
-            "gasPrice": _parse_int(tx_data.get("gasPrice"), web3.eth.gas_price),
+            "gasPrice": _parse_int(
+                tx_data.get("gasPrice"), await asyncio.to_thread(lambda: web3.eth.gas_price)
+            ),
             "nonce": nonce,
             "chainId": chain.chain_id,
         }
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        tx_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        )
 
         logger.info(f"KyberSwap swap tx: {tx_hash.hex()}")
         return tx_hash.hex()
@@ -3623,30 +3735,30 @@ class SwapEngine:
 
     async def _check_solana_tx_status(self, tx_hash: str) -> str:
         """Check Solana transaction status."""
-        async with aiohttp.ClientSession() as session:
-            payload = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "getTransaction",
-                "params": [
-                    tx_hash,
-                    {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0},
-                ],
-            }
-            async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
-                result = await resp.json()
+        session = await get_http_session()
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTransaction",
+            "params": [
+                tx_hash,
+                {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0},
+            ],
+        }
+        async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
+            result = await resp.json()
 
-                if "error" in result:
-                    return SwapStatus.PENDING.value
+            if "error" in result:
+                return SwapStatus.PENDING.value
 
-                tx_data = result.get("result")
-                if tx_data is None:
-                    return SwapStatus.PENDING.value
+            tx_data = result.get("result")
+            if tx_data is None:
+                return SwapStatus.PENDING.value
 
-                if tx_data.get("meta", {}).get("err") is not None:
-                    return SwapStatus.FAILED.value
+            if tx_data.get("meta", {}).get("err") is not None:
+                return SwapStatus.FAILED.value
 
-                return SwapStatus.COMPLETED.value
+            return SwapStatus.COMPLETED.value
 
     async def _check_tron_tx_status(self, tx_hash: str) -> str:
         """Check TRON transaction status via TronGrid."""
@@ -3656,26 +3768,26 @@ class SwapEngine:
             if hasattr(settings, "trongrid_api_key") and settings.trongrid_api_key:
                 headers["TRON-PRO-API-KEY"] = settings.trongrid_api_key
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{rpc_url}/wallet/gettransactioninfobyid",
-                    json={"value": tx_hash},
-                    headers=headers,
-                ) as resp:
-                    data = await resp.json()
+            session = await get_http_session()
+            async with session.post(
+                f"{rpc_url}/wallet/gettransactioninfobyid",
+                json={"value": tx_hash},
+                headers=headers,
+            ) as resp:
+                data = await resp.json()
 
-                    if not data or not data.get("id"):
-                        return SwapStatus.PENDING.value
+                if not data or not data.get("id"):
+                    return SwapStatus.PENDING.value
 
-                    receipt = data.get("receipt", {})
-                    result = receipt.get("result", "")
+                receipt = data.get("receipt", {})
+                result = receipt.get("result", "")
 
-                    if result == "SUCCESS":
-                        return SwapStatus.COMPLETED.value
-                    elif result in ("REVERT", "OUT_OF_ENERGY", "FAILED"):
-                        return SwapStatus.FAILED.value
-                    else:
-                        return SwapStatus.PENDING.value
+                if result == "SUCCESS":
+                    return SwapStatus.COMPLETED.value
+                elif result in ("REVERT", "OUT_OF_ENERGY", "FAILED"):
+                    return SwapStatus.FAILED.value
+                else:
+                    return SwapStatus.PENDING.value
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             logger.debug(f"TRON status check transient error for {tx_hash}: {e}")
             return SwapStatus.PENDING.value
@@ -3687,7 +3799,9 @@ class SwapEngine:
         """Check EVM transaction status."""
         try:
             web3 = self.wallet_service._get_web3(swap_tx.from_chain)
-            receipt = web3.eth.get_transaction_receipt(swap_tx.tx_hash)
+            receipt = await asyncio.to_thread(
+                lambda: web3.eth.get_transaction_receipt(swap_tx.tx_hash)
+            )
 
             if receipt is None:
                 return SwapStatus.PENDING.value
