@@ -16,12 +16,16 @@ SWAPS_PER_PAGE = 5
 
 
 @enforce_tos
-async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0) -> None:
+async def history_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0
+) -> None:
     """Handle /history command - show recent swap history with pagination."""
     user = update.effective_user
 
     # Determine reply method based on whether this is a callback or command
     if update.callback_query:
+        # Instant-ack: stop the button spinner before any DB work
+        await update.callback_query.answer()
         reply_func = update.callback_query.edit_message_text
     else:
         reply_func = update.message.reply_text
@@ -30,31 +34,33 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, pa
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
 
         if not db_user:
-            await reply_func(
-                "❌ Please use /start first to set up your account."
-            )
+            await reply_func("❌ Please use /start first to set up your account.")
             return
 
         # Get total count
-        total_swaps = session.query(SwapTransaction).filter(
-            SwapTransaction.user_id == db_user.id
-        ).count()
+        total_swaps = (
+            session.query(SwapTransaction).filter(SwapTransaction.user_id == db_user.id).count()
+        )
 
         if total_swaps == 0:
             await reply_func(
-                "📜 *Transaction History*\n\n"
-                "No swaps yet. Use /s to make your first swap!",
+                "📜 *Transaction History*\n\n" "No swaps yet. Use /s to make your first swap!",
                 parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 Start Swap", callback_data="swap_start")]
-                ])
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("🔄 Start Swap", callback_data="swap_start")]]
+                ),
             )
             return
 
         # Get paginated swaps
-        swaps = session.query(SwapTransaction).filter(
-            SwapTransaction.user_id == db_user.id
-        ).order_by(SwapTransaction.created_at.desc()).offset(page * SWAPS_PER_PAGE).limit(SWAPS_PER_PAGE).all()
+        swaps = (
+            session.query(SwapTransaction)
+            .filter(SwapTransaction.user_id == db_user.id)
+            .order_by(SwapTransaction.created_at.desc())
+            .offset(page * SWAPS_PER_PAGE)
+            .limit(SWAPS_PER_PAGE)
+            .all()
+        )
 
         # Build history message
         lines = ["📜 *Transaction History*\n"]
@@ -69,16 +75,14 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, pa
             # Amount — use correct decimals for the token
             try:
                 from bot.config.tokens import get_token_decimals
+
                 decimals = get_token_decimals(swap.from_token, swap.from_chain) or 18
-                from_amount = float(swap.from_amount) / (10 ** decimals) if swap.from_amount else 0
+                from_amount = float(swap.from_amount) / (10**decimals) if swap.from_amount else 0
                 amount_str = format_amount(from_amount)
             except Exception:
                 amount_str = "?"
 
-            line = (
-                f"{status_emoji} `{date_str}` "
-                f"{amount_str} {from_display} → {to_display}"
-            )
+            line = f"{status_emoji} `{date_str}` " f"{amount_str} {from_display} → {to_display}"
 
             if swap.tx_hash:
                 line += f"\n   └ {format_tx_link(swap.tx_hash, swap.from_chain)}"
@@ -94,9 +98,13 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, pa
         # Navigation buttons
         nav_buttons = []
         if page > 0:
-            nav_buttons.append(InlineKeyboardButton("« Prev", callback_data=f"history_page_{page - 1}"))
+            nav_buttons.append(
+                InlineKeyboardButton("« Prev", callback_data=f"history_page_{page - 1}")
+            )
         if (page + 1) * SWAPS_PER_PAGE < total_swaps:
-            nav_buttons.append(InlineKeyboardButton("Next »", callback_data=f"history_page_{page + 1}"))
+            nav_buttons.append(
+                InlineKeyboardButton("Next »", callback_data=f"history_page_{page + 1}")
+            )
         if nav_buttons:
             keyboard.append(nav_buttons)
 
@@ -104,12 +112,20 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE, pa
         recent_completed = [s for s in swaps if s.status == SwapStatus.COMPLETED.value]
         if recent_completed:
             s = recent_completed[0]
-            keyboard.append([InlineKeyboardButton(f"🖼️ Share PNL ({s.to_token})", callback_data=f"pnl_share_{s.id}")])
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"🖼️ Share PNL ({s.to_token})", callback_data=f"pnl_share_{s.id}"
+                    )
+                ]
+            )
 
-        keyboard.append([
-            InlineKeyboardButton("🔄 New Swap", callback_data="swap_start"),
-            InlineKeyboardButton("📊 Stats", callback_data="history_stats"),
-        ])
+        keyboard.append(
+            [
+                InlineKeyboardButton("🔄 New Swap", callback_data="swap_start"),
+                InlineKeyboardButton("📊 Stats", callback_data="history_stats"),
+            ]
+        )
         keyboard.append([InlineKeyboardButton("« Back", callback_data="main_menu")])
 
         await reply_func(
@@ -140,32 +156,47 @@ async def history_stats_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        
+
         if not db_user:
             await query.edit_message_text("❌ Please use /start first.")
             return
-        
+
         from sqlalchemy import func, case as sa_case
 
         # Aggregate all stats in a single SQL query — avoids loading all rows into RAM
-        row = session.query(
-            func.count(SwapTransaction.id).label('total'),
-            func.sum(sa_case((SwapTransaction.status == SwapStatus.COMPLETED.value, 1), else_=0)).label('completed'),
-            func.sum(sa_case((SwapTransaction.status == SwapStatus.FAILED.value, 1), else_=0)).label('failed'),
-            func.coalesce(func.sum(sa_case(
-                (SwapTransaction.status == SwapStatus.COMPLETED.value, SwapTransaction.from_amount_usd),
-                else_=None,
-            )), 0).label('volume'),
-            func.coalesce(func.sum(SwapTransaction.gas_fee), 0).label('gas'),
-            func.coalesce(func.sum(SwapTransaction.bridge_fee), 0).label('bridge'),
-        ).filter(SwapTransaction.user_id == db_user.id).one()
+        row = (
+            session.query(
+                func.count(SwapTransaction.id).label("total"),
+                func.sum(
+                    sa_case((SwapTransaction.status == SwapStatus.COMPLETED.value, 1), else_=0)
+                ).label("completed"),
+                func.sum(
+                    sa_case((SwapTransaction.status == SwapStatus.FAILED.value, 1), else_=0)
+                ).label("failed"),
+                func.coalesce(
+                    func.sum(
+                        sa_case(
+                            (
+                                SwapTransaction.status == SwapStatus.COMPLETED.value,
+                                SwapTransaction.from_amount_usd,
+                            ),
+                            else_=None,
+                        )
+                    ),
+                    0,
+                ).label("volume"),
+                func.coalesce(func.sum(SwapTransaction.gas_fee), 0).label("gas"),
+                func.coalesce(func.sum(SwapTransaction.bridge_fee), 0).label("bridge"),
+            )
+            .filter(SwapTransaction.user_id == db_user.id)
+            .one()
+        )
 
         total_swaps = row.total or 0
 
         if not total_swaps:
             await query.edit_message_text(
-                "📊 *Swap Statistics*\n\nNo swaps yet!",
-                parse_mode="Markdown"
+                "📊 *Swap Statistics*\n\nNo swaps yet!", parse_mode="Markdown"
             )
             return
 
@@ -177,16 +208,24 @@ async def history_stats_callback(update: Update, context: ContextTypes.DEFAULT_T
         total_bridge = float(row.bridge or 0)
 
         # Top pairs via SQL aggregation
-        top_pairs_raw = session.query(
-            SwapTransaction.from_token,
-            SwapTransaction.to_token,
-            func.count(SwapTransaction.id).label('cnt'),
-        ).filter(SwapTransaction.user_id == db_user.id).group_by(
-            SwapTransaction.from_token, SwapTransaction.to_token,
-        ).order_by(func.count(SwapTransaction.id).desc()).limit(3).all()
+        top_pairs_raw = (
+            session.query(
+                SwapTransaction.from_token,
+                SwapTransaction.to_token,
+                func.count(SwapTransaction.id).label("cnt"),
+            )
+            .filter(SwapTransaction.user_id == db_user.id)
+            .group_by(
+                SwapTransaction.from_token,
+                SwapTransaction.to_token,
+            )
+            .order_by(func.count(SwapTransaction.id).desc())
+            .limit(3)
+            .all()
+        )
 
         top_pairs = [(f"{r.from_token}→{r.to_token}", r.cnt) for r in top_pairs_raw]
-        
+
         text = (
             f"📊 *Your Swap Statistics*\n\n"
             f"*Total Swaps:* {total_swaps}\n"
@@ -199,15 +238,15 @@ async def history_stats_callback(update: Update, context: ContextTypes.DEFAULT_T
             f"  🌉 Bridge: {format_usd(total_bridge)}\n\n"
             f"*Top Pairs:*\n"
         )
-        
+
         for pair, count in top_pairs:
             text += f"  • {pair}: {count} swaps\n"
-        
+
         keyboard = [
             [InlineKeyboardButton("📜 History", callback_data="history")],
             [InlineKeyboardButton("« Back", callback_data="main_menu")],
         ]
-        
+
         await query.edit_message_text(
             text,
             parse_mode="Markdown",
@@ -232,22 +271,24 @@ async def share_pnl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Generate and show PNL sharing card."""
     query = update.callback_query
     await query.answer()
-    
+
     try:
         swap_id = int(query.data.replace("pnl_share_", ""))
     except ValueError:
         await query.message.reply_text("❌ Invalid swap reference.")
         return
     data = await pnl_service.get_swap_pnl_data(swap_id)
-    
+
     if not data:
-        await query.message.reply_text("❌ Could not calculate PNL. Token might be too new or price data unavailable.")
+        await query.message.reply_text(
+            "❌ Could not calculate PNL. Token might be too new or price data unavailable."
+        )
         return
-        
+
     roi = data["roi_percent"]
     roi_emoji = "🚀" if roi > 10 else ("📈" if roi > 0 else "📉")
     color_bar = "🟢" * 5 if roi > 0 else "🔴" * 5
-    
+
     card_text = (
         f"{roi_emoji} *SUWAPPU PNL CARD*\n"
         f"{color_bar}\n\n"
@@ -258,16 +299,19 @@ async def share_pnl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"Current: ${data['current_price']:.6f}\n\n"
         f"🤖 *Swapped via Suwappu Bot*"
     )
-    
+
     keyboard = [
-        [InlineKeyboardButton("🐦 Share on X (Twitter)", url=f"https://twitter.com/intent/tweet?text=Just%20made%20{roi:.1f}%25%20profit%20using%20SuwappuBot!%20%23Suwappu%20%23Solana")],
-        [InlineKeyboardButton("« Back to History", callback_data="history")]
+        [
+            InlineKeyboardButton(
+                "🐦 Share on X (Twitter)",
+                url=f"https://twitter.com/intent/tweet?text=Just%20made%20{roi:.1f}%25%20profit%20using%20SuwappuBot!%20%23Suwappu%20%23Solana",
+            )
+        ],
+        [InlineKeyboardButton("« Back to History", callback_data="history")],
     ]
-    
+
     await query.edit_message_text(
-        card_text,
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        card_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
@@ -279,4 +323,3 @@ share_pnl_handler = CallbackQueryHandler(share_pnl_callback, pattern="^pnl_share
 
 # Create handlers
 history_handler = CommandHandler("hx", history_command)
-

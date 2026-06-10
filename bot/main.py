@@ -8,6 +8,7 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     PicklePersistence,
+    AIORateLimiter,
 )
 
 from bot.config.settings import settings
@@ -656,14 +657,24 @@ def main() -> None:
 
     # Create application with lifecycle hooks
     logger.info("Creating bot application...")
-    application = (
+    builder = (
         Application.builder()
         .token(settings.telegram_bot_token)
         .persistence(persistence)
         .post_init(post_init)
         .post_shutdown(post_shutdown)
-        .build()
     )
+    if settings.bot_concurrent_updates > 0:
+        from bot.utils.update_processor import PerUserSerializingProcessor
+
+        builder = (
+            builder.concurrent_updates(
+                PerUserSerializingProcessor(max_concurrent_updates=settings.bot_concurrent_updates)
+            )
+            .connection_pool_size(512)
+            .rate_limiter(AIORateLimiter(max_retries=3))
+        )
+    application = builder.build()
 
     # Add all handlers
     add_handlers(application)

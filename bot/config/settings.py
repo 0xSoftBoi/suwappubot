@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     webhook_secret_token: Optional[str] = Field(
         default=None, description="Secret token for webhook verification"
     )
+    bot_concurrent_updates: int = Field(
+        default=0,
+        description=(
+            "Max concurrent Telegram updates (per-user serialized). "
+            "0 = sequential processing (PTB default). Recommended: 256."
+        ),
+    )
 
     # Background Services Control
     enable_background_services: bool = Field(

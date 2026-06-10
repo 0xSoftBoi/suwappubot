@@ -250,6 +250,14 @@ async def positions_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         user_id = db_user.id
         needs_backfill = db_user.positions_backfilled_at is None
 
+    # Optimistic interim edit — building positions does multi-second
+    # balance/price fetches; the final send_md_safe edit replaces this fully.
+    if update.callback_query:
+        try:
+            await update.callback_query.edit_message_text("⏳ Loading positions…")
+        except Exception:
+            pass
+
     # One-time: seed spot cost-basis from swap history so existing holdings show
     # immediately instead of building up from the next swap. Best-effort.
     if needs_backfill:
