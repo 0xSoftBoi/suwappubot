@@ -55,7 +55,12 @@ _MORPHO_CHAIN_NAMES = {
 def _decode_terminal_auth_token(token: Optional[str]) -> Optional[Dict]:
     if not token:
         return None
-    secret = getattr(settings, "secret_key", None) or os.environ.get("SECRET_KEY")
+    # Verify with the exact same secret the tokens were signed with. Importing
+    # JWT_SECRET from api.main (single source of truth) avoids the previous
+    # divergence where this re-resolved the secret differently and rejected every
+    # valid token. Lazy import to avoid a circular import at module load.
+    from api.main import JWT_SECRET as secret
+
     if not secret:
         return None
     try:

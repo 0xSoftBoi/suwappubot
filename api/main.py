@@ -723,12 +723,21 @@ class AuthMeResponse(BaseModel):
 
 # --- JWT Configuration ---
 
-JWT_SECRET = getattr(settings, "secret_key", None) or os.environ.get("SECRET_KEY")
+# Resolve the JWT secret from the configured `jwt_secret_key` (env JWT_SECRET_KEY)
+# first, then the legacy SECRET_KEY env. NOTE: the settings field is
+# `jwt_secret_key` — reading `secret_key` (which doesn't exist) silently ignored
+# the configured value and fell through to an ephemeral per-process secret, which
+# the terminal's verifier couldn't match (401 on every authed terminal request).
+JWT_SECRET = (
+    getattr(settings, "jwt_secret_key", None)
+    or getattr(settings, "secret_key", None)
+    or os.environ.get("SECRET_KEY")
+)
 if not JWT_SECRET:
     import logging as _jwt_log
 
     _jwt_log.getLogger(__name__).warning(
-        "SECRET_KEY not set — generating ephemeral JWT secret (tokens will not survive restarts)"
+        "JWT_SECRET_KEY/SECRET_KEY not set — generating ephemeral JWT secret (tokens will not survive restarts)"
     )
     JWT_SECRET = secrets.token_hex(32)
 JWT_ALGORITHM = "HS256"
