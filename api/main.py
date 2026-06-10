@@ -57,6 +57,7 @@ from bot.services.health_monitor import health_monitor
 from bot.services.balance_refresher import balance_refresher
 from bot.services.perps_monitor import perps_monitor
 from bot.services.event_bus import event_bus
+from bot.services.digest_service import digest_service
 from bot.services.api_client import api_client
 from bot.utils.preload import preload_config
 from bot.services.rpc_manager import rpc_manager
@@ -223,7 +224,9 @@ async def lifespan(app: FastAPI):
                             )
                         )
             else:
-                logger.warning("⚠️ Placeholder or missing Telegram token. Skipping polling/webhook.")
+                logger.warning(
+                    "⚠️ Placeholder or missing Telegram token. Skipping polling/webhook."
+                )
         except Exception as e:
             logger.error(f"❌ Telegram bot failed to initialize: {e}")
             logger.warning("⚠️ Continuing in HEADLESS MODE (API only)")
@@ -268,6 +271,8 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)
         # Perps position-sync loop (#248): previously implemented but never started.
         await perps_monitor.start(bot=bot_app.bot if bot_initialized else None)
+        await asyncio.sleep(2)
+        await digest_service.start(bot=bot_app.bot if bot_initialized else None)
 
         # Start Discord alert service if Discord bot is available
         if discord_bot:
@@ -357,6 +362,7 @@ async def lifespan(app: FastAPI):
     # Only stop services if they were started
     if db_success and enable_background_services:
         await fee_sweeper.stop()
+        await digest_service.stop()
         await alert_service.stop()
         await order_service.stop()
         await tx_poller.stop()

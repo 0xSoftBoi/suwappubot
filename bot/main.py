@@ -72,6 +72,7 @@ from bot.handlers.settings import (
     chain_set_handler,
 )
 from bot.handlers.admin import status_handler, clear_cache_handler, broadcast_handler
+from bot.handlers.digest import digest_handler
 from bot.handlers.quickswap import (
     quickswap_handler,
     quickswap_confirm_callback,
@@ -190,6 +191,7 @@ from bot.handlers.copy import (
 # Token Sniping handlers
 from bot.handlers.snipe import snipe_conversation_handler
 from bot.handlers.predict import predict_conversation_handler
+from bot.handlers.savings import savings_conversation_handler
 from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
 from bot.handlers.dashboard import dashboard_handler, dashboard_menu_callback
 from bot.handlers.token import (
@@ -283,6 +285,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(tax_handler)  # /tax
     application.add_handler(subscription_handler)  # /sub (x402)
     application.add_handler(dashboard_handler)  # /dashboard (Mini App)
+    application.add_handler(digest_handler)  # /digest
 
     # Perps Trading
     # Note: perps_conversation_handler added below with other conversation handlers
@@ -323,6 +326,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(snipe_conversation_handler)  # Token sniping /snipe
     application.add_handler(perps_conversation_handler)  # Perps trading /perps
     application.add_handler(predict_conversation_handler)  # Prediction markets /predict
+    application.add_handler(savings_conversation_handler)  # USDC savings /save (Aave V3 Base)
     application.add_handler(token_conv_handler)  # SUWP token /token /suwp
 
     # ============ CALLBACK QUERY HANDLERS ============

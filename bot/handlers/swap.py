@@ -35,7 +35,6 @@ from bot.services.x402_service import x402_service
 from bot.utils.quote_validator import quote_validator
 from bot.utils.cache import quote_cache
 
-
 logger = logging.getLogger(__name__)
 
 # Conversation states
@@ -930,8 +929,16 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
             except Exception as e:
                 logger.debug(f"Security analysis failed: {e}")
 
+        # Build all-in cost breakdown (only show lines where data is real)
+        slippage_pct = quote.raw_quote.get("slippage") or (swap_data.get("slippage") or 0.5)
+        allin_lines = [f"• Platform fee: {fee_percentage}% ({format_usd(total_fee_usd)})"]
+        if quote.gas_cost_usd and quote.gas_cost_usd > 0:
+            allin_lines.append(f"• Est. gas: {format_usd(quote.gas_cost_usd * num_wallets)}")
+        allin_lines.append(f"• Max slippage: {slippage_pct}%")
+        allin_cost_block = "\n".join(allin_lines)
+
         text = (
-            f"�📊 *Multi-Wallet Swap Quote*\n\n"
+            f"📊 *Multi-Wallet Swap Quote*\n\n"
             f"*From:*\n"
             f"{from_chain_config.logo_emoji} {format_amount(quote.from_amount_human, symbol=swap_data['from_token'])} "
             f"x *{num_wallets} wallets* (Total: {format_amount(total_from_human, symbol=swap_data['from_token'])})\n"
@@ -939,9 +946,9 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
             f"*To (after fees):*\n"
             f"{to_chain_config.logo_emoji} ~{format_amount(quote.to_amount_human, symbol=swap_data['to_token'])}\n"
             f"on {to_chain_config.display_name}\n\n"
-            f"*Fees (Combined):*\n"
-            f"• Platform fee: {fee_percentage}% ({format_usd(total_fee_usd)})\n"
-            f"• Provider: {provider_display}"
+            f"*Provider:* {provider_display}\n\n"
+            f"💸 *All-in cost*\n"
+            f"{allin_cost_block}"
             f"{security_text}\n\n"
             f"⚠️ *Confirmation will execute swaps on {num_wallets} wallets simultaneously.*"
         )
