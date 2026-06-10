@@ -413,11 +413,40 @@ def _ensure_schema(db_engine) -> None:
     # --- staking tables: token_claims, staking_positions, distribution_epochs, epoch_rewards ---
     _add_staking_tables(db_engine, inspector, is_sqlite)
     _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite)
+    _add_savings_tables(db_engine, inspector, is_sqlite)
     _add_auth_tables(db_engine, inspector, is_sqlite)
 
     # --- performance indexes ---
     _add_performance_indexes(db_engine, inspector, is_sqlite)
     _add_performance_indexes_v2(db_engine, inspector, is_sqlite)
+
+    # --- users: weekly digest columns ---
+    if "users" in tables:
+        _add_digest_columns(db_engine, inspector, is_sqlite)
+
+
+def _add_digest_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add weekly_digest and last_digest_at columns to users table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("users")}
+    new_cols = [
+        ("weekly_digest", "BOOLEAN", "FALSE"),
+        ("last_digest_at", "TIMESTAMP", "NULL"),
+    ]
+    for col_name, col_type, default in new_cols:
+        if col_name not in cols:
+            if default == "NULL":
+                ddl_default = ""
+            else:
+                ddl_default = f" DEFAULT {default}"
+            if is_sqlite:
+                ddl = f"ALTER TABLE users ADD COLUMN {col_name} {col_type}{ddl_default}"
+            else:
+                ddl = (
+                    f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type}{ddl_default}"
+                )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info(f"Added users.{col_name}")
 
 
 def _add_agent_drizzle_columns(db_engine, inspector, table_name: str, is_sqlite: bool) -> None:
@@ -513,6 +542,18 @@ def _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite: bool) -> N
                     logger.info(f"Added distribution_epochs.{col_name}")
                 except Exception as e:
                     logger.warning(f"Could not add {col_name}: {e}")
+
+
+def _add_savings_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the savings_events audit table (Aave V3 deposit/withdraw log)."""
+    try:
+        from bot.models.savings import SavingsEvent
+
+        if not inspector.has_table("savings_events"):
+            SavingsEvent.__table__.create(bind=db_engine)
+            logger.info("Created savings_events table")
+    except Exception as e:
+        logger.warning(f"Failed to create savings_events table: {e}")
 
 
 def _add_performance_indexes(db_engine, inspector, is_sqlite: bool) -> None:
@@ -1199,9 +1240,7 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
         # --- daily_quests ---
         if "daily_quests" not in tables:
             if is_sqlite:
-                conn.execute(
-                    text(
-                        """
+                conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS daily_quests (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         date VARCHAR(10) NOT NULL,
@@ -1212,13 +1251,9 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         xp_reward INTEGER DEFAULT 0,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """
-                    )
-                )
+                """))
             else:
-                conn.execute(
-                    text(
-                        """
+                conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS daily_quests (
                         id SERIAL PRIMARY KEY,
                         date VARCHAR(10) NOT NULL,
@@ -1229,18 +1264,14 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         xp_reward INTEGER DEFAULT 0,
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """
-                    )
-                )
+                """))
 
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_quests_date ON daily_quests(date)"))
 
         # --- user_quests ---
         if "user_quests" not in tables:
             if is_sqlite:
-                conn.execute(
-                    text(
-                        """
+                conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS user_quests (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         user_id INTEGER NOT NULL REFERENCES users(id),
@@ -1251,13 +1282,9 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         claimed BOOLEAN DEFAULT FALSE,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """
-                    )
-                )
+                """))
             else:
-                conn.execute(
-                    text(
-                        """
+                conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS user_quests (
                         id SERIAL PRIMARY KEY,
                         user_id INTEGER NOT NULL REFERENCES users(id),
@@ -1268,9 +1295,7 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         claimed BOOLEAN DEFAULT FALSE,
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """
-                    )
-                )
+                """))
 
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_user_quests_user_id ON user_quests(user_id)")
@@ -1284,9 +1309,7 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
         # --- jackpot_pools ---
         if "jackpot_pools" not in tables:
             if is_sqlite:
-                conn.execute(
-                    text(
-                        """
+                conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS jackpot_pools (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         date VARCHAR(10) NOT NULL UNIQUE,
@@ -1297,13 +1320,9 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         drawn_at DATETIME,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """
-                    )
-                )
+                """))
             else:
-                conn.execute(
-                    text(
-                        """
+                conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS jackpot_pools (
                         id SERIAL PRIMARY KEY,
                         date VARCHAR(10) NOT NULL UNIQUE,
@@ -1314,9 +1333,7 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         drawn_at TIMESTAMP,
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """
-                    )
-                )
+                """))
 
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_jackpot_pools_date ON jackpot_pools(date)")
