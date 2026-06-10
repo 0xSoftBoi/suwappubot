@@ -17,7 +17,6 @@ from decimal import Decimal
 from typing import Callable, Optional, TypeVar
 
 from web3 import Web3
-from eth_account import Account
 
 T = TypeVar("T")
 
@@ -184,21 +183,28 @@ class SavingsService:
             address=Web3.to_checksum_address(AAVE_POOL_ADDRESS), abi=AAVE_POOL_ABI
         )
 
-    def _get_private_key(self, wallet) -> str:
-        """Decrypt the signing key (handles Turnkey backup fallback)."""
+    def _sign_transaction(self, wallet, tx: dict) -> bytes:
+        """Sign via WalletService.sign_evm_transaction — routes Turnkey wallets
+        through the Turnkey API (with backup-key fallback) and local wallets
+        through local signing. We run inside asyncio.to_thread, so there is no
+        event loop in this thread and asyncio.run is safe.
+        """
+        import asyncio as _asyncio
+
         from bot.services.wallet import WalletService
 
-        ws = WalletService()
-        if getattr(wallet, "is_turnkey_wallet", False):
-            return ws.get_backup_private_key(wallet)
-        return ws.get_private_key(wallet)
+        signed_hex = _asyncio.run(WalletService().sign_evm_transaction(wallet, tx))
+        if signed_hex.startswith("0x"):
+            signed_hex = signed_hex[2:]
+        return bytes.fromhex(signed_hex)
 
-    def _build_and_send(self, web3: Web3, wallet, contract_fn, private_key: str) -> str:
+    def _build_and_send(self, web3: Web3, wallet, contract_fn) -> str:
         """Build, sign, send a contract call and wait for the receipt.
 
-        Mirrors the swap/treasury EVM pattern: nonce + gasPrice + estimate_gas +
-        local sign + send_raw_transaction + wait_for_transaction_receipt. Raises
-        SavingsError (user-safe) if the transaction reverts on-chain.
+        Mirrors the swap EVM pattern: nonce + gasPrice + estimate_gas + sign
+        (via WalletService → Turnkey API or local key) + send_raw_transaction +
+        wait_for_transaction_receipt. Raises SavingsError (user-safe) if the
+        transaction reverts on-chain.
         """
         from_addr = Web3.to_checksum_address(wallet.address)
         nonce = web3.eth.get_transaction_count(from_addr)
@@ -213,10 +219,7 @@ class SavingsService:
         )
         tx["gas"] = int(web3.eth.estimate_gas(tx) * 1.2)
 
-        if not private_key.startswith("0x"):
-            private_key = "0x" + private_key
-        signed = Account.sign_transaction(tx, private_key)
-        raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
+        raw = self._sign_transaction(wallet, tx)
         tx_hash = web3.eth.send_raw_transaction(raw)
         # Point of no return: the tx is broadcast. Any failure after this must
         # surface as _SentTx so the failover loop never re-sends elsewhere.
@@ -299,12 +302,6 @@ class SavingsService:
         owner = Web3.to_checksum_address(wallet.address)
         pool_addr = Web3.to_checksum_address(AAVE_POOL_ADDRESS)
 
-        try:
-            private_key = self._get_private_key(wallet)
-        except Exception as e:
-            logger.warning(f"deposit: key access failed: {e}")
-            raise SavingsError("Could not access this wallet for signing.")
-
         def _op(web3: Web3) -> list[str]:
             usdc = self._erc20(web3, USDC_ADDRESS)
             balance_wei = usdc.functions.balanceOf(owner).call()
@@ -319,14 +316,14 @@ class SavingsService:
             allowance = usdc.functions.allowance(owner, pool_addr).call()
             if allowance < amount_wei:
                 approve_fn = usdc.functions.approve(pool_addr, amount_wei)
-                approve_hash = self._build_and_send(web3, wallet, approve_fn, private_key)
+                approve_hash = self._build_and_send(web3, wallet, approve_fn)
                 tx_hashes.append(approve_hash)
                 logger.info(f"savings deposit: approved USDC tx={approve_hash}")
 
             supply_fn = self._pool(web3).functions.supply(
                 Web3.to_checksum_address(USDC_ADDRESS), amount_wei, owner, 0
             )
-            supply_hash = self._build_and_send(web3, wallet, supply_fn, private_key)
+            supply_hash = self._build_and_send(web3, wallet, supply_fn)
             tx_hashes.append(supply_hash)
             logger.info(f"savings deposit: supplied {amount} USDC tx={supply_hash}")
             return tx_hashes
@@ -362,12 +359,6 @@ class SavingsService:
                 raise SavingsError("Amount must be greater than zero.")
             amount_wei = self._usdc_to_wei(amount)
 
-        try:
-            private_key = self._get_private_key(wallet)
-        except Exception as e:
-            logger.warning(f"withdraw: key access failed: {e}")
-            raise SavingsError("Could not access this wallet for signing.")
-
         def _op(web3: Web3) -> str:
             if amount_wei != MAX_UINT256:
                 position_wei = self._erc20(web3, ABASUSDC_ADDRESS).functions.balanceOf(owner).call()
@@ -380,7 +371,7 @@ class SavingsService:
             withdraw_fn = self._pool(web3).functions.withdraw(
                 Web3.to_checksum_address(USDC_ADDRESS), amount_wei, owner
             )
-            tx_hash = self._build_and_send(web3, wallet, withdraw_fn, private_key)
+            tx_hash = self._build_and_send(web3, wallet, withdraw_fn)
             logger.info(f"savings withdraw: tx={tx_hash} amount_wei={amount_wei}")
             return tx_hash
 
