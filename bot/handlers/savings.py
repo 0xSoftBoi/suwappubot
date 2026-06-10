@@ -43,6 +43,15 @@ logger = logging.getLogger(__name__)
 
 wallet_service = WalletService()
 
+# Recovery keyboard for error screens — "save_menu" is a registered entry
+# point, so this works even after the conversation has ended.
+_RETRY_KEYBOARD = InlineKeyboardMarkup(
+    [
+        [InlineKeyboardButton("🔄 Try Again", callback_data="save_menu")],
+        [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
+    ]
+)
+
 
 def _basescan_tx(tx_hash: str) -> str:
     """Markdown link to a Base tx on basescan."""
@@ -168,6 +177,17 @@ async def save_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 async def save_refresh_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer("Refreshing...")
+    # Entered via the main-menu "save_menu" button there may be no user_id in
+    # context yet — resolve it from the Telegram user.
+    if not context.user_data.get("user_id"):
+        with get_session() as session:
+            db_user = (
+                session.query(User).filter(User.telegram_id == update.effective_user.id).first()
+            )
+            if not db_user:
+                await query.edit_message_text("❌ Please use /start first to set up your account.")
+                return ConversationHandler.END
+            context.user_data["user_id"] = db_user.id
     return await _render_menu(update, context, is_callback=True)
 
 
@@ -195,7 +215,12 @@ async def save_action_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     user_id = context.user_data.get("user_id")
     wallets = _evm_wallets(user_id)
     if not wallets:
-        await query.edit_message_text("❌ No EVM wallet found. Add one first.")
+        await query.edit_message_text(
+            "❌ No EVM wallet found. Add one first.",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("👛 Add Wallet", callback_data="wallet_menu")]]
+            ),
+        )
         return ConversationHandler.END
 
     verb = "deposit into" if action == "deposit" else "withdraw from"
@@ -228,7 +253,9 @@ async def save_select_wallet_callback(update: Update, context: ContextTypes.DEFA
 
     savings = context.user_data.get("savings")
     if not savings:
-        await query.edit_message_text("❌ Session expired. Start again with /save")
+        await query.edit_message_text(
+            "❌ Session expired. Start again with /save", reply_markup=_RETRY_KEYBOARD
+        )
         return ConversationHandler.END
 
     user_id = context.user_data.get("user_id")
@@ -250,7 +277,7 @@ async def save_select_wallet_callback(update: Update, context: ContextTypes.DEFA
                 savings_service.get_usdc_balance, savings["wallet_address"]
             )
         except SavingsError as e:
-            await query.edit_message_text(f"❌ {e}")
+            await query.edit_message_text(f"❌ {e}", reply_markup=_RETRY_KEYBOARD)
             return ConversationHandler.END
         savings["available"] = float(available)
         text = (
@@ -264,7 +291,7 @@ async def save_select_wallet_callback(update: Update, context: ContextTypes.DEFA
                 savings_service.get_position, savings["wallet_address"]
             )
         except SavingsError as e:
-            await query.edit_message_text(f"❌ {e}")
+            await query.edit_message_text(f"❌ {e}", reply_markup=_RETRY_KEYBOARD)
             return ConversationHandler.END
         savings["available"] = float(position)
         text = (
@@ -296,7 +323,9 @@ async def save_pct_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     savings = context.user_data.get("savings")
     if not savings:
-        await query.edit_message_text("❌ Session expired. Start again with /save")
+        await query.edit_message_text(
+            "❌ Session expired. Start again with /save", reply_markup=_RETRY_KEYBOARD
+        )
         return ConversationHandler.END
 
     pct = int(query.data.replace("save_pct_", ""))
@@ -320,7 +349,9 @@ async def save_all_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await query.answer()
     savings = context.user_data.get("savings")
     if not savings:
-        await query.edit_message_text("❌ Session expired. Start again with /save")
+        await query.edit_message_text(
+            "❌ Session expired. Start again with /save", reply_markup=_RETRY_KEYBOARD
+        )
         return ConversationHandler.END
     savings["amount"] = None
     return await _show_confirm(update, context, is_callback=True)
@@ -330,7 +361,9 @@ async def save_enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """Handle typed amount input."""
     savings = context.user_data.get("savings")
     if not savings:
-        await update.message.reply_text("❌ Session expired. Start again with /save")
+        await update.message.reply_text(
+            "❌ Session expired. Start again with /save", reply_markup=_RETRY_KEYBOARD
+        )
         return ConversationHandler.END
 
     amount = validate_amount(update.message.text)
@@ -408,7 +441,9 @@ async def save_execute_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     savings = context.user_data.get("savings")
     if not savings:
-        await query.edit_message_text("❌ Session expired. Start again with /save")
+        await query.edit_message_text(
+            "❌ Session expired. Start again with /save", reply_markup=_RETRY_KEYBOARD
+        )
         return ConversationHandler.END
 
     user_id = context.user_data.get("user_id")
