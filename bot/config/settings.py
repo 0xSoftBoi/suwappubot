@@ -328,6 +328,26 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Atomiq BTC bridge (Lightning/BTC ↔ Starknet — Phase 3)
+    atomiq_api_url: str = Field(
+        default="https://mainnet.swaps-api.atomiq.exchange",
+        description=(
+            "Atomiq REST execution API base URL (no auth; testnet4 variant "
+            "exists for testing)"
+        ),
+    )
+    starknet_btc_bridge_enabled: bool = Field(
+        default=True,
+        description=(
+            "Enable the Atomiq BTC bridge background poller (Lightning→Starknet "
+            "deposits and Starknet→BTC/Lightning withdrawals)"
+        ),
+    )
+    btc_deposit_default_token: str = Field(
+        default="STARKNET-WBTC",
+        description="Default Starknet token received from BTC/Lightning deposits",
+    )
+
     # Infura network name mappings
     INFURA_NETWORKS: ClassVar[Dict[str, str]] = {
         "ethereum": "mainnet",

@@ -25,6 +25,9 @@ wallet_service = WalletService()
 
 class SignTransactionRequest(BaseModel):
     wallet_id: int
+    # Required: the caller (TS API) MUST assert which user owns this wallet so we
+    # can enforce ownership before signing. The api-ts caller sends this field.
+    user_id: int
     unsigned_transaction: dict
     chain_type: str = "evm"
 

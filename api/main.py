@@ -224,9 +224,7 @@ async def lifespan(app: FastAPI):
                             )
                         )
             else:
-                logger.warning(
-                    "⚠️ Placeholder or missing Telegram token. Skipping polling/webhook."
-                )
+                logger.warning("⚠️ Placeholder or missing Telegram token. Skipping polling/webhook.")
         except Exception as e:
             logger.error(f"❌ Telegram bot failed to initialize: {e}")
             logger.warning("⚠️ Continuing in HEADLESS MODE (API only)")
@@ -273,6 +271,11 @@ async def lifespan(app: FastAPI):
         await perps_monitor.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
         await digest_service.start(bot=bot_app.bot if bot_initialized else None)
+        if getattr(settings, "starknet_btc_bridge_enabled", False):
+            await asyncio.sleep(2)
+            from bot.services.btc_bridge_poller import btc_bridge_poller
+
+            await btc_bridge_poller.start(bot=bot_app.bot if bot_initialized else None)
 
         # Start Discord alert service if Discord bot is available
         if discord_bot:
@@ -369,6 +372,10 @@ async def lifespan(app: FastAPI):
         await health_monitor.stop()
         await balance_refresher.stop()
         await perps_monitor.stop()
+        if getattr(settings, "starknet_btc_bridge_enabled", False):
+            from bot.services.btc_bridge_poller import btc_bridge_poller
+
+            await btc_bridge_poller.stop()
 
     # Stop auth challenge cleanup
     auth_cleanup_task.cancel()

@@ -415,6 +415,7 @@ def _ensure_schema(db_engine) -> None:
     _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite)
     _add_savings_tables(db_engine, inspector, is_sqlite)
     _add_auth_tables(db_engine, inspector, is_sqlite)
+    _add_btc_swap_tables(db_engine, inspector, is_sqlite)
 
     # --- performance indexes ---
     _add_performance_indexes(db_engine, inspector, is_sqlite)
@@ -554,6 +555,18 @@ def _add_savings_tables(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info("Created savings_events table")
     except Exception as e:
         logger.warning(f"Failed to create savings_events table: {e}")
+
+
+def _add_btc_swap_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the btc_swaps table (Atomiq BTC bridge swaps) idempotently."""
+    try:
+        from bot.models.btc_swap import BtcSwap
+
+        if not inspector.has_table("btc_swaps"):
+            BtcSwap.__table__.create(bind=db_engine)
+            logger.info("Created btc_swaps table")
+    except Exception as e:
+        logger.warning(f"Failed to create btc_swaps table: {e}")
 
 
 def _add_performance_indexes(db_engine, inspector, is_sqlite: bool) -> None:

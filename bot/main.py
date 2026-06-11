@@ -192,6 +192,7 @@ from bot.handlers.copy import (
 from bot.handlers.snipe import snipe_conversation_handler
 from bot.handlers.predict import predict_conversation_handler
 from bot.handlers.savings import savings_conversation_handler
+from bot.handlers.btc import btc_conversation_handler
 from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
 from bot.handlers.dashboard import dashboard_handler, dashboard_menu_callback
 from bot.handlers.token import (
@@ -327,6 +328,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(perps_conversation_handler)  # Perps trading /perps
     application.add_handler(predict_conversation_handler)  # Prediction markets /predict
     application.add_handler(savings_conversation_handler)  # USDC savings /save (Aave V3 Base)
+    application.add_handler(btc_conversation_handler)  # BTC bridge /btc (Atomiq, Starknet)
     application.add_handler(token_conv_handler)  # SUWP token /token /suwp
 
     # ============ CALLBACK QUERY HANDLERS ============
@@ -525,6 +527,7 @@ async def post_init(application) -> None:
             BotCommand("profile", "Your trader profile"),
             BotCommand("c", "Custodial wallet"),
             BotCommand("dashboard", "Open Mini App"),
+            BotCommand("btc", "BTC bridge (Lightning ⇄ Starknet)"),
             BotCommand("tax", "Tax export"),
             BotCommand("set", "Settings"),
             BotCommand("h", "Help"),
