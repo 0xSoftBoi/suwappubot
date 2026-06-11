@@ -4,6 +4,7 @@ Internal API routes for cross-service communication.
 Authenticated via INTERNAL_API_KEY (shared secret between Python and TS services).
 """
 
+import hmac
 import logging
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
@@ -25,6 +26,9 @@ wallet_service = WalletService()
 
 class SignTransactionRequest(BaseModel):
     wallet_id: int
+    # Required: the caller (TS API) MUST assert which user owns this wallet so we
+    # can enforce ownership before signing. The api-ts caller sends this field.
+    user_id: int
     unsigned_transaction: dict
     chain_type: str = "evm"
 
@@ -36,8 +40,15 @@ class SignTransactionResponse(BaseModel):
 
 def _verify_internal_key(x_internal_key: str = Header(None)):
     import os
-    expected = os.environ.get("INTERNAL_API_KEY") or getattr(settings, 'internal_api_key', None) or getattr(settings, 'agent_api_key', None)
-    if not expected or x_internal_key != expected:
+
+    # Accept ONLY a dedicated internal secret. The agent_api_key (shared with
+    # external AI agents) must NEVER unlock internal signing — falling back to it
+    # let any agent key authenticate to /internal/sign-transaction. If no internal
+    # secret is configured, fail closed (503) rather than open.
+    expected = os.environ.get("INTERNAL_API_KEY") or getattr(settings, "internal_api_key", None)
+    if not expected:
+        raise HTTPException(status_code=503, detail="internal signing not configured")
+    if not x_internal_key or not hmac.compare_digest(str(x_internal_key), str(expected)):
         raise HTTPException(status_code=401, detail="Invalid internal API key")
 
 
@@ -59,18 +70,36 @@ async def sign_transaction(
         if not wallet:
             raise HTTPException(status_code=404, detail="Wallet not found")
 
+        # Ownership enforcement: the caller must prove the wallet belongs to the
+        # user it claims to act for. Without this, possession of the internal key
+        # let the caller sign a transaction for ANY wallet_id.
+        if wallet.user_id != request.user_id:
+            logger.warning(
+                "Internal sign ownership mismatch: wallet %s belongs to user %s, "
+                "request claimed user %s",
+                request.wallet_id,
+                wallet.user_id,
+                request.user_id,
+            )
+            raise HTTPException(status_code=403, detail="Wallet does not belong to user")
+
         try:
             if request.chain_type == "evm":
-                signed = await wallet_service.sign_evm_transaction(wallet, request.unsigned_transaction)
+                signed = await wallet_service.sign_evm_transaction(
+                    wallet, request.unsigned_transaction
+                )
             elif request.chain_type == "solana":
                 tx_bytes = bytes.fromhex(request.unsigned_transaction.get("hex", ""))
                 signed_bytes = await wallet_service.sign_solana_transaction(wallet, tx_bytes)
                 signed = signed_bytes.hex()
             else:
-                raise HTTPException(status_code=400, detail=f"Unsupported chain type: {request.chain_type}")
+                raise HTTPException(
+                    status_code=400, detail=f"Unsupported chain type: {request.chain_type}"
+                )
 
             # Check if fallback was used
             from bot.services.turnkey_fallback import get_circuit_breaker
+
             used_fallback = get_circuit_breaker().is_open
 
             return SignTransactionResponse(
@@ -172,6 +201,7 @@ async def provision_agent_wallet(
 
     try:
         from bot.models.user import User
+
         agent_int_id = abs(hash(request.agent_uuid)) % (2**31 - 1)
 
         with get_session() as session:
@@ -193,7 +223,9 @@ async def provision_agent_wallet(
             chain_type=request.chain_type,
         )
 
-        logger.info(f"Provisioned wallet for agent {request.agent_uuid[:8]}: user_id={user_id}, wallet_id={wallet.id}")
+        logger.info(
+            f"Provisioned wallet for agent {request.agent_uuid[:8]}: user_id={user_id}, wallet_id={wallet.id}"
+        )
 
         return {
             "internal_user_id": user_id,
@@ -262,7 +294,9 @@ async def execute_agent_swap(
             platform_fee_bps=qd.get("platform_fee_bps") or fee_service.get_fee_bps(),
         )
 
-        logger.info(f"Executing swap for agent {request.agent_uuid[:8]}: {quote.from_amount} {quote.from_token} → {quote.to_token}")
+        logger.info(
+            f"Executing swap for agent {request.agent_uuid[:8]}: {quote.from_amount} {quote.from_token} → {quote.to_token}"
+        )
 
         swap_tx = await swap_engine.execute_swap(
             quote=quote,
@@ -271,7 +305,9 @@ async def execute_agent_swap(
             idempotency_key=request.idempotency_key,
         )
 
-        logger.info(f"Swap executed: id={swap_tx.id}, status={swap_tx.status}, tx_hash={swap_tx.tx_hash}")
+        logger.info(
+            f"Swap executed: id={swap_tx.id}, status={swap_tx.status}, tx_hash={swap_tx.tx_hash}"
+        )
 
         return {
             "swap_id": swap_tx.id,

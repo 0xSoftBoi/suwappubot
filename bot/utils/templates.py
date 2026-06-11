@@ -72,7 +72,7 @@ WELCOME_MESSAGE = """
 
 Cross-chain swaps made simple.
 
-🎁 *Referral Blitz*: earn 50% of fees from friends + instant bonuses.
+🎁 *Referral Blitz*: earn 30% of fees from friends + instant bonuses.
 Use /ref to grab your link.
 
 *Choose Your Mode:*

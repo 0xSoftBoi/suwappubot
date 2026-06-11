@@ -487,6 +487,25 @@ class Settings(BaseSettings):
         description="Meta App Secret — used to verify X-Hub-Signature-256 on inbound webhooks. "
         "When set, unsigned/forged requests are rejected (fail-closed).",
     )
+    whatsapp_business_phone: Optional[str] = Field(
+        default=None,
+        description="E.164 business number digits (no '+') for wa.me referral links — distinct "
+        "from whatsapp_phone_number_id (Meta's numeric API id)",
+    )
+
+    # Auth
+    passkey_auth_enabled: bool = Field(
+        default=False,
+        description=(
+            "Master switch for /auth/passkey/* endpoints. DISABLED by default because the "
+            "current register/complete + authenticate/complete handlers do NOT verify the "
+            "WebAuthn attestation/assertion signature (no COSE public key is stored at "
+            "registration), so possession of a Redis challenge alone yields a session JWT for "
+            "any credentialId — an account-takeover hole. Keep False until real verification "
+            "(py_webauthn) plus a public-key storage column are implemented. When False the "
+            "endpoints return 503."
+        ),
+    )
 
     # Discord Bot
     discord_bot_token: Optional[str] = Field(default=None, description="Discord bot token")

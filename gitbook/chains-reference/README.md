@@ -1,6 +1,6 @@
 # All Chains
 
-Suwappu supports 14 blockchain networks across three chain types: EVM, Solana, and TRON. Every chain is accessible through the same unified API -- the `chain` parameter in your requests determines which network to use.
+Suwappu supports 15 blockchain networks across four chain types: EVM, Solana, TRON, and Starknet. Every chain is accessible through the same unified API -- the `chain` parameter in your requests determines which network to use.
 
 ## Supported Chains
 
@@ -20,6 +20,7 @@ Suwappu supports 14 blockchain networks across three chain types: EVM, Solana, a
 | Scroll | 534352 | `scroll` | -- | ETH | EVM | Live |
 | Solana | -- | `solana` | `sol` | SOL | Solana | Live |
 | TRON | -- | `tron` | `trx` | TRX | TRON | Live |
+| Starknet | SN_MAIN | `starknet` | -- | STRK | Starknet | Live |
 
 ## Using Chain Keys
 
@@ -58,6 +59,7 @@ The API currently resolves the following chain keys and aliases for swap routing
 | `scroll` | -- |
 | `solana` | `sol` |
 | `tron` | `trx` |
+| `starknet` | -- |
 
 ## Chain Types
 
@@ -76,6 +78,10 @@ See [Solana](solana.md) for token addresses and Solana-specific details.
 ### TRON
 
 TRON uses Base58Check addresses (starting with `T`), the TRC-20 token standard, and routes swaps through Li.Fi. TRON wallets are separate from EVM and Solana wallets.
+
+### Starknet
+
+Starknet uses a Cairo-based account abstraction model with Felt252 addresses. Swaps are routed through AVNU with integrator fees, and gasless transactions are supported via SNIP-29 paymaster. Starknet wallets are separate from EVM, Solana, and TRON wallets.
 
 ## Discovering Chains Programmatically
 

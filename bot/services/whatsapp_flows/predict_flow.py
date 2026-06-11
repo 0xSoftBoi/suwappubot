@@ -458,6 +458,7 @@ class PredictFlow(BaseWhatsAppFlow):
         shares = state.data.get("sell_shares", 0.0)
         sell_outcome = state.data.get("sell_outcome", "")
         sell_question = state.data.get("sell_market_question", "")
+        sell_market_id = state.data.get("sell_market_id", "")
         wallet_id = state.data.get("wallet_id")
 
         await self._clear(user_id)
@@ -468,6 +469,7 @@ class PredictFlow(BaseWhatsAppFlow):
             shares=float(shares),
             sell_outcome=sell_outcome,
             sell_question=sell_question,
+            sell_market_id=sell_market_id,
             wallet_id=wallet_id,
         )
 
@@ -867,10 +869,11 @@ class PredictFlow(BaseWhatsAppFlow):
         if reuse_state and reuse_state.data.get("sell_position_id") == pos_id:
             # Use cached values
             shares = float(reuse_state.data.get("sell_shares", 0))
-            current_price = 0.5
+            current_price = float(reuse_state.data.get("sell_current_price", 0))
             token_id = reuse_state.data.get("sell_token_id", "")
             sell_outcome = reuse_state.data.get("sell_outcome", "")
             sell_question = reuse_state.data.get("sell_market_question", "")
+            # sell_market_id unused in the prompt display but kept in state for _execute_sell
             wallet_id = reuse_state.data.get("wallet_id")
         else:
             with get_session() as session:
@@ -891,6 +894,7 @@ class PredictFlow(BaseWhatsAppFlow):
                 token_id = pos.token_id
                 sell_outcome = pos.outcome
                 sell_question = pos.market_question or ""
+                sell_market_id = pos.market_id or ""
                 wallet_id = None
 
             await self._set_state(
@@ -900,14 +904,16 @@ class PredictFlow(BaseWhatsAppFlow):
                     "user_db_id": db_id,
                     "sell_position_id": pos_id,
                     "sell_shares": shares,
+                    "sell_current_price": current_price,
                     "sell_token_id": token_id,
                     "sell_outcome": sell_outcome,
                     "sell_market_question": sell_question,
+                    "sell_market_id": sell_market_id,
                     "wallet_id": wallet_id,
                 },
             )
 
-        value = shares * (current_price if current_price else 0.5)
+        value = shares * current_price
         return FlowResponse(
             text=(
                 f"*Sell Position*\n\n"
@@ -932,7 +938,8 @@ class PredictFlow(BaseWhatsAppFlow):
         shares: float,
         sell_outcome: str,
         sell_question: str,
-        wallet_id,
+        sell_market_id: str = "",
+        wallet_id=None,
     ) -> FlowResponse:
         from bot.services.polymarket_api import polymarket_client
         from bot.services.wallet import WalletService
@@ -989,7 +996,7 @@ class PredictFlow(BaseWhatsAppFlow):
                     sell_order = PredictionOrder(
                         user_id=user_db_id,
                         wallet_id=wid,
-                        market_id="",
+                        market_id=sell_market_id,
                         token_id=token_id,
                         outcome=sell_outcome,
                         side="SELL",

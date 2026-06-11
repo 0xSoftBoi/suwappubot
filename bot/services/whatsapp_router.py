@@ -13,7 +13,9 @@ from bot.services.whatsapp_conversation import conversation_manager
 from bot.services.whatsapp_flows import get_flow, get_all_flows
 from bot.services.whatsapp_flows.base import FlowResponse
 from bot.services.whatsapp_service import WhatsAppMessage, whatsapp_service
+from bot.services.whatsapp_meta_flows import meta_flows
 from bot.services.unified_bot_service import unified_bot_service, UnifiedResponse
+from bot.services.tos_service import tos_service, TOS_TEXT
 from bot.models.user import User
 from database.db import get_session
 
@@ -69,6 +71,44 @@ class WhatsAppRouter:
 
     async def _route_inner(self, message: WhatsAppMessage) -> None:
         user_id = message.from_number
+
+        # FIX B: handle Meta native Flow form submissions (nfm_reply) before
+        # the empty-text guard — these arrive with no button_payload/text.
+        if message.nfm_reply_data is not None:
+            parsed = meta_flows.handle_nfm_reply(message.nfm_reply_data)
+            if parsed:
+                db_user_id = await self._get_user_db_id(user_id)
+                # Check TOS before processing a form submission too
+                if db_user_id is not None and not tos_service.is_accepted(db_user_id):
+                    await whatsapp_service.send_text_message(
+                        user_id,
+                        TOS_TEXT + "\n\nReply with *Accept* to continue.",
+                    )
+                    return
+                # Route the parsed form payload back through the active flow, or
+                # send a generic acknowledgement when no flow is active.
+                state = await conversation_manager.get_state(user_id)
+                if state:
+                    flow = get_flow(state.flow)
+                    if flow:
+                        # Encode form data as JSON text so the step handler can
+                        # inspect it; flows that don't handle nfm payloads will
+                        # fall through to the generic ack below.
+                        import json
+
+                        nfm_text = json.dumps(parsed)
+                        response = await flow.handle(user_id, db_user_id, nfm_text, state)
+                        if response:
+                            await self._send_flow_response(user_id, response)
+                            return
+                await whatsapp_service.send_text_message(
+                    user_id,
+                    "✅ Form received! Type *help* to see what you can do next.",
+                )
+            else:
+                logger.warning("Received nfm_reply_data but could not parse it; ignoring.")
+            return
+
         text = (message.button_payload or message.list_reply_id or message.text or "").strip()
 
         if not text:
@@ -97,6 +137,15 @@ class WhatsAppRouter:
                 if db_user_id is None:
                     # User doesn't exist yet — let unified service handle /start
                     break
+                # FIX A: TOS gate — block flow dispatch for users who have not
+                # accepted the terms.  Mirror the check that unified_bot_service
+                # performs for the simple-command fallback path.
+                if not tos_service.is_accepted(db_user_id):
+                    await whatsapp_service.send_text_message(
+                        user_id,
+                        TOS_TEXT + "\n\nReply with *Accept* to continue.",
+                    )
+                    return
                 response = await flow.start(user_id, db_user_id, text)
                 if response:
                     await self._send_flow_response(user_id, response)

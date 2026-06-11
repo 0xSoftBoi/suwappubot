@@ -3,6 +3,7 @@
 import logging
 from bot.services.whatsapp_flows.base import BaseWhatsAppFlow, FlowResponse
 from bot.services.whatsapp_flows import register_flow
+from bot.services.whatsapp_flows.flow_errors import user_safe_error
 from bot.services.whatsapp_conversation import ConversationState
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,9 @@ class PanicFlow(BaseWhatsAppFlow):
             ],
         )
 
-    async def _step_confirm_first(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_confirm_first(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         if text in ("panic_cancel", "cancel", "no"):
             await self._clear(user_id)
             return FlowResponse("Panic sell cancelled.")
@@ -57,24 +60,32 @@ class PanicFlow(BaseWhatsAppFlow):
             ),
         )
 
-    async def _step_confirm_final(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_confirm_final(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         if text.strip().upper() != "CONFIRM":
             await self._clear(user_id)
             return FlowResponse("Panic sell cancelled.")
 
         await self._clear(user_id)
         db_uid = state.data.get("user_db_id") or user_db_id
-        return await self._execute_panic_sell(db_uid)
+        return await self._execute_panic_sell(user_id, db_uid)
 
-    async def _execute_panic_sell(self, user_db_id: int) -> FlowResponse:
+    async def _execute_panic_sell(self, user_id: str, user_db_id: int) -> FlowResponse:
         try:
             from bot.services.wallet import WalletService
             from bot.services.swap_engine import SwapEngine
+            from bot.services.whatsapp_service import whatsapp_service as _wa
             from database.db import get_session
             from bot.models.user import User
 
             ws = WalletService()
             se = SwapEngine()
+
+            # Loading feedback — this loop can take a while
+            await _wa.send_text_message(
+                user_id, "⏳ Starting emergency sell — this may take a minute..."
+            )
 
             with get_session() as session:
                 user = session.query(User).filter(User.id == user_db_id).first()
@@ -100,6 +111,7 @@ class PanicFlow(BaseWhatsAppFlow):
 
                             try:
                                 import uuid
+
                                 idempotency_key = f"panic:{user_db_id}:{uuid.uuid4().hex[:8]}"
 
                                 quote = await se.get_quote(
@@ -125,9 +137,13 @@ class PanicFlow(BaseWhatsAppFlow):
                                 else:
                                     errors.append(f"{token_symbol} on {chain_name}: no quote")
                             except Exception as e:
-                                errors.append(f"{token_symbol} on {chain_name}: {str(e)[:50]}")
+                                user_safe_error(
+                                    e, context=f"panic_token:{token_symbol}:{chain_name}"
+                                )
+                                errors.append(f"{token_symbol} on {chain_name}: could not sell")
                 except Exception as e:
-                    errors.append(f"Wallet {wallet.address[:8]}...: {str(e)[:50]}")
+                    user_safe_error(e, context=f"panic_wallet:{wallet.address[:8]}")
+                    errors.append(f"Wallet {wallet.address[:8]}...: could not process")
 
             lines = ["*Panic Sell Results*\n"]
             if sold:
@@ -145,8 +161,7 @@ class PanicFlow(BaseWhatsAppFlow):
             return FlowResponse("\n".join(lines))
 
         except Exception as e:
-            logger.error(f"Panic sell failed: {e}")
-            return FlowResponse(f"Panic sell failed: {str(e)[:200]}\n\nPlease try again.")
+            return FlowResponse(f"{user_safe_error(e, context='panic_sell')}\n\nPlease try again.")
 
 
 _flow = PanicFlow()

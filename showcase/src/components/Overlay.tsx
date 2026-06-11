@@ -11,19 +11,16 @@ import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
    Data
    ================================================================ */
 const TOOLS = [
-  { name: 'swap', desc: 'Cross-chain token swaps' },
-  { name: 'getQuote', desc: 'Best-route quotes with MEV shielding' },
-  { name: 'getBalance', desc: 'Multi-chain token balances' },
-  { name: 'getPortfolio', desc: 'Aggregated portfolio with USD values' },
-  { name: 'getPrice', desc: 'Real-time token prices' },
-  { name: 'getTokens', desc: 'Searchable token registry per chain' },
-  { name: 'getChains', desc: 'Supported chains and metadata' },
-  { name: 'createWallet', desc: 'Non-custodial TEE wallet creation' },
-  { name: 'limitOrder', desc: 'On-chain limit orders' },
-  { name: 'dcaOrder', desc: 'Dollar-cost averaging schedules' },
-  { name: 'perps.open', desc: 'Perpetual futures positions' },
-  { name: 'predict', desc: 'Prediction market positions' },
-  { name: 'lend', desc: 'Lending and borrowing protocols' },
+  { name: 'get_quote', desc: 'Best-route quotes across 9 aggregators' },
+  { name: 'execute_swap', desc: 'Execute a previously obtained quote' },
+  { name: 'get_portfolio', desc: 'Aggregated portfolio with USD values' },
+  { name: 'get_prices', desc: 'Real-time token prices' },
+  { name: 'list_chains', desc: 'Supported chains and metadata' },
+  { name: 'list_tokens', desc: 'Searchable token registry per chain' },
+  { name: 'get_tempo_tokens', desc: 'TIP-20 token list on Tempo mainnet' },
+  { name: 'browse_mpp_directory', desc: 'Micropayment Protocol service directory' },
+  { name: 'predict_markets', desc: 'Browse Polymarket prediction markets' },
+  { name: 'predict_market_detail', desc: 'Live CLOB prices for a market outcome' },
 ];
 
 type TabKey = 'swap' | 'perps' | 'predict' | 'lend';
@@ -103,9 +100,9 @@ const FEATURES = [
   },
   {
     icon: '🔑',
-    title: 'Non-custodial execution',
+    title: 'Secure key management',
     description:
-      'Keys never leave your agent. Suwappu routes the trade — your agent signs and submits. We never touch your funds.',
+      'Keys encrypted with KMS envelope encryption and signed server-side — or bring your own keys via the agent API for full self-custody.',
   },
   {
     icon: '🔌',
@@ -385,9 +382,9 @@ export default function Overlay() {
         <div className="section">
           <Reveal>
             <p className="section__label">Infrastructure</p>
-            <h2 className="section__heading">13 tools. One import.</h2>
+            <h2 className="section__heading">10 tools. One import.</h2>
             <p className="section__body">
-              Swaps, quotes, portfolios, limit orders, DCA, perps, predictions, lending — all from a single SDK.
+              Swaps, quotes, portfolios, token prices, chain discovery, prediction markets — all from a single SDK.
             </p>
           </Reveal>
 
@@ -425,7 +422,7 @@ export default function Overlay() {
 
           {/* All tools grid */}
           <Reveal delay={0.3}>
-            <h3 style={{ color: '#999', fontSize: '0.8125rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '3rem', marginBottom: '0.5rem' }}>All 13 tools</h3>
+            <h3 style={{ color: '#999', fontSize: '0.8125rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '3rem', marginBottom: '0.5rem' }}>All 10 tools</h3>
             <div className="tools-grid">
               {TOOLS.map((tool) => (
                 <div key={tool.name} className="tool">
@@ -525,10 +522,10 @@ export default function Overlay() {
             <h3 className="footer__heading">Product</h3>
             <ul className="footer__list">
               <li><a href="https://t.me/suwappu_bot" target="_blank" rel="noopener noreferrer">Telegram Bot</a></li>
-              <li><a href="/docs/quick-start/telegram-mini-app">Mini App</a></li>
-              <li><a href="/docs/quick-start/sdk-quickstart">SDK</a></li>
-              <li><a href="/docs/protocols/mcp-server">MCP Server</a></li>
-              <li><a href="/docs/api-reference/overview">REST API</a></li>
+              <li><a href="/docs/protocols/mcp">Mini App</a></li>
+              <li><a href="/docs/protocols/mcp">SDK</a></li>
+              <li><a href="/docs/protocols/mcp">MCP Server</a></li>
+              <li><a href="/docs/api-reference/perps">REST API</a></li>
             </ul>
           </div>
           <div>
@@ -536,7 +533,7 @@ export default function Overlay() {
             <ul className="footer__list">
               <li><a href="/docs">Documentation</a></li>
               <li><a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer">GitHub</a></li>
-              <li><a href="/docs/api-reference/overview">API Reference</a></li>
+              <li><a href="/docs/api-reference/perps">API Reference</a></li>
             </ul>
           </div>
           <div>

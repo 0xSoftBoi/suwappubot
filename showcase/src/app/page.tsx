@@ -19,9 +19,9 @@ const features = [
   },
   {
     icon: '🔑',
-    title: 'Non-custodial execution',
+    title: 'Secure key management',
     description:
-      'Keys never leave your wallet. Suwappu finds the route — you sign and submit. We never touch your funds.',
+      'Keys encrypted with KMS envelope encryption and signed server-side — or bring your own keys via the agent API for full self-custody.',
   },
   {
     icon: '🔌',
