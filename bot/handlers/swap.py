@@ -730,11 +730,6 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 async def show_wallet_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show multi-wallet selection screen."""
-    # Answer any pending callback spinner first so the user never sees an
-    # infinite loading indicator regardless of which code path triggered us.
-    if update.callback_query:
-        await update.callback_query.answer()
-
     swap_data = context.user_data.get("swap")
     user_id = context.user_data.get("user_id")
     if not swap_data or not user_id:
@@ -759,11 +754,7 @@ async def show_wallet_selection(update: Update, context: ContextTypes.DEFAULT_TY
         )
 
         if not wallets:
-            no_wallet_msg = "❌ No wallets found. Please add one first."
-            if update.callback_query:
-                await update.callback_query.edit_message_text(no_wallet_msg)
-            else:
-                await update.message.reply_text(no_wallet_msg)
+            await update.message.reply_text("❌ No wallets found. Please add one first.")
             return ConversationHandler.END
 
         # Initialize selected wallets if not set (default to the one we just found/default)

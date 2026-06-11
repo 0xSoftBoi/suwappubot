@@ -279,11 +279,10 @@ async def dca_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return
 
         status = "🟢 Active" if order.status == "active" else "⏸ Paused"
-        from_decimals = get_token_decimals(order.from_token, order.from_chain)
         text = (
             f"📊 *DCA Details*\n\n"
             f"Pair: {order.from_token} → {order.to_token}\n"
-            f"Amount: ${float(order.amount_per_execution) / 10 ** from_decimals:.2f} {order.from_token}\n"
+            f"Amount: ${float(order.amount_per_execution)/10**18:.2f} USDC\n"
             f"Frequency: every {order.interval_hours}h\n"
             f"Status: {status}\n"
             f"Executions: {order.executions_completed}\n"

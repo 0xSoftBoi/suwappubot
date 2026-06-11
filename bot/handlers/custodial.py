@@ -26,41 +26,6 @@ from bot.utils.tos_utils import enforce_tos
 # Conversation states
 SELECT_CHAIN, SELECT_TOKEN, ENTER_AMOUNT, CONFIRM_WITHDRAWAL = range(4)
 
-# Base58 alphabet (Bitcoin/Solana/TRON) — excludes 0, O, I, l.
-_BASE58_ALPHABET = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
-
-
-def _is_base58(value: str) -> bool:
-    return bool(value) and all(c in _BASE58_ALPHABET for c in value)
-
-
-def validate_withdraw_address(chain: str, address: str) -> bool:
-    """Validate a destination address per chain family.
-
-    Prevents sending to a wrong-format address (e.g. an EVM 0x address pasted as a
-    Solana/TRON destination), which would burn funds irrecoverably.
-    """
-    address = (address or "").strip()
-    chain_l = (chain or "").lower()
-
-    if chain_l == "solana":
-        # Solana base58-encoded 32-byte pubkey → 32-44 chars, no 0x.
-        return _is_base58(address) and 32 <= len(address) <= 44
-
-    if chain_l in ("tron", "trx"):
-        # TRON mainnet base58check addresses start with 'T' and are 34 chars.
-        return address.startswith("T") and _is_base58(address) and len(address) == 34
-
-    # Default: EVM-family. 0x + 40 hex chars (EIP-55 mixed-case tolerated).
-    if not address.startswith("0x") or len(address) != 42:
-        return False
-    hex_part = address[2:]
-    try:
-        int(hex_part, 16)
-    except ValueError:
-        return False
-    return True
-
 
 @enforce_tos
 async def custodial_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -504,115 +469,51 @@ async def withdraw_enter_amount(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def withdraw_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive the destination address, validate it, and show a confirmation card.
-
-    The irreversible on-chain send is NOT executed here — only after the user taps
-    "Confirm Send" (withdraw_execute). This prevents an accidental paste from
-    instantly draining funds to an unverified address.
-    """
+    """Handle withdrawal confirmation."""
     to_address = update.message.text.strip()
-
-    chain = context.user_data.get("withdraw_chain")
-    token = context.user_data.get("withdraw_token")
-    amount = context.user_data.get("withdraw_amount")
-
-    # Validate the address format for the selected chain (Solana/TRON/EVM).
-    if not validate_withdraw_address(chain, to_address):
-        chain_l = (chain or "").lower()
-        if chain_l == "solana":
-            hint = "a valid Solana (base58) address"
-        elif chain_l in ("tron", "trx"):
-            hint = "a valid TRON address (starts with 'T')"
-        else:
-            hint = "a valid EVM address starting with 0x"
-        await update.message.reply_text(f"❌ Invalid address. Please enter {hint}.")
+    
+    # Basic address validation
+    if not to_address.startswith("0x") or len(to_address) != 42:
+        await update.message.reply_text(
+            "❌ Invalid EVM address. Please enter a valid address starting with 0x."
+        )
         return CONFIRM_WITHDRAWAL
-
-    # Stash the validated address for the execute step.
-    context.user_data["withdraw_address"] = to_address
-
-    chain_info = get_chain_by_name(chain)
-    chain_display = chain_info.display_name if chain_info else chain
-
-    # Confirmation card — show the FULL destination address so the user can verify
-    # it before any funds move.
-    keyboard = [
-        [
-            InlineKeyboardButton("✅ Confirm Send", callback_data="withdraw_execute"),
-            InlineKeyboardButton("❌ Cancel", callback_data="custodial_menu"),
-        ],
-    ]
-    await update.message.reply_text(
-        f"📤 *Confirm Withdrawal*\n\n"
-        f"Token: {token}\n"
-        f"Chain: {chain_display}\n"
-        f"Amount: {format_amount(amount, symbol=token)}\n\n"
-        f"Destination:\n`{to_address}`\n\n"
-        f"⚠️ This is irreversible. Double-check the address before confirming.",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
-
-    return CONFIRM_WITHDRAWAL
-
-
-def _clear_withdraw_context(context: ContextTypes.DEFAULT_TYPE) -> None:
-    context.user_data.pop("withdraw_chain", None)
-    context.user_data.pop("withdraw_token", None)
-    context.user_data.pop("withdraw_amount", None)
-    context.user_data.pop("withdraw_balance", None)
-    context.user_data.pop("withdraw_address", None)
-
-
-async def withdraw_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Execute the on-chain send after the user confirms via the inline button."""
-    query = update.callback_query
-    await query.answer()
-
+    
     user = update.effective_user
     token = context.user_data.get("withdraw_token")
     chain = context.user_data.get("withdraw_chain")
     amount = context.user_data.get("withdraw_amount")
-    to_address = context.user_data.get("withdraw_address")
-
-    # Guard against a stale/expired confirmation card (e.g. bot restart cleared
-    # state) — re-validate before doing anything irreversible.
-    if not (token and chain and amount and to_address) or not validate_withdraw_address(
-        chain, to_address
-    ):
-        await query.edit_message_text(
-            "❌ Withdrawal session expired. Please start again.",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("« Back", callback_data="custodial_menu")]]
-            ),
-        )
-        _clear_withdraw_context(context)
-        return ConversationHandler.END
-
+    
     with get_session() as session:
         db_user = session.query(User).filter(User.telegram_id == user.id).first()
         if not db_user:
-            await query.edit_message_text("❌ Please use /start first.")
-            _clear_withdraw_context(context)
+            await update.message.reply_text("❌ Please use /start first.")
             return ConversationHandler.END
         user_id = db_user.id
 
-    await query.edit_message_text("⏳ Processing withdrawal...")
-
+    await update.message.reply_text("⏳ Processing withdrawal...")
+    
     try:
+        # Deduct from custodial balance
+        hot_wallet_service.update_custodial_balance(
+            user_id=user_id,
+            chain=chain,
+            token_symbol=token,
+            amount=Decimal(str(amount)),
+            operation="subtract",
+        )
+        
         # Get hot wallet
         hot_wallet = hot_wallet_service.get_deposit_wallet("evm")
         if not hot_wallet:
             raise Exception("Hot wallet not configured")
-
+        
         # Get token address
         token_address = get_token_address(token, chain)
-
-        # Send tokens FIRST. The ledger is only debited after a successful send so
-        # a failed/reverted send never leaves the user debited.
+        
+        # Send tokens
         if token_address and token_address != "0x0000000000000000000000000000000000000000":
             from bot.config.tokens import TOKENS
-
             decimals = TOKENS[token].decimals
             tx_hash = await hot_wallet_service.send_token(
                 wallet=hot_wallet,
@@ -629,16 +530,7 @@ async def withdraw_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 to_address=to_address,
                 amount=Decimal(str(amount)),
             )
-
-        # Deduct from custodial balance only AFTER the send succeeded.
-        hot_wallet_service.update_custodial_balance(
-            user_id=user_id,
-            chain=chain,
-            token_symbol=token,
-            amount=Decimal(str(amount)),
-            operation="subtract",
-        )
-
+        
         # Record transaction
         hot_wallet_service.record_transaction(
             user_id=user_id,
@@ -650,33 +542,34 @@ async def withdraw_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             from_address=hot_wallet.address,
             to_address=to_address,
         )
-
-        await query.edit_message_text(
+        
+        await update.message.reply_text(
             f"✅ *Withdrawal Submitted\\!*\n\n"
             f"Amount: {format_amount(amount, symbol=token)}\n"
             f"To: `{to_address[:10]}...{to_address[-8:]}`\n"
             f"Tx: `{tx_hash[:20]}...`\n\n"
             f"⏳ Please wait for blockchain confirmation\\.",
             parse_mode="MarkdownV2",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("🏦 Custodial", callback_data="custodial_menu")]]
-            ),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🏦 Custodial", callback_data="custodial_menu")]
+            ])
         )
-
+        
     except Exception as e:
-        await query.edit_message_text(
+        await update.message.reply_text(
             f"❌ Withdrawal failed: {str(e)}",
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [InlineKeyboardButton("🔄 Try Again", callback_data="custodial_withdraw")],
-                    [InlineKeyboardButton("« Back", callback_data="custodial_menu")],
-                ]
-            ),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Try Again", callback_data="custodial_withdraw")],
+                [InlineKeyboardButton("« Back", callback_data="custodial_menu")]
+            ])
         )
-
+    
     # Clear context
-    _clear_withdraw_context(context)
-
+    context.user_data.pop("withdraw_chain", None)
+    context.user_data.pop("withdraw_token", None)
+    context.user_data.pop("withdraw_amount", None)
+    context.user_data.pop("withdraw_balance", None)
+    
     return ConversationHandler.END
 
 
@@ -715,8 +608,6 @@ withdrawal_conversation = ConversationHandler(
         ],
         CONFIRM_WITHDRAWAL: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, withdraw_confirm),
-            CallbackQueryHandler(withdraw_execute, pattern="^withdraw_execute$"),
-            CallbackQueryHandler(withdraw_cancel, pattern="^custodial_menu$"),
         ],
     },
     fallbacks=[
