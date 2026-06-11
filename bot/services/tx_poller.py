@@ -273,6 +273,9 @@ class TransactionPoller:
         elif chain.chain_type == ChainType.SOLANA:
             status = await self._check_solana_tx(tx_hash)
             return status, None
+        elif chain.chain_type == ChainType.STARKNET:
+            status = await self._check_starknet_tx(tx_hash)
+            return status, None
 
         return None, None
 
@@ -388,6 +391,57 @@ class TransactionPoller:
 
         except Exception as e:
             logger.error(f"Solana tx check error: {e}")
+
+        return None
+
+    async def _check_starknet_tx(self, tx_hash: str) -> Optional[str]:
+        """Check Starknet transaction status via starknet_getTransactionStatus.
+
+        finality_status ACCEPTED_ON_L2/ACCEPTED_ON_L1 with execution_status
+        SUCCEEDED → completed; execution_status REVERTED → failed; anything
+        else (RECEIVED, pending, RPC hiccup) stays submitted/unknown.
+        """
+        try:
+            http_session = await get_session()
+
+            payload = {
+                "jsonrpc": "2.0",
+                "method": "starknet_getTransactionStatus",
+                "params": [tx_hash],
+                "id": 1,
+            }
+            rpc_url = settings.starknet_rpc_url or settings.starknet_rpc_fallback_url
+
+            async def _do_starknet():
+                async with http_session.post(rpc_url, json=payload) as response:
+                    if response.status != 200:
+                        return None
+                    data = await response.json()
+                    if "error" in data:
+                        # Only TXN_HASH_NOT_FOUND (spec code 29) means "not yet
+                        # in the mempool/blocks" → still submitted. Any other
+                        # RPC error is indeterminate → None (re-check later).
+                        err = data.get("error") or {}
+                        if isinstance(err, dict) and err.get("code") == 29:
+                            return SwapStatus.SUBMITTED.value
+                        return None
+                    result = data.get("result") or {}
+                    finality = result.get("finality_status")
+                    execution = result.get("execution_status")
+
+                    if execution == "REVERTED":
+                        return SwapStatus.FAILED.value
+                    if (
+                        finality in ("ACCEPTED_ON_L2", "ACCEPTED_ON_L1")
+                        and execution == "SUCCEEDED"
+                    ):
+                        return SwapStatus.COMPLETED.value
+                    return SwapStatus.SUBMITTED.value
+
+            return await asyncio.wait_for(_do_starknet(), timeout=10)
+
+        except Exception as e:
+            logger.error(f"Starknet tx check error: {e}")
 
         return None
 

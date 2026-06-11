@@ -1,10 +1,13 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from bot.config import starknet_addresses
+
 
 @dataclass
 class TokenConfig:
     """Configuration for a token."""
+
     symbol: str
     name: str
     decimals: int
@@ -32,6 +35,7 @@ TOKENS: dict[str, TokenConfig] = {
             "solana": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
             "tron": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
             "plasma": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+            "starknet": starknet_addresses.USDT,
         },
         logo_emoji="💵",
     ),
@@ -49,6 +53,7 @@ TOKENS: dict[str, TokenConfig] = {
             "solana": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             "tron": "TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8",
             "plasma": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+            "starknet": starknet_addresses.USDC,
         },
         logo_emoji="💲",
     ),
@@ -267,6 +272,7 @@ TOKENS: dict[str, TokenConfig] = {
             "optimism": "0x0000000000000000000000000000000000000000",
             "base": "0x0000000000000000000000000000000000000000",
             "solana": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+            "starknet": starknet_addresses.ETH,
         },
         logo_emoji="⟠",
         is_stablecoin=False,
@@ -282,6 +288,7 @@ TOKENS: dict[str, TokenConfig] = {
             "arbitrum": "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f",
             "optimism": "0x68f180fcCe6836688e9084f035309E29Bf0A2095",
             "base": "0x0555E30da8f98308EdB960aa94C0Db47230d2B9c",
+            "starknet": starknet_addresses.WBTC,
         },
         logo_emoji="₿",
         is_stablecoin=False,
@@ -526,6 +533,7 @@ TOKENS: dict[str, TokenConfig] = {
         decimals=18,
         addresses={
             "ethereum": "0xCa14007Eff0dB1f8135f4C25B34De49AB0d42766",
+            "starknet": starknet_addresses.STRK,
         },
         logo_emoji="⭐",
         is_stablecoin=False,
@@ -626,10 +634,7 @@ def get_token_by_symbol(symbol: str) -> Optional[TokenConfig]:
 def get_tokens_for_chain(chain_name: str) -> list[TokenConfig]:
     """Get all available tokens for a specific chain."""
     chain_name = chain_name.lower()
-    return [
-        token for token in TOKENS.values()
-        if chain_name in token.addresses
-    ]
+    return [token for token in TOKENS.values() if chain_name in token.addresses]
 
 
 def get_token_decimals(symbol: str, chain_name: str) -> int:
@@ -655,4 +660,3 @@ def get_decimals_by_address(address: str, chain_name: str) -> int:
                 return 18
             return token.decimals
     return 18
-

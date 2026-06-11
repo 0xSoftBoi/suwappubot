@@ -275,6 +275,41 @@ class Settings(BaseSettings):
         default="https://api.trongrid.io", description="TRON mainnet RPC URL(s)"
     )
 
+    # Starknet RPC (Alchemy primary, Lava fallback — see starknet plan doc)
+    starknet_rpc_url: Optional[str] = Field(
+        default=None,
+        description=(
+            "Starknet mainnet RPC URL (e.g. Alchemy "
+            "https://starknet-mainnet.g.alchemy.com/v2/$KEY). Falls back to "
+            "starknet_rpc_fallback_url when unset or unhealthy."
+        ),
+    )
+    starknet_rpc_fallback_url: str = Field(
+        default="https://rpc.starknet.lava.build",
+        description="Starknet fallback RPC (Lava, keyless, verified live)",
+    )
+    starknet_chain_id: str = Field(
+        default="mainnet",
+        description="Starknet chain: 'mainnet' (SN_MAIN) or 'sepolia' (SN_SEPOLIA)",
+    )
+
+    # AVNU (Starknet swap aggregator)
+    avnu_integrator_fee_bps: int = Field(
+        default=80,
+        description=(
+            "AVNU integrator fee in basis points (80 = 0.8%, matches "
+            "swap_fee_percentage default)"
+        ),
+    )
+    avnu_fee_recipient: Optional[str] = Field(
+        default=None,
+        description="Starknet address that receives the AVNU integrator fee",
+    )
+    avnu_paymaster_api_key: Optional[str] = Field(
+        default=None,
+        description="AVNU paymaster API key (sponsored gas — Phase 2, unused in Phase 1)",
+    )
+
     # Infura network name mappings
     INFURA_NETWORKS: ClassVar[Dict[str, str]] = {
         "ethereum": "mainnet",

@@ -248,6 +248,15 @@ class SwapEngine:
         chains = (from_chain.lower(), to_chain.lower())
         return "tron" in chains and chains[0] != chains[1]
 
+    def _is_starknet_swap(self, from_chain: str, to_chain: str) -> bool:
+        """Check if this is a Starknet-to-Starknet swap (use AVNU)."""
+        return from_chain.lower() == "starknet" and to_chain.lower() == "starknet"
+
+    def _is_starknet_cross_chain(self, from_chain: str, to_chain: str) -> bool:
+        """Check if Starknet is involved in a cross-chain swap (not yet supported)."""
+        chains = (from_chain.lower(), to_chain.lower())
+        return "starknet" in chains and chains[0] != chains[1]
+
     def _is_ccip_route(
         self, from_chain: str, to_chain: str, from_token: str, to_token: str
     ) -> bool:
@@ -396,10 +405,12 @@ class SwapEngine:
         # collector, so this is a no-op until collectors are set.
         if platform_fee_bps is None:
             from bot.services.fee_service import fee_service
+
             tier = None
             if user_id is not None:
                 try:
                     from bot.services.x402_service import x402_service
+
                     tier = await x402_service.get_tier(user_id)
                 except Exception:
                     tier = None  # tier lookup failure → flat default, never block the quote
@@ -417,6 +428,12 @@ class SwapEngine:
                 "Cross-chain swaps from/to TRON are not yet supported. Phase 2 will add TRON bridging."
             )
 
+        if self._is_starknet_cross_chain(from_chain, to_chain):
+            raise SwapError(
+                "Cross-chain swaps from/to Starknet are not yet supported. "
+                "Phase 2 will add BTC/EVM bridging to Starknet."
+            )
+
         amount_raw = self._get_token_amount_raw(amount, from_token, from_chain)
         slippage_bps = int(slippage * 100)
 
@@ -429,7 +446,12 @@ class SwapEngine:
         if self._is_solana_only_swap(from_chain, to_chain):
             tasks.append(
                 self._get_jupiter_quote(
-                    from_token, to_token, amount, amount_raw, from_address, slippage_bps,
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    from_address,
+                    slippage_bps,
                     platform_fee_bps=platform_fee_bps,
                 )
             )
@@ -439,8 +461,27 @@ class SwapEngine:
                 self._get_sunswap_quote(from_token, to_token, amount, amount_raw, slippage_bps)
             )
 
+        # Starknet-only swaps route EXCLUSIVELY through AVNU — no EVM aggregator
+        # (LiFi/1inch/0x/Kyber/OKX/CoW/Socket) understands Starknet calldata.
+        if self._is_starknet_swap(from_chain, to_chain):
+            tasks.append(
+                self._get_avnu_quote(
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    from_address,
+                    slippage_bps,
+                    platform_fee_bps=platform_fee_bps,
+                )
+            )
+
         # OKX DEX covers TRON, EVM, and Solana (same-chain only) — add if configured
-        if self.okx_dex.is_configured and from_chain.lower() == to_chain.lower():
+        if (
+            self.okx_dex.is_configured
+            and from_chain.lower() == to_chain.lower()
+            and not self._is_starknet_swap(from_chain, to_chain)
+        ):
             tasks.append(
                 self._get_okx_dex_quote(
                     from_chain,
@@ -520,6 +561,7 @@ class SwapEngine:
             not self._is_solana_only_swap(from_chain, to_chain)
             and not self._is_tron_only_swap(from_chain, to_chain)
             and not self._is_tempo_only_swap(from_chain, to_chain)
+            and not self._is_starknet_swap(from_chain, to_chain)
         ):
             if self._is_layerzero_route(from_chain, to_chain, from_token, to_token):
                 tasks.append(
@@ -795,7 +837,9 @@ class SwapEngine:
         # Only reserve a platform fee in the quote when a referral feeAccount can
         # actually receive it for THIS pair (mint must match input/output) —
         # otherwise the fee would be uncollectable and /swap would later fail.
-        effective_fee_bps = platform_fee_bps if self._jupiter_fee_account(from_token, to_token) else None
+        effective_fee_bps = (
+            platform_fee_bps if self._jupiter_fee_account(from_token, to_token) else None
+        )
 
         quote = await self.jupiter.get_quote(
             input_mint=from_token_address,
@@ -874,6 +918,73 @@ class SwapEngine:
             price_impact=quote.price_impact,
             exchange_rate=exchange_rate,
             raw_quote=quote.raw_response,
+        )
+
+    async def _get_avnu_quote(
+        self,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: str,
+        from_address: str,
+        slippage_bps: int,
+        platform_fee_bps: Optional[int] = None,
+    ) -> SwapQuote:
+        """Get quote from AVNU for Starknet same-chain swaps."""
+        from bot.services.avnu_api import avnu_api
+
+        from_token_address = get_token_address(from_token, "starknet")
+        to_token_address = get_token_address(to_token, "starknet")
+
+        if not from_token_address or not to_token_address:
+            raise SwapError(f"Token not supported on Starknet: {from_token} or {to_token}")
+
+        # AVNU collects the integrator fee on-chain only when a recipient is
+        # configured — otherwise pass no fee (don't degrade the quote for a fee
+        # nobody collects).
+        effective_fee_bps = platform_fee_bps if settings.avnu_fee_recipient else None
+
+        quote = await avnu_api.get_quote(
+            sell_token_address=from_token_address,
+            buy_token_address=to_token_address,
+            sell_amount=int(amount_raw),
+            taker_address=from_address,
+            integrator_fee_bps=effective_fee_bps,
+        )
+
+        if quote.buy_amount <= 0:
+            raise SwapError(
+                f"AVNU returned a zero buy amount for {from_token}→{to_token} — "
+                "refusing to quote (min-out would be 0 = unlimited slippage)"
+            )
+
+        to_amount_human = self._get_token_amount_human(str(quote.buy_amount), to_token, "starknet")
+        exchange_rate = to_amount_human / amount if amount > 0 else 0
+        min_out = int(quote.buy_amount * (10_000 - slippage_bps) / 10_000)
+
+        # Stash the user's slippage on the raw quote so execution uses the exact
+        # tolerance from quote time instead of lossily re-deriving it from min_out.
+        quote.raw_response["suwappu_slippage_bps"] = slippage_bps
+
+        return SwapQuote(
+            provider="avnu",
+            from_chain="starknet",
+            to_chain="starknet",
+            from_token=from_token,
+            to_token=to_token,
+            from_amount=amount_raw,
+            from_amount_human=amount,
+            to_amount=str(quote.buy_amount),
+            to_amount_human=to_amount_human,
+            to_amount_min=str(min_out),
+            gas_cost_usd=quote.gas_fees_in_usd,
+            fee_cost_usd=0,
+            total_cost_usd=quote.gas_fees_in_usd,
+            estimated_time=30,  # Starknet block time
+            price_impact=0.0,
+            exchange_rate=exchange_rate,
+            raw_quote=quote.raw_response,
+            platform_fee_bps=effective_fee_bps,
         )
 
     async def _get_tempo_dex_quote(
@@ -1934,6 +2045,13 @@ class SwapEngine:
                     tx_hash = await self._execute_0x_swap(quote, wallet)
                 elif quote.provider == "kyberswap":
                     tx_hash = await self._execute_kyberswap_swap(quote, wallet)
+                elif quote.provider == "avnu":
+                    tx_hash = await self._execute_avnu_swap(quote, wallet)
+                elif "starknet" in (quote.from_chain.lower(), quote.to_chain.lower()):
+                    # Hard guard: Starknet must NEVER fall into the Li.Fi/EVM path.
+                    raise SwapError(
+                        f"Starknet swaps must route via AVNU (got provider '{quote.provider}')"
+                    )
                 else:
                     tx_hash = await self._execute_lifi_swap(quote, wallet)
 
@@ -3067,6 +3185,71 @@ class SwapEngine:
         tx_hash = await self.sunswap.sign_and_broadcast(swap_tx, private_key_hex)
         logger.info(f"SunSwap swap tx: {tx_hash} ({quote.from_token}→{quote.to_token})")
 
+        return tx_hash
+
+    async def _execute_avnu_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a Starknet swap via AVNU.
+
+        Steps:
+        1. Ensure the Argent account contract is deployed (counterfactual wallets)
+        2. Build calldata from the quote, then sign+send approve+swap as a single
+           v3 (STRK-fee) multicall — the approval is exact-amount, never infinite.
+        """
+        from bot.services.avnu_api import avnu_api, AvnuQuote, _to_int
+        from bot.services.starknet.client import get_starknet_account
+        from bot.services.wallet import _zeroize_str
+
+        wallet = await self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
+        # Counterfactual accounts must be deployed before their first invoke
+        await self.wallet_service.ensure_starknet_deployed(wallet)
+
+        sell_token_address = get_token_address(quote.from_token, "starknet")
+        buy_token_address = get_token_address(quote.to_token, "starknet")
+        if not sell_token_address or not buy_token_address:
+            raise SwapError(
+                f"Token not supported on Starknet: {quote.from_token} or {quote.to_token}"
+            )
+
+        # The approve amount must be AVNU's own sellAmount (the value the route
+        # was built for), not our pre-quote input — they can differ.
+        sell_amount = _to_int(quote.raw_quote.get("sellAmount"))
+        if sell_amount <= 0:
+            raise SwapError("AVNU quote is missing sellAmount — re-quote and try again")
+
+        avnu_quote = AvnuQuote(
+            quote_id=quote.raw_quote.get("quoteId", ""),
+            sell_token_address=sell_token_address,
+            buy_token_address=buy_token_address,
+            sell_amount=sell_amount,
+            buy_amount=int(quote.to_amount),
+            gas_fees_in_usd=quote.gas_cost_usd,
+            integrator_fees_bps=quote.platform_fee_bps or 0,
+            raw_response=quote.raw_quote,
+        )
+        if not avnu_quote.quote_id:
+            raise SwapError("AVNU quote is missing quoteId — re-quote and try again")
+
+        # Use the exact slippage the user quoted with (stashed at quote time);
+        # only fall back to the lossy min-out derivation for stale quotes.
+        slippage_bps = quote.raw_quote.get("suwappu_slippage_bps")
+        if slippage_bps is not None:
+            slippage = max(0.001, int(slippage_bps) / 10_000)
+        else:
+            to_amount = int(quote.to_amount)
+            to_amount_min = int(quote.to_amount_min)
+            slippage = max(0.001, 1 - (to_amount_min / to_amount)) if to_amount > 0 else 0.005
+
+        private_key = self.wallet_service.get_private_key(wallet)
+        try:
+            account = await get_starknet_account(private_key, wallet.address)
+            tx_hash = await avnu_api.execute_swap(account, avnu_quote, slippage=slippage)
+        finally:
+            _zeroize_str(private_key)
+
+        logger.info(f"AVNU swap tx: {tx_hash} ({quote.from_token}→{quote.to_token})")
         return tx_hash
 
     async def _execute_okx_dex_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
