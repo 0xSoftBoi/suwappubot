@@ -37,6 +37,7 @@ from .subscription import (
 )
 from .predict import PredictionOrder, PredictionPosition
 from .tracking import TrackedTwitterAccount, TrackedWallet
+from .btc_swap import BtcSwap
 
 __all__ = [
     "User",
@@ -88,4 +89,6 @@ __all__ = [
     "PredictionPosition",
     "TrackedTwitterAccount",
     "TrackedWallet",
+    # BTC bridge (Atomiq)
+    "BtcSwap",
 ]
