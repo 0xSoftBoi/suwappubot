@@ -20,6 +20,8 @@ from bot.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
+STARKNET_PUBLICNODE_URL = "https://starknet.publicnode.com"
+
 try:  # pragma: no cover - exercised implicitly by import
     from starknet_py.net.full_node_client import FullNodeClient
     from starknet_py.net.account.account import Account
@@ -63,6 +65,9 @@ class StarknetClientManager:
             urls.append(settings.starknet_rpc_url)
         if settings.starknet_rpc_fallback_url not in urls:
             urls.append(settings.starknet_rpc_fallback_url)
+        # Keyless public endpoint of last resort (verified live 2026-06-11).
+        if STARKNET_PUBLICNODE_URL not in urls:
+            urls.append(STARKNET_PUBLICNODE_URL)
         return urls
 
     def _client_for(self, url: str) -> "FullNodeClient":
