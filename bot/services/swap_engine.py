@@ -3190,10 +3190,13 @@ class SwapEngine:
     async def _execute_avnu_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a Starknet swap via AVNU.
 
-        Steps:
-        1. Ensure the Argent account contract is deployed (counterfactual wallets)
-        2. Build calldata from the quote, then sign+send approve+swap as a single
-           v3 (STRK-fee) multicall — the approval is exact-amount, never infinite.
+        Routing (Phase 2):
+        - Wallet undeployed or no STRK for gas → SNIP-29 paymaster path
+          (deploy_and_invoke when undeployed; gas sponsored or paid in the
+          sell token / USDC). Any paymaster failure falls back to the direct
+          path below.
+        - Otherwise: ensure deployed, then sign+send approve+swap as a single
+          v3 (STRK-fee) multicall — the approval is exact-amount, never infinite.
         """
         from bot.services.avnu_api import avnu_api, AvnuQuote, _to_int
         from bot.services.starknet.client import get_starknet_account
@@ -3202,9 +3205,6 @@ class SwapEngine:
         wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
-
-        # Counterfactual accounts must be deployed before their first invoke
-        await self.wallet_service.ensure_starknet_deployed(wallet)
 
         sell_token_address = get_token_address(quote.from_token, "starknet")
         buy_token_address = get_token_address(quote.to_token, "starknet")
@@ -3242,14 +3242,105 @@ class SwapEngine:
             to_amount_min = int(quote.to_amount_min)
             slippage = max(0.001, 1 - (to_amount_min / to_amount)) if to_amount > 0 else 0.005
 
+        # Decide whether the gasless paymaster path applies: wallet not yet
+        # deployed, or deployed but holding no STRK to self-pay v3 fees.
+        use_paymaster = False
+        deployed = True
+        if settings.starknet_paymaster_enabled:
+            try:
+                deployed = await self.wallet_service.is_starknet_deployed(wallet.address)
+                if deployed:
+                    strk_balance = await self.wallet_service.get_starknet_token_balance(
+                        "STRK", wallet.address
+                    )
+                    use_paymaster = strk_balance <= 0
+                else:
+                    use_paymaster = True
+            except Exception as e:
+                logger.warning("Paymaster eligibility check failed: %s", str(e)[:200])
+
         private_key = self.wallet_service.get_private_key(wallet)
         try:
             account = await get_starknet_account(private_key, wallet.address)
-            tx_hash = await avnu_api.execute_swap(account, avnu_quote, slippage=slippage)
+
+            paymaster_error: Optional[Exception] = None
+            tx_hash: Optional[str] = None
+            if use_paymaster:
+                try:
+                    tx_hash = await self._execute_avnu_swap_via_paymaster(
+                        account, wallet, avnu_quote, slippage, deployed
+                    )
+                except Exception as e:
+                    paymaster_error = e
+                    logger.warning(
+                        "AVNU paymaster swap failed (%s); falling back to direct execution",
+                        str(e)[:200],
+                    )
+
+            if tx_hash is None:
+                try:
+                    # Counterfactual accounts must be deployed before their first invoke
+                    await self.wallet_service.ensure_starknet_deployed(wallet)
+                    tx_hash = await avnu_api.execute_swap(account, avnu_quote, slippage=slippage)
+                except Exception as direct_error:
+                    if paymaster_error is not None:
+                        raise SwapError(
+                            "Starknet swap failed via both the gasless paymaster "
+                            f"({str(paymaster_error)[:150]}) and direct execution "
+                            f"({str(direct_error)[:150]})"
+                        ) from direct_error
+                    raise
         finally:
             _zeroize_str(private_key)
 
         logger.info(f"AVNU swap tx: {tx_hash} ({quote.from_token}→{quote.to_token})")
+        return tx_hash
+
+    async def _execute_avnu_swap_via_paymaster(
+        self,
+        account,
+        wallet,
+        avnu_quote,
+        slippage: float,
+        deployed: bool,
+    ) -> str:
+        """Execute an AVNU swap through the SNIP-29 paymaster.
+
+        Gas token: sponsored when an API key is configured; otherwise the sell
+        token if the paymaster accepts it, else USDC. Undeployed wallets go
+        through deploy_and_invoke with the Argent deployment data derived from
+        the account's stark pubkey.
+        """
+        from bot.config import starknet_addresses as sn
+        from bot.services.avnu_api import avnu_api
+        from bot.services.starknet.paymaster import avnu_paymaster, build_argent_deployment
+
+        gas_token = None
+        if not settings.avnu_paymaster_api_key:
+            supported = await avnu_paymaster.get_supported_tokens()
+            supported_addrs = set()
+            for t in supported:
+                addr = t.get("token_address") or t.get("tokenAddress") or t.get("address")
+                if addr:
+                    supported_addrs.add(int(str(addr), 16))
+            if int(str(avnu_quote.sell_token_address), 16) in supported_addrs:
+                gas_token = avnu_quote.sell_token_address
+            elif int(sn.USDC, 16) in supported_addrs:
+                gas_token = sn.USDC
+            else:
+                raise SwapError("Paymaster accepts neither the sell token nor USDC as gas token")
+
+        deployment = None
+        if not deployed:
+            deployment = build_argent_deployment(wallet.address, account.signer.public_key)
+
+        calls = await avnu_api.prepare_swap_calls(
+            taker_address=hex(account.address), quote=avnu_quote, slippage=slippage
+        )
+        tx_hash = await avnu_paymaster.execute_calls_via_paymaster(
+            account, calls, gas_token=gas_token, deployment=deployment
+        )
+        logger.info("AVNU paymaster swap submitted: %s", tx_hash)
         return tx_hash
 
     async def _execute_okx_dex_swap(self, quote: SwapQuote, wallet_data: dict) -> str:

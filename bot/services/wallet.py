@@ -1034,19 +1034,107 @@ class WalletService:
             return False  # CONTRACT_NOT_FOUND → undeployed
         return bool(result)
 
-    async def ensure_starknet_deployed(self, wallet: Wallet) -> None:
-        """Deploy the user's Argent account if it isn't deployed yet (self-paid STRK).
+    async def _pick_paymaster_gas_token(self, address: str) -> Optional[str]:
+        """Pick a gas token for the paymaster's default (user-pays) fee mode.
 
-        Phase 1: DEPLOY_ACCOUNT v3 with auto-estimated STRK fees, paid from the
-        account's own pre-funded STRK balance. Phase 2 replaces this with the
-        AVNU paymaster's sponsored deploy_and_invoke.
+        Returns the address of the first of STRK/ETH/USDC the wallet actually
+        holds AND the paymaster accepts, or None when there's no overlap.
+        """
+        from bot.config import starknet_addresses as sn
+        from bot.services.starknet.paymaster import avnu_paymaster
+
+        supported = await avnu_paymaster.get_supported_tokens()
+        supported_addrs = set()
+        for t in supported:
+            addr = t.get("token_address") or t.get("tokenAddress") or t.get("address")
+            if addr:
+                supported_addrs.add(int(str(addr), 16))
+
+        for symbol, token_addr in (("STRK", sn.STRK), ("ETH", sn.ETH), ("USDC", sn.USDC)):
+            if int(token_addr, 16) not in supported_addrs:
+                continue
+            balance = await self.get_starknet_token_balance(symbol, address)
+            if balance > 0:
+                return token_addr
+        return None
+
+    async def _deploy_starknet_via_paymaster(self, wallet: Wallet) -> bool:
+        """Try a SNIP-29 paymaster deploy (sponsored if API key, else gas-token).
+
+        Returns True once the account is verified deployed; False when the
+        paymaster path isn't viable (unavailable / no usable gas token).
+        Raises on submission errors so the caller logs and falls back.
+        """
+        from bot.services.starknet.paymaster import avnu_paymaster
+
+        if not await avnu_paymaster.is_available():
+            logger.info("AVNU paymaster unavailable; falling back to self-paid deploy")
+            return False
+
+        gas_token = None
+        if not settings.avnu_paymaster_api_key:
+            gas_token = await self._pick_paymaster_gas_token(wallet.address)
+            if not gas_token:
+                logger.info(
+                    "No paymaster API key and no supported gas-token balance for %s; "
+                    "falling back to self-paid deploy",
+                    wallet.address,
+                )
+                return False
+
+        from starknet_py.net.signer.stark_curve_signer import KeyPair
+
+        private_key = self.get_private_key(wallet)
+        try:
+            key_pair = KeyPair.from_private_key(int(private_key, 16))
+        finally:
+            _zeroize_str(private_key)
+
+        tx_hash = await avnu_paymaster.deploy_account_via_paymaster(
+            address=wallet.address,
+            public_key=key_pair.public_key,
+            gas_token=gas_token,
+        )
+        logger.info("Paymaster deploy submitted for %s: %s", wallet.address, tx_hash)
+
+        # Pure deploys carry no client-side receipt object — poll the class
+        # hash until the account materializes (or give up so the caller can
+        # fall back / surface the error).
+        import asyncio as _asyncio
+
+        for _ in range(20):
+            await _asyncio.sleep(3)
+            if await self.is_starknet_deployed(wallet.address):
+                logger.info("Starknet account deployed via paymaster: %s", wallet.address)
+                return True
+        raise RuntimeError(f"Paymaster deploy {tx_hash} not confirmed after 60s")
+
+    async def ensure_starknet_deployed(self, wallet: Wallet) -> None:
+        """Deploy the user's Argent account if it isn't deployed yet.
+
+        Phase 2: try the AVNU SNIP-29 paymaster first (sponsored when an API
+        key is configured, else paid in whichever of STRK/ETH/USDC the wallet
+        holds). Any paymaster failure falls back to the Phase 1 self-paid
+        DEPLOY_ACCOUNT v3 path (STRK fees from the account's own balance).
 
         Raises:
-            ValueError: If the account holds no STRK to pay the deployment fee.
+            ValueError: If the account holds no STRK to pay the deployment fee
+                (and the paymaster path didn't apply).
             RuntimeError: If the deployment transaction is not accepted.
         """
         if await self.is_starknet_deployed(wallet.address):
             return
+
+        if settings.starknet_paymaster_enabled:
+            try:
+                if await self._deploy_starknet_via_paymaster(wallet):
+                    return
+            except Exception as e:
+                logger.warning(
+                    "Paymaster deploy failed for %s (%s); falling back to self-paid",
+                    wallet.address,
+                    str(e)[:200],
+                )
 
         strk_balance = await self.get_starknet_token_balance("STRK", wallet.address)
         if strk_balance <= 0:

@@ -56,7 +56,14 @@ class StarknetClientManager:
         self._clients: dict[str, "FullNodeClient"] = {}
         self._primary_healthy_until: float = 0.0
         self._primary_failed_until: float = 0.0
-        self._lock = asyncio.Lock()
+        # Created lazily inside a running event loop: instantiating asyncio.Lock at
+        # import time raises on Python <3.10 and binds to the wrong loop under tests.
+        self._lock: Optional[asyncio.Lock] = None
+
+    def _get_lock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     def _rpc_urls(self) -> list[str]:
         """Ordered candidate RPC URLs (primary first, fallback last)."""
@@ -92,7 +99,7 @@ class StarknetClientManager:
         primary = urls[0]
         now = time.monotonic()
 
-        async with self._lock:
+        async with self._get_lock():
             # Primary recently verified healthy — use it without re-probing.
             if now < self._primary_healthy_until and now >= self._primary_failed_until:
                 return self._client_for(primary)

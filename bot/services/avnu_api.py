@@ -251,6 +251,37 @@ class AvnuAPI:
             )
         return calls
 
+    async def prepare_swap_calls(
+        self,
+        taker_address: str,
+        quote: AvnuQuote,
+        slippage: float = 0.005,
+    ) -> list[dict]:
+        """Build the full approve+swap call list as plain dicts (no starknet_py).
+
+        The approve is exact-amount (never infinite): u256(sell_amount) split
+        into low/high limbs, spender = AVNU's takerTokenApprovalAddress (or the
+        AVNU exchange constant). Returns [{to, entrypoint, calldata(ints)}],
+        usable by both the direct execute_v3 path and the SNIP-29 paymaster.
+        """
+        build = await self.build_swap(
+            quote_id=quote.quote_id,
+            taker_address=taker_address,
+            slippage=slippage,
+        )
+        swap_calls = self.normalize_calls(build)
+        if not swap_calls:
+            raise AvnuError("AVNU build returned no calls", build)
+
+        spender = self.resolve_approve_spender(build)
+        low, high = split_u256(quote.sell_amount)
+        approve_call = {
+            "to": quote.sell_token_address,
+            "entrypoint": "approve",
+            "calldata": [spender, low, high],
+        }
+        return [approve_call] + swap_calls
+
     async def execute_swap(
         self,
         account,
@@ -259,40 +290,26 @@ class AvnuAPI:
     ) -> str:
         """Build, sign and send the swap as ONE approve+swap multicall (v3/STRK gas).
 
-        The approve is exact-amount (never infinite): u256(sell_amount) split
-        into low/high limbs, spender = AVNU's takerTokenApprovalAddress (or the
-        AVNU exchange constant). Returns the transaction hash (hex string).
+        See prepare_swap_calls for the approve semantics. Returns the
+        transaction hash (hex string).
         """
         from starknet_py.hash.selector import get_selector_from_name
         from starknet_py.net.client_models import Call
 
-        build = await self.build_swap(
-            quote_id=quote.quote_id,
-            taker_address=hex(account.address),
-            slippage=slippage,
+        calls_raw = await self.prepare_swap_calls(
+            taker_address=hex(account.address), quote=quote, slippage=slippage
         )
-        swap_calls_raw = self.normalize_calls(build)
-        if not swap_calls_raw:
-            raise AvnuError("AVNU build returned no calls", build)
-
-        spender = self.resolve_approve_spender(build)
-        low, high = split_u256(quote.sell_amount)
-        approve_call = Call(
-            to_addr=_to_int(quote.sell_token_address),
-            selector=get_selector_from_name("approve"),
-            calldata=[spender, low, high],
-        )
-        swap_calls = [
+        calls = [
             Call(
                 to_addr=_to_int(c["to"]),
                 selector=get_selector_from_name(c["entrypoint"]),
                 calldata=c["calldata"],
             )
-            for c in swap_calls_raw
+            for c in calls_raw
         ]
 
         response = await account.execute_v3(
-            calls=[approve_call] + swap_calls,
+            calls=calls,
             auto_estimate=True,
         )
         tx_hash = hex(response.transaction_hash)

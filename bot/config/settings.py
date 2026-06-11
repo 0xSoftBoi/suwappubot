@@ -307,7 +307,25 @@ class Settings(BaseSettings):
     )
     avnu_paymaster_api_key: Optional[str] = Field(
         default=None,
-        description="AVNU paymaster API key (sponsored gas — Phase 2, unused in Phase 1)",
+        description=(
+            "AVNU paymaster API key — when set, paymaster requests use sponsored "
+            "fee mode (we pay gas); when unset, default mode (user pays gas in an "
+            "accepted token)"
+        ),
+    )
+    starknet_paymaster_url: str = Field(
+        default="https://starknet.paymaster.avnu.fi",
+        description=(
+            "AVNU SNIP-29 paymaster JSON-RPC endpoint (override with "
+            "https://sepolia.paymaster.avnu.fi for testing)"
+        ),
+    )
+    starknet_paymaster_enabled: bool = Field(
+        default=True,
+        description=(
+            "Route Starknet account deploys/invokes through the AVNU paymaster "
+            "when possible (always falls back to self-paid STRK gas on failure)"
+        ),
     )
 
     # Infura network name mappings

@@ -196,7 +196,7 @@ def _format_wallet_balances(wallet_infos, balance_results) -> str:
         if isinstance(balances, Exception):
             balances = {}
 
-        icon = {"evm": "🔷", "solana": "🟣", "tron": "💎"}.get(chain_type, "🔷")
+        icon = {"evm": "🔷", "solana": "🟣", "tron": "💎", "starknet": "🟣"}.get(chain_type, "🔷")
         short_addr = f"{address[:6]}···{address[-4:]}"
         section_lines = [f"{icon} *{safe_md(name)}*  `{short_addr}`"]
 
