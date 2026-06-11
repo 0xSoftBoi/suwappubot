@@ -143,6 +143,18 @@ class Settings(BaseSettings):
             "invalid rpId for prod and broke passkey connect). Set to 'localhost' for local dev."
         ),
     )
+    passkey_auth_enabled: bool = Field(
+        default=False,
+        description=(
+            "Master switch for /auth/passkey/* endpoints. DISABLED by default because the "
+            "current register/complete + authenticate/complete handlers do NOT verify the "
+            "WebAuthn attestation/assertion signature (no COSE public key is stored at "
+            "registration), so possession of a Redis challenge alone yields a session JWT for "
+            "any credentialId — an account-takeover hole. Keep False until real verification "
+            "(py_webauthn) plus a public-key storage column are implemented. When False the "
+            "endpoints return 503."
+        ),
+    )
 
     # Infura RPC (primary, reliable RPCs for all major chains)
     infura_api_key: Optional[str] = Field(
@@ -341,6 +353,13 @@ class Settings(BaseSettings):
         description=(
             "Enable the Atomiq BTC bridge background poller (Lightning→Starknet "
             "deposits and Starknet→BTC/Lightning withdrawals)"
+        ),
+    )
+    atomiq_escrow_contracts: str = Field(
+        default="",
+        description=(
+            "Comma-separated allowlist of Atomiq escrow contract addresses "
+            "(Starknet) that SignSmartChainTransaction INVOKEs may target"
         ),
     )
     btc_deposit_default_token: str = Field(

@@ -416,6 +416,7 @@ def _ensure_schema(db_engine) -> None:
     _add_savings_tables(db_engine, inspector, is_sqlite)
     _add_auth_tables(db_engine, inspector, is_sqlite)
     _add_btc_swap_tables(db_engine, inspector, is_sqlite)
+    _add_btc_swap_v2_columns(db_engine, inspector, is_sqlite)
 
     # --- performance indexes ---
     _add_performance_indexes(db_engine, inspector, is_sqlite)
@@ -566,7 +567,31 @@ def _add_btc_swap_tables(db_engine, inspector, is_sqlite: bool) -> None:
             BtcSwap.__table__.create(bind=db_engine)
             logger.info("Created btc_swaps table")
     except Exception as e:
-        logger.warning(f"Failed to create btc_swaps table: {e}")
+        from sqlalchemy.exc import OperationalError
+
+        if isinstance(e, OperationalError) or "already exists" in str(e).lower():
+            logger.warning(f"Failed to create btc_swaps table: {e}")
+        else:
+            logger.exception("Failed to create btc_swaps table")
+
+
+def _add_btc_swap_v2_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add escrow_address + last_error columns to btc_swaps idempotently."""
+    if not inspector.has_table("btc_swaps"):
+        return
+    cols = {c["name"] for c in inspector.get_columns("btc_swaps")}
+    for col_name in ("escrow_address", "last_error"):
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE btc_swaps ADD COLUMN {col_name} TEXT"
+            else:
+                ddl = f"ALTER TABLE btc_swaps ADD COLUMN IF NOT EXISTS {col_name} TEXT"
+            try:
+                with db_engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info(f"Added btc_swaps.{col_name}")
+            except Exception as e:
+                logger.warning(f"Could not add btc_swaps.{col_name}: {e}")
 
 
 def _add_performance_indexes(db_engine, inspector, is_sqlite: bool) -> None:

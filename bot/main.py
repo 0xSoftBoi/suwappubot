@@ -101,7 +101,13 @@ from bot.handlers.admin_fees import (
 )
 
 # New handlers
-from bot.handlers.alerts import alerts_handler, alert_conversation, alerts_menu_callback
+from bot.handlers.alerts import (
+    alerts_handler,
+    alert_conversation,
+    alerts_menu_callback,
+    alert_manage_callback,
+    alert_delete_callback,
+)
 from bot.handlers.referral import (
     referral_handler,
     ref_menu_callback_handler,
@@ -408,6 +414,8 @@ def add_handlers(application: Application) -> None:
 
     # Alerts
     application.add_handler(CallbackQueryHandler(alerts_menu_callback, pattern="^alerts_menu$"))
+    application.add_handler(CallbackQueryHandler(alert_manage_callback, pattern="^alert_manage$"))
+    application.add_handler(CallbackQueryHandler(alert_delete_callback, pattern="^alert_delete_"))
 
     # Referrals & Fees
     application.add_handler(ref_menu_callback_handler)

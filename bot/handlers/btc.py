@@ -636,6 +636,10 @@ async def btc_swaps_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 hashes = json.loads(s["tx_hashes"]) if s["tx_hashes"] else []
             except (TypeError, ValueError):
                 hashes = []
+            # Entries are either plain hash strings (legacy) or
+            # {"tx_hash", "atomiq_state_num"} dicts.
+            hashes = [h.get("tx_hash") if isinstance(h, dict) else h for h in hashes]
+            hashes = [h for h in hashes if h]
             if hashes:
                 line += "\n   " + " · ".join(_tx_link(h) for h in hashes[:3])
             lines.append(line)

@@ -47,22 +47,18 @@ class AtomiqServerError(AtomiqError):
     """5xx or transport failure after retries — safe to retry later."""
 
 
-# Module-level shared HTTP client (lazy-created, reused across calls).
-_client: Optional[httpx.AsyncClient] = None
-
-
-def _get_client() -> httpx.AsyncClient:
-    global _client
-    if _client is None or getattr(_client, "is_closed", False):
-        _client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
-    return _client
-
-
 class AtomiqAPI:
     """Async client for the Atomiq swap execution REST API."""
 
-    def __init__(self, base_url: Optional[str] = None):
+    def __init__(self, base_url: Optional[str] = None, client: Optional[httpx.AsyncClient] = None):
         self._base_url = base_url
+        # Per-instance HTTP client (lazy-created on first use, reused across calls)
+        self._client: Optional[httpx.AsyncClient] = client
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or getattr(self._client, "is_closed", False):
+            self._client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
+        return self._client
 
     @property
     def base_url(self) -> str:
@@ -82,7 +78,9 @@ class AtomiqAPI:
             if attempt:
                 await asyncio.sleep(BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)))
             try:
-                response = await _get_client().request(method, url, params=params, json=json_data)
+                response = await self._get_client().request(
+                    method, url, params=params, json=json_data
+                )
             except (httpx.HTTPError, OSError) as e:
                 last_error = e
                 logger.warning(

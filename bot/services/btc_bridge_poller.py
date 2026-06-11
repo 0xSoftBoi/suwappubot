@@ -14,6 +14,9 @@ from bot.services.btc_bridge import BtcBridge, btc_bridge
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_SECONDS = 20.0
+# After this many CONSECUTIVE advance_swap failures the swap is abandoned
+# (marked finished/failed) and the user is notified.
+MAX_CONSECUTIVE_FAILURES = 10
 
 
 class BtcBridgePoller:
@@ -25,6 +28,8 @@ class BtcBridgePoller:
         self.running = False
         self.bot = None
         self._task: Optional[asyncio.Task] = None
+        # btc_swap_id -> consecutive failure count (in-memory; resets on success)
+        self._fail_counts: dict = {}
 
     async def start(self, bot=None):
         if self.running:
@@ -71,6 +76,7 @@ class BtcBridgePoller:
         for btc_swap_id in ids:
             try:
                 next_poll = await self.bridge.advance_swap(btc_swap_id)
+                self._fail_counts.pop(btc_swap_id, None)
                 if next_poll is None:
                     # The swap just transitioned to a terminal state (it was
                     # unfinished when we listed it) — tell the user.
@@ -79,7 +85,26 @@ class BtcBridgePoller:
                 raise
             except Exception as e:
                 logger.warning("BTC bridge: advance_swap(%s) failed: %s", btc_swap_id, str(e)[:300])
+                count = self._fail_counts.get(btc_swap_id, 0) + 1
+                self._fail_counts[btc_swap_id] = count
+                if count >= MAX_CONSECUTIVE_FAILURES:
+                    await self._give_up(btc_swap_id)
         return len(ids)
+
+    async def _give_up(self, btc_swap_id: int) -> None:
+        """Abandon a swap after repeated consecutive failures and notify the user."""
+        logger.error(
+            "BTC bridge: giving up on swap %s after %d consecutive failures",
+            btc_swap_id,
+            MAX_CONSECUTIVE_FAILURES,
+        )
+        try:
+            self.bridge._mark_failed(btc_swap_id, "gave up after repeated errors")
+        except Exception as e:  # pragma: no cover - DB outage
+            logger.error("BTC bridge: failed to mark swap %s as failed: %s", btc_swap_id, e)
+            return
+        self._fail_counts.pop(btc_swap_id, None)
+        await self._notify_finished(btc_swap_id)
 
     async def _notify_finished(self, btc_swap_id: int) -> None:
         """Best-effort Telegram notification when a swap reaches terminal state."""

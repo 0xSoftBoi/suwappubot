@@ -7,12 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-import bot.services.atomiq_api as atomiq_api_module
 from bot.config.settings import settings
 from bot.models.btc_swap import BtcSwap
 from bot.services.atomiq_api import AtomiqAPI
-from bot.services.btc_bridge import BtcBridge, BtcBridgeError
-from bot.services.btc_bridge_poller import BtcBridgePoller
+from bot.services.btc_bridge import AtomiqValidationError, BtcBridge, BtcBridgeError
+from bot.services.btc_bridge_poller import MAX_CONSECUTIVE_FAILURES, BtcBridgePoller
 from bot.utils.encryption import decrypt_private_key
 from database.db import get_session
 
@@ -78,16 +77,18 @@ class FakeAtomiqServer:
         route = self.routes.get((request.method, path))
         if route is None:
             return httpx.Response(404, json={"error": f"no route {path}"})
-        return httpx.Response(200, json=route(payload))
+        result = route(payload)
+        if isinstance(result, httpx.Response):
+            return result
+        return httpx.Response(200, json=result)
 
     def client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(transport=httpx.MockTransport(self.handler), base_url=BASE)
 
 
 @pytest.fixture
-def server(monkeypatch):
+def server():
     srv = FakeAtomiqServer()
-    monkeypatch.setattr(atomiq_api_module, "_client", srv.client())
     # Default benign routes
     srv.routes[("GET", "/getSwapLimits")] = lambda p: {
         "input": {"min": {"rawAmount": "100"}, "max": {"rawAmount": "2000000"}},
@@ -110,7 +111,10 @@ def bridge(server, tmp_db, wallet):
     ws.get_wallet_by_id.return_value = wallet
     ws.get_private_key.return_value = "0x1234"
     ws.ensure_starknet_deployed = AsyncMock()
-    return BtcBridge(api=AtomiqAPI(base_url=BASE), wallet_service=ws)
+    return BtcBridge(
+        api=AtomiqAPI(base_url=BASE, client=server.client()),
+        wallet_service=ws,
+    )
 
 
 def _create_swap_response(swap_id="swap-1", action=None, state=None):
@@ -353,10 +357,13 @@ class TestAdvanceSwap:
         assert calls[0].to_addr == 0x123
         assert list(calls[0].calldata) == [2, 10, 255]
         assert account.execute_v3.await_args.kwargs["auto_estimate"] is True
-        # tx hash persisted, no submitTransaction round-trip for smart-chain actions
+        # tx hash persisted with the server state (idempotency record), no
+        # submitTransaction round-trip for smart-chain actions
         row = _row("swap-btc")
-        assert json.loads(row.tx_hashes) == [hex(0xDEAD)]
+        assert json.loads(row.tx_hashes) == [{"tx_hash": hex(0xDEAD), "atomiq_state_num": 0}]
         assert not any(path == "/submitTransaction" for m, path, p in server.requests)
+        # The escrow contract is pinned for the swap's lifetime
+        assert int(row.escrow_address, 16) == 0x123
 
     def test_parse_invoke_calls_hex_and_decimal(self):
         calls = BtcBridge.parse_invoke_calls(
@@ -410,3 +417,232 @@ class TestPoller:
         with patch.object(bridge, "advance_swap", side_effect=flaky_advance):
             assert await poller.poll_once() == 2
         assert len(calls) == 2  # second swap still advanced despite first failing
+
+    async def test_poller_gives_up_after_consecutive_failures_and_notifies(
+        self, server, bridge, wallet
+    ):
+        from bot.models.user import User
+
+        with get_session() as session:
+            user = User(telegram_id=4242)
+            session.add(user)
+            session.flush()
+            user_id = user.id
+        server.routes[("POST", "/createSwap")] = lambda p: _create_swap_response(
+            "swap-giveup", action=_send_to_address_action()
+        )
+        await bridge.start_lightning_deposit(user_id=user_id, wallet=wallet, sats=1500)
+
+        poller = BtcBridgePoller(bridge=bridge)
+        poller.bot = AsyncMock()
+        with patch.object(bridge, "advance_swap", side_effect=RuntimeError("rpc down")):
+            for _ in range(MAX_CONSECUTIVE_FAILURES):
+                await poller.poll_once()
+
+        row = _row("swap-giveup")
+        assert row.finished is True
+        assert row.success is False
+        assert row.last_error == "gave up after repeated errors"
+        poller.bot.send_message.assert_awaited_once()
+        text = poller.bot.send_message.await_args.kwargs["text"]
+        assert "failed" in text
+        assert "completed" not in text
+        # Abandoned swap is no longer polled
+        assert await poller.poll_once() == 0
+
+
+# ---------------------------------------------------------------------------
+# Smart-chain call validation
+# ---------------------------------------------------------------------------
+
+
+def _smart_chain_status(swap_id, state_num, calls, state_name="CREATED"):
+    return {
+        **_create_swap_response(swap_id, state={"number": state_num, "name": state_name}),
+        "currentAction": {
+            "type": "SignSmartChainTransaction",
+            "txs": [{"type": "INVOKE", "tx": {"calls": calls}}],
+        },
+    }
+
+
+async def _seed_btc_out(server, bridge, wallet, swap_id="swap-btc", sats=20_000) -> int:
+    server.routes[("GET", "/parseAddress")] = lambda p: {"type": "BITCOIN"}
+    server.routes[("POST", "/createSwap")] = lambda p: _create_swap_response(swap_id)
+    result = await bridge.start_withdrawal(
+        user_id=7, wallet=wallet, destination="bc1qdest", sats=sats
+    )
+    return result["btc_swap_id"]
+
+
+def _mock_account(tx_hash=0xDEAD):
+    account = MagicMock()
+    receipt = MagicMock()
+    receipt.transaction_hash = tx_hash
+    account.execute_v3 = AsyncMock(return_value=receipt)
+    return account
+
+
+class TestCallValidation:
+    async def test_rejects_unknown_to_for_non_approve(self, server, bridge, wallet):
+        btc_swap_id = await _seed_btc_out(server, bridge, wallet)
+        server.routes[("GET", "/getSwapStatus")] = lambda p: _smart_chain_status(
+            "swap-btc",
+            0,
+            [{"contractAddress": "0x999", "entrypoint": "transfer", "calldata": ["0x1", "5", "0"]}],
+        )
+        with pytest.raises(AtomiqValidationError, match="not in the allowed escrow set"):
+            await bridge.advance_swap(btc_swap_id)
+        # Nothing executed, nothing recorded
+        assert _row("swap-btc").tx_hashes is None
+
+    async def test_rejects_approve_amount_above_tolerance(self, server, bridge, wallet):
+        from bot.config.starknet_addresses import WBTC
+
+        row = {
+            "id": 1,
+            "swap_id": "swap-x",
+            "amount_raw": "20000",
+            "src_token": "STARKNET-WBTC",
+            "dst_token": "BITCOIN-BTC",
+            "escrow_address": None,
+        }
+        approve = {
+            "to": int(WBTC, 16),
+            "entrypoint": "approve",
+            "selector": None,
+            "calldata": [0x1, 20_401, 0],  # 20000 * 1.02 = 20400 < 20401
+        }
+        with pytest.raises(AtomiqValidationError, match="exceeds"):
+            await bridge._validate_calls(row, [approve])
+        # Exactly at the 2% tolerance is accepted
+        approve_ok = {**approve, "calldata": [0x1, 20_400, 0]}
+        await bridge._validate_calls(row, [approve_ok])
+
+    async def test_rejects_approve_to_unknown_token_contract(self, server, bridge, wallet):
+        row = {
+            "id": 1,
+            "swap_id": "swap-x",
+            "amount_raw": "20000",
+            "src_token": "STARKNET-WBTC",
+            "dst_token": "BITCOIN-BTC",
+            "escrow_address": None,
+        }
+        approve = {"to": 0xBAD, "entrypoint": "approve", "selector": None, "calldata": [1, 5, 0]}
+        with pytest.raises(AtomiqValidationError, match="unknown\\s+token contract"):
+            await bridge._validate_calls(row, [approve])
+
+    async def test_rejects_escrow_address_change_mid_swap(self, server, bridge, wallet):
+        row = {
+            "id": 1,
+            "swap_id": "swap-x",
+            "amount_raw": "20000",
+            "src_token": "STARKNET-WBTC",
+            "dst_token": "BITCOIN-BTC",
+            "escrow_address": "0x123",
+        }
+        claim = {"to": 0x456, "entrypoint": "claim", "selector": None, "calldata": []}
+        with pytest.raises(AtomiqValidationError, match="changed"):
+            await bridge._validate_calls(row, [claim])
+
+    async def test_accepts_legit_commit_then_claim_sequence(
+        self, server, bridge, wallet, monkeypatch
+    ):
+        btc_swap_id = await _seed_btc_out(server, bridge, wallet)
+        statuses = {
+            "phase": 0,
+        }
+
+        def status(p):
+            if statuses["phase"] == 0:
+                return _smart_chain_status(
+                    "swap-btc",
+                    0,
+                    [{"contractAddress": "0x123", "entrypoint": "commit", "calldata": ["1"]}],
+                )
+            return _smart_chain_status(
+                "swap-btc",
+                1,
+                [{"contractAddress": "0x123", "entrypoint": "claim", "calldata": ["2"]}],
+                state_name="COMMITTED",
+            )
+
+        server.routes[("GET", "/getSwapStatus")] = status
+        account = _mock_account()
+        _stub_starknet_py(monkeypatch)
+        with patch(
+            "bot.services.starknet.client.get_starknet_account",
+            new=AsyncMock(return_value=account),
+        ):
+            await bridge.advance_swap(btc_swap_id)
+            statuses["phase"] = 1
+            await bridge.advance_swap(btc_swap_id)
+
+        assert account.execute_v3.await_count == 2
+        entries = json.loads(_row("swap-btc").tx_hashes)
+        assert [e["atomiq_state_num"] for e in entries] == [0, 1]
+
+    async def test_idempotency_skips_reexecution_for_same_state(
+        self, server, bridge, wallet, monkeypatch
+    ):
+        btc_swap_id = await _seed_btc_out(server, bridge, wallet)
+        server.routes[("GET", "/getSwapStatus")] = lambda p: _smart_chain_status(
+            "swap-btc",
+            0,
+            [{"contractAddress": "0x123", "entrypoint": "commit", "calldata": ["1"]}],
+        )
+        account = _mock_account()
+        _stub_starknet_py(monkeypatch)
+        with patch(
+            "bot.services.starknet.client.get_starknet_account",
+            new=AsyncMock(return_value=account),
+        ):
+            await bridge.advance_swap(btc_swap_id)
+            await bridge.advance_swap(btc_swap_id)  # same state — must not re-execute
+
+        assert account.execute_v3.await_count == 1
+        assert len(json.loads(_row("swap-btc").tx_hashes)) == 1
+
+    async def test_configured_allowlist_admits_contract(self, server, bridge, wallet, monkeypatch):
+        monkeypatch.setattr(settings, "atomiq_escrow_contracts", "0x777, 0x888")
+        row = {
+            "id": 1,
+            "swap_id": "swap-x",
+            "amount_raw": "20000",
+            "src_token": "STARKNET-WBTC",
+            "dst_token": "BITCOIN-BTC",
+            "escrow_address": None,
+        }
+        # Even a non-allowed entrypoint passes when the contract is allowlisted
+        call = {"to": 0x777, "entrypoint": "anything", "selector": None, "calldata": []}
+        await bridge._validate_calls(row, [call])
+
+
+# ---------------------------------------------------------------------------
+# 4xx terminal handling + deposit limits
+# ---------------------------------------------------------------------------
+
+
+class TestClientErrorHandling:
+    async def test_4xx_marks_swap_finished_failed(self, server, bridge, wallet):
+        btc_swap_id = await _seed_ln_in(server, bridge, wallet)
+        server.routes[("GET", "/getSwapStatus")] = lambda p: httpx.Response(
+            400, json={"msg": "swap expired and pruned"}
+        )
+        assert await bridge.advance_swap(btc_swap_id) is None
+        row = _row("swap-1")
+        assert row.finished is True
+        assert row.success is False
+        assert "swap expired and pruned" in row.last_error
+        # Not polled again
+        assert await bridge.advance_swap(btc_swap_id) is None
+
+
+class TestDepositLimits:
+    async def test_deposit_below_min_raises_value_error_with_limits(self, server, bridge, wallet):
+        with pytest.raises(ValueError, match="100.*2000000"):
+            await bridge.start_lightning_deposit(user_id=7, wallet=wallet, sats=50)
+
+    async def test_deposit_above_max_raises_value_error_with_limits(self, server, bridge, wallet):
+        with pytest.raises(ValueError, match="100.*2000000"):
+            await bridge.start_lightning_deposit(user_id=7, wallet=wallet, sats=3_000_000)

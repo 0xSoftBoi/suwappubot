@@ -53,6 +53,12 @@ class BtcSwap(Base):
     # JSON-encoded list of on-chain tx hashes we produced/observed
     tx_hashes = Column(Text, nullable=True)
 
+    # First-seen Atomiq escrow contract address (hex) — pinned for the swap's
+    # lifetime; later SignSmartChainTransaction actions must target the same one.
+    escrow_address = Column(Text, nullable=True)
+    # Terminal error description when finished unsuccessfully (4xx, give-up)
+    last_error = Column(Text, nullable=True)
+
     finished = Column(Boolean, nullable=False, default=False)
     success = Column(Boolean, nullable=True)
 

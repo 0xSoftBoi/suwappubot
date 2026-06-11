@@ -398,6 +398,10 @@ async def show_snipe_confirmation(update: Update, context: ContextTypes.DEFAULT_
     token_mint = snipe_data.get("token_mint")
     sol_amount = snipe_data.get("sol_amount")
 
+    # Read toggleable settings from user_data; initialise defaults on first render.
+    use_jito = snipe_data.get("use_jito", True)
+    slippage_pct = snipe_data.get("confirm_slippage_pct", 10)
+
     # Get token info
     token = await pump_fun_api.get_token(token_mint)
 
@@ -415,13 +419,17 @@ async def show_snipe_confirmation(update: Update, context: ContextTypes.DEFAULT_
     else:
         token_info = f"*Contract:* `{token_mint}`\n"
 
+    jito_label = f"Jito: {'ON' if use_jito else 'OFF'}"
+    slippage_label = f"Slippage: {slippage_pct}%"
+    mev_line = "Jito Enabled" if use_jito else "Jito Disabled"
+
     keyboard = [
         [
             InlineKeyboardButton("Confirm Snipe", callback_data="snipe_confirm"),
         ],
         [
-            InlineKeyboardButton("Jito: ON", callback_data="snipe_toggle_jito"),
-            InlineKeyboardButton("Slippage: 10%", callback_data="snipe_toggle_slippage"),
+            InlineKeyboardButton(jito_label, callback_data="snipe_toggle_jito"),
+            InlineKeyboardButton(slippage_label, callback_data="snipe_toggle_slippage"),
         ],
         [InlineKeyboardButton("Cancel", callback_data="snipe_cancel")],
     ]
@@ -430,8 +438,8 @@ async def show_snipe_confirmation(update: Update, context: ContextTypes.DEFAULT_
         f"*Confirm Snipe*\n\n"
         f"{token_info}\n"
         f"*Amount:* {format_sol(sol_amount)} SOL\n"
-        f"*Slippage:* 10%\n"
-        f"*MEV Protection:* Jito Enabled\n\n"
+        f"*Slippage:* {slippage_pct}%\n"
+        f"*MEV Protection:* {mev_line}\n\n"
         f"_Click Confirm to execute the snipe_"
     )
 
@@ -1131,6 +1139,37 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     return await show_snipe_menu(update, context)
 
 
+# ============ CONFIRM-SCREEN TOGGLE CALLBACKS ============
+
+
+async def snipe_toggle_jito_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Toggle Jito MEV protection on the snipe confirmation screen."""
+    query = update.callback_query
+    await query.answer()
+
+    snipe_data = context.user_data.setdefault("snipe", {})
+    snipe_data["use_jito"] = not snipe_data.get("use_jito", True)
+
+    return await show_snipe_confirmation(update, context)
+
+
+async def snipe_toggle_slippage_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cycle slippage through presets: 5 → 10 → 15 → 25 → 5 …"""
+    query = update.callback_query
+    await query.answer()
+
+    _presets = [5, 10, 15, 25]
+    snipe_data = context.user_data.setdefault("snipe", {})
+    current = snipe_data.get("confirm_slippage_pct", 10)
+    try:
+        idx = _presets.index(current)
+    except ValueError:
+        idx = 1  # default to index of 10
+    snipe_data["confirm_slippage_pct"] = _presets[(idx + 1) % len(_presets)]
+
+    return await show_snipe_confirmation(update, context)
+
+
 # ============ CONVERSATION HANDLER ============
 
 snipe_conversation_handler = ConversationHandler(
@@ -1170,6 +1209,8 @@ snipe_conversation_handler = ConversationHandler(
         ],
         CONFIRM_SNIPE: [
             CallbackQueryHandler(confirm_snipe_callback, pattern="^snipe_confirm$"),
+            CallbackQueryHandler(snipe_toggle_jito_callback, pattern="^snipe_toggle_jito$"),
+            CallbackQueryHandler(snipe_toggle_slippage_callback, pattern="^snipe_toggle_slippage$"),
             CallbackQueryHandler(cancel_callback, pattern="^snipe_cancel$"),
         ],
     },

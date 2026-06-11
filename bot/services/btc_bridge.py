@@ -37,7 +37,7 @@ from typing import Optional
 
 from bot.config.settings import settings
 from bot.models.btc_swap import BtcSwap
-from bot.services.atomiq_api import AtomiqAPI, AtomiqError, atomiq_api
+from bot.services.atomiq_api import AtomiqAPI, AtomiqClientError, AtomiqError, atomiq_api
 from bot.utils.encryption import decrypt_private_key, encrypt_private_key
 from database.db import get_session
 
@@ -56,6 +56,23 @@ MIN_BTC_OUT_SATS = 11_548
 
 class BtcBridgeError(Exception):
     """Raised for BTC bridge orchestration failures (user-presentable)."""
+
+
+class AtomiqValidationError(BtcBridgeError):
+    """Raised when a SignSmartChainTransaction call fails safety validation.
+
+    Nothing is executed or marked; the poller treats it as a failure that
+    counts toward the per-swap give-up threshold.
+    """
+
+
+# Non-approve entrypoints an Atomiq escrow contract may legitimately ask for
+ALLOWED_ESCROW_ENTRYPOINTS = frozenset(
+    {"commit", "lock", "claim", "refund", "execute", "initialize", "deposit", "withdraw"}
+)
+# Tolerance on approve amounts vs the swap's amount_raw (2% headroom for fees)
+APPROVE_AMOUNT_TOLERANCE_NUM = 102
+APPROVE_AMOUNT_TOLERANCE_DEN = 100
 
 
 def _zeroize_str(value: Optional[str]) -> None:
@@ -88,6 +105,9 @@ class BtcBridge:
     def __init__(self, api: Optional[AtomiqAPI] = None, wallet_service=None):
         self.api = api or atomiq_api
         self._wallet_service = wallet_service
+        # token id (e.g. "STARKNET-WBTC") -> contract address int, learned
+        # from getSupportedTokens and cached for the process lifetime.
+        self._token_addr_cache: dict = {}
 
     @property
     def wallet_service(self):
@@ -121,6 +141,7 @@ class BtcBridge:
             raise BtcBridgeError("Deposit amount must be positive")
 
         limits = await self.api.get_swap_limits(LIGHTNING_BTC, dst_token)
+        self._validate_deposit_limits(sats, limits)
 
         secret = _secrets.token_bytes(32)
         secret_hex = secret.hex()
@@ -268,16 +289,24 @@ class BtcBridge:
         if row is None or row["finished"]:
             return None
 
-        status = await self.api.get_swap_status(row["swap_id"])
+        try:
+            status = await self.api.get_swap_status(row["swap_id"])
 
-        # Secret reveal (LN-in claim): decrypt, send, zeroize.
-        if status.get("requiresSecretReveal") and row["secret_encrypted"]:
-            secret_hex = None
-            try:
-                secret_hex = decrypt_private_key(row["secret_encrypted"], settings.encryption_key)
-                status = await self.api.get_swap_status(row["swap_id"], secret=secret_hex)
-            finally:
-                _zeroize_str(secret_hex)
+            # Secret reveal (LN-in claim): decrypt, send, zeroize.
+            if status.get("requiresSecretReveal") and row["secret_encrypted"]:
+                secret_hex = None
+                try:
+                    secret_hex = decrypt_private_key(
+                        row["secret_encrypted"], settings.encryption_key
+                    )
+                    status = await self.api.get_swap_status(row["swap_id"], secret=secret_hex)
+                finally:
+                    _zeroize_str(secret_hex)
+        except AtomiqClientError as e:
+            # 4xx: the request itself is rejected — retrying cannot help.
+            self._mark_failed(btc_swap_id, str(e))
+            logger.error("Atomiq swap %s failed with 4xx: %s", row["swap_id"], str(e)[:300])
+            return None
 
         updates: dict = {}
         state = status.get("state") or {}
@@ -289,6 +318,11 @@ class BtcBridge:
         out_raw = self._raw_amount(quote.get("outputAmount"))
         if out_raw:
             updates["quote_output_raw"] = out_raw
+            # ln_out swaps are created without an amount (BOLT11 encodes it);
+            # backfill amount_raw from the first non-null outputAmount we see.
+            if row["amount_raw"] is None:
+                updates["amount_raw"] = out_raw
+                row["amount_raw"] = out_raw
 
         # Terminal?
         if status.get("isFinished"):
@@ -315,10 +349,16 @@ class BtcBridge:
                 if invoice:
                     updates["invoice"] = invoice
         elif action_type == "SignSmartChainTransaction":
-            tx_hashes = await self._handle_smart_chain_action(row, action)
-            if tx_hashes:
-                existing = json.loads(row["tx_hashes"]) if row["tx_hashes"] else []
-                updates["tx_hashes"] = json.dumps(existing + tx_hashes)
+            # Persist state/quote updates BEFORE executing so the idempotency
+            # record inside _handle_smart_chain_action is not overwritten.
+            self._update_swap(btc_swap_id, updates)
+            updates = {}
+            state_num = state.get("number")
+            await self._handle_smart_chain_action(
+                row,
+                action,
+                state_num if state_num is not None else row["atomiq_state_num"],
+            )
             # Re-poll quickly so the server sees our on-chain execution.
             next_poll = 5.0
         elif action_type == "Wait":
@@ -330,14 +370,33 @@ class BtcBridge:
         self._update_swap(btc_swap_id, updates)
         return next_poll
 
-    async def _handle_smart_chain_action(self, row: dict, action: dict) -> list:
+    async def _handle_smart_chain_action(self, row: dict, action: dict, state_num) -> list:
         """Execute SignSmartChainTransaction txs with the user's account.
 
         Per the design assumption in the module docstring, INVOKE actions are
         executed DIRECTLY on-chain (execute_v3, auto_estimate) — we do not
         round-trip them through submitTransaction. DEPLOY_ACCOUNT actions are
         satisfied by our own counterfactual deploy path.
+
+        Safety:
+        - Every call is validated against the escrow allowlist / approve
+          rules BEFORE anything is signed (AtomiqValidationError on failure).
+        - Idempotent per Atomiq state: if we already recorded a tx hash for
+          this atomiq_state_num, we skip execution and reuse it.
+        - The {tx_hash, atomiq_state_num} record is persisted IMMEDIATELY
+          after on-chain execution, before any further API calls.
         """
+        # Idempotency: already executed for this server state? Reuse.
+        existing_hash = self._recorded_hash_for_state(row, state_num)
+        if existing_hash is not None:
+            logger.info(
+                "Atomiq swap %s: reusing tx %s for state %s (idempotent skip)",
+                row["swap_id"],
+                existing_hash,
+                state_num,
+            )
+            return [existing_hash]
+
         wallet = (
             self.wallet_service.get_wallet_by_id(row["wallet_id"]) if row["wallet_id"] else None
         )
@@ -360,17 +419,223 @@ class BtcBridge:
                 )
 
         if invoke_calls:
+            # Validate BEFORE signing/executing anything.
+            await self._validate_calls(row, invoke_calls)
+
             private_key = self.wallet_service.get_private_key(wallet)
             try:
                 from bot.services.starknet.client import get_starknet_account
 
                 account = await get_starknet_account(private_key, wallet.address)
                 tx_hash = await self._execute_invoke(account, invoke_calls)
-                tx_hashes.append(tx_hash)
-                logger.info("Atomiq swap %s: executed escrow invoke %s", row["swap_id"], tx_hash)
             finally:
                 _zeroize_str(private_key)
+            # Persist immediately (own session/commit) before any further
+            # API calls, so a crash cannot lead to double execution.
+            self._record_tx_hash(row, tx_hash, state_num)
+            tx_hashes.append(tx_hash)
+            logger.info("Atomiq swap %s: executed escrow invoke %s", row["swap_id"], tx_hash)
         return tx_hashes
+
+    # ------------------------------------------------------------------
+    # Call validation (escrow allowlist, approve amounts, pinned escrow)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _configured_escrow_allowlist() -> set:
+        """Parse settings.atomiq_escrow_contracts (list or comma string) to ints."""
+        raw = getattr(settings, "atomiq_escrow_contracts", "") or ""
+        if isinstance(raw, str):
+            items = [x.strip() for x in raw.split(",")]
+        else:
+            items = [str(x).strip() for x in raw]
+        out = set()
+        for item in items:
+            if not item:
+                continue
+            try:
+                out.add(_to_int(item))
+            except ValueError:
+                logger.warning("Invalid atomiq_escrow_contracts entry ignored: %s", item[:80])
+        return out
+
+    async def _known_token_addresses(self, row: dict) -> set:
+        """Token contract addresses an `approve` may target.
+
+        Union of the static bot.config.starknet_addresses token constants and
+        the addresses Atomiq's getSupportedTokens maps to the swap's own
+        src/dst token ids (cached per process).
+        """
+        addresses: set = set()
+        try:
+            from bot.config import starknet_addresses as _sa
+
+            for name in dir(_sa):
+                val = getattr(_sa, name)
+                if (
+                    not name.startswith("_")
+                    and isinstance(val, str)
+                    and val.lower().startswith("0x")
+                ):
+                    try:
+                        addresses.add(_to_int(val))
+                    except ValueError:
+                        pass
+        except Exception:  # pragma: no cover - static config should import
+            logger.warning("Could not load starknet_addresses for approve validation")
+
+        wanted = {t for t in (row.get("src_token"), row.get("dst_token")) if t}
+        missing = wanted - set(self._token_addr_cache)
+        if missing:
+            for side in ("INPUT", "OUTPUT"):
+                try:
+                    data = await self.api.get_supported_tokens(side)
+                except AtomiqError as e:
+                    logger.warning("getSupportedTokens(%s) failed: %s", side, str(e)[:200])
+                    continue
+                for token_id, addr in self._iter_token_addresses(data):
+                    if token_id in wanted and token_id not in self._token_addr_cache:
+                        try:
+                            self._token_addr_cache[token_id] = _to_int(addr)
+                        except (TypeError, ValueError):
+                            pass
+        for token_id in wanted:
+            addr_int = self._token_addr_cache.get(token_id)
+            if addr_int is not None:
+                addresses.add(addr_int)
+        return addresses
+
+    @staticmethod
+    def _iter_token_addresses(data):
+        """Yield (token_id, address) pairs from a getSupportedTokens payload.
+
+        Tolerant of {"tokens": [...]}, plain lists, and id→info mappings.
+        """
+        if isinstance(data, dict) and "tokens" in data:
+            data = data["tokens"]
+        if isinstance(data, dict):
+            for token_id, info in data.items():
+                addr = info.get("address") if isinstance(info, dict) else info
+                if addr:
+                    yield str(token_id), addr
+            return
+        if isinstance(data, list):
+            for entry in data:
+                if not isinstance(entry, dict):
+                    continue
+                token_id = entry.get("id") or entry.get("token") or entry.get("ticker")
+                addr = entry.get("address") or entry.get("contractAddress")
+                if token_id and addr:
+                    yield str(token_id), addr
+
+    async def _validate_calls(self, row: dict, calls: list) -> None:
+        """Validate normalized INVOKE calls; raise AtomiqValidationError on any issue.
+
+        Rules per call (`to` is an int):
+        a) configured allowlist → allowed;
+        b) entrypoint == "approve" → `to` must be a known token contract for
+           this swap AND the u256 amount must be ≤ amount_raw * 1.02;
+        c) otherwise → entrypoint must be in ALLOWED_ESCROW_ENTRYPOINTS and
+           the contract must match the swap's pinned escrow address (first
+           seen wins, persisted; any change is rejected).
+        """
+        allowlist = self._configured_escrow_allowlist()
+        token_addresses: Optional[set] = None  # lazy — only fetched if an approve appears
+        escrow_pinned = None
+        if row.get("escrow_address"):
+            try:
+                escrow_pinned = _to_int(row["escrow_address"])
+            except ValueError:
+                escrow_pinned = None
+        newly_pinned = None
+
+        for call in calls:
+            to = call["to"]
+            entrypoint = call["entrypoint"]
+            if to in allowlist:
+                continue
+            if entrypoint == "approve":
+                if token_addresses is None:
+                    token_addresses = await self._known_token_addresses(row)
+                if to not in token_addresses:
+                    raise AtomiqValidationError(
+                        f"Atomiq swap {row['swap_id']}: approve targets unknown "
+                        f"token contract {hex(to)}"
+                    )
+                self._validate_approve_amount(row, call)
+                continue
+            # Non-approve, non-allowlisted: must be the swap's escrow contract.
+            if entrypoint is None or entrypoint not in ALLOWED_ESCROW_ENTRYPOINTS:
+                raise AtomiqValidationError(
+                    f"Atomiq swap {row['swap_id']}: entrypoint "
+                    f"{entrypoint or call['selector']} not in the allowed escrow set"
+                )
+            effective = escrow_pinned if escrow_pinned is not None else newly_pinned
+            if effective is None:
+                newly_pinned = to
+            elif to != effective:
+                raise AtomiqValidationError(
+                    f"Atomiq swap {row['swap_id']}: escrow contract changed "
+                    f"mid-swap ({hex(effective)} → {hex(to)})"
+                )
+
+        if escrow_pinned is None and newly_pinned is not None:
+            self._update_swap(row["id"], {"escrow_address": hex(newly_pinned)})
+            row["escrow_address"] = hex(newly_pinned)
+
+    @staticmethod
+    def _validate_approve_amount(row: dict, call: dict) -> None:
+        """Reject approve amounts above amount_raw * 1.02 (u256 low/high)."""
+        amount_raw = row.get("amount_raw")
+        if amount_raw is None:
+            return  # nothing to compare against yet (pre-backfill ln_out)
+        calldata = call["calldata"]
+        if len(calldata) < 3:
+            raise AtomiqValidationError(
+                f"Atomiq swap {row['swap_id']}: malformed approve calldata"
+            )
+        amount = calldata[1] + (calldata[2] << 128)
+        max_allowed = (
+            int(amount_raw) * APPROVE_AMOUNT_TOLERANCE_NUM
+        ) // APPROVE_AMOUNT_TOLERANCE_DEN
+        if amount > max_allowed:
+            raise AtomiqValidationError(
+                f"Atomiq swap {row['swap_id']}: approve amount {amount} exceeds "
+                f"swap amount {amount_raw} (+2% tolerance = {max_allowed})"
+            )
+
+    # ------------------------------------------------------------------
+    # Idempotency helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _recorded_hash_for_state(row: dict, state_num) -> Optional[str]:
+        """Return the tx hash already recorded for this atomiq_state_num, if any."""
+        if state_num is None or not row.get("tx_hashes"):
+            return None
+        try:
+            entries = json.loads(row["tx_hashes"])
+        except (TypeError, ValueError):
+            return None
+        for entry in entries:
+            if isinstance(entry, dict) and entry.get("atomiq_state_num") == state_num:
+                return entry.get("tx_hash")
+        return None
+
+    def _record_tx_hash(self, row: dict, tx_hash: str, state_num) -> None:
+        """Append {tx_hash, atomiq_state_num} to the row (own session/commit)."""
+        with get_session() as session:
+            db_row = session.query(BtcSwap).filter(BtcSwap.id == row["id"]).first()
+            if db_row is None:  # pragma: no cover - row deleted mid-flight
+                return
+            try:
+                entries = json.loads(db_row.tx_hashes) if db_row.tx_hashes else []
+            except (TypeError, ValueError):
+                entries = []
+            entries.append({"tx_hash": tx_hash, "atomiq_state_num": state_num})
+            db_row.tx_hashes = json.dumps(entries)
+            db_row.updated_at = _utcnow()
+        row["tx_hashes"] = json.dumps(entries)
 
     @staticmethod
     def parse_invoke_calls(tx: dict) -> list:
@@ -507,11 +772,44 @@ class BtcBridge:
                 "wallet_id": row.wallet_id,
                 "swap_id": row.swap_id,
                 "direction": row.direction,
+                "src_token": row.src_token,
+                "dst_token": row.dst_token,
+                "amount_raw": row.amount_raw,
                 "secret_encrypted": row.secret_encrypted,
                 "invoice": row.invoice,
                 "tx_hashes": row.tx_hashes,
+                "atomiq_state_num": row.atomiq_state_num,
+                "escrow_address": row.escrow_address,
                 "finished": row.finished,
             }
+
+    @classmethod
+    def _mark_failed(cls, btc_swap_id: int, error: str) -> None:
+        cls._update_swap(
+            btc_swap_id,
+            {"finished": True, "success": False, "last_error": str(error)[:1000]},
+        )
+
+    @staticmethod
+    def _validate_deposit_limits(sats: int, limits: dict) -> None:
+        """Validate the deposit amount against the fetched LN-in input limits."""
+
+        def _limit(key) -> Optional[int]:
+            raw = BtcBridge._raw_amount((limits.get("input") or {}).get(key))
+            try:
+                return int(raw) if raw is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        min_sats, max_sats = _limit("min"), _limit("max")
+        if (min_sats is not None and sats < min_sats) or (
+            max_sats is not None and sats > max_sats
+        ):
+            raise ValueError(
+                f"Deposit amount {sats} sats is outside the allowed range "
+                f"({min_sats if min_sats is not None else '?'}–"
+                f"{max_sats if max_sats is not None else '?'} sats)"
+            )
 
     @staticmethod
     def _update_swap(btc_swap_id: int, updates: dict) -> None:

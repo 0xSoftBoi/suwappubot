@@ -3,6 +3,7 @@
 import logging
 from bot.services.whatsapp_flows.base import BaseWhatsAppFlow, FlowResponse
 from bot.services.whatsapp_flows import register_flow
+from bot.services.whatsapp_flows.flow_errors import user_safe_error
 from bot.services.whatsapp_conversation import ConversationState
 
 logger = logging.getLogger(__name__)
@@ -103,78 +104,74 @@ class WalletFlow(BaseWhatsAppFlow):
 
         try:
             from bot.services.wallet import WalletService
+            from database.db import get_session
+            from bot.models.user import Wallet
+
             ws = WalletService()
 
+            # Derive address using the correct per-chain method (mirrors Telegram handler)
             if chain_type == "evm":
                 if not private_key.startswith("0x"):
                     private_key = "0x" + private_key
-                from web3 import Account
-                acct = Account.from_key(private_key)
-                address = acct.address
+                address = ws.import_evm_wallet(private_key)
             else:
-                # Basic length validation for Solana
-                if len(private_key) < 32:
-                    return FlowResponse("Invalid Solana private key. Please try again with *wallets*.")
-                address = None  # WalletService will derive
+                address = ws.import_solana_wallet(private_key)
 
-            wallet = ws.import_wallet(
+            # Check for duplicate before saving
+            with get_session() as session:
+                existing = (
+                    session.query(Wallet)
+                    .filter(Wallet.user_id == db_uid, Wallet.address == address)
+                    .first()
+                )
+                if existing:
+                    display_addr = address[:6] + "..." + address[-4:]
+                    return FlowResponse(
+                        f"⚠️ Wallet already imported.\n\nAddress: `{display_addr}`"
+                    )
+
+            # Persist with proper KMS/envelope encryption via save_wallet
+            wallet = ws.save_wallet(
+                user_id=db_uid,
                 address=address,
                 private_key=private_key,
-                user_id=db_uid,
                 chain_type=chain_type,
                 name=f"WhatsApp {chain_type.upper()}",
             )
 
-            if wallet:
-                display_addr = wallet.address[:6] + "..." + wallet.address[-4:]
-                return FlowResponse(
-                    f"✅ *Wallet Imported!*\n\n"
-                    f"Type: {chain_type.upper()}\n"
-                    f"Address: `{display_addr}`"
-                )
-            return FlowResponse("Failed to import wallet. Check the key and try again.")
+            display_addr = wallet.address[:6] + "..." + wallet.address[-4:]
+            return FlowResponse(
+                f"✅ *Wallet Imported!*\n\n"
+                f"Type: {chain_type.upper()}\n"
+                f"Address: `{display_addr}`"
+            )
         except Exception as e:
-            logger.error(f"Wallet import failed: {e}")
-            return FlowResponse(f"Import failed: {str(e)[:150]}")
+            return FlowResponse(user_safe_error(e, "wallet_import"))
 
     async def _create_wallet(self, user_id: str, user_db_id: int, chain_type: str) -> FlowResponse:
         await self._clear(user_id)
         try:
             from bot.services.wallet import WalletService
-            from database.db import get_session
-            from bot.models.user import User, Wallet
 
             ws = WalletService()
-            if chain_type == "evm":
-                address, private_key = ws.create_evm_wallet()
-            else:
-                address, private_key = ws.create_solana_wallet()
+            # create_wallet handles both local and Turnkey paths and uses proper
+            # KMS envelope encryption via save_wallet internally.
+            chain_label = chain_type.upper()
+            wallet = await ws.create_wallet(
+                user_id=user_db_id,
+                name=f"WhatsApp {chain_label}",
+                chain_type=chain_type,
+            )
 
-            # Save wallet
-            with get_session() as session:
-                wallet = Wallet(
-                    user_id=user_db_id,
-                    address=address,
-                    chain_type=chain_type,
-                    name=f"WhatsApp {chain_type.upper()}",
-                    is_active=True,
-                )
-                # Encrypt and store private key
-                from bot.utils.encryption import encrypt_private_key
-                wallet.encrypted_private_key = encrypt_private_key(private_key)
-                session.add(wallet)
-                session.commit()
-
-            display_addr = address[:6] + "..." + address[-4:]
+            display_addr = wallet.address[:6] + "..." + wallet.address[-4:]
             return FlowResponse(
                 f"✅ *Wallet Created!*\n\n"
-                f"Type: {chain_type.upper()}\n"
+                f"Type: {chain_label}\n"
                 f"Address: `{display_addr}`\n\n"
                 f"Your wallet is ready. Use *balance* to check it."
             )
         except Exception as e:
-            logger.error(f"Wallet creation failed: {e}")
-            return FlowResponse(f"Wallet creation failed: {str(e)[:150]}")
+            return FlowResponse(user_safe_error(e, "wallet_create"))
 
 
 _flow = WalletFlow()
