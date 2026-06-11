@@ -77,6 +77,12 @@ async def wallet_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                         InlineKeyboardButton("📥 Import SOL", callback_data="wallet_import_solana"),
                         InlineKeyboardButton("📥 Import TRX", callback_data="wallet_import_tron"),
                     ],
+                    [
+                        InlineKeyboardButton("➕ Starknet", callback_data="wallet_create_starknet"),
+                        InlineKeyboardButton(
+                            "📥 Import STRK", callback_data="wallet_import_starknet"
+                        ),
+                    ],
                     [InlineKeyboardButton("« Back", callback_data="main_menu")],
                 ]
             else:
@@ -86,12 +92,14 @@ async def wallet_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 keyboard = []
 
                 for w in wallets:
-                    chain_emoji = {"evm": "🔷", "solana": "🟢", "tron": "💎"}.get(
+                    chain_emoji = {"evm": "🔷", "solana": "🟢", "tron": "💎", "starknet": "🟣"}.get(
                         w.chain_type, "🔷"
                     )
                     default_mark = " ⭐" if w.is_default else ""
                     lines.append(f"{chain_emoji} *{safe_md(w.name)}*{default_mark}")
                     lines.append(f"   `{w.address}`")
+                    if w.chain_type == "starknet":
+                        lines.append(f"   [Voyager ↗](https://voyager.online/contract/{w.address})")
                     lines.append("")
 
                     keyboard.append(
@@ -120,6 +128,14 @@ async def wallet_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                             ),
                             InlineKeyboardButton(
                                 "📥 Import TRX", callback_data="wallet_import_tron"
+                            ),
+                        ],
+                        [
+                            InlineKeyboardButton(
+                                "➕ Starknet", callback_data="wallet_create_starknet"
+                            ),
+                            InlineKeyboardButton(
+                                "📥 Import STRK", callback_data="wallet_import_starknet"
                             ),
                         ],
                         [InlineKeyboardButton("« Back", callback_data="main_menu")],
@@ -176,6 +192,10 @@ async def show_wallet_menu(
                     InlineKeyboardButton("📥 Import SOL", callback_data="wallet_import_solana"),
                     InlineKeyboardButton("📥 Import TRX", callback_data="wallet_import_tron"),
                 ],
+                [
+                    InlineKeyboardButton("➕ Starknet", callback_data="wallet_create_starknet"),
+                    InlineKeyboardButton("📥 Import STRK", callback_data="wallet_import_starknet"),
+                ],
                 [InlineKeyboardButton("« Back", callback_data="main_menu")],
             ]
         else:
@@ -185,10 +205,14 @@ async def show_wallet_menu(
             keyboard = []
 
             for w in wallets:
-                chain_emoji = {"evm": "🔷", "solana": "🟢", "tron": "💎"}.get(w.chain_type, "🔷")
+                chain_emoji = {"evm": "🔷", "solana": "🟢", "tron": "💎", "starknet": "🟣"}.get(
+                    w.chain_type, "🔷"
+                )
                 default_mark = " ⭐" if w.is_default else ""
                 lines.append(f"{chain_emoji} *{safe_md(w.name)}*{default_mark}")
                 lines.append(f"   `{w.address}`")
+                if w.chain_type == "starknet":
+                    lines.append(f"   [Voyager ↗](https://voyager.online/contract/{w.address})")
                 lines.append("")
 
                 # Add button for each wallet
@@ -213,6 +237,12 @@ async def show_wallet_menu(
                         InlineKeyboardButton("📥 Import EVM", callback_data="wallet_import_evm"),
                         InlineKeyboardButton("📥 Import SOL", callback_data="wallet_import_solana"),
                         InlineKeyboardButton("📥 Import TRX", callback_data="wallet_import_tron"),
+                    ],
+                    [
+                        InlineKeyboardButton("➕ Starknet", callback_data="wallet_create_starknet"),
+                        InlineKeyboardButton(
+                            "📥 Import STRK", callback_data="wallet_import_starknet"
+                        ),
                     ],
                     [InlineKeyboardButton("« Back", callback_data="main_menu")],
                 ]
@@ -240,11 +270,8 @@ async def wallet_create_callback(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
 
     user = update.effective_user
-    if "tron" in query.data:
-        chain_type = "tron"
-    elif "solana" in query.data:
-        chain_type = "solana"
-    else:
+    chain_type = query.data.rsplit("_", 1)[-1]
+    if chain_type not in {"evm", "solana", "tron", "starknet"}:
         chain_type = "evm"
 
     with get_session() as session:
@@ -269,8 +296,12 @@ async def wallet_create_callback(update: Update, context: ContextTypes.DEFAULT_T
         is_default = existing == 0
 
     # Create wallet (routes to Turnkey if configured, otherwise local)
-    chain_emoji = "🔷" if chain_type == "evm" else "🟢"
-    chain_name = "EVM" if chain_type == "evm" else "SOL"
+    chain_emoji = {"evm": "🔷", "solana": "🟢", "tron": "💎", "starknet": "🟣"}.get(
+        chain_type, "🔷"
+    )
+    chain_name = {"evm": "EVM", "solana": "SOL", "tron": "TRON", "starknet": "Starknet"}.get(
+        chain_type, "EVM"
+    )
 
     try:
         wallet = await wallet_service.create_wallet(
@@ -304,6 +335,11 @@ async def wallet_create_callback(update: Update, context: ContextTypes.DEFAULT_T
         f"`{address}`\n\n"
         f"{provider_note}"
     )
+    if chain_type == "starknet":
+        text += (
+            "\n\nℹ️ Account deploys automatically on first transaction "
+            "(gas can be paid in the token you swap)."
+        )
 
     keyboard = [
         [InlineKeyboardButton("👛 View Wallets", callback_data="wallet_menu")],
@@ -354,8 +390,12 @@ async def wallet_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         wallet_name = wallet.name
 
     # Determine chain for QR styling
-    chain = {"evm": "ethereum", "solana": "solana", "tron": "tron"}.get(chain_type, "ethereum")
-    chain_emoji = {"evm": "🔷", "solana": "🟢", "tron": "💎"}.get(chain_type, "🔷")
+    chain = {"evm": "ethereum", "solana": "solana", "tron": "tron", "starknet": "starknet"}.get(
+        chain_type, "ethereum"
+    )
+    chain_emoji = {"evm": "🔷", "solana": "🟢", "tron": "💎", "starknet": "🟣"}.get(
+        chain_type, "🔷"
+    )
 
     # Generate QR code
     try:
@@ -404,19 +444,19 @@ async def wallet_import_start(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
 
-    if "tron" in query.data:
-        chain_type = "tron"
-    elif "solana" in query.data:
-        chain_type = "solana"
-    else:
+    chain_type = query.data.rsplit("_", 1)[-1]
+    if chain_type not in {"evm", "solana", "tron", "starknet"}:
         chain_type = "evm"
     context.user_data["import_chain_type"] = chain_type
 
-    chain_name = {"evm": "EVM", "solana": "SOL", "tron": "TRON"}.get(chain_type, "EVM")
+    chain_name = {"evm": "EVM", "solana": "SOL", "tron": "TRON", "starknet": "Starknet"}.get(
+        chain_type, "EVM"
+    )
     key_hint = {
         "evm": "• EVM: 64 hex characters (with or without 0x prefix)",
         "solana": "• Solana: Base58 encoded key or JSON array",
         "tron": "• TRON: 64 hex characters (same format as EVM)",
+        "starknet": "• Starknet: hex private key (with or without 0x prefix)",
     }.get(chain_type, "")
 
     text = f"""
@@ -458,6 +498,8 @@ async def wallet_import_key(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             address = wallet_service.import_evm_wallet(private_key)
         elif chain_type == "tron":
             address = wallet_service.import_tron_wallet(private_key)
+        elif chain_type == "starknet":
+            address = wallet_service.import_starknet_wallet(private_key)
         else:
             address = wallet_service.import_solana_wallet(private_key)
     except Exception as e:
@@ -533,7 +575,13 @@ async def wallet_import_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
         is_default = existing_count == 0
 
     # Save wallet
-    wallet_name = name if name else f"{'EVM' if chain_type == 'evm' else 'Solana'} Wallet"
+    default_names = {
+        "evm": "EVM",
+        "solana": "Solana",
+        "tron": "TRON",
+        "starknet": "Starknet",
+    }
+    wallet_name = name if name else f"{default_names.get(chain_type, 'EVM')} Wallet"
 
     wallet_service.save_wallet(
         user_id=user_id,

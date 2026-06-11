@@ -193,14 +193,17 @@ def _format_wallet_balances(wallet_infos, balance_results) -> str:
     for wallet_info, balances in zip(wallet_infos, balance_results):
         wallet_id, address, chain_type, name = wallet_info
 
-        if isinstance(balances, Exception):
+        fetch_failed = isinstance(balances, Exception)
+        if fetch_failed:
             balances = {}
 
-        icon = {"evm": "🔷", "solana": "🟣", "tron": "💎"}.get(chain_type, "🔷")
+        icon = {"evm": "🔷", "solana": "🟣", "tron": "💎", "starknet": "🟣"}.get(chain_type, "🔷")
         short_addr = f"{address[:6]}···{address[-4:]}"
         section_lines = [f"{icon} *{safe_md(name)}*  `{short_addr}`"]
 
-        if balances:
+        if fetch_failed:
+            section_lines.append("  _(data unavailable)_")
+        elif balances:
             for chain, tokens in balances.items():
                 chain_display = safe_md(format_chain_name(chain))
                 # Filter to non-zero tokens
