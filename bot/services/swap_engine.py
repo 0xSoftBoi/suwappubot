@@ -3192,14 +3192,24 @@ class SwapEngine:
 
         Routing (Phase 2):
         - Wallet undeployed or no STRK for gas → SNIP-29 paymaster path
-          (deploy_and_invoke when undeployed; gas sponsored or paid in the
-          sell token / USDC). Any paymaster failure falls back to the direct
-          path below.
+          (deploy_and_invoke when undeployed; gas sponsored or paid in a
+          held gas token). ONLY pre-submission paymaster failures
+          (PaymasterUnavailableError) fall back to the direct path below;
+          once the paymaster tx may have been dispatched
+          (PaymasterSubmittedError) we never re-execute.
         - Otherwise: ensure deployed, then sign+send approve+swap as a single
           v3 (STRK-fee) multicall — the approval is exact-amount, never infinite.
+
+        Key-material note: _zeroize_str scrubs only the private-key STRING;
+        the int copies of the key held inside starknet_py's KeyPair (Python
+        ints are immutable) cannot be zeroized and live until GC.
         """
         from bot.services.avnu_api import avnu_api, AvnuQuote, _to_int
         from bot.services.starknet.client import get_starknet_account
+        from bot.services.starknet.paymaster import (
+            PaymasterSubmittedError,
+            PaymasterUnavailableError,
+        )
         from bot.services.wallet import _zeroize_str
 
         wallet = await self._get_wallet_for_signing(wallet_data)
@@ -3270,12 +3280,38 @@ class SwapEngine:
                     tx_hash = await self._execute_avnu_swap_via_paymaster(
                         account, wallet, avnu_quote, slippage, deployed
                     )
-                except Exception as e:
+                except PaymasterUnavailableError as e:
+                    # Tx definitely NOT submitted — safe to fall back.
                     paymaster_error = e
                     logger.warning(
-                        "AVNU paymaster swap failed (%s); falling back to direct execution",
+                        "AVNU paymaster swap failed before submission (%s); "
+                        "falling back to direct execution",
                         str(e)[:200],
                     )
+                except PaymasterSubmittedError as e:
+                    # The paymaster tx MAY have landed — NEVER fire the direct
+                    # path (double-execution risk). Poll briefly, then tell the
+                    # user to check their balance.
+                    logger.warning(
+                        "AVNU paymaster swap dispatched without a usable response "
+                        "(%s); refusing direct fallback",
+                        str(e)[:200],
+                    )
+                    for _ in range(3):
+                        await asyncio.sleep(5)
+                        try:
+                            if not deployed and await self.wallet_service.is_starknet_deployed(
+                                wallet.address
+                            ):
+                                break
+                            await account.get_nonce()
+                        except Exception:
+                            pass
+                    raise SwapError(
+                        "Your swap was submitted via the gasless paymaster but we did "
+                        "not receive a confirmation — it may still confirm on-chain. "
+                        "Check your balance shortly before retrying."
+                    ) from e
 
             if tx_hash is None:
                 try:
@@ -3306,10 +3342,12 @@ class SwapEngine:
     ) -> str:
         """Execute an AVNU swap through the SNIP-29 paymaster.
 
-        Gas token: sponsored when an API key is configured; otherwise the sell
-        token if the paymaster accepts it, else USDC. Undeployed wallets go
-        through deploy_and_invoke with the Argent deployment data derived from
-        the account's stark pubkey.
+        Gas token: sponsored when an API key is configured; otherwise the
+        first of STRK → ETH → USDC that the paymaster supports AND the wallet
+        holds. The sell token itself is used only as a last resort (gas fees
+        would eat into the exact-approved sell amount and could revert the
+        swap). Undeployed wallets go through deploy_and_invoke with the Argent
+        deployment data derived from the account's stark pubkey.
         """
         from bot.config import starknet_addresses as sn
         from bot.services.avnu_api import avnu_api
@@ -3323,12 +3361,35 @@ class SwapEngine:
                 addr = t.get("token_address") or t.get("tokenAddress") or t.get("address")
                 if addr:
                     supported_addrs.add(int(str(addr), 16))
-            if int(str(avnu_quote.sell_token_address), 16) in supported_addrs:
-                gas_token = avnu_quote.sell_token_address
-            elif int(sn.USDC, 16) in supported_addrs:
-                gas_token = sn.USDC
-            else:
-                raise SwapError("Paymaster accepts neither the sell token nor USDC as gas token")
+            # Priority: STRK → ETH → USDC (supported by the paymaster AND held).
+            for symbol, token_addr in (("STRK", sn.STRK), ("ETH", sn.ETH), ("USDC", sn.USDC)):
+                if int(token_addr, 16) not in supported_addrs:
+                    continue
+                try:
+                    balance = await self.wallet_service.get_starknet_token_balance(
+                        symbol, wallet.address
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Gas-token balance check failed for %s: %s", symbol, str(e)[:100]
+                    )
+                    continue
+                if balance > 0:
+                    gas_token = token_addr
+                    break
+            if gas_token is None:
+                if int(str(avnu_quote.sell_token_address), 16) in supported_addrs:
+                    gas_token = avnu_quote.sell_token_address
+                    logger.warning(
+                        "Paymaster gas will be paid in the sell token %s (last resort) — "
+                        "fees reduce the exact-approved sell amount and the swap may revert",
+                        avnu_quote.sell_token_address,
+                    )
+                else:
+                    raise SwapError(
+                        "Paymaster accepts none of your STRK/ETH/USDC balances "
+                        "nor the sell token as gas token"
+                    )
 
         deployment = None
         if not deployed:

@@ -30,6 +30,7 @@ from bot.services.starknet import paymaster as pm
 from bot.services.starknet.paymaster import (
     AvnuPaymaster,
     PaymasterError,
+    PaymasterSubmittedError,
     PaymasterUnavailableError,
     build_argent_deployment,
     _to_hex,
@@ -37,9 +38,18 @@ from bot.services.starknet.paymaster import (
 
 USER = "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
 CALLS = [{"to": "0x123", "selector": "0x456", "calldata": ["0x1", "0x2"]}]
+# SNIP-9 v2-style typed data embedding exactly CALLS (hex-normalization differs
+# on purpose: 0x01 vs 0x1 must still match).
+MATCHING_TYPED_DATA = {
+    "types": {},
+    "message": {
+        "Caller": "0x414e595f43414c4c4552",
+        "Calls": [{"To": "0x0123", "Selector": "0x456", "Calldata": ["0x01", "0x2"]}],
+    },
+}
 
 
-def _mock_httpx(monkeypatch, result=None, results=None, status=200):
+def _mock_httpx(monkeypatch, result=None, results=None, status=200, post_exc=None):
     """Patch pm.httpx.AsyncClient; records (url, json, headers) per request."""
     requests = []
     queue = list(results) if results is not None else None
@@ -56,6 +66,8 @@ def _mock_httpx(monkeypatch, result=None, results=None, status=200):
         text = "raw"
 
     class FakeClient:
+        is_closed = False
+
         def __init__(self, *a, **kw):
             pass
 
@@ -67,10 +79,13 @@ def _mock_httpx(monkeypatch, result=None, results=None, status=200):
 
         async def post(self, url, json=None, headers=None):
             requests.append({"url": url, "json": json, "headers": headers})
+            if post_exc is not None and json.get("method") == "paymaster_executeTransaction":
+                raise post_exc
             payload = queue.pop(0) if queue else {"jsonrpc": "2.0", "id": 1, "result": result}
             return FakeResponse(payload)
 
     monkeypatch.setattr(pm.httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(pm, "_client", None)
     return requests
 
 
@@ -104,14 +119,37 @@ class TestFeeModeAndHeaders:
         with pytest.raises(PaymasterError):
             p.fee_mode()
 
-    def test_header_present_only_with_key(self, monkeypatch):
-        requests = _mock_httpx(monkeypatch, result=True)
+    def test_header_only_when_fee_mode_sponsored(self, monkeypatch):
+        monkeypatch.setattr(settings, "avnu_paymaster_api_key", "sk-test")
+        requests = _mock_httpx(monkeypatch, result={"typed_data": {}})
+
+        # Metadata calls carry no fee_mode → no key even when configured.
         run(AvnuPaymaster().is_available())
         assert "x-paymaster-api-key" not in requests[0]["headers"]
 
-        monkeypatch.setattr(settings, "avnu_paymaster_api_key", "sk-test")
-        run(AvnuPaymaster().is_available())
-        assert requests[1]["headers"]["x-paymaster-api-key"] == "sk-test"
+        # default (gas-token) fee mode → no key.
+        run(
+            AvnuPaymaster().build_transaction(
+                user_address=USER, calls=CALLS, fee_mode={"mode": "default", "gas_token": "0xabc"}
+            )
+        )
+        assert "x-paymaster-api-key" not in requests[1]["headers"]
+
+        # sponsored fee mode → key attached (build + execute).
+        run(AvnuPaymaster().build_transaction(user_address=USER, calls=CALLS))
+        assert requests[2]["headers"]["x-paymaster-api-key"] == "sk-test"
+
+        requests2 = _mock_httpx(monkeypatch, result={"transaction_hash": "0x1"})
+        run(
+            AvnuPaymaster().execute_transaction(
+                tx_type="invoke",
+                user_address=USER,
+                typed_data={},
+                signature=[],
+                parameters={"version": "0x1", "fee_mode": {"mode": "sponsored"}},
+            )
+        )
+        assert requests2[0]["headers"]["x-paymaster-api-key"] == "sk-test"
 
     def test_base_url_from_settings(self, monkeypatch):
         monkeypatch.setattr(settings, "starknet_paymaster_url", "https://sepolia.paymaster.avnu.fi")
@@ -230,9 +268,29 @@ class TestExecuteTransaction:
         assert tx["invoke"]["typed_data"] == {"types": {}}
         assert tx["invoke"]["signature"] == ["0x1", "0x2"]
 
-    def test_missing_hash_raises(self, monkeypatch):
+    def test_missing_hash_raises_submitted(self, monkeypatch):
+        # Got a response but no hash → request was accepted → MAY have landed.
         _mock_httpx(monkeypatch, result={"tracking_id": "t-1"})
-        with pytest.raises(PaymasterError):
+        with pytest.raises(PaymasterSubmittedError):
+            run(
+                AvnuPaymaster().execute_transaction(
+                    tx_type="invoke", user_address=USER, typed_data={}, signature=[]
+                )
+            )
+
+    def test_transport_error_raises_submitted(self, monkeypatch):
+        _mock_httpx(monkeypatch, post_exc=pm.httpx.ReadTimeout("timed out"))
+        with pytest.raises(PaymasterSubmittedError):
+            run(
+                AvnuPaymaster().execute_transaction(
+                    tx_type="invoke", user_address=USER, typed_data={}, signature=[]
+                )
+            )
+
+    def test_connect_refused_raises_unavailable(self, monkeypatch):
+        # Connection never established → tx NOT submitted → safe to fall back.
+        _mock_httpx(monkeypatch, post_exc=pm.httpx.ConnectError("refused"))
+        with pytest.raises(PaymasterUnavailableError):
             run(
                 AvnuPaymaster().execute_transaction(
                     tx_type="invoke", user_address=USER, typed_data={}, signature=[]
@@ -274,7 +332,7 @@ class TestExecuteCallsViaPaymaster:
             {
                 "jsonrpc": "2.0",
                 "id": 1,
-                "result": {"typed_data": {"d": 1}, "parameters": {"version": "0x1"}},
+                "result": {"typed_data": MATCHING_TYPED_DATA, "parameters": {"version": "0x1"}},
             },
             {"jsonrpc": "2.0", "id": 1, "result": {"transaction_hash": "0xfeed"}},
         ]
@@ -294,7 +352,7 @@ class TestExecuteCallsViaPaymaster:
     def test_deploy_and_invoke_when_deployment_given(self, monkeypatch):
         results = [
             {"jsonrpc": "2.0", "id": 1, "result": True},
-            {"jsonrpc": "2.0", "id": 1, "result": {"typed_data": {"d": 1}}},
+            {"jsonrpc": "2.0", "id": 1, "result": {"typed_data": MATCHING_TYPED_DATA}},
             {"jsonrpc": "2.0", "id": 1, "result": {"transaction_hash": "0xfeed"}},
         ]
         requests = _mock_httpx(monkeypatch, results=results)
@@ -313,6 +371,95 @@ class TestExecuteCallsViaPaymaster:
 
 
 # ---------------------------------------------------------------------------
+# verify-before-signing (typed-data call verification)
+# ---------------------------------------------------------------------------
+
+
+class TestVerifyTypedDataCalls:
+    def _run_flow(self, monkeypatch, typed_data):
+        """Run execute_calls_via_paymaster with the given build typed_data.
+
+        Returns (tx_hash_or_None, sign_mock) — sign_mock records whether we
+        ever signed.
+        """
+        results = [
+            {"jsonrpc": "2.0", "id": 1, "result": True},  # isAvailable
+            {"jsonrpc": "2.0", "id": 1, "result": {"typed_data": typed_data}},
+            {"jsonrpc": "2.0", "id": 1, "result": {"transaction_hash": "0xfeed"}},
+        ]
+        _mock_httpx(monkeypatch, results=results)
+        sign_mock = MagicMock(return_value=["0x1", "0x2"])
+        monkeypatch.setattr(AvnuPaymaster, "sign_typed_data", staticmethod(sign_mock))
+        account = MagicMock(address=int(USER, 16))
+        tx_hash = run(
+            AvnuPaymaster().execute_calls_via_paymaster(account, CALLS, gas_token="0xabc")
+        )
+        return tx_hash, sign_mock
+
+    def test_matching_calls_pass_and_sign(self, monkeypatch):
+        tx_hash, sign_mock = self._run_flow(monkeypatch, MATCHING_TYPED_DATA)
+        assert tx_hash == "0xfeed"
+        sign_mock.assert_called_once()
+
+    def test_matching_v1_lowercase_layout_passes(self, monkeypatch):
+        td = {
+            "types": {},
+            "message": {
+                "calls": [{"to": "0x123", "selector": "0x456", "calldata": ["0x1", "0x2"]}]
+            },
+        }
+        tx_hash, sign_mock = self._run_flow(monkeypatch, td)
+        assert tx_hash == "0xfeed"
+        sign_mock.assert_called_once()
+
+    def _assert_refuses(self, monkeypatch, typed_data):
+        results = [
+            {"jsonrpc": "2.0", "id": 1, "result": True},
+            {"jsonrpc": "2.0", "id": 1, "result": {"typed_data": typed_data}},
+        ]
+        _mock_httpx(monkeypatch, results=results)
+        sign_mock = MagicMock(return_value=["0x1"])
+        monkeypatch.setattr(AvnuPaymaster, "sign_typed_data", staticmethod(sign_mock))
+        account = MagicMock(address=int(USER, 16))
+        with pytest.raises(PaymasterUnavailableError, match="do not match"):
+            run(AvnuPaymaster().execute_calls_via_paymaster(account, CALLS, gas_token="0xabc"))
+        sign_mock.assert_not_called()
+
+    def test_tampered_to_refuses_to_sign(self, monkeypatch):
+        td = {
+            "types": {},
+            "message": {
+                "Calls": [{"To": "0xBAD", "Selector": "0x456", "Calldata": ["0x1", "0x2"]}]
+            },
+        }
+        self._assert_refuses(monkeypatch, td)
+
+    def test_tampered_calldata_refuses_to_sign(self, monkeypatch):
+        td = {
+            "types": {},
+            "message": {
+                "Calls": [{"To": "0x123", "Selector": "0x456", "Calldata": ["0x1", "0xff"]}]
+            },
+        }
+        self._assert_refuses(monkeypatch, td)
+
+    def test_extra_injected_call_refuses_to_sign(self, monkeypatch):
+        td = {
+            "types": {},
+            "message": {
+                "Calls": [
+                    {"To": "0x123", "Selector": "0x456", "Calldata": ["0x1", "0x2"]},
+                    {"To": "0x666", "Selector": "0x777", "Calldata": []},
+                ]
+            },
+        }
+        self._assert_refuses(monkeypatch, td)
+
+    def test_missing_calls_layout_refuses_to_sign(self, monkeypatch):
+        self._assert_refuses(monkeypatch, {"types": {}, "message": {"Nonce": "0x1"}})
+
+
+# ---------------------------------------------------------------------------
 # wallet deploy fallback
 # ---------------------------------------------------------------------------
 
@@ -325,15 +472,15 @@ class TestWalletDeployFallback:
         return svc
 
     def test_falls_back_to_self_paid_when_paymaster_raises(self, monkeypatch):
-        """Paymaster path raising → direct (self-paid) path is entered, which
+        """PaymasterUnavailableError → direct (self-paid) path is entered, which
         surfaces the no-STRK ValueError (proving the fallback ran)."""
-        from bot.services.wallet import WalletService
-
         svc = self._wallet_service()
         wallet = MagicMock(address=USER)
         monkeypatch.setattr(svc, "is_starknet_deployed", AsyncMock(return_value=False))
         monkeypatch.setattr(
-            svc, "_deploy_starknet_via_paymaster", AsyncMock(side_effect=PaymasterError("down"))
+            svc,
+            "_deploy_starknet_via_paymaster",
+            AsyncMock(side_effect=PaymasterUnavailableError("down before submission")),
         )
         balance_mock = AsyncMock(return_value=0.0)
         monkeypatch.setattr(svc, "get_starknet_token_balance", balance_mock)
@@ -341,6 +488,24 @@ class TestWalletDeployFallback:
         with pytest.raises(ValueError, match="STRK"):
             run(svc.ensure_starknet_deployed(wallet))
         balance_mock.assert_awaited()  # direct path ran
+
+    def test_submitted_error_does_not_fall_back(self, monkeypatch):
+        """PaymasterSubmittedError → tx may have landed; must NOT fall back and
+        must propagate the error (no self-paid second deploy)."""
+        svc = self._wallet_service()
+        wallet = MagicMock(address=USER)
+        monkeypatch.setattr(svc, "is_starknet_deployed", AsyncMock(return_value=False))
+        monkeypatch.setattr(
+            svc,
+            "_deploy_starknet_via_paymaster",
+            AsyncMock(side_effect=PaymasterSubmittedError("dispatched, no hash")),
+        )
+        balance_mock = AsyncMock(return_value=10.0)
+        monkeypatch.setattr(svc, "get_starknet_token_balance", balance_mock)
+
+        with pytest.raises(PaymasterSubmittedError):
+            run(svc.ensure_starknet_deployed(wallet))
+        balance_mock.assert_not_awaited()  # self-paid path never entered
 
     def test_paymaster_success_skips_self_paid(self, monkeypatch):
         svc = self._wallet_service()
@@ -436,6 +601,7 @@ class TestSwapEnginePaymasterFallback:
         )
 
     def test_paymaster_failure_falls_back_to_direct(self, monkeypatch):
+        """PaymasterUnavailableError (tx never submitted) → falls back to direct."""
         engine = self._engine()
         quote = self._quote()
         wallet = MagicMock(address=USER)
@@ -444,7 +610,9 @@ class TestSwapEnginePaymasterFallback:
         engine.wallet_service.get_starknet_token_balance = AsyncMock(return_value=0.0)
         engine.wallet_service.get_private_key = MagicMock(return_value="0x1")
         engine.wallet_service.ensure_starknet_deployed = AsyncMock()
-        engine._execute_avnu_swap_via_paymaster = AsyncMock(side_effect=PaymasterError("down"))
+        engine._execute_avnu_swap_via_paymaster = AsyncMock(
+            side_effect=PaymasterUnavailableError("down before submission")
+        )
 
         account = MagicMock(address=int(USER, 16))
         direct = AsyncMock(return_value="0xdirect")
@@ -461,6 +629,36 @@ class TestSwapEnginePaymasterFallback:
         direct.assert_awaited_once()
         engine._execute_avnu_swap_via_paymaster.assert_awaited_once()
         engine.wallet_service.ensure_starknet_deployed.assert_awaited_once()
+
+    def test_submitted_error_no_direct_fallback(self, monkeypatch):
+        """PaymasterSubmittedError → tx may have landed; no direct execution, SwapError raised."""
+        from bot.services.swap_engine import SwapError
+
+        engine = self._engine()
+        quote = self._quote()
+        wallet = MagicMock(address=USER)
+        engine._get_wallet_for_signing = AsyncMock(return_value=wallet)
+        engine.wallet_service.is_starknet_deployed = AsyncMock(return_value=True)
+        engine.wallet_service.get_starknet_token_balance = AsyncMock(return_value=0.0)
+        engine.wallet_service.get_private_key = MagicMock(return_value="0x1")
+        engine.wallet_service.ensure_starknet_deployed = AsyncMock()
+        engine._execute_avnu_swap_via_paymaster = AsyncMock(
+            side_effect=PaymasterSubmittedError("dispatched, no hash")
+        )
+
+        direct = AsyncMock(return_value="0xdirect")
+        account = MagicMock(address=int(USER, 16))
+        with (
+            patch(
+                "bot.services.starknet.client.get_starknet_account",
+                AsyncMock(return_value=account),
+            ),
+            patch("bot.services.avnu_api.avnu_api.execute_swap", direct),
+        ):
+            with pytest.raises(SwapError, match="paymaster"):
+                run(engine._execute_avnu_swap(quote, {"id": 1}))
+
+        direct.assert_not_awaited()  # direct path must never be entered
 
     def test_no_paymaster_when_deployed_with_strk(self, monkeypatch):
         engine = self._engine()
@@ -488,6 +686,7 @@ class TestSwapEnginePaymasterFallback:
         pm_mock.assert_not_awaited()
 
     def test_both_paths_failing_surfaces_combined_error(self, monkeypatch):
+        """Both legs fail: PaymasterUnavailableError + direct error → combined SwapError."""
         from bot.services.swap_engine import SwapError
 
         engine = self._engine()
@@ -499,7 +698,9 @@ class TestSwapEnginePaymasterFallback:
         engine.wallet_service.ensure_starknet_deployed = AsyncMock(
             side_effect=ValueError("no STRK")
         )
-        engine._execute_avnu_swap_via_paymaster = AsyncMock(side_effect=PaymasterError("down"))
+        engine._execute_avnu_swap_via_paymaster = AsyncMock(
+            side_effect=PaymasterUnavailableError("down before submission")
+        )
 
         account = MagicMock(address=int(USER, 16))
         with patch(

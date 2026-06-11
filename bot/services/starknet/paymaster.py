@@ -49,7 +49,31 @@ class PaymasterError(Exception):
 
 
 class PaymasterUnavailableError(PaymasterError):
-    """Raised when paymaster_isAvailable returns false (callers should fall back)."""
+    """The paymaster failed BEFORE paymaster_executeTransaction was dispatched.
+
+    Covers: paymaster_isAvailable false, buildTransaction failures, signing
+    failures, and connection-refused on build/execute. The transaction was
+    definitely NOT submitted, so callers may safely fall back to direct
+    (self-paid) execution.
+    """
+
+
+class PaymasterSubmittedError(PaymasterError):
+    """paymaster_executeTransaction was dispatched but we got no usable response.
+
+    Timeout / connection reset / hash-less response — the transaction MAY have
+    landed on-chain. Callers must NOT fall back to direct execution (risk of
+    double-spend / double-deploy); surface a "submitted, may still confirm"
+    message instead.
+    """
+
+
+def _to_int(value) -> int:
+    """Normalize int/decimal-str/hex-str to an int felt."""
+    if isinstance(value, int):
+        return value
+    s = str(value).strip()
+    return int(s, 16) if s.lower().startswith("0x") else int(s)
 
 
 def _to_hex(value) -> str:
@@ -60,6 +84,17 @@ def _to_hex(value) -> str:
     if s.lower().startswith("0x"):
         return s
     return hex(int(s))
+
+
+# Module-level shared HTTP client (lazy-created, reused across calls).
+_client: Optional[httpx.AsyncClient] = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None or getattr(_client, "is_closed", False):
+        _client = httpx.AsyncClient(timeout=20.0)
+    return _client
 
 
 def build_argent_deployment(address: str, public_key: int) -> dict:
@@ -89,18 +124,24 @@ class AvnuPaymaster:
     def base_url(self) -> str:
         return self._base_url or settings.starknet_paymaster_url
 
-    def _headers(self) -> dict:
+    def _headers(self, sponsored: bool = False) -> dict:
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
-        # Sponsored mode only — gas-token ("default") mode needs no key, and
+        # Attach the API key ONLY when the resolved fee_mode is sponsored —
+        # gas-token ("default") mode and metadata calls need no key, and
         # sending a bogus key could get the request rejected.
-        if settings.avnu_paymaster_api_key:
+        if sponsored and settings.avnu_paymaster_api_key:
             headers["x-paymaster-api-key"] = settings.avnu_paymaster_api_key
         return headers
 
-    async def _rpc(self, method: str, params: dict) -> dict:
+    @staticmethod
+    def _is_sponsored(fee_mode: Optional[dict]) -> bool:
+        return bool(fee_mode) and fee_mode.get("mode") == "sponsored"
+
+    async def _rpc(self, method: str, params: dict, sponsored: bool = False) -> dict:
         payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.post(self.base_url, json=payload, headers=self._headers())
+        response = await _get_client().post(
+            self.base_url, json=payload, headers=self._headers(sponsored)
+        )
         try:
             data = response.json()
         except Exception:
@@ -206,13 +247,15 @@ class AvnuPaymaster:
         else:
             raise PaymasterError("build_transaction needs calls and/or deployment")
 
-        parameters: dict = {"version": "0x1", "fee_mode": fee_mode or self.fee_mode()}
+        resolved_fee_mode = fee_mode or self.fee_mode()
+        parameters: dict = {"version": "0x1", "fee_mode": resolved_fee_mode}
         if time_bounds and transaction["type"] != "deploy":
             parameters["time_bounds"] = self._time_bounds()
 
         return await self._rpc(
             "paymaster_buildTransaction",
             {"transaction": transaction, "parameters": parameters},
+            sponsored=self._is_sponsored(resolved_fee_mode),
         )
 
     async def execute_transaction(
@@ -234,13 +277,31 @@ class AvnuPaymaster:
                 "typed_data": typed_data,
                 "signature": signature or [],
             }
-        result = await self._rpc(
-            "paymaster_executeTransaction",
-            {"transaction": transaction, "parameters": parameters or {"version": "0x1"}},
-        )
+        resolved_parameters = parameters or {"version": "0x1"}
+        try:
+            result = await self._rpc(
+                "paymaster_executeTransaction",
+                {"transaction": transaction, "parameters": resolved_parameters},
+                sponsored=self._is_sponsored(resolved_parameters.get("fee_mode")),
+            )
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            # Connection never established — the tx was NOT submitted.
+            raise PaymasterUnavailableError(
+                f"Paymaster connection refused before submission: {str(e)[:200]}"
+            ) from e
+        except (httpx.HTTPError, OSError) as e:
+            # The request was dispatched but we got no usable response
+            # (timeout / reset) — the tx MAY have landed.
+            raise PaymasterSubmittedError(
+                f"paymaster_executeTransaction dispatched but no usable response: {str(e)[:200]}"
+            ) from e
         tx_hash = (result or {}).get("transaction_hash")
         if not tx_hash:
-            raise PaymasterError("Paymaster execute returned no transaction_hash", result)
+            # Got a response but no hash — the paymaster accepted the request,
+            # so the tx may still land. Do NOT let callers re-execute.
+            raise PaymasterSubmittedError(
+                "Paymaster execute returned no transaction_hash", result
+            )
         return _to_hex(tx_hash)
 
     # ------------------------------------------------------------------
@@ -267,6 +328,64 @@ class AvnuPaymaster:
         signature = account.sign_message(td)
         return [hex(int(s)) for s in signature]
 
+    @staticmethod
+    def _extract_typed_data_calls(typed_data: dict) -> Optional[list[dict]]:
+        """Pull the embedded calls out of an SNIP-9 OutsideExecution typed-data.
+
+        Handles both naming revisions: v2 uses message["Calls"] with
+        {To, Selector, Calldata}; v1 uses message["calls"] with
+        {to, selector, calldata}. Returns None when the layout is unrecognized.
+        """
+        message = (typed_data or {}).get("message")
+        if not isinstance(message, dict):
+            return None
+        calls = message.get("Calls", message.get("calls"))
+        if not isinstance(calls, list):
+            return None
+        extracted = []
+        for c in calls:
+            if not isinstance(c, dict):
+                return None
+            to = c.get("To", c.get("to"))
+            selector = c.get("Selector", c.get("selector"))
+            calldata = c.get("Calldata", c.get("calldata"))
+            if to is None or selector is None or not isinstance(calldata, list):
+                return None
+            extracted.append({"to": to, "selector": selector, "calldata": calldata})
+        return extracted
+
+    @classmethod
+    def verify_typed_data_calls(cls, typed_data: dict, expected_calls: list[dict]) -> None:
+        """Refuse to sign typed data whose embedded calls differ from our request.
+
+        A malicious/compromised paymaster could return typed data that drains
+        the wallet; we therefore verify every (to, selector, calldata) embedded
+        in the SNIP-9 OutsideExecution message against the calls we asked it to
+        build (hex/int normalized, counts included) BEFORE signing.
+
+        Raises PaymasterUnavailableError on any mismatch or unrecognized layout
+        (the tx was never submitted, so falling back is safe).
+        """
+        mismatch = PaymasterUnavailableError(
+            "paymaster returned calls that do not match the request"
+        )
+        expected = cls._format_calls(expected_calls)
+        embedded = cls._extract_typed_data_calls(typed_data)
+        if embedded is None or len(embedded) != len(expected):
+            raise mismatch
+        for got, want in zip(embedded, expected):
+            try:
+                if _to_int(got["to"]) != _to_int(want["to"]):
+                    raise mismatch
+                if _to_int(got["selector"]) != _to_int(want["selector"]):
+                    raise mismatch
+                got_cd = [_to_int(x) for x in got["calldata"]]
+                want_cd = [_to_int(x) for x in want["calldata"]]
+            except (ValueError, TypeError):
+                raise mismatch from None
+            if got_cd != want_cd:
+                raise mismatch
+
     # ------------------------------------------------------------------
     # High-level helpers
     # ------------------------------------------------------------------
@@ -280,10 +399,20 @@ class AvnuPaymaster:
         """Deploy an Argent v0.4.0 counterfactual account (type "deploy").
 
         Pure deploys need NO user signature per SNIP-29. Returns the tx hash.
+
+        Pre-submission failures (build) raise PaymasterUnavailableError;
+        dispatch-without-response raises PaymasterSubmittedError.
         """
         deployment = build_argent_deployment(address, public_key)
-        fee_mode = self.fee_mode(gas_token)
-        build = await self.build_transaction(deployment=deployment, fee_mode=fee_mode)
+        try:
+            fee_mode = self.fee_mode(gas_token)
+            build = await self.build_transaction(deployment=deployment, fee_mode=fee_mode)
+        except PaymasterUnavailableError:
+            raise
+        except Exception as e:
+            raise PaymasterUnavailableError(
+                f"Paymaster deploy failed before submission: {str(e)[:200]}"
+            ) from e
         parameters = (build or {}).get("parameters") or {"version": "0x1", "fee_mode": fee_mode}
         return await self.execute_transaction(
             tx_type="deploy", deployment=deployment, parameters=parameters
@@ -298,23 +427,38 @@ class AvnuPaymaster:
     ) -> str:
         """Execute calls gaslessly: "invoke", or "deploy_and_invoke" when the
         account is undeployed (pass the deployment data built from the wallet's
-        stored pubkey). Builds, signs the returned typed data, executes.
+        stored pubkey). Builds, verifies the returned typed data embeds exactly
+        the calls we requested, signs, executes.
+
+        Pre-submission failures (availability, build, verification, signing)
+        raise PaymasterUnavailableError — falling back is safe. Once execute
+        is dispatched, transport failures raise PaymasterSubmittedError —
+        callers must NOT re-execute.
         """
         if not await self.is_available():
             raise PaymasterUnavailableError("AVNU paymaster is not available")
 
-        fee_mode = self.fee_mode(gas_token)
-        user_address = hex(account.address)
-        build = await self.build_transaction(
-            user_address=user_address,
-            calls=calls,
-            deployment=deployment,
-            fee_mode=fee_mode,
-        )
-        typed_data = (build or {}).get("typed_data")
-        if not typed_data:
-            raise PaymasterError("Paymaster build returned no typed_data", build)
-        signature = self.sign_typed_data(account, typed_data)
+        try:
+            fee_mode = self.fee_mode(gas_token)
+            user_address = hex(account.address)
+            build = await self.build_transaction(
+                user_address=user_address,
+                calls=calls,
+                deployment=deployment,
+                fee_mode=fee_mode,
+            )
+            typed_data = (build or {}).get("typed_data")
+            if not typed_data:
+                raise PaymasterError("Paymaster build returned no typed_data", build)
+            # SECURITY: never sign typed data whose calls differ from our request.
+            self.verify_typed_data_calls(typed_data, calls)
+            signature = self.sign_typed_data(account, typed_data)
+        except PaymasterUnavailableError:
+            raise
+        except Exception as e:
+            raise PaymasterUnavailableError(
+                f"Paymaster failed before submission: {str(e)[:200]}"
+            ) from e
         parameters = build.get("parameters") or {"version": "0x1", "fee_mode": fee_mode}
         return await self.execute_transaction(
             tx_type="deploy_and_invoke" if deployment else "invoke",

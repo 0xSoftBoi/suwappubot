@@ -76,9 +76,13 @@ def test_import_conversation_entry_pattern_routes_starknet():
 
 def test_create_callback_detects_starknet_chain_type():
     src = inspect.getsource(wallet_handlers.wallet_create_callback)
-    assert '"starknet" in query.data' in src
-    # starknet must be checked before tron/solana substring checks
-    assert src.index('"starknet" in query.data') < src.index('"tron" in query.data')
+    # New impl uses exact suffix parsing: query.data.rsplit("_", 1)[-1]
+    assert 'rsplit("_", 1)[-1]' in src
+    # Known suffixes are validated against a set that includes starknet and evm
+    assert '"starknet"' in src
+    assert '"evm"' in src
+    # Unknown suffix defaults to "evm" (or is rejected), not via substring scan
+    assert '"tron" in query.data' not in src
 
 
 def test_import_uses_starknet_wallet_service():

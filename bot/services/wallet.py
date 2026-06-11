@@ -1063,9 +1063,19 @@ class WalletService:
 
         Returns True once the account is verified deployed; False when the
         paymaster path isn't viable (unavailable / no usable gas token).
-        Raises on submission errors so the caller logs and falls back.
+        Raises PaymasterUnavailableError for PRE-submission failures (caller
+        may fall back to self-paid deploy). Once the deploy tx was submitted
+        (we hold a tx_hash, or PaymasterSubmittedError), raises RuntimeError
+        after polling — the caller must NOT fall back (double-deploy risk).
+
+        Key-material note: _zeroize_str scrubs only the private-key STRING;
+        the int copies inside starknet_py's KeyPair (Python ints are
+        immutable) cannot be zeroized and live until GC.
         """
-        from bot.services.starknet.paymaster import avnu_paymaster
+        from bot.services.starknet.paymaster import (
+            PaymasterSubmittedError,
+            avnu_paymaster,
+        )
 
         if not await avnu_paymaster.is_available():
             logger.info("AVNU paymaster unavailable; falling back to self-paid deploy")
@@ -1090,51 +1100,76 @@ class WalletService:
         finally:
             _zeroize_str(private_key)
 
-        tx_hash = await avnu_paymaster.deploy_account_via_paymaster(
-            address=wallet.address,
-            public_key=key_pair.public_key,
-            gas_token=gas_token,
-        )
-        logger.info("Paymaster deploy submitted for %s: %s", wallet.address, tx_hash)
+        try:
+            tx_hash = await avnu_paymaster.deploy_account_via_paymaster(
+                address=wallet.address,
+                public_key=key_pair.public_key,
+                gas_token=gas_token,
+            )
+            logger.info("Paymaster deploy submitted for %s: %s", wallet.address, tx_hash)
+        except PaymasterSubmittedError as e:
+            # Dispatched without a usable response — the deploy MAY have
+            # landed. Fall through to polling; never let the caller re-deploy.
+            tx_hash = None
+            logger.warning(
+                "Paymaster deploy for %s dispatched without response: %s",
+                wallet.address,
+                str(e)[:200],
+            )
 
         # Pure deploys carry no client-side receipt object — poll the class
-        # hash until the account materializes (or give up so the caller can
-        # fall back / surface the error).
+        # hash until the account materializes. The deploy tx was submitted (or
+        # may have been), so on timeout we raise instead of letting the caller
+        # fall back to a second, self-paid deploy.
         import asyncio as _asyncio
 
-        for _ in range(20):
+        for _ in range(60):  # 180s
             await _asyncio.sleep(3)
             if await self.is_starknet_deployed(wallet.address):
                 logger.info("Starknet account deployed via paymaster: %s", wallet.address)
                 return True
-        raise RuntimeError(f"Paymaster deploy {tx_hash} not confirmed after 60s")
+        raise RuntimeError(
+            f"Starknet account deployment was submitted via the paymaster "
+            f"(tx {tx_hash or 'unknown'}) and is still confirming — "
+            "retry in a minute."
+        )
 
     async def ensure_starknet_deployed(self, wallet: Wallet) -> None:
         """Deploy the user's Argent account if it isn't deployed yet.
 
         Phase 2: try the AVNU SNIP-29 paymaster first (sponsored when an API
         key is configured, else paid in whichever of STRK/ETH/USDC the wallet
-        holds). Any paymaster failure falls back to the Phase 1 self-paid
-        DEPLOY_ACCOUNT v3 path (STRK fees from the account's own balance).
+        holds). ONLY pre-submission paymaster failures
+        (PaymasterUnavailableError) fall back to the Phase 1 self-paid
+        DEPLOY_ACCOUNT v3 path — once a paymaster deploy was (or may have
+        been) submitted, we surface the "still confirming" error instead of
+        risking a second deploy.
 
         Raises:
             ValueError: If the account holds no STRK to pay the deployment fee
                 (and the paymaster path didn't apply).
-            RuntimeError: If the deployment transaction is not accepted.
+            RuntimeError: If the deployment transaction is not accepted, or a
+                paymaster deploy was submitted and is still confirming.
         """
         if await self.is_starknet_deployed(wallet.address):
             return
 
         if settings.starknet_paymaster_enabled:
+            from bot.services.starknet.paymaster import PaymasterUnavailableError
+
             try:
                 if await self._deploy_starknet_via_paymaster(wallet):
                     return
-            except Exception as e:
+            except PaymasterUnavailableError as e:
                 logger.warning(
-                    "Paymaster deploy failed for %s (%s); falling back to self-paid",
+                    "Paymaster deploy failed before submission for %s (%s); "
+                    "falling back to self-paid",
                     wallet.address,
                     str(e)[:200],
                 )
+            # PaymasterSubmittedError / RuntimeError ("submitted, still
+            # confirming") propagate — NEVER self-paid-deploy after a
+            # possible submission.
 
         strk_balance = await self.get_starknet_token_balance("STRK", wallet.address)
         if strk_balance <= 0:

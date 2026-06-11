@@ -270,13 +270,8 @@ async def wallet_create_callback(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
 
     user = update.effective_user
-    if "starknet" in query.data:
-        chain_type = "starknet"
-    elif "tron" in query.data:
-        chain_type = "tron"
-    elif "solana" in query.data:
-        chain_type = "solana"
-    else:
+    chain_type = query.data.rsplit("_", 1)[-1]
+    if chain_type not in {"evm", "solana", "tron", "starknet"}:
         chain_type = "evm"
 
     with get_session() as session:
@@ -449,13 +444,8 @@ async def wallet_import_start(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
 
-    if "starknet" in query.data:
-        chain_type = "starknet"
-    elif "tron" in query.data:
-        chain_type = "tron"
-    elif "solana" in query.data:
-        chain_type = "solana"
-    else:
+    chain_type = query.data.rsplit("_", 1)[-1]
+    if chain_type not in {"evm", "solana", "tron", "starknet"}:
         chain_type = "evm"
     context.user_data["import_chain_type"] = chain_type
 
