@@ -417,6 +417,7 @@ def _ensure_schema(db_engine) -> None:
     _add_auth_tables(db_engine, inspector, is_sqlite)
     _add_btc_swap_tables(db_engine, inspector, is_sqlite)
     _add_btc_swap_v2_columns(db_engine, inspector, is_sqlite)
+    _add_morpho_tables(db_engine, inspector, is_sqlite)
 
     # --- performance indexes ---
     _add_performance_indexes(db_engine, inspector, is_sqlite)
@@ -592,6 +593,18 @@ def _add_btc_swap_v2_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 logger.info(f"Added btc_swaps.{col_name}")
             except Exception as e:
                 logger.warning(f"Could not add btc_swaps.{col_name}: {e}")
+
+
+def _add_morpho_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the morpho_positions table (borrow-position health watchlist)."""
+    try:
+        from bot.models.morpho import MorphoPosition
+
+        if not inspector.has_table("morpho_positions"):
+            MorphoPosition.__table__.create(bind=db_engine)
+            logger.info("Created morpho_positions table")
+    except Exception as e:
+        logger.warning(f"Failed to create morpho_positions table: {e}")
 
 
 def _add_performance_indexes(db_engine, inspector, is_sqlite: bool) -> None:

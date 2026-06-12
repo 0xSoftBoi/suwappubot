@@ -277,6 +277,12 @@ async def lifespan(app: FastAPI):
 
             await btc_bridge_poller.start(bot=bot_app.bot if bot_initialized else None)
 
+        if getattr(settings, "morpho_enabled", False):
+            await asyncio.sleep(2)
+            from bot.services.morpho_monitor import morpho_monitor
+
+            await morpho_monitor.start(bot=bot_app.bot if bot_initialized else None)
+
         # Start Discord alert service if Discord bot is available
         if discord_bot:
             try:
@@ -376,6 +382,10 @@ async def lifespan(app: FastAPI):
             from bot.services.btc_bridge_poller import btc_bridge_poller
 
             await btc_bridge_poller.stop()
+        if getattr(settings, "morpho_enabled", False):
+            from bot.services.morpho_monitor import morpho_monitor
+
+            await morpho_monitor.stop()
 
     # Stop auth challenge cleanup
     auth_cleanup_task.cancel()

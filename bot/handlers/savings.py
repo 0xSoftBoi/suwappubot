@@ -44,7 +44,10 @@ logger = logging.getLogger(__name__)
     SAVE_BTC_VENUE,
     SAVE_BTC_AMOUNT,
     SAVE_BTC_CONFIRM,
-) = range(8)
+    SAVE_MORPHO_MENU,
+    SAVE_MORPHO_AMOUNT,
+    SAVE_MORPHO_CONFIRM,
+) = range(11)
 
 wallet_service = WalletService()
 
@@ -153,6 +156,7 @@ async def _render_menu(update, context, *, is_callback):
             InlineKeyboardButton("➖ Withdraw", callback_data="save_withdraw"),
         ],
         [InlineKeyboardButton("₿ Bitcoin (Starknet)", callback_data="save_btc_menu")],
+        [InlineKeyboardButton("🌾 Morpho USDC (Base)", callback_data="save_morpho_menu")],
         [
             InlineKeyboardButton("🔄 Refresh", callback_data="save_refresh"),
             InlineKeyboardButton("❌ Close", callback_data="save_close"),
@@ -182,6 +186,7 @@ async def save_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         context.user_data["user_id"] = db_user.id
     context.user_data.pop("savings", None)
     context.user_data.pop("savings_btc", None)
+    context.user_data.pop("savings_morpho", None)
     return await _render_menu(update, context, is_callback=False)
 
 
@@ -207,6 +212,7 @@ async def save_close_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer("Closed")
     context.user_data.pop("savings", None)
     context.user_data.pop("savings_btc", None)
+    context.user_data.pop("savings_morpho", None)
     from bot.handlers.start import main_menu_callback
 
     await main_menu_callback(update, context)
@@ -973,10 +979,306 @@ async def _log_btc_event(user_id, wallet_id, venue, action, amount_btc, tx_hash)
         logger.warning(f"Failed to log BTC savings event: {e}")
 
 
+# ── Morpho USDC (Base) earn venue: MetaMorpho ERC-4626 vault ─────────────────
+
+
+_MORPHO_RETRY_KEYBOARD = InlineKeyboardMarkup(
+    [
+        [InlineKeyboardButton("🔄 Try Again", callback_data="save_morpho_menu")],
+        [InlineKeyboardButton("« Savings", callback_data="save_refresh")],
+    ]
+)
+
+
+async def save_morpho_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Morpho USDC vault screen: live netApy, idle USDC, vault position."""
+    from bot.services.morpho_api import MorphoError, morpho_api
+
+    query = update.callback_query
+    await query.answer()
+
+    if not context.user_data.get("user_id"):
+        with get_session() as session:
+            db_user = (
+                session.query(User).filter(User.telegram_id == update.effective_user.id).first()
+            )
+            if not db_user:
+                await query.edit_message_text("❌ Please use /start first to set up your account.")
+                return ConversationHandler.END
+            context.user_data["user_id"] = db_user.id
+
+    user_id = context.user_data["user_id"]
+    wallets = _evm_wallets(user_id)
+    if not wallets:
+        await query.edit_message_text(
+            "👛 You need an EVM wallet (Base) to use Morpho savings.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("👛 Add Wallet", callback_data="wallet_menu")],
+                    [InlineKeyboardButton("« Savings", callback_data="save_refresh")],
+                ]
+            ),
+        )
+        return SAVE_MORPHO_MENU
+
+    wallet = wallet_service.get_default_wallet(user_id, "evm") or wallets[0]
+    morpho = context.user_data.setdefault("savings_morpho", {})
+    morpho["wallet_id"] = wallet.id
+    morpho["wallet_address"] = wallet.address
+    vault = morpho_api._default_vault()
+    morpho["vault"] = vault
+
+    try:
+        info, idle = await asyncio.gather(
+            asyncio.to_thread(morpho_api.get_vault_info, vault, wallet.address),
+            asyncio.to_thread(savings_service.get_usdc_balance, wallet.address),
+        )
+    except (MorphoError, SavingsError) as e:
+        await query.edit_message_text(f"❌ {e}", reply_markup=_MORPHO_RETRY_KEYBOARD)
+        return SAVE_MORPHO_MENU
+    morpho["info"] = info
+
+    apy_text = "variable"
+    try:
+        vault_apys = await morpho_api.get_vault_apys()
+        for v in vault_apys:
+            if v["address"].lower() == vault.lower():
+                apy_text = f"{v['net_apy']:.2%}"
+                break
+    except Exception as e:
+        logger.debug(f"morpho vault APY fetch failed: {e}")
+
+    addr_short = f"{wallet.address[:6]}...{wallet.address[-4:]}"
+    text = (
+        f"🌾 *Morpho USDC* — Base\n"
+        f"_Non-custodial · MetaMorpho vault (ERC-4626)_\n\n"
+        f"📈 Net APY: *{apy_text}*\n"
+        f"💰 Vault TVL: *${info['tvl_usdc']:,.0f}*\n\n"
+        f"👛 Wallet ({addr_short}):\n"
+        f"   • Idle USDC: *{idle:.2f}*\n"
+        f"   • In vault: *{info['balance_usdc']:.2f} USDC*\n\n"
+        f"Deposit USDC to start earning. Withdraw anytime."
+    )
+    morpho["idle_usdc"] = float(idle)
+    keyboard = [
+        [
+            InlineKeyboardButton("➕ Deposit", callback_data="save_morpho_dep"),
+            InlineKeyboardButton("➖ Withdraw", callback_data="save_morpho_wd"),
+        ],
+        [InlineKeyboardButton("💯 Withdraw All", callback_data="save_morpho_wd_all")],
+        [
+            InlineKeyboardButton("🔄 Refresh", callback_data="save_morpho_menu"),
+            InlineKeyboardButton("« Savings", callback_data="save_refresh"),
+        ],
+    ]
+    await query.edit_message_text(
+        text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return SAVE_MORPHO_MENU
+
+
+async def save_morpho_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Deposit/withdraw chosen → prompt for a USDC amount (or All sentinel)."""
+    query = update.callback_query
+    await query.answer()
+
+    morpho = context.user_data.get("savings_morpho")
+    if not morpho or not morpho.get("info"):
+        await query.edit_message_text(
+            "❌ Session expired. Start again with /save", reply_markup=_MORPHO_RETRY_KEYBOARD
+        )
+        return ConversationHandler.END
+
+    if query.data == "save_morpho_wd_all":
+        morpho["action"] = "withdraw"
+        morpho["amount"] = None  # full-redeem sentinel
+        return await _save_morpho_show_confirm(update, context)
+
+    morpho["action"] = "deposit" if query.data == "save_morpho_dep" else "withdraw"
+    if morpho["action"] == "deposit":
+        available = float(morpho.get("idle_usdc") or 0)
+        text = (
+            f"➕ *Deposit USDC* → Morpho vault\n\n"
+            f"Idle USDC available: *{available:.2f}*\n\n"
+            f"Enter an amount:"
+        )
+    else:
+        available = float(morpho["info"]["balance_usdc"])
+        text = (
+            f"➖ *Withdraw USDC* from Morpho vault\n\n"
+            f"In vault: *{available:.2f} USDC*\n\n"
+            f"Enter an amount, or use Withdraw All:"
+        )
+    morpho["available"] = available
+
+    await query.edit_message_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("« Back", callback_data="save_morpho_menu")]]
+        ),
+    )
+    return SAVE_MORPHO_AMOUNT
+
+
+async def save_morpho_enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Typed USDC amount for the Morpho vault."""
+    morpho = context.user_data.get("savings_morpho")
+    if not morpho or not morpho.get("action"):
+        await update.message.reply_text(
+            "❌ Session expired. Start again with /save", reply_markup=_MORPHO_RETRY_KEYBOARD
+        )
+        return ConversationHandler.END
+
+    amount = validate_amount(update.message.text)
+    if amount is None or amount <= 0:
+        await update.message.reply_text("❌ Invalid amount. Enter a number (e.g. 100 or 50.5):")
+        return SAVE_MORPHO_AMOUNT
+
+    available = float(morpho.get("available") or 0)
+    if amount > available + 1e-9:
+        await update.message.reply_text(
+            f"❌ Amount exceeds available ({available:.2f} USDC). Enter a smaller amount:"
+        )
+        return SAVE_MORPHO_AMOUNT
+
+    morpho["amount"] = round(float(amount), 6)
+    return await _save_morpho_show_confirm(update, context)
+
+
+async def _save_morpho_show_confirm(update, context) -> int:
+    """Confirmation screen for Morpho vault deposit/withdraw."""
+    morpho = context.user_data["savings_morpho"]
+    action = morpho["action"]
+    amount = morpho.get("amount")
+    amount_text = "All (full balance)" if amount is None else f"{amount:.2f} USDC"
+
+    if action == "deposit":
+        text = (
+            f"✅ *Confirm Deposit*\n\n"
+            f"Venue: *Morpho USDC vault*\n"
+            f"Amount: *{amount_text}*\n"
+            f"Network: Base · MetaMorpho (ERC-4626)\n\n"
+            f"⛽ Gas: paid in ETH on Base. An exact-amount USDC approval "
+            f"is sent first.\n\nProceed?"
+        )
+    else:
+        text = (
+            f"✅ *Confirm Withdrawal*\n\n"
+            f"Venue: *Morpho USDC vault*\n"
+            f"Amount: *{amount_text}*\n"
+            f"USDC is returned to your wallet.\n\n"
+            f"⛽ Gas: paid in ETH on Base.\n\nProceed?"
+        )
+
+    markup = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🚀 Confirm", callback_data="save_morpho_exec"),
+                InlineKeyboardButton("❌ Cancel", callback_data="save_morpho_menu"),
+            ]
+        ]
+    )
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            text, parse_mode="Markdown", reply_markup=markup
+        )
+    else:
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=markup)
+    return SAVE_MORPHO_CONFIRM
+
+
+async def save_morpho_execute_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Execute the Morpho vault deposit/redeem on Base."""
+    from bot.services.morpho_api import MorphoError, morpho_api
+
+    query = update.callback_query
+    await query.answer()
+
+    morpho = context.user_data.get("savings_morpho")
+    if not morpho or not morpho.get("action") or not morpho.get("info"):
+        await query.edit_message_text(
+            "❌ Session expired. Start again with /save", reply_markup=_MORPHO_RETRY_KEYBOARD
+        )
+        return ConversationHandler.END
+
+    user_id = context.user_data.get("user_id")
+    wallet_id = morpho.get("wallet_id")
+    action = morpho["action"]
+    amount = morpho.get("amount")
+    vault = morpho["vault"]
+    info = morpho["info"]
+
+    with get_session() as session:
+        wallet = (
+            session.query(Wallet).filter(Wallet.id == wallet_id, Wallet.user_id == user_id).first()
+        )
+        if not wallet:
+            await query.edit_message_text("❌ Wallet not found.")
+            return ConversationHandler.END
+        session.expunge(wallet)
+
+    await query.edit_message_text(f"⏳ Submitting {action}... this can take a moment.")
+
+    try:
+        if action == "deposit":
+            assets_raw = int(round(float(amount) * 1e6))
+            tx_hashes = await asyncio.to_thread(morpho_api.vault_deposit, wallet, assets_raw, vault)
+            await _log_event(user_id, wallet_id, "morpho_deposit", amount, tx_hashes[-1])
+            links = "\n".join(_basescan_tx(h) for h in tx_hashes)
+            text = (
+                f"✅ *Deposit submitted!*\n\n"
+                f"Deposited *{amount:.2f} USDC* into the Morpho vault.\n\n"
+                f"*Transactions:*\n{links}"
+            )
+        else:
+            shares_raw = None  # full redeem
+            if amount is not None:
+                balance_raw = int(info.get("balance_usdc_raw") or 0)
+                total_shares = int(info.get("shares_raw") or 0)
+                assets_raw = int(round(float(amount) * 1e6))
+                if balance_raw <= 0 or total_shares <= 0:
+                    raise MorphoError("Nothing to withdraw from this vault.")
+                # ≥99.5% of the balance → full redeem (no dust left behind).
+                if assets_raw < balance_raw * 995 // 1000:
+                    shares_raw = min(total_shares, assets_raw * total_shares // balance_raw)
+            tx_hashes = await asyncio.to_thread(morpho_api.vault_redeem, wallet, shares_raw, vault)
+            await _log_event(user_id, wallet_id, "morpho_withdraw", amount, tx_hashes[-1])
+            amount_text = "all funds" if amount is None else f"{amount:.2f} USDC"
+            text = (
+                f"✅ *Withdrawal submitted!*\n\n"
+                f"Withdrew *{amount_text}* from the Morpho vault.\n\n"
+                f"*Transaction:*\n{_basescan_tx(tx_hashes[-1])}"
+            )
+
+        keyboard = [
+            [InlineKeyboardButton("🌾 Back to Morpho", callback_data="save_morpho_menu")],
+            [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
+        ]
+        await query.edit_message_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            disable_web_page_preview=True,
+        )
+    except MorphoError as e:
+        await query.edit_message_text(f"❌ {e}", reply_markup=_MORPHO_RETRY_KEYBOARD)
+    except Exception as e:
+        logger.error(
+            f"Morpho savings {action} unexpected error for user {user_id}: {e}", exc_info=True
+        )
+        await query.edit_message_text(
+            "❌ Something went wrong. Please check your balance before retrying.",
+            reply_markup=_MORPHO_RETRY_KEYBOARD,
+        )
+    return SAVE_MORPHO_MENU
+
+
 async def save_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel the savings flow."""
     context.user_data.pop("savings", None)
     context.user_data.pop("savings_btc", None)
+    context.user_data.pop("savings_morpho", None)
     if update.callback_query:
         await update.callback_query.answer("Cancelled")
         from bot.handlers.start import main_menu_callback
@@ -994,12 +1296,14 @@ savings_conversation_handler = ConversationHandler(
         CommandHandler("save", save_command),
         CallbackQueryHandler(save_refresh_callback, pattern="^save_menu$"),
         CallbackQueryHandler(save_btc_menu_callback, pattern="^save_btc_menu$"),
+        CallbackQueryHandler(save_morpho_menu_callback, pattern="^save_morpho_menu$"),
     ],
     states={
         SAVE_MENU: [
             CallbackQueryHandler(save_action_callback, pattern="^save_deposit$"),
             CallbackQueryHandler(save_action_callback, pattern="^save_withdraw$"),
             CallbackQueryHandler(save_btc_menu_callback, pattern="^save_btc_menu$"),
+            CallbackQueryHandler(save_morpho_menu_callback, pattern="^save_morpho_menu$"),
             CallbackQueryHandler(save_refresh_callback, pattern="^save_refresh$"),
             CallbackQueryHandler(save_close_callback, pattern="^save_close$"),
         ],
@@ -1025,6 +1329,23 @@ savings_conversation_handler = ConversationHandler(
             CallbackQueryHandler(save_btc_execute_callback, pattern="^save_btc_exec$"),
             CallbackQueryHandler(save_btc_venue_callback, pattern=_SAVE_BTC_VENUE_PATTERN),
             CallbackQueryHandler(save_btc_menu_callback, pattern="^save_btc_menu$"),
+        ],
+        SAVE_MORPHO_MENU: [
+            CallbackQueryHandler(save_morpho_action_callback, pattern="^save_morpho_dep$"),
+            CallbackQueryHandler(save_morpho_action_callback, pattern="^save_morpho_wd$"),
+            CallbackQueryHandler(save_morpho_action_callback, pattern="^save_morpho_wd_all$"),
+            CallbackQueryHandler(save_morpho_menu_callback, pattern="^save_morpho_menu$"),
+            CallbackQueryHandler(save_refresh_callback, pattern="^save_refresh$"),
+        ],
+        SAVE_MORPHO_AMOUNT: [
+            CallbackQueryHandler(save_morpho_menu_callback, pattern="^save_morpho_menu$"),
+            CallbackQueryHandler(save_refresh_callback, pattern="^save_refresh$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, save_morpho_enter_amount),
+        ],
+        SAVE_MORPHO_CONFIRM: [
+            CallbackQueryHandler(save_morpho_execute_callback, pattern="^save_morpho_exec$"),
+            CallbackQueryHandler(save_morpho_menu_callback, pattern="^save_morpho_menu$"),
+            CallbackQueryHandler(save_refresh_callback, pattern="^save_refresh$"),
         ],
         SAVE_SELECT_WALLET: [
             CallbackQueryHandler(save_select_wallet_callback, pattern="^save_w_"),
