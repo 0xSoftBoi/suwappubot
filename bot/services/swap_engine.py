@@ -30,7 +30,7 @@ from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.utils.cache import quote_cache
 from bot.utils.performance import track_time, MetricNames
-from bot.config.chains import CHAINS, ChainType, get_chain_by_name
+from bot.config.chains import CHAINS, ChainType, apply_min_gas_price, get_chain_by_name
 from bot.config.tokens import get_token_address, get_token_decimals, NATIVE_TOKEN_ADDRESS
 from bot.services.lifi_api import LiFiAPI, LiFiQuote, LiFiError
 from bot.services.jupiter_api import JupiterAPI, JupiterQuote, JupiterError
@@ -2468,7 +2468,10 @@ class SwapEngine:
         if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
             # Check native balance before attempting approval — need ETH for gas
             native_balance_wei = await asyncio.to_thread(lambda: web3.eth.get_balance(sender))
-            gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+            # Floor to the chain's network minimum (Rootstock: 60M wei / 0.06 gwei)
+            gas_price = apply_min_gas_price(
+                quote.from_chain, await asyncio.to_thread(lambda: web3.eth.gas_price)
+            )
             # Approval costs ~50k gas; swap ~200k gas; require enough for both
             min_gas_wei = gas_price * 300_000
             if native_balance_wei < min_gas_wei:
@@ -2567,8 +2570,14 @@ class SwapEngine:
             "data": tx_request.get("data"),
             "value": _parse_int(tx_request.get("value"), 0),
             "gas": _parse_int(tx_request.get("gasLimit"), 500000),
-            "gasPrice": _parse_int(
-                tx_request.get("gasPrice"), await asyncio.to_thread(lambda: web3.eth.gas_price)
+            # Floor to the chain's network minimum (Rootstock has no EIP-1559 and
+            # rejects gasPrice below 60M wei; LiFi-provided gasPrice is floored too)
+            "gasPrice": apply_min_gas_price(
+                quote.from_chain,
+                _parse_int(
+                    tx_request.get("gasPrice"),
+                    await asyncio.to_thread(lambda: web3.eth.gas_price),
+                ),
             ),
             "nonce": nonce,
             "chainId": chain.chain_id,

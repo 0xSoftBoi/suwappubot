@@ -67,6 +67,8 @@ CHAINLIST_IDS: Dict[str, int] = {
     "taiko": 167000,
     # GOAT Network (Bitcoin L2) — same-chain swaps route via GOATSwap, not aggregators
     "goat": 2345,
+    # Rootstock (Bitcoin sidechain) — routes via Li.Fi only; legacy gas, EIP-1191 checksums
+    "rootstock": 30,
 }
 
 # Chains needing PoA middleware

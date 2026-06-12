@@ -37,6 +37,8 @@ TOKENS: dict[str, TokenConfig] = {
             "plasma": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             "starknet": starknet_addresses.USDT,
             "goat": "0xE1AD845D93853fff44990aE0DcecD8575293681e",  # 6 decimals on GOAT
+            # Rootstock rUSDT — 18 decimals NOT 6 (see get_token_decimals override)
+            "rootstock": "0x779ded0c9e1022225f8e0630b35a9b54be713736",  # USD₮0 (6dp) — LiFi-routable; legacy rUSDT 0xef21..bb96 (18dp) is NOT in LiFi token list
         },
         logo_emoji="💵",
     ),
@@ -57,6 +59,8 @@ TOKENS: dict[str, TokenConfig] = {
             "starknet": starknet_addresses.USDC,
             # GOAT's canonical USDC is bridged USDC.e (6 decimals)
             "goat": "0x3022b87ac063DE95b1570F46f5e470F8B53112D8",
+            # Rootstock USDC.e (bridged), 6 decimals
+            "rootstock": "0x74c9f2b00581f1b11aa7ff05aa9f608b7389de67",
         },
         logo_emoji="💲",
     ),
@@ -281,13 +285,86 @@ TOKENS: dict[str, TokenConfig] = {
     ),
     "BTC": TokenConfig(
         symbol="BTC",
-        name="Bitcoin (GOAT native)",
-        decimals=18,  # native BTC on GOAT uses 18 decimals, like ETH
+        name="Bitcoin",
+        # Per-chain default "BTC" resolution. We deliberately do NOT default to WBTC
+        # (BitGo/BiT Global custody concerns; removed by Sky, delisted by Coinbase).
+        # WBTC remains tradable explicitly as "WBTC".
+        # Decimals vary per chain — see get_token_decimals(): cbBTC=8, tBTC/BTCB/GOAT=18.
+        decimals=18,  # top-level default; cbBTC chains override to 8
         addresses={
-            "goat": "0x0000000000000000000000000000000000000000",  # native placeholder
+            # cbBTC (Coinbase Wrapped BTC) — 8 decimals
+            "ethereum": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+            "base": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+            "solana": "cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij",
+            # tBTC (Threshold) — 18 decimals
+            "arbitrum": "0x6c84a8f1c29108F47a79964b5Fe888D4f4D0dE40",
+            "optimism": "0x6c84a8f1c29108F47a79964b5Fe888D4f4D0dE40",
+            "polygon": "0x236aa50979D5f3De3Bd1Eeb40E81137F22ab794b",
+            # BTCB (Binance-Peg BTC) — 18 decimals NOT 8
+            "bsc": "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c",
+            # GOAT native BTC — 18 decimals, native placeholder
+            "goat": "0x0000000000000000000000000000000000000000",
         },
         logo_emoji="₿",
         is_stablecoin=False,
+    ),
+    "CBBTC": TokenConfig(
+        symbol="cbBTC",
+        name="Coinbase Wrapped BTC",
+        decimals=8,
+        addresses={
+            # Same address on ethereum/base/arbitrum (deterministic deployment)
+            "ethereum": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+            "base": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+            "arbitrum": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+            "solana": "cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij",
+        },
+        logo_emoji="🔵",
+        is_stablecoin=False,
+    ),
+    "TBTC": TokenConfig(
+        symbol="tBTC",
+        name="Threshold BTC",
+        decimals=18,  # 18 decimals, NOT 8
+        addresses={
+            "ethereum": "0x18084fbA666a33d37592fA2633fD49a74DD93a88",
+            # Same address on arbitrum + optimism (deterministic deployment)
+            "arbitrum": "0x6c84a8f1c29108F47a79964b5Fe888D4f4D0dE40",
+            "optimism": "0x6c84a8f1c29108F47a79964b5Fe888D4f4D0dE40",
+            "polygon": "0x236aa50979D5f3De3Bd1Eeb40E81137F22ab794b",
+        },
+        logo_emoji="🟪",
+        is_stablecoin=False,
+    ),
+    "BTCB": TokenConfig(
+        symbol="BTCB",
+        name="Binance-Peg BTC",
+        decimals=18,  # 18 decimals, NOT 8
+        addresses={
+            "bsc": "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c",
+        },
+        logo_emoji="🟡",
+        is_stablecoin=False,
+    ),
+    "WRBTC": TokenConfig(
+        symbol="WRBTC",
+        name="Wrapped Rootstock BTC",
+        decimals=18,
+        addresses={
+            "rootstock": "0x542fda317318ebf1d3deaf76e0b632741a7e677d",  # lowercase: RSK uses EIP-1191 checksums; LiFi rejects EIP-55 casing
+        },
+        logo_emoji="🟧",
+        is_stablecoin=False,
+    ),
+    "DOC": TokenConfig(
+        symbol="DOC",
+        name="Dollar on Chain",
+        decimals=18,
+        addresses={
+            "rootstock": "0xe700691da7b9851f2f35f8b8182c69c53ccad9db",
+        },
+        logo_emoji="🟧",
+        is_stablecoin=True,
     ),
     "ETH": TokenConfig(
         symbol="ETH",
@@ -645,6 +722,46 @@ TOKENS: dict[str, TokenConfig] = {
 }
 
 
+# Per-(symbol, chain) decimals overrides — for tokens whose on-chain decimals
+# differ from the entry's top-level default. 18-decimal traps live here.
+_PER_CHAIN_DECIMALS: dict[tuple[str, str], int] = {
+    # BSC BEP-20 stables are 18dp
+    ("USDC", "bsc"): 18,
+    ("USDT", "bsc"): 18,
+    # Rootstock rUSDT is 18dp NOT 6
+    ("USDT", "rootstock"): 6,  # USD₮0
+    # "BTC" default resolution decimals per chain
+    ("BTC", "ethereum"): 8,  # cbBTC
+    ("BTC", "base"): 8,  # cbBTC
+    ("BTC", "solana"): 8,  # cbBTC
+    ("BTC", "arbitrum"): 18,  # tBTC
+    ("BTC", "optimism"): 18,  # tBTC
+    ("BTC", "polygon"): 18,  # tBTC
+    ("BTC", "bsc"): 18,  # BTCB
+    ("BTC", "goat"): 18,  # native BTC, ETH-style
+    # WBTC's bsc address is actually BTCB which is 18dp NOT 8
+    ("WBTC", "bsc"): 18,
+}
+
+
+def _chain_decimals(symbol: str, chain_name: str, default: int) -> int:
+    """Resolve decimals for a (symbol, chain), honoring per-chain overrides."""
+    return _PER_CHAIN_DECIMALS.get((symbol.upper(), chain_name.lower()), default)
+
+
+def addresses_equal(a: Optional[str], b: Optional[str]) -> bool:
+    """Case-insensitive address comparison.
+
+    Required for Rootstock, which uses EIP-1191 (chainId-salted) checksums —
+    web3.py emits EIP-55, so checksummed string equality is wrong there.
+    Always compare addresses lowercased; never validate RSK addresses via
+    EIP-55 checksum checks.
+    """
+    if not a or not b:
+        return False
+    return a.lower() == b.lower()
+
+
 def get_token_address(symbol: str, chain_name: str) -> Optional[str]:
     """Get token address for a specific chain."""
     token = TOKENS.get(symbol.upper())
@@ -668,19 +785,16 @@ def get_token_decimals(symbol: str, chain_name: str) -> int:
     """Get token decimals. Note: Some tokens have different decimals on different chains."""
     token = TOKENS.get(symbol.upper())
     if token:
-        # USDC and USDT on BSC have 18 decimals (BEP-20 standard)
-        if symbol.upper() in ("USDC", "USDT") and chain_name.lower() == "bsc":
-            return 18
         # GOAT Network: defensive chain-specific override (matches top-level
         # decimals today, but pinned so a future top-level change can't silently
-        # corrupt GOAT amount math — mirrors the BSC override above)
+        # corrupt GOAT amount math — mirrors the per-chain overrides table)
         if chain_name.lower() == "goat":
             sym = symbol.upper()
             if sym in ("USDT", "USDC"):
                 return 6
             if sym in ("WGBTC", "WETH"):
                 return 18
-        return token.decimals
+        return _chain_decimals(symbol, chain_name, token.decimals)
     return 18  # Default
 
 
@@ -692,7 +806,5 @@ def get_decimals_by_address(address: str, chain_name: str) -> int:
     for token in TOKENS.values():
         chain_addr = token.addresses.get(chain_name.lower())
         if chain_addr and chain_addr.lower() == addr_lower:
-            if token.symbol in ("USDC", "USDT") and chain_name.lower() == "bsc":
-                return 18
-            return token.decimals
+            return _chain_decimals(token.symbol, chain_name, token.decimals)
     return 18
