@@ -238,6 +238,10 @@ class Settings(BaseSettings):
         default="https://rpc.goat.network",
         description="GOAT Network (Bitcoin L2, chain id 2345) RPC URL",
     )
+    rootstock_rpc_url: str = Field(
+        default="https://public-node.rsk.co",
+        description="Rootstock (Bitcoin sidechain, chain id 30) RPC URL(s)",
+    )
 
     # New Li.Fi chains (RPCManager auto-discovers from chainlist.org)
     sonic_rpc_url: str = Field(default="https://rpc.soniclabs.com", description="Sonic RPC")
