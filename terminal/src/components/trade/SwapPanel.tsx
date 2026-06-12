@@ -16,7 +16,7 @@ import toast from 'react-hot-toast'
 type OrderTab = 'swap' | 'limit' | 'dca'
 
 export function SwapPanel() {
-  const { isAuthenticated, signIn } = useAuth()
+  const { isAuthenticated, signInWithGoogle } = useAuth()
   const { side, setSide, pendingSwapAmount, setPendingSwapAmount } = useTrading()
   const { selectedPair, setSelectedPair } = usePair()
   const [activeTab, setActiveTab] = useState<OrderTab>('swap')
@@ -270,7 +270,9 @@ export function SwapPanel() {
       <button
         onClick={
           !isAuthenticated
-            ? () => void signIn()
+            ? // Google OAuth, not signIn(): the passkey endpoints are server-gated
+              // (503) until real WebAuthn verification ships.
+              () => signInWithGoogle()
             : isQuoteStale
               ? () => void refetchQuote()
               : handleSwap
