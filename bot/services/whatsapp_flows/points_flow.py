@@ -276,10 +276,12 @@ class PointsFlow(BaseWhatsAppFlow):
         level_up_msg = ""
         if new_level:
             level_info = LEVELS.get(new_level, {})
+            # XP-level fee discounts are not yet applied (charged fee is set by
+            # subscription tier, not XP level) — don't promise a fee rate here.
             level_up_msg = (
                 f"\n\n*LEVEL UP!*\n"
                 f"You're now *{level_info.get('name', new_level)}*!\n"
-                f"New fee rate: {level_info.get('fee', 0.8)}%"
+                f"_Level perks (fee discounts) coming soon._"
             )
 
         streak_label = "Streak continued!" if continued else "New streak started!"

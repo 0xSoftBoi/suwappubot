@@ -13,7 +13,15 @@ import {
 import { swapTransactions } from './swaps'
 import { users } from './users'
 
-// Level definitions
+// Level definitions.
+//
+// IMPORTANT: the per-level `fee` field is an ASPIRATIONAL roadmap target, NOT
+// the fee actually charged. The charged swap fee is resolved from the user's
+// SUBSCRIPTION TIER (FREE/PRO/PREMIUM/ENTERPRISE — 1% / 0.5% / 0.3% / 0.1%),
+// which is independent of the XP level. The XP level is NOT wired into any fee
+// calculation. Do not present `fee` to users as their active/current rate — it
+// is surfaced via PointsService.getUserStats only as a "coming soon" perk.
+// Mirrors bot/models/points.py LEVELS (keep the two in sync).
 export const LEVELS = {
 	bronze: { xp: 0, fee: 0.8, name: 'Bronze', emoji: '🥉' },
 	silver: { xp: 1000, fee: 0.7, name: 'Silver', emoji: '🥈' },

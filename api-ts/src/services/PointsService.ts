@@ -318,7 +318,12 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 				level,
 				levelName: levelInfo.name,
 				levelEmoji: levelInfo.emoji,
+				// ROADMAP value, NOT the charged rate. The actual swap fee comes from
+				// the user's subscription tier, not their XP level (see LEVELS comment
+				// in db/schema/points.ts). `feeRateApplied` tells consumers whether
+				// this discount is live — it is not, so surface it as "coming soon".
 				feeRate: levelInfo.fee,
+				feeRateApplied: false,
 				xpToNextLevel: getXpToNextLevel(points.xp, level),
 				nextLevel: getNextLevel(level),
 				dailyStreak: points.dailyStreak,

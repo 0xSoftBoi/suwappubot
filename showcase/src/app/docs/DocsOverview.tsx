@@ -22,30 +22,30 @@ export default function DocsOverview() {
           <h1 className="section__heading">Suwappu API Docs</h1>
           <p className="section__body" style={{ marginBottom: '3rem' }}>
             Everything you need to build with Suwappu. Register an agent, get quotes, and execute
-            cross-chain swaps across 15 blockchains.
+            cross-chain swaps across 15 blockchains (12 EVM + Solana + TRON + Starknet).
           </p>
 
           {/* Quick links */}
           <div className="docs-quicklinks">
-            <a href="/docs/quick-start/first-swap" className="docs-quicklink">
+            <a href="/docs/protocols/mcp" className="docs-quicklink">
               <span className="docs-quicklink__icon">QS</span>
               <div>
-                <strong>Quick Start</strong>
-                <span>Your first swap in 60 seconds</span>
+                <strong>MCP Quick Start</strong>
+                <span>Connect Claude or any AI agent in minutes</span>
               </div>
             </a>
-            <a href="/docs/api-reference/overview" className="docs-quicklink">
+            <a href="/docs/api-reference/perps" className="docs-quicklink">
               <span className="docs-quicklink__icon">EP</span>
               <div>
                 <strong>API Reference</strong>
-                <span>Complete endpoint documentation</span>
+                <span>Perpetual futures, predictions, lending endpoints</span>
               </div>
             </a>
-            <a href="/docs/guides/building-a-trading-bot" className="docs-quicklink">
+            <a href="/docs/guides/perps-trading" className="docs-quicklink">
               <span className="docs-quicklink__icon">GD</span>
               <div>
-                <strong>Build a Bot</strong>
-                <span>Trading bot tutorial</span>
+                <strong>Perps Trading Guide</strong>
+                <span>Open leveraged positions via HyperLiquid</span>
               </div>
             </a>
           </div>

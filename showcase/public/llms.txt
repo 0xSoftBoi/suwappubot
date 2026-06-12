@@ -1,6 +1,6 @@
 # Suwappu
 
-> Cross-chain DEX infrastructure. SDK, REST API, Telegram bot, and agent tooling for swaps, perps, predictions, and lending across 14 chains.
+> Cross-chain DEX infrastructure. SDK, REST API, Telegram bot, and agent tooling for swaps, perps, predictions, and lending across 15 chains.
 
 ## Install
 
@@ -75,23 +75,20 @@ pred_markets = await client.predict.markets("crypto")
 lend_markets = await client.lend.markets(chain_id=8453)
 ```
 
-## Tools (13 total)
+## Tools (10 total)
 
 | Tool | Purpose | Parameters |
 |------|---------|------------|
 | `get_quote` | Best swap route for a token pair | `from_token, to_token, amount, chain` |
-| `execute_swap` | Execute a previously quoted swap | `quote_id` |
-| `get_portfolio` | Wallet balances across chains | `chain` (optional) |
-| `get_prices` | Current token prices | `token, chain` (optional) |
+| `execute_swap` | Execute a previously quoted swap | `quote_id, wallet_address` |
+| `get_portfolio` | Wallet balances across chains | `wallet_address, chain` (optional) |
+| `get_prices` | Current token prices | `symbols` (comma-separated) |
 | `list_chains` | All supported chains and status | none |
-| `list_tokens` | Popular tokens on a chain | `chain` |
-| `perps.markets` | Hyperliquid perp markets and prices | none |
-| `perps.quote` | Quote a leveraged position | `market, side, size, leverage` |
-| `perps.positions` | Open positions with PnL | `address` |
-| `predict.markets` | Polymarket prediction markets | `query` (optional), `limit` (optional) |
-| `predict.market` | Prediction market details | `id` |
-| `lend.markets` | Morpho lending markets with APY | `chainId` (optional, default: Base) |
-| `lend.market` | Lending market details | `id` |
+| `list_tokens` | Searchable token registry per chain | `chain, search` (optional) |
+| `get_tempo_tokens` | TIP-20 token list on Tempo mainnet | `search` (optional) |
+| `browse_mpp_directory` | Micropayment Protocol service directory | `category` (optional) |
+| `predict_markets` | Polymarket prediction markets | `query` (optional), `limit` (optional) |
+| `predict_market_detail` | Prediction market details with CLOB prices | `market_id` |
 
 ## REST API
 
@@ -167,7 +164,7 @@ The same routing engine powers:
 
 - Agent Card (A2A): https://api.suwappu.bot/.well-known/agent.json
 - OpenAPI Spec: https://api.suwappu.bot/v1/agent/openapi
-- MCP Endpoint: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0, 11 tools)
+- MCP Endpoint: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0, 10 tools)
 - llms.txt: https://suwappu.bot/llms.txt
 
 ## MCP Server Setup

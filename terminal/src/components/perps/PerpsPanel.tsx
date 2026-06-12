@@ -1,11 +1,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
-import { useAuth } from '../../contexts/AuthContext'
 import type { HLMarket } from '../../types/api'
 
 export function PerpsPanel() {
-  const { isAuthenticated } = useAuth()
   const [selectedMarket, setSelectedMarket] = useState('ETH-USD')
   const [side, setSide] = useState<'long' | 'short'>('long')
   const [size, setSize] = useState('')
@@ -120,20 +118,23 @@ export function PerpsPanel() {
         </div>
       )}
 
-      {/* Execute */}
+      {/* Execute — no browser-callable perps execute endpoint exists yet.
+          /v1/agent/perps/quote uses agentBearerAuth (agent API key only).
+          Gate with coming soon until a /webapp/me/perps/execute route is added. */}
       <button
-        disabled={!isAuthenticated || !size}
-        className={`w-full py-3 rounded font-semibold text-sm transition-colors
+        disabled
+        title="Order execution coming soon — not yet available"
+        className={`w-full py-3 rounded font-semibold text-sm transition-colors cursor-not-allowed opacity-50
           ${side === 'long'
-            ? 'bg-bull hover:bg-bull/80 text-white disabled:bg-bull/30'
-            : 'bg-bear hover:bg-bear/80 text-white disabled:bg-bear/30'
-          } disabled:cursor-not-allowed`}
+            ? 'bg-bull/30 text-white'
+            : 'bg-bear/30 text-white'
+          }`}
       >
-        {!isAuthenticated
-          ? 'Create Turnkey wallet'
-          : `Open ${leverage}x ${side === 'long' ? 'Long' : 'Short'} ${selectedMarket}`
-        }
+        Coming soon — execution not yet available
       </button>
+      <p className="text-[11px] text-terminal-text-muted text-center -mt-1">
+        Market data is live. Order placement is under development.
+      </p>
     </div>
   )
 }

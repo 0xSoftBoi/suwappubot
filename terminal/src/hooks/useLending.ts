@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
 
+// Lending markets use /v1/agent/lend/markets which is public — no auth guard needed.
 export function useLendingMarkets() {
   return useQuery({
     queryKey: ['lending-markets'],

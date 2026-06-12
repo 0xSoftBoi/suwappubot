@@ -30,7 +30,7 @@ from bot.handlers.wallet import (
     wallet_qr_callback,
     wallet_import_handler,
 )
-from bot.handlers.swap import swap_conversation_handler, check_swap_status
+from bot.handlers.swap import swap_conversation_handler, check_swap_status, swap_share_ref_handler
 from bot.handlers.history import (
     history_handler,
     history_callback,
@@ -101,7 +101,13 @@ from bot.handlers.admin_fees import (
 )
 
 # New handlers
-from bot.handlers.alerts import alerts_handler, alert_conversation, alerts_menu_callback
+from bot.handlers.alerts import (
+    alerts_handler,
+    alert_conversation,
+    alerts_menu_callback,
+    alert_manage_callback,
+    alert_delete_callback,
+)
 from bot.handlers.referral import (
     referral_handler,
     ref_menu_callback_handler,
@@ -315,6 +321,9 @@ def add_handlers(application: Application) -> None:
     # ============ CONVERSATION HANDLERS ============
     # Must be added before generic callback handlers
     application.add_handler(swap_conversation_handler)
+    application.add_handler(
+        swap_share_ref_handler
+    )  # post-swap referral share (outside conversation)
     application.add_handler(wallet_import_handler)
     application.add_handler(slippage_conversation)
     application.add_handler(recovery_conversation)  # settings_recovery -> set email
@@ -408,6 +417,8 @@ def add_handlers(application: Application) -> None:
 
     # Alerts
     application.add_handler(CallbackQueryHandler(alerts_menu_callback, pattern="^alerts_menu$"))
+    application.add_handler(CallbackQueryHandler(alert_manage_callback, pattern="^alert_manage$"))
+    application.add_handler(CallbackQueryHandler(alert_delete_callback, pattern="^alert_delete_"))
 
     # Referrals & Fees
     application.add_handler(ref_menu_callback_handler)

@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
+import { useAuth } from '../contexts/AuthContext'
 import type { WalletStats } from '../types/api'
 
 const WALLETS_KEY = ['wallet-tracker', 'wallets'] as const
@@ -8,16 +9,19 @@ const ACTIVITIES_KEY = ['wallet-tracker', 'activities'] as const
 
 export function useWalletTracker() {
   const queryClient = useQueryClient()
+  const { isAuthenticated } = useAuth()
 
   const walletsQuery = useQuery({
     queryKey: WALLETS_KEY,
     queryFn: api.getTrackedWallets,
+    enabled: isAuthenticated,
     staleTime: 15_000,
   })
 
   const activitiesQuery = useQuery({
     queryKey: ACTIVITIES_KEY,
     queryFn: api.getWalletActivities,
+    enabled: isAuthenticated,
     staleTime: 15_000,
   })
 

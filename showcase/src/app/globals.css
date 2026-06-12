@@ -304,6 +304,36 @@ html {
   font-size: 0.95rem;
 }
 
+/* ── Referral ── */
+.summer-referral {
+  margin-top: 44px;
+  text-align: center;
+  padding: 40px 24px;
+  border-radius: 22px;
+  background: var(--suwappu-summer-card-background, rgba(255, 255, 255, 0.96));
+  border: 1px solid rgba(13, 149, 189, 0.16);
+  box-shadow: 0 16px 30px rgba(33, 88, 110, 0.1);
+}
+.summer-referral h2 {
+  margin: 6px 0 10px;
+  color: var(--suwappu-summer-ink, #17324a);
+}
+.summer-referral__body {
+  max-width: 520px;
+  margin: 0 auto 22px;
+  color: rgba(23, 50, 74, 0.78);
+}
+.summer-referral__cmd {
+  display: inline;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(23, 50, 74, 0.06);
+  border: 1px solid rgba(13, 149, 189, 0.18);
+  font-family: var(--font-mono, monospace);
+  color: var(--suwappu-summer-ink, #17324a);
+  font-size: 0.9em;
+}
+
 /* ── Closing CTA ── */
 .summer-cta {
   margin-top: 44px;

@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
+import { useAuth } from '../contexts/AuthContext'
 
 export type SentimentFilter = 'all' | 'bullish' | 'bearish' | 'neutral'
 
@@ -9,17 +10,20 @@ const FEED_KEY = ['tweet-monitor', 'feed'] as const
 
 export function useTweetMonitor() {
   const queryClient = useQueryClient()
+  const { isAuthenticated } = useAuth()
   const [sentimentFilter, setSentimentFilter] = useState<SentimentFilter>('all')
 
   const accountsQuery = useQuery({
     queryKey: ACCOUNTS_KEY,
     queryFn: api.getTrackedTwitterAccounts,
+    enabled: isAuthenticated,
     staleTime: 15_000,
   })
 
   const tweetsQuery = useQuery({
     queryKey: FEED_KEY,
     queryFn: api.getTweetFeed,
+    enabled: isAuthenticated,
     staleTime: 15_000,
   })
 

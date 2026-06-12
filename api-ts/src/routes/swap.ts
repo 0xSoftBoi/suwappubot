@@ -17,12 +17,14 @@ import {
 	type RedisServiceInterface,
 	type SwapQuote,
 	SwapService,
+	TelegramAuthService,
 	TOKEN_LIST_TTL,
 	UserService,
 	WalletService,
 } from '../services'
 import type { TelegramUser } from '../services/TelegramAuthService'
 import { withSigningFallback } from '../services/FallbackSigningService'
+import { APPROVAL_MODE, DEFAULT_SLIPPAGE } from '../config/constants'
 
 const swapRoutes = new Hono()
 
@@ -133,7 +135,7 @@ const deleteCachedQuote = (
  * - fromToken: Token address (use 0x0...0 for native)
  * - toToken: Token address
  * - fromAmount: Amount in smallest unit (wei)
- * - slippage: Optional, default 0.03 (3%)
+ * - slippage: Optional, default 0.005 (0.5%)
  * - order: Optional, "RECOMMENDED" | "FASTEST" | "CHEAPEST" | "SAFEST"
  */
 swapRoutes.get('/quote', ipRateLimit(30), telegramAuth(), async (c) => {
@@ -195,7 +197,7 @@ swapRoutes.get('/quote', ipRateLimit(30), telegramAuth(), async (c) => {
 				toToken,
 				fromAmount,
 				fromAddress: wallet.address,
-				slippage: slippage ? parseFloat(slippage) : 0.03,
+				slippage: slippage ? parseFloat(slippage) : DEFAULT_SLIPPAGE,
 				order: order || 'RECOMMENDED',
 			}
 
@@ -434,11 +436,16 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 					const requiredAmount = BigInt(quote.fromAmount)
 					if (allowanceResult < requiredAmount) {
 						logger.info('[SwapRoute] Insufficient ERC20 allowance, sending approval tx')
-						// Build approve(spender, uint256.max) calldata
-						const maxUint256 = '0x' + 'f'.repeat(64)
+						// Build approve(spender, amount) calldata. Mirrors the Python
+						// bot's approval_mode: 'unlimited' (default) approves max uint256
+						// so the router is approved once; 'exact' approves only this
+						// swap's fromAmount (base units) so no standing allowance survives.
+						const approveAmountHex = APPROVAL_MODE === 'exact'
+							? requiredAmount.toString(16).padStart(64, '0')
+							: 'f'.repeat(64)
 						const approveData = '0x095ea7b3' +
 							approvalAddress.slice(2).padStart(64, '0') +
-							maxUint256.slice(2)
+							approveAmountHex
 
 						const approvalNonce = yield* Effect.tryPromise({
 							try: () => fetchNonce(wallet.address),
@@ -469,6 +476,9 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 										return result.signedTransaction
 									},
 									wallet.id,
+									// wallet.userId === user.id (getActiveWallets filters by it) and
+									// maps to Python wallets.user_id — required for ownership check.
+									user.id,
 									approvalUnsignedTx,
 								)
 								return { signedTransaction }
@@ -548,6 +558,8 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 							return result.signedTransaction
 						},
 						wallet.id,
+						// wallet.userId === user.id; maps to Python wallets.user_id.
+						user.id,
 						swapUnsignedTx,
 					)
 				},
@@ -597,17 +609,23 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 			}
 
 			const newStatus = txHash ? 'submitted' : 'signed'
-			yield* swapService.updateSwapStatus(swapRecord.id, newStatus, txHash || signedTransaction)
+			// SECURITY: Never persist the raw signed tx into tx_hash — a signed,
+			// un-broadcast tx is replayable. On broadcast failure we store null and
+			// keep the non-terminal 'signed' status; the tx poller / retry path
+			// handles re-broadcast, not a value sitting in the tx_hash column.
+			yield* swapService.updateSwapStatus(swapRecord.id, newStatus, txHash ?? undefined)
 
 			// Clean up cached quote
 			yield* deleteCachedQuote(redis, quoteId)
 
+			// SECURITY: The raw signedTransaction hex is intentionally NOT returned —
+			// no client consumes it and exposing a replayable signed tx over HTTP is
+			// a needless risk.
 			return {
 				success: true,
 				swapId: swapRecord.id,
 				status: newStatus,
 				txHash: txHash || undefined,
-				signedTransaction,
 				message: txHash ? 'Transaction submitted.' : 'Transaction signed. Submit to chain to complete swap.',
 				chain: {
 					chainId: txRequest.chainId,
@@ -865,25 +883,26 @@ swapRoutes.get('/tokens', async (c) => {
 	}
 
 	// Try to extract wallet address from auth (optional -- endpoint remains public)
+	// SECURITY: initData MUST be HMAC-validated via TelegramAuthService before we
+	// trust the `user` field. Forging the header no longer enumerates balances —
+	// an invalid/missing signature simply yields no balance enrichment.
 	let walletAddress: string | null = null
 	const initData = c.req.header('X-Telegram-Init-Data')
 	if (initData) {
-		// Try to resolve wallet for authenticated user
+		// Try to resolve wallet for the validated, authenticated user
 		const walletResult = await runEffectEither(
 			Effect.gen(function* () {
+				const authService = yield* TelegramAuthService
 				const userService = yield* UserService
 				const walletService = yield* WalletService
-				// Parse telegram user ID from initData
-				const params = new URLSearchParams(initData)
-				const userParam = params.get('user')
-				if (!userParam) return null
-				let tgUser: { id: number }
-				try {
-					tgUser = JSON.parse(decodeURIComponent(userParam))
-				} catch {
-					return null
-				}
-				const userOption = yield* userService.getUserByTelegramId(tgUser.id)
+
+				// Validate initData signature — do NOT parse the user field directly
+				const telegramUserOption = yield* authService.validateInitData(initData)
+				if (Option.isNone(telegramUserOption)) return null
+
+				const userOption = yield* userService.getUserByTelegramId(
+					telegramUserOption.value.id,
+				)
 				if (Option.isNone(userOption)) return null
 				const wallets = yield* walletService.getActiveWallets(userOption.value.id)
 				return wallets[0]?.address ?? null

@@ -19,9 +19,9 @@ const features = [
   },
   {
     icon: '🔑',
-    title: 'Non-custodial execution',
+    title: 'Secure key management',
     description:
-      'Keys never leave your wallet. Suwappu finds the route — you sign and submit. We never touch your funds.',
+      'Keys encrypted with KMS envelope encryption and signed server-side — or bring your own keys via the agent API for full self-custody.',
   },
   {
     icon: '🔌',
@@ -323,6 +323,24 @@ export default function Home() {
                 </article>
               ))}
             </div>
+          </section>
+
+          <section className="summer-referral" aria-label="Referral program">
+            <p className="summer-kicker">Earn with Suwappu</p>
+            <h2>30% of every trading fee. Forever.</h2>
+            <p className="summer-referral__body">
+              Refer a friend and earn 30% of the trading fees they generate — paid out automatically,
+              on every chain. Grab your personal link with{' '}
+              <code className="summer-referral__cmd">/ref</code> inside the bot.
+            </p>
+            <a
+              className="summer-button summer-button--primary"
+              href={TELEGRAM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Get your referral link
+            </a>
           </section>
 
           <section className="summer-cta" aria-label="Get started">

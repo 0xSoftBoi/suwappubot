@@ -26,6 +26,7 @@ import type {
   PointsProfile,
   CheckinResponse,
   Milestone,
+  Reward,
   RewardStoreResponse,
   RedeemRewardResponse,
   LeaderboardEntry,
@@ -255,9 +256,9 @@ export const api = {
     return request<TerminalTrade[]>(`/terminal/trades?${params}`)
   },
 
-  // Portfolio
+  // Portfolio — real route: GET /webapp/me/portfolio
   getPortfolio() {
-    return request<Portfolio>('/webapp/portfolio')
+    return request<Portfolio>('/webapp/me/portfolio')
   },
 
   // Discovery
@@ -293,41 +294,43 @@ export const api = {
     ).then((r) => r.markets ?? [])
   },
 
-  // Copy Trading
+  // Copy Trading — real routes live under /webapp/me/copy/* and /webapp/copy/* (telegramAuth)
   getTopTraders(timeframe?: string, limit?: number) {
     const params = new URLSearchParams()
     if (timeframe) params.set('timeframe', timeframe)
     if (limit) params.set('limit', String(limit))
     const qs = params.toString()
-    return request<TopTrader[]>(`/webapp/copy-trading/top-traders${qs ? `?${qs}` : ''}`)
+    return request<TopTrader[]>(`/webapp/me/copy/top-traders${qs ? `?${qs}` : ''}`)
   },
 
   getTraderProfile(traderId: string) {
-    return request<TraderProfile>(`/webapp/copy-trading/traders/${traderId}`)
+    return request<TraderProfile>(`/webapp/me/copy/trader/${traderId}`)
   },
 
   followTrader(traderId: string, settings: FollowSettings) {
-    return request<void>(`/webapp/copy-trading/follow/${traderId}`, {
+    return request<void>(`/webapp/me/copy/follow/${traderId}`, {
       method: 'POST',
       body: JSON.stringify(settings),
     })
   },
 
   unfollowTrader(traderId: string) {
-    return request<void>(`/webapp/copy-trading/unfollow/${traderId}`, { method: 'POST' })
+    // Backend uses DELETE /webapp/me/copy/follow/:traderId
+    return request<void>(`/webapp/me/copy/follow/${traderId}`, { method: 'DELETE' })
   },
 
   getFollowing() {
-    return request<FollowedTrader[]>('/webapp/copy-trading/following')
+    return request<FollowedTrader[]>('/webapp/me/copy/following')
   },
 
   getCopyTrades(limit?: number) {
     const params = limit ? `?limit=${limit}` : ''
-    return request<CopyTrade[]>(`/webapp/copy-trading/trades${params}`)
+    return request<CopyTrade[]>(`/webapp/me/copy/trades${params}`)
   },
 
   updateFollowSettings(traderId: string, settings: FollowSettings) {
-    return request<void>(`/webapp/copy-trading/follow/${traderId}/settings`, {
+    // Backend uses PUT /webapp/me/copy/follow/:traderId
+    return request<void>(`/webapp/me/copy/follow/${traderId}`, {
       method: 'PUT',
       body: JSON.stringify(settings),
     })
@@ -369,41 +372,50 @@ export const api = {
     return request<void>(`/webapp/dca/orders/${orderId}/pause`, { method: 'POST' })
   },
 
-  // Limit Orders
+  // Limit Orders — real routes: GET/POST /webapp/me/limit-orders, DELETE /webapp/me/limit-orders/:id
   getLimitOrders() {
-    return request<LimitOrder[]>('/webapp/limit-orders')
+    return request<LimitOrder[]>('/webapp/me/limit-orders')
   },
 
   createLimitOrder(params: CreateLimitOrderParams) {
-    return request<LimitOrder>('/webapp/limit-orders', {
+    return request<LimitOrder>('/webapp/me/limit-orders', {
       method: 'POST',
       body: JSON.stringify(params),
     })
   },
 
   cancelLimitOrder(orderId: string) {
-    return request<void>(`/webapp/limit-orders/${orderId}/cancel`, { method: 'POST' })
+    // Backend expects DELETE (not POST) to cancel
+    return request<void>(`/webapp/me/limit-orders/${orderId}`, { method: 'DELETE' })
   },
 
-  // Points / Gamification
+  // Points / Gamification — real routes under /webapp/me/points/*
   getPoints() {
-    return request<PointsProfile>('/webapp/points/profile')
+    // Real route: GET /webapp/me/points/stats
+    return request<PointsProfile>('/webapp/me/points/stats')
   },
 
   checkin() {
-    return request<CheckinResponse>('/webapp/points/checkin', { method: 'POST' })
+    return request<CheckinResponse>('/webapp/me/points/checkin', { method: 'POST' })
   },
 
   getMilestones() {
-    return request<Milestone[]>('/webapp/points/milestones')
+    // No milestones endpoint exists in backend — returns history instead (closest available).
+    // Panel falls back to empty array gracefully.
+    return request<Milestone[]>('/webapp/me/points/history')
   },
 
   getRewardStore() {
-    return request<RewardStoreResponse>('/webapp/points/rewards')
+    // Real route: GET /webapp/me/points/rewards (returns raw reward array, not wrapped)
+    return request<Reward[]>('/webapp/me/points/rewards').then((rewards) => ({
+      rewards,
+      userXp: 0, // will be filled by getPoints()
+    })) as Promise<RewardStoreResponse>
   },
 
   redeemReward(rewardId: string) {
-    return request<RedeemRewardResponse>(`/webapp/points/rewards/${rewardId}/redeem`, {
+    // Real route: POST /webapp/me/points/redeem/:rewardId (not /rewards/:id/redeem)
+    return request<RedeemRewardResponse>(`/webapp/me/points/redeem/${rewardId}`, {
       method: 'POST',
     })
   },
@@ -413,16 +425,17 @@ export const api = {
     if (timeframe) params.set('timeframe', timeframe)
     if (limit) params.set('limit', String(limit))
     const qs = params.toString()
-    return request<LeaderboardEntry[]>(`/webapp/points/leaderboard${qs ? `?${qs}` : ''}`)
+    return request<LeaderboardEntry[]>(`/webapp/me/points/leaderboard${qs ? `?${qs}` : ''}`)
   },
 
-  // Lending
+  // Lending — real routes: GET /v1/agent/lend/markets and /v1/agent/lend/market/:id
+  // These endpoints are public (no agentBearerAuth) and callable from the browser.
   getLendingMarkets() {
-    return request<LendingMarket[]>('/webapp/lending/markets')
+    return request<{ markets: LendingMarket[] }>('/v1/agent/lend/markets').then((r) => r.markets ?? [])
   },
 
   getLendingMarket(id: string) {
-    return request<LendingMarket>(`/webapp/lending/markets/${id}`)
+    return request<LendingMarket>(`/v1/agent/lend/market/${id}`)
   },
 
   // Wallet tracker

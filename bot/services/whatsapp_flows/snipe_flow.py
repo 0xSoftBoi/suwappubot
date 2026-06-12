@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 class SnipeFlow(BaseWhatsAppFlow):
     """Multi-step flow for setting up a token snipe."""
+
     flow_name = "snipe"
     trigger_commands = ["snipe"]
     steps = {
@@ -30,23 +31,28 @@ class SnipeFlow(BaseWhatsAppFlow):
             header="🎯 New Snipe",
         )
 
-    async def _step_enter_token(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_enter_token(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         address = text.strip()
         # Basic validation
         if len(address) < 20 or (not address.startswith("0x") and len(address) != 44):
             return FlowResponse(
-                "Invalid address format.\n\n"
-                "Enter a valid EVM (0x...) or Solana token address:"
+                "Invalid address format.\n\n" "Enter a valid EVM (0x...) or Solana token address:"
             )
 
         chain_type = "solana" if len(address) == 44 and not address.startswith("0x") else "evm"
-        await self._update(user_id, "enter_amount", {"token_address": address, "chain_type": chain_type})
+        await self._update(
+            user_id, "enter_amount", {"token_address": address, "chain_type": chain_type}
+        )
 
         return FlowResponse(
             text=f"Token: `{address[:10]}...{address[-6:]}`\n\nEnter the amount to spend (in native token, e.g. ETH or SOL):",
         )
 
-    async def _step_enter_amount(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_enter_amount(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         try:
             amount = float(text.replace(",", "").strip())
             if amount <= 0:
@@ -57,10 +63,7 @@ class SnipeFlow(BaseWhatsAppFlow):
         await self._update(user_id, "set_params", {"amount": str(amount)})
 
         return FlowResponse(
-            text=(
-                f"Amount: *{amount}*\n\n"
-                "Select snipe parameters:"
-            ),
+            text=(f"Amount: *{amount}*\n\n" "Select snipe parameters:"),
             buttons=[
                 {"id": "snipe_fast", "title": "⚡ Fast (5% slip)"},
                 {"id": "snipe_normal", "title": "🔄 Normal (10% slip)"},
@@ -68,7 +71,9 @@ class SnipeFlow(BaseWhatsAppFlow):
             ],
         )
 
-    async def _step_set_params(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_set_params(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         params_map = {
             "snipe_fast": {"slippage": 5, "gas_mult": 2.0, "label": "Fast"},
             "snipe_normal": {"slippage": 10, "gas_mult": 1.5, "label": "Normal"},
@@ -86,11 +91,15 @@ class SnipeFlow(BaseWhatsAppFlow):
                 ],
             )
 
-        await self._update(user_id, "confirm", {
-            "slippage": params["slippage"],
-            "gas_mult": params["gas_mult"],
-            "mode_label": params["label"],
-        })
+        await self._update(
+            user_id,
+            "confirm",
+            {
+                "slippage": params["slippage"],
+                "gas_mult": params["gas_mult"],
+                "mode_label": params["label"],
+            },
+        )
 
         token_addr = state.data.get("token_address", "?")
         amount = state.data.get("amount", "0")
@@ -111,7 +120,9 @@ class SnipeFlow(BaseWhatsAppFlow):
             ],
         )
 
-    async def _step_confirm(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_confirm(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         if text in ("snipe_cancel", "cancel"):
             await self._clear(user_id)
             return FlowResponse("Snipe cancelled.")
@@ -127,18 +138,15 @@ class SnipeFlow(BaseWhatsAppFlow):
 
         await self._clear(user_id)
 
-        # In a real implementation, this would register the snipe with the launch_detector service
-        token_addr = state.data.get("token_address")
-        amount = state.data.get("amount")
-        slippage = state.data.get("slippage")
-
+        # Token sniping (liquidity-monitoring / pending snipe) is not yet available on WhatsApp.
+        # The Telegram snipe handler uses an instant executor that requires a live Solana keypair
+        # and executes immediately — it does not support the pending "arm and wait" mode implied
+        # here. Registering a background watch via launch_detector is Telegram-only for now.
         return FlowResponse(
-            f"🎯 *Snipe Armed!*\n\n"
-            f"Token: `{token_addr[:10]}...{token_addr[-6:]}`\n"
-            f"Amount: {amount}\n"
-            f"Slippage: {slippage}%\n\n"
-            f"Monitoring for liquidity. You'll be notified when the snipe executes.\n\n"
-            f"Use *orders* to view active snipes."
+            "*Token Sniping — Coming Soon*\n\n"
+            "Automated token sniping is not yet available on WhatsApp.\n\n"
+            "To snipe tokens now, use the Telegram bot and the /snipe command.\n\n"
+            "WhatsApp sniping will be available in a future update."
         )
 
 

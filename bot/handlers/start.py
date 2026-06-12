@@ -239,7 +239,29 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if referral_code and is_new_user:
         success, msg = referral_service.process_referral(user_id, referral_code)
         if success:
-            referral_message = "\n\n🎁 _Referral code applied! Your referrer will earn rewards._"
+            # Referee-side welcome bonus: a one-time XP grant so joining via a
+            # friend is actually rewarding for the new user (not just the
+            # referrer). 100 XP ≈ 2x the daily-first-swap bonus (50) and matches
+            # the level-up bonus — meaningful (10% of the way to Silver) without
+            # being farmable: process_referral only links a brand-new user once,
+            # so this branch runs at most once per account.
+            try:
+                from bot.services.points_service import points_service
+
+                points_service.award_points(
+                    user_id=user_id,
+                    action="referral_welcome_bonus",
+                    amount=100,
+                    description="Welcome bonus for joining via a referral link",
+                )
+                referral_message = (
+                    "\n\n🎁 _You joined via a friend — *+100 XP* welcome bonus added!_"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to award referee welcome XP bonus: {e}")
+                referral_message = (
+                    "\n\n🎁 _Referral code applied! Your referrer will earn rewards._"
+                )
 
     # Check TOS
     if not tos_accepted:

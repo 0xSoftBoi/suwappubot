@@ -87,6 +87,20 @@ class UnifiedBotService:
                     user.tos_accepted = True
                     user.tos_accepted_at = datetime.now(timezone.utc)
                     session.commit()
+
+                    # For brand-new WhatsApp users who have no wallet yet, prompt them
+                    # immediately so the bot doesn't dead-end on the first real command.
+                    if platform == "whatsapp":
+                        has_wallets = bool(
+                            session.query(Wallet).filter(Wallet.user_id == user.id).first()
+                        )
+                        if not has_wallets:
+                            return UnifiedResponse(
+                                "✅ *Terms Accepted!*\n\n"
+                                "You can now use Suwappu Bot.\n\n"
+                                "To get started, reply *wallet* to create your wallet and start trading."
+                            )
+
                     return UnifiedResponse(
                         "✅ *Terms Accepted!*\n\nYou can now use Suwappu Bot. Type *help* to see available commands."
                     )
@@ -233,9 +247,12 @@ class UnifiedBotService:
             wallets = user.wallets
 
             if not wallets:
-                return UnifiedResponse(
-                    "👛 *Your Wallets*\n\nNo wallets found. Use the dashboard to import or create one."
+                no_wallet_msg = (
+                    "👛 *Your Wallets*\n\n"
+                    "No wallets found.\n\n"
+                    "Reply *wallet* to create your wallet and start trading."
                 )
+                return UnifiedResponse(no_wallet_msg)
 
             lines = ["👛 *Your Wallets*\n"]
             for w in wallets:

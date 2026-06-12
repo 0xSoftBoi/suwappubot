@@ -12,9 +12,10 @@ const SUB_TABS = [
 
 interface PulseTabProps {
   onSelectToken?: (token: PulseToken) => void
+  onBuy?: (amount: number, tokenAddress: string) => void
 }
 
-export function PulseTab({ onSelectToken }: PulseTabProps) {
+export function PulseTab({ onSelectToken, onBuy }: PulseTabProps) {
   const {
     activeStage, setActiveStage,
     tokens, filters, setFilters, resetFilters,
@@ -148,6 +149,7 @@ export function PulseTab({ onSelectToken }: PulseTabProps) {
                   token={token}
                   isNew={idx === 0}
                   onSelect={onSelectToken}
+                  onBuy={onBuy}
                 />
               ))
             )}
