@@ -66,18 +66,22 @@ export function Header() {
     </button>
   ) : null
 
+  // Passkey sign-in is server-gated (503) until real WebAuthn assertion
+  // verification ships — the old endpoints accepted unverified assertions, so
+  // they were disabled rather than left exploitable. Keep the button visible
+  // but disabled when signed out; Google sign-in is the working path.
   const authButton = (
     <button
       type="button"
       onClick={handleAuthClick}
-      disabled={isLoading || (!isAuthenticated && !isPasskeySupported)}
+      disabled={isLoading || !isAuthenticated}
       className="terminal-theme-control h-8 rounded-[7px] px-3 text-xs font-semibold text-terminal-text transition-colors hover:text-sakura-700 disabled:cursor-not-allowed disabled:opacity-60"
       title={
         isAuthenticated
           ? isTelegram
             ? 'Signed in via Telegram'
             : 'Sign out'
-          : 'Create a Turnkey passkey wallet'
+          : 'Passkey sign-in is temporarily unavailable — use Google'
       }
     >
       {authLabel}
