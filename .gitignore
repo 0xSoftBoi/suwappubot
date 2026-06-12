@@ -29,3 +29,4 @@ scripts/deployed_addresses.json
 # crypto sec-tool artifacts
 contracts/crytic-export/
 contracts/slither_results.json
+.venv-test/
