@@ -150,9 +150,7 @@ class TestQuoterCalldataConstruction:
     def test_params_tuple_passed_to_quoter(self):
         w3 = make_mock_web3({3000: 1_000})
         api = GoatSwapAPI()
-        asyncio.get_event_loop().run_until_complete(
-            api.get_quote(USDT_GOAT, WETH_GOAT, 5_000_000, web3=w3)
-        )
+        asyncio.run(api.get_quote(USDT_GOAT, WETH_GOAT, 5_000_000, web3=w3))
         # one call per fee tier
         assert len(w3._quoter_calls) == len(FEE_TIERS)
         tried_fees = sorted(c[3] for c in w3._quoter_calls)
@@ -167,9 +165,7 @@ class TestQuoterCalldataConstruction:
     def test_quoter_contract_address(self):
         w3 = make_mock_web3({3000: 1_000})
         api = GoatSwapAPI()
-        asyncio.get_event_loop().run_until_complete(
-            api.get_quote(USDT_GOAT, WETH_GOAT, 1_000, web3=w3)
-        )
+        asyncio.run(api.get_quote(USDT_GOAT, WETH_GOAT, 1_000, web3=w3))
         _, kwargs = w3.eth.contract.call_args
         assert kwargs["address"].lower() == GOATSWAP_QUOTER_V2.lower()
 
@@ -178,9 +174,7 @@ class TestFeeTierSelection:
     def _quote(self, fee_outputs, token_in=USDT_GOAT, token_out=WETH_GOAT, amount=10**6):
         w3 = make_mock_web3(fee_outputs)
         api = GoatSwapAPI()
-        return asyncio.get_event_loop().run_until_complete(
-            api.get_quote(token_in, token_out, amount, web3=w3)
-        )
+        return asyncio.run(api.get_quote(token_in, token_out, amount, web3=w3))
 
     def test_picks_best_output_across_tiers(self):
         q = self._quote({500: 900, 3000: 1_200, 10000: 1_000})
@@ -316,9 +310,7 @@ class TestGoatRouting:
             "bot.services.goatswap_api.goatswap_api.get_quote",
             new=AsyncMock(return_value=gs_quote),
         ):
-            quote = asyncio.get_event_loop().run_until_complete(
-                engine._get_goatswap_quote("USDT", "WETH", 10.0, "10000000", 100)
-            )
+            quote = asyncio.run(engine._get_goatswap_quote("USDT", "WETH", 10.0, "10000000", 100))
         assert quote.provider == "goatswap"
         assert quote.from_chain == "goat"
         assert quote.to_chain == "goat"
@@ -331,15 +323,13 @@ class TestGoatRouting:
         from bot.services.swap_engine import SwapError
 
         with pytest.raises(SwapError):
-            asyncio.get_event_loop().run_until_complete(
-                engine._get_goatswap_quote("DOGE", "WETH", 1.0, "1000000", 100)
-            )
+            asyncio.run(engine._get_goatswap_quote("DOGE", "WETH", 1.0, "1000000", 100))
 
     def test_goat_cross_chain_get_quote_raises(self, engine):
         from bot.services.swap_engine import SwapError
 
         with pytest.raises(SwapError, match="GOAT"):
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 engine.get_quote(
                     from_chain="goat",
                     to_chain="ethereum",
@@ -391,9 +381,7 @@ class TestGoatExecuteSwapGuard:
             raw_quote={},
         )
         with pytest.raises(SwapError, match="GOAT swaps must route via GOATSwap"):
-            asyncio.get_event_loop().run_until_complete(
-                engine.execute_swap(quote=forged, wallet_id=1, user_id=1)
-            )
+            asyncio.run(engine.execute_swap(quote=forged, wallet_id=1, user_id=1))
 
     def test_goat_to_chain_also_guarded(self):
         from bot.services.swap_engine import SwapEngine, SwapError, SwapQuote
@@ -419,6 +407,4 @@ class TestGoatExecuteSwapGuard:
             raw_quote={},
         )
         with pytest.raises(SwapError, match="GOAT swaps must route via GOATSwap"):
-            asyncio.get_event_loop().run_until_complete(
-                engine.execute_swap(quote=forged, wallet_id=1, user_id=1)
-            )
+            asyncio.run(engine.execute_swap(quote=forged, wallet_id=1, user_id=1))
