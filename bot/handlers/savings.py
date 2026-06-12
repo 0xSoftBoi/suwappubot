@@ -39,7 +39,11 @@ logger = logging.getLogger(__name__)
     SAVE_SELECT_WALLET,
     SAVE_ENTER_AMOUNT,
     SAVE_CONFIRM,
-) = range(4)
+    SAVE_BTC_MENU,
+    SAVE_BTC_VENUE,
+    SAVE_BTC_AMOUNT,
+    SAVE_BTC_CONFIRM,
+) = range(8)
 
 wallet_service = WalletService()
 
@@ -143,6 +147,7 @@ async def _render_menu(update, context, *, is_callback):
             InlineKeyboardButton("➕ Deposit", callback_data="save_deposit"),
             InlineKeyboardButton("➖ Withdraw", callback_data="save_withdraw"),
         ],
+        [InlineKeyboardButton("₿ Bitcoin (Starknet)", callback_data="save_btc_menu")],
         [
             InlineKeyboardButton("🔄 Refresh", callback_data="save_refresh"),
             InlineKeyboardButton("❌ Close", callback_data="save_close"),
@@ -171,6 +176,7 @@ async def save_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             return ConversationHandler.END
         context.user_data["user_id"] = db_user.id
     context.user_data.pop("savings", None)
+    context.user_data.pop("savings_btc", None)
     return await _render_menu(update, context, is_callback=False)
 
 
@@ -195,6 +201,7 @@ async def save_close_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer("Closed")
     context.user_data.pop("savings", None)
+    context.user_data.pop("savings_btc", None)
     from bot.handlers.start import main_menu_callback
 
     await main_menu_callback(update, context)
@@ -518,9 +525,444 @@ async def save_execute_callback(update: Update, context: ContextTypes.DEFAULT_TY
     return SAVE_MENU
 
 
+# ── Bitcoin (Starknet) yield: Endur xWBTC + Vesu Re7 xBTC pool ────────────────
+
+
+_BTC_RETRY_KEYBOARD = InlineKeyboardMarkup(
+    [
+        [InlineKeyboardButton("🔄 Try Again", callback_data="save_btc_menu")],
+        [InlineKeyboardButton("« Savings", callback_data="save_refresh")],
+    ]
+)
+
+
+def _starknet_wallets(user_id: int) -> list:
+    with get_session() as session:
+        return (
+            session.query(Wallet)
+            .filter(
+                Wallet.user_id == user_id,
+                Wallet.chain_type == "starknet",
+                Wallet.is_active == True,  # noqa: E712
+            )
+            .all()
+        )
+
+
+def _parse_btc_amount(text: str):
+    """Parse a BTC amount (max 8 decimals) → raw sats int, or None if invalid."""
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        clean = (text or "").replace(",", "").replace(" ", "").strip()
+        if not clean or len(clean) > 32:
+            return None
+        amount = Decimal(clean)
+    except (InvalidOperation, ValueError):
+        return None
+    if amount <= 0 or amount > Decimal(21_000_000):  # BTC supply cap sanity bound
+        return None
+    sats = amount * Decimal(10**8)
+    if sats != sats.to_integral_value():
+        return None  # more than 8 decimal places
+    return int(sats)
+
+
+def _fmt_btc(raw: int) -> str:
+    return f"{raw / 1e8:.8f}".rstrip("0").rstrip(".") or "0"
+
+
+def _voyager_tx(tx_hash: str) -> str:
+    if tx_hash and not tx_hash.startswith("0x"):
+        tx_hash = "0x" + tx_hash
+    return format_tx_link(tx_hash, "starknet")
+
+
+async def save_btc_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Bitcoin venue list: wallet BTC balances + per-venue positions."""
+    from bot.services.starknet_yield import VENUES, StarknetYieldError, starknet_yield_service
+
+    query = update.callback_query
+    await query.answer()
+
+    if not context.user_data.get("user_id"):
+        with get_session() as session:
+            db_user = (
+                session.query(User).filter(User.telegram_id == update.effective_user.id).first()
+            )
+            if not db_user:
+                await query.edit_message_text("❌ Please use /start first to set up your account.")
+                return ConversationHandler.END
+            context.user_data["user_id"] = db_user.id
+
+    user_id = context.user_data["user_id"]
+    wallets = _starknet_wallets(user_id)
+    if not wallets:
+        await query.edit_message_text(
+            "👛 You need a Starknet wallet to use Bitcoin savings.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("👛 Add Wallet", callback_data="wallet_menu")],
+                    [InlineKeyboardButton("« Savings", callback_data="save_refresh")],
+                ]
+            ),
+        )
+        return SAVE_BTC_MENU
+
+    wallet = wallet_service.get_default_wallet(user_id, "starknet") or wallets[0]
+    btc = context.user_data.setdefault("savings_btc", {})
+    btc["wallet_id"] = wallet.id
+    btc["wallet_address"] = wallet.address
+
+    try:
+        wbtc_bal, strkbtc_bal = await asyncio.gather(
+            wallet_service.get_starknet_token_balance("WBTC", wallet.address),
+            wallet_service.get_starknet_token_balance("STRKBTC", wallet.address),
+        )
+        bal_lines = f"   • WBTC: *{wbtc_bal:.8f}*\n   • strkBTC: *{strkbtc_bal:.8f}*"
+    except Exception:
+        bal_lines = "   • Balances unavailable — try Refresh."
+
+    pos_lines = []
+    for key, venue in VENUES.items():
+        try:
+            position = await starknet_yield_service.get_position(wallet.address, key)
+            pos_lines.append(f"   • {venue.name}: *{position['assets_btc']:.8f} BTC*")
+        except StarknetYieldError:
+            pos_lines.append(f"   • {venue.name}: —")
+
+    addr_short = f"{wallet.address[:6]}...{wallet.address[-4:]}"
+    text = (
+        f"₿ *Bitcoin Savings* — Starknet\n"
+        f"_Non-custodial · variable APY · gas-free via paymaster_\n\n"
+        f"👛 Wallet ({addr_short}):\n{bal_lines}\n\n"
+        f"📈 Positions:\n" + "\n".join(pos_lines) + "\n\n"
+        f"Pick a venue:\n"
+        f"• *Endur xWBTC* — STRK staking rewards (variable)\n"
+        f"• *Vesu* — BTC-denominated lending yield (variable)"
+    )
+    keyboard = [
+        [InlineKeyboardButton(venue.name, callback_data=f"save_btc_v_{key}")]
+        for key, venue in VENUES.items()
+    ]
+    keyboard.append(
+        [
+            InlineKeyboardButton("🔄 Refresh", callback_data="save_btc_menu"),
+            InlineKeyboardButton("« Savings", callback_data="save_refresh"),
+        ]
+    )
+    await query.edit_message_text(
+        text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return SAVE_BTC_MENU
+
+
+async def save_btc_venue_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Venue screen: position + variable-APY framing + deposit/withdraw actions."""
+    from bot.services.starknet_yield import StarknetYieldError, get_venue, starknet_yield_service
+
+    query = update.callback_query
+    await query.answer()
+
+    btc = context.user_data.get("savings_btc")
+    if not btc or not btc.get("wallet_address"):
+        await query.edit_message_text(
+            "❌ Session expired. Start again with /save", reply_markup=_BTC_RETRY_KEYBOARD
+        )
+        return ConversationHandler.END
+
+    venue_key = query.data.replace("save_btc_v_", "")
+    try:
+        venue = get_venue(venue_key)
+    except StarknetYieldError:
+        await query.edit_message_text("❌ Unknown venue.", reply_markup=_BTC_RETRY_KEYBOARD)
+        return SAVE_BTC_MENU
+    btc["venue"] = venue_key
+
+    apy = await starknet_yield_service.get_apy(venue_key)
+    apy_text = f"{apy:.2f}%" if apy is not None else f"variable ({venue.yield_note})"
+
+    try:
+        position = await starknet_yield_service.get_position(btc["wallet_address"], venue_key)
+        btc["position_shares"] = position["shares_raw"]
+        btc["position_assets"] = position["assets_raw"]
+        btc["share_price_raw"] = position["share_price_raw"]
+        pos_text = f"{position['assets_btc']:.8f} BTC"
+    except StarknetYieldError as e:
+        await query.edit_message_text(f"❌ {e}", reply_markup=_BTC_RETRY_KEYBOARD)
+        return SAVE_BTC_MENU
+
+    unbond_note = (
+        "\n⚠️ Endur exits can be subject to staking unbonding (up to 21 days worst case).\n"
+        if venue.family == "endur"
+        else ""
+    )
+    text = (
+        f"₿ *{venue.name}*\n\n"
+        f"Deposit token: *{venue.underlying_symbol}*\n"
+        f"Yield: *{apy_text}*\n"
+        f"Your position: *{pos_text}*\n"
+        f"{unbond_note}\n"
+        f"Gas is sponsored via the AVNU paymaster when possible."
+    )
+    keyboard = [
+        [
+            InlineKeyboardButton("➕ Deposit", callback_data="save_btc_dep"),
+            InlineKeyboardButton("➖ Withdraw", callback_data="save_btc_wd"),
+        ],
+        [InlineKeyboardButton("💯 Withdraw All", callback_data="save_btc_wd_all")],
+        [InlineKeyboardButton("« Venues", callback_data="save_btc_menu")],
+    ]
+    await query.edit_message_text(
+        text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return SAVE_BTC_VENUE
+
+
+async def save_btc_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Deposit/withdraw chosen → prompt for a BTC amount (8 decimals max)."""
+    from bot.services.starknet_yield import get_venue
+
+    query = update.callback_query
+    await query.answer()
+
+    btc = context.user_data.get("savings_btc")
+    if not btc or not btc.get("venue"):
+        await query.edit_message_text(
+            "❌ Session expired. Start again with /save", reply_markup=_BTC_RETRY_KEYBOARD
+        )
+        return ConversationHandler.END
+
+    venue = get_venue(btc["venue"])
+
+    if query.data == "save_btc_wd_all":
+        btc["action"] = "withdraw"
+        btc["amount_raw"] = None  # max sentinel
+        return await _save_btc_show_confirm(update, context)
+
+    btc["action"] = "deposit" if query.data == "save_btc_dep" else "withdraw"
+    if btc["action"] == "deposit":
+        try:
+            balance = await wallet_service.get_starknet_token_balance(
+                venue.underlying_symbol, btc["wallet_address"]
+            )
+        except Exception:
+            balance = 0.0
+        btc["available_raw"] = int(balance * 1e8)
+        text = (
+            f"➕ *Deposit {venue.underlying_symbol}* → {venue.name}\n\n"
+            f"Available: *{balance:.8f} {venue.underlying_symbol}*\n\n"
+            f"Enter an amount in BTC (up to 8 decimals, e.g. 0.0005):"
+        )
+    else:
+        btc["available_raw"] = int(btc.get("position_assets") or 0)
+        text = (
+            f"➖ *Withdraw from {venue.name}*\n\n"
+            f"Position: *{btc['available_raw'] / 1e8:.8f} BTC*\n\n"
+            f"Enter an amount in BTC (up to 8 decimals), or use Withdraw All:"
+        )
+
+    keyboard = [[InlineKeyboardButton("« Back", callback_data=f"save_btc_v_{btc['venue']}")]]
+    await query.edit_message_text(
+        text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return SAVE_BTC_AMOUNT
+
+
+async def save_btc_enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Typed BTC amount (sats-precision validation)."""
+    btc = context.user_data.get("savings_btc")
+    if not btc or not btc.get("venue") or not btc.get("action"):
+        await update.message.reply_text(
+            "❌ Session expired. Start again with /save", reply_markup=_BTC_RETRY_KEYBOARD
+        )
+        return ConversationHandler.END
+
+    amount_raw = _parse_btc_amount(update.message.text)
+    if amount_raw is None:
+        await update.message.reply_text(
+            "❌ Invalid amount. Enter a BTC amount with at most 8 decimals (e.g. 0.0005):"
+        )
+        return SAVE_BTC_AMOUNT
+
+    available_raw = int(btc.get("available_raw") or 0)
+    if amount_raw > available_raw:
+        await update.message.reply_text(
+            f"❌ Amount exceeds available ({_fmt_btc(available_raw)} BTC). Enter a smaller amount:"
+        )
+        return SAVE_BTC_AMOUNT
+
+    btc["amount_raw"] = amount_raw
+    return await _save_btc_show_confirm(update, context)
+
+
+async def _save_btc_show_confirm(update, context) -> int:
+    """Confirmation screen with variable-APY framing."""
+    from bot.services.starknet_yield import get_venue
+
+    btc = context.user_data["savings_btc"]
+    venue = get_venue(btc["venue"])
+    action = btc["action"]
+    amount_raw = btc.get("amount_raw")
+    amount_text = "All (full position)" if amount_raw is None else f"{_fmt_btc(amount_raw)} BTC"
+
+    if action == "deposit":
+        text = (
+            f"✅ *Confirm Deposit*\n\n"
+            f"Venue: *{venue.name}*\n"
+            f"Amount: *{amount_text}* ({venue.underlying_symbol})\n"
+            f"Yield: *variable* — {venue.yield_note}\n\n"
+            f"An exact-amount approval and the deposit are sent as one "
+            f"transaction. Gas is sponsored when possible.\n\nProceed?"
+        )
+    else:
+        unbond = (
+            "\n⚠️ Endur exits can be subject to staking unbonding (up to 21 days worst case)."
+            if venue.family == "endur"
+            else ""
+        )
+        text = (
+            f"✅ *Confirm Withdrawal*\n\n"
+            f"Venue: *{venue.name}*\n"
+            f"Amount: *{amount_text}*\n"
+            f"{venue.underlying_symbol} is returned to your wallet.{unbond}\n\nProceed?"
+        )
+
+    keyboard = [
+        [
+            InlineKeyboardButton("🚀 Confirm", callback_data="save_btc_exec"),
+            InlineKeyboardButton("❌ Cancel", callback_data=f"save_btc_v_{btc['venue']}"),
+        ]
+    ]
+    markup = InlineKeyboardMarkup(keyboard)
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            text, parse_mode="Markdown", reply_markup=markup
+        )
+    else:
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=markup)
+    return SAVE_BTC_CONFIRM
+
+
+async def save_btc_execute_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Execute the BTC deposit/withdraw on Starknet."""
+    from bot.services.starknet_yield import StarknetYieldError, get_venue, starknet_yield_service
+
+    query = update.callback_query
+    await query.answer()
+
+    btc = context.user_data.get("savings_btc")
+    if not btc or not btc.get("venue") or not btc.get("action"):
+        await query.edit_message_text(
+            "❌ Session expired. Start again with /save", reply_markup=_BTC_RETRY_KEYBOARD
+        )
+        return ConversationHandler.END
+
+    user_id = context.user_data.get("user_id")
+    wallet_id = btc.get("wallet_id")
+    venue = get_venue(btc["venue"])
+    action = btc["action"]
+    amount_raw = btc.get("amount_raw")
+
+    with get_session() as session:
+        wallet = (
+            session.query(Wallet).filter(Wallet.id == wallet_id, Wallet.user_id == user_id).first()
+        )
+        if not wallet:
+            await query.edit_message_text("❌ Wallet not found.")
+            return ConversationHandler.END
+        session.expunge(wallet)
+
+    await query.edit_message_text(f"⏳ Submitting {action}... this can take a moment.")
+
+    venue_back = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("« Back", callback_data=f"save_btc_v_{btc['venue']}")]]
+    )
+    try:
+        if action == "deposit":
+            tx_hash = await starknet_yield_service.deposit(wallet, venue.key, int(amount_raw))
+            amount_btc = amount_raw / 1e8
+            await _log_btc_event(user_id, wallet_id, venue, "deposit", amount_btc, tx_hash)
+            text = (
+                f"✅ *Deposit submitted!*\n\n"
+                f"Deposited *{_fmt_btc(amount_raw)} {venue.underlying_symbol}* "
+                f"into {venue.name}.\n\n*Transaction:*\n{_voyager_tx(tx_hash)}"
+            )
+        else:
+            if amount_raw is None:
+                shares = "max"
+                amount_btc = None
+            else:
+                # BTC amount → shares via the venue's current exchange rate.
+                share_price = int(btc.get("share_price_raw") or 0)
+                if share_price <= 0:
+                    raise StarknetYieldError("Could not read the venue exchange rate. Try again.")
+                shares = int(amount_raw) * 10**8 // share_price
+                amount_btc = amount_raw / 1e8
+            tx_hash = await starknet_yield_service.withdraw(wallet, venue.key, shares)
+            await _log_btc_event(user_id, wallet_id, venue, "withdraw", amount_btc, tx_hash)
+            amount_text = (
+                "your full position" if amount_raw is None else f"{_fmt_btc(amount_raw)} BTC"
+            )
+            text = (
+                f"✅ *Withdrawal submitted!*\n\n"
+                f"Withdrew *{amount_text}* from {venue.name}.\n\n"
+                f"*Transaction:*\n{_voyager_tx(tx_hash)}"
+            )
+
+        keyboard = [
+            [InlineKeyboardButton("₿ Back to Bitcoin Savings", callback_data="save_btc_menu")],
+            [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
+        ]
+        await query.edit_message_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            disable_web_page_preview=True,
+        )
+    except StarknetYieldError as e:
+        await query.edit_message_text(f"❌ {e}", reply_markup=venue_back)
+    except Exception as e:
+        logger.error(
+            f"BTC savings {action} unexpected error for user {user_id}: {e}", exc_info=True
+        )
+        await query.edit_message_text(
+            "❌ Something went wrong. Please check your balance before retrying.",
+            reply_markup=venue_back,
+        )
+    return SAVE_BTC_VENUE
+
+
+async def _log_btc_event(user_id, wallet_id, venue, action, amount_btc, tx_hash):
+    """Record a BTC yield deposit/withdraw the same way Aave savings does.
+
+    The SavingsEvent tx_hash is what downstream tooling (digest, tx_poller's
+    starknet status branch) keys off — mirror the Aave recording exactly,
+    with chain='starknet' and the venue's underlying token symbol.
+    """
+    try:
+        with get_session() as session:
+            session.add(
+                SavingsEvent(
+                    user_id=user_id,
+                    wallet_id=wallet_id,
+                    chain="starknet",
+                    token=venue.underlying_symbol,
+                    action=action,
+                    amount=(Decimal(str(amount_btc)) if amount_btc is not None else None),
+                    tx_hash=(
+                        ("0x" + tx_hash) if tx_hash and not tx_hash.startswith("0x") else tx_hash
+                    ),
+                )
+            )
+    except Exception as e:
+        logger.warning(f"Failed to log BTC savings event: {e}")
+
+
 async def save_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel the savings flow."""
     context.user_data.pop("savings", None)
+    context.user_data.pop("savings_btc", None)
     if update.callback_query:
         await update.callback_query.answer("Cancelled")
         from bot.handlers.start import main_menu_callback
@@ -537,13 +979,38 @@ savings_conversation_handler = ConversationHandler(
     entry_points=[
         CommandHandler("save", save_command),
         CallbackQueryHandler(save_refresh_callback, pattern="^save_menu$"),
+        CallbackQueryHandler(save_btc_menu_callback, pattern="^save_btc_menu$"),
     ],
     states={
         SAVE_MENU: [
             CallbackQueryHandler(save_action_callback, pattern="^save_deposit$"),
             CallbackQueryHandler(save_action_callback, pattern="^save_withdraw$"),
+            CallbackQueryHandler(save_btc_menu_callback, pattern="^save_btc_menu$"),
             CallbackQueryHandler(save_refresh_callback, pattern="^save_refresh$"),
             CallbackQueryHandler(save_close_callback, pattern="^save_close$"),
+        ],
+        SAVE_BTC_MENU: [
+            CallbackQueryHandler(save_btc_venue_callback, pattern="^save_btc_v_"),
+            CallbackQueryHandler(save_btc_menu_callback, pattern="^save_btc_menu$"),
+            CallbackQueryHandler(save_refresh_callback, pattern="^save_refresh$"),
+        ],
+        SAVE_BTC_VENUE: [
+            CallbackQueryHandler(save_btc_action_callback, pattern="^save_btc_dep$"),
+            CallbackQueryHandler(save_btc_action_callback, pattern="^save_btc_wd$"),
+            CallbackQueryHandler(save_btc_action_callback, pattern="^save_btc_wd_all$"),
+            CallbackQueryHandler(save_btc_venue_callback, pattern="^save_btc_v_"),
+            CallbackQueryHandler(save_btc_menu_callback, pattern="^save_btc_menu$"),
+            CallbackQueryHandler(save_refresh_callback, pattern="^save_refresh$"),
+        ],
+        SAVE_BTC_AMOUNT: [
+            CallbackQueryHandler(save_btc_venue_callback, pattern="^save_btc_v_"),
+            CallbackQueryHandler(save_btc_menu_callback, pattern="^save_btc_menu$"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, save_btc_enter_amount),
+        ],
+        SAVE_BTC_CONFIRM: [
+            CallbackQueryHandler(save_btc_execute_callback, pattern="^save_btc_exec$"),
+            CallbackQueryHandler(save_btc_venue_callback, pattern="^save_btc_v_"),
+            CallbackQueryHandler(save_btc_menu_callback, pattern="^save_btc_menu$"),
         ],
         SAVE_SELECT_WALLET: [
             CallbackQueryHandler(save_select_wallet_callback, pattern="^save_w_"),
