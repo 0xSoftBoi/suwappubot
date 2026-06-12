@@ -1,0 +1,340 @@
+{
+  "ENABLE": true,
+  "id": "twitsh",
+  "name": "twit.sh",
+  "description": "Real-time X data streams for AI agents with per-request USDC payments on Base via x402.",
+  "categories": [
+    "social",
+    "ai",
+    "data"
+  ],
+  "serviceUrl": "https://x402.twit.sh",
+  "tags": [
+    "twitter",
+    "x",
+    "agents",
+    "social",
+    "usdc",
+    "base",
+    "real-time"
+  ],
+  "docs": [
+    "https://twit.sh/#api-reference",
+    "https://twit.sh/skill.md"
+  ],
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/articles/by/id",
+      "description": "Retrieve the markdown content for a specific X Article by ID.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.01",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/tweets/by/id",
+      "description": "Fetch a single post by ID with X v2-compatible fields.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.0025",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/tweets",
+      "description": "Fetch multiple posts by supplying a list of IDs.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.01",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/tweets/user",
+      "description": "List posts authored by a specific user ID.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.01",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/tweets/quote_tweets",
+      "description": "List posts that quote the specified post ID.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.01",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/tweets/retweeted_by",
+      "description": "List users who reposted the specified post ID.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.01",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/tweets/replies",
+      "description": "Retrieve replies for a given post ID.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.01",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/tweets/search",
+      "description": "Full-archive search for posts that match a query.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.01",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/tweets",
+      "description": "Create or reply to a post on behalf of the authenticated user.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.0025",
+        "per": "request"
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/tweets",
+      "description": "Delete a post owned by the authenticated user.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.0025",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/tweets/like",
+      "description": "Like a post on behalf of the authenticated user.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.0075",
+        "per": "request"
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/tweets/like",
+      "description": "Remove a like from a post on behalf of the authenticated user.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.005",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/tweets/bookmark",
+      "description": "Bookmark a post by ID.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.0025",
+        "per": "request"
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/tweets/bookmark",
+      "description": "Remove a bookmark from a post by ID.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.0025",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/tweets/retweet",
+      "description": "Repost a post on behalf of the authenticated user.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.0075",
+        "per": "request"
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/tweets/retweet",
+      "description": "Remove a repost on behalf of the authenticated user.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.005",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/users/by/username",
+      "description": "Retrieve a user profile by username.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.005",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/users/by/id",
+      "description": "Retrieve a user profile by ID.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.005",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/users",
+      "description": "Retrieve multiple user profiles by their IDs.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.01",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/users/search",
+      "description": "Search for users by text query.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.01",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/users/followers",
+      "description": "List followers for the specified user ID.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.01",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/users/following",
+      "description": "List accounts followed by the specified user ID.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.01",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/users/following",
+      "description": "Follow a user by ID or username.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.0075",
+        "per": "request"
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/users/following",
+      "description": "Unfollow a user by ID or username.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.005",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/lists/by/id",
+      "description": "Retrieve metadata for a specific list ID.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.0025",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/lists/followers",
+      "description": "List users who follow the specified list.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.01",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/lists/members",
+      "description": "List users who are members of the specified list.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.01",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/lists/tweets",
+      "description": "Retrieve posts associated with the specified list ID.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.01",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/communities/by/id",
+      "description": "Retrieve metadata for an X Community by ID.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.0025",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/communities/posts",
+      "description": "Retrieve the latest posts from an X Community.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.01",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/communities/members",
+      "description": "Retrieve members of an X Community by ID.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.01",
+        "per": "request"
+      }
+    }
+  ],
+  "network": "eip155:8453",
+  "currency": "USDC",
+  "note": "All endpoints return X v2-compatible JSON and charge per request via x402 on Base mainnet. Send payment proof headers when retrying protected calls."
+}

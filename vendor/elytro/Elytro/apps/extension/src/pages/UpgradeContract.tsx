@@ -1,0 +1,77 @@
+import { Button, toast } from '@elytro/ui';
+import SecondaryPageWrapper from '@/components/biz/SecondaryPageWrapper';
+import { useAccount } from '@/contexts/account-context';
+import { bgWalletSm } from '@elytro/ui/assets';
+import ShortedAddress from '@/components/ui/ShortedAddress';
+import { VERSION_MODULE_ADDRESS_MAP } from '@/constants/versions';
+import { getInstallModuleTx, getUpgradeModuleTx, getUninstallModuleTx } from '@/utils/contracts/upgrade';
+import { TxRequestTypeEn, useTx } from '@/contexts/tx-context';
+import type { Transaction } from '@elytro/sdk';
+import { formatErrorMsg } from '@/utils/format';
+import { useWallet } from '@/contexts/wallet';
+
+export default function UpgradeContract() {
+  const {
+    currentAccount: { address, chainId },
+  } = useAccount();
+  const { wallet } = useWallet();
+  const { handleTxRequest } = useTx();
+  const handleStartUpgrade = async () => {
+    try {
+      const versionInfo = VERSION_MODULE_ADDRESS_MAP[chainId];
+      if (!versionInfo) {
+        throw new Error('Version info not found for current chain');
+      }
+
+      const latestVersionContractAddress = versionInfo.versionModuleAddress[versionInfo.latestVersion];
+      if (!latestVersionContractAddress) {
+        throw new Error('Latest version contract address not found');
+      }
+
+      const installedUpgradeModuleAddresses = await wallet.getInstalledUpgradeModules();
+
+      const txs: Partial<Transaction>[] = [
+        getInstallModuleTx(address, latestVersionContractAddress),
+        getUpgradeModuleTx(address, latestVersionContractAddress),
+      ];
+
+      if (installedUpgradeModuleAddresses.length > 0) {
+        for (const module of installedUpgradeModuleAddresses) {
+          txs.push(getUninstallModuleTx(address, module));
+        }
+      }
+
+      handleTxRequest(TxRequestTypeEn.UpgradeContract, txs as Transaction[]);
+    } catch (error) {
+      console.error('Update contract failed:', error);
+      toast({
+        title: 'Failed to update contract',
+        description: formatErrorMsg(error),
+      });
+    }
+  };
+
+  return (
+    <SecondaryPageWrapper title="Update contract">
+      <div className="flex flex-col gap-y-md">
+        <h2 className="elytro-text-small text-gray-600 mt-4">Your are updating</h2>
+        <div className="flex flex-row justify-between">
+          <ShortedAddress address={address} chainId={chainId} />
+        </div>
+        <div>
+          <img src={bgWalletSm} alt="Wallet" className="size-[200px] mt-3xl mx-auto" />
+        </div>
+        <div className="text-xl font-bold text-center">Update contract</div>
+        <div className="bg-gray-150 p-lg text-gray-750 rounded-sm space-y-2">
+          Version {VERSION_MODULE_ADDRESS_MAP[chainId]?.latestVersion}
+          <br />
+          You need to complete the update to access funds.
+        </div>
+
+        <Button className="w-full gap-xl" onClick={handleStartUpgrade}>
+          Start update
+        </Button>
+      </div>
+    </SecondaryPageWrapper>
+  );
+}

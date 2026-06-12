@@ -1,0 +1,67 @@
+name: Validate Skills
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+env:
+  ANTHROPICS_SCRIPT: https://raw.githubusercontent.com/anthropics/skills/main/skills/skill-creator/scripts/quick_validate.py
+  OPENCLAW_SCRIPT: https://raw.githubusercontent.com/openclaw/openclaw/main/skills/skill-creator/scripts/quick_validate.py
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Fetch validators from upstream
+        run: |
+          mkdir -p /tmp/validators
+          curl -fsSL "$ANTHROPICS_SCRIPT" -o /tmp/validators/anthropics_validate.py
+          curl -fsSL "$OPENCLAW_SCRIPT"   -o /tmp/validators/openclaw_validate.py
+          echo "Downloaded both validators from upstream."
+
+      - name: Validate all skills (anthropics)
+        run: |
+          echo "===== anthropics validator ====="
+          exit_code=0
+          for dir in */; do
+            if [ -f "${dir}SKILL.md" ]; then
+              result=$(python /tmp/validators/anthropics_validate.py "$dir" 2>&1) || true
+              echo "  ${dir%/}: ${result}"
+              if echo "$result" | grep -qv "valid"; then
+                exit_code=1
+              fi
+            fi
+          done
+          if [ $exit_code -ne 0 ]; then
+            echo "FAILED: anthropics validation"
+          fi
+          exit $exit_code
+
+      - name: Validate all skills (openclaw)
+        run: |
+          echo "===== openclaw validator ====="
+          exit_code=0
+          for dir in */; do
+            if [ -f "${dir}SKILL.md" ]; then
+              result=$(python /tmp/validators/openclaw_validate.py "$dir" 2>&1) || true
+              echo "  ${dir%/}: ${result}"
+              if echo "$result" | grep -qv "valid"; then
+                exit_code=1
+              fi
+            fi
+          done
+          if [ $exit_code -ne 0 ]; then
+            echo "FAILED: openclaw validation"
+          fi
+          exit $exit_code

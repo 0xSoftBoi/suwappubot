@@ -1,0 +1,76 @@
+import { useEffect, useState } from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Button,
+  toast,
+} from '@elytro/ui';
+import RuntimeMessage from '@/utils/message/runtimeMessage';
+import { EVENT_TYPES } from '@/constants/events';
+import { useAccount } from '@/contexts/account-context';
+import { useWallet } from '@/contexts/wallet';
+import { getLocalContactsSetting } from '@/utils/contacts';
+import { writeFile } from '@/utils/file';
+import dayjs from 'dayjs';
+
+export default function PrivateRecoveryDialog() {
+  const [open, setOpen] = useState(false);
+  const { currentAccount } = useAccount();
+  const { wallet } = useWallet();
+
+  useEffect(() => {
+    const onPrivateReady = () => setOpen(true);
+    RuntimeMessage.onMessage(EVENT_TYPES.UI.PRIVATE_RECOVERY_READY, onPrivateReady);
+    return () => {
+      RuntimeMessage.offMessage(onPrivateReady);
+    };
+  }, []);
+
+  const handleDownload = async () => {
+    const { contacts, threshold } = await getLocalContactsSetting(currentAccount.address);
+
+    const isOnchainContactsChanged = await wallet.checkRecoveryContactsSettingChanged(
+      contacts.map((contact) => contact.address),
+      Number(threshold)
+    );
+
+    if (isOnchainContactsChanged) {
+      toast({ title: 'Local recovery records expired', description: '' });
+      return;
+    }
+
+    const date = dayjs().format('YYYY-MM-DD-HH-mm');
+    const data = {
+      address: currentAccount.address,
+      chainId: currentAccount.chainId,
+      contacts,
+      threshold: String(threshold),
+    };
+    writeFile(JSON.stringify(data), `${currentAccount.address}-elytro-recovery-contacts-${date}.json`);
+    toast({ title: 'Recovery contacts downloaded', description: '' });
+    setOpen(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Private recovery set</DialogTitle>
+          <DialogDescription>Download your recovery file and store it safely.</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="secondary" size="small" onClick={() => setOpen(false)}>
+            Later
+          </Button>
+          <Button size="small" onClick={handleDownload}>
+            Download recovery file
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

@@ -1,0 +1,147 @@
+{
+  "ENABLE": true,
+  "id": "stableemail",
+  "name": "StableEmail",
+  "description": "Pay-per-send email delivery. No API keys, no accounts. Buy inboxes, send emails, and manage custom subdomains - all via x402 payments.",
+  "categories": ["communication", "email", "messaging"],
+  "serviceUrl": "https://stableemail.dev",
+  "tags": ["email", "smtp", "forwarding", "inbox", "subdomain", "messaging", "relay"],
+  "docs": [
+    "https://stableemail.dev/"
+  ],
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/send",
+      "description": "Send an email from 'StableEmail' <relay@stableemail.dev>",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.020000",
+        "per": "email"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/inbox/buy",
+      "description": "Buy an inbox on stableemail.dev for 30 days. Optional forwardTo for email forwarding, or use as programmatic mailbox via messages API",
+      "pricing": {
+        "type": "fixed",
+        "amount": "1.000000",
+        "per": "inbox"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inbox/messages",
+      "description": "List messages in your inbox",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.001000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inbox/messages/read",
+      "description": "Read a single inbox message - returns text, HTML, and attachment download URLs (1hr expiry)",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.001000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/inbox/send",
+      "description": "Send email from your forwarding inbox on stableemail.dev",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.005000",
+        "per": "email"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/inbox/topup",
+      "description": "Top up a forwarding inbox for 30 days",
+      "pricing": {
+        "type": "fixed",
+        "amount": "1.000000",
+        "per": "topup"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/inbox/topup/quarter",
+      "description": "Top up a forwarding inbox for 90 days (save 17%)",
+      "pricing": {
+        "type": "fixed",
+        "amount": "2.500000",
+        "per": "topup"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/inbox/topup/year",
+      "description": "Top up a forwarding inbox for 365 days (save 34%)",
+      "pricing": {
+        "type": "fixed",
+        "amount": "8.000000",
+        "per": "topup"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/subdomain/buy",
+      "description": "Purchase a custom email subdomain on stableemail.dev",
+      "pricing": {
+        "type": "fixed",
+        "amount": "5.000000",
+        "per": "subdomain"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/subdomain/inbox/create",
+      "description": "Create an inbox on your subdomain. Max 100 inboxes, 500 messages each. Message content retained for 90 days",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.250000",
+        "per": "inbox"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/subdomain/inbox/messages",
+      "description": "List messages in a subdomain inbox",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.001000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/subdomain/inbox/messages/read",
+      "description": "Read a single subdomain inbox message - returns text, HTML, and attachment download URLs (1hr expiry)",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.001000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/subdomain/send",
+      "description": "Send email from your custom subdomain on stableemail.dev",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.005000",
+        "per": "email"
+      }
+    }
+  ],
+  "network": "eip155:8453",
+  "currency": "USDC",
+  "note": "StableEmail provides instant email services via x402. Features: (1) Quick Send - $0.02 per email from relay@stableemail.dev, (2) Forwarding Inbox - $1/month for email forwarding or programmatic access, (3) Custom Subdomain - $5 for your-name.stableemail.dev with up to 100 inboxes, (4) Message Storage - 90 days retention for all messages and attachments. No API keys required - authenticate with x402 payment. Supports email forwarding, programmatic inbox access, and custom branding via subdomains."
+}

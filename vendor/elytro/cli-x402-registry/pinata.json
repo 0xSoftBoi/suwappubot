@@ -1,0 +1,45 @@
+{
+    "ENABLE": true,
+    "id": "pinata",
+    "name": "Pinata",
+    "description": "Account-free IPFS uploads and retrievals using crypto payments, powered by x402. Pay for private or public IPFS storage and retrieval without an account or API key.",
+    "categories": [
+        "storage",
+        "ipfs",
+        "web3"
+    ],
+    "serviceUrl": "https://402.pinata.cloud",
+    "tags": [
+        "ipfs",
+        "storage",
+        "decentralized",
+        "file-upload",
+        "retrieval"
+    ],
+    "docs": [
+        "https://402.pinata.cloud/"
+    ],
+    "endpoints": [
+        {
+            "method": "POST",
+            "path": "/upload",
+            "description": "Upload files to IPFS (private or public)",
+            "pricing": {
+                "type": "dynamic",
+                "note": "Pay-per-upload based on file size"
+            }
+        },
+        {
+            "method": "GET",
+            "path": "/retrieve",
+            "description": "Retrieve files from IPFS",
+            "pricing": {
+                "type": "dynamic",
+                "note": "Pay-per-retrieval"
+            }
+        }
+    ],
+    "network": "eip155:8453",
+    "currency": "USDC",
+    "note": "No account or API key required. Ideal for decentralized storage needs with instant crypto payments."
+}

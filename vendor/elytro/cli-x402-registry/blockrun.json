@@ -1,0 +1,107 @@
+{
+  "ENABLE": true,
+  "id": "blockrun",
+  "name": "BlockRun",
+  "description": "Plug your AI agent into 41 LLMs, live data APIs, and secure code runtime. One install for OpenClaw, Claude Code, or Franklin. Pay per call in USDC via x402 — no API keys.",
+  "categories": ["ai", "infrastructure", "search", "utility"],
+  "serviceUrl": "http://blockrun.ai",
+  "tags": ["llm", "chat", "completions", "image-generation", "sandbox", "python", "code-execution", "search", "twitter", "x", "grok"],
+  "docs": [
+    "https://blockrun.ai/docs"
+  ],
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/v1/chat/completions",
+      "description": "AI chat completions API - access 41+ LLMs including GPT-4o, Claude, Gemini, etc.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.001000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/images/generations",
+      "description": "AI image generation API - create images using DALL-E 3, Stable Diffusion, etc.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.040000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/modal/sandbox/create",
+      "description": "Create a managed Python 3.11 sandbox with bounded CPU, memory, and lifetime limits",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "sandbox"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/modal/sandbox/exec",
+      "description": "Execute a command inside a running sandbox. Returns stdout, stderr, and exit code",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.001000",
+        "per": "execution"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/modal/sandbox/status",
+      "description": "Check the status of a sandbox (running or terminated)",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.001000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/modal/sandbox/terminate",
+      "description": "Terminate a running sandbox and release its resources",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.001000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/search",
+      "description": "Grok Live Search API - real-time X/Twitter and web search",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.262500",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/x/users/followers",
+      "description": "Twitter/X User Follower List via AttentionVC",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.050000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/x/users/lookup",
+      "description": "Twitter/X User Batch Lookup via AttentionVC (10-100 users)",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.200000",
+        "per": "request"
+      }
+    }
+  ],
+  "network": "eip155:8453",
+  "currency": "USDC",
+  "note": "All APIs pay per call in USDC on Base. No API keys required - payment handled via x402."
+}

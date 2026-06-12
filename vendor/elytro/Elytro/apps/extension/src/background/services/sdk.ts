@@ -1,0 +1,1672 @@
+import { SUPPORTED_CHAIN_IDS, TChainItem } from '@/constants/chains';
+import {
+  getDomainSeparator,
+  getEncoded1271MessageHash,
+  getEncodedSHA,
+  DEFAULT_GUARDIAN_HASH,
+  DEFAULT_GUARDIAN_SAFE_PERIOD,
+  GUARDIAN_INFO_KEY,
+} from '@/constants/sdk-config';
+import { formatHex, paddingBytesToEven, paddingZero } from '@/utils/format';
+import { Bundler, SignkeyType, SocialRecovery, ElytroWallet, Transaction } from '@elytro/sdk';
+import { DecodeUserOp } from '@elytro/decoder';
+import { canUserOpGetSponsor } from '@/utils/ethRpc/sponsor';
+import keyring from './keyring';
+import { simulateSendUserOp } from '@/utils/ethRpc/simulate';
+import {
+  Address,
+  createPublicClient,
+  Hex,
+  http,
+  parseEther,
+  PublicClient,
+  toHex,
+  hashMessage,
+  serializeSignature,
+  zeroHash,
+  encodeFunctionData,
+  encodeAbiParameters,
+  parseAbiParameters,
+  decodeAbiParameters,
+  parseAbiItem,
+  parseAbi,
+  hashTypedData,
+  keccak256,
+  Abi,
+} from 'viem';
+import { createAccount } from '@/utils/ethRpc/create-account';
+import { ethErrors } from 'eth-rpc-errors';
+import { ABI_Elytro, ABI_SocialRecoveryModule, ABI_SecurityHook } from '@elytro/abi';
+import eventBus from '@/utils/eventBus';
+import { EVENT_TYPES } from '@/constants/events';
+import { ABI_ERC20_BALANCE_OF, ABI_RECOVERY_INFO_RECORDER } from '@/constants/abi';
+import { VERSION_MODULE_ADDRESS_MAP } from '@/constants/versions';
+import { RecoveryStatusEn } from '@/constants/recovery';
+import { getLogsOnchain, GetLogsOnchainReturnType } from '@/utils/getLogsOnchain';
+import { SupportedToken, TokenQuote, TokenQuoteResponse, TokenPaymaster } from '@/types/pimlico';
+import { arbitrum } from 'viem/chains';
+import { DEFAULT_ENTRYPOINT_ADDRESS, SDK_CONFIG_BY_ENTRYPOINT } from '@/constants/entrypoints';
+import { TSDKConfigItem } from '@/constants/entrypoints';
+import { THookStatus, TSecurityHookUserData } from '@/types/securityHook';
+import { FAKE_SECURITY_HOOK_BYTECODE, SECURITY_HOOK_ADDRESS_MAP } from '@/constants/securityHook';
+
+type TSDKChainConfigItem = TChainItem & TSDKConfigItem;
+
+export class SDKService {
+  private readonly _REQUIRED_CHAIN_FIELDS: (keyof TSDKChainConfigItem)[] = [
+    'id',
+    'endpoint',
+    'factory',
+    'fallback',
+    'recovery',
+    'entryPoint',
+    'elytroWalletLogic',
+    'bundler',
+  ];
+
+  private _sdk!: ElytroWallet;
+  private _bundler!: Bundler;
+  private _config!: TSDKChainConfigItem;
+  private _pimlicoRpc: Nullable<PublicClient> = null;
+  private _client: Nullable<PublicClient> = null;
+
+  private _getClient() {
+    if (!this._client?.chain?.id || this._client.chain.id !== this._config.id) {
+      this._client = createPublicClient({
+        transport: http(this._config.endpoint),
+        chain: this._config,
+      });
+    }
+    return this._client!;
+  }
+
+  constructor() {
+    eventBus.on(EVENT_TYPES.CHAIN.CHAIN_INITIALIZED, (chain: TChainItem) => {
+      this.resetSDK(chain);
+    });
+  }
+
+  get bundler() {
+    return this._bundler;
+  }
+
+  get entryPoint() {
+    return this._config.entryPoint;
+  }
+
+  public resetSDK(chainConfig: TChainItem, entrypoint?: string) {
+    if (!SUPPORTED_CHAIN_IDS.includes(chainConfig.id)) {
+      throw new Error(`Elytro: chain ${chainConfig.id} is not supported for now.`);
+    }
+
+    entrypoint = entrypoint ?? this._config?.entryPoint ?? DEFAULT_ENTRYPOINT_ADDRESS;
+
+    if (!SDK_CONFIG_BY_ENTRYPOINT[entrypoint]) {
+      throw new Error(`Elytro: entrypoint ${entrypoint} is not supported.`);
+    }
+
+    const sdkConfig: TSDKChainConfigItem = {
+      ...chainConfig,
+      ...SDK_CONFIG_BY_ENTRYPOINT[entrypoint],
+    };
+
+    if (this._isConfigUnchanged(sdkConfig)) {
+      console.log('Elytro::SDK: chain config unchanged, no reset needed.');
+      return;
+    }
+
+    this.initializeSDK(sdkConfig);
+  }
+
+  private _isConfigUnchanged(newConfig: TSDKChainConfigItem): boolean {
+    if (!this._config) return false;
+
+    return this._REQUIRED_CHAIN_FIELDS.every((field) => newConfig[field] === this._config?.[field]);
+  }
+
+  private initializeSDK(config: TSDKChainConfigItem) {
+    const { endpoint, bundler, factory, fallback, recovery, entryPoint, elytroWalletLogic } = config;
+
+    this._sdk = new ElytroWallet(endpoint, bundler, factory, fallback, recovery, {
+      chainId: config.id,
+      entryPoint,
+      elytroWalletLogic,
+    });
+    this._pimlicoRpc = null;
+    this._bundler = new Bundler(bundler);
+    this._config = config;
+  }
+
+  // TODO: temp, make sure it's unique later.
+  // random index, just make sure it's unique. Save to local if user need to export the wallet.
+  // also, make sure it keeps the same when it's a same SA address.
+  private get _index() {
+    return 0; // Math.floor(Math.random() * 100);
+  }
+
+  /**
+   * Create a smart account wallet address
+   * @param eoaAddress - The address of the EOA that will be the owner of the wallet.
+   * @param initialGuardianHash - The hash of the initial guardian.
+   * @param initialGuardianSafePeriod - The safe period for the initial guardian.
+   * @param chainId - The chain id.
+   * @returns The address of the wallet.
+   */
+  public async createWalletAddress(
+    eoaAddress: string,
+    chainId: number,
+    initialGuardianHash: string = DEFAULT_GUARDIAN_HASH,
+    initialGuardianSafePeriod: number = DEFAULT_GUARDIAN_SAFE_PERIOD
+  ) {
+    const initialKeysStrArr = [paddingZero(eoaAddress, 32)];
+
+    const res = await this._sdk?.calcWalletAddress(
+      this._index,
+      initialKeysStrArr,
+      initialGuardianHash,
+      initialGuardianSafePeriod,
+      chainId
+    );
+
+    if (res.isErr()) {
+      throw res.ERR;
+    } else {
+      // no need await for createAccount request. it's not a blocking request.
+      createAccount(res.OK, chainId, this._index, initialKeysStrArr, initialGuardianHash, initialGuardianSafePeriod);
+      return { address: res.OK as Address, owner: keyring.currentOwner?.address };
+    }
+  }
+
+  /**
+   * Create an unsigned user operation for deploying a smart account wallet
+   * @param eoaAddress - The address of the EOA that will be the owner of the wallet.
+   * @param initialGuardianHash - The hash of the initial guardian.
+   * @param initialGuardianSafePeriod - The safe period for the initial guardian.
+   * @returns The unsigned user operation.
+   */
+  public async createUnsignedDeployWalletUserOp(
+    eoaAddress: string,
+    callData: Hex = '0x',
+    initialGuardianHash: string = DEFAULT_GUARDIAN_HASH,
+    initialGuardianSafePeriod: number = DEFAULT_GUARDIAN_SAFE_PERIOD
+  ) {
+    const res = await this._sdk?.createUnsignedDeployWalletUserOp(
+      this._index,
+      [paddingZero(eoaAddress, 32)],
+      initialGuardianHash,
+      callData,
+      initialGuardianSafePeriod
+    );
+
+    if (res.isErr()) {
+      throw res.ERR;
+    } else {
+      return res.OK;
+    }
+  }
+
+  public async isSmartAccountDeployed(address: string) {
+    const code = await this._sdk.provider.getCode(address);
+    // when account is not deployed, it's code is undefined or 0x.
+    return code !== undefined && code !== '0x';
+  }
+
+  public async sendUserOperation(userOp: ElytroUserOperation) {
+    const res = await this._sdk.sendUserOperation(userOp);
+
+    if (res.isErr()) {
+      throw res.ERR;
+    } else {
+      return res.OK;
+    }
+  }
+
+  /**
+   * Get user operation hash without signing
+   * @param userOp User operation
+   * @returns User operation hash
+   */
+  public async getUserOpHash(userOp: ElytroUserOperation): Promise<string> {
+    const opHash = await this._sdk.userOpHash(userOp);
+
+    if (opHash.isErr()) {
+      throw opHash.ERR;
+    } else {
+      return opHash.OK;
+    }
+  }
+
+  public async signUserOperationWithHook(
+    userOp: ElytroUserOperation,
+    preSign: {
+      signature: string;
+      rawSignature: string;
+      opHash: string;
+      validationData: string;
+      userOp: ElytroUserOperation;
+    }
+  ) {
+    // const originalOpHash = await this.getUserOpHash(userOp);
+
+    // const _packRawHash = await this._sdk.packRawHash(originalOpHash);
+
+    // if (_packRawHash.isErr()) {
+    //   throw _packRawHash.ERR;
+    // }
+
+    // const packRawHash = _packRawHash.OK;
+
+    // const packedHash = packRawHash.packedHash as Hex;
+    // const validationData: string = packRawHash.validationData;
+
+    // const _originalRawSignature = await this._rawSign(packedHash);
+    // console.log('1: _sig', _originalRawSignature);
+
+    // const _sig = await this._sdk.packUserOpEOASignature(this._config.validator, _originalRawSignature, validationData);
+
+    // if (_sig.isErr()) {
+    //   throw _sig.ERR;
+    // }
+
+    // // const originalSign = await this.signUserOperation(userOp);
+    // // userOp.signature = originalSign.signature;
+    // // const hookStatus = await this.getSecurityHookStatus(userOp.sender, this._config.id);
+
+    // const signedUserOp = {
+    //   ...userOp,
+    //   signature: _sig.OK as Hex,
+    // };
+
+    // const isValid = await this._verifyUserSignatureForHook(signedUserOp, SECURITY_HOOK_ADDRESS_MAP[this._config.id]);
+    // console.log('test: isValid', isValid);
+    // if (!isValid) {
+    //   throw new Error('Elytro: User signature validation failed for hook');
+    // }
+    // const signedOpHash = await this.getUserOpHash(signedUserOp);
+    // const hookRawSignature = await this._rawSign(signedOpHash as Hex);
+
+    // console.log('test: hookRawSignature', hookRawSignature);
+
+    const hookInputData = [
+      {
+        hookAddress: SECURITY_HOOK_ADDRESS_MAP[this._config.id],
+        inputData: userOp.signature,
+      },
+    ];
+
+    const _packedSignature = await this._sdk.packUserOpEOASignature(
+      this._config.validator,
+      preSign.rawSignature,
+      preSign.validationData,
+      hookInputData
+    );
+
+    console.log('test: _packedSignature', _packedSignature);
+
+    if (_packedSignature.isErr()) {
+      throw _packedSignature.ERR;
+    } else {
+      userOp.signature = _packedSignature.OK as Hex;
+    }
+
+    const finalOpHash = await this.getUserOpHash(userOp);
+
+    return {
+      userOp: userOp,
+      opHash: finalOpHash,
+    };
+  }
+
+  /**
+   * Sign user operation
+   * @param userOp User operation
+   * @param isHookSignatureRequired Whether hook signature is required
+   * @param hookSignature Optional hook signature (should be provided if SecurityHook is installed)
+   * @returns Signature and operation hash
+   */
+  public async signUserOperation(userOp: ElytroUserOperation) {
+    const opHash = await this.getUserOpHash(userOp);
+
+    const { signature, rawSignature, validationData } = await this._getSignature(
+      {
+        messageHash: opHash,
+        validStartTime: 0, // 0
+        validEndTime: Math.floor(new Date().getTime() / 1000) + 60 * 5, // 5 mins
+      },
+      true
+    );
+    userOp.signature = signature;
+
+    return { signature, rawSignature, opHash, validationData, userOp };
+  }
+
+  public async getUserOperationReceipt(userOpHash: string) {
+    try {
+      const res = await this._bundler?.eth_getUserOperationReceipt(userOpHash);
+
+      if (res?.isErr()) {
+        throw res.ERR;
+      } else if (res?.OK) {
+        return { ...res.OK.receipt, success: res.OK.success };
+      }
+    } catch (error) {
+      console.error('Elytro: Failed to get user operation receipt.', error);
+      return null;
+    }
+  }
+
+  public async getUserOperationReceiptFull(userOpHash: string) {
+    try {
+      if (!this._bundler) {
+        return null;
+      }
+      const res = await this._bundler.eth_getUserOperationReceipt(userOpHash);
+
+      if (res?.isErr()) {
+        return { error: res.ERR };
+      } else if (res?.OK) {
+        return res.OK;
+      }
+      return null;
+    } catch (error) {
+      console.error('Elytro: Failed to get user operation receipt.', error);
+      return { error };
+    }
+  }
+
+  // private async _getPackedUserOpHash(userOp: ElytroUserOperation) {
+  //   const opHash = await this._sdk.userOpHash(userOp);
+
+  //   if (opHash.isErr()) {
+  //     throw opHash.ERR;
+  //   } else {
+  //     const packedHash = await this._sdk.packRawHash(
+  //       opHash.OK,
+  //       0, // start time
+  //       Math.floor(new Date().getTime() / 1000) + 60 * 5 // end time
+  //     );
+
+  //     if (packedHash.isErr()) {
+  //       throw packedHash.ERR;
+  //     } else {
+  //       return { ...packedHash.OK, userOpHash: opHash.OK };
+  //     }
+  //   }
+  // }
+
+  private async _isSignatureValid(address: Hex, messageHash: Hex, signature: Hex) {
+    const _client = this._getClient();
+
+    const magicValue = await _client.readContract({
+      address,
+      abi: ABI_Elytro,
+      functionName: 'isValidSignature',
+      args: [messageHash, signature],
+    });
+
+    if (magicValue !== '0x1626ba7e') {
+      throw new Error('Elytro: Invalid signature.');
+    }
+  }
+
+  /**
+   * Raw sign message. For EIP-1271 signature.
+   * @param message - The message to sign.
+   * @returns The signature.
+   */
+  private async _rawSign(message: Hex) {
+    const _eoaSignature = keyring.signingKey?.signDigest(message);
+
+    if (!_eoaSignature) {
+      throw new Error('Elytro: Failed to sign message.');
+    }
+
+    const _eoaSignatureHex = serializeSignature({
+      r: _eoaSignature.r as Hex,
+      s: _eoaSignature.s as Hex,
+      v: BigInt(_eoaSignature.v),
+    });
+
+    return _eoaSignatureHex;
+  }
+
+  /**
+   * Personal sign message. For internal user operation signature.
+   * @param message - The message to sign.
+   * @returns The signature.
+   */
+  private async _personalSign(message: Hex) {
+    const _eoaSignature = await keyring.currentOwner?.signMessage({
+      message: { raw: message },
+    });
+
+    if (!_eoaSignature) {
+      throw new Error('Elytro: Failed to sign message.');
+    }
+
+    return _eoaSignature;
+  }
+
+  private async _getSignature(
+    packParams: {
+      messageHash: string;
+      validStartTime?: number;
+      validEndTime?: number;
+    },
+    useRawSign = false
+  ) {
+    const rawHashRes = await this._sdk.packRawHash(
+      packParams.messageHash
+      // packParams.validStartTime,
+      // packParams.validEndTime
+    );
+
+    if (rawHashRes.isErr()) {
+      throw rawHashRes.ERR;
+    }
+
+    await keyring.tryUnlock();
+
+    let signature: Hex;
+    if (useRawSign) {
+      signature = await this._rawSign(rawHashRes.OK.packedHash as Hex);
+    } else {
+      signature = await this._personalSign(rawHashRes.OK.packedHash as Hex);
+    }
+
+    const signRes = await this._sdk.packUserOpEOASignature(
+      this._config.validator,
+      signature,
+      rawHashRes.OK.validationData
+    );
+
+    if (signRes.isErr()) {
+      throw signRes.ERR;
+    }
+
+    return {
+      signature: signRes.OK,
+      rawSignature: signature,
+      validationData: rawHashRes.OK.validationData,
+    };
+  }
+
+  // private _isUninstallingSecurityHook(callData: string): boolean {
+  //   if (!callData || callData.length < 10) {
+  //     return false;
+  //   }
+
+  //   try {
+  //     // Calculate function selector using encodeFunctionData
+  //     // Function selector for uninstallHook(address)
+  //     const uninstallHookSelector = encodeFunctionData({
+  //       abi: parseAbi(['function uninstallHook(address)']),
+  //       functionName: 'uninstallHook',
+  //       args: ['0x0000000000000000000000000000000000000000'], // Placeholder address
+  //     }).slice(0, 10);
+
+  //     // Function selector for forcePreUninstall()
+  //     const forcePreUninstallSelector = encodeFunctionData({
+  //       abi: parseAbi(['function forcePreUninstall()']),
+  //       functionName: 'forcePreUninstall',
+  //       args: [],
+  //     }).slice(0, 10);
+
+  //     const callDataLower = callData.toLowerCase();
+
+  //     // Check if it's an uninstallHook call
+  //     if (callDataLower.startsWith(uninstallHookSelector.toLowerCase())) {
+  //       return true;
+  //     }
+
+  //     // Check if it's a forcePreUninstall call
+  //     if (callDataLower.startsWith(forcePreUninstallSelector.toLowerCase())) {
+  //       return true;
+  //     }
+
+  //     // Check if batch transaction contains uninstall operation
+  //     // If callData contains multiple calls, need to decode and check
+  //     // Simplified handling: only check single call case
+  //     return false;
+  //   } catch (error) {
+  //     console.error('Elytro: Failed to check if uninstalling SecurityHook', error);
+  //     return false;
+  //   }
+  // }
+
+  public async getDecodedUserOperation(userOp: ElytroUserOperation) {
+    if (userOp.callData?.length <= 2) {
+      return null;
+    }
+
+    const res = await DecodeUserOp(this._config.id, this._config.entryPoint, userOp);
+
+    if (res.isErr()) {
+      throw res.ERR;
+    } else {
+      return res.OK;
+    }
+  }
+
+  public async simulateUserOperation(userOp: ElytroUserOperation) {
+    return await simulateSendUserOp(userOp, this._config.entryPoint, this._config.id);
+  }
+
+  private async _getFeeDataFromSDKProvider() {
+    try {
+      const fee = await this._sdk.provider.getFeeData();
+      return fee;
+    } catch {
+      throw ethErrors.rpc.server({
+        code: 32011,
+        message: 'Elytro:Failed to get fee data.',
+      });
+    }
+  }
+
+  private async _getPimlicoFeeData() {
+    const newRpcUrl = this._config.bundler;
+    if (!this._pimlicoRpc || this._pimlicoRpc.transport.url !== newRpcUrl) {
+      this._pimlicoRpc = createPublicClient({
+        transport: http(newRpcUrl),
+      });
+    }
+
+    const ret = await this._pimlicoRpc.request({
+      method: 'pimlico_getUserOperationGasPrice' as SafeAny,
+      params: [] as SafeAny,
+    });
+    return (ret as SafeAny)?.fast;
+  }
+
+  private async _getFeeData() {
+    let gasPrice;
+    if (this.isPimlicoBundler) {
+      // pimlico uses different gas price
+      gasPrice = await this._getPimlicoFeeData();
+    } else {
+      gasPrice = await this._getFeeDataFromSDKProvider();
+    }
+    return gasPrice;
+  }
+
+  public async estimateGas(userOp: ElytroUserOperation, useDefaultGasPrice = true) {
+    // looks like only deploy wallet will need this
+    if (useDefaultGasPrice) {
+      const gasPrice = await this._getFeeData();
+
+      userOp.maxFeePerGas = gasPrice?.maxFeePerGas ?? 0;
+      userOp.maxPriorityFeePerGas = gasPrice?.maxPriorityFeePerGas ?? 0;
+    }
+
+    const hookStatus = await this.getSecurityHookStatus(userOp.sender, this._config.id);
+    const stateOverride: Record<Address, { code: Hex }> = {
+      [userOp.sender]: {
+        balance: toHex(parseEther('1')),
+        // getHexString(
+        //   await this._sdk.provider.getBalance(userOp.sender)
+        // ),
+      },
+    };
+
+    let semiValidHookInputData: { hookAddress: Address; inputData: Hex }[] | undefined = undefined;
+
+    if (hookStatus && hookStatus.hasPreUserOpValidationHooks) {
+      stateOverride[hookStatus.securityHookAddress] = {
+        code: FAKE_SECURITY_HOOK_BYTECODE,
+      };
+
+      semiValidHookInputData = [
+        {
+          hookAddress: hookStatus.securityHookAddress,
+          inputData:
+            '0x0f66d90c36d1bba494523b6394aaf6e24e53a30e5fa8260268143eee20557c2a54d69f2327f4cf157630e442da5ec9bfc39062bb86be547db86859ea88978a3c1b',
+        },
+      ];
+    }
+
+    const res = await this._sdk.estimateUserOperationGas(
+      this._config.validator,
+      userOp,
+      stateOverride,
+      SignkeyType.EOA, // Only EOA is supported currently
+      semiValidHookInputData
+    );
+
+    if (res.isErr()) {
+      throw res.ERR;
+    } else {
+      const {
+        callGasLimit,
+        preVerificationGas,
+        verificationGasLimit,
+        paymasterPostOpGasLimit,
+        paymasterVerificationGasLimit,
+      } = res.OK;
+
+      userOp.callGasLimit = BigInt(callGasLimit);
+      userOp.preVerificationGas = BigInt(preVerificationGas);
+      userOp.verificationGasLimit = BigInt(verificationGasLimit);
+
+      if (
+        userOp.paymaster !== null &&
+        typeof paymasterPostOpGasLimit !== 'undefined' &&
+        typeof paymasterVerificationGasLimit !== 'undefined'
+      ) {
+        userOp.paymasterPostOpGasLimit = BigInt(paymasterPostOpGasLimit);
+        userOp.paymasterVerificationGasLimit = BigInt(paymasterVerificationGasLimit);
+      }
+
+      return userOp;
+    }
+  }
+
+  get isPimlicoBundler() {
+    return this._config.bundler.includes('pimlico');
+  }
+
+  private _getPimlicoRpc() {
+    if (this.isPimlicoBundler) {
+      if (!this._pimlicoRpc) {
+        this._pimlicoRpc = createPublicClient({
+          transport: http(this._config.bundler),
+        });
+      }
+      return this._pimlicoRpc;
+    }
+    return null;
+  }
+
+  public async getMaxCostInToken(userOp: ElytroUserOperation, token: TokenQuote) {
+    const { exchangeRate, postOpGas } = token;
+    const userOperationMaxGas =
+      BigInt(userOp.preVerificationGas || 0) +
+      BigInt(userOp.callGasLimit || 0) +
+      BigInt(userOp.verificationGasLimit || 0) +
+      BigInt(userOp.paymasterPostOpGasLimit || 0) +
+      BigInt(userOp.paymasterVerificationGasLimit || 0);
+
+    const userOperationMaxCost = userOperationMaxGas * BigInt(userOp.maxFeePerGas);
+
+    const maxCostInToken =
+      ((userOperationMaxCost + BigInt(postOpGas) * BigInt(userOp.maxFeePerGas)) * BigInt(exchangeRate)) / BigInt(1e18);
+
+    return maxCostInToken;
+  }
+
+  public async estimateERC20Gas(userOp: ElytroUserOperation, token: TokenQuote) {
+    const pimlicoRpc = this._getPimlicoRpc();
+    if (!pimlicoRpc) {
+      throw new Error('You need to use a pimlico bundler to pay network cost with ERC20 token.');
+    }
+
+    userOp.factoryData = paddingBytesToEven(userOp.factoryData);
+    const paymasterData: SafeAny = await pimlicoRpc.request({
+      method: 'pm_getPaymasterStubData' as SafeAny,
+      id: 4337,
+      params: [
+        {
+          sender: userOp.sender as `0x${string}`,
+          nonce: toHex(userOp.nonce),
+          factory: userOp.factory,
+          factoryData: userOp.factoryData,
+          callData: userOp.callData,
+          callGasLimit: userOp.callGasLimit,
+          verificationGasLimit: userOp.verificationGasLimit,
+          preVerificationGas: userOp.preVerificationGas,
+          maxPriorityFeePerGas: toHex(userOp.maxPriorityFeePerGas),
+          maxFeePerGas: toHex(userOp.maxFeePerGas),
+        },
+        this._config.entryPoint as `0x${string}`,
+        toHex(this._config.id),
+        {
+          token: token?.token,
+        },
+      ] as SafeAny,
+    });
+
+    if (paymasterData) {
+      userOp.paymaster = paymasterData.paymaster as `0x${string}`;
+      userOp.paymasterData = paymasterData.paymasterData as `0x${string}`;
+      userOp.paymasterPostOpGasLimit = paymasterData.paymasterPostOpGasLimit ?? '0x0';
+      userOp.paymasterVerificationGasLimit = paymasterData.paymasterVerificationGasLimit ?? '0x0';
+    } else {
+      throw new Error('Failed to get paymaster data, Please try again.');
+    }
+
+    await this.estimateGas(userOp, false);
+
+    const newPaymasterData = (await pimlicoRpc.request({
+      method: 'pm_getPaymasterData' as SafeAny,
+      id: 4337,
+      params: [
+        {
+          sender: userOp.sender as `0x${string}`,
+          nonce: formatHex(userOp.nonce),
+          factory: userOp.factory,
+          factoryData: userOp.factoryData,
+          callData: userOp.callData,
+          callGasLimit: formatHex(userOp.callGasLimit),
+          verificationGasLimit: formatHex(userOp.verificationGasLimit),
+          preVerificationGas: formatHex(userOp.preVerificationGas),
+          maxPriorityFeePerGas: formatHex(userOp.maxPriorityFeePerGas) as `0x${string}`,
+          maxFeePerGas: formatHex(userOp.maxFeePerGas) as `0x${string}`,
+          paymaster: userOp.paymaster,
+          paymasterVerificationGasLimit: formatHex(userOp.paymasterVerificationGasLimit ?? '0x0'),
+          paymasterPostOpGasLimit: formatHex(userOp.paymasterPostOpGasLimit ?? '0x0'),
+          paymasterData: userOp.paymasterData,
+          signature:
+            '0xea50a2874df3eEC9E0365425ba948989cd63FED6000000620100005f5e0fff000fffffffff0000000000000000000000000000000000000000b91467e570a6466aa9e9876cbcd013baba02900b8979d43fe208a4a4f339f5fd6007e74cd82e037b800186422fc2da167c747ef045e5d18a5f5d4300f8e1a0291c',
+          // '0x162485941ba1faf21013656dab1e60e9d7226dc0000000620100005f5e0fff000fffffffff0000000000000000000000000000000000000000b91467e570a6466aa9e9876cbcd013baba02900b8979d43fe208a4a4f339f5fd6007e74cd82e037b800186422fc2da167c747ef045e5d18a5f5d4300f8e1a0291c',
+        },
+        this._config.entryPoint as `0x${string}`,
+        formatHex(this._config.id),
+        {
+          token,
+        },
+      ] as SafeAny,
+    })) as SafeAny;
+
+    if (newPaymasterData) {
+      userOp.paymaster = newPaymasterData.paymaster as `0x${string}`;
+      userOp.paymasterData = newPaymasterData.paymasterData as `0x${string}`;
+    } else {
+      throw new Error('Failed to get paymaster data, Please try again.');
+    }
+
+    const maxCostInToken = await this.getMaxCostInToken(userOp, token);
+
+    const _client = this._getClient();
+    const gasBalance = await _client.readContract({
+      address: token.token as Address,
+      abi: ABI_ERC20_BALANCE_OF as Abi,
+      functionName: 'balanceOf',
+      args: [userOp.sender],
+    });
+
+    const missAmount = maxCostInToken - ((gasBalance as bigint) || 0n);
+
+    return {
+      userOp,
+      calcResult: {
+        balance: gasBalance as bigint, // user balance
+        gasUsed: toHex(maxCostInToken),
+        hasSponsored: false, // for this userOp, can get sponsored or not
+        missAmount: missAmount > 0n ? missAmount : 0n, // for this userOp, how much it needs to deposit
+        needDeposit: missAmount > 0n, // need to deposit or not
+        suspiciousOp: false, // if missAmount is too large, it may considered suspicious
+      } as TUserOperationPreFundResult,
+    };
+  }
+
+  public async estimateUserOpCost(
+    userOp: ElytroUserOperation,
+    transferValue: bigint,
+    noSponsor = false,
+    token?: TokenQuote
+  ) {
+    if (noSponsor) {
+      if (token) {
+        const pimlicoRpc = this._getPimlicoRpc();
+        if (!pimlicoRpc) {
+          throw new Error('You need to use a pimlico bundler to pay network cost with ERC20 token.');
+        }
+
+        userOp.factoryData = paddingBytesToEven(userOp.factoryData);
+        const paymasterData: SafeAny = await pimlicoRpc.request({
+          method: 'pm_getPaymasterStubData' as SafeAny,
+          id: 4337,
+          params: [
+            {
+              sender: userOp.sender as `0x${string}`,
+              nonce: toHex(userOp.nonce),
+              factory: userOp.factory,
+              factoryData: userOp.factoryData,
+              callData: userOp.callData,
+              callGasLimit: formatHex(userOp.callGasLimit),
+              verificationGasLimit: formatHex(userOp.verificationGasLimit),
+              preVerificationGas: formatHex(userOp.preVerificationGas),
+              maxPriorityFeePerGas: toHex(userOp.maxPriorityFeePerGas),
+              maxFeePerGas: toHex(userOp.maxFeePerGas),
+            },
+            this._config.entryPoint as `0x${string}`,
+            toHex(this._config.id),
+            {
+              token: token?.token,
+            },
+          ] as SafeAny,
+        });
+
+        if (paymasterData) {
+          userOp.paymaster = paymasterData.paymaster as `0x${string}`;
+          userOp.paymasterData = paymasterData.paymasterData as `0x${string}`;
+          userOp.paymasterPostOpGasLimit = paymasterData.paymasterPostOpGasLimit ?? '0x0';
+          userOp.paymasterVerificationGasLimit = paymasterData.paymasterVerificationGasLimit ?? '0x0';
+        } else {
+          throw new Error('Failed to get paymaster data, Please try again.');
+        }
+
+        await this.estimateGas(userOp, false);
+
+        const newPaymasterData = (await pimlicoRpc.request({
+          method: 'pm_getPaymasterData' as SafeAny,
+          id: 4337,
+          params: [
+            {
+              sender: userOp.sender as `0x${string}`,
+              nonce: formatHex(userOp.nonce),
+              factory: userOp.factory,
+              factoryData: userOp.factoryData,
+              callData: userOp.callData,
+              callGasLimit: formatHex(userOp.callGasLimit),
+              verificationGasLimit: formatHex(userOp.verificationGasLimit),
+              preVerificationGas: formatHex(userOp.preVerificationGas),
+              maxPriorityFeePerGas: formatHex(userOp.maxPriorityFeePerGas) as `0x${string}`,
+              maxFeePerGas: formatHex(userOp.maxFeePerGas) as `0x${string}`,
+              paymaster: userOp.paymaster,
+              paymasterVerificationGasLimit: formatHex(userOp.paymasterVerificationGasLimit ?? '0x0'),
+              paymasterPostOpGasLimit: formatHex(userOp.paymasterPostOpGasLimit ?? '0x0'),
+              paymasterData: userOp.paymasterData,
+              signature:
+                '0xea50a2874df3eEC9E0365425ba948989cd63FED6000000620100005f5e0fff000fffffffff0000000000000000000000000000000000000000b91467e570a6466aa9e9876cbcd013baba02900b8979d43fe208a4a4f339f5fd6007e74cd82e037b800186422fc2da167c747ef045e5d18a5f5d4300f8e1a0291c',
+              // '0x162485941ba1faf21013656dab1e60e9d7226dc0000000620100005f5e0fff000fffffffff0000000000000000000000000000000000000000b91467e570a6466aa9e9876cbcd013baba02900b8979d43fe208a4a4f339f5fd6007e74cd82e037b800186422fc2da167c747ef045e5d18a5f5d4300f8e1a0291c',
+            },
+            this._config.entryPoint as `0x${string}`,
+            formatHex(this._config.id),
+            {
+              token,
+            },
+          ] as SafeAny,
+        })) as SafeAny;
+
+        if (newPaymasterData) {
+          userOp.paymaster = newPaymasterData.paymaster as `0x${string}`;
+          userOp.paymasterData = newPaymasterData.paymasterData as `0x${string}`;
+        } else {
+          throw new Error('Failed to get paymaster data, Please try again.');
+        }
+
+        const maxCostInToken = await this.getMaxCostInToken(userOp, token);
+
+        const _client = this._getClient();
+        const gasBalance = await _client.readContract({
+          address: token.token as Address,
+          abi: ABI_ERC20_BALANCE_OF as Abi,
+          functionName: 'balanceOf',
+          args: [userOp.sender],
+        });
+
+        const missAmount = maxCostInToken - ((gasBalance as bigint) || 0n);
+
+        return {
+          balance: gasBalance as bigint, // user balance
+          gasUsed: toHex(maxCostInToken),
+          hasSponsored: false, // for this userOp, can get sponsored or not
+          missAmount: missAmount > 0n ? missAmount : 0n, // for this userOp, how much it needs to deposit
+          needDeposit: missAmount > 0n, // need to deposit or not
+          suspiciousOp: false, // if missAmount is too large, it may considered suspicious
+        };
+      } else {
+        await this.estimateGas(userOp);
+      }
+    }
+
+    const res = await this._sdk.preFund(userOp);
+
+    if (res.isErr()) {
+      throw res.ERR;
+    } else {
+      const {
+        missfund,
+        prefund,
+        //deposit, prefund
+      } = res.OK;
+      const balance = await this._sdk.provider.getBalance(userOp.sender);
+
+      const missAmount = noSponsor ? BigInt(missfund) + transferValue - balance : transferValue - balance; // why transferValue is not accurate? missfund is wrong during preFund?
+
+      console.log('test: estimateUserOpCost', {
+        balance,
+        gasUsed: prefund,
+        hasSponsored: !noSponsor,
+        missAmount: missAmount > 0n ? missAmount : 0n,
+        needDeposit: missAmount > 0n,
+        suspiciousOp: missAmount > parseEther('0.001'),
+      });
+      return {
+        balance, // user balance
+        gasUsed: prefund,
+        hasSponsored: !noSponsor, // for this userOp, can get sponsored or not
+        missAmount: missAmount > 0n ? missAmount : 0n, // for this userOp, how much it needs to deposit
+        needDeposit: missAmount > 0n, // need to deposit or not
+        suspiciousOp: missAmount > parseEther('0.001'), // if missAmount is too large, it may considered suspicious
+      };
+    }
+  }
+
+  public async getRechargeAmountForUserOp(
+    userOp: ElytroUserOperation,
+    transferValue: bigint = 0n,
+    noSponsor = false,
+    token?: TokenQuote
+  ) {
+    const hasSponsored = noSponsor
+      ? false
+      : await canUserOpGetSponsor(
+          userOp,
+          this._config.id,
+          this._config.entryPoint,
+          await this.getSecurityHookStatus(userOp.sender, this._config.id)
+        );
+
+    if (!hasSponsored) {
+      if (token) {
+        const pimlicoRpc = this._getPimlicoRpc();
+        if (!pimlicoRpc) {
+          throw new Error('You need to use a pimlico bundler to pay network cost with ERC20 token.');
+        }
+
+        userOp.factoryData = paddingBytesToEven(userOp.factoryData);
+        const paymasterData: SafeAny = await pimlicoRpc.request({
+          method: 'pm_getPaymasterStubData' as SafeAny,
+          id: 4337,
+          params: [
+            {
+              sender: userOp.sender as `0x${string}`,
+              nonce: toHex(userOp.nonce),
+              factory: userOp.factory,
+              factoryData: userOp.factoryData,
+              callData: userOp.callData,
+              callGasLimit: userOp.callGasLimit,
+              verificationGasLimit: userOp.verificationGasLimit,
+              preVerificationGas: userOp.preVerificationGas,
+              maxPriorityFeePerGas: toHex(userOp.maxPriorityFeePerGas),
+              maxFeePerGas: toHex(userOp.maxFeePerGas),
+            },
+            this._config.entryPoint as `0x${string}`,
+            toHex(this._config.id),
+            {
+              token: token?.token,
+            },
+          ] as SafeAny,
+        });
+
+        if (paymasterData) {
+          userOp.paymaster = paymasterData.paymaster as `0x${string}`;
+          userOp.paymasterData = paymasterData.paymasterData as `0x${string}`;
+          userOp.paymasterPostOpGasLimit = paymasterData.paymasterPostOpGasLimit ?? '0x0';
+          userOp.paymasterVerificationGasLimit = paymasterData.paymasterVerificationGasLimit ?? '0x0';
+        } else {
+          throw new Error('Failed to get paymaster data, Please try again.');
+        }
+
+        await this.estimateGas(userOp, false);
+
+        const newPaymasterData = (await pimlicoRpc.request({
+          method: 'pm_getPaymasterData' as SafeAny,
+          id: 4337,
+          params: [
+            {
+              sender: userOp.sender as `0x${string}`,
+              nonce: formatHex(userOp.nonce),
+              factory: userOp.factory,
+              factoryData: userOp.factoryData,
+              callData: userOp.callData,
+              callGasLimit: formatHex(userOp.callGasLimit),
+              verificationGasLimit: formatHex(userOp.verificationGasLimit),
+              preVerificationGas: formatHex(userOp.preVerificationGas),
+              maxPriorityFeePerGas: formatHex(userOp.maxPriorityFeePerGas) as `0x${string}`,
+              maxFeePerGas: formatHex(userOp.maxFeePerGas) as `0x${string}`,
+              paymaster: userOp.paymaster,
+              paymasterVerificationGasLimit: formatHex(userOp.paymasterVerificationGasLimit ?? '0x0'),
+              paymasterPostOpGasLimit: formatHex(userOp.paymasterPostOpGasLimit ?? '0x0'),
+              paymasterData: userOp.paymasterData,
+              signature:
+                '0xea50a2874df3eEC9E0365425ba948989cd63FED6000000620100005f5e0fff000fffffffff0000000000000000000000000000000000000000b91467e570a6466aa9e9876cbcd013baba02900b8979d43fe208a4a4f339f5fd6007e74cd82e037b800186422fc2da167c747ef045e5d18a5f5d4300f8e1a0291c',
+              // '0x162485941ba1faf21013656dab1e60e9d7226dc0000000620100005f5e0fff000fffffffff0000000000000000000000000000000000000000b91467e570a6466aa9e9876cbcd013baba02900b8979d43fe208a4a4f339f5fd6007e74cd82e037b800186422fc2da167c747ef045e5d18a5f5d4300f8e1a0291c',
+            },
+            this._config.entryPoint as `0x${string}`,
+            formatHex(this._config.id),
+            {
+              token,
+            },
+          ] as SafeAny,
+        })) as SafeAny;
+
+        if (newPaymasterData) {
+          userOp.paymaster = newPaymasterData.paymaster as `0x${string}`;
+          userOp.paymasterData = newPaymasterData.paymasterData as `0x${string}`;
+        } else {
+          throw new Error('Failed to get paymaster data, Please try again.');
+        }
+
+        const maxCostInToken = await this.getMaxCostInToken(userOp, token);
+
+        const _client = this._getClient();
+        const gasBalance = await _client.readContract({
+          address: token.token as Address,
+          abi: ABI_ERC20_BALANCE_OF as Abi,
+          functionName: 'balanceOf',
+          args: [userOp.sender],
+        });
+
+        const missAmount = maxCostInToken - ((gasBalance as bigint) || 0n);
+
+        return {
+          userOp,
+          calcResult: {
+            balance: gasBalance as bigint, // user balance
+            gasUsed: toHex(maxCostInToken),
+            hasSponsored: false, // for this userOp, can get sponsored or not
+            missAmount: missAmount > 0n ? missAmount : 0n, // for this userOp, how much it needs to deposit
+            needDeposit: missAmount > 0n, // need to deposit or not
+            suspiciousOp: false, // if missAmount is too large, it may considered suspicious
+          } as TUserOperationPreFundResult,
+        };
+      } else {
+        await this.estimateGas(userOp);
+      }
+    }
+
+    const res = await this._sdk.preFund(userOp);
+
+    if (res.isErr()) {
+      throw res.ERR;
+    } else {
+      const {
+        missfund,
+        prefund,
+        //deposit, prefund
+      } = res.OK;
+      const balance = await this._sdk.provider.getBalance(userOp.sender);
+
+      const missAmount = hasSponsored
+        ? transferValue - balance // why transferValue is not accurate? missfund is wrong during preFund?
+        : BigInt(missfund) + transferValue - balance;
+
+      console.log('test: gasUsed', prefund);
+      return {
+        userOp,
+        calcResult: {
+          balance, // user balance
+          gasUsed: prefund,
+          hasSponsored, // for this userOp, can get sponsored or not
+          missAmount: missAmount > 0n ? missAmount : 0n, // for this userOp, how much it needs to deposit
+          needDeposit: missAmount > 0n, // need to deposit or not
+          suspiciousOp: missAmount > parseEther('0.001'), // if missAmount is too large, it may considered suspicious
+        } as TUserOperationPreFundResult,
+      };
+    }
+  }
+
+  public async signMessage(message: Hex, saAddress: Address) {
+    const hashedMessage = hashMessage({ raw: message });
+    const encode1271MessageHash = getEncoded1271MessageHash(hashedMessage);
+    const domainSeparator = getDomainSeparator(toHex(this._config.id), saAddress);
+    const messageHash = getEncodedSHA(domainSeparator, encode1271MessageHash);
+
+    const { signature } = await this._getSignature({ messageHash }, true);
+
+    await this._isSignatureValid(saAddress, hashedMessage, signature as Hex);
+
+    return signature;
+  }
+
+  public async createUserOpFromTxs(from: string, txs: Transaction[]) {
+    const gasPrice = await this._getFeeData();
+    const _userOp = await this._sdk.fromTransaction(
+      formatHex(gasPrice?.maxFeePerGas ?? 0),
+      formatHex(gasPrice?.maxPriorityFeePerGas ?? 0),
+      from,
+      txs as Transaction[]
+    );
+
+    if (_userOp.isErr()) {
+      throw _userOp.ERR;
+    } else {
+      return _userOp.OK;
+    }
+  }
+
+  public calculateRecoveryContactsHash(contacts: string[], threshold: number) {
+    return SocialRecovery.calcGuardianHash(contacts, threshold, zeroHash);
+  }
+
+  public async getRecoveryInfo(address: Address) {
+    const _client = this._getClient();
+
+    try {
+      const socialRecoveryInfo = (await _client.readContract({
+        address: this._config.recovery as Address,
+        abi: ABI_SocialRecoveryModule,
+        functionName: 'getSocialRecoveryInfo',
+        args: [address],
+      })) as SafeAny[];
+
+      if (socialRecoveryInfo?.length !== 3) {
+        throw new Error('Elytro: Failed to get recovery info.');
+      }
+
+      return {
+        contactsHash: socialRecoveryInfo[0] as string,
+        nonce: socialRecoveryInfo[1] as bigint,
+        delayPeriod: socialRecoveryInfo[2] as bigint,
+      };
+    } catch (error) {
+      console.error('Elytro: Failed to get recovery info.', error);
+      return null;
+    }
+  }
+
+  public async generateRecoveryInfoRecordTx(contacts: string[], threshold: number) {
+    if (!this._config.infoRecorder) {
+      throw new Error(`Elytro: Info recorder on chain ${this._config.name} is not set.`);
+    }
+
+    // Encode the guardian data
+    const guardianData = encodeAbiParameters(parseAbiParameters(['address[]', 'uint256', 'bytes32']), [
+      contacts as Address[],
+      BigInt(threshold),
+      zeroHash,
+    ]);
+
+    // Encode the function call data using viem
+    const callData = encodeFunctionData({
+      abi: ABI_RECOVERY_INFO_RECORDER,
+      functionName: 'recordData',
+      args: [GUARDIAN_INFO_KEY, guardianData],
+    });
+
+    return {
+      to: this._config.infoRecorder,
+      data: callData,
+      gasLimit: undefined,
+      value: '0',
+    };
+  }
+
+  public async generateRecoveryContactsSettingTxInfo(newHash: string) {
+    const calldata = encodeFunctionData({
+      abi: ABI_SocialRecoveryModule,
+      functionName: 'setGuardian',
+      args: [newHash],
+    });
+
+    return {
+      to: this._config.recovery as Address,
+      data: calldata,
+      gasLimit: undefined,
+      value: '0',
+    };
+  }
+
+  private async _getInfoRecorderStartBlock(address: Address) {
+    const _client = this._getClient();
+
+    const latestRecordAt = await _client.readContract({
+      address: this._config.infoRecorder as Address,
+      abi: parseAbi([
+        'function latestRecordAt(address addr, bytes32 category) external view returns (uint256 blockNumber)',
+      ]),
+      functionName: 'latestRecordAt',
+      args: [address, GUARDIAN_INFO_KEY],
+    });
+
+    return latestRecordAt;
+  }
+
+  public async queryRecoveryContacts(address: Address) {
+    if (!this._config.infoRecorder) {
+      throw new Error(`Elytro: Info recorder on chain ${this._config.name} is not set.`);
+    }
+
+    let logs: GetLogsOnchainReturnType;
+
+    if (this._config.id === arbitrum.id) {
+      logs = await getLogsOnchain(this._getClient(), {
+        address: this._config.infoRecorder as Address,
+        fromBlock: 0n,
+        toBlock: 'latest',
+        event: parseAbiItem('event DataRecorded(address indexed wallet, bytes32 indexed category, bytes data)'),
+        args: {
+          wallet: address,
+          category: GUARDIAN_INFO_KEY,
+        },
+      });
+    } else {
+      const startBlock = await this._getInfoRecorderStartBlock(address);
+
+      if (startBlock === 0n) {
+        return null;
+      }
+
+      const _client = this._getClient();
+      const fromBlock = startBlock - 10n > 0n ? startBlock - 10n : 0n;
+
+      logs = await _client.getLogs({
+        address: this._config.infoRecorder as Address,
+        toBlock: startBlock + 10n,
+        fromBlock,
+        event: parseAbiItem('event DataRecorded(address indexed wallet, bytes32 indexed category, bytes data)'),
+        args: {
+          wallet: address,
+          category: GUARDIAN_INFO_KEY,
+        },
+      });
+    }
+
+    // Decode the events
+    const parseContactFromLog = (log: SafeAny) => {
+      if (!log || !log.args) {
+        return null;
+      }
+      const parsedLog = decodeAbiParameters(
+        parseAbiParameters(['address[]', 'uint256', 'bytes32']),
+        (log.args as SafeAny).data
+      );
+
+      return {
+        contacts: parsedLog[0],
+        threshold: Number(parsedLog[1]),
+        salt: parsedLog[2],
+      } as TRecoveryContactsInfo;
+    };
+
+    const latestRecoveryContacts = parseContactFromLog(logs[logs.length - 1]);
+    return latestRecoveryContacts;
+  }
+
+  public async getRecoveryNonce(address: Address) {
+    const _client = this._getClient();
+    const nonce = await _client.readContract({
+      address: this._config.recovery as Address,
+      abi: ABI_SocialRecoveryModule,
+      functionName: 'walletNonce',
+      args: [address],
+    });
+
+    return Number(nonce);
+  }
+
+  public async getRecoveryOnchainID(address: Address, nonce: number, newOwners: string[]) {
+    const ownersData = encodeAbiParameters(parseAbiParameters(['bytes32[]']), [
+      newOwners.map((owner) => paddingZero(owner, 32) as `0x${string}`),
+    ]);
+
+    const onChainID = keccak256(
+      encodeAbiParameters(parseAbiParameters(['address', 'uint256', 'bytes', 'address', 'uint256']), [
+        address,
+        BigInt(nonce),
+        ownersData,
+        this._config.recovery as Address,
+        BigInt(this._config.id),
+      ])
+    );
+
+    return onChainID;
+  }
+
+  public async generateRecoveryApproveHash(address: Address, nonce: number, newOwners: string[]) {
+    const typedData = SocialRecovery.getSocialRecoveryTypedData(
+      this._config.id,
+      this._config.recovery as Address,
+      address,
+      nonce,
+      newOwners
+    );
+
+    const domain = {
+      chainId: Number(typedData.domain.chainId),
+      ...(typedData.domain.name && { name: typedData.domain.name }),
+      verifyingContract: typedData.domain.verifyingContract as `0x${string}`,
+      ...(typedData.domain.version && { version: typedData.domain.version }),
+    };
+
+    const sigHash = hashTypedData({
+      domain,
+      types: typedData.types,
+      primaryType: typedData.primaryType,
+      message: typedData.message,
+    });
+
+    return sigHash.toLowerCase();
+  }
+
+  public async checkIsGuardianSigned(guardian: Address, fromBlock: bigint, hash?: `0x${string}`) {
+    const _client = this._getClient();
+
+    const logs = await getLogsOnchain(_client, {
+      address: this._config.recovery as Address,
+      fromBlock,
+      event: parseAbiItem('event ApproveHash(address indexed guardian, bytes32 hash)'),
+      args: { guardian },
+    });
+
+    // If hash is provided, filter logs by the specific recovery hash
+    if (hash) {
+      const filteredLogs = logs.filter((log) => {
+        try {
+          const logArgs = (log as { args?: { hash?: string } }).args;
+          return logArgs && logArgs.hash === hash;
+        } catch {
+          return false;
+        }
+      });
+      return filteredLogs.length > 0;
+    }
+
+    return logs.length > 0;
+  }
+
+  public async checkOnchainRecoveryStatus(wallet: Address, id: string) {
+    const _client = this._getClient();
+
+    const status = await _client.readContract({
+      address: this._config.recovery as Address,
+      abi: ABI_SocialRecoveryModule,
+      functionName: 'getOperationState',
+      args: [wallet, id],
+    });
+
+    return status as RecoveryStatusEn;
+  }
+
+  public async getContractVersion(walletAddress: string) {
+    const _client = this._getClient();
+
+    try {
+      const version = await _client.readContract({
+        address: walletAddress as Address,
+        abi: parseAbi(['function VERSION() public view returns (string memory)']),
+        functionName: 'VERSION',
+        args: [],
+      });
+      return version;
+    } catch (error) {
+      console.error('Elytro: Failed to get contract version.', error);
+      return '0.0.0';
+    }
+  }
+
+  public async getInstalledUpgradeModules(walletAddress: string) {
+    const _client = this._getClient();
+
+    try {
+      const modules = (await _client.readContract({
+        address: walletAddress as Address,
+        abi: ABI_Elytro,
+        functionName: 'listModule',
+      })) as string[][];
+
+      const upgradeModuleSet = new Set(
+        Object.values(VERSION_MODULE_ADDRESS_MAP[this._config.id]?.versionModuleAddress ?? {})
+      );
+
+      const installedUpgradeModules: `0x${string}`[] = [];
+      for (const moduleGroup of modules) {
+        for (const module of moduleGroup) {
+          if (upgradeModuleSet.has(module as `0x${string}`)) {
+            installedUpgradeModules.push(module as `0x${string}`);
+          }
+        }
+      }
+
+      return installedUpgradeModules;
+    } catch (error) {
+      console.error('Elytro: Failed to get installed update modules.', error);
+      return [];
+    }
+  }
+
+  public async getSupportedGasTokens() {
+    const pimlicoRpc = this._getPimlicoRpc();
+    if (!pimlicoRpc) {
+      console.error('Elytro: You need to use a pimlico bundler to get token paymaster.');
+      return [];
+    }
+
+    const res = (await pimlicoRpc.request({
+      method: 'pimlico_getSupportedTokens' as SafeAny,
+      id: this._config.id,
+      params: [] as SafeAny,
+    })) as SupportedToken[];
+
+    // res = res?.filter((item) => ['USDC', 'USDT', 'DAI', 'USD Coin, Tether USD'].includes(item.name));
+
+    return res || [];
+  }
+
+  public async getTokenPaymaster() {
+    const tokens = await this.getSupportedGasTokens();
+
+    if (!tokens || !tokens?.length) {
+      return [];
+    }
+
+    const pimlicoRpc = this._getPimlicoRpc();
+    if (!pimlicoRpc) {
+      throw new Error('You need to use a pimlico bundler to get token paymaster.');
+    }
+
+    const quotesRes = (await pimlicoRpc.request({
+      method: 'pimlico_getTokenQuotes' as SafeAny,
+      id: this._config.id,
+      params: [
+        {
+          tokens: tokens.map((item) => item.token),
+        },
+        this._config.entryPoint as `0x${string}`,
+        this._config.id,
+      ] as SafeAny,
+    })) as TokenQuoteResponse;
+
+    return quotesRes?.quotes
+      ?.map((quote: TokenQuote) => {
+        const token = tokens.find((token) => token.token === quote.token);
+        if (token) {
+          return { ...quote, ...token };
+        }
+        return null;
+      })
+      .filter(Boolean) as TokenPaymaster[];
+  }
+
+  public async getSecurityHookStatus(walletAddress: string, chainId: number): Promise<THookStatus> {
+    const securityHookAddress = SECURITY_HOOK_ADDRESS_MAP[chainId];
+
+    if (!securityHookAddress) {
+      return {
+        hasPreIsValidSignatureHooks: false,
+        hasPreUserOpValidationHooks: false,
+        isInstalled: false,
+        securityHookAddress,
+        isStartPreForceUninstall: false,
+        canForceUninstall: false,
+        forceUninstallAfter: 0,
+      };
+    }
+
+    const _client = this._getClient();
+
+    try {
+      // [preIsValidSignatureHooks[], preUserOpValidationHooks[]] = [ 签名hook列表, userOp hook列表 ]
+      const hooks = (await _client.readContract({
+        address: walletAddress as Address,
+        abi: ABI_Elytro,
+        functionName: 'listHook',
+      })) as [Address[], Address[]];
+
+      let preIsValidSignatureHooks: Address[] = [];
+      let preUserOpValidationHooks: Address[] = [];
+
+      if (Array.isArray(hooks) && hooks.length === 2) {
+        preIsValidSignatureHooks = hooks[0] || [];
+        preUserOpValidationHooks = hooks[1] || [];
+      } else if (hooks && typeof hooks === 'object' && 'preIsValidSignatureHooks' in hooks) {
+        const hooksObj = hooks as unknown as {
+          preIsValidSignatureHooks: Address[];
+          preUserOpValidationHooks: Address[];
+        };
+        preIsValidSignatureHooks = hooksObj.preIsValidSignatureHooks || [];
+        preUserOpValidationHooks = hooksObj.preUserOpValidationHooks || [];
+      }
+
+      const securityHookAddressLower = securityHookAddress.toLowerCase();
+
+      const hasPreIsValidSignatureHooks = preIsValidSignatureHooks.some(
+        (hook) => (hook as string).toLowerCase() === securityHookAddressLower
+      );
+
+      const hasPreUserOpValidationHooks = preUserOpValidationHooks.some(
+        (hook) => (hook as string).toLowerCase() === securityHookAddressLower
+      );
+
+      const userData = await this.canForceUninstallSecurityHook(
+        securityHookAddress as Address,
+        walletAddress as Address
+      );
+      return {
+        hasPreIsValidSignatureHooks,
+        hasPreUserOpValidationHooks,
+        isInstalled: hasPreIsValidSignatureHooks || hasPreUserOpValidationHooks,
+        securityHookAddress,
+        isStartPreForceUninstall: userData?.isStartPreForceUninstall || false,
+        canForceUninstall: userData?.canForceUninstall || false,
+        forceUninstallAfter: userData?.forceUninstallAfter ?? 0,
+      };
+    } catch (_error) {
+      return {
+        hasPreIsValidSignatureHooks: false,
+        hasPreUserOpValidationHooks: false,
+        isInstalled: false,
+        securityHookAddress,
+        isStartPreForceUninstall: false,
+        canForceUninstall: false,
+        forceUninstallAfter: 0,
+      };
+    }
+  }
+
+  /**
+   * Get SecurityHook user data (for checking force uninstall time)
+   * @param securityHookAddress SecurityHook contract address
+   * @param walletAddress Wallet address
+   * @returns User data
+   */
+  public async getSecurityHookUserData(
+    securityHookAddress: Address,
+    walletAddress: Address
+  ): Promise<TSecurityHookUserData | null> {
+    const _client = this._getClient();
+
+    try {
+      const userData = await _client.readContract({
+        address: securityHookAddress,
+        abi: ABI_SecurityHook,
+        functionName: 'userData',
+        args: [walletAddress],
+      });
+
+      // [false, 0, 0n]
+      const [isInstalled, safetyDelay, forceUninstallAfter] = userData as [boolean, number, bigint];
+      return {
+        isInstalled,
+        safetyDelay,
+        forceUninstallAfter: Number(forceUninstallAfter),
+      };
+    } catch (error) {
+      console.error('Elytro: Failed to get SecurityHook user data.', error);
+      return null;
+    }
+  }
+
+  /**
+   * Check if force uninstall can be executed
+   * @param securityHookAddress SecurityHook contract address
+   * @param walletAddress Wallet address
+   * @returns Whether force uninstall can be executed
+   */
+  public async canForceUninstallSecurityHook(
+    securityHookAddress: Address,
+    walletAddress: Address
+  ): Promise<TSecurityHookUserData & { isStartPreForceUninstall: boolean; canForceUninstall: boolean }> {
+    const userData = await this.getSecurityHookUserData(securityHookAddress, walletAddress);
+    console.log('test: userData', userData);
+
+    if (!userData || !userData.isInstalled || userData.forceUninstallAfter === 0) {
+      return {
+        isInstalled: false,
+        safetyDelay: 0,
+        forceUninstallAfter: 0,
+        isStartPreForceUninstall: false,
+        canForceUninstall: false,
+      };
+    }
+    const forceUninstallAfter = Number(userData?.forceUninstallAfter ?? 0n);
+
+    // 用户本机的时间和区块链中的时间不一定一致，也就是 Math.floor(Date.now() / 1000) 这个获取当前时间的当时可能会出问题，在生产环境中需要获取最新的区块高度中记录的时间作为 currentTimestamp 变量
+    const currentTimestamp = await this.getCurrentTimestamp();
+    return {
+      ...userData,
+      forceUninstallAfter: Number(forceUninstallAfter),
+      isStartPreForceUninstall: true,
+      canForceUninstall: currentTimestamp >= forceUninstallAfter,
+    };
+  }
+
+  public async getCurrentTimestamp() {
+    const _client = this._getClient();
+    const latestBlock = await _client.getBlock({ blockTag: 'latest' });
+    console.log('test: latestBlock', latestBlock);
+    return latestBlock.timestamp;
+  }
+
+  // private async _verifyUserSignatureForHook(
+  //   userOp: ElytroUserOperation,
+  //   securityHookAddress: Address
+  // ): Promise<boolean> {
+  //   try {
+  //     const _client = this._getClient();
+
+  //     const packedUserOp = UserOpUtils.packUserOp(userOp);
+
+  //     const callData = encodeFunctionData({
+  //       abi: ABI_EntryPoint as Abi,
+  //       functionName: 'handleOps',
+  //       args: [[packedUserOp], '0x1111111111111111111111111111111111111111' as Address],
+  //     });
+
+  //     const stateOverrides = {
+  //       [securityHookAddress]: {
+  //         code: '0x00' as Hex,
+  //       },
+  //     };
+
+  //     try {
+  //       const result = await _client.request({
+  //         method: 'eth_call',
+  //         params: [
+  //           {
+  //             to: this._config.entryPoint as Address,
+  //             data: callData,
+  //           },
+  //           'latest',
+  //           stateOverrides,
+  //         ],
+  //       });
+
+  //       // If call succeeds (returns 0x), user signature is valid
+  //       return result === '0x' || result === null;
+  //     } catch (error) {
+  //       // If call fails, user signature is invalid
+  //       console.error('Elytro: User signature validation failed for hook', error);
+  //       return false;
+  //     }
+  //   } catch (error) {
+  //     console.error('Elytro: Failed to verify user signature for hook', error);
+  //     return false;
+  //   }
+  // }
+}
+
+export const elytroSDK = new SDKService();

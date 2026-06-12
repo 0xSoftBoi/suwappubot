@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "Elytro",
+  "version": "0.0.23.0",
+  "description": "Elytro Wallet Extension",
+  "icons": {
+    "16": "public/logo-dark-16.png",
+    "48": "public/logo-dark-48.png",
+    "128": "public/logo-dark-128.png"
+  },
+  "side_panel": {
+    "default_path": "src/side-panel.html"
+  },
+  "action": {
+    "default_title": "Click to open Elytro wallet"
+  },
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabs",
+    "sidePanel",
+    "gcm",
+    "notifications"
+  ],
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "resources": [
+        "src/tab.html"
+      ]
+    }
+  ],
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "persistent": true
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "src/content-scripts/index.ts"
+      ]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; frame-ancestors 'none'; font-src 'self';",
+    "sandbox": "sandbox allow-scripts; script-src 'self' 'unsafe-inline' 'unsafe-eval'; object-src 'none'; default-src 'none'; connect-src *; font-src 'self';"
+  },
+  "externally_connectable": {
+    "matches": [
+      "https://*.elytro.com/*"
+    ]
+  }
+}

@@ -1,0 +1,317 @@
+{
+  "ENABLE": true,
+  "id": "stableenrich",
+  "name": "StableEnrich",
+  "description": "Pay-per-request access to Apollo, Clado, Exa, Firecrawl, Google Maps, Serper, Whitepages, Hunter, Minerva, Reddit, and Influencer APIs. No auth, no subscriptions - instant access via x402.",
+  "categories": ["data", "enrichment", "search", "intelligence"],
+  "serviceUrl": "https://enrichx402.com",
+  "tags": ["data-enrichment", "lead-generation", "company-data", "people-data", "apollo", "web-scraping", "firecrawl", "google-maps", "email-verification", "social-profiles", "reddit", "search"],
+  "docs": [
+    "https://enrichx402.com/docs"
+  ],
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/apollo/org-enrich",
+      "description": "Apollo Organization Enrichment - Enrich single company by domain",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.049500",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/apollo/org-search",
+      "description": "Apollo Organization Search - Find companies by filters",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.020000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/apollo/people-enrich",
+      "description": "Apollo People Enrichment - Enrich single person by email/name/domain",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.049500",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/apollo/people-search",
+      "description": "Apollo People Search - Find prospects by filters",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.020000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/clado/contacts-enrich",
+      "description": "Clado Contacts Enrichment - Enrich contact info from LinkedIn URL, email, or phone",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.200000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/cloudflare/crawl",
+      "description": "Cloudflare Browser Rendering Crawl - Start a crawl job with robots.txt support and pattern-based URL filtering",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.100000",
+        "per": "crawl"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/exa/answer",
+      "description": "Exa Answer - Get AI-generated answers with citations",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/exa/contents",
+      "description": "Exa Contents - Retrieve content from URLs",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.002000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/exa/find-similar",
+      "description": "Exa Find Similar - Find pages similar to a given URL",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/exa/search",
+      "description": "Exa Search - Neural search across the web",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/firecrawl/scrape",
+      "description": "Firecrawl Scrape - Scrape a URL with full JavaScript rendering. Use as fallback when WebFetch returns empty/JS-only content or 403s",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.012600",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/firecrawl/search",
+      "description": "Firecrawl Search - Search the web with JS rendering",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.025200",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/google-maps/nearby-search/full",
+      "description": "Google Maps Nearby Search (Full) - Complete place data including reviews and photos",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.080000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/google-maps/nearby-search/partial",
+      "description": "Google Maps Nearby Search (Partial) - Basic place data only",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.020000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/google-maps/place-details/full",
+      "description": "Google Maps Place Details (Full) - Complete place information",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.050000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/google-maps/place-details/partial",
+      "description": "Google Maps Place Details (Partial) - Basic place information",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.020000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/google-maps/text-search/full",
+      "description": "Google Maps Text Search (Full) - Complete search results with details",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.080000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/google-maps/text-search/partial",
+      "description": "Google Maps Text Search (Partial) - Basic search results",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.020000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/hunter/email-verifier",
+      "description": "Hunter Email Verifier - Verify email deliverability and validity",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.030000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/influencer/enrich-by-email",
+      "description": "Influencer Enrich by Email - Find social media profiles associated with an email address",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.400000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/influencer/enrich-by-social",
+      "description": "Influencer Enrich by Social - Enrich social media profile with additional data including contact info",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.400000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/minerva/enrich",
+      "description": "Minerva Enrich - Enrich person records with demographics, work history, education, contact info, addresses, and financial signals. Supports lookup by Minerva PID, LinkedIn URL, or name/email/phone",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.050000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/minerva/resolve",
+      "description": "Minerva Resolve - Resolve person identity to a Minerva PID and LinkedIn URL. Supports fuzzy matching and reverse lookup by email or phone",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.020000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/minerva/validate-emails",
+      "description": "Minerva Validate Emails - Check if email addresses exist in the Minerva database and retrieve validation status and last seen timestamps",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/reddit/post-comments",
+      "description": "Reddit Post Comments - Get post details and comments",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.020000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/reddit/search",
+      "description": "Reddit Search - Search Reddit posts",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.020000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/serper/news",
+      "description": "Serper Google News Search - Search Google News with AI-optimized results",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.040000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/serper/shopping",
+      "description": "Serper Google Shopping Search - Search Google Shopping with product data",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.040000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/whitepages/person-search",
+      "description": "Whitepages Person Search - Find people by name, phone, or address",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.440000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/whitepages/property-search",
+      "description": "Whitepages Property Search - Get property ownership and resident data",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.440000",
+        "per": "request"
+      }
+    }
+  ],
+  "network": "eip155:8453",
+  "currency": "USDC",
+  "note": "StableEnrich aggregates 10+ premium data APIs into a single x402 endpoint. All APIs accessible without API keys or subscriptions - pay only for what you use. Includes: Apollo (B2B data), Clado (LinkedIn enrichment), Exa (neural search), Firecrawl (web scraping), Google Maps (place data), Serper (Google search), Hunter (email verification), Minerva (people data), Influencer (social profiles), Reddit (discussions), Whitepages (people/property lookup), and Cloudflare (browser rendering)."
+}

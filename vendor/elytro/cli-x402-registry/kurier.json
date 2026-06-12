@@ -1,0 +1,63 @@
+{
+  "ENABLE": false,
+  "id": "kurier",
+  "name": "Kurier",
+  "description": "Submit zero-knowledge proofs for on-chain verification via zkVerify. Supports multiple proof types including groth16, plonky2, risc0, fflonk, ultraplonk, sp1, ultrahonk, and ezkl.",
+  "categories": ["blockchain", "zk-proof", "verification"],
+  "serviceUrl": "https://api.kurier.xyz",
+  "tags": ["zero-knowledge", "zk-proof", "blockchain", "verification", "zkverify"],
+  "docs": [
+    "https://kurier.xyz/docs/x402_payments"
+  ],
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/v1/submit-proof",
+      "description": "Submit a zero-knowledge proof for on-chain verification via zkVerify",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.02",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/register-vk",
+      "description": "Register a verification key on-chain and receive a vkHash",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.02",
+        "per": "request"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/random-hash",
+      "description": "Generate a verifiable random hash backed by a zero-knowledge proof (testnet only)",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.02",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pricing",
+      "description": "Query available endpoints and their current prices",
+      "pricing": {
+        "type": "free"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/job-status",
+      "description": "Check verification progress by jobId",
+      "pricing": {
+        "type": "free"
+      }
+    }
+  ],
+  "network": "eip155:8453",
+  "currency": "USDC",
+  "rateLimit": "60 requests per minute per wallet address"
+}

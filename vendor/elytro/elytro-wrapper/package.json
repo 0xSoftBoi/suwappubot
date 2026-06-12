@@ -1,0 +1,72 @@
+{
+  "name": "@elytro/wrapper",
+  "version": "0.2.1",
+  "description": "Natural-language frontend for the Elytro CLI — translates plain-English input into elytro commands using a local LLM and returns structured JSON results.",
+  "type": "module",
+  "bin": {
+    "elytro-wrapper": "dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "scripts",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "ENV_FILE=.env.development node --import ./scripts/load-env.mjs --import tsx/esm src/index.ts",
+    "build": "tsup",
+    "postinstall": "node scripts/check-elytro.mjs && node scripts/download-model.mjs",
+    "download-model": "node scripts/download-model.mjs",
+    "prepublishOnly": "bun run build",
+    "test": "ENV_FILE=.env.test node --import ./scripts/load-env.mjs --import tsx/esm test/smoke.ts",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "elytro",
+    "erc-4337",
+    "smart-account",
+    "wallet",
+    "cli",
+    "useroperation",
+    "account-abstraction"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Elytro-eth/elytro-wrapper.git",
+    "directory": "apps/cli"
+  },
+  "dependencies": {
+    "node-llama-cpp": "^3.18.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.4",
+    "esbuild": "^0.27.4",
+    "husky": "^9.1.0",
+    "lint-staged": "^15.5.0",
+    "prettier": "^3.5.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.3"
+  },
+  "lint-staged": {
+    "*.{ts,js,json,md}": "prettier --write"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "peerDependencies": {
+    "@elytro/cli": ">=0.8.9"
+  },
+  "peerDependenciesMeta": {
+    "@elytro/cli": {
+      "optional": false
+    }
+  }
+}

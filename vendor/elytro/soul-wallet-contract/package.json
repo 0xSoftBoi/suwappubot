@@ -1,0 +1,43 @@
+{
+  "name": "soulwallet-contract",
+  "scripts": {
+    "build": "forge build --sizes",
+    "test": "forge test -vvv",
+    "deploy:soulwallet": "source .env && forge script script/WalletDeployer.s.sol:WalletDeployer --ffi --rpc-url $RPC_URL --broadcast",
+    "deploy:singletonFactory": "source .env && forge script script/SingletonFactory.s.sol:SingletonFactory --ffi --rpc-url $RPC_URL --broadcast",
+    "deploy:paymaster": "source .env && forge script script/PaymasterDeployer.s.sol:PaymasterDeployer --ffi --rpc-url $RPC_URL --broadcast",
+    "deploy:op:soulwallet": "source .env && forge script script/WalletDeployer.s.sol:WalletDeployer --ffi --rpc-url $OPTIMISM_RPC_URL --broadcast --verify --etherscan-api-key $OPTIMISM_SCAN_API_KEY",
+    "deploy:op:automation": "source .env && forge script script/AutomationDeployer.s.sol:AutomationDeployer --ffi --slow --rpc-url $OPTIMISM_RPC_URL --broadcast --verify --etherscan-api-key $OPTIMISM_SCAN_API_KEY",
+    "deploy:sepolia:socialRecovery": "source .env && forge script script/SocialRecoveryDeployer.s.sol:SocialRecoveryDeployer --ffi --slow --rpc-url $SEPOLIA_RPC_URL --broadcast --verify --etherscan-api-key $SEPOLIA_SCAN_API_KEY",
+    "deploy:sepolia:soulwallet": "source .env && forge script script/WalletDeployer.s.sol:WalletDeployer --ffi --slow --rpc-url $SEPOLIA_RPC_URL --broadcast --verify --etherscan-api-key $SEPOLIA_SCAN_API_KEY",
+    "deploy:sepolia:automation": "source .env && forge script script/AutomationDeployer.s.sol:AutomationDeployer --ffi --slow --rpc-url $SEPOLIA_RPC_URL --broadcast --verify --etherscan-api-key $SEPOLIA_SCAN_API_KEY",
+    "deploy:sepolia:paymaster": "source .env && forge script script/PaymasterDeployer.s.sol:PaymasterDeployer --ffi --slow --rpc-url $SEPOLIA_RPC_URL --broadcast --verify --etherscan-api-key $SEPOLIA_SCAN_API_KEY",
+    "deploy:arb-sepolia:socialRecovery": "source .env && forge script script/SocialRecoveryDeployer.s.sol:SocialRecoveryDeployer --ffi --slow --rpc-url $ARB_SEPOLIA_RPC_URL --gas-estimate-multiplier 1900 --legacy --with-gas-price 3000000000 --broadcast --verify --etherscan-api-key $ARB_SEPOLIA_SCAN_API_KEY --verifier-url https://api-sepolia.arbiscan.io/api",
+    "deploy:arb-sepolia:soulwallet": "source .env && forge script script/WalletDeployer.s.sol:WalletDeployer --ffi --slow --rpc-url $ARB_SEPOLIA_RPC_URL --gas-estimate-multiplier 1900 --legacy --with-gas-price 3000000000 --broadcast --verify --etherscan-api-key $ARB_SEPOLIA_SCAN_API_KEY  --verifier-url https://api-sepolia.arbiscan.io/api",
+    "deploy:arb-sepolia:paymaster": "source .env && forge script script/PaymasterDeployer.s.sol:PaymasterDeployer --ffi --slow --rpc-url $ARB_SEPOLIA_RPC_URL --gas-estimate-multiplier 1900 --legacy --with-gas-price 3000000000 --broadcast --verify --etherscan-api-key $ARB_SEPOLIA_SCAN_API_KEY  --verifier-url https://api-sepolia.arbiscan.io/api",
+    "deploy:op-sepolia:socialRecovery": "source .env && forge script script/SocialRecoveryDeployer.s.sol:SocialRecoveryDeployer --ffi --slow --rpc-url $OPTIMISM_SEPOLIA_RPC_URL --broadcast --verify --etherscan-api-key $OPTIMISM_SEPOLIA_SCAN_API_KEY --verifier-url https://api-sepolia-optimistic.etherscan.io/api",
+    "deploy:op-sepolia:soulwallet": "source .env && forge script script/WalletDeployer.s.sol:WalletDeployer --ffi --slow --rpc-url $OPTIMISM_SEPOLIA_RPC_URL --broadcast --verify --etherscan-api-key $OPTIMISM_SEPOLIA_SCAN_API_KEY --verifier-url https://api-sepolia-optimistic.etherscan.io/api",
+    "deploy:op-sepolia:paymaster": "source .env && forge script script/PaymasterDeployer.s.sol:PaymasterDeployer --ffi --slow --rpc-url $OPTIMISM_SEPOLIA_RPC_URL --broadcast --verify --etherscan-api-key $OPTIMISM_SEPOLIA_SCAN_API_KEY --verifier-url https://api-sepolia-optimistic.etherscan.io/api",
+    "deploy:sepolia:all": "npm run deploy:sepolia:socialRecovery && npm run deploy:sepolia:soulwallet && npm run deploy:sepolia:paymaster",
+    "deploy:arb-sepolia:all": "npm run deploy:arb-sepolia:socialRecovery && npm run deploy:arb-sepolia:soulwallet && npm run deploy:arb-sepolia:paymaster",
+    "deploy:op-sepolia:all": "npm run deploy:op-sepolia:socialRecovery && npm run deploy:op-sepolia:soulwallet && npm run deploy:op-sepolia:paymaster",
+    "deploy:base-sepolia:soulwallet": "source .env && forge script script/WalletDeployer.s.sol:WalletDeployer --ffi --slow --rpc-url $BASE_SEPOLIA_RPC_URL --broadcast --verify --etherscan-api-key $BASE_SEPOLIA_SCAN_API_KEY",
+    "deploy:base-sepolia:automation": "source .env && forge script script/AutomationDeployer.s.sol:AutomationDeployer --ffi --slow --rpc-url $BASE_SEPOLIA_RPC_URL --broadcast --verify --etherscan-api-key $BASE_SEPOLIA_SCAN_API_KEY",
+    "deploy:all-sepolia": "npm run deploy:sepolia:all && npm run deploy:scroll-sepolia:all && npm run deploy:arb-sepolia:all && npm run deploy:op-sepolia:all",
+    "deploy:sepolia:receivePayment": "source .env && forge script script/ReceivePayment.s.sol:ReceivePaymentDeployer --ffi --slow --rpc-url $SEPOLIA_RPC_URL --broadcast --verify --etherscan-api-key $SEPOLIA_SCAN_API_KEY",
+    "deploy:op-sepolia:receivePayment": "source .env && forge script script/ReceivePayment.s.sol:ReceivePaymentDeployer --ffi --slow --rpc-url $OPTIMISM_SEPOLIA_RPC_URL --broadcast --verify --etherscan-api-key $OPTIMISM_SEPOLIA_SCAN_API_KEY --verifier-url https://api-sepolia-optimistic.etherscan.io/api",
+    "deploy:arb-sepolia:receivePayment": "source .env && forge script script/ReceivePayment.s.sol:ReceivePaymentDeployer --ffi --slow --rpc-url $ARB_SEPOLIA_RPC_URL --gas-estimate-multiplier 1900 --legacy --with-gas-price 3000000000 --broadcast --verify --etherscan-api-key $ARB_SEPOLIA_SCAN_API_KEY --verifier-url https://api-sepolia.arbiscan.io/api",
+    "deploy:all-sepolia:receivePayment": "npm run deploy:sepolia:receivePayment && npm run deploy:op-sepolia:receivePayment && npm run deploy:arb-sepolia:receivePayment",
+    "gas-report": "forge test --gas-report"
+  },
+  "devDependencies": {
+    "@ethersproject/abi": "^5.6.4",
+    "@ethersproject/providers": "^5.6.8",
+    "dotenv": "^16.0.3",
+    "ethereumjs-util": "^7.1.5",
+    "ethers": "^5.6.9",
+    "npm-run-all": "^4.1.5",
+    "ts-node": "^10.9.1",
+    "typescript": "^4.9.4"
+  }
+}

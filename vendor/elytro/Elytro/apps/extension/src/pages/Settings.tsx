@@ -1,0 +1,100 @@
+import SecondaryPageWrapper from '@/components/biz/SecondaryPageWrapper';
+import { Button, HelperText } from '@elytro/ui';
+import { SIDE_PANEL_ROUTE_PATHS } from '@/routes';
+import { navigateTo, SidePanelRoutePath } from '@/utils/navigation';
+import { LockKeyholeIcon, Settings2Icon, RefreshCcw, WalletCardsIcon, UserRoundIcon } from 'lucide-react';
+import { useWallet } from '@/contexts/wallet';
+import NavItem from '@/components/ui/NavItem';
+import { useAccount } from '@/contexts/account-context';
+
+export default function Settings() {
+  const { wallet } = useWallet();
+
+  const handleLock = async () => {
+    await wallet.lock();
+    navigateTo('side-panel', SIDE_PANEL_ROUTE_PATHS.Home);
+  };
+  const {
+    currentAccount: { needUpgrade },
+  } = useAccount();
+
+  const handleNavigate = (path: SidePanelRoutePath) => {
+    navigateTo('side-panel', path);
+  };
+
+  return (
+    <SecondaryPageWrapper title="Settings">
+      <HelperText description="We are in public beta, please keep deposits small" className="mb-4" />
+      <div className="rounded-md overflow-hidden">
+        <NavItem
+          icon={UserRoundIcon}
+          label="Change passcode"
+          onClick={() => handleNavigate(SIDE_PANEL_ROUTE_PATHS.ChangePassword)}
+        />
+        <NavItem
+          icon={Settings2Icon}
+          label="Networks"
+          onClick={() => handleNavigate(SIDE_PANEL_ROUTE_PATHS.NetworkConfiguration)}
+        />
+        <NavItem
+          icon={WalletCardsIcon}
+          label="Backup accounts"
+          onClick={() => handleNavigate(SIDE_PANEL_ROUTE_PATHS.ExportBackup)}
+        />
+        {needUpgrade && (
+          <NavItem
+            icon={RefreshCcw}
+            label="Update contract"
+            onClick={() => handleNavigate(SIDE_PANEL_ROUTE_PATHS.UpgradeContract)}
+            showRedDot
+          />
+        )}
+      </div>
+
+      <div className="flex flex-col space-y-2 w-full mt-8 mb-4">
+        <Button onClick={handleLock}>
+          <LockKeyholeIcon className="w-4 h-4 mr-2 duration-100 stroke-blue-150" />
+          Lock Elytro
+        </Button>
+      </div>
+
+      <div className="text-center text-gray-450">
+        <p>
+          <a
+            className="text-gray-450 hover:text-gray-750"
+            href="https://elytro.com/faq"
+            target="_blank"
+            rel="noreferrer"
+          >
+            FAQ
+          </a>
+          <a
+            className="ml-3 text-gray-450 hover:text-gray-750"
+            href="https://t.me/+l9coqJq9QHgyYjI1"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Telegram
+          </a>
+          <a
+            className="ml-3 text-gray-450 hover:text-gray-750"
+            href="https://elytro.notion.site/elytro-terms-of-use"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Terms
+          </a>
+          <a
+            className="ml-3 text-gray-450 hover:text-gray-750"
+            href="https://elytro.notion.site/elytro-privacy-policy"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Privacy
+          </a>
+          <span className="ml-3 text-gray-450">V0.1.1 (Beta)</span>
+        </p>
+      </div>
+    </SecondaryPageWrapper>
+  );
+}

@@ -1,0 +1,218 @@
+{
+  "ENABLE": true,
+  "id": "nansen",
+  "name": "Nansen AI",
+  "description": "The first truly agentic onchain app: research, analyze, and execute, all in one loop. Ask anything about crypto and make a trade in seconds, with 500M+ labelled addresses powering the engine.",
+  "categories": ["blockchain", "analytics", "defi", "ai"],
+  "serviceUrl": "https://api.nansen.ai",
+  "tags": ["onchain-intelligence", "smart-money", "wallet-profiling", "token-analytics", "defi-analytics", "perpetual-trading", "prediction-markets", "pnl-tracking", "nansen-score"],
+  "docs": [
+    "https://docs.nansen.ai/getting-started/x402-payments",
+    "https://docs.nansen.ai"
+  ],
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/v1/agent/expert",
+      "description": "Expert Research Agent - AI-powered onchain research and analysis",
+      "pricing": {
+        "type": "fixed",
+        "amount": "7.500000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/profiler/address/current-balance",
+      "description": "Get current balance data for an address across multiple chains",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/profiler/address/pnl",
+      "description": "Get profit and loss (PnL) data for an address",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/profiler/address/pnl-summary",
+      "description": "Get PnL summary for an address",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/profiler/address/transactions",
+      "description": "Get transaction history for an address",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/profiler/address/counterparties",
+      "description": "Get counterparty addresses that interacted with a given address",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.050000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/profiler/address/related-wallets",
+      "description": "Get related wallet addresses (potential same owner)",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/smart-money/holdings",
+      "description": "Get Smart Money current holdings - what tokens Smart Money wallets are holding",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.050000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/smart-money/dex-trades",
+      "description": "Get Smart Money DEX trades - recent trades by Smart Money wallets",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.050000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/smart-money/netflow",
+      "description": "Get Smart Money netflow - inflow/outflow analysis for tokens",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.050000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tgm/token-information",
+      "description": "Get Token God Mode (TGM) token information - comprehensive token data",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tgm/token-ohlcv",
+      "description": "Get token OHLCV (Open, High, Low, Close, Volume) candle data",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tgm/holders",
+      "description": "Get token holder distribution and whale wallets",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.050000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tgm/who-bought-sold",
+      "description": "Get who bought and sold a token - Smart Money activity tracking",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/token-screener",
+      "description": "Screen and filter tokens by various metrics (volume, liquidity, etc.)",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/perp-screener",
+      "description": "Screen perpetual futures contracts by metrics",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/perp-leaderboard",
+      "description": "Get perpetual trading leaderboard - top performers",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.050000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/prediction-market/market-screener",
+      "description": "Screen prediction markets by various filters",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/prediction-market/orderbook",
+      "description": "Get prediction market orderbook data",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "request"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/prediction-market/pnl-by-address",
+      "description": "Get prediction market PnL for a specific address",
+      "pricing": {
+        "type": "fixed",
+        "amount": "0.010000",
+        "per": "request"
+      }
+    }
+  ],
+  "network": "eip155:8453",
+  "currency": "USDC",
+  "note": "Nansen AI provides onchain intelligence with 500M+ labelled wallet addresses. Service includes: (1) Expert Research Agent ($7.50) - AI-powered research and analysis, (2) Wallet Profiling - balance, PnL, transactions, counterparties, (3) Smart Money Tracking - holdings, trades, netflows by Smart Money wallets, (4) Token God Mode (TGM) - comprehensive token analytics, holders, price data, (5) Perpetual Trading Analytics - screener, leaderboard, positions, (6) Prediction Markets - market screening, orderbooks, PnL tracking. Total 45 endpoints covering wallet analysis, token research, trading intelligence, and prediction markets. Pricing ranges from $0.01 to $7.50 per request."
+}

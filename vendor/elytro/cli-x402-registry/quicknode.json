@@ -1,0 +1,138 @@
+{
+  "ENABLE": true,
+  "id": "quicknode",
+  "name": "QuickNode",
+  "description": "Access QuickNode's blockchain infrastructure APIs via x402 payments. Support for 135+ blockchain networks including Ethereum, Bitcoin, Solana, Polygon, and more. Pay per credit bundle in USDC on Base.",
+  "categories": ["blockchain", "infrastructure", "rpc", "data"],
+  "serviceUrl": "https://x402.quicknode.com",
+  "tags": ["rpc", "blockchain", "ethereum", "bitcoin", "solana", "polygon", "avalanche", "arbitrum", "optimism", "base", "bsc", "multi-chain", "node-access"],
+  "docs": [
+    "https://www.quicknode.com/guides/agentic-payments/access-quicknode-endpoints-with-x402-payments",
+    "https://www.quicknode.com/docs/quicknode-products/core"
+  ],
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/ethereum-mainnet",
+      "description": "Ethereum Mainnet RPC endpoint - full node access for eth_call, eth_getBalance, eth_sendRawTransaction, etc.",
+      "pricing": {
+        "type": "fixed",
+        "amount": "10.000000",
+        "per": "credit bundle"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/ethereum-sepolia",
+      "description": "Ethereum Sepolia Testnet RPC endpoint",
+      "pricing": {
+        "type": "fixed",
+        "amount": "10.000000",
+        "per": "credit bundle"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/arbitrum-mainnet",
+      "description": "Arbitrum One Mainnet RPC endpoint",
+      "pricing": {
+        "type": "fixed",
+        "amount": "10.000000",
+        "per": "credit bundle"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/base-mainnet",
+      "description": "Base Mainnet RPC endpoint",
+      "pricing": {
+        "type": "fixed",
+        "amount": "10.000000",
+        "per": "credit bundle"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/optimism-mainnet",
+      "description": "Optimism Mainnet RPC endpoint",
+      "pricing": {
+        "type": "fixed",
+        "amount": "10.000000",
+        "per": "credit bundle"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/polygon-mainnet",
+      "description": "Polygon (Matic) Mainnet RPC endpoint",
+      "pricing": {
+        "type": "fixed",
+        "amount": "10.000000",
+        "per": "credit bundle"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/bsc-mainnet",
+      "description": "Binance Smart Chain (BSC) Mainnet RPC endpoint",
+      "pricing": {
+        "type": "fixed",
+        "amount": "10.000000",
+        "per": "credit bundle"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/avalanche-mainnet",
+      "description": "Avalanche C-Chain Mainnet RPC endpoint",
+      "pricing": {
+        "type": "fixed",
+        "amount": "10.000000",
+        "per": "credit bundle"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/solana-mainnet",
+      "description": "Solana Mainnet RPC endpoint",
+      "pricing": {
+        "type": "fixed",
+        "amount": "10.000000",
+        "per": "credit bundle"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/btc-mainnet",
+      "description": "Bitcoin Mainnet RPC endpoint",
+      "pricing": {
+        "type": "fixed",
+        "amount": "10.000000",
+        "per": "credit bundle"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/credits",
+      "description": "Purchase QuickNode API credits bundle",
+      "pricing": {
+        "type": "fixed",
+        "amount": "10.000000",
+        "per": "credit bundle"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/drip",
+      "description": "Purchase QuickNode API credits bundle (drip endpoint)",
+      "pricing": {
+        "type": "fixed",
+        "amount": "10.000000",
+        "per": "credit bundle"
+      }
+    }
+  ],
+  "network": "eip155:8453",
+  "currency": "USDC",
+  "note": "QuickNode provides RPC access to 135+ blockchain networks. Each endpoint costs $10 USDC per credit bundle. All standard RPC methods are supported (eth_call, eth_getBalance, eth_sendRawTransaction, etc.). Full chain list includes: Ethereum, Bitcoin, Solana, Polygon, Arbitrum, Optimism, Base, BSC, Avalanche, Fantom, Celo, Cosmos, Polkadot, Flow, Fuel, Aptos, Sui, Near, Starknet, zkSync, Scroll, Linea, Mantle, and many more. See official docs for complete chain coverage and RPC method reference."
+}

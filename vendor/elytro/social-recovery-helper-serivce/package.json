@@ -1,0 +1,28 @@
+{
+  "name": "social-recovery-helper",
+  "version": "0.0.1",
+  "description": "social recovery helper serivce [pay the gas fee, only use in the POC]",
+  "scripts": {
+    "start": "ts-node src/app.ts",
+    "build": "rm -rf dist && tsc --project tsconfig.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/proofofsoulprotocol/social-recovery-helper-serivce.git"
+  },
+  "author": "soul",
+  "license": "SEE LICENSE IN LICENSE",
+  "bugs": {
+    "url": "https://github.com/proofofsoulprotocol/social-recovery-helper-serivce/issues"
+  },
+  "homepage": "https://github.com/proofofsoulprotocol/social-recovery-helper-serivce",
+  "devDependencies": { 
+    "ts-node": "^10.9.1",
+    "typescript": "^4.7.4"
+  },
+  "dependencies": { 
+    "web3": "^1.7.5",
+    "yaml": "^2.1.1",
+    "got": "^11.8.3"
+  }
+}

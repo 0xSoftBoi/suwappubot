@@ -1,0 +1,79 @@
+{
+    "ENABLE": true,
+    "id": "coingecko",
+    "name": "CoinGecko",
+    "description": "x402-enabled, instant, pay-per-use crypto price & market data endpoints. Access with native crypto payment, no key or account required.",
+    "categories": [
+        "blockchain",
+        "data",
+        "pricing"
+    ],
+    "serviceUrl": "https://pro-api.coingecko.com",
+    "tags": [
+        "crypto",
+        "price",
+        "market-data",
+        "defi",
+        "tokens",
+        "pools"
+    ],
+    "docs": [
+        "https://docs.coingecko.com/docs/x402",
+        "https://docs.cdp.coinbase.com/x402/quickstart-for-buyers"
+    ],
+    "endpoints": [
+        {
+            "method": "GET",
+            "path": "/api/v3/x402/onchain/simple/networks/{id}/token_price/{address}",
+            "description": "Get token price & market data based on token contract addresses on a network",
+            "pricing": {
+                "type": "fixed",
+                "amount": "0.01",
+                "per": "request"
+            }
+        },
+        {
+            "method": "GET",
+            "path": "/api/v3/x402/onchain/search/pools",
+            "description": "Search pools and tokens by contract address, name or token symbol",
+            "pricing": {
+                "type": "fixed",
+                "amount": "0.01",
+                "per": "request"
+            }
+        },
+        {
+            "method": "GET",
+            "path": "/api/v3/x402/onchain/networks/{id}/trending_pools",
+            "description": "Query the latest trending pools & tokens based on a provided network",
+            "pricing": {
+                "type": "fixed",
+                "amount": "0.01",
+                "per": "request"
+            }
+        },
+        {
+            "method": "GET",
+            "path": "/api/v3/x402/onchain/networks/{network}/tokens/{address}",
+            "description": "Query the latest price, liquidity, and market data of a token based on contract address",
+            "pricing": {
+                "type": "fixed",
+                "amount": "0.01",
+                "per": "request"
+            }
+        },
+        {
+            "method": "GET",
+            "path": "/api/v3/x402/simple/price",
+            "description": "Get token price & market data of coins listed on CoinGecko.com, via symbol or unique coin IDs",
+            "pricing": {
+                "type": "fixed",
+                "amount": "0.01",
+                "per": "request"
+            }
+        }
+    ],
+    "network": "eip155:8453",
+    "currency": "USDC",
+    "note": "Insert '/x402/' after the version segment (/v3/) in the URL path. Do not send API keys. All supported Pro API parameters are available."
+}

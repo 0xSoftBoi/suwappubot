@@ -1,0 +1,27 @@
+[submodule "lib/forge-std"]
+	path = lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "lib/openzeppelin-contracts-upgradeable"]
+	path = lib/openzeppelin-contracts-upgradeable
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts-upgradeable
+	branch = release-v5.0
+[submodule "lib/nitro-contracts"]
+	path = lib/nitro-contracts
+	url = https://github.com/OffchainLabs/nitro-contracts
+[submodule "lib/solenv"]
+	path = lib/solenv
+	url = https://github.com/memester-xyz/solenv
+[submodule "lib/solady"]
+	path = lib/solady
+	url = https://github.com/vectorized/solady
+[submodule "lib/openzeppelin-contracts"]
+	path = lib/openzeppelin-contracts
+	url = https://github.com/Openzeppelin/openzeppelin-contracts
+	branch = release-v5.1
+[submodule "lib/account-abstraction"]
+	path = lib/account-abstraction
+	url = https://github.com/eth-infinitism/account-abstraction
+	branch = releases/v0.7
+[submodule "lib/soulwallet-core"]
+	path = lib/soulwallet-core
+	url = https://github.com/SoulWallet/soulwallet-core

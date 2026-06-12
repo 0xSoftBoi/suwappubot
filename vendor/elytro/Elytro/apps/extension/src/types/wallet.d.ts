@@ -1,0 +1,191 @@
+type TUserOperationPreFundResult = {
+  balance: bigint | number;
+  hasSponsored: boolean;
+  // missAmount: bigint;
+  needDeposit: boolean;
+  suspiciousOp: boolean;
+  gasUsed: string;
+};
+
+type GasPaymentOption =
+  | { type: 'sponsor' }
+  | { type: 'self' }
+  | { type: 'erc20'; token: import('@/types/pimlico').TokenPaymaster };
+
+type GasOptionEstimate = {
+  option: GasPaymentOption;
+  gasUsed: string;
+  needDeposit: boolean;
+  hasSufficientBalance: boolean;
+  balance?: bigint | number;
+};
+
+type OtpPrecheckResult = {
+  otpRequired: boolean;
+  requirementReason?: string;
+  dailyLimitUsdCents?: number;
+  currentSpendUsdCents?: number;
+  projectedSpendUsdCents?: number;
+};
+
+type PrepareUserOpResult = {
+  decodedRes: import('@elytro/decoder').DecodeResult[];
+  gasOptions: GasOptionEstimate[]; // 所有 gas 支付选项的预估结果
+  defaultOption: GasPaymentOption; // 默认选项（基于 canSponsor）
+};
+
+// Network cost option types
+type NetworkCostOption = {
+  type: 'sponsor' | 'eth' | 'erc20';
+  token?: string; // For ERC20 payment
+  paymaster?: string; // For ERC20 payment
+  estimatedCost: {
+    usd: string;
+    native: string;
+  };
+  available: boolean;
+};
+
+type NetworkCostResult = {
+  options: NetworkCostOption[];
+  defaultOption: 'sponsor' | 'eth' | 'erc20';
+  decodedTx: DecodeResult[];
+};
+
+type TAccountInfo = {
+  address: Address;
+  chainId: number;
+  isDeployed: boolean;
+  balance?: Nullable<number>;
+  needUpgrade?: boolean;
+  owner: Address;
+  isRecoveryEnabled: boolean;
+};
+
+type TTransactionInfo = {
+  from: string; // Address
+  to?: string; // Address. (if it's a contract deploy tx, it's null)
+  gas?: string; // Hex
+  value: string; // Hex
+  gasPrice: string; // Hex
+  input?: string; // Hex
+  type?: string; // Hex
+  chainId?: string; // Hex
+
+  maxFeePerGas?: string; // Hex
+  maxPriorityFeePerGas?: string; // Hex
+
+  // sw sdk need below, maybe change it to standards arguments?
+  gasLimit?: string; // Hex
+  data?: string; // HEX
+};
+
+type TElytroTxInfo = {
+  maxFeePerGas: string;
+  maxPriorityFeePerGas: string;
+  from: string;
+  txs: TTransactionInfo[];
+};
+
+type TDAppInfo = {
+  name: string;
+  icon: string;
+  origin?: string;
+};
+
+type TConnectedDAppInfo = TDAppInfo & {
+  isConnected: boolean;
+  permissions: WalletPermission[];
+};
+
+type TSignData = {
+  method:
+    | 'personal_sign'
+    | 'eth_signTypedData'
+    | 'eth_signTypedData_v1'
+    | 'eth_signTypedData_v3'
+    | 'eth_signTypedData_v4';
+  params: string[];
+};
+
+type TApprovalData = {
+  dApp: TDAppInfo;
+  tx?: TTransactionInfo[];
+  options?: {
+    reason?: string;
+    name?: string;
+  };
+  sign?: TSignData;
+  chain?: {
+    method: ChainOperationEn;
+    chainId: number;
+    chainName: string;
+    rpcUrls: string[];
+    nativeCurrency: {
+      name: string;
+      symbol: string;
+      decimals: number;
+    };
+    blockExplorerUrls: string[];
+    iconUrls: string[];
+  };
+  calls?: import('@/types/eip5792').EIP5792Call[];
+  callId?: string;
+};
+
+type TApprovalInfo = {
+  type: ApprovalTypeEn;
+  id: string;
+  data?: TApprovalData;
+  resolve: (data?: unknown) => void;
+  reject: (reason?: Error) => void;
+};
+
+type TRecoveryContact = {
+  label?: string;
+  address: string;
+  confirmed?: boolean;
+};
+
+type TRecoveryContactsInfo = {
+  salt: string;
+  threshold: number;
+  contacts: string[];
+};
+
+type TRecoveryRecord = Omit<TRecoveryContactsInfo, 'contacts'> & {
+  address: Address;
+  chainId: number;
+  approveHash: string; // contact approve hash
+  recoveryID: string; // on chain id
+  signedGuardians: string[];
+  status: TRecoveryStatus;
+  fromBlock: string;
+  contacts: TRecoveryContact[];
+  owner: Address;
+};
+
+type TTokenInfo = {
+  chainId?: number;
+  address: `0x${string}`;
+  name: string;
+  symbol: string;
+  decimals: number;
+  logoURI: string;
+  balance?: string; // in minimum unit
+  importedByUser?: boolean;
+  price?: number;
+};
+
+type TTokenPrice = {
+  address: string;
+  price: number;
+  symbol: string;
+};
+
+type TRecentAddress = {
+  address: string;
+  name?: string;
+  time: number;
+  avatar?: string;
+};

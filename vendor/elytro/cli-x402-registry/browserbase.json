@@ -1,0 +1,39 @@
+{
+  "ENABLE": false,
+  "id": "browserbase",
+  "name": "Browserbase",
+  "description": "Headless browser sessions, web search, and page fetching for AI agents.",
+  "categories": ["web", "compute", "search"],
+  "serviceUrl": "https://x402.browserbase.com",
+  "tags": ["browser", "scraping", "automation", "headless", "search", "fetch"],
+  "docs": [
+    "https://docs.browserbase.com",
+    "https://docs.browserbase.com/llms.txt"
+  ],
+  "endpoints": [
+    {
+      "method": "POST", "path": "/browser/session/create", "description": "Create a browser session", "pricing": { "type": "dynamic", "description": "dynamic charge" },
+      "docs": "https://docs.browserbase.com/reference/api/create-a-session"
+    },
+    {
+      "method": "GET", "path": "/browser/session/:id/status", "description": "Check session status", "pricing": { "type": "free" }
+    },
+    {
+      "method": "POST", "path": "/browser/session/:id/extend", "description": "Add more time to session", "pricing": { "type": "dynamic", "description": "dynamic charge" },
+      "docs": "https://docs.browserbase.com/reference/api/create-a-session"
+    },
+    {
+      "method": "DELETE", "path": "/browser/session/:id", "description": "Terminate session", "pricing": { "type": "free" }
+    },
+    {
+      "method": "POST", "path": "/search", "description": "Web search with structured results", "pricing": { "type": "fixed", "amount": "0.010000", "per": "charge" },
+      "note": "per request",
+      "docs": "https://docs.browserbase.com/features/search"
+    },
+    {
+      "method": "POST", "path": "/fetch", "description": "Fetch a page and return content and metadata", "pricing": { "type": "fixed", "amount": "0.010000", "per": "charge" },
+      "note": "per request",
+      "docs": "https://docs.browserbase.com/features/fetch"
+    }
+  ]
+}

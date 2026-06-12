@@ -1,0 +1,5 @@
+infuraProvider: "https://<chain>.infura.io/v3/<API KEY>"
+
+entryPoint: "<0xaddress>"
+
+sponsors: ["<private key>"]

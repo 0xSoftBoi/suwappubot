@@ -1,0 +1,340 @@
+<?xml version="1.0" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="955pt" height="863pt" viewBox="0.00 0.00 954.92 863.00">
+<g id="graph0" class="graph" transform="translate(60.848028202811065,760.8565237294389) scale(0.8010698775896222)" data-name="G">
+
+<polygon fill="#2e3e56" stroke="transparent" points="-4,4 -4,-859 950.92,-859 950.92,4 -4,4" style=""/>
+<g id="clust1" class="cluster" data-name="clusterSoulToken">
+
+<path fill="#445773" stroke="#445773" d="M20,-147C20,-147 926.92,-147 926.92,-147 932.92,-147 938.92,-153 938.92,-159 938.92,-159 938.92,-698 938.92,-698 938.92,-704 932.92,-710 926.92,-710 926.92,-710 20,-710 20,-710 14,-710 8,-704 8,-698 8,-698 8,-159 8,-159 8,-153 14,-147 20,-147" style=""/>
+<text text-anchor="middle" x="473.46" y="-693.4" font-family="Times,serif" font-size="14.00" fill="#f0f0f0" style="">SoulToken</text>
+</g>
+<g id="clust2" class="cluster" data-name="clusterCounters.Counter">
+
+<path fill="#3b4b63" stroke="#e8726d" stroke-dasharray="5,2" d="M746.04,-8C746.04,-8 837.33,-8 837.33,-8 843.33,-8 849.33,-14 849.33,-20 849.33,-20 849.33,-127 849.33,-127 849.33,-133 843.33,-139 837.33,-139 837.33,-139 746.04,-139 746.04,-139 740.04,-139 734.04,-133 734.04,-127 734.04,-127 734.04,-20 734.04,-20 734.04,-14 740.04,-8 746.04,-8" style=""/>
+<text text-anchor="middle" x="791.69" y="-122.4" font-family="Times,serif" font-size="14.00" fill="#f0f0f0" style="">Counters.Counter</text>
+</g>
+<g id="clust3" class="cluster" data-name="clusterReentrancyGuard">
+
+<path fill="#3b4b63" stroke="#e8726d" stroke-dasharray="5,2" d="M368.3,-62C368.3,-62 556.1,-62 556.1,-62 562.1,-62 568.1,-68 568.1,-74 568.1,-74 568.1,-127 568.1,-127 568.1,-133 562.1,-139 556.1,-139 556.1,-139 368.3,-139 368.3,-139 362.3,-139 356.3,-133 356.3,-127 356.3,-127 356.3,-74 356.3,-74 356.3,-68 362.3,-62 368.3,-62" style=""/>
+<text text-anchor="middle" x="462.2" y="-122.4" font-family="Times,serif" font-size="14.00" fill="#f0f0f0" style="">ReentrancyGuard</text>
+</g>
+<g id="clust4" class="cluster" data-name="cluster_01">
+
+<polygon fill="#2e3e56" stroke="black" points="70.98,-718 70.98,-847 497.2,-847 497.2,-718 70.98,-718" style=""/>
+<text text-anchor="middle" x="284.09" y="-830.4" font-family="Times,serif" font-size="14.00" style="">Legend</text>
+</g>
+<!-- SoulToken.&lt;Constructor&gt; -->
+<g id="node1" class="node" pointer-events="visible" data-name="SoulToken.&lt;Constructor&gt;">
+
+<ellipse fill="#ff9797" stroke="#ff9797" stroke-width="3" cx="143.98" cy="-659" rx="67.55" ry="18" style=""/>
+<text text-anchor="middle" x="143.98" y="-654.8" font-family="Times,serif" font-size="14.00" style="">&lt;Constructor&gt;</text>
+</g>
+<!-- SoulToken.sendRequest -->
+<g id="node2" class="node" pointer-events="visible" data-name="SoulToken.sendRequest">
+
+<ellipse fill="#ff9797" stroke="brown" stroke-width="3" cx="143.98" cy="-605" rx="59.7" ry="18" style=""/>
+<text text-anchor="middle" x="143.98" y="-600.8" font-family="Times,serif" font-size="14.00" style="">sendRequest</text>
+</g>
+<!-- SoulToken.makePropose -->
+<g id="node4" class="node" pointer-events="visible" data-name="SoulToken.makePropose">
+
+<ellipse fill="#edad56" stroke="#edad56" stroke-width="3" cx="462.2" cy="-605" rx="63.13" ry="18" style=""/>
+<text text-anchor="middle" x="462.2" y="-600.8" font-family="Times,serif" font-size="14.00" style="">makePropose</text>
+</g>
+<!-- SoulToken.sendRequest&#45;&gt;SoulToken.makePropose -->
+<g id="edge2" class="edge" data-name="SoulToken.sendRequest-&gt;SoulToken.makePropose">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M204.08,-605C256.34,-605 332.73,-605 388.67,-605" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="388.87,-608.5 398.87,-605 388.87,-601.5 388.87,-608.5" style=""/>
+</g>
+<!-- SoulToken.proposeExists -->
+<g id="node13" class="node" pointer-events="visible" data-name="SoulToken.proposeExists">
+
+<ellipse fill="#edad56" stroke="#edad56" stroke-width="3" cx="462.2" cy="-551" rx="65.44" ry="18" style=""/>
+<text text-anchor="middle" x="462.2" y="-546.8" font-family="Times,serif" font-size="14.00" style="">proposeExists</text>
+</g>
+<!-- SoulToken.sendRequest&#45;&gt;SoulToken.proposeExists -->
+<g id="edge1" class="edge" data-name="SoulToken.sendRequest-&gt;SoulToken.proposeExists">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M196.49,-596.2C251,-586.89 337.16,-572.18 396.28,-562.09" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="396.99,-565.52 406.26,-560.38 395.81,-558.62 396.99,-565.52" style=""/>
+</g>
+<!-- SoulToken.sendBatchRequest -->
+<g id="node3" class="node" pointer-events="visible" data-name="SoulToken.sendBatchRequest">
+
+<ellipse fill="#ff9797" stroke="brown" stroke-width="3" cx="143.98" cy="-551" rx="82.25" ry="18" style=""/>
+<text text-anchor="middle" x="143.98" y="-546.8" font-family="Times,serif" font-size="14.00" style="">sendBatchRequest</text>
+</g>
+<!-- SoulToken.sendBatchRequest&#45;&gt;SoulToken.makePropose -->
+<g id="edge4" class="edge" data-name="SoulToken.sendBatchRequest-&gt;SoulToken.makePropose">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M209.35,-561.99C264.35,-571.38 343.02,-584.82 397.75,-594.17" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="397.24,-597.63 407.68,-595.86 398.41,-590.73 397.24,-597.63" style=""/>
+</g>
+<!-- SoulToken.sendBatchRequest&#45;&gt;SoulToken.proposeExists -->
+<g id="edge3" class="edge" data-name="SoulToken.sendBatchRequest-&gt;SoulToken.proposeExists">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M226.41,-551C275.87,-551 338.54,-551 386.69,-551" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="386.73,-554.5 396.73,-551 386.73,-547.5 386.73,-554.5" style=""/>
+</g>
+<!-- SoulToken.addPendingConfirmEnumeration -->
+<g id="node5" class="node" pointer-events="visible" data-name="SoulToken.addPendingConfirmEnumeration">
+
+<ellipse fill="#edad56" stroke="#edad56" stroke-width="3" cx="791.69" cy="-605" rx="139.47" ry="18" style=""/>
+<text text-anchor="middle" x="791.69" y="-600.8" font-family="Times,serif" font-size="14.00" style="">addPendingConfirmEnumeration</text>
+</g>
+<!-- SoulToken.makePropose&#45;&gt;SoulToken.addPendingConfirmEnumeration -->
+<g id="edge6" class="edge" data-name="SoulToken.makePropose-&gt;SoulToken.addPendingConfirmEnumeration">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M525.57,-605C558.74,-605 601.07,-605 642.12,-605" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="642.24,-608.5 652.24,-605 642.24,-601.5 642.24,-608.5" style=""/>
+</g>
+<!-- SoulToken._hash -->
+<g id="node7" class="node" pointer-events="visible" data-name="SoulToken._hash">
+
+<ellipse fill="#edad56" stroke="#edad56" stroke-width="3" cx="791.69" cy="-551" rx="33.63" ry="18" style=""/>
+<text text-anchor="middle" x="791.69" y="-546.8" font-family="Times,serif" font-size="14.00" style="">_hash</text>
+</g>
+<!-- SoulToken.makePropose&#45;&gt;SoulToken._hash -->
+<g id="edge5" class="edge" data-name="SoulToken.makePropose-&gt;SoulToken._hash">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M517.28,-596.08C582.4,-585.34 690.36,-567.54 749.25,-557.83" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="750.01,-561.26 759.31,-556.17 748.87,-554.35 750.01,-561.26" style=""/>
+</g>
+<!-- SoulToken.removePendingConfirmEnumeration -->
+<g id="node6" class="node" pointer-events="visible" data-name="SoulToken.removePendingConfirmEnumeration">
+
+<ellipse fill="#edad56" stroke="#edad56" stroke-width="3" cx="462.2" cy="-497" rx="154.5" ry="18" style=""/>
+<text text-anchor="middle" x="462.2" y="-492.8" font-family="Times,serif" font-size="14.00" style="">removePendingConfirmEnumeration</text>
+</g>
+<!-- SoulToken.approvePropose -->
+<g id="node8" class="node" pointer-events="visible" data-name="SoulToken.approvePropose">
+
+<ellipse fill="#ff9797" stroke="#ff9797" stroke-width="3" cx="143.98" cy="-497" rx="73.01" ry="18" style=""/>
+<text text-anchor="middle" x="143.98" y="-492.8" font-family="Times,serif" font-size="14.00" style="">approvePropose</text>
+</g>
+<!-- SoulToken.approvePropose&#45;&gt;SoulToken.removePendingConfirmEnumeration -->
+<g id="edge8" class="edge" data-name="SoulToken.approvePropose-&gt;SoulToken.removePendingConfirmEnumeration">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M217.52,-497C241.56,-497 269.37,-497 297.42,-497" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="297.76,-500.5 307.76,-497 297.76,-493.5 297.76,-500.5" style=""/>
+</g>
+<!-- SoulToken.awardToken -->
+<g id="node12" class="node" pointer-events="visible" data-name="SoulToken.awardToken">
+
+<ellipse fill="#edad56" stroke="#edad56" stroke-width="3" cx="462.2" cy="-389" rx="59.1" ry="18" style=""/>
+<text text-anchor="middle" x="462.2" y="-384.8" font-family="Times,serif" font-size="14.00" style="">awardToken</text>
+</g>
+<!-- SoulToken.approvePropose&#45;&gt;SoulToken.awardToken -->
+<g id="edge9" class="edge" data-name="SoulToken.approvePropose-&gt;SoulToken.awardToken">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M202.07,-485.91C225.35,-481.8 251.53,-474.86 271.95,-461 295.82,-444.8 283.8,-422.77 307.95,-407 334.86,-389.42 369.86,-382.35 399.61,-380.72" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="400.03,-384.21 409.9,-380.36 399.78,-377.21 400.03,-384.21" style=""/>
+</g>
+<!-- SoulToken.approvePropose&#45;&gt;SoulToken.awardToken -->
+<g id="edge10" class="edge" data-name="SoulToken.approvePropose-&gt;SoulToken.awardToken">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M216.05,-500.4C235.41,-496.81 255.54,-490.14 271.95,-479 295.82,-462.8 283.8,-440.77 307.95,-425 334.15,-407.89 368.02,-400.73 397.25,-397.19" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="397.82,-400.65 407.38,-396.08 397.06,-393.69 397.82,-400.65" style=""/>
+</g>
+<!-- SoulToken.proposeHashExists -->
+<g id="node14" class="node" pointer-events="visible" data-name="SoulToken.proposeHashExists">
+
+<ellipse fill="#edad56" stroke="#edad56" stroke-width="3" cx="462.2" cy="-443" rx="85.13" ry="18" style=""/>
+<text text-anchor="middle" x="462.2" y="-438.8" font-family="Times,serif" font-size="14.00" style="">proposeHashExists</text>
+</g>
+<!-- SoulToken.approvePropose&#45;&gt;SoulToken.proposeHashExists -->
+<g id="edge7" class="edge" data-name="SoulToken.approvePropose-&gt;SoulToken.proposeHashExists">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M204.46,-486.84C255.66,-478.1 329.84,-465.43 385.31,-455.96" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="386.17,-459.36 395.44,-454.23 384.99,-452.46 386.17,-459.36" style=""/>
+</g>
+<!-- SoulToken.witness -->
+<g id="node9" class="node" pointer-events="visible" data-name="SoulToken.witness">
+
+<ellipse fill="#ff9797" stroke="#ff9797" stroke-width="3" cx="143.98" cy="-443" rx="40.01" ry="18" style=""/>
+<text text-anchor="middle" x="143.98" y="-438.8" font-family="Times,serif" font-size="14.00" style="">witness</text>
+</g>
+<!-- SoulToken.pendingConfirmByIndex -->
+<g id="node10" class="node" pointer-events="visible" data-name="SoulToken.pendingConfirmByIndex">
+
+<ellipse fill="#ff9797" stroke="#ff9797" stroke-width="3" cx="143.98" cy="-389" rx="108.26" ry="18" style=""/>
+<text text-anchor="middle" x="143.98" y="-384.8" font-family="Times,serif" font-size="14.00" style="">pendingConfirmByIndex</text>
+</g>
+<!-- SoulToken.pendingConfirmIndexByHash -->
+<g id="node11" class="node" pointer-events="visible" data-name="SoulToken.pendingConfirmIndexByHash">
+
+<ellipse fill="#ff9797" stroke="#ff9797" stroke-width="3" cx="143.98" cy="-335" rx="127.95" ry="18" style=""/>
+<text text-anchor="middle" x="143.98" y="-330.8" font-family="Times,serif" font-size="14.00" style="">pendingConfirmIndexByHash</text>
+</g>
+<!-- SoulToken._mint -->
+<g id="node18" class="node" pointer-events="visible" data-name="SoulToken._mint">
+
+<ellipse fill="#edad56" stroke="#edad56" stroke-width="3" cx="791.69" cy="-362" rx="33.64" ry="18" style=""/>
+<text text-anchor="middle" x="791.69" y="-357.8" font-family="Times,serif" font-size="14.00" style="">_mint</text>
+</g>
+<!-- SoulToken.awardToken&#45;&gt;SoulToken._mint -->
+<g id="edge13" class="edge" data-name="SoulToken.awardToken-&gt;SoulToken._mint">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M519.5,-384.36C584.54,-379 690.07,-370.3 748.46,-365.48" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="748.77,-368.97 758.45,-364.66 748.19,-361.99 748.77,-368.97" style=""/>
+</g>
+<!-- SoulToken._setTokenURI -->
+<g id="node19" class="node" pointer-events="visible" data-name="SoulToken._setTokenURI">
+
+<ellipse fill="#edad56" stroke="#edad56" stroke-width="3" cx="791.69" cy="-416" rx="67.79" ry="18" style=""/>
+<text text-anchor="middle" x="791.69" y="-411.8" font-family="Times,serif" font-size="14.00" style="">_setTokenURI</text>
+</g>
+<!-- SoulToken.awardToken&#45;&gt;SoulToken._setTokenURI -->
+<g id="edge14" class="edge" data-name="SoulToken.awardToken-&gt;SoulToken._setTokenURI">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M519.5,-393.64C573.95,-398.13 656.8,-404.96 716.59,-409.89" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="716.47,-413.39 726.72,-410.73 717.05,-406.42 716.47,-413.39" style=""/>
+</g>
+<!-- Counters.Counter.increment -->
+<g id="node24" class="node" pointer-events="visible" data-name="Counters.Counter.increment">
+
+<ellipse fill="#edad56" stroke="#edad56" stroke-width="3" cx="791.69" cy="-88" rx="49.79" ry="18" style=""/>
+<text text-anchor="middle" x="791.69" y="-83.8" font-family="Times,serif" font-size="14.00" style="">increment</text>
+</g>
+<!-- SoulToken.awardToken&#45;&gt;Counters.Counter.increment -->
+<g id="edge11" class="edge" data-name="SoulToken.awardToken-&gt;Counters.Counter.increment">
+
+<path fill="none" stroke="white" stroke-width="2" d="M519.34,-393.98C552.02,-393.65 591.57,-387.17 616.45,-362 685.8,-291.85 590.62,-219.85 652.45,-143 672.66,-117.89 706.01,-104.19 734.89,-96.74" style=""/>
+<polygon fill="white" stroke="white" stroke-width="2" points="735.98,-100.08 744.89,-94.36 734.35,-93.27 735.98,-100.08" style=""/>
+</g>
+<!-- Counters.Counter.current -->
+<g id="node25" class="node" pointer-events="visible" data-name="Counters.Counter.current">
+
+<ellipse fill="#edad56" stroke="#edad56" stroke-width="3" cx="791.69" cy="-34" rx="38.26" ry="18" style=""/>
+<text text-anchor="middle" x="791.69" y="-29.8" font-family="Times,serif" font-size="14.00" style="">current</text>
+</g>
+<!-- SoulToken.awardToken&#45;&gt;Counters.Counter.current -->
+<g id="edge12" class="edge" data-name="SoulToken.awardToken-&gt;Counters.Counter.current">
+
+<path fill="none" stroke="white" stroke-width="2" d="M518.99,-394.37C551.96,-394.27 591.94,-387.9 616.45,-362 709.05,-264.13 560.76,-159.72 652.45,-61 675.23,-36.48 713.16,-30.46 743.53,-30.17" style=""/>
+<polygon fill="white" stroke="white" stroke-width="2" points="743.89,-33.67 753.93,-30.28 743.97,-26.67 743.89,-33.67" style=""/>
+</g>
+<!-- SoulToken.proposeExists&#45;&gt;SoulToken._hash -->
+<g id="edge15" class="edge" data-name="SoulToken.proposeExists-&gt;SoulToken._hash">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M527.51,-551C592.61,-551 691.45,-551 747.65,-551" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="747.96,-554.5 757.96,-551 747.96,-547.5 747.96,-554.5" style=""/>
+</g>
+<!-- SoulToken._beforeTokenTransfer -->
+<g id="node15" class="node" pointer-events="visible" data-name="SoulToken._beforeTokenTransfer">
+
+<ellipse fill="#f2c383" stroke="#f2c383" stroke-width="3" cx="143.98" cy="-173" rx="97.8" ry="18" style=""/>
+<text text-anchor="middle" x="143.98" y="-168.8" font-family="Times,serif" font-size="14.00" style="">_beforeTokenTransfer</text>
+</g>
+<!-- ReentrancyGuard._beforeTokenTransfer -->
+<g id="node26" class="node" pointer-events="visible" data-name="ReentrancyGuard._beforeTokenTransfer">
+
+<ellipse fill="#edad56" stroke="#edad56" stroke-width="3" cx="462.2" cy="-88" rx="97.8" ry="18" style=""/>
+<text text-anchor="middle" x="462.2" y="-83.8" font-family="Times,serif" font-size="14.00" style="">_beforeTokenTransfer</text>
+</g>
+<!-- SoulToken._beforeTokenTransfer&#45;&gt;ReentrancyGuard._beforeTokenTransfer -->
+<g id="edge16" class="edge" data-name="SoulToken._beforeTokenTransfer-&gt;ReentrancyGuard._beforeTokenTransfer">
+
+<path fill="none" stroke="white" stroke-width="2" d="M187.3,-156.85C237.22,-141.26 321.23,-118.3 383.08,-103.08" style=""/>
+<polygon fill="white" stroke="white" stroke-width="2" points="383.92,-106.48 392.81,-100.71 382.26,-99.68 383.92,-106.48" style=""/>
+</g>
+<!-- SoulToken._beforeTokenTransfer&#45;&gt;ReentrancyGuard._beforeTokenTransfer -->
+<g id="edge17" class="edge" data-name="SoulToken._beforeTokenTransfer-&gt;ReentrancyGuard._beforeTokenTransfer">
+
+<path fill="none" stroke="white" stroke-width="2" d="M213.59,-160.23C272.25,-146.05 355.4,-123.53 408.83,-107.25" style=""/>
+<polygon fill="white" stroke="white" stroke-width="2" points="409.92,-110.58 418.44,-104.29 407.86,-103.89 409.92,-110.58" style=""/>
+</g>
+<!-- SoulToken.burn -->
+<g id="node16" class="node" pointer-events="visible" data-name="SoulToken.burn">
+
+<ellipse fill="#ffbdb9" stroke="#ffbdb9" stroke-width="3" cx="143.98" cy="-281" rx="28.98" ry="18" style=""/>
+<text text-anchor="middle" x="143.98" y="-276.8" font-family="Times,serif" font-size="14.00" style="">burn</text>
+</g>
+<!-- SoulToken._isApprovedOrOwner -->
+<g id="node20" class="node" pointer-events="visible" data-name="SoulToken._isApprovedOrOwner">
+
+<ellipse fill="#edad56" stroke="#edad56" stroke-width="3" cx="462.2" cy="-335" rx="97.29" ry="18" style=""/>
+<text text-anchor="middle" x="462.2" y="-330.8" font-family="Times,serif" font-size="14.00" style="">_isApprovedOrOwner</text>
+</g>
+<!-- SoulToken.burn&#45;&gt;SoulToken._isApprovedOrOwner -->
+<g id="edge18" class="edge" data-name="SoulToken.burn-&gt;SoulToken._isApprovedOrOwner">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M171.94,-285.6C217.56,-293.4 311.72,-309.47 380.25,-321.18" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="379.72,-324.64 390.16,-322.87 380.9,-317.74 379.72,-324.64" style=""/>
+</g>
+<!-- SoulToken._msgSender -->
+<g id="node21" class="node" pointer-events="visible" data-name="SoulToken._msgSender">
+
+<ellipse fill="#edad56" stroke="#edad56" stroke-width="3" cx="462.2" cy="-227" rx="58.56" ry="18" style=""/>
+<text text-anchor="middle" x="462.2" y="-222.8" font-family="Times,serif" font-size="14.00" style="">_msgSender</text>
+</g>
+<!-- SoulToken.burn&#45;&gt;SoulToken._msgSender -->
+<g id="edge19" class="edge" data-name="SoulToken.burn-&gt;SoulToken._msgSender">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M171.94,-276.4C222.26,-267.8 331.62,-249.13 400.52,-237.36" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="401.11,-240.81 410.38,-235.68 399.93,-233.91 401.11,-240.81" style=""/>
+</g>
+<!-- SoulToken._burn -->
+<g id="node22" class="node" pointer-events="visible" data-name="SoulToken._burn">
+
+<ellipse fill="#edad56" stroke="#edad56" stroke-width="3" cx="462.2" cy="-281" rx="33.63" ry="18" style=""/>
+<text text-anchor="middle" x="462.2" y="-276.8" font-family="Times,serif" font-size="14.00" style="">_burn</text>
+</g>
+<!-- SoulToken.burn&#45;&gt;SoulToken._burn -->
+<g id="edge20" class="edge" data-name="SoulToken.burn-&gt;SoulToken._burn">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M172.76,-281C228.13,-281 352.53,-281 418.4,-281" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="418.45,-284.5 428.45,-281 418.45,-277.5 418.45,-284.5" style=""/>
+</g>
+<!-- SoulToken.withdraw -->
+<g id="node17" class="node" pointer-events="visible" data-name="SoulToken.withdraw">
+
+<ellipse fill="#ffbdb9" stroke="#ffbdb9" stroke-width="3" cx="143.98" cy="-227" rx="47.52" ry="18" style=""/>
+<text text-anchor="middle" x="143.98" y="-222.8" font-family="Times,serif" font-size="14.00" style="">withdraw</text>
+</g>
+<!-- SoulToken.payable -->
+<g id="node23" class="node" pointer-events="visible" data-name="SoulToken.payable">
+
+<ellipse fill="#edad56" stroke="#edad56" stroke-width="3" cx="462.2" cy="-173" rx="41.13" ry="18" style=""/>
+<text text-anchor="middle" x="462.2" y="-168.8" font-family="Times,serif" font-size="14.00" style="">payable</text>
+</g>
+<!-- SoulToken.withdraw&#45;&gt;SoulToken.payable -->
+<g id="edge21" class="edge" data-name="SoulToken.withdraw-&gt;SoulToken.payable">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M187.62,-219.72C246.43,-209.68 352.09,-191.63 413.47,-181.15" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="414.39,-184.54 423.66,-179.41 413.21,-177.64 414.39,-184.54" style=""/>
+</g>
+<!-- key -->
+<g id="node27" class="node" pointer-events="visible" data-name="key">
+
+<polygon fill="#edad56" stroke="transparent" stroke-width="3" points="208.98,-814 78.98,-814 78.98,-726 208.98,-726 208.98,-814" style=""/>
+<text text-anchor="start" x="128.61" y="-795.4" font-family="Times,serif" font-size="14.00" style="">Internal Call</text>
+<text text-anchor="start" x="124.72" y="-775.4" font-family="Times,serif" font-size="14.00" style="">External Call</text>
+<text text-anchor="start" x="102.18" y="-755.4" font-family="Times,serif" font-size="14.00" style="">Defined Contract</text>
+<text text-anchor="start" x="88.58" y="-735.4" font-family="Times,serif" font-size="14.00" style="">Undefined Contract</text>
+</g>
+<!-- key2 -->
+<g id="node28" class="node" pointer-events="visible" data-name="key2">
+
+<polygon fill="#edad56" stroke="transparent" stroke-width="3" points="489.2,-814 435.2,-814 435.2,-726 489.2,-726 489.2,-814" style=""/>
+<text text-anchor="start" x="452.2" y="-795.4" font-family="Times,serif" font-size="14.00" style="">   </text>
+<text text-anchor="start" x="452.2" y="-775.4" font-family="Times,serif" font-size="14.00" style="">   </text>
+<polygon fill="#445773" stroke="transparent" points="450.2,-750 450.2,-770 475.2,-770 475.2,-750 450.2,-750" style=""/>
+<text text-anchor="start" x="452.2" y="-755.4" font-family="Times,serif" font-size="14.00" style="">   </text>
+<polygon fill="none" stroke="#e8726d" points="452.2,-732 452.2,-748 473.2,-748 473.2,-732 452.2,-732" style=""/>
+</g>
+<!-- key&#45;&gt;key2 -->
+<g id="edge22" class="edge" data-name="key-&gt;key2">
+
+<path fill="none" stroke="#1bc6a6" stroke-width="2" d="M201.98,-800C308.42,-800 337.53,-800 439.14,-800" style=""/>
+<polygon fill="#1bc6a6" stroke="#1bc6a6" stroke-width="2" points="439.2,-803.5 449.2,-800 439.2,-796.5 439.2,-803.5" style=""/>
+</g>
+<!-- key&#45;&gt;key2 -->
+<g id="edge23" class="edge" data-name="key-&gt;key2">
+
+<path fill="none" stroke="white" stroke-width="2" d="M201.98,-780C308.42,-780 337.53,-780 439.14,-780" style=""/>
+<polygon fill="white" stroke="white" stroke-width="2" points="439.2,-783.5 449.2,-780 439.2,-776.5 439.2,-783.5" style=""/>
+</g>
+</g>
+</svg>

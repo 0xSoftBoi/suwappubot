@@ -1,0 +1,47 @@
+{
+  "ENABLE": true,
+  "id": "stableupload",
+  "name": "StableUpload",
+  "description": "Pay-per-upload file hosting. Upload files, get a link. Support for static site hosting with automatic extraction from zip files.",
+  "categories": ["storage", "hosting", "infrastructure"],
+  "serviceUrl": "https://stableupload.dev",
+  "tags": ["file-upload", "file-hosting", "static-site", "cdn", "storage"],
+  "docs": [
+    "https://stableupload.dev/"
+  ],
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/upload",
+      "description": "Buy an upload slot and receive a signed URL to upload your file. Files are hosted permanently and accessible via public link",
+      "pricing": {
+        "type": "fixed",
+        "amount": "2.000000",
+        "per": "upload"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/site",
+      "description": "Buy a site upload slot. Upload a zip file, then activate to extract and serve as a static site",
+      "pricing": {
+        "type": "fixed",
+        "amount": "2.000000",
+        "per": "site"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/site/renew",
+      "description": "Renew a static site for count × 6 months. Price = tier price × count",
+      "pricing": {
+        "type": "fixed",
+        "amount": "20.000000",
+        "per": "renewal"
+      }
+    }
+  ],
+  "network": "eip155:8453",
+  "currency": "USDC",
+  "note": "StableUpload provides instant file and static site hosting via x402. Features: (1) File Upload - $2 per file with permanent hosting and public link, (2) Static Site Hosting - $2 to deploy a zip file as a static website, (3) Site Renewal - $20 per 6-month extension. No account required - authenticate with x402 payment. Ideal for AI agents that need to host files, images, or deploy static web applications on-demand."
+}
