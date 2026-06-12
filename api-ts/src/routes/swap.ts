@@ -1,6 +1,7 @@
 import { Turnkey } from '@turnkey/sdk-server'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
+import { isStarknet } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import { logger } from '../lib/logger'
 import { DatabaseError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
@@ -151,6 +152,14 @@ swapRoutes.get('/quote', ipRateLimit(30), telegramAuth(), async (c) => {
 		| 'CHEAPEST'
 		| 'SAFEST'
 		| undefined
+
+	// Starknet is read-only in the TS stack — signing/broadcast lives in the Python bot
+	if ((fromChain && isStarknet(fromChain)) || (toChain && isStarknet(toChain))) {
+		return c.json(
+			{ success: false, error: 'Starknet transactions are handled by the bot backend' },
+			400,
+		)
+	}
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {

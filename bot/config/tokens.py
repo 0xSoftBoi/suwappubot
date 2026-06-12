@@ -36,6 +36,7 @@ TOKENS: dict[str, TokenConfig] = {
             "tron": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
             "plasma": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
             "starknet": starknet_addresses.USDT,
+            "goat": "0xE1AD845D93853fff44990aE0DcecD8575293681e",  # 6 decimals on GOAT
         },
         logo_emoji="💵",
     ),
@@ -54,6 +55,8 @@ TOKENS: dict[str, TokenConfig] = {
             "tron": "TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8",
             "plasma": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
             "starknet": starknet_addresses.USDC,
+            # GOAT's canonical USDC is bridged USDC.e (6 decimals)
+            "goat": "0x3022b87ac063DE95b1570F46f5e470F8B53112D8",
         },
         logo_emoji="💲",
     ),
@@ -258,8 +261,32 @@ TOKENS: dict[str, TokenConfig] = {
             "arbitrum": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
             "optimism": "0x4200000000000000000000000000000000000006",
             "base": "0x4200000000000000000000000000000000000006",
+            "goat": "0x3a1293Bdb83bBbDd5Ebf4fAc96605aD2021BbC0f",  # bridged WETH, 18 decimals
         },
         logo_emoji="🔷",
+        is_stablecoin=False,
+    ),
+    "WGBTC": TokenConfig(
+        symbol="WGBTC",
+        name="Wrapped GOAT Bitcoin",
+        # GOAT's native gas token is BTC with 18 decimals (ETH-style native units,
+        # unlike the 8-decimal WBTC ERC20 on other chains). WGBTC wraps that native
+        # BTC 1:1, so it is ALSO 18 decimals.
+        decimals=18,
+        addresses={
+            "goat": "0xbC10000000000000000000000000000000000000",
+        },
+        logo_emoji="🐐",
+        is_stablecoin=False,
+    ),
+    "BTC": TokenConfig(
+        symbol="BTC",
+        name="Bitcoin (GOAT native)",
+        decimals=18,  # native BTC on GOAT uses 18 decimals, like ETH
+        addresses={
+            "goat": "0x0000000000000000000000000000000000000000",  # native placeholder
+        },
+        logo_emoji="₿",
         is_stablecoin=False,
     ),
     "ETH": TokenConfig(
@@ -644,6 +671,15 @@ def get_token_decimals(symbol: str, chain_name: str) -> int:
         # USDC and USDT on BSC have 18 decimals (BEP-20 standard)
         if symbol.upper() in ("USDC", "USDT") and chain_name.lower() == "bsc":
             return 18
+        # GOAT Network: defensive chain-specific override (matches top-level
+        # decimals today, but pinned so a future top-level change can't silently
+        # corrupt GOAT amount math — mirrors the BSC override above)
+        if chain_name.lower() == "goat":
+            sym = symbol.upper()
+            if sym in ("USDT", "USDC"):
+                return 6
+            if sym in ("WGBTC", "WETH"):
+                return 18
         return token.decimals
     return 18  # Default
 

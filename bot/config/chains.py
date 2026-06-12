@@ -234,6 +234,18 @@ CHAINS: dict[str, ChainConfig] = {
         logo_emoji="🟪",
         lifi_chain_id=9745,
     ),
+    "goat": ChainConfig(
+        chain_id=2345,
+        name="goat",
+        display_name="GOAT",
+        chain_type=ChainType.EVM,
+        native_token="BTC",
+        native_decimals=18,  # GOAT's native BTC uses 18 decimals (ETH-style), NOT 8
+        rpc_url_env="GOAT_RPC_URL",
+        explorer_url="https://explorer.goat.network",
+        logo_emoji="🐐",
+        lifi_chain_id=None,  # Li.Fi does not support GOAT — routes via GOATSwap only
+    ),
     # === New Li.Fi-supported chains (2025-2026) ===
     "sonic": ChainConfig(
         chain_id=146,
