@@ -1061,6 +1061,25 @@ class SwapEngine:
         to_amount_human = self._get_token_amount_human(str(gs_quote.amount_out), to_token, "goat")
         exchange_rate = to_amount_human / amount if amount > 0 else 0
 
+        # Honest gas estimate: 300k gas * live gas price * cached BTC price
+        # (GOAT gas is BTC-denominated, 18 decimals). The gas price is one cheap
+        # eth_gasPrice on the same RPC the quote just used; the BTC price comes
+        # ONLY from the price cache — no extra HTTP fetch at quote time. If
+        # either is unavailable we report 0.0 and the UI shows "varies" instead
+        # of a fabricated number.
+        gas_cost_usd = 0.0
+        try:
+            from bot.services.rpc_manager import rpc_manager
+            from bot.utils.cache import price_cache
+
+            btc_price = await price_cache.get("price_BTC") or await price_cache.get("price_WBTC")
+            if btc_price:
+                web3 = rpc_manager.get_web3("goat")
+                gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+                gas_cost_usd = 300_000 * gas_price / 1e18 * float(btc_price)
+        except Exception as e:
+            logger.debug(f"GOAT gas cost estimate unavailable (will display 'varies'): {e}")
+
         raw = dict(gs_quote.raw_response)
         raw.update(
             {
@@ -1084,9 +1103,9 @@ class SwapEngine:
             to_amount=str(gs_quote.amount_out),
             to_amount_human=to_amount_human,
             to_amount_min=str(min_out),
-            gas_cost_usd=0.05,  # GOAT gas is cheap (BTC-denominated, L2 fees)
+            gas_cost_usd=gas_cost_usd,  # 0.0 = unknown (no cached BTC price) → UI shows "varies"
             fee_cost_usd=0,
-            total_cost_usd=0.05,
+            total_cost_usd=gas_cost_usd,
             estimated_time=5,  # GOAT block time ~few seconds
             price_impact=0.0,
             exchange_rate=exchange_rate,
@@ -1968,6 +1987,15 @@ class SwapEngine:
         Raises:
             SwapError: If validation fails or swap execution fails
         """
+        # Hard backstop BEFORE any provider dispatch: GOAT must NEVER execute via
+        # the Li.Fi/EVM aggregator path — no aggregator supports chain id 2345.
+        # Checked up-front so a mis-built quote fails before locks/DB/funds.
+        if "goat" in (quote.from_chain.lower(), quote.to_chain.lower()):
+            if quote.provider != "goatswap":
+                raise SwapError(
+                    f"GOAT swaps must route via GOATSwap (got provider '{quote.provider}')"
+                )
+
         # Prevent concurrent swaps from same wallet (with bounded growth)
         if wallet_id not in self._wallet_locks:
             if len(self._wallet_locks) >= self._wallet_locks_max:
@@ -2155,12 +2183,8 @@ class SwapEngine:
                     tx_hash = await self._execute_avnu_swap(quote, wallet)
                 elif quote.provider == "goatswap":
                     tx_hash = await self._execute_goatswap_swap(quote, wallet)
-                elif "goat" in (quote.from_chain.lower(), quote.to_chain.lower()):
-                    # Hard guard: GOAT must NEVER fall into the Li.Fi/EVM aggregator
-                    # path — no aggregator supports chain id 2345.
-                    raise SwapError(
-                        f"GOAT swaps must route via GOATSwap (got provider '{quote.provider}')"
-                    )
+                # (GOAT guard lives at the top of execute_swap — any goat quote
+                # reaching this dispatch is guaranteed provider == "goatswap")
                 elif "starknet" in (quote.from_chain.lower(), quote.to_chain.lower()):
                     # Hard guard: Starknet must NEVER fall into the Li.Fi/EVM path.
                     raise SwapError(
@@ -2967,7 +2991,9 @@ class SwapEngine:
 
         logger.info(
             f"GOATSwap exactInputSingle: {tx_hash.hex()} "
-            f"({quote.from_token}→{quote.to_token} fee tier {gs_quote.fee_tier})"
+            f"({quote.from_token}→{quote.to_token} fee tier {gs_quote.fee_tier}) — "
+            f"fire-and-monitor: swap receipt NOT awaited here; final status comes "
+            f"from the tx poller"
         )
         return tx_hash.hex()
 

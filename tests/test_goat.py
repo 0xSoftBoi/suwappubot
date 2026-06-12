@@ -349,3 +349,76 @@ class TestGoatRouting:
                     from_address="0x0000000000000000000000000000000000000001",
                 )
             )
+
+
+class TestGoatDecimalsOverride:
+    """Chain-specific decimals pins for GOAT (defensive — mirror of BSC override)."""
+
+    def test_usdt_usdc_6_on_goat(self):
+        assert get_token_decimals("USDT", "goat") == 6
+        assert get_token_decimals("usdc", "GOAT") == 6
+
+    def test_wgbtc_weth_18_on_goat(self):
+        assert get_token_decimals("WGBTC", "goat") == 18
+        assert get_token_decimals("WETH", "goat") == 18
+
+
+class TestGoatExecuteSwapGuard:
+    """The hard guard at the START of execute_swap must reject any goat quote
+    whose provider is not goatswap — before locks, DB work, or fund movement."""
+
+    def test_forged_lifi_goat_quote_rejected(self):
+        from bot.services.swap_engine import SwapEngine, SwapError, SwapQuote
+
+        engine = SwapEngine.__new__(SwapEngine)
+        forged = SwapQuote(
+            provider="lifi",  # forged: aggregators do not support GOAT
+            from_chain="goat",
+            to_chain="goat",
+            from_token="USDT",
+            to_token="WETH",
+            from_amount="10000000",
+            from_amount_human=10.0,
+            to_amount="1",
+            to_amount_human=0.001,
+            to_amount_min="1",
+            gas_cost_usd=0.0,
+            fee_cost_usd=0.0,
+            total_cost_usd=0.0,
+            estimated_time=5,
+            price_impact=0.0,
+            exchange_rate=0.0001,
+            raw_quote={},
+        )
+        with pytest.raises(SwapError, match="GOAT swaps must route via GOATSwap"):
+            asyncio.get_event_loop().run_until_complete(
+                engine.execute_swap(quote=forged, wallet_id=1, user_id=1)
+            )
+
+    def test_goat_to_chain_also_guarded(self):
+        from bot.services.swap_engine import SwapEngine, SwapError, SwapQuote
+
+        engine = SwapEngine.__new__(SwapEngine)
+        forged = SwapQuote(
+            provider="0x",
+            from_chain="ethereum",
+            to_chain="goat",
+            from_token="USDT",
+            to_token="WETH",
+            from_amount="10000000",
+            from_amount_human=10.0,
+            to_amount="1",
+            to_amount_human=0.001,
+            to_amount_min="1",
+            gas_cost_usd=0.0,
+            fee_cost_usd=0.0,
+            total_cost_usd=0.0,
+            estimated_time=5,
+            price_impact=0.0,
+            exchange_rate=0.0001,
+            raw_quote={},
+        )
+        with pytest.raises(SwapError, match="GOAT swaps must route via GOATSwap"):
+            asyncio.get_event_loop().run_until_complete(
+                engine.execute_swap(quote=forged, wallet_id=1, user_id=1)
+            )

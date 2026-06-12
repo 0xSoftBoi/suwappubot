@@ -42,7 +42,8 @@ GOATSWAP_V2_ROUTER02 = "0xc6189404eACa8a96A9B26eCc6c892568f55deD9E"  # unused in
 WGBTC_ADDRESS = "0xbC10000000000000000000000000000000000000"
 NATIVE_BTC_ADDRESS = "0x0000000000000000000000000000000000000000"
 
-# Uniswap V3 fee tiers to probe, most-liquid-first
+# Uniswap V3 fee tiers — ALL tiers are probed in parallel and the best output
+# wins; the list order carries no priority (see get_quote's asyncio.gather)
 FEE_TIERS = [3000, 500, 10000]
 
 # Minimal ABIs — only the functions we call
@@ -75,6 +76,10 @@ QUOTER_V2_ABI = [
 
 # SwapRouter02's ExactInputSingleParams has NO deadline field; the deadline is
 # enforced via multicall(uint256 deadline, bytes[] data) — standard convention.
+# NOTE: SwapRouter02 actually exposes three multicall overloads
+# (multicall(bytes[]), multicall(uint256 deadline, bytes[]) and
+# multicall(bytes32 previousBlockhash, bytes[])); only the deadline-bearing
+# overload is declared here, so ABI dispatch is unambiguous by construction.
 SWAP_ROUTER02_ABI = [
     {
         "name": "exactInputSingle",
@@ -121,6 +126,13 @@ ERC20_ABI = [
         "outputs": [{"name": "", "type": "bool"}],
     }
 ]
+
+
+# Module-level, provider-less Web3 instance used purely as an ABI codec for
+# offline calldata encoding (build_approve_tx / build_swap_tx). Constructing
+# Web3() per call is surprisingly expensive (middleware stack init); this
+# instance never touches the network so it is safe to share.
+_CODEC_W3 = Web3()
 
 
 class GoatSwapError(Exception):
@@ -254,8 +266,8 @@ class GoatSwapAPI:
     def build_approve_tx(self, token: str, amount: int) -> dict:
         """Exact-amount ERC20 approval to SwapRouter02 (data only; caller adds
         nonce/gas/chainId and signs)."""
-        # Codec-only Web3 (no provider) is fine for ABI encoding
-        erc20 = Web3().eth.contract(address=Web3.to_checksum_address(token), abi=ERC20_ABI)
+        # Codec-only Web3 (no provider, module-cached) is fine for ABI encoding
+        erc20 = _CODEC_W3.eth.contract(address=Web3.to_checksum_address(token), abi=ERC20_ABI)
         data = erc20.functions.approve(
             Web3.to_checksum_address(GOATSWAP_SWAP_ROUTER02), int(amount)
         )._encode_transaction_data()
@@ -280,7 +292,7 @@ class GoatSwapAPI:
         """
         if deadline is None:
             deadline = int(time.time()) + 600  # 10 minutes
-        router = Web3().eth.contract(
+        router = _CODEC_W3.eth.contract(
             address=Web3.to_checksum_address(GOATSWAP_SWAP_ROUTER02), abi=SWAP_ROUTER02_ABI
         )
         inner = router.functions.exactInputSingle(

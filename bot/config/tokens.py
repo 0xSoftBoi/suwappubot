@@ -671,6 +671,15 @@ def get_token_decimals(symbol: str, chain_name: str) -> int:
         # USDC and USDT on BSC have 18 decimals (BEP-20 standard)
         if symbol.upper() in ("USDC", "USDT") and chain_name.lower() == "bsc":
             return 18
+        # GOAT Network: defensive chain-specific override (matches top-level
+        # decimals today, but pinned so a future top-level change can't silently
+        # corrupt GOAT amount math — mirrors the BSC override above)
+        if chain_name.lower() == "goat":
+            sym = symbol.upper()
+            if sym in ("USDT", "USDC"):
+                return 6
+            if sym in ("WGBTC", "WETH"):
+                return 18
         return token.decimals
     return 18  # Default
 

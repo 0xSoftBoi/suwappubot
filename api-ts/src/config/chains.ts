@@ -44,6 +44,8 @@ export const STARKNET_EXPLORER_URL = 'https://voyager.online'
 // Starknet is read-only in the TS stack: never sign or broadcast Starknet
 // transactions here — the Python bot backend owns Starknet signing.
 export function isStarknet(chain: string): boolean {
+	// Defensive: callers may pass untyped JSON (null/undefined/number) at runtime
+	if (typeof chain !== 'string') return false
 	const n = chain.toLowerCase().trim()
 	return n === 'starknet' || n === 'strk' || n === 'sn_main'
 }
