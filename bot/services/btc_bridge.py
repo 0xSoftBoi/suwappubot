@@ -167,6 +167,17 @@ class BtcBridge:
         if dst_token is None:
             dst_token = DEPOSIT_DST_CHAINS[dst_chain] or settings.btc_deposit_default_token
         self._assert_not_botanix(dst_chain, dst_token)
+        # Defense in depth: the wallet's chain type MUST match the destination
+        # chain — a Starknet felt address sent as the Citrea (EVM) dstAddress
+        # (or vice versa) would lose the deposit. The UI filters wallet pickers,
+        # but callbacks can carry any owned wallet id.
+        expected_chain_type = "evm" if dst_chain == "citrea" else "starknet"
+        wallet_chain_type = (getattr(wallet, "chain_type", "") or "").lower()
+        if wallet_chain_type != expected_chain_type:
+            raise BtcBridgeError(
+                f"Wallet chain type '{wallet_chain_type}' cannot receive a {dst_chain} "
+                f"deposit (need a {expected_chain_type} wallet)"
+            )
         if sats <= 0:
             raise BtcBridgeError("Deposit amount must be positive")
 
