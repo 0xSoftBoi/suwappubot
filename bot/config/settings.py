@@ -378,6 +378,16 @@ class Settings(BaseSettings):
         description="Default Starknet token received from BTC/Lightning deposits",
     )
 
+    # Morpho Blue on Base (cbBTC-collateralized USDC borrowing + USDC earn vaults)
+    morpho_enabled: bool = Field(
+        default=True,
+        description="Enable the Morpho borrow product and its health-factor monitor",
+    )
+    morpho_vault_default: str = Field(
+        default="0xbeeF010f9cb27031ad51e3333f9aF9C6B1228183",
+        description="Default MetaMorpho USDC earn vault on Base (Steakhouse USDC)",
+    )
+
     # Infura network name mappings
     INFURA_NETWORKS: ClassVar[Dict[str, str]] = {
         "ethereum": "mainnet",
