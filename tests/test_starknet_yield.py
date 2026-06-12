@@ -39,7 +39,7 @@ AMOUNT = 50_000  # 0.0005 BTC in sats
 
 
 def run(coro):
-    return asyncio.new_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def _wallet():
@@ -190,7 +190,12 @@ def _exec_service(strk_balance=0.0, deployed=True, balance_btc=1.0):
     async def token_balance(symbol, address):
         return strk_balance if symbol == "STRK" else balance_btc
 
+    async def token_balance_raw(symbol, address):
+        # Integer sats — the deposit path must use this, never float * 1e8.
+        return int(round(balance_btc * SATS))
+
     ws.get_starknet_token_balance = AsyncMock(side_effect=token_balance)
+    ws.get_starknet_token_balance_raw = AsyncMock(side_effect=token_balance_raw)
     ws.is_starknet_deployed = AsyncMock(return_value=deployed)
     ws.ensure_starknet_deployed = AsyncMock()
     ws.get_private_key = MagicMock(return_value="0x1234")
@@ -289,6 +294,88 @@ class TestExecutionFallbackSplit:
         calls = exec_mock.await_args.args[1]
         assert calls[0]["calldata"][0] == shares
 
+    def test_deposit_uses_raw_integer_balance_not_float(self, monkeypatch):
+        """The deposit balance check must use the integer u256 variant —
+        a balance of exactly amount sats must pass with no float rounding."""
+        svc, ws = _exec_service(balance_btc=AMOUNT / SATS)
+        monkeypatch.setattr(settings, "starknet_paymaster_enabled", False)
+        with (
+            patch.object(
+                StarknetYieldService, "_execute_calls", new=AsyncMock(return_value="0xabc")
+            ),
+        ):
+            run(svc.deposit(_wallet(), "endur_xwbtc", AMOUNT))
+        ws.get_starknet_token_balance_raw.assert_awaited_once()
+        # The float method must not be consulted for the balance gate.
+        ws.get_starknet_token_balance.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# withdraw_assets: live exchange-rate fetch at execution time
+# ---------------------------------------------------------------------------
+
+
+class TestWithdrawAssets:
+    def _svc_with_live_position(self, shares_balance, assets_value):
+        svc = StarknetYieldService(wallet_service=MagicMock())
+        position = {
+            "shares_raw": shares_balance,
+            "assets_raw": assets_value,
+            "assets_btc": assets_value / SATS,
+            "share_price_raw": assets_value * SATS // max(shares_balance, 1),
+        }
+        get_pos = AsyncMock(return_value=position)
+        exec_mock = AsyncMock(return_value="0xabc")
+        return svc, get_pos, exec_mock
+
+    def test_shares_computed_from_live_fetch_not_cached_rate(self):
+        """The rate moved between the confirm screen and execution: shares must
+        come from the LIVE balanceOf/convert_to_assets, not a cached price."""
+        shares_balance = 1_000_000
+        live_assets_value = 1_100_000  # rate is now 1.1 (was 1.0 on the screen)
+        svc, get_pos, exec_mock = self._svc_with_live_position(shares_balance, live_assets_value)
+        with (
+            patch.object(StarknetYieldService, "get_position", get_pos),
+            patch.object(StarknetYieldService, "_execute_calls", exec_mock),
+        ):
+            run(svc.withdraw_assets(_wallet(), "vesu_vwbtc", 550_000))
+        get_pos.assert_awaited_once()
+        calls = exec_mock.await_args.args[1]
+        # 550_000 * 1_000_000 // 1_100_000 = 500_000 shares (live rate),
+        # NOT 550_000 (the stale 1.0 rate).
+        assert calls[0]["calldata"][0] == 550_000 * shares_balance // live_assets_value == 500_000
+
+    def test_near_full_amount_redeems_all_shares_no_dust(self):
+        """>= 99.5% of the position value → redeem ALL shares (true max path)."""
+        shares_balance = 1_000_000
+        assets_value = 1_100_000
+        svc, get_pos, exec_mock = self._svc_with_live_position(shares_balance, assets_value)
+        with (
+            patch.object(StarknetYieldService, "get_position", get_pos),
+            patch.object(StarknetYieldService, "_execute_calls", exec_mock),
+        ):
+            run(svc.withdraw_assets(_wallet(), "vesu_vwbtc", assets_value - 1))
+        calls = exec_mock.await_args.args[1]
+        assert calls[0]["calldata"][0] == shares_balance
+
+    def test_shares_clamped_to_balance(self):
+        shares_balance = 1_000
+        assets_value = 1_000
+        svc, get_pos, exec_mock = self._svc_with_live_position(shares_balance, assets_value)
+        with (
+            patch.object(StarknetYieldService, "get_position", get_pos),
+            patch.object(StarknetYieldService, "_execute_calls", exec_mock),
+        ):
+            run(svc.withdraw_assets(_wallet(), "endur_xwbtc", 5_000))
+        calls = exec_mock.await_args.args[1]
+        assert calls[0]["calldata"][0] == shares_balance
+
+    def test_empty_position_rejected(self):
+        svc, get_pos, _ = self._svc_with_live_position(0, 0)
+        with patch.object(StarknetYieldService, "get_position", get_pos):
+            with pytest.raises(StarknetYieldError, match="Nothing to withdraw"):
+                run(svc.withdraw_assets(_wallet(), "endur_xwbtc", 1_000))
+
 
 # ---------------------------------------------------------------------------
 # handler: sats validation
@@ -305,6 +392,13 @@ def _load_savings_module():
 
     if "savings_handler_under_test" in sys.modules:
         return sys.modules["savings_handler_under_test"]
+    # Python 3.9 compat: ConversationHandler creates asyncio.Lock() at module
+    # import, which on 3.9 requires a current event loop (asyncio.run() in
+    # earlier tests clears it). Ensure one is set before exec.
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
     path = pathlib.Path(__file__).resolve().parents[1] / "bot" / "handlers" / "savings.py"
     spec = importlib.util.spec_from_file_location("savings_handler_under_test", path)
     module = importlib.util.module_from_spec(spec)
@@ -320,6 +414,8 @@ class TestSatsValidation:
         assert _parse_btc_amount("0.0005") == 50_000
         assert _parse_btc_amount("1") == 100_000_000
         assert _parse_btc_amount("0.00000001") == 1  # 1 sat
+        # Intentional: thousands separators are stripped, so "1,000" parses as
+        # 1000 BTC (not 1.000). Matches the swap-amount parsing convention.
         assert _parse_btc_amount("1,000") == 100_000_000_000
 
     def test_invalid_amounts(self):
@@ -350,9 +446,11 @@ class TestDeadButtonAudit:
         conv = handlers.savings_conversation_handler
 
         source = inspect.getsource(handlers)
-        emitted = set(re.findall(r'callback_data=["\'](save_btc[^"\']*)["\']', source))
+        # Outer quotes are double quotes; allow single quotes inside (f-string
+        # subscripts like {btc['venue']}).
+        emitted = set(re.findall(r'callback_data="(save_btc[^"]*)"', source))
         # f-string venue buttons: expand to one per venue key.
-        for fstring in re.findall(r'callback_data=f["\'](save_btc[^"\']*)["\']', source):
+        for fstring in re.findall(r'callback_data=f"(save_btc[^"]*)"', source):
             emitted.discard(fstring)
             for key in VENUES:
                 emitted.add(re.sub(r"\{[^}]*\}", key, fstring))
@@ -368,6 +466,27 @@ class TestDeadButtonAudit:
             assert any(
                 p.search(data) for p in patterns
             ), f"dead button: callback_data {data!r} matches no registered pattern"
+
+    def test_anchored_venue_pattern_rejects_unknown_keys(self):
+        """The venue pattern is anchored on the canonical VENUES keys — a
+        bogus key must never match any registered handler pattern."""
+        from telegram.ext import CallbackQueryHandler
+
+        handlers = _load_savings_module()
+        conv = handlers.savings_conversation_handler
+
+        patterns = []
+        for handler_list in list(conv.states.values()) + [conv.entry_points, conv.fallbacks]:
+            for h in handler_list:
+                if isinstance(h, CallbackQueryHandler) and h.pattern is not None:
+                    patterns.append(h.pattern)
+
+        for bogus in ("save_btc_v_bogus", "save_btc_v_", "save_btc_v_endur_xwbtcX"):
+            assert not any(
+                p.search(bogus) for p in patterns
+            ), f"unknown venue key {bogus!r} matched a registered pattern"
+        for key in VENUES:
+            assert any(p.search(f"save_btc_v_{key}") for p in patterns)
 
     def test_btc_states_registered(self):
         handlers = _load_savings_module()

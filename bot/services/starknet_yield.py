@@ -60,6 +60,9 @@ class YieldVenue:
     underlying_address: str
     family: str  # "endur" | "vesu"
     yield_note: str
+    # Decimals of the underlying asset (and the convert_to_assets probe unit).
+    # All current venues are BTC-denominated with 8 decimals (sats).
+    decimals: int = BTC_DECIMALS
 
 
 VENUES: dict[str, YieldVenue] = {
@@ -148,14 +151,15 @@ class StarknetYieldService:
         """Return the user's position in a venue, BTC-denominated.
 
         Returns {shares_raw, assets_raw, assets_btc, share_price_raw} where
-        share_price_raw = convert_to_assets(1e8) (implied assets per 10^8
-        shares — the venue's current exchange rate).
+        share_price_raw = convert_to_assets(10**venue.decimals) — the implied
+        assets per one whole-unit of shares, i.e. the venue's current exchange
+        rate probed in the venue's own decimals (8 for all current BTC venues).
         """
         venue = get_venue(venue_key)
         addr_hex = hex(int(wallet_address, 16))
         try:
             shares_raw = await self._view_u256(venue.vault_address, "balanceOf", [addr_hex])
-            low, high = _split_u256(SATS)
+            low, high = _split_u256(10**venue.decimals)
             share_price_raw = await self._view_u256(
                 venue.vault_address, "convert_to_assets", [hex(low), hex(high)]
             )
@@ -175,7 +179,7 @@ class StarknetYieldService:
         return {
             "shares_raw": shares_raw,
             "assets_raw": assets_raw,
-            "assets_btc": assets_raw / SATS,
+            "assets_btc": assets_raw / (10**venue.decimals),
             "share_price_raw": share_price_raw,
         }
 
@@ -267,18 +271,18 @@ class StarknetYieldService:
             raise StarknetYieldError("Amount must be greater than zero.")
 
         try:
-            balance = await self.wallet_service.get_starknet_token_balance(
+            balance_raw = await self.wallet_service.get_starknet_token_balance_raw(
                 venue.underlying_symbol, wallet.address
             )
         except Exception as e:
             raise StarknetYieldError(
                 f"Could not fetch your {venue.underlying_symbol} balance. Try again shortly."
             ) from e
-        balance_raw = int(balance * SATS)
+        unit = 10**venue.decimals
         if balance_raw < amount_raw:
             raise StarknetYieldError(
                 f"Insufficient {venue.underlying_symbol}. You have "
-                f"{balance_raw / SATS:.8f} but tried to deposit {amount_raw / SATS:.8f}."
+                f"{balance_raw / unit:.8f} but tried to deposit {amount_raw / unit:.8f}."
             )
 
         calls = self.build_deposit_calls(venue, amount_raw, wallet.address)
@@ -313,6 +317,42 @@ class StarknetYieldService:
             "starknet yield withdraw: venue=%s shares_raw=%s tx=%s", venue_key, shares_raw, tx_hash
         )
         return tx_hash
+
+    # If a requested withdrawal covers at least this fraction of the position,
+    # redeem ALL shares (true max path — no dust left behind by rounding).
+    _FULL_WITHDRAW_THRESHOLD = 0.995
+
+    async def withdraw_assets(self, wallet, venue_key: str, assets_raw: int) -> str:
+        """Withdraw `assets_raw` (underlying base units) by redeeming shares.
+
+        The share amount is computed from a LIVE position fetch at execution
+        time — never from a rate cached on an earlier screen (the exchange
+        rate moves as yield accrues):
+
+        - shares = assets_raw * shares_balance // assets_value (floor),
+          clamped to shares_balance;
+        - if assets_raw >= 99.5% of the position's current value, redeem ALL
+          shares instead (true max path, no dust).
+        """
+        venue = get_venue(venue_key)
+        assets_raw = int(assets_raw)
+        if assets_raw <= 0:
+            raise StarknetYieldError("Amount must be greater than zero.")
+
+        position = await self.get_position(wallet.address, venue_key)
+        shares_balance = position["shares_raw"]
+        assets_value = position["assets_raw"]
+        if shares_balance <= 0 or assets_value <= 0:
+            raise StarknetYieldError("Nothing to withdraw from this venue.")
+
+        if assets_raw >= assets_value * self._FULL_WITHDRAW_THRESHOLD:
+            shares = shares_balance
+        else:
+            shares = min(assets_raw * shares_balance // assets_value, shares_balance)
+        if shares <= 0:
+            raise StarknetYieldError("Amount is too small to withdraw.")
+
+        return await self.withdraw(wallet, venue_key, shares)
 
     # ── execution (mirrors swap_engine._execute_avnu_swap) ───────────────────
 

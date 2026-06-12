@@ -25,6 +25,7 @@ from telegram.ext import (
 from bot.models.user import User, Wallet
 from bot.models.savings import SavingsEvent
 from bot.services.savings_service import savings_service, SavingsError
+from bot.services.starknet_yield import VENUES as _BTC_VENUES
 from bot.services.wallet import WalletService
 from bot.utils.formatters import format_tx_link
 from bot.utils.validators import validate_amount
@@ -46,6 +47,10 @@ logger = logging.getLogger(__name__)
 ) = range(8)
 
 wallet_service = WalletService()
+
+# Anchored venue callback pattern built from the canonical venue keys —
+# unknown keys can never enter the conversation state.
+_SAVE_BTC_VENUE_PATTERN = "^save_btc_v_(?:" + "|".join(_BTC_VENUES) + ")$"
 
 # Recovery keyboard for error screens — "save_menu" is a registered entry
 # point, so this works even after the conversation has ended.
@@ -623,13 +628,16 @@ async def save_btc_menu_callback(update: Update, context: ContextTypes.DEFAULT_T
     except Exception:
         bal_lines = "   • Balances unavailable — try Refresh."
 
+    positions = await asyncio.gather(
+        *(starknet_yield_service.get_position(wallet.address, key) for key in VENUES),
+        return_exceptions=True,
+    )
     pos_lines = []
-    for key, venue in VENUES.items():
-        try:
-            position = await starknet_yield_service.get_position(wallet.address, key)
-            pos_lines.append(f"   • {venue.name}: *{position['assets_btc']:.8f} BTC*")
-        except StarknetYieldError:
+    for venue, position in zip(VENUES.values(), positions):
+        if isinstance(position, BaseException):
             pos_lines.append(f"   • {venue.name}: —")
+        else:
+            pos_lines.append(f"   • {venue.name}: *{position['assets_btc']:.8f} BTC*")
 
     addr_short = f"{wallet.address[:6]}...{wallet.address[-4:]}"
     text = (
@@ -686,7 +694,6 @@ async def save_btc_venue_callback(update: Update, context: ContextTypes.DEFAULT_
         position = await starknet_yield_service.get_position(btc["wallet_address"], venue_key)
         btc["position_shares"] = position["shares_raw"]
         btc["position_assets"] = position["assets_raw"]
-        btc["share_price_raw"] = position["share_price_raw"]
         pos_text = f"{position['assets_btc']:.8f} BTC"
     except StarknetYieldError as e:
         await query.edit_message_text(f"❌ {e}", reply_markup=_BTC_RETRY_KEYBOARD)
@@ -743,15 +750,22 @@ async def save_btc_action_callback(update: Update, context: ContextTypes.DEFAULT
     btc["action"] = "deposit" if query.data == "save_btc_dep" else "withdraw"
     if btc["action"] == "deposit":
         try:
-            balance = await wallet_service.get_starknet_token_balance(
+            available_raw = await wallet_service.get_starknet_token_balance_raw(
                 venue.underlying_symbol, btc["wallet_address"]
             )
         except Exception:
-            balance = 0.0
-        btc["available_raw"] = int(balance * 1e8)
+            # Never present a false 0 balance on an RPC failure — stop here.
+            await query.edit_message_text(
+                "⚠️ Balance unavailable (RPC error) — try again",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("« Back", callback_data=f"save_btc_v_{btc['venue']}")]]
+                ),
+            )
+            return SAVE_BTC_VENUE
+        btc["available_raw"] = available_raw
         text = (
             f"➕ *Deposit {venue.underlying_symbol}* → {venue.name}\n\n"
-            f"Available: *{balance:.8f} {venue.underlying_symbol}*\n\n"
+            f"Available: *{available_raw / 10**venue.decimals:.8f} {venue.underlying_symbol}*\n\n"
             f"Enter an amount in BTC (up to 8 decimals, e.g. 0.0005):"
         )
     else:
@@ -890,16 +904,16 @@ async def save_btc_execute_callback(update: Update, context: ContextTypes.DEFAUL
             )
         else:
             if amount_raw is None:
-                shares = "max"
+                # Full position: the service resolves the live share balance.
+                tx_hash = await starknet_yield_service.withdraw(wallet, venue.key, "max")
                 amount_btc = None
             else:
-                # BTC amount → shares via the venue's current exchange rate.
-                share_price = int(btc.get("share_price_raw") or 0)
-                if share_price <= 0:
-                    raise StarknetYieldError("Could not read the venue exchange rate. Try again.")
-                shares = int(amount_raw) * 10**8 // share_price
+                # BTC amount → shares computed inside the service from a LIVE
+                # position fetch (never a rate cached on an earlier screen).
+                tx_hash = await starknet_yield_service.withdraw_assets(
+                    wallet, venue.key, int(amount_raw)
+                )
                 amount_btc = amount_raw / 1e8
-            tx_hash = await starknet_yield_service.withdraw(wallet, venue.key, shares)
             await _log_btc_event(user_id, wallet_id, venue, "withdraw", amount_btc, tx_hash)
             amount_text = (
                 "your full position" if amount_raw is None else f"{_fmt_btc(amount_raw)} BTC"
@@ -990,7 +1004,7 @@ savings_conversation_handler = ConversationHandler(
             CallbackQueryHandler(save_close_callback, pattern="^save_close$"),
         ],
         SAVE_BTC_MENU: [
-            CallbackQueryHandler(save_btc_venue_callback, pattern="^save_btc_v_"),
+            CallbackQueryHandler(save_btc_venue_callback, pattern=_SAVE_BTC_VENUE_PATTERN),
             CallbackQueryHandler(save_btc_menu_callback, pattern="^save_btc_menu$"),
             CallbackQueryHandler(save_refresh_callback, pattern="^save_refresh$"),
         ],
@@ -998,18 +1012,18 @@ savings_conversation_handler = ConversationHandler(
             CallbackQueryHandler(save_btc_action_callback, pattern="^save_btc_dep$"),
             CallbackQueryHandler(save_btc_action_callback, pattern="^save_btc_wd$"),
             CallbackQueryHandler(save_btc_action_callback, pattern="^save_btc_wd_all$"),
-            CallbackQueryHandler(save_btc_venue_callback, pattern="^save_btc_v_"),
+            CallbackQueryHandler(save_btc_venue_callback, pattern=_SAVE_BTC_VENUE_PATTERN),
             CallbackQueryHandler(save_btc_menu_callback, pattern="^save_btc_menu$"),
             CallbackQueryHandler(save_refresh_callback, pattern="^save_refresh$"),
         ],
         SAVE_BTC_AMOUNT: [
-            CallbackQueryHandler(save_btc_venue_callback, pattern="^save_btc_v_"),
+            CallbackQueryHandler(save_btc_venue_callback, pattern=_SAVE_BTC_VENUE_PATTERN),
             CallbackQueryHandler(save_btc_menu_callback, pattern="^save_btc_menu$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, save_btc_enter_amount),
         ],
         SAVE_BTC_CONFIRM: [
             CallbackQueryHandler(save_btc_execute_callback, pattern="^save_btc_exec$"),
-            CallbackQueryHandler(save_btc_venue_callback, pattern="^save_btc_v_"),
+            CallbackQueryHandler(save_btc_venue_callback, pattern=_SAVE_BTC_VENUE_PATTERN),
             CallbackQueryHandler(save_btc_menu_callback, pattern="^save_btc_menu$"),
         ],
         SAVE_SELECT_WALLET: [
