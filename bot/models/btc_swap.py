@@ -35,6 +35,9 @@ class BtcSwap(Base):
 
     src_token = Column(String(64), nullable=False)
     dst_token = Column(String(64), nullable=False)
+    # Destination chain for LN-in deposits ("starknet" | "citrea"); NULL for
+    # legacy rows (implicitly starknet) and for withdrawals.
+    dst_chain = Column(String(32), nullable=True)
     # Raw base-unit amounts as strings (sats are 8dp; never floats)
     amount_raw = Column(String(64), nullable=True)
     quote_output_raw = Column(String(64), nullable=True)

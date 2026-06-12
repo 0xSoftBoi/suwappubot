@@ -69,6 +69,8 @@ CHAINLIST_IDS: Dict[str, int] = {
     "goat": 2345,
     # Rootstock (Bitcoin sidechain) — routes via Li.Fi only; legacy gas, EIP-1191 checksums
     "rootstock": 30,
+    # Citrea (Bitcoin ZK rollup) — same-chain swaps route via JuiceSwap, not aggregators
+    "citrea": 4114,
 }
 
 # Chains needing PoA middleware

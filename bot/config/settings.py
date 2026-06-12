@@ -242,6 +242,10 @@ class Settings(BaseSettings):
         default="https://public-node.rsk.co",
         description="Rootstock (Bitcoin sidechain, chain id 30) RPC URL(s)",
     )
+    citrea_rpc_url: str = Field(
+        default="https://rpc.mainnet.citrea.xyz",
+        description="Citrea (Bitcoin ZK rollup, chain id 4114) RPC URL(s)",
+    )
 
     # New Li.Fi chains (RPCManager auto-discovers from chainlist.org)
     sonic_rpc_url: str = Field(default="https://rpc.soniclabs.com", description="Sonic RPC")

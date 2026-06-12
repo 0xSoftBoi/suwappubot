@@ -55,6 +55,7 @@ def test_handler_functions_exist():
         btc_handlers.btc_command,
         btc_handlers.btc_menu_callback,
         btc_handlers.btc_deposit_callback,
+        btc_handlers.btc_dep_dest_callback,
         btc_handlers.btc_withdraw_callback,
         btc_handlers.btc_wallet_callback,
         btc_handlers.btc_new_wallet_callback,
@@ -106,6 +107,8 @@ _EMITTED_CALLBACKS = [
     "btc_new_wallet",
     "btc_w_42",
     "btc_exec",
+    "btc_dst_starknet",
+    "btc_dst_citrea",
 ]
 
 
@@ -130,6 +133,54 @@ def test_registered_in_bot_main():
     assert "from bot.handlers.btc import btc_conversation_handler" in main_src
     assert "application.add_handler(btc_conversation_handler)" in main_src
     assert 'BotCommand("btc"' in main_src
+
+
+# ── Deposit destination step ─────────────────────────────────────────────────
+
+
+def test_deposit_offers_destination_choice():
+    src = inspect.getsource(btc_handlers.btc_deposit_callback)
+    assert 'callback_data="btc_dst_starknet"' in src
+    assert 'callback_data="btc_dst_citrea"' in src
+    assert 'callback_data="btc_menu"' in src
+    # Starknet is listed first (the default), Citrea is flagged as early
+    assert src.index("btc_dst_starknet") < src.index("btc_dst_citrea")
+
+
+def test_deposit_destinations_botanix_never_offered():
+    assert set(btc_handlers.DEPOSIT_DESTINATIONS) == {"starknet", "citrea"}
+    assert "botanix" not in btc_handlers.DEPOSIT_DESTINATIONS
+    src = inspect.getsource(btc_handlers).lower()
+    assert 'callback_data="btc_dst_botanix"' not in src
+    # the bridge-level denylist constant exists and covers botanix
+    from bot.services.btc_bridge import BOTANIX_DENYLIST, DEPOSIT_DST_CHAINS
+
+    assert "botanix" in BOTANIX_DENYLIST
+    assert "botanix" not in DEPOSIT_DST_CHAINS
+
+
+def test_destination_wallet_chain_types():
+    dests = btc_handlers.DEPOSIT_DESTINATIONS
+    assert dests["starknet"]["wallet_chain_type"] == "starknet"
+    assert dests["starknet"]["asset"] == "WBTC"
+    assert dests["citrea"]["wallet_chain_type"] == "evm"
+    assert dests["citrea"]["asset"] == "cBTC"
+
+
+def test_dep_dest_state_registered():
+    conv = btc_handlers.btc_conversation_handler
+    patterns = [
+        h.pattern.pattern
+        for h in conv.states[btc_handlers.BTC_DEP_DEST]
+        if getattr(h, "pattern", None)
+    ]
+    assert "^btc_dst_" in patterns
+    assert "^btc_menu$" in patterns
+
+
+def test_dep_amount_plumbs_dst_chain_to_bridge():
+    src = inspect.getsource(btc_handlers.btc_dep_amount)
+    assert "dst_chain=dst_chain" in src
 
 
 # ── Sats validation ──────────────────────────────────────────────────────────
