@@ -310,7 +310,8 @@ class TestRepay:
         shares = 30_000 * 10**6 * 10**6
         api, morpho, tokens, _, _ = _make_api(_state(borrow_shares=shares))
         txs = api.repay(FakeWallet(), assets_raw=None)
-        assert len(txs) == 2  # approve + repay
+        # approve + repay + best-effort allowance revoke (exact-approval invariant)
+        assert len(txs) == 3
         # repay(params, assets=0, shares=borrowShares, onBehalf=user, b"")
         args = morpho.functions.repay.call_args.args
         assert args[1] == 0 and args[2] == shares
@@ -319,7 +320,9 @@ class TestRepay:
         st = _state(borrow_shares=shares)
         debt = shares_to_assets_up(shares, st["total_borrow_assets"], st["total_borrow_shares"])
         usdc = tokens[USDC_BASE.lower()]
-        usdc.functions.approve.assert_called_once_with(
+        # First approve = debt+buffer; second = revoke to 0
+        assert usdc.functions.approve.call_args_list[-1].args[1] == 0
+        usdc.functions.approve.assert_any_call(
             Web3.to_checksum_address(MORPHO_BLUE), debt + max(1, debt // 1000)
         )
 
@@ -353,7 +356,7 @@ class TestVault:
         txs = api.vault_deposit(FakeWallet(), amount, vault=self.VAULT)
         assert len(txs) == 2
         usdc = tokens[USDC_BASE.lower()]
-        # spender is the VAULT (not Morpho Blue), amount exact
+        # spender is the VAULT (not Morpho Blue), amount exact (no revoke needed)
         usdc.functions.approve.assert_called_once_with(self.VAULT, amount)
         vault = vaults[self.VAULT.lower()]
         vault.functions.deposit.assert_called_once_with(amount, USER)

@@ -37,8 +37,10 @@ from bot.config.morpho_config import (
     CBBTC_DECIMALS,
     LLTV,
     MARKET_ID,
+    ORACLE_USD_SCALE,
     MARKET_PARAMS,
     MAX_LTV,
+    METAMORPHO_SHARE_DECIMALS,
     MIN_WITHDRAW_HF,
     MORPHO_BLUE,
     ORACLE,
@@ -286,6 +288,16 @@ ERC20_ABI = [
         "inputs": [{"name": "account", "type": "address"}],
         "outputs": [{"name": "", "type": "uint256"}],
     },
+    {
+        "name": "allowance",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [
+            {"name": "owner", "type": "address"},
+            {"name": "spender", "type": "address"},
+        ],
+        "outputs": [{"name": "", "type": "uint256"}],
+    },
 ]
 
 
@@ -520,7 +532,7 @@ class MorphoAPI:
             "collateral_value_usdc": collateral_value_usdc_raw(collateral_raw, price)
             / 10**USDC_DECIMALS,
             "price_raw": price,
-            "btc_price_usd": price / 10**34,
+            "btc_price_usd": price / ORACLE_USD_SCALE,
             "ltv": compute_ltv(collateral_raw, price, debt_raw),
             "health_factor": compute_health_factor(collateral_raw, price, debt_raw),
             "liquidation_price": compute_liquidation_price(collateral_raw, debt_raw),
@@ -548,7 +560,7 @@ class MorphoAPI:
             state = self._failover(lambda web3: self._read_state(web3))
             tba, tsa = state["total_borrow_assets"], state["total_supply_assets"]
             state["utilization"] = (tba / tsa) if tsa > 0 else 0.0
-            state["btc_price_usd"] = state["price"] / 10**34
+            state["btc_price_usd"] = state["price"] / ORACLE_USD_SCALE
             return state
         except MorphoError:
             raise
@@ -562,7 +574,7 @@ class MorphoAPI:
         def _op(web3: Web3) -> Dict[str, Any]:
             v = self._vault(web3, vault)
             total_assets = int(v.functions.totalAssets().call())
-            one_share = 10**18  # MetaMorpho shares are 18dp
+            one_share = 10**METAMORPHO_SHARE_DECIMALS
             share_price = int(v.functions.convertToAssets(one_share).call()) / 10**USDC_DECIMALS
             out: Dict[str, Any] = {
                 "vault": Web3.to_checksum_address(vault),
@@ -726,7 +738,7 @@ class MorphoAPI:
             "health_factor": compute_health_factor(collateral, price, debt),
             "liquidation_price": compute_liquidation_price(collateral, debt),
             "max_ltv": MAX_LTV,
-            "btc_price_usd": price / 10**34,
+            "btc_price_usd": price / ORACLE_USD_SCALE,
         }
 
     # ── writes ────────────────────────────────────────────────────────────────
@@ -820,7 +832,8 @@ class MorphoAPI:
                 borrow_shares, state["total_borrow_assets"], state["total_borrow_shares"]
             )
 
-            if assets_raw is None:
+            full_repay = assets_raw is None
+            if full_repay:
                 approve_amount = debt + max(1, debt // 1000)  # +0.1% accrual buffer
                 repay_fn = self._morpho(web3).functions.repay(
                     self._market_params_tuple(), 0, borrow_shares, owner, b""
@@ -839,33 +852,66 @@ class MorphoAPI:
                     self._market_params_tuple(), amount, 0, owner, b""
                 )
 
-            balance = self._erc20(web3, USDC_BASE).functions.balanceOf(owner).call()
-            if balance < approve_amount:
+            usdc = self._erc20(web3, USDC_BASE)
+            morpho_addr = Web3.to_checksum_address(MORPHO_BLUE)
+            balance = usdc.functions.balanceOf(owner).call()
+            if full_repay:
+                # Block only when genuinely short of the DEBT itself; the buffer
+                # is best-effort headroom for interest accrued between approve
+                # and repay. balance == debt exactly is allowed.
+                if balance < debt:
+                    raise MorphoError(
+                        f"Insufficient USDC. Need {debt / 10**USDC_DECIMALS:.2f}, "
+                        f"you have {balance / 10**USDC_DECIMALS:.2f}."
+                    )
+                if balance < approve_amount:
+                    approve_amount = balance  # still covers debt
+            elif balance < approve_amount:
                 raise MorphoError(
                     f"Insufficient USDC. Need {approve_amount / 10**USDC_DECIMALS:.2f}, "
                     f"you have {balance / 10**USDC_DECIMALS:.2f}."
                 )
 
-            approve_fn = self._erc20(web3, USDC_BASE).functions.approve(
-                Web3.to_checksum_address(MORPHO_BLUE), approve_amount
-            )
+            approve_fn = usdc.functions.approve(morpho_addr, approve_amount)
             tx_hashes = self._send_seq(web3, wallet, [approve_fn, repay_fn])
             logger.info(f"morpho repay: assets={assets_raw} txs={tx_hashes}")
+
+            if full_repay:
+                # Exact-approval invariant: revoke any residual allowance left by
+                # the accrual buffer. Best-effort — the repay already succeeded,
+                # so a revoke failure must not surface as a repay failure.
+                try:
+                    residual = int(usdc.functions.allowance(owner, morpho_addr).call())
+                    if residual > 0:
+                        revoke_fn = usdc.functions.approve(morpho_addr, 0)
+                        tx_hashes.append(self._build_and_send(web3, wallet, revoke_fn))
+                except Exception as e:
+                    logger.warning(f"morpho repay: allowance revoke skipped: {e}")
             return tx_hashes
 
         return self._run_write(_op, "repayment")
 
-    def withdraw_collateral(self, wallet, collateral_raw: int) -> list:
+    def withdraw_collateral(self, wallet, collateral_raw: Optional[int] = None) -> list:
         """Withdraw cbBTC collateral. If debt remains, the post-withdraw health
-        factor must stay ≥ MIN_WITHDRAW_HF (1.1)."""
-        collateral_raw = int(collateral_raw)
-        if collateral_raw <= 0:
-            raise MorphoError("Withdrawal amount must be greater than zero.")
+        factor must stay ≥ MIN_WITHDRAW_HF (1.1).
+
+        collateral_raw=None → withdraw ALL collateral, using the LIVE on-chain
+        amount read inside the op (never a number cached by the caller — the
+        position can change, e.g. a partial liquidation, between render and
+        execution)."""
+        withdraw_all = collateral_raw is None
+        if not withdraw_all:
+            collateral_raw = int(collateral_raw)
+            if collateral_raw <= 0:
+                raise MorphoError("Withdrawal amount must be greater than zero.")
         owner = Web3.to_checksum_address(wallet.address)
 
         def _op(web3: Web3) -> list:
             state = self._read_state(web3, owner)
-            if state["collateral_raw"] < collateral_raw:
+            amount = state["collateral_raw"] if withdraw_all else collateral_raw
+            if amount <= 0:
+                raise MorphoError("You have no collateral to withdraw.")
+            if state["collateral_raw"] < amount:
                 raise MorphoError(
                     f"You only have {state['collateral_raw'] / 10**CBBTC_DECIMALS:.8f} cbBTC "
                     "of collateral."
@@ -873,7 +919,7 @@ class MorphoAPI:
             debt = shares_to_assets_up(
                 state["borrow_shares"], state["total_borrow_assets"], state["total_borrow_shares"]
             )
-            remaining = state["collateral_raw"] - collateral_raw
+            remaining = state["collateral_raw"] - amount
             if debt > 0:
                 hf_after = compute_health_factor(remaining, state["price"], debt)
                 if hf_after < MIN_WITHDRAW_HF:
@@ -882,10 +928,10 @@ class MorphoAPI:
                         f"(minimum {MIN_WITHDRAW_HF}). Repay debt first or withdraw less."
                     )
             fn = self._morpho(web3).functions.withdrawCollateral(
-                self._market_params_tuple(), collateral_raw, owner, owner
+                self._market_params_tuple(), amount, owner, owner
             )
             tx_hash = self._build_and_send(web3, wallet, fn)
-            logger.info(f"morpho withdraw_collateral: {collateral_raw} tx={tx_hash}")
+            logger.info(f"morpho withdraw_collateral: {amount} tx={tx_hash}")
             return [tx_hash]
 
         return self._run_write(_op, "withdrawal")

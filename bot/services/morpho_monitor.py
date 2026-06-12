@@ -25,6 +25,11 @@ POLL_INTERVAL_SECONDS = 120.0
 MAX_CONCURRENT_READS = 5
 # HF must climb back above WARN_HF + this margin before alerts re-arm
 HYSTERESIS = 0.05
+# Never auto-close a row younger than this: the open txs may still be landing
+# on-chain, so an empty position read is expected, not "closed" (race guard).
+MIN_AGE_BEFORE_AUTOCLOSE_SECONDS = 300
+# Tier decisions that clear notified_tier (shared by _decide_tier/_save_hf)
+_TIER_RESET = ("alert:recovered", "reset")
 
 
 class MorphoMonitor:
@@ -87,7 +92,7 @@ class MorphoMonitor:
         return len(rows)
 
     async def _check_position(
-        self, position_id: int, telegram_id, wallet_address: Optional[str]
+        self, position_id: int, telegram_id, wallet_address: Optional[str], opened_at=None
     ) -> None:
         if not wallet_address:
             return
@@ -97,7 +102,10 @@ class MorphoMonitor:
         hf = pos["health_factor"]
 
         if pos["debt_usdc_raw"] <= 0 and pos["collateral_raw"] <= 0:
-            self._mark_closed(position_id)
+            # Race guard: a just-opened row can read as empty while its open
+            # txs are still confirming — only auto-close mature rows.
+            if self._age_seconds(opened_at) >= MIN_AGE_BEFORE_AUTOCLOSE_SECONDS:
+                self._mark_closed(position_id)
             return
 
         new_tier = self._decide_tier(position_id, hf)
@@ -114,7 +122,7 @@ class MorphoMonitor:
         if hf < WARN_HF:
             return "alert:warn" if prev not in ("warn", "urgent") else None
         if prev and hf >= WARN_HF + HYSTERESIS:
-            return "alert:recovered" if prev == "urgent" else "reset"
+            return _TIER_RESET[0] if prev == "urgent" else _TIER_RESET[1]
         return None
 
     async def _notify(self, telegram_id, tier: str, pos: dict) -> None:
@@ -146,8 +154,19 @@ class MorphoMonitor:
     # ── DB helpers ────────────────────────────────────────────────────────────
 
     @staticmethod
+    def _age_seconds(opened_at) -> float:
+        """Seconds since opened_at; +inf when unknown (old rows behave as before)."""
+        from datetime import datetime, timezone
+
+        if opened_at is None:
+            return math.inf
+        if opened_at.tzinfo is None:
+            opened_at = opened_at.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - opened_at).total_seconds()
+
+    @staticmethod
     def _open_positions() -> list:
-        """[(position_id, telegram_id, wallet_address), ...] for open positions."""
+        """[(position_id, telegram_id, wallet_address, opened_at), ...] for open positions."""
         from bot.models.morpho import MorphoPosition
         from bot.models.user import User
         from bot.models.wallet import Wallet
@@ -155,7 +174,9 @@ class MorphoMonitor:
 
         with get_session() as session:
             rows = (
-                session.query(MorphoPosition.id, User.telegram_id, Wallet.address)
+                session.query(
+                    MorphoPosition.id, User.telegram_id, Wallet.address, MorphoPosition.opened_at
+                )
                 .join(User, User.id == MorphoPosition.user_id)
                 .outerjoin(Wallet, Wallet.id == MorphoPosition.wallet_id)
                 .filter(MorphoPosition.closed_at.is_(None))
@@ -189,7 +210,7 @@ class MorphoMonitor:
             if row is None:
                 return
             row.last_hf = None if math.isinf(hf) else Decimal(str(round(hf, 6)))
-            if decision in ("alert:recovered", "reset"):
+            if decision in _TIER_RESET:
                 row.notified_tier = None
             elif decision == "alert:urgent":
                 row.notified_tier = "urgent"

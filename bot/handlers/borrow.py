@@ -196,6 +196,12 @@ def _format_open_confirm(
 
 
 def _evm_wallets(user_id: int) -> list:
+    """Active EVM wallets for the user.
+
+    Wallet rows store only chain_type ("evm"/"solana") — EVM wallets are
+    chain-agnostic: the same address exists on every EVM chain, including Base.
+    So there is no per-chain filter to apply here; instead the UI labels all
+    balances as "on Base" (cbBTC/USDC balances are read from Base RPCs)."""
     with get_session() as session:
         return (
             session.query(Wallet)
@@ -417,7 +423,8 @@ async def borrow_open_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     keyboard.append([InlineKeyboardButton("« Back", callback_data="borrow_menu")])
 
     await query.edit_message_text(
-        "👛 *Select the Base wallet holding your cbBTC:*",
+        "👛 *Select the wallet holding your cbBTC*\n\n"
+        "_EVM wallets use the same address on every chain — balances shown are on Base._",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
@@ -794,6 +801,14 @@ async def borrow_manage_enter_amount(update: Update, context: ContextTypes.DEFAU
         )
         return BORROW_MANAGE_AMOUNT
 
+    if action == "withdraw":
+        # HF pre-check against the LIVE position — never numbers cached when the
+        # menu was rendered (debt accrues; collateral can shrink via liquidation).
+        try:
+            position = await _refresh_position(borrow)
+        except MorphoError as e:
+            await update.message.reply_text(f"❌ {e}", reply_markup=_RETRY_KEYBOARD)
+            return BORROW_MANAGE_AMOUNT
     if action == "withdraw" and int(position["debt_usdc_raw"]) > 0:
         remaining = int(position["collateral_raw"]) - amount_raw
         hf_after = compute_health_factor(
@@ -809,12 +824,35 @@ async def borrow_manage_enter_amount(update: Update, context: ContextTypes.DEFAU
     return await _show_manage_confirm(update, context, is_callback=False)
 
 
+async def _refresh_position(borrow: dict):
+    """Re-fetch the LIVE on-chain position and cache it in the session dict.
+
+    Confirm screens must never render numbers cached from an earlier menu —
+    debt accrues interest and collateral can change (partial liquidation)
+    between render and confirm."""
+    position = await asyncio.to_thread(morpho_api.get_position, borrow["wallet_address"])
+    borrow["position"] = position
+    return position
+
+
 async def _show_manage_confirm(update, context, *, is_callback) -> int:
-    """Confirmation screen for manage actions (shows post-action health)."""
+    """Confirmation screen for manage actions (shows post-action health).
+
+    Always re-fetches the live position first so the numbers shown (debt,
+    collateral, HF) are current at confirm time."""
     borrow = context.user_data["borrow"]
-    position = borrow["position"]
     action = borrow["action"]
     amount_raw = borrow.get("amount_raw")
+
+    try:
+        position = await _refresh_position(borrow)
+    except MorphoError as e:
+        text = f"❌ {e}"
+        if is_callback:
+            await update.callback_query.edit_message_text(text, reply_markup=_RETRY_KEYBOARD)
+        else:
+            await update.message.reply_text(text, reply_markup=_RETRY_KEYBOARD)
+        return BORROW_MENU
 
     collateral = int(position["collateral_raw"])
     debt = int(position["debt_usdc_raw"])
@@ -860,11 +898,16 @@ async def _show_manage_confirm(update, context, *, is_callback) -> int:
             f"{_hf_emoji(hf_after)} *{_fmt_hf(hf_after)}*\n\n"
             f"⛽ Gas: paid in ETH on Base.\n\nProceed?"
         )
-    else:  # close
+    else:  # close — live numbers (just re-fetched above)
+        hf = position["health_factor"]
         text = (
             f"🏁 *Confirm Close Position*\n\n"
-            f"1. Repay your entire debt of ≈ *{_fmt_usdc(debt)} USDC*\n"
-            f"2. Withdraw all *{_fmt_btc(collateral)} cbBTC* collateral\n\n"
+            f"Live position right now:\n"
+            f"   • Debt: *{_fmt_usdc(debt)} USDC*\n"
+            f"   • Collateral: *{_fmt_btc(collateral)} cbBTC*\n"
+            f"   • Health Factor: {_hf_emoji(hf)} *{_fmt_hf(hf)}*\n\n"
+            f"1. Repay your entire debt (exact to the share)\n"
+            f"2. Withdraw ALL remaining collateral\n\n"
             f"⛽ Gas: paid in ETH on Base (up to 3 transactions).\n\nProceed?"
         )
 
@@ -938,19 +981,22 @@ async def borrow_manage_execute_callback(update: Update, context: ContextTypes.D
                 f"Withdrew *{_fmt_btc(int(amount_raw))} cbBTC* to your wallet.\n\n"
                 f"*Transactions:*\n{_tx_links(tx_hashes)}"
             )
-        else:  # close: full repay (if debt) then withdraw everything
+        else:  # close: full repay (if LIVE debt) then withdraw ALL live collateral
+            # Re-read the live position now — the confirm screen could be stale
+            # (interest accrued, or a partial liquidation changed the numbers).
+            live = await _refresh_position(borrow)
             tx_hashes = []
-            if int(position["debt_usdc_raw"]) > 0:
+            if int(live["debt_usdc_raw"]) > 0:
                 tx_hashes += await asyncio.to_thread(morpho_api.repay, wallet, None)
-            collateral = int(position["collateral_raw"])
+            collateral = int(live["collateral_raw"])
             if collateral > 0:
-                tx_hashes += await asyncio.to_thread(
-                    morpho_api.withdraw_collateral, wallet, collateral
-                )
+                # None → service withdraws the LIVE collateral amount it reads
+                # on-chain inside the op (never our cached number).
+                tx_hashes += await asyncio.to_thread(morpho_api.withdraw_collateral, wallet, None)
             morpho_api.record_position_closed(user_id, wallet.id)
             text = (
                 f"🏁 *Position closed!*\n\n"
-                f"Debt repaid and *{_fmt_btc(collateral)} cbBTC* returned to your wallet.\n\n"
+                f"Debt repaid and your cbBTC collateral returned to your wallet.\n\n"
                 f"*Transactions:*\n{_tx_links(tx_hashes)}"
             )
 
