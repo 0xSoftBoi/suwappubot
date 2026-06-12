@@ -31,6 +31,7 @@ from bot.handlers.wallet import (
     wallet_import_handler,
 )
 from bot.handlers.swap import swap_conversation_handler, check_swap_status
+from bot.handlers.twofa import twofa_conversation
 from bot.handlers.history import (
     history_handler,
     history_callback,
@@ -330,6 +331,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(savings_conversation_handler)  # USDC savings /save (Aave V3 Base)
     application.add_handler(btc_conversation_handler)  # BTC bridge /btc (Atomiq, Starknet)
     application.add_handler(token_conv_handler)  # SUWP token /token /suwp
+    application.add_handler(twofa_conversation)  # TOTP 2FA enrollment /2fa
 
     # ============ CALLBACK QUERY HANDLERS ============
 

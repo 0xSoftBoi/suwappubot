@@ -28,6 +28,7 @@ import base64
 
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
+from bot.services.spending_limits import spending_limit_service
 from bot.utils.cache import quote_cache
 from bot.utils.performance import track_time, MetricNames
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
@@ -1927,6 +1928,29 @@ class SwapEngine:
             wallet_chain_type = wallet["chain_type"]
             wallet_encrypted_key = wallet["encrypted_private_key"]
 
+            # Spending limits: enforced here at the engine — the single choke
+            # point every swap entry path (Telegram, WhatsApp, agent API,
+            # orders, copy trading) funnels through. Price lookups are
+            # best-effort: an unknown price must not brick all swaps, so the
+            # check is skipped (and logged) when the USD value is unknowable.
+            from_amount_usd = await spending_limit_service.usd_value(
+                quote.from_token, quote.from_amount_human
+            )
+            to_amount_usd = await spending_limit_service.usd_value(
+                quote.to_token, quote.to_amount_human
+            )
+            if from_amount_usd is not None:
+                allowed, reason = await run_in_db(
+                    lambda: spending_limit_service.check(user_id, from_amount_usd)
+                )
+                if not allowed:
+                    raise SwapError(f"🚫 {reason}")
+            else:
+                logger.warning(
+                    f"Skipping spending-limit check for user {user_id}: "
+                    f"no USD price for {quote.from_token}"
+                )
+
             # Validate balance
             await quote_validator.validate_balance(
                 wallet_id=wallet_id,
@@ -1945,11 +1969,11 @@ class SwapEngine:
                         from_chain=quote.from_chain,
                         from_token=quote.from_token,
                         from_amount=quote.from_amount,
-                        from_amount_usd=quote.from_amount_human,
+                        from_amount_usd=from_amount_usd,
                         to_chain=quote.to_chain,
                         to_token=quote.to_token,
                         to_amount=quote.to_amount,
-                        to_amount_usd=quote.to_amount_human,
+                        to_amount_usd=to_amount_usd,
                         status=SwapStatus.EXECUTING.value,
                         route_provider=quote.provider,
                         gas_fee=quote.gas_cost_usd,
@@ -2068,6 +2092,19 @@ class SwapEngine:
                             db_tx.status = SwapStatus.SUBMITTED.value
 
                 await run_in_db(_update_tx_hash)
+
+                # Record the outflow so spending-limit windows survive restarts.
+                # Best-effort: the swap is already submitted, so a tracking
+                # failure must not surface as a swap failure.
+                if from_amount_usd is not None:
+                    try:
+                        await run_in_db(
+                            lambda: spending_limit_service.record(
+                                user_id, from_amount_usd, swap_id=swap_id
+                            )
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to record spend event for swap {swap_id}: {e}")
 
                 # Invalidate balance cache so user sees updated balance
                 try:

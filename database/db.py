@@ -173,8 +173,8 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         # Webhook events
         from bot.models.webhook_event import WebhookEvent
 
-        # Security models (audit logs, withdrawal whitelist, backup codes)
-        from bot.models.security import AuditLog, WithdrawalWhitelist, BackupCode
+        # Security models (audit logs, withdrawal whitelist, backup codes, spend events)
+        from bot.models.security import AuditLog, WithdrawalWhitelist, BackupCode, SpendEvent
 
         # Perpetual trading models
         from bot.models.perps import PerpPosition, PerpOrder, HyperLiquidAccount
@@ -644,11 +644,11 @@ def _add_performance_indexes_v2(db_engine, inspector, is_sqlite: bool) -> None:
 
 
 def _add_security_tables(db_engine, inspector, is_sqlite: bool) -> None:
-    """Create security tables (audit_logs, withdrawal_whitelist, backup_codes) idempotently."""
+    """Create security tables (audit_logs, withdrawal_whitelist, backup_codes, spend_events) idempotently."""
     try:
-        from bot.models.security import AuditLog, WithdrawalWhitelist, BackupCode
+        from bot.models.security import AuditLog, WithdrawalWhitelist, BackupCode, SpendEvent
 
-        for model in (AuditLog, WithdrawalWhitelist, BackupCode):
+        for model in (AuditLog, WithdrawalWhitelist, BackupCode, SpendEvent):
             if not inspector.has_table(model.__tablename__):
                 model.__table__.create(bind=db_engine)
                 logger.info(f"Created {model.__tablename__} table")
