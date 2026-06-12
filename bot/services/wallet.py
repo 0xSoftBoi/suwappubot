@@ -983,11 +983,14 @@ class WalletService:
                 logger.warning("Starknet RPC %s failed on %s: %s", method, url, str(e)[:80])
         raise ConnectionError(f"All Starknet RPCs failed for {method}: {last_error}")
 
-    async def get_starknet_token_balance(self, token_symbol: str, address: str) -> float:
-        """Get an ERC-20 token balance on Starknet via starknet_call balanceOf."""
+    async def get_starknet_token_balance_raw(self, token_symbol: str, address: str) -> int:
+        """Get an ERC-20 token balance on Starknet as the integer u256 base units.
+
+        Exact (no float round-trip) — use this for any on-chain amount math.
+        """
         token_address = get_token_address(token_symbol, "starknet")
         if not token_address:
-            return 0.0
+            return 0
 
         try:
             result = await self._starknet_rpc_call(
@@ -1002,20 +1005,24 @@ class WalletService:
                 ],
             )
             if isinstance(result, dict) and "error" in result:
-                return 0.0
+                return 0
             if not isinstance(result, list) or not result:
-                return 0.0
+                return 0
             # u256 -> (low, high) limbs
             low = int(result[0], 16)
             high = int(result[1], 16) if len(result) > 1 else 0
-            raw = (high << 128) | low
-            decimals = get_token_decimals(token_symbol, "starknet")
-            return raw / (10**decimals)
+            return (high << 128) | low
         except ConnectionError:
             raise  # Let RPC errors propagate to _safe_call
         except Exception as e:
             logger.warning(f"Failed to fetch Starknet {token_symbol} balance: {e}")
-            return 0.0
+            return 0
+
+    async def get_starknet_token_balance(self, token_symbol: str, address: str) -> float:
+        """Get an ERC-20 token balance on Starknet via starknet_call balanceOf (float, display)."""
+        raw = await self.get_starknet_token_balance_raw(token_symbol, address)
+        decimals = get_token_decimals(token_symbol, "starknet")
+        return raw / (10**decimals)
 
     async def get_starknet_native_balance(self, address: str) -> dict[str, float]:
         """Get the gas-relevant balances on Starknet: STRK (v3 fee token) + ETH."""

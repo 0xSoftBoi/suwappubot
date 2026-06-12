@@ -143,6 +143,18 @@ class Settings(BaseSettings):
             "invalid rpId for prod and broke passkey connect). Set to 'localhost' for local dev."
         ),
     )
+    passkey_auth_enabled: bool = Field(
+        default=False,
+        description=(
+            "Master switch for /auth/passkey/* endpoints. DISABLED by default because the "
+            "current register/complete + authenticate/complete handlers do NOT verify the "
+            "WebAuthn attestation/assertion signature (no COSE public key is stored at "
+            "registration), so possession of a Redis challenge alone yields a session JWT for "
+            "any credentialId — an account-takeover hole. Keep False until real verification "
+            "(py_webauthn) plus a public-key storage column are implemented. When False the "
+            "endpoints return 503."
+        ),
+    )
 
     # Infura RPC (primary, reliable RPCs for all major chains)
     infura_api_key: Optional[str] = Field(
@@ -332,6 +344,32 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Atomiq BTC bridge (Lightning/BTC ↔ Starknet — Phase 3)
+    atomiq_api_url: str = Field(
+        default="https://mainnet.swaps-api.atomiq.exchange",
+        description=(
+            "Atomiq REST execution API base URL (no auth; testnet4 variant " "exists for testing)"
+        ),
+    )
+    starknet_btc_bridge_enabled: bool = Field(
+        default=True,
+        description=(
+            "Enable the Atomiq BTC bridge background poller (Lightning→Starknet "
+            "deposits and Starknet→BTC/Lightning withdrawals)"
+        ),
+    )
+    atomiq_escrow_contracts: str = Field(
+        default="",
+        description=(
+            "Comma-separated allowlist of Atomiq escrow contract addresses "
+            "(Starknet) that SignSmartChainTransaction INVOKEs may target"
+        ),
+    )
+    btc_deposit_default_token: str = Field(
+        default="STARKNET-WBTC",
+        description="Default Starknet token received from BTC/Lightning deposits",
+    )
+
     # Infura network name mappings
     INFURA_NETWORKS: ClassVar[Dict[str, str]] = {
         "ethereum": "mainnet",
@@ -495,20 +533,6 @@ class Settings(BaseSettings):
         default=None,
         description="E.164 business number digits (no '+') for wa.me referral links — distinct "
         "from whatsapp_phone_number_id (Meta's numeric API id)",
-    )
-
-    # Auth
-    passkey_auth_enabled: bool = Field(
-        default=False,
-        description=(
-            "Master switch for /auth/passkey/* endpoints. DISABLED by default because the "
-            "current register/complete + authenticate/complete handlers do NOT verify the "
-            "WebAuthn attestation/assertion signature (no COSE public key is stored at "
-            "registration), so possession of a Redis challenge alone yields a session JWT for "
-            "any credentialId — an account-takeover hole. Keep False until real verification "
-            "(py_webauthn) plus a public-key storage column are implemented. When False the "
-            "endpoints return 503."
-        ),
     )
 
     # Discord Bot
