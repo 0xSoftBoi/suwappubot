@@ -51,8 +51,7 @@ describe('ErrorBoundary', () => {
     )
 
     expect(container.textContent).toContain('Something went wrong')
-    expect(container.textContent).toContain('Try Again')
-    expect(container.textContent).toContain('Reload App')
+    expect(container.textContent).toContain('Retry')
   })
 
   it('logs error via console.error in componentDidCatch', () => {
@@ -65,7 +64,7 @@ describe('ErrorBoundary', () => {
     const calls = consoleErrorSpy.mock.calls
     const didCatchCall = calls.find(
       (args: unknown[]) =>
-        typeof args[0] === 'string' && args[0].includes('ErrorBoundary caught:')
+        typeof args[0] === 'string' && args[0].includes('[ErrorBoundary]')
     )
     expect(didCatchCall).toBeTruthy()
   })
@@ -103,13 +102,11 @@ describe('ErrorBoundary', () => {
     shouldThrow = false
 
     const buttons = container.getElementsByTagName('button')
-    const tryAgainButton = Array.from(buttons).find(
-      (btn) => btn.textContent === 'Try Again'
-    )
-    expect(tryAgainButton).toBeTruthy()
+    const retryButton = Array.from(buttons).find((btn) => btn.textContent === 'Retry')
+    expect(retryButton).toBeTruthy()
 
     act(() => {
-      tryAgainButton!.click()
+      retryButton!.click()
     })
 
     expect(container.textContent).toContain('Recovered')
