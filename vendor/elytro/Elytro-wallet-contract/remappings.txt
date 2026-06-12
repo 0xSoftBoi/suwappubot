@@ -1,7 +1,0 @@
-@elytro-wallet-core/=lib/elytro-wallet-core/
-@source/=contracts/
-@solady=lib/solady/
-@solenv=lib/solenv/src/
-@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
-@openzeppelin/contracts-upgradeable/contracts/=lib/openzeppelin-contracts/contracts/
-@account-abstraction/=lib/account-abstraction/
