@@ -237,7 +237,7 @@ class AlertService:
             await asyncio.sleep(self._check_interval)
 
     async def _send_notification(self, alert: dict):
-        """Send alert notification to user."""
+        """Send alert notification to user via Telegram and, if linked, WhatsApp."""
         if not self._bot:
             return
 
@@ -248,29 +248,54 @@ class AlertService:
                     f"📈 {alert['token']} is above ${alert['target_price']:.4f}\n"
                     f"Current: ${alert['current_price']:.4f}"
                 )
+                direction = "above"
             elif alert["alert_type"] == AlertType.PRICE_BELOW.value:
                 text = (
                     f"🔔 *Price Alert Triggered!*\n\n"
                     f"📉 {alert['token']} is below ${alert['target_price']:.4f}\n"
                     f"Current: ${alert['current_price']:.4f}"
                 )
+                direction = "below"
             else:
                 text = (
                     f"🔔 *Price Alert Triggered!*\n\n"
                     f"📊 {alert['token']} moved {alert['percent_threshold']:.1f}%\n"
                     f"Current: ${alert['current_price']:.4f}"
                 )
+                direction = "changed"
 
-            # Get user's telegram_id
+            # Get user's telegram_id and whatsapp_id
             from bot.models.user import User
 
             with get_session() as session:
                 user = session.query(User).filter(User.id == alert["user_id"]).first()
                 if user:
-                    await self._bot.send_message(
-                        chat_id=user.telegram_id,
-                        text=text,
-                        parse_mode="Markdown",
+                    telegram_id = user.telegram_id
+                    whatsapp_id = user.whatsapp_id
+
+            if telegram_id:
+                await self._bot.send_message(
+                    chat_id=telegram_id,
+                    text=text,
+                    parse_mode="Markdown",
+                )
+
+            # Mirror to WhatsApp if the user has a linked number and WA is configured
+            if whatsapp_id:
+                try:
+                    from bot.services.whatsapp_service import whatsapp_service
+                    from bot.services.whatsapp_templates import template_service
+
+                    if whatsapp_service.is_configured():
+                        await template_service.send_price_alert(
+                            to=whatsapp_id,
+                            token=alert["token"],
+                            price=f"{alert['current_price']:.4f}",
+                            direction=direction,
+                        )
+                except Exception as wa_exc:
+                    logger.warning(
+                        f"WhatsApp alert delivery failed for user {alert['user_id']}: {wa_exc}"
                     )
         except Exception as e:
             logger.error(f"Failed to send alert notification: {e}")

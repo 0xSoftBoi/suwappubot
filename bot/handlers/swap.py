@@ -1181,6 +1181,10 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
         keyboard = [
             [InlineKeyboardButton("🔄 New Swap", callback_data="swap_start")],
+            # Share moment: a freshly-completed swap is the highest-intent point
+            # to ask the user to invite friends. Routed to a top-level handler
+            # (swap_share_ref_callback) because the conversation has just ended.
+            [InlineKeyboardButton("📣 Share your referral link", callback_data="swap_share_ref")],
             [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
         ]
 
@@ -1475,6 +1479,42 @@ async def _notify_followers(bot, followers_to_notify, swap_data, swap_tx):
 
 
 # Create conversation handler
+async def swap_share_ref_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Top-level handler for the '📣 Share your referral link' button on the
+    swap-success card. Sends the user a forwardable invite message built from
+    the existing referral-link logic (no duplication).
+
+    Registered standalone in main.py because the swap ConversationHandler has
+    already ended by the time the success card is shown.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    user = update.effective_user
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.answer("Please /start first.", show_alert=True)
+            return
+        user_id = db_user.id
+
+    bot_username = (await context.bot.get_me()).username
+    share_message = referral_service.format_share_message(user_id, bot_username)
+
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=share_message,
+        parse_mode="Markdown",
+        disable_web_page_preview=True,
+    )
+    await query.answer("Forward the message below to invite friends! 📣")
+
+
+# Standalone callback handler (registered in main.py — the swap conversation has
+# ended by the time the share button is shown).
+swap_share_ref_handler = CallbackQueryHandler(swap_share_ref_callback, pattern="^swap_share_ref$")
+
+
 swap_conversation_handler = ConversationHandler(
     name="swap",
     persistent=True,

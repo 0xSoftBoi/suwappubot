@@ -639,61 +639,121 @@ class OrderService:
             # For now, just log and wait for next interval
 
     async def _notify_order_executed(self, order: LimitOrder, swap_tx=None):
-        """Notify user of executed limit order."""
+        """Notify user of executed limit order via Telegram and, if linked, WhatsApp."""
         try:
             from bot.models.user import User
 
+            telegram_id = None
+            whatsapp_id = None
             with get_session() as session:
                 user = session.query(User).filter(User.id == order.user_id).first()
                 if user:
-                    tx_info = ""
-                    if swap_tx and swap_tx.tx_hash:
-                        from bot.utils.formatters import format_tx_link
+                    telegram_id = user.telegram_id
+                    whatsapp_id = user.whatsapp_id
 
-                        tx_info = f"\n🔗 {format_tx_link(swap_tx.tx_hash, order.from_chain)}"
+            if telegram_id:
+                tx_info = ""
+                if swap_tx and swap_tx.tx_hash:
+                    from bot.utils.formatters import format_tx_link
 
-                    text = (
-                        f"✅ *Limit Order Executed!*\n\n"
-                        f"Type: {order.order_type.upper()}\n"
-                        f"Swap: {order.from_token} → {order.to_token}\n"
-                        f"Trigger price: ${order.trigger_price:.4f}"
-                        f"{tx_info}"
-                    )
-                    await self._bot.send_message(
-                        chat_id=user.telegram_id,
-                        text=text,
-                        parse_mode="Markdown",
-                        disable_web_page_preview=True,
+                    tx_info = f"\n🔗 {format_tx_link(swap_tx.tx_hash, order.from_chain)}"
+
+                text = (
+                    f"✅ *Limit Order Executed!*\n\n"
+                    f"Type: {order.order_type.upper()}\n"
+                    f"Swap: {order.from_token} → {order.to_token}\n"
+                    f"Trigger price: ${order.trigger_price:.4f}"
+                    f"{tx_info}"
+                )
+                await self._bot.send_message(
+                    chat_id=telegram_id,
+                    text=text,
+                    parse_mode="Markdown",
+                    disable_web_page_preview=True,
+                )
+
+            if whatsapp_id:
+                try:
+                    from bot.services.whatsapp_service import whatsapp_service
+                    from bot.services.whatsapp_templates import template_service
+
+                    if whatsapp_service.is_configured():
+                        exec_price = (
+                            f"{order.execution_price:.4f}"
+                            if order.execution_price
+                            else f"{order.trigger_price:.4f}"
+                        )
+                        await template_service.send_order_executed(
+                            to=whatsapp_id,
+                            order_type=order.order_type.upper(),
+                            token=order.from_token,
+                            amount=order.amount,
+                            price=exec_price,
+                        )
+                except Exception as wa_exc:
+                    logger.warning(
+                        f"WhatsApp order notification failed for user {order.user_id}: {wa_exc}"
                     )
         except Exception as e:
             logger.error(f"Order notification failed: {e}")
 
     async def _notify_dca_executed(self, order: DCAOrder, swap_tx=None):
-        """Notify user of executed DCA."""
+        """Notify user of executed DCA via Telegram and, if linked, WhatsApp."""
         try:
             from bot.models.user import User
 
+            telegram_id = None
+            whatsapp_id = None
             with get_session() as session:
                 user = session.query(User).filter(User.id == order.user_id).first()
                 if user:
-                    tx_info = ""
-                    if swap_tx and swap_tx.tx_hash:
-                        from bot.utils.formatters import format_tx_link
+                    telegram_id = user.telegram_id
+                    whatsapp_id = user.whatsapp_id
 
-                        tx_info = f"\n🔗 {format_tx_link(swap_tx.tx_hash, order.from_chain)}"
+            if telegram_id:
+                tx_info = ""
+                if swap_tx and swap_tx.tx_hash:
+                    from bot.utils.formatters import format_tx_link
 
-                    text = (
-                        f"📊 *DCA Trade Executed!*\n\n"
-                        f"Order: {order.from_token} → {order.to_token}\n"
-                        f"Progress: {order.executions_completed}/{order.max_executions or '∞'}\n"
-                        f"Next execution: {order.next_execution_at.strftime('%Y-%m-%d %H:%M')}UTC"
-                        f"{tx_info}"
-                    )
-                    await self._bot.send_message(
-                        chat_id=user.telegram_id,
-                        text=text,
-                        parse_mode="Markdown",
-                        disable_web_page_preview=True,
+                    tx_info = f"\n🔗 {format_tx_link(swap_tx.tx_hash, order.from_chain)}"
+
+                text = (
+                    f"📊 *DCA Trade Executed!*\n\n"
+                    f"Order: {order.from_token} → {order.to_token}\n"
+                    f"Progress: {order.executions_completed}/{order.max_executions or '∞'}\n"
+                    f"Next execution: {order.next_execution_at.strftime('%Y-%m-%d %H:%M')}UTC"
+                    f"{tx_info}"
+                )
+                await self._bot.send_message(
+                    chat_id=telegram_id,
+                    text=text,
+                    parse_mode="Markdown",
+                    disable_web_page_preview=True,
+                )
+
+            if whatsapp_id:
+                try:
+                    from bot.services.whatsapp_service import whatsapp_service
+                    from bot.services.whatsapp_templates import template_service
+
+                    if whatsapp_service.is_configured():
+                        exec_price = (
+                            f"{swap_tx.exchange_rate:.4f}"
+                            if swap_tx
+                            and hasattr(swap_tx, "exchange_rate")
+                            and swap_tx.exchange_rate
+                            else "market"
+                        )
+                        await template_service.send_order_executed(
+                            to=whatsapp_id,
+                            order_type="DCA",
+                            token=order.from_token,
+                            amount=order.amount_per_execution,
+                            price=exec_price,
+                        )
+                except Exception as wa_exc:
+                    logger.warning(
+                        f"WhatsApp DCA notification failed for user {order.user_id}: {wa_exc}"
                     )
         except Exception as e:
             logger.error(f"DCA notification failed: {e}")

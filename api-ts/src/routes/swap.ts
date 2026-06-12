@@ -23,7 +23,7 @@ import {
 } from '../services'
 import type { TelegramUser } from '../services/TelegramAuthService'
 import { withSigningFallback } from '../services/FallbackSigningService'
-import { DEFAULT_SLIPPAGE } from '../config/constants'
+import { APPROVAL_MODE, DEFAULT_SLIPPAGE } from '../config/constants'
 
 const swapRoutes = new Hono()
 
@@ -427,11 +427,16 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 					const requiredAmount = BigInt(quote.fromAmount)
 					if (allowanceResult < requiredAmount) {
 						logger.info('[SwapRoute] Insufficient ERC20 allowance, sending approval tx')
-						// Build approve(spender, uint256.max) calldata
-						const maxUint256 = '0x' + 'f'.repeat(64)
+						// Build approve(spender, amount) calldata. Mirrors the Python
+						// bot's approval_mode: 'unlimited' (default) approves max uint256
+						// so the router is approved once; 'exact' approves only this
+						// swap's fromAmount (base units) so no standing allowance survives.
+						const approveAmountHex = APPROVAL_MODE === 'exact'
+							? requiredAmount.toString(16).padStart(64, '0')
+							: 'f'.repeat(64)
 						const approveData = '0x095ea7b3' +
 							approvalAddress.slice(2).padStart(64, '0') +
-							maxUint256.slice(2)
+							approveAmountHex
 
 						const approvalNonce = yield* Effect.tryPromise({
 							try: () => fetchNonce(wallet.address),

@@ -11,6 +11,7 @@ import {
 } from '../db'
 import { DatabaseError, ValidationError } from '../errors'
 import { getTransactionReceipt } from '../config/chains'
+import { AGENT_FEE_FRACTION_EVM, DEFAULT_FEE_WALLET_EVM } from '../config/constants'
 
 // Li.Fi API base URL
 const LIFI_API_BASE = 'https://li.quest/v1'
@@ -312,8 +313,11 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				slippage: String(params.slippage || 0.03),
 				order: params.order || 'RECOMMENDED',
 				integrator: process.env.LIFI_INTEGRATOR_ID || 'SuwappuProduction',
-				referrer: process.env.FEE_WALLET_EVM || '0x6456f69215C470e1545Ed6eea4621C136B30D85d',
-				fee: '0.008', // 0.8% integrator fee (matches bot)
+				referrer: process.env.FEE_WALLET_EVM || DEFAULT_FEE_WALLET_EVM,
+				// EVM agent integrator fee (0.8%). Single source: AGENT_FEE_FRACTION_EVM
+				// in config/constants — see that constant for the known EVM↔Solana
+				// agent-fee divergence and why it is intentionally not unified here.
+				fee: AGENT_FEE_FRACTION_EVM,
 			})
 
 			const url = `${LIFI_API_BASE}/quote?${queryParams.toString()}`

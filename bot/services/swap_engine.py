@@ -85,6 +85,20 @@ except ImportError:
     logger.info("C++ core not available, using Python fallback")
 
 
+# Max ERC-20 approval value (2**256 - 1). Used when approval_mode == "unlimited".
+MAX_UINT256 = 2**256 - 1
+
+# Tokens whose `approve()` reverts when changing a NON-zero allowance directly to
+# another non-zero value (the classic USDT mainnet pattern: require allowance to be
+# reset to 0 first). In "exact" approval mode we may re-approve from a leftover
+# non-zero allowance, so for these tokens we must send a 0-approval first. Keys are
+# lowercased token contract addresses. In "unlimited" mode the first approval is
+# from a (near-)zero allowance to max-uint, so this never triggers.
+RESET_REQUIRED_TOKENS = {
+    "0xdac17f958d2ee523a2206206994597c13d831ec7",  # USDT (Ethereum mainnet)
+}
+
+
 @dataclass
 class SwapQuote:
     """Unified swap quote from any provider."""
@@ -334,6 +348,79 @@ class SwapEngine:
         if USE_CPP_CORE:
             return suwappu_core.to_human_amount(amount_raw, decimals)
         return int(amount_raw) / (10**decimals)
+
+    def _approval_amount(self, swap_amount: int) -> int:
+        """Resolve the ERC-20 approval amount per the configured approval policy.
+
+        - "unlimited" (default): max uint256, so the router is approved once and
+          subsequent swaps skip the approval tx (fewer txs, but the full balance
+          stays exposed to the router forever).
+        - "exact": approve only the amount this swap will pull (token base units),
+          so no standing allowance survives the swap.
+
+        ``swap_amount`` MUST be the exact base-unit value the router will transfer
+        from the user (i.e. the same value the allowance check compares against).
+        """
+        if str(getattr(settings, "approval_mode", "unlimited")).lower() == "exact":
+            return int(swap_amount)
+        return MAX_UINT256
+
+    async def _send_reset_approval_if_needed(
+        self,
+        *,
+        web3,
+        token_contract,
+        token_addr: str,
+        spender: str,
+        current_allowance: int,
+        sender: str,
+        chain_id: int,
+        gas_price: int,
+        nonce: int,
+        wallet,
+    ) -> int:
+        """For USDT-style reset-required tokens in 'exact' mode, approve 0 first.
+
+        Some tokens (USDT mainnet) revert ``approve`` when moving a NON-zero
+        allowance directly to another non-zero value. This only matters in
+        'exact' mode, where a re-approval can start from a leftover non-zero
+        allowance. Sends a 0-approval tx (waiting for the receipt) and returns
+        the next nonce to use. No-op (returns the same nonce) otherwise.
+        """
+        if str(getattr(settings, "approval_mode", "unlimited")).lower() != "exact":
+            return nonce
+        if current_allowance <= 0:
+            return nonce
+        if token_addr.lower() not in RESET_REQUIRED_TOKENS:
+            return nonce
+
+        reset_data = token_contract.functions.approve(spender, 0).build_transaction(
+            {
+                "from": sender,
+                "nonce": nonce,
+                "chainId": chain_id,
+                "gasPrice": gas_price,
+                "gas": 100_000,
+            }
+        )
+        reset_tx = {
+            "to": token_addr,
+            "data": reset_data["data"],
+            "value": 0,
+            "gas": reset_data.get("gas", 60000),
+            "gasPrice": gas_price,
+            "nonce": nonce,
+            "chainId": chain_id,
+        }
+        signed_reset = await self.wallet_service.sign_evm_transaction(wallet, reset_tx)
+        reset_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_reset.replace("0x", "")))
+        )
+        logger.info(f"Reset-required token allowance zeroed first: {reset_hash.hex()}")
+        await asyncio.to_thread(
+            lambda: web3.eth.wait_for_transaction_receipt(reset_hash, timeout=120)
+        )
+        return nonce + 1
 
     async def _gather_quotes(self, tasks: list) -> list:
         """Run quote tasks in parallel, return successful SwapQuote results."""
@@ -2285,7 +2372,21 @@ class SwapEngine:
             )
 
             if current_allowance < amount_needed:
-                max_approval = 2**256 - 1
+                # 'exact' mode on a reset-required token (USDT mainnet): zero the
+                # allowance first, since approve() reverts non-zero -> non-zero.
+                nonce = await self._send_reset_approval_if_needed(
+                    web3=web3,
+                    token_contract=token_contract,
+                    token_addr=token_addr,
+                    spender=spender,
+                    current_allowance=current_allowance,
+                    sender=sender,
+                    chain_id=chain.chain_id,
+                    gas_price=gas_price,
+                    nonce=nonce,
+                    wallet=wallet,
+                )
+                max_approval = self._approval_amount(amount_needed)
                 # Pass gas explicitly to skip eth_estimateGas simulation
                 approve_data = token_contract.functions.approve(
                     spender, max_approval
@@ -3508,7 +3609,22 @@ class SwapEngine:
 
                 if current_allowance < amount_needed:
                     nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
-                    max_approval = 2**256 - 1
+                    gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+                    # 'exact' mode on a reset-required token (USDT mainnet): zero the
+                    # allowance first, since approve() reverts non-zero -> non-zero.
+                    nonce = await self._send_reset_approval_if_needed(
+                        web3=web3,
+                        token_contract=token_contract,
+                        token_addr=token_addr,
+                        spender=spender,
+                        current_allowance=current_allowance,
+                        sender=sender,
+                        chain_id=chain.chain_id,
+                        gas_price=gas_price,
+                        nonce=nonce,
+                        wallet=wallet,
+                    )
+                    max_approval = self._approval_amount(amount_needed)
                     approve_data = token_contract.functions.approve(
                         spender, max_approval
                     ).build_transaction(
@@ -3516,7 +3632,7 @@ class SwapEngine:
                             "from": sender,
                             "nonce": nonce,
                             "chainId": chain.chain_id,
-                            "gasPrice": await asyncio.to_thread(lambda: web3.eth.gas_price),
+                            "gasPrice": gas_price,
                         }
                     )
                     approve_tx = {
@@ -3636,7 +3752,22 @@ class SwapEngine:
 
             if current_allowance < amount_needed:
                 nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
-                max_approval = 2**256 - 1
+                gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+                # 'exact' mode on a reset-required token (USDT mainnet): zero the
+                # allowance first, since approve() reverts non-zero -> non-zero.
+                nonce = await self._send_reset_approval_if_needed(
+                    web3=web3,
+                    token_contract=token_contract,
+                    token_addr=token_addr,
+                    spender=spender,
+                    current_allowance=current_allowance,
+                    sender=sender,
+                    chain_id=chain.chain_id,
+                    gas_price=gas_price,
+                    nonce=nonce,
+                    wallet=wallet,
+                )
+                max_approval = self._approval_amount(amount_needed)
                 approve_data = token_contract.functions.approve(
                     spender, max_approval
                 ).build_transaction(
@@ -3644,7 +3775,7 @@ class SwapEngine:
                         "from": sender,
                         "nonce": nonce,
                         "chainId": chain.chain_id,
-                        "gasPrice": await asyncio.to_thread(lambda: web3.eth.gas_price),
+                        "gasPrice": gas_price,
                     }
                 )
                 approve_tx = {
@@ -3772,7 +3903,22 @@ class SwapEngine:
 
                 if current_allowance < amount_needed:
                     nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
-                    max_approval = 2**256 - 1
+                    gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+                    # 'exact' mode on a reset-required token (USDT mainnet): zero the
+                    # allowance first, since approve() reverts non-zero -> non-zero.
+                    nonce = await self._send_reset_approval_if_needed(
+                        web3=web3,
+                        token_contract=token_contract,
+                        token_addr=token_addr,
+                        spender=spender,
+                        current_allowance=current_allowance,
+                        sender=sender,
+                        chain_id=chain.chain_id,
+                        gas_price=gas_price,
+                        nonce=nonce,
+                        wallet=wallet,
+                    )
+                    max_approval = self._approval_amount(amount_needed)
                     approve_data = token_contract.functions.approve(
                         spender, max_approval
                     ).build_transaction(
@@ -3780,7 +3926,7 @@ class SwapEngine:
                             "from": sender,
                             "nonce": nonce,
                             "chainId": chain.chain_id,
-                            "gasPrice": await asyncio.to_thread(lambda: web3.eth.gas_price),
+                            "gasPrice": gas_price,
                         }
                     )
                     approve_tx = {
@@ -3900,7 +4046,23 @@ class SwapEngine:
 
             if current_allowance < amount_needed:
                 nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
-                max_approval = 2**256 - 1
+                gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+                # 'exact' mode on a reset-required token (USDT mainnet): zero the
+                # allowance first, since approve() reverts non-zero -> non-zero.
+                # The KyberSwap router is both spender and tx target.
+                nonce = await self._send_reset_approval_if_needed(
+                    web3=web3,
+                    token_contract=token_contract,
+                    token_addr=token_addr,
+                    spender=router,
+                    current_allowance=current_allowance,
+                    sender=sender,
+                    chain_id=chain.chain_id,
+                    gas_price=gas_price,
+                    nonce=nonce,
+                    wallet=wallet,
+                )
+                max_approval = self._approval_amount(amount_needed)
                 approve_data = token_contract.functions.approve(
                     router, max_approval
                 ).build_transaction(
@@ -3908,7 +4070,7 @@ class SwapEngine:
                         "from": sender,
                         "nonce": nonce,
                         "chainId": chain.chain_id,
-                        "gasPrice": await asyncio.to_thread(lambda: web3.eth.gas_price),
+                        "gasPrice": gas_price,
                     }
                 )
                 approve_tx = {

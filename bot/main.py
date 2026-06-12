@@ -30,7 +30,7 @@ from bot.handlers.wallet import (
     wallet_qr_callback,
     wallet_import_handler,
 )
-from bot.handlers.swap import swap_conversation_handler, check_swap_status
+from bot.handlers.swap import swap_conversation_handler, check_swap_status, swap_share_ref_handler
 from bot.handlers.history import (
     history_handler,
     history_callback,
@@ -320,6 +320,9 @@ def add_handlers(application: Application) -> None:
     # ============ CONVERSATION HANDLERS ============
     # Must be added before generic callback handlers
     application.add_handler(swap_conversation_handler)
+    application.add_handler(
+        swap_share_ref_handler
+    )  # post-swap referral share (outside conversation)
     application.add_handler(wallet_import_handler)
     application.add_handler(slippage_conversation)
     application.add_handler(recovery_conversation)  # settings_recovery -> set email

@@ -1,14 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
+import { useAuth } from '../contexts/AuthContext'
 import { optimisticRemoveById } from '../lib/optimistic'
 import type { CreateLimitOrderParams } from '../types/api'
 
 export function useLimitOrders() {
   const queryClient = useQueryClient()
+  const { isAuthenticated } = useAuth()
 
   const orders = useQuery({
     queryKey: ['limit-orders'],
     queryFn: () => api.getLimitOrders(),
+    enabled: isAuthenticated,
     staleTime: 15_000,
     refetchInterval: 30_000,
   })

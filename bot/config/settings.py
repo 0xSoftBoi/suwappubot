@@ -295,10 +295,14 @@ class Settings(BaseSettings):
 
     # AVNU (Starknet swap aggregator)
     avnu_integrator_fee_bps: int = Field(
-        default=80,
+        default=100,
         description=(
-            "AVNU integrator fee in basis points (80 = 0.8%, matches "
-            "swap_fee_percentage default)"
+            "FALLBACK AVNU integrator fee in basis points, used ONLY if avnu_api "
+            "is called without a resolved fee. The live swap path always passes "
+            "the tier-based fee from fee_service.get_fee_bps(tier) (the single "
+            "source of truth), so this default is not hit in practice. Aligned to "
+            "100 bps (1%) = the canonical no-tier default (fee_service."
+            "DEFAULT_FEE_RATE) so a stray direct call can't charge a different rate."
         ),
     )
     avnu_fee_recipient: Optional[str] = Field(
@@ -572,6 +576,13 @@ class Settings(BaseSettings):
         default="normal",
         description="Global default transaction speed preset: slow | normal | fast",
     )
+    approval_mode: str = Field(
+        default="unlimited",
+        description=(
+            "ERC-20 approval policy for swap routers: 'unlimited' (max uint256, fewer txs) "
+            "or 'exact' (approve only the swap amount each time, safer)"
+        ),
+    )
 
     # Polymarket API (optional — for pre-configured CLOB credentials)
     polymarket_clob_api_key: Optional[str] = Field(
@@ -585,8 +596,17 @@ class Settings(BaseSettings):
     )
 
     # Fee Configuration (competitive pricing)
+    # NOTE: this is a LEGACY flat-fee setting. It is NOT used to charge swaps —
+    # the charged fee is tier-based via fee_service.TIER_FEE_RATES (the single
+    # source of truth: FREE 1% / PRO 0.5% / PREMIUM 0.3% / ENTERPRISE 0.1%). This
+    # value is only surfaced in the admin /fee panel. Aligned to 1.0 so the admin
+    # display matches the canonical FREE-tier default rather than a stale 0.8%.
     swap_fee_percentage: float = Field(
-        default=0.8, description="Swap fee percentage (0.8% = competitive rate)"
+        default=1.0,
+        description=(
+            "LEGACY flat swap fee % — display-only (admin /fee panel). Real fee is "
+            "tier-based in fee_service.TIER_FEE_RATES. Default 1.0% = FREE tier."
+        ),
     )
     referral_reward_percentage: float = Field(
         default=30, description="Referral reward percentage (30% of fees)"

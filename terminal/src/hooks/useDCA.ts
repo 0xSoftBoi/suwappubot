@@ -1,14 +1,17 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
+import { useAuth } from '../contexts/AuthContext'
 import { optimisticRemoveById } from '../lib/optimistic'
 import type { CreateDCAParams } from '../types/api'
 
 export function useDCA() {
   const queryClient = useQueryClient()
+  const { isAuthenticated } = useAuth()
 
   const orders = useQuery({
     queryKey: ['dca-orders'],
     queryFn: () => api.getDCAOrders(),
+    enabled: isAuthenticated,
     staleTime: 30_000,
     refetchInterval: 60_000,
   })

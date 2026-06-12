@@ -14,14 +14,20 @@ from web3 import Web3
 
 from bot.config.settings import settings
 from bot.models.subscription import (
-    Subscription, SubscriptionTier, X402Payment, PaymentStatus, APICredit
+    Subscription,
+    SubscriptionTier,
+    X402Payment,
+    PaymentStatus,
+    APICredit,
 )
+from bot.services.fee_service import TIER_FEE_RATES
 from bot.services.wallet import WalletService
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
 import os as _os
+
 
 def _load_beta_passwords() -> dict:
     raw = _os.getenv("BETA_PASSWORDS", "")
@@ -36,42 +42,66 @@ def _load_beta_passwords() -> dict:
                 pass
     return result
 
+
 BETA_PASSWORDS = _load_beta_passwords()
 
 
-# Subscription tier limits
+# Subscription tier limits.
+#
+# ``fee_rate`` is DERIVED from the canonical fee table in fee_service
+# (TIER_FEE_RATES) — the single source of truth for what's actually charged
+# on-chain. Do NOT hardcode the fee here: it would let this copy drift from the
+# fee the swap engine collects. Update fee_service.TIER_FEE_RATES instead.
 TIER_LIMITS = {
     SubscriptionTier.FREE: {
-        "daily_swaps": None,   # Unlimited — revenue comes from 1% fee
+        "daily_swaps": None,  # Unlimited — revenue comes from swap fee
         "daily_api_calls": 100,
         "max_swap_usd": None,  # No cap — fee applies to all volume
-        "fee_rate": 0.01,      # 1%
+        "fee_rate": TIER_FEE_RATES[SubscriptionTier.FREE],  # 1%
         "features": ["basic_swap", "balance", "history"],
         "price_usd": 0,
     },
     SubscriptionTier.PRO: {
-        "daily_swaps": None,   # Unlimited
+        "daily_swaps": None,  # Unlimited
         "daily_api_calls": 1000,
         "max_swap_usd": None,  # No per-swap USD cap
-        "fee_rate": 0.005,     # 0.5%
-        "features": ["basic_swap", "balance", "history", "alerts", "limit_orders", "dca", "portfolio"],
+        "fee_rate": TIER_FEE_RATES[SubscriptionTier.PRO],  # 0.5%
+        "features": [
+            "basic_swap",
+            "balance",
+            "history",
+            "alerts",
+            "limit_orders",
+            "dca",
+            "portfolio",
+        ],
         "price_usd": 9.99,
     },
     SubscriptionTier.PREMIUM: {
-        "daily_swaps": None,   # Unlimited
+        "daily_swaps": None,  # Unlimited
         "daily_api_calls": 10000,
         "max_swap_usd": None,  # No per-swap USD cap
-        "fee_rate": 0.003,     # 0.3%
-        "features": ["basic_swap", "balance", "history", "alerts", "limit_orders", "dca",
-                     "portfolio", "tax_export", "priority_execution", "custom_slippage",
-                     "copy_trading"],
+        "fee_rate": TIER_FEE_RATES[SubscriptionTier.PREMIUM],  # 0.3%
+        "features": [
+            "basic_swap",
+            "balance",
+            "history",
+            "alerts",
+            "limit_orders",
+            "dca",
+            "portfolio",
+            "tax_export",
+            "priority_execution",
+            "custom_slippage",
+            "copy_trading",
+        ],
         "price_usd": 29.99,
     },
     SubscriptionTier.ENTERPRISE: {
         "daily_swaps": -1,  # Unlimited (legacy sentinel)
         "daily_api_calls": -1,
         "max_swap_usd": -1,
-        "fee_rate": 0.001,  # 0.1%
+        "fee_rate": TIER_FEE_RATES[SubscriptionTier.ENTERPRISE],  # 0.1%
         "features": ["all"],
         "price_usd": 99.99,
     },
@@ -81,6 +111,7 @@ TIER_LIMITS = {
 @dataclass
 class X402PaymentRequest:
     """x402 payment request structure."""
+
     payment_id: str
     amount: float
     token_symbol: str
@@ -91,9 +122,10 @@ class X402PaymentRequest:
     expires_at: int  # Unix timestamp
 
 
-@dataclass 
+@dataclass
 class X402Receipt:
     """x402 payment receipt."""
+
     payment_id: str
     tx_hash: str
     amount: float
@@ -107,13 +139,13 @@ class X402Receipt:
 
 class X402Service:
     """Service for handling x402 payments and token-gated subscriptions."""
-    
+
     def __init__(self):
         self.wallet_service = WalletService()
-        
+
         # Payment recipient (your fee collector)
-        self.payment_recipient = getattr(settings, 'fee_collector_address', None)
-        
+        self.payment_recipient = getattr(settings, "fee_collector_address", None)
+
         # Supported payment tokens (USDC + native token per chain)
         self.payment_tokens = {
             "ethereum": {
@@ -168,40 +200,38 @@ class X402Service:
                 "pathUSD": "0x20c0000000000000000000000000000000000000",
             },
         }
-    
+
     # =========================================================================
     # Subscription Management
     # =========================================================================
-    
+
     async def get_subscription(self, user_id: int) -> Subscription:
         """Get or create user subscription."""
         with get_session() as session:
-            sub = session.query(Subscription).filter(
-                Subscription.user_id == user_id
-            ).first()
-            
+            sub = session.query(Subscription).filter(Subscription.user_id == user_id).first()
+
             if not sub:
                 sub = Subscription(user_id=user_id, tier=SubscriptionTier.FREE)
                 session.add(sub)
                 session.flush()
-            
+
             # Reset daily counters if needed
             if sub.last_reset_date.date() < datetime.now(timezone.utc).date():
                 sub.api_calls_today = 0
                 sub.last_reset_date = datetime.now(timezone.utc)
-            
+
             return sub
-    
+
     async def get_tier(self, user_id: int) -> SubscriptionTier:
         """Get user's current subscription tier."""
         sub = await self.get_subscription(user_id)
-        
+
         # Check if subscription expired
         if sub.expires_at and sub.expires_at < datetime.now(timezone.utc):
             return SubscriptionTier.FREE
-        
+
         return sub.tier
-    
+
     async def upgrade_subscription(
         self,
         user_id: int,
@@ -211,65 +241,72 @@ class X402Service:
     ) -> Subscription:
         """Upgrade user subscription."""
         with get_session() as session:
-            sub = session.query(Subscription).filter(
-                Subscription.user_id == user_id
-            ).first()
-            
+            sub = session.query(Subscription).filter(Subscription.user_id == user_id).first()
+
             if not sub:
                 sub = Subscription(user_id=user_id)
                 session.add(sub)
-            
+
             sub.tier = tier
             sub.started_at = datetime.now(timezone.utc)
             sub.expires_at = datetime.now(timezone.utc) + timedelta(days=duration_days)
-            
+
             logger.info(f"User {user_id} upgraded to {tier.value} for {duration_days} days")
             return sub
-    
-    async def activate_beta(self, user_id: int, password: str) -> tuple[bool, str, Optional[SubscriptionTier]]:
+
+    async def activate_beta(
+        self, user_id: int, password: str
+    ) -> tuple[bool, str, Optional[SubscriptionTier]]:
         """
         Activate beta access with a password.
-        
+
         Returns:
             (success, message, tier_granted)
         """
         password_lower = password.strip().lower()
-        
+
         if password_lower not in BETA_PASSWORDS:
             return False, "Invalid beta code. Try again!", None
-        
+
         tier = BETA_PASSWORDS[password_lower]
-        
+
         # Check if already has this tier or higher
         current_tier = await self.get_tier(user_id)
-        tier_order = [SubscriptionTier.FREE, SubscriptionTier.PRO, 
-                     SubscriptionTier.PREMIUM, SubscriptionTier.ENTERPRISE]
-        
+        tier_order = [
+            SubscriptionTier.FREE,
+            SubscriptionTier.PRO,
+            SubscriptionTier.PREMIUM,
+            SubscriptionTier.ENTERPRISE,
+        ]
+
         try:
             if tier_order.index(current_tier) >= tier_order.index(tier):
                 return False, f"You already have {current_tier.value.upper()} access!", None
         except ValueError:
             pass  # Unknown tier — proceed with upgrade
-        
+
         # Grant beta access (lifetime = 365 days)
         await self.upgrade_subscription(user_id, tier, duration_days=365)
-        
+
         logger.info(f"User {user_id} activated beta code -> {tier.value}")
-        return True, f"🎉 Beta access activated! You now have **{tier.value.upper()}** for 1 year!", tier
-    
-    
+        return (
+            True,
+            f"🎉 Beta access activated! You now have **{tier.value.upper()}** for 1 year!",
+            tier,
+        )
+
     # =========================================================================
     # Feature Access Control
     # =========================================================================
-    
+
     async def check_feature_access(self, user_id: int, feature: str) -> bool:
         """Check if user has access to a feature."""
         tier = await self.get_tier(user_id)
         limits = TIER_LIMITS.get(tier, TIER_LIMITS[SubscriptionTier.FREE])
-        
+
         allowed_features = limits["features"]
         return "all" in allowed_features or feature in allowed_features
-    
+
     async def check_swap_limit(self, user_id: int, amount_usd: float) -> tuple[bool, str]:
         """Check if user can perform swap of given amount."""
         sub = await self.get_subscription(user_id)
@@ -286,25 +323,26 @@ class X402Service:
         # None = no cap (paid tiers); -1 = no cap (legacy ENTERPRISE sentinel).
         max_amount = limits["max_swap_usd"]
         if max_amount is not None and max_amount != -1 and amount_usd > max_amount:
-            return False, f"Swap amount exceeds limit (${max_amount:,.0f}). Upgrade for higher limits."
+            return (
+                False,
+                f"Swap amount exceeds limit (${max_amount:,.0f}). Upgrade for higher limits.",
+            )
 
         return True, "OK"
-    
+
     async def record_api_call(self, user_id: int) -> None:
         """Record an API call for rate limiting."""
         with get_session() as session:
-            sub = session.query(Subscription).filter(
-                Subscription.user_id == user_id
-            ).first()
-            
+            sub = session.query(Subscription).filter(Subscription.user_id == user_id).first()
+
             if sub:
                 sub.api_calls_today += 1
                 sub.api_calls_total += 1
-    
+
     # =========================================================================
     # x402 Payment Flow
     # =========================================================================
-    
+
     def create_payment_request(
         self,
         amount: float,
@@ -315,9 +353,9 @@ class X402Service:
     ) -> X402PaymentRequest:
         """Create an x402 payment request."""
         payment_id = f"x402_{secrets.token_hex(16)}"
-        
+
         token_address = self.payment_tokens.get(chain, {}).get(token_symbol, "")
-        
+
         return X402PaymentRequest(
             payment_id=payment_id,
             amount=amount,
@@ -328,7 +366,7 @@ class X402Service:
             memo=memo,
             expires_at=int(time.time()) + expires_in,
         )
-    
+
     async def create_subscription_payment(
         self,
         user_id: int,
@@ -337,14 +375,14 @@ class X402Service:
     ) -> X402PaymentRequest:
         """Create payment request for subscription upgrade."""
         price = TIER_LIMITS[tier]["price_usd"]
-        
+
         payment = self.create_payment_request(
             amount=price,
             token_symbol="USDC",
             chain=chain,
             memo=f"Suwappu {tier.value} subscription",
         )
-        
+
         # Record pending payment
         with get_session() as session:
             x402_payment = X402Payment(
@@ -358,9 +396,9 @@ class X402Service:
                 status=PaymentStatus.PENDING,
             )
             session.add(x402_payment)
-        
+
         return payment
-    
+
     def _verify_transaction_on_chain_sync(
         self,
         tx_hash: str,
@@ -378,6 +416,7 @@ class X402Service:
                 return False, f"Unsupported chain: {chain}"
 
             from bot.services.rpc_manager import rpc_manager
+
             web3 = rpc_manager.get_web3(chain)
 
             # Fetch transaction receipt
@@ -388,7 +427,7 @@ class X402Service:
                 return False, f"Transaction not found: {tx_hash}"
 
             # Check transaction succeeded
-            if receipt.get('status') != 1:
+            if receipt.get("status") != 1:
                 return False, "Transaction failed on-chain"
 
             # Normalize addresses
@@ -398,14 +437,17 @@ class X402Service:
             if not token_address or token_address == "0x0000000000000000000000000000000000000000":
                 tx = web3.eth.get_transaction(tx_hash)
 
-                if not tx.get('to'):
+                if not tx.get("to"):
                     return False, "Missing recipient address"
 
-                actual_recipient = Web3.to_checksum_address(tx['to'])
+                actual_recipient = Web3.to_checksum_address(tx["to"])
                 if actual_recipient != expected_recipient:
-                    return False, f"Recipient mismatch: expected {expected_recipient}, got {actual_recipient}"
+                    return (
+                        False,
+                        f"Recipient mismatch: expected {expected_recipient}, got {actual_recipient}",
+                    )
 
-                actual_amount = Decimal(tx['value']) / Decimal(10**18)
+                actual_amount = Decimal(tx["value"]) / Decimal(10**18)
                 expected_decimal = Decimal(str(expected_amount))
                 min_amount = expected_decimal * Decimal("0.99")
 
@@ -419,13 +461,13 @@ class X402Service:
                 transfer_topic = web3.keccak(text="Transfer(address,address,uint256)").hex()
                 token_address_checksum = Web3.to_checksum_address(token_address)
 
-                for log in receipt.get('logs', []):
-                    log_address = Web3.to_checksum_address(log.get('address', ''))
+                for log in receipt.get("logs", []):
+                    log_address = Web3.to_checksum_address(log.get("address", ""))
 
                     if log_address != token_address_checksum:
                         continue
 
-                    topics = log.get('topics', [])
+                    topics = log.get("topics", [])
                     if not topics or topics[0].hex() != transfer_topic:
                         continue
 
@@ -437,11 +479,11 @@ class X402Service:
                     if to_address != expected_recipient:
                         continue
 
-                    data = log.get('data', '0x')
+                    data = log.get("data", "0x")
                     if isinstance(data, str):
-                        amount_wei = int(data, 16) if data != '0x' else 0
+                        amount_wei = int(data, 16) if data != "0x" else 0
                     else:
-                        amount_wei = int.from_bytes(data, byteorder='big')
+                        amount_wei = int.from_bytes(data, byteorder="big")
 
                     # Get token decimals (most stablecoins use 6 decimals)
                     decimals = 6  # USDC standard
@@ -451,7 +493,10 @@ class X402Service:
                     min_amount = expected_decimal * Decimal("0.99")
 
                     if actual_amount < min_amount:
-                        return False, f"Amount too low: expected {expected_amount}, got {actual_amount}"
+                        return (
+                            False,
+                            f"Amount too low: expected {expected_amount}, got {actual_amount}",
+                        )
 
                     return True, "ERC20 transfer verified"
 
@@ -471,9 +516,14 @@ class X402Service:
     ) -> tuple[bool, str]:
         """Verify a transaction on-chain without blocking the event loop."""
         import asyncio
+
         return await asyncio.to_thread(
             self._verify_transaction_on_chain_sync,
-            tx_hash, chain, expected_recipient, expected_amount, token_address,
+            tx_hash,
+            chain,
+            expected_recipient,
+            expected_amount,
+            token_address,
         )
 
     async def verify_payment(
@@ -483,13 +533,13 @@ class X402Service:
     ) -> tuple[bool, str]:
         """Verify an x402 payment transaction."""
         with get_session() as session:
-            payment = session.query(X402Payment).filter(
-                X402Payment.payment_id == payment_id
-            ).first()
-            
+            payment = (
+                session.query(X402Payment).filter(X402Payment.payment_id == payment_id).first()
+            )
+
             if not payment:
                 return False, "Payment not found"
-            
+
             if payment.status == PaymentStatus.COMPLETED:
                 return True, "Already completed"
 
@@ -524,65 +574,58 @@ class X402Service:
                     )
                 elif payment.product_type == "api_credits":
                     await self._add_api_credits(payment.user_id, payment.amount)
-                
+
                 logger.info(f"Payment {payment_id} verified and completed")
                 return True, "Payment verified"
-                
+
             except Exception as e:
                 payment.status = PaymentStatus.FAILED
                 logger.error(f"Payment verification failed: {e}")
                 return False, str(e)
-    
-    
+
     # =========================================================================
     # API Credits
     # =========================================================================
-    
+
     async def get_credits(self, user_id: int) -> float:
         """Get user's API credit balance."""
         with get_session() as session:
-            credits = session.query(APICredit).filter(
-                APICredit.user_id == user_id
-            ).first()
-            
+            credits = session.query(APICredit).filter(APICredit.user_id == user_id).first()
+
             return credits.balance if credits else 0
-    
+
     async def _add_api_credits(self, user_id: int, amount: float) -> None:
         """Add API credits to user account."""
         with get_session() as session:
-            credits = session.query(APICredit).filter(
-                APICredit.user_id == user_id
-            ).first()
-            
+            credits = session.query(APICredit).filter(APICredit.user_id == user_id).first()
+
             if not credits:
                 credits = APICredit(user_id=user_id)
                 session.add(credits)
-            
+
             credits.balance += amount
             credits.lifetime_purchased += amount
-    
+
     async def use_credits(self, user_id: int, amount: float) -> bool:
         """Use API credits. Returns True if successful."""
         with get_session() as session:
-            credits = session.query(APICredit).filter(
-                APICredit.user_id == user_id
-            ).first()
-            
+            credits = session.query(APICredit).filter(APICredit.user_id == user_id).first()
+
             if not credits or credits.balance < amount:
                 return False
-            
+
             credits.balance -= amount
             credits.lifetime_used += amount
             return True
-    
+
     # =========================================================================
     # Helpers
     # =========================================================================
-    
+
     def get_tier_info(self, tier: SubscriptionTier) -> Dict[str, Any]:
         """Get information about a subscription tier."""
         return TIER_LIMITS.get(tier, TIER_LIMITS[SubscriptionTier.FREE])
-    
+
     def get_all_tiers(self) -> Dict[SubscriptionTier, Dict[str, Any]]:
         """Get all tier information."""
         return TIER_LIMITS
@@ -590,4 +633,3 @@ class X402Service:
 
 # Global instance
 x402_service = X402Service()
-

@@ -1,13 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
+import { useAuth } from '../contexts/AuthContext'
 import type { CreateAlertParams } from '../types/api'
 
 export function useAlerts() {
   const queryClient = useQueryClient()
+  const { isAuthenticated } = useAuth()
 
   const alerts = useQuery({
     queryKey: ['alerts'],
     queryFn: () => api.getAlerts(),
+    enabled: isAuthenticated,
     staleTime: 30_000,
     refetchInterval: 60_000,
   })

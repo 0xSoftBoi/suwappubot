@@ -1,20 +1,24 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
+import { useAuth } from '../contexts/AuthContext'
 import type { FollowSettings } from '../types/api'
 
 export function useTopTraders(timeframe?: string, limit?: number) {
+  const { isAuthenticated } = useAuth()
   return useQuery({
     queryKey: ['top-traders', timeframe, limit],
     queryFn: () => api.getTopTraders(timeframe, limit),
+    enabled: isAuthenticated,
     staleTime: 30_000,
   })
 }
 
 export function useTraderProfile(traderId: string | null) {
+  const { isAuthenticated } = useAuth()
   return useQuery({
     queryKey: ['trader-profile', traderId],
     queryFn: () => api.getTraderProfile(traderId!),
-    enabled: !!traderId,
+    enabled: isAuthenticated && !!traderId,
     staleTime: 30_000,
   })
 }
@@ -43,17 +47,21 @@ export function useUnfollowTrader() {
 }
 
 export function useFollowing() {
+  const { isAuthenticated } = useAuth()
   return useQuery({
     queryKey: ['following'],
     queryFn: () => api.getFollowing(),
+    enabled: isAuthenticated,
     staleTime: 15_000,
   })
 }
 
 export function useCopyTrades(limit?: number) {
+  const { isAuthenticated } = useAuth()
   return useQuery({
     queryKey: ['copy-trades', limit],
     queryFn: () => api.getCopyTrades(limit),
+    enabled: isAuthenticated,
     staleTime: 10_000,
   })
 }
