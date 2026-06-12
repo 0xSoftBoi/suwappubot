@@ -41,6 +41,8 @@ WAD = 10**18
 ORACLE_PRICE_SCALE = 10**36  # Morpho's fixed oracle scale (collateral→loan conversion)
 # Effective USD-per-BTC scale of price(): 1e(36 + 6 - 8) = 1e34
 ORACLE_USD_SCALE = 10**34
+# MetaMorpho vault shares are 18dp ERC-4626 shares
+METAMORPHO_SHARE_DECIMALS = 18
 
 # Morpho's virtual-shares offsets (SharesMathLib)
 VIRTUAL_ASSETS = 1
