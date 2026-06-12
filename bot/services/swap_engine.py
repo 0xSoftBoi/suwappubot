@@ -280,6 +280,15 @@ class SwapEngine:
         chains = (from_chain.lower(), to_chain.lower())
         return "goat" in chains and chains[0] != chains[1]
 
+    def _is_citrea_swap(self, from_chain: str, to_chain: str) -> bool:
+        """Check if this is a Citrea-to-Citrea swap (use JuiceSwap directly)."""
+        return from_chain.lower() == "citrea" and to_chain.lower() == "citrea"
+
+    def _is_citrea_cross_chain(self, from_chain: str, to_chain: str) -> bool:
+        """Check if Citrea is involved in a cross-chain swap (not yet supported)."""
+        chains = (from_chain.lower(), to_chain.lower())
+        return "citrea" in chains and chains[0] != chains[1]
+
     def _is_ccip_route(
         self, from_chain: str, to_chain: str, from_token: str, to_token: str
     ) -> bool:
@@ -536,6 +545,12 @@ class SwapEngine:
                 "(bridge via Symbiosis coming)."
             )
 
+        if self._is_citrea_cross_chain(from_chain, to_chain):
+            raise SwapError(
+                "Cross-chain swaps from/to Citrea are not yet supported. "
+                "Bridge BTC in via /btc (Lightning → Citrea cBTC)."
+            )
+
         amount_raw = self._get_token_amount_raw(amount, from_token, from_chain)
         slippage_bps = int(slippage * 100)
 
@@ -592,13 +607,28 @@ class SwapEngine:
                 )
             )
 
+        # Citrea-only swaps route EXCLUSIVELY through JuiceSwap (direct Uniswap
+        # V3 fork). Citrea (chain id 4114) is absent from EVERY aggregator chain
+        # map (LiFi/1inch/0x/Kyber/OKX/CoW/Socket) — keep it out of those paths.
+        if self._is_citrea_swap(from_chain, to_chain):
+            tasks.append(
+                self._get_juiceswap_quote(
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    slippage_bps,
+                )
+            )
+
         # OKX DEX covers TRON, EVM, and Solana (same-chain only) — add if configured
-        # (GOAT excluded: not in OKX_CHAIN_IDS, routed via GOATSwap above)
+        # (GOAT/Citrea excluded: not in OKX_CHAIN_IDS, routed via UniV3 forks above)
         if (
             self.okx_dex.is_configured
             and from_chain.lower() == to_chain.lower()
             and not self._is_starknet_swap(from_chain, to_chain)
             and not self._is_goat_swap(from_chain, to_chain)
+            and not self._is_citrea_swap(from_chain, to_chain)
         ):
             tasks.append(
                 self._get_okx_dex_quote(
@@ -678,13 +708,15 @@ class SwapEngine:
             )
 
         # EVM routing: Li.Fi + LayerZero (not for Solana-only, TRON-only, Tempo-only,
-        # Starknet, or GOAT — Li.Fi has no GOAT chain id, GOATSwap handles it)
+        # Starknet, GOAT, or Citrea — Li.Fi has no chain id for GOAT/Citrea; the
+        # direct UniV3-fork venues handle them)
         if (
             not self._is_solana_only_swap(from_chain, to_chain)
             and not self._is_tron_only_swap(from_chain, to_chain)
             and not self._is_tempo_only_swap(from_chain, to_chain)
             and not self._is_starknet_swap(from_chain, to_chain)
             and not self._is_goat_swap(from_chain, to_chain)
+            and not self._is_citrea_swap(from_chain, to_chain)
         ):
             if self._is_layerzero_route(from_chain, to_chain, from_token, to_token):
                 tasks.append(
@@ -1118,20 +1150,58 @@ class SwapEngine:
         amount_raw: str,
         slippage_bps: int,
     ) -> SwapQuote:
-        """Get quote from GOATSwap (direct Uniswap V3 fork) for GOAT-only swaps.
-
-        Native BTC input ("BTC") is handled via WGBTC + msg.value; native BTC
-        output is rejected by goatswap_api (v1 — receive WGBTC instead).
-        """
+        """Get quote from GOATSwap (direct Uniswap V3 fork) for GOAT-only swaps."""
         from bot.services.goatswap_api import goatswap_api
 
-        from_token_address = get_token_address(from_token, "goat")
-        to_token_address = get_token_address(to_token, "goat")
+        return await self._get_univ3_fork_quote(
+            goatswap_api, from_token, to_token, amount, amount_raw, slippage_bps
+        )
+
+    async def _get_juiceswap_quote(
+        self,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: str,
+        slippage_bps: int,
+    ) -> SwapQuote:
+        """Get quote from JuiceSwap (direct Uniswap V3 fork) for Citrea-only swaps."""
+        from bot.services.univ3_fork_api import juiceswap_api
+
+        return await self._get_univ3_fork_quote(
+            juiceswap_api, from_token, to_token, amount, amount_raw, slippage_bps
+        )
+
+    async def _get_univ3_fork_quote(
+        self,
+        venue_api,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: str,
+        slippage_bps: int,
+    ) -> SwapQuote:
+        """Get a quote from a direct UniV3-fork venue (GOATSwap / JuiceSwap).
+
+        Native BTC input ("BTC") is handled via the venue's wrapped-native token
+        + msg.value; native output is rejected by the venue API (v1 — receive
+        the wrapped-native token instead).
+        """
+        from bot.services.univ3_fork_api import compute_min_out
+
+        venue = venue_api.venue
+        chain_name = venue.chain_name
+
+        from_token_address = get_token_address(from_token, chain_name)
+        to_token_address = get_token_address(to_token, chain_name)
 
         if not from_token_address or not to_token_address:
-            raise SwapError(f"Token not supported on GOAT: {from_token} or {to_token}")
+            raise SwapError(
+                f"Token not supported on {venue.display_name}'s chain "
+                f"({chain_name}): {from_token} or {to_token}"
+            )
 
-        gs_quote = await goatswap_api.get_quote(
+        gs_quote = await venue_api.get_quote(
             token_in=from_token_address,
             token_out=to_token_address,
             amount_in=int(amount_raw),
@@ -1139,21 +1209,23 @@ class SwapEngine:
 
         if gs_quote.amount_out <= 0:
             raise SwapError(
-                f"GOATSwap returned a zero output for {from_token}→{to_token} — refusing to quote"
+                f"{venue.display_name} returned a zero output for "
+                f"{from_token}→{to_token} — refusing to quote"
             )
 
-        from bot.services.goatswap_api import compute_min_out
-
         min_out = compute_min_out(gs_quote.amount_out, slippage_bps)
-        to_amount_human = self._get_token_amount_human(str(gs_quote.amount_out), to_token, "goat")
+        to_amount_human = self._get_token_amount_human(
+            str(gs_quote.amount_out), to_token, chain_name
+        )
         exchange_rate = to_amount_human / amount if amount > 0 else 0
 
         # Honest gas estimate: 300k gas * live gas price * cached BTC price
-        # (GOAT gas is BTC-denominated, 18 decimals). The gas price is one cheap
-        # eth_gasPrice on the same RPC the quote just used; the BTC price comes
-        # ONLY from the price cache — no extra HTTP fetch at quote time. If
-        # either is unavailable we report 0.0 and the UI shows "varies" instead
-        # of a fabricated number.
+        # (both GOAT and Citrea gas are BTC-denominated, 18 decimals). The gas
+        # price is one cheap eth_gasPrice on the same RPC the quote just used;
+        # the BTC price comes ONLY from the price cache — no extra HTTP fetch at
+        # quote time. If either is unavailable we report 0.0 and the UI shows
+        # "varies" instead of a fabricated number. The venue's gas headroom
+        # (Citrea L1 fee surcharge, +15%) is included in the display estimate.
         gas_cost_usd = 0.0
         try:
             from bot.services.rpc_manager import rpc_manager
@@ -1161,11 +1233,14 @@ class SwapEngine:
 
             btc_price = await price_cache.get("price_BTC") or await price_cache.get("price_WBTC")
             if btc_price:
-                web3 = rpc_manager.get_web3("goat")
+                web3 = rpc_manager.get_web3(chain_name)
                 gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
-                gas_cost_usd = 300_000 * gas_price / 1e18 * float(btc_price)
+                gas_units = venue_api.apply_gas_headroom(300_000)
+                gas_cost_usd = gas_units * gas_price / 1e18 * float(btc_price)
         except Exception as e:
-            logger.debug(f"GOAT gas cost estimate unavailable (will display 'varies'): {e}")
+            logger.debug(
+                f"{venue.display_name} gas cost estimate unavailable (will display 'varies'): {e}"
+            )
 
         raw = dict(gs_quote.raw_response)
         raw.update(
@@ -1180,9 +1255,9 @@ class SwapEngine:
         )
 
         return SwapQuote(
-            provider="goatswap",
-            from_chain="goat",
-            to_chain="goat",
+            provider=venue.name,
+            from_chain=chain_name,
+            to_chain=chain_name,
             from_token=from_token,
             to_token=to_token,
             from_amount=amount_raw,
@@ -1193,7 +1268,7 @@ class SwapEngine:
             gas_cost_usd=gas_cost_usd,  # 0.0 = unknown (no cached BTC price) → UI shows "varies"
             fee_cost_usd=0,
             total_cost_usd=gas_cost_usd,
-            estimated_time=5,  # GOAT block time ~few seconds
+            estimated_time=5,  # both GOAT and Citrea have ~2-5s blocks
             price_impact=0.0,
             exchange_rate=exchange_rate,
             raw_quote=raw,
@@ -2083,6 +2158,14 @@ class SwapEngine:
                     f"GOAT swaps must route via GOATSwap (got provider '{quote.provider}')"
                 )
 
+        # Same hard backstop for Citrea: chain id 4114 is absent from every
+        # aggregator — only the direct JuiceSwap path may execute.
+        if "citrea" in (quote.from_chain.lower(), quote.to_chain.lower()):
+            if quote.provider != "juiceswap":
+                raise SwapError(
+                    f"Citrea swaps must route via JuiceSwap (got provider '{quote.provider}')"
+                )
+
         # Prevent concurrent swaps from same wallet (with bounded growth)
         if wallet_id not in self._wallet_locks:
             if len(self._wallet_locks) >= self._wallet_locks_max:
@@ -2270,8 +2353,11 @@ class SwapEngine:
                     tx_hash = await self._execute_avnu_swap(quote, wallet)
                 elif quote.provider == "goatswap":
                     tx_hash = await self._execute_goatswap_swap(quote, wallet)
-                # (GOAT guard lives at the top of execute_swap — any goat quote
-                # reaching this dispatch is guaranteed provider == "goatswap")
+                elif quote.provider == "juiceswap":
+                    tx_hash = await self._execute_juiceswap_swap(quote, wallet)
+                # (GOAT/Citrea guards live at the top of execute_swap — any
+                # goat/citrea quote reaching this dispatch is guaranteed
+                # provider == "goatswap"/"juiceswap")
                 elif "starknet" in (quote.from_chain.lower(), quote.to_chain.lower()):
                     # Hard guard: Starknet must NEVER fall into the Li.Fi/EVM path.
                     raise SwapError(
@@ -3001,28 +3087,46 @@ class SwapEngine:
         return rpc_manager.get_web3(chain_name)
 
     async def _execute_goatswap_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
-        """Execute a GOAT-only swap via GOATSwap SwapRouter02.
+        """Execute a GOAT-only swap via GOATSwap SwapRouter02 (multicall style)."""
+        from bot.services.goatswap_api import goatswap_api
+
+        return await self._execute_univ3_fork_swap(quote, wallet_data, goatswap_api)
+
+    async def _execute_juiceswap_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a Citrea-only swap via JuiceSwap SwapRouter (deadline-in-struct)."""
+        from bot.services.univ3_fork_api import juiceswap_api
+
+        return await self._execute_univ3_fork_swap(quote, wallet_data, juiceswap_api)
+
+    async def _execute_univ3_fork_swap(self, quote: SwapQuote, wallet_data: dict, venue_api) -> str:
+        """Execute a same-chain swap on a direct UniV3-fork venue.
 
         Steps:
-        1. Rebuild the GOATSwap quote from stored raw_quote data (no re-quote).
-        2. ERC20 input: approve the exact amount to SwapRouter02, wait for receipt.
-           Native BTC input: no approval — amount rides as msg.value (router wraps
-           into WGBTC itself).
-        3. exactInputSingle wrapped in multicall(deadline) with amountOutMinimum
-           from the quoted min-out.
-        """
-        from bot.services.goatswap_api import GoatSwapQuote, goatswap_api
+        1. Rebuild the venue quote from stored raw_quote data (no re-quote).
+        2. ERC20 input: approve the exact amount to the router, wait for receipt.
+           Native BTC input: no approval — amount rides as msg.value (router
+           wraps into the wrapped-native token itself).
+        3. exactInputSingle per the venue's router style (GOATSwap: wrapped in
+           multicall(deadline); JuiceSwap: deadline inside the params struct)
+           with amountOutMinimum from the quoted min-out.
 
+        Gas: on top of the usual 1.3x estimate buffer, the venue's
+        gas_headroom_pct is applied (Citrea: +15% — the L1 fee surcharge is not
+        included in eth_estimateGas).
+        """
+        from bot.services.univ3_fork_api import UniV3ForkQuote
+
+        venue = venue_api.venue
         wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
 
         sender = wallet_data["address"]
-        chain = get_chain_by_name("goat")
-        web3 = self._get_web3_with_fallback("goat")
+        chain = get_chain_by_name(venue.chain_name)
+        web3 = self._get_web3_with_fallback(venue.chain_name)
         raw = quote.raw_quote or {}
 
-        gs_quote = GoatSwapQuote(
+        gs_quote = UniV3ForkQuote(
             token_in=raw["token_in"],
             token_out=raw["token_out"],
             amount_in=int(raw["amount_in"]),
@@ -3039,10 +3143,10 @@ class SwapEngine:
 
         # Step 1: exact-amount ERC20 approval (skipped for native BTC input)
         if not gs_quote.native_in:
-            approve_tx = goatswap_api.build_approve_tx(gs_quote.token_in, gs_quote.amount_in)
+            approve_tx = venue_api.build_approve_tx(gs_quote.token_in, gs_quote.amount_in)
             approve_tx.update(
                 {
-                    "gas": 80_000,
+                    "gas": venue_api.apply_gas_headroom(80_000),
                     "gasPrice": gas_price,
                     "nonce": nonce,
                     "chainId": chain.chain_id,
@@ -3054,16 +3158,18 @@ class SwapEngine:
                     bytes.fromhex(signed_approve.replace("0x", ""))
                 )
             )
-            logger.info(f"GOATSwap approval tx: {approve_hash.hex()}")
+            logger.info(f"{venue.display_name} approval tx: {approve_hash.hex()}")
             receipt = await asyncio.to_thread(
                 lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
             )
             if receipt["status"] != 1:
-                raise SwapError(f"GOATSwap ERC20 approval failed (tx: {approve_hash.hex()})")
+                raise SwapError(
+                    f"{venue.display_name} ERC20 approval failed (tx: {approve_hash.hex()})"
+                )
             nonce += 1
 
-        # Step 2: swap via SwapRouter02 multicall(deadline, [exactInputSingle])
-        swap_tx = goatswap_api.build_swap_tx(
+        # Step 2: swap via the venue router (style-specific calldata)
+        swap_tx = venue_api.build_swap_tx(
             quote=gs_quote,
             recipient=sender,
             amount_out_min=amount_out_min,
@@ -3083,7 +3189,10 @@ class SwapEngine:
             )
             gas_estimate = int(gas_estimate * 1.3)
         except Exception as e:
-            logger.warning(f"GOATSwap gas estimate failed, using default 300k: {e}")
+            logger.warning(f"{venue.display_name} gas estimate failed, using default 300k: {e}")
+
+        # Venue headroom on top (Citrea: L1 fee surcharge not in estimateGas)
+        gas_estimate = venue_api.apply_gas_headroom(gas_estimate)
 
         swap_tx.update(
             {
@@ -3100,7 +3209,7 @@ class SwapEngine:
         )
 
         logger.info(
-            f"GOATSwap exactInputSingle: {tx_hash.hex()} "
+            f"{venue.display_name} exactInputSingle: {tx_hash.hex()} "
             f"({quote.from_token}→{quote.to_token} fee tier {gs_quote.fee_tier}) — "
             f"fire-and-monitor: swap receipt NOT awaited here; final status comes "
             f"from the tx poller"

@@ -272,6 +272,23 @@ CHAINS: dict[str, ChainConfig] = {
         legacy_gas_only=True,
         min_gas_price_wei=60_000_000,  # 0.06 gwei network minimum
     ),
+    "citrea": ChainConfig(
+        chain_id=4114,
+        name="citrea",
+        display_name="Citrea",
+        chain_type=ChainType.EVM,
+        native_token="cBTC",
+        native_decimals=18,  # native cBTC uses 18 decimals (ETH-style), NOT 8
+        rpc_url_env="CITREA_RPC_URL",
+        explorer_url="https://explorer.mainnet.citrea.xyz",
+        logo_emoji="🍊",
+        # Routing: JuiceSwap (direct UniV3 fork) ONLY — Citrea (chain id 4114)
+        # is absent from EVERY aggregator (LiFi/1inch/0x/Kyber/OKX/CoW/Socket).
+        lifi_chain_id=None,
+        # EIP-1559 OK (Type-2 zkEVM, Pectra), but the L1 (Bitcoin DA) fee
+        # surcharge is NOT included in eth_estimateGas — execution adds 15%
+        # headroom (see univ3_fork_api.CITREA_VENUE.gas_headroom_pct).
+    ),
     # === New Li.Fi-supported chains (2025-2026) ===
     "sonic": ChainConfig(
         chain_id=146,

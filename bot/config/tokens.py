@@ -39,6 +39,8 @@ TOKENS: dict[str, TokenConfig] = {
             "goat": "0xE1AD845D93853fff44990aE0DcecD8575293681e",  # 6 decimals on GOAT
             # Rootstock rUSDT — 18 decimals NOT 6 (see get_token_decimals override)
             "rootstock": "0x779ded0c9e1022225f8e0630b35a9b54be713736",  # USD₮0 (6dp) — LiFi-routable; legacy rUSDT 0xef21..bb96 (18dp) is NOT in LiFi token list
+            # Citrea bridged USDT.e, 6 decimals
+            "citrea": "0x9f3096Bac87e7F03DC09b0B416eB0DF837304dc4",
         },
         logo_emoji="💵",
     ),
@@ -61,6 +63,8 @@ TOKENS: dict[str, TokenConfig] = {
             "goat": "0x3022b87ac063DE95b1570F46f5e470F8B53112D8",
             # Rootstock USDC.e (bridged), 6 decimals
             "rootstock": "0x74c9f2b00581f1b11aa7ff05aa9f608b7389de67",
+            # Citrea bridged USDC.e, 6 decimals (ctUSD is registered separately as CTUSD)
+            "citrea": "0xE045e6c36cF77FAA2CfB54466D71A3aEF7bbE839",
         },
         logo_emoji="💲",
     ),
@@ -283,6 +287,29 @@ TOKENS: dict[str, TokenConfig] = {
         logo_emoji="🐐",
         is_stablecoin=False,
     ),
+    "WCBTC": TokenConfig(
+        symbol="WCBTC",
+        name="Wrapped cBTC",
+        # Citrea's native gas token is cBTC with 18 decimals (ETH-style native
+        # units, NOT 8-decimal satoshi units). WcBTC wraps that native cBTC 1:1,
+        # so it is ALSO 18 decimals — it is the chain's WETH9 slot for JuiceSwap.
+        decimals=18,
+        addresses={
+            "citrea": "0x3100000000000000000000000000000000000006",
+        },
+        logo_emoji="🍊",
+        is_stablecoin=False,
+    ),
+    "CTUSD": TokenConfig(
+        symbol="ctUSD",
+        name="Citrea Dollar",
+        decimals=6,
+        addresses={
+            "citrea": "0x8D82c4E3c936C7B5724A382a9c5a4E6Eb7aB6d5D",
+        },
+        logo_emoji="🧃",
+        is_stablecoin=True,
+    ),
     "BTC": TokenConfig(
         symbol="BTC",
         name="Bitcoin",
@@ -304,6 +331,8 @@ TOKENS: dict[str, TokenConfig] = {
             "bsc": "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c",
             # GOAT native BTC — 18 decimals, native placeholder
             "goat": "0x0000000000000000000000000000000000000000",
+            # Citrea native cBTC — 18 decimals, native placeholder
+            "citrea": "0x0000000000000000000000000000000000000000",
         },
         logo_emoji="₿",
         is_stablecoin=False,
@@ -393,6 +422,8 @@ TOKENS: dict[str, TokenConfig] = {
             "optimism": "0x68f180fcCe6836688e9084f035309E29Bf0A2095",
             "base": "0x0555E30da8f98308EdB960aa94C0Db47230d2B9c",
             "starknet": starknet_addresses.WBTC,
+            # Citrea bridged WBTC.e, 8 decimals
+            "citrea": "0xDF240DC08B0FdaD1d93b74d5048871232f6BEA3d",
         },
         logo_emoji="₿",
         is_stablecoin=False,
@@ -739,6 +770,7 @@ _PER_CHAIN_DECIMALS: dict[tuple[str, str], int] = {
     ("BTC", "polygon"): 18,  # tBTC
     ("BTC", "bsc"): 18,  # BTCB
     ("BTC", "goat"): 18,  # native BTC, ETH-style
+    ("BTC", "citrea"): 18,  # native cBTC, ETH-style
     # WBTC's bsc address is actually BTCB which is 18dp NOT 8
     ("WBTC", "bsc"): 18,
 }
@@ -794,6 +826,16 @@ def get_token_decimals(symbol: str, chain_name: str) -> int:
                 return 6
             if sym in ("WGBTC", "WETH"):
                 return 18
+        # Citrea: defensive chain-specific pins (mirrors the GOAT block above).
+        # WcBTC is 18dp (wraps native cBTC 1:1) — NOT 8; WBTC.e stays 8dp.
+        if chain_name.lower() == "citrea":
+            sym = symbol.upper()
+            if sym in ("USDT", "USDC", "CTUSD"):
+                return 6
+            if sym == "WCBTC":
+                return 18
+            if sym == "WBTC":
+                return 8
         return _chain_decimals(symbol, chain_name, token.decimals)
     return 18  # Default
 

@@ -47,13 +47,22 @@ logger = logging.getLogger(__name__)
 # Conversation states
 (
     BTC_MENU,
+    BTC_DEP_DEST,
     BTC_DEP_WALLET,
     BTC_DEP_AMOUNT,
     BTC_WD_WALLET,
     BTC_WD_DEST,
     BTC_WD_AMOUNT,
     BTC_WD_CONFIRM,
-) = range(7)
+) = range(8)
+
+# Deposit destinations: chain → (label, received asset, wallet chain_type).
+# Botanix is deliberately ABSENT (network shutting down) and additionally
+# denylisted inside btc_bridge itself.
+DEPOSIT_DESTINATIONS = {
+    "starknet": {"label": "Starknet", "asset": "WBTC", "wallet_chain_type": "starknet"},
+    "citrea": {"label": "Citrea", "asset": "cBTC", "wallet_chain_type": "evm"},
+}
 
 wallet_service = WalletService()
 
@@ -112,17 +121,21 @@ def _format_fees(fees) -> str:
     return "\n".join(lines)
 
 
-def _starknet_wallets(user_id: int) -> list:
+def _wallets_of_type(user_id: int, chain_type: str) -> list:
     with get_session() as session:
         return (
             session.query(Wallet)
             .filter(
                 Wallet.user_id == user_id,
-                Wallet.chain_type == "starknet",
+                Wallet.chain_type == chain_type,
                 Wallet.is_active == True,  # noqa: E712
             )
             .all()
         )
+
+
+def _starknet_wallets(user_id: int) -> list:
+    return _wallets_of_type(user_id, "starknet")
 
 
 def _get_wallet(user_id: int, wallet_id: int) -> Optional[Wallet]:
@@ -207,10 +220,26 @@ async def btc_close_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # ── Wallet selection (shared by deposit + withdraw) ──────────────────────────
 
 
+def _deposit_dest(context) -> dict:
+    flow = context.user_data.get("btc") or {}
+    return DEPOSIT_DESTINATIONS.get(
+        flow.get("dst_chain", "starknet"), DEPOSIT_DESTINATIONS["starknet"]
+    )
+
+
 async def _render_wallet_pick(update, context, *, action: str) -> int:
     user_id = context.user_data["user_id"]
-    wallets = _starknet_wallets(user_id)
-    verb = "receive WBTC into" if action == "deposit" else "withdraw WBTC from"
+    if action == "deposit":
+        dest = _deposit_dest(context)
+        chain_label = dest["label"]
+        wallet_chain_type = dest["wallet_chain_type"]
+        verb = f"receive {dest['asset']} into"
+    else:
+        chain_label = "Starknet"
+        wallet_chain_type = "starknet"
+        verb = "withdraw WBTC from"
+    wallets = _wallets_of_type(user_id, wallet_chain_type)
+    wallet_kind = "Starknet" if wallet_chain_type == "starknet" else "EVM"
 
     keyboard = []
     for w in wallets:
@@ -222,23 +251,57 @@ async def _render_wallet_pick(update, context, *, action: str) -> int:
             ]
         )
     keyboard.append(
-        [InlineKeyboardButton("➕ Create Starknet Wallet", callback_data="btc_new_wallet")]
+        [InlineKeyboardButton(f"➕ Create {wallet_kind} Wallet", callback_data="btc_new_wallet")]
     )
     keyboard.append([InlineKeyboardButton("« Back", callback_data="btc_menu")])
 
     if wallets:
-        text = f"👛 *Select the Starknet wallet to {verb}:*"
+        text = f"👛 *Select the {wallet_kind} wallet ({chain_label}) to {verb}:*"
     else:
-        text = f"👛 You need a Starknet wallet to {verb}. Create one now:"
+        text = f"👛 You need a {wallet_kind} wallet to {verb} on {chain_label}. Create one now:"
 
     await _reply(update, text, is_callback=True, keyboard=keyboard, parse_mode="Markdown")
     return BTC_DEP_WALLET if action == "deposit" else BTC_WD_WALLET
 
 
 async def btc_deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Deposit entry: pick the destination chain first (default Starknet)."""
     query = update.callback_query
     await query.answer()
     context.user_data["btc"] = {"action": "deposit"}
+    text = (
+        "⚡ *Lightning Deposit — choose destination*\n\n"
+        "🌌 *Starknet* — lands as WBTC (default, deepest liquidity).\n"
+        "🍊 *Citrea* — lands as native cBTC. _Early ecosystem with thin "
+        "liquidity — swaps on Citrea may have high price impact._"
+    )
+    keyboard = [
+        [InlineKeyboardButton("🌌 Starknet (WBTC)", callback_data="btc_dst_starknet")],
+        [InlineKeyboardButton("🍊 Citrea (cBTC) — early", callback_data="btc_dst_citrea")],
+        [InlineKeyboardButton("« Back", callback_data="btc_menu")],
+    ]
+    await _reply(update, text, is_callback=True, keyboard=keyboard, parse_mode="Markdown")
+    return BTC_DEP_DEST
+
+
+async def btc_dep_dest_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Destination chain picked via btc_dst_<chain>."""
+    query = update.callback_query
+    await query.answer()
+
+    flow = context.user_data.get("btc")
+    if not flow:
+        await query.edit_message_text(
+            "❌ Session expired. Start again with /btc", reply_markup=_RETRY_KEYBOARD
+        )
+        return ConversationHandler.END
+
+    dst_chain = query.data.replace("btc_dst_", "")
+    if dst_chain not in DEPOSIT_DESTINATIONS:
+        await query.edit_message_text("❌ Invalid destination.", reply_markup=_RETRY_KEYBOARD)
+        return ConversationHandler.END
+
+    flow["dst_chain"] = dst_chain
     return await _render_wallet_pick(update, context, action="deposit")
 
 
@@ -250,7 +313,7 @@ async def btc_withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def btc_new_wallet_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Create a Starknet wallet inline (reuses WalletService.create_wallet)."""
+    """Create a wallet inline for the flow's destination chain type."""
     query = update.callback_query
     await query.answer("Creating wallet...")
 
@@ -261,15 +324,21 @@ async def btc_new_wallet_callback(update: Update, context: ContextTypes.DEFAULT_
         )
         return ConversationHandler.END
 
+    if flow.get("action") == "deposit":
+        chain_type = _deposit_dest(context)["wallet_chain_type"]
+    else:
+        chain_type = "starknet"
+    wallet_kind = "Starknet" if chain_type == "starknet" else "EVM"
+
     user_id = context.user_data["user_id"]
     try:
         wallet = await wallet_service.create_wallet(
-            user_id=user_id, name="Starknet Wallet", chain_type="starknet"
+            user_id=user_id, name=f"{wallet_kind} Wallet", chain_type=chain_type
         )
     except Exception as e:
-        logger.error(f"BTC bridge: Starknet wallet creation failed for user {user_id}: {e}")
+        logger.error(f"BTC bridge: {wallet_kind} wallet creation failed for user {user_id}: {e}")
         await query.edit_message_text(
-            "❌ Could not create a Starknet wallet. Please try again.",
+            f"❌ Could not create a {wallet_kind} wallet. Please try again.",
             reply_markup=_RETRY_KEYBOARD,
         )
         return ConversationHandler.END
@@ -309,7 +378,7 @@ async def _wallet_chosen(update, context, wallet) -> int:
     flow["wallet_id"] = wallet.id
 
     if flow["action"] == "deposit":
-        min_sats, max_sats = await _lightning_limits()
+        min_sats, max_sats = await _lightning_limits(flow.get("dst_chain", "starknet"))
         flow["min_sats"], flow["max_sats"] = min_sats, max_sats
         await _reply(
             update,
@@ -339,13 +408,14 @@ async def _wallet_chosen(update, context, wallet) -> int:
     return BTC_WD_DEST
 
 
-async def _lightning_limits():
+async def _lightning_limits(dst_chain: str = "starknet"):
     """Live LN-in limits in sats, with safe defaults on any failure."""
+    from bot.services.btc_bridge import DEPOSIT_DST_CHAINS
+
+    dst_token = DEPOSIT_DST_CHAINS.get(dst_chain) or settings.btc_deposit_default_token
     min_sats, max_sats = DEFAULT_LN_MIN_SATS, DEFAULT_LN_MAX_SATS
     try:
-        limits = await btc_bridge.api.get_swap_limits(
-            LIGHTNING_BTC, settings.btc_deposit_default_token
-        )
+        limits = await btc_bridge.api.get_swap_limits(LIGHTNING_BTC, dst_token)
         raw_min = BtcBridge._raw_amount((limits.get("input") or {}).get("min"))
         raw_max = BtcBridge._raw_amount((limits.get("input") or {}).get("max"))
         if raw_min:
@@ -391,9 +461,13 @@ async def btc_dep_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("❌ Wallet not found.", reply_markup=_RETRY_KEYBOARD)
         return ConversationHandler.END
 
+    dst_chain = flow.get("dst_chain", "starknet")
+    dest = DEPOSIT_DESTINATIONS.get(dst_chain, DEPOSIT_DESTINATIONS["starknet"])
     progress = await update.message.reply_text("⏳ Creating your Lightning invoice...")
     try:
-        result = await btc_bridge.start_lightning_deposit(user_id, wallet, sats)
+        result = await btc_bridge.start_lightning_deposit(
+            user_id, wallet, sats, dst_chain=dst_chain
+        )
     except (BtcBridgeError, Exception) as e:
         if not isinstance(e, BtcBridgeError):
             logger.error(f"BTC deposit failed for user {user_id}: {e}", exc_info=True)
@@ -408,8 +482,8 @@ async def btc_dep_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"⚡ *Lightning Deposit — {sats:,} sats*\n\n"
         f"`{invoice}`\n\n"
         f"[Open in Lightning wallet](lightning:{invoice})\n\n"
-        f"Pay this from any Lightning wallet; funds land as WBTC on your "
-        f"Starknet wallet automatically (1-3 min).\n\n"
+        f"Pay this from any Lightning wallet; funds land as {dest['asset']} on your "
+        f"{dest['label']} wallet automatically (1-3 min).\n\n"
         f"Swap ID: `{result['swap_id']}`"
     )
     keyboard = [
@@ -690,6 +764,10 @@ btc_conversation_handler = ConversationHandler(
             CallbackQueryHandler(btc_swaps_callback, pattern="^btc_swaps$"),
             CallbackQueryHandler(btc_menu_callback, pattern="^btc_menu$"),
             CallbackQueryHandler(btc_close_callback, pattern="^btc_close$"),
+        ],
+        BTC_DEP_DEST: [
+            CallbackQueryHandler(btc_dep_dest_callback, pattern="^btc_dst_"),
+            CallbackQueryHandler(btc_menu_callback, pattern="^btc_menu$"),
         ],
         BTC_DEP_WALLET: _WALLET_PICK_HANDLERS,
         BTC_DEP_AMOUNT: [

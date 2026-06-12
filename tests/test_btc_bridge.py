@@ -191,6 +191,57 @@ class TestLightningDeposit:
         with pytest.raises(BtcBridgeError):
             await bridge.start_lightning_deposit(user_id=7, wallet=wallet, sats=0)
 
+    async def test_citrea_dst_chain_body_shape(self, server, bridge):
+        """dst_chain='citrea' → dstToken CITREA-CBTC, dstAddress = EVM address,
+        and the BtcSwap row records dst_chain."""
+        evm_wallet = MagicMock()
+        evm_wallet.id = 2
+        evm_wallet.address = "0x" + "cd" * 20  # 20-byte EVM address
+        server.routes[("POST", "/createSwap")] = lambda p: _create_swap_response(
+            swap_id="swap-citrea-1", action=_send_to_address_action()
+        )
+        result = await bridge.start_lightning_deposit(
+            user_id=7, wallet=evm_wallet, sats=1500, dst_chain="citrea"
+        )
+
+        body = next(p for m, path, p in server.requests if path == "/createSwap")
+        assert body["srcToken"] == "LIGHTNING-BTC"
+        assert body["dstToken"] == "CITREA-CBTC"
+        assert body["dstAddress"] == evm_wallet.address
+        assert result["invoice"] == BOLT11
+
+        row = _row("swap-citrea-1")
+        assert row.dst_chain == "citrea"
+        assert row.dst_token == "CITREA-CBTC"
+        assert row.dst_address == evm_wallet.address
+
+    async def test_starknet_default_records_dst_chain(self, server, bridge, wallet):
+        server.routes[("POST", "/createSwap")] = lambda p: _create_swap_response(
+            swap_id="swap-stark-1", action=_send_to_address_action()
+        )
+        await bridge.start_lightning_deposit(user_id=7, wallet=wallet, sats=1500)
+        body = next(p for m, path, p in server.requests if path == "/createSwap")
+        assert body["dstToken"] == settings.btc_deposit_default_token
+        assert _row("swap-stark-1").dst_chain == "starknet"
+
+    async def test_botanix_dst_chain_rejected(self, bridge, wallet):
+        with pytest.raises(BtcBridgeError, match="Botanix"):
+            await bridge.start_lightning_deposit(
+                user_id=7, wallet=wallet, sats=1500, dst_chain="botanix"
+            )
+
+    async def test_botanix_dst_token_rejected(self, bridge, wallet):
+        with pytest.raises(BtcBridgeError, match="Botanix"):
+            await bridge.start_lightning_deposit(
+                user_id=7, wallet=wallet, sats=1500, dst_token="BOTANIX-BBTC"
+            )
+
+    async def test_unknown_dst_chain_rejected(self, bridge, wallet):
+        with pytest.raises(BtcBridgeError, match="Unsupported deposit destination"):
+            await bridge.start_lightning_deposit(
+                user_id=7, wallet=wallet, sats=1500, dst_chain="dogechain"
+            )
+
 
 class TestWithdrawals:
     async def test_btc_out_body_shape(self, server, bridge, wallet):

@@ -46,6 +46,16 @@ logger = logging.getLogger(__name__)
 # Atomiq token id for Lightning-network BTC
 LIGHTNING_BTC = "LIGHTNING-BTC"
 BITCOIN_BTC = "BITCOIN-BTC"
+# Atomiq token id for native cBTC on Citrea (18 decimals)
+CITREA_CBTC = "CITREA-CBTC"
+
+# Botanix is shutting down 2026-07-09 — NEVER expose it as a destination.
+# Enforced in every dst path (deposits + withdrawals), not just the UI.
+BOTANIX_DENYLIST = frozenset({"botanix", "BOTANIX-BBTC", "BOTANIX-BTC"})
+
+# Lightning-deposit destination chains → Atomiq dst token id. "starknet" maps
+# to None = settings.btc_deposit_default_token (STARKNET-WBTC by default).
+DEPOSIT_DST_CHAINS = {"starknet": None, "citrea": CITREA_CBTC}
 
 # Default seconds between polls when the server gives no pollTimeSeconds hint
 DEFAULT_POLL_SECONDS = 20.0
@@ -121,22 +131,42 @@ class BtcBridge:
     # Deposits (Lightning → Starknet)
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _assert_not_botanix(dst_chain: Optional[str], dst_token: Optional[str]) -> None:
+        """Hard denylist: Botanix (shutting down 2026-07-09) is never a destination."""
+        for value in (dst_chain, dst_token):
+            if value and ("botanix" in str(value).lower() or value in BOTANIX_DENYLIST):
+                raise BtcBridgeError(
+                    "Botanix is not a supported destination (network shutting down)."
+                )
+
     async def start_lightning_deposit(
         self,
         user_id: int,
         wallet,
         sats: int,
         dst_token: Optional[str] = None,
+        dst_chain: str = "starknet",
     ) -> dict:
-        """Create a Lightning → Starknet deposit and return the invoice to pay.
+        """Create a Lightning → Starknet/Citrea deposit and return the invoice.
 
         Generates the 32-byte claim secret, passes paymentHash=sha256(secret)
-        to createSwap (dstAddress = the user's Starknet wallet), persists the
-        encrypted secret, and extracts the BOLT11 invoice from the
-        SendToAddress action (polling status once if the create response does
-        not carry currentAction).
+        to createSwap (dstAddress = the user's wallet on the destination
+        chain: Starknet account for "starknet", EVM address for "citrea"),
+        persists the encrypted secret, and extracts the BOLT11 invoice from
+        the SendToAddress action (polling status once if the create response
+        does not carry currentAction).
         """
-        dst_token = dst_token or settings.btc_deposit_default_token
+        dst_chain = (dst_chain or "starknet").lower()
+        self._assert_not_botanix(dst_chain, dst_token)
+        if dst_chain not in DEPOSIT_DST_CHAINS:
+            raise BtcBridgeError(
+                f"Unsupported deposit destination chain: {dst_chain} "
+                f"(supported: {', '.join(sorted(DEPOSIT_DST_CHAINS))})"
+            )
+        if dst_token is None:
+            dst_token = DEPOSIT_DST_CHAINS[dst_chain] or settings.btc_deposit_default_token
+        self._assert_not_botanix(dst_chain, dst_token)
         if sats <= 0:
             raise BtcBridgeError("Deposit amount must be positive")
 
@@ -179,6 +209,7 @@ class BtcBridge:
             direction="ln_in",
             src_token=LIGHTNING_BTC,
             dst_token=dst_token,
+            dst_chain=dst_chain,
             amount_raw=str(sats),
             quote_output_raw=self._raw_amount(quote.get("outputAmount")),
             dst_address=wallet.address,
@@ -238,6 +269,7 @@ class BtcBridge:
             raise BtcBridgeError(
                 f"Unsupported withdrawal destination type: {addr_type or 'unknown'}"
             )
+        self._assert_not_botanix(None, dst_token)
 
         swap = await self.api.create_swap(
             src_token=src_token,
@@ -591,9 +623,7 @@ class BtcBridge:
             return  # nothing to compare against yet (pre-backfill ln_out)
         calldata = call["calldata"]
         if len(calldata) < 3:
-            raise AtomiqValidationError(
-                f"Atomiq swap {row['swap_id']}: malformed approve calldata"
-            )
+            raise AtomiqValidationError(f"Atomiq swap {row['swap_id']}: malformed approve calldata")
         amount = calldata[1] + (calldata[2] << 128)
         max_allowed = (
             int(amount_raw) * APPROVE_AMOUNT_TOLERANCE_NUM
@@ -802,9 +832,7 @@ class BtcBridge:
                 return None
 
         min_sats, max_sats = _limit("min"), _limit("max")
-        if (min_sats is not None and sats < min_sats) or (
-            max_sats is not None and sats > max_sats
-        ):
+        if (min_sats is not None and sats < min_sats) or (max_sats is not None and sats > max_sats):
             raise ValueError(
                 f"Deposit amount {sats} sats is outside the allowed range "
                 f"({min_sats if min_sats is not None else '?'}–"
