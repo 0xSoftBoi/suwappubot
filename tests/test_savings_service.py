@@ -46,7 +46,15 @@ class TestApy:
         assert 5.0 < apy < 5.3
 
     def test_apy_read_failure_raises_user_safe_error(self, service):
-        with patch.object(service, "_get_web3", side_effect=ConnectionError("rpc down")):
+        # `_failover` only routes through `_get_web3` when rpc_manager has no
+        # warmed Base URLs; otherwise it builds real HTTP providers and makes a
+        # LIVE call, bypassing the mock (order-dependent + real network). Force
+        # the empty-url branch so this test is deterministic regardless of what
+        # warmed rpc_manager earlier in the suite.
+        with (
+            patch("bot.services.rpc_manager.rpc_manager.get_all_urls", return_value=[]),
+            patch.object(service, "_get_web3", side_effect=ConnectionError("rpc down")),
+        ):
             with pytest.raises(SavingsError):
                 service.get_apy()
 
