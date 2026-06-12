@@ -1,4 +1,5 @@
 import crypto from 'crypto'
+import { isStarknet } from '../config/chains'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import type { Agent } from '../db'
@@ -177,6 +178,13 @@ async function processMessage(
 		const [, amount, fromToken, toToken, chain] = swapMatch
 		if (amount && fromToken && toToken) {
 			const chainKey = chain || 'ethereum'
+			// Starknet is read-only in the TS stack — signing/broadcast lives in the Python bot
+			if (isStarknet(chainKey)) {
+				return {
+					parts: [{ type: 'text', text: 'Starknet transactions are handled by the bot backend' }],
+					metadata: { action: 'unsupported_chain', chain: 'starknet' },
+				}
+			}
 			if (isSolanaChain(chainKey)) {
 				return processSolanaQuote(amount, fromToken, toToken, agent)
 			}

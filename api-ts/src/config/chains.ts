@@ -12,6 +12,10 @@ export const RPC_ENDPOINTS: Record<string, string> = {
 	solana: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
 	tempo: process.env.TEMPO_RPC_URL || 'https://tempo-mainnet.drpc.org',
 	plasma: process.env.PLASMA_RPC_URL || 'https://rpc.plasma.to/',
+	// Read-only: Starknet signing/broadcast is owned by the Python bot backend
+	starknet: process.env.STARKNET_RPC_URL || 'https://rpc.starknet.lava.build',
+	// GOAT Network — plain EVM chain (chain id 2345), native token is BTC
+	goat: process.env.GOAT_RPC_URL || 'https://rpc.goat.network',
 }
 
 export const NATIVE_TOKENS: Record<string, { symbol: string; name: string; decimals: number }> = {
@@ -24,6 +28,24 @@ export const NATIVE_TOKENS: Record<string, { symbol: string; name: string; decim
 	solana: { symbol: 'SOL', name: 'Solana', decimals: 9 },
 	tempo: { symbol: 'USD', name: 'USD Stablecoin', decimals: 6 },
 	plasma: { symbol: 'XPL', name: 'Plasma', decimals: 18 },
+	starknet: { symbol: 'STRK', name: 'Starknet', decimals: 18 },
+	// GOAT native BTC is ETH-style: 18 decimals at the EVM level (not 8 like UTXO BTC)
+	goat: { symbol: 'BTC', name: 'Bitcoin', decimals: 18 },
+}
+
+// Starknet fee/native token contract address (STRK ERC-20 on Starknet mainnet)
+export const STARKNET_NATIVE_TOKEN_ADDRESS =
+	'0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d'
+
+// Starknet explorer (Starknet uses string chain IDs like SN_MAIN, which don't fit
+// the numeric CHAIN_ID_TO_KEY / EXPLORER_URLS maps — kept separate on purpose)
+export const STARKNET_EXPLORER_URL = 'https://voyager.online'
+
+// Starknet is read-only in the TS stack: never sign or broadcast Starknet
+// transactions here — the Python bot backend owns Starknet signing.
+export function isStarknet(chain: string): boolean {
+	const n = chain.toLowerCase().trim()
+	return n === 'starknet' || n === 'strk' || n === 'sn_main'
 }
 
 export const CHAIN_ID_TO_KEY: Record<number, string> = {
@@ -36,6 +58,7 @@ export const CHAIN_ID_TO_KEY: Record<number, string> = {
 	43114: 'avalanche',
 	4217: 'tempo',
 	9745: 'plasma',
+	2345: 'goat',
 }
 
 const EXPLORER_URLS: Record<number, string> = {
@@ -48,6 +71,7 @@ const EXPLORER_URLS: Record<number, string> = {
 	43114: 'https://snowscan.xyz',
 	4217: 'https://explore.tempo.xyz',
 	9745: 'https://plasmascan.to',
+	2345: 'https://explorer.goat.network',
 }
 
 export function getRpcUrl(chainId: number): string | null {

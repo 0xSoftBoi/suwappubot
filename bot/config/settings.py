@@ -234,6 +234,10 @@ class Settings(BaseSettings):
         default="https://tempo-mainnet.drpc.org,https://rpc.tempo.xyz",
         description="Tempo mainnet RPC URL(s)",
     )
+    goat_rpc_url: Optional[str] = Field(
+        default="https://rpc.goat.network",
+        description="GOAT Network (Bitcoin L2, chain id 2345) RPC URL",
+    )
 
     # New Li.Fi chains (RPCManager auto-discovers from chainlist.org)
     sonic_rpc_url: str = Field(default="https://rpc.soniclabs.com", description="Sonic RPC")
@@ -344,8 +348,7 @@ class Settings(BaseSettings):
     atomiq_api_url: str = Field(
         default="https://mainnet.swaps-api.atomiq.exchange",
         description=(
-            "Atomiq REST execution API base URL (no auth; testnet4 variant "
-            "exists for testing)"
+            "Atomiq REST execution API base URL (no auth; testnet4 variant " "exists for testing)"
         ),
     )
     starknet_btc_bridge_enabled: bool = Field(
