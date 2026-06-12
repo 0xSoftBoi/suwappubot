@@ -46,7 +46,8 @@ def test_missing_header_rejected_when_secret_set():
     assert svc.verify_signature(b'{"x":1}', "garbage-no-prefix") is False
 
 
-def test_unconfigured_skips_open():
-    # No app secret -> can't verify; skip rather than brick an unconfigured env.
+def test_unconfigured_fails_closed():
+    # No app secret -> authenticity cannot be verified, so REJECT. Fail-open here
+    # would let anyone POST forged webhooks that drive swaps/panic-sells.
     svc = _svc(None)
-    assert svc.verify_signature(b'{"x":1}', None) is True
+    assert svc.verify_signature(b'{"x":1}', None) is False
