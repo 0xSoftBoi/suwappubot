@@ -8,6 +8,7 @@ interface Feature {
 }
 
 const features: Feature[] = [
+  { icon: '🌸', label: 'Realm', path: '/realm', badge: 'New' },
   { icon: '🔔', label: 'Alerts', path: '/alerts' },
   { icon: '📈', label: 'Limit Orders', path: '/limit-orders' },
   { icon: '🎯', label: 'Points', path: '/points' },

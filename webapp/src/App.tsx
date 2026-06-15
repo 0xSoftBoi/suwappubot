@@ -16,6 +16,7 @@ const Wallet = lazy(() => import('./pages/Wallet').then(m => ({ default: m.Walle
 const Portfolio = lazy(() => import('./pages/Portfolio').then(m => ({ default: m.Portfolio })))
 const History = lazy(() => import('./pages/History').then(m => ({ default: m.History })))
 const Points = lazy(() => import('./pages/Points').then(m => ({ default: m.Points })))
+const Realm = lazy(() => import('./pages/Realm').then(m => ({ default: m.Realm })))
 const DCA = lazy(() => import('./pages/DCA').then(m => ({ default: m.DCA })))
 const DCACreate = lazy(() => import('./pages/DCACreate').then(m => ({ default: m.DCACreate })))
 const LimitOrders = lazy(() => import('./pages/LimitOrders').then(m => ({ default: m.LimitOrders })))
@@ -235,6 +236,16 @@ function AppContent() {
             <ProtectedRoute>
               <PageTransition>
                 <Points />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/realm"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Realm />
               </PageTransition>
             </ProtectedRoute>
           }

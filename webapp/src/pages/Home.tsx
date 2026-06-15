@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { AppLayout, UserHeader } from '../components/layout'
 import { BalanceCard, TokenItem } from '../components/cards'
 import { QuickActions, FeatureGrid, QuickSwap } from '../components/ui'
+import { RealmBanner } from '../components/realm'
 import { usePortfolio } from '../hooks/usePortfolio'
 import type { Token } from '../types/api'
 
@@ -66,6 +67,8 @@ export function Home() {
         <BalanceCard balance={balance} />
 
         <QuickActions />
+
+        <RealmBanner />
 
         <FeatureGrid />
 
