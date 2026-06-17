@@ -3,7 +3,7 @@
 import logging
 from typing import Optional
 from decimal import Decimal
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from bot.services.hyperliquid_client import hyperliquid_client, HLOrderResult
 from bot.models.perps import PerpPosition, PerpOrder, HyperLiquidAccount
@@ -459,6 +459,18 @@ class PerpsService:
         except Exception as e:
             logger.debug("ensure_referrer skipped for user %s: %s", account.user_id, e)
 
+    @staticmethod
+    def _award_xp(user_id: int, action: str, amount: int, description: str) -> None:
+        """Best-effort XP award; never blocks the on-chain action."""
+        try:
+            from bot.services.points_service import points_service
+
+            points_service.award_points(
+                user_id=user_id, action=action, amount=max(1, int(amount)), description=description
+            )
+        except Exception as e:
+            logger.debug("XP award skipped (%s): %s", action, e)
+
     async def place_twap(
         self,
         user_id: int,
@@ -468,15 +480,16 @@ class PerpsService:
         minutes: int,
         randomize: bool = True,
     ) -> Optional[str]:
-        """Place a TWAP order for the user. Returns the TWAP id, or None."""
+        """Place a TWAP order, persist it for monitoring, and return the TWAP id."""
         account = self.get_account(user_id)
         if not account:
             return None
         api_key, api_secret = self._decrypt_credentials(account)
-        builder_address, fee = self._builder_config()
+        builder_address, _ = self._builder_config()
         if builder_address:
             await self.ensure_builder_approved(account)
-        return await self._client.place_twap_order(
+
+        twap_id = await self._client.place_twap_order(
             address=account.hl_address,
             api_key=api_key,
             api_secret=api_secret,
@@ -486,16 +499,99 @@ class PerpsService:
             minutes=minutes,
             randomize=randomize,
         )
+        if not twap_id:
+            return None
+
+        try:
+            from bot.models.hl_ecosystem import HLTwapOrder
+
+            with get_session() as session:
+                session.add(
+                    HLTwapOrder(
+                        user_id=user_id,
+                        twap_id=str(twap_id),
+                        market=market,
+                        side=side,
+                        size=Decimal(str(size)),
+                        minutes=int(minutes),
+                        status="running",
+                    )
+                )
+        except Exception as e:
+            logger.warning("Failed to persist TWAP order: %s", e)
+        self._award_xp(user_id, "hl_twap", 5, f"TWAP {side} {size} {market}")
+        return twap_id
 
     async def stake(
-        self, user_id: int, validator: str, amount_hype: float, is_undelegate: bool = False
+        self,
+        user_id: int,
+        validator: str,
+        amount_hype: float,
+        is_undelegate: bool = False,
+        validator_name: Optional[str] = None,
     ) -> bool:
-        """Delegate (or undelegate) HYPE to a validator from the staking balance."""
+        """Delegate or undelegate HYPE.
+
+        On delegate, automatically tops up the staking balance from spot (cDeposit)
+        if it's short, so the user never has to manage the spot↔staking split by
+        hand. Records the delegation locally for portfolio + monitoring.
+        """
         account = self.get_account(user_id)
         if not account:
             return False
         _, api_secret = self._decrypt_credentials(account)
-        return await self._client.delegate_stake(api_secret, validator, amount_hype, is_undelegate)
+
+        if not is_undelegate:
+            # Ensure enough sits in the staking balance before delegating.
+            try:
+                summary = await self._client.get_staking_summary(account.hl_address)
+                undelegated = float(summary.get("undelegated", 0) or 0)
+                shortfall = amount_hype - undelegated
+                if shortfall > 1e-8:
+                    moved = await self._client.staking_transfer(
+                        api_secret, shortfall, is_deposit=True
+                    )
+                    if not moved:
+                        logger.warning("cDeposit top-up failed for user %s", user_id)
+                        return False
+            except Exception as e:
+                logger.warning("staking balance check failed: %s", e)
+
+        ok = await self._client.delegate_stake(api_secret, validator, amount_hype, is_undelegate)
+        if ok:
+            self._record_stake(user_id, validator, validator_name, amount_hype, is_undelegate)
+            if not is_undelegate:
+                self._award_xp(user_id, "hl_stake", 10, f"Staked {amount_hype} HYPE")
+        return ok
+
+    def _record_stake(self, user_id, validator, validator_name, amount_hype, is_undelegate):
+        """Upsert the local delegation record (best-effort)."""
+        try:
+            from bot.models.hl_ecosystem import HLStakeRecord
+
+            with get_session() as session:
+                rec = (
+                    session.query(HLStakeRecord)
+                    .filter_by(user_id=user_id, validator=validator)
+                    .first()
+                )
+                if not rec:
+                    rec = HLStakeRecord(
+                        user_id=user_id, validator=validator, amount_hype=Decimal("0")
+                    )
+                    session.add(rec)
+                if validator_name:
+                    rec.validator_name = validator_name
+                delta = Decimal(str(amount_hype)) * (
+                    Decimal("-1") if is_undelegate else Decimal("1")
+                )
+                rec.amount_hype = max(Decimal("0"), (rec.amount_hype or Decimal("0")) + delta)
+                if is_undelegate:
+                    # 1-day unstaking lockup before the HYPE returns to spot.
+                    rec.locked_until = datetime.now(timezone.utc) + timedelta(days=1)
+                rec.status = "undelegated" if rec.amount_hype == 0 else "delegated"
+        except Exception as e:
+            logger.warning("Failed to record stake: %s", e)
 
     async def move_staking_balance(
         self, user_id: int, amount_hype: float, is_deposit: bool
@@ -510,12 +606,73 @@ class PerpsService:
     async def vault_transfer(
         self, user_id: int, vault_address: str, is_deposit: bool, usd: float
     ) -> bool:
-        """Deposit into / withdraw from a vault for the user."""
+        """Deposit into / withdraw from a vault, recording the position locally."""
         account = self.get_account(user_id)
         if not account:
             return False
         _, api_secret = self._decrypt_credentials(account)
-        return await self._client.vault_transfer(api_secret, vault_address, is_deposit, usd)
+        ok = await self._client.vault_transfer(api_secret, vault_address, is_deposit, usd)
+        if ok:
+            try:
+                from bot.models.hl_ecosystem import HLVaultPosition
+
+                with get_session() as session:
+                    pos = (
+                        session.query(HLVaultPosition)
+                        .filter_by(user_id=user_id, vault_address=vault_address.lower())
+                        .first()
+                    )
+                    if not pos:
+                        pos = HLVaultPosition(
+                            user_id=user_id,
+                            vault_address=vault_address.lower(),
+                            deposited_usd=Decimal("0"),
+                        )
+                        session.add(pos)
+                    delta = Decimal(str(usd)) * (Decimal("1") if is_deposit else Decimal("-1"))
+                    pos.deposited_usd = (pos.deposited_usd or Decimal("0")) + delta
+                    pos.is_open = pos.deposited_usd > 0 or is_deposit
+            except Exception as e:
+                logger.warning("Failed to record vault position: %s", e)
+            if is_deposit:
+                self._award_xp(user_id, "hl_vault", int(usd / 10), f"Vault deposit ${usd}")
+        return ok
+
+    async def get_holdings_usd(self, user_id: int) -> dict:
+        """Return the user's HyperLiquid holdings in USD for the portfolio view.
+
+        ``{perps_usd, staking_usd, vault_usd, total_usd}``. Returns zeros (not an
+        error) when the user has no HL account.
+        """
+        zero = {"perps_usd": 0.0, "staking_usd": 0.0, "vault_usd": 0.0, "total_usd": 0.0}
+        account = self.get_account(user_id)
+        if not account or not account.hl_address:
+            return zero
+        try:
+            addr = account.hl_address
+            perps_usd = await self._client.get_account_value(addr)
+
+            summary = await self._client.get_staking_summary(addr)
+            staked_hype = float(summary.get("delegated", 0) or 0) + float(
+                summary.get("undelegated", 0) or 0
+            )
+            staking_usd = 0.0
+            if staked_hype > 0:
+                staking_usd = staked_hype * await self._client.get_hype_price()
+
+            equities = await self._client.get_user_vault_equities(addr)
+            vault_usd = sum(float(e.get("equity", 0) or 0) for e in equities)
+
+            total = perps_usd + staking_usd + vault_usd
+            return {
+                "perps_usd": perps_usd,
+                "staking_usd": staking_usd,
+                "vault_usd": vault_usd,
+                "total_usd": total,
+            }
+        except Exception as e:
+            logger.warning("get_holdings_usd failed for user %s: %s", user_id, e)
+            return zero
 
     def _decrypt_credentials(self, account: HyperLiquidAccount) -> tuple[str, str]:
         """Decrypt API credentials from account."""

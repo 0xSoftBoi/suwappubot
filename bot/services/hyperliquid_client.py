@@ -26,6 +26,9 @@ BUILDER_MIN_ACCOUNT_VALUE_USD = 100.0
 # tokenDelegate actions is denominated in these 1e-8 HYPE units.
 HYPE_WEI_DECIMALS = 8
 
+# Hyperliquidity Provider — the flagship community vault, surfaced first in /vault.
+HLP_VAULT_ADDRESS = "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303"
+
 
 def hype_to_wei(amount: float) -> int:
     """Convert a HYPE amount to the integer ``wei`` units staking actions expect."""
@@ -629,6 +632,51 @@ class HyperLiquidClient:
         """Return all validator summaries (for picking a delegation target)."""
         return await self._info({"type": "validatorSummaries"}) or []
 
+    async def get_ranked_validators(self, limit: int = 8) -> list[dict]:
+        """Return active validators ranked by predicted APR, parsed for display.
+
+        Each entry: ``{validator, name, commission_pct, apr_pct, stake_hype}``.
+        Jailed/inactive validators are excluded so users can't delegate to a dud.
+        """
+        raw = await self.get_validators()
+        parsed: list[dict] = []
+        for v in raw:
+            try:
+                if v.get("isJailed") or not v.get("isActive", True):
+                    continue
+                # predictedApr lives under the "day" stats bucket (list of [period, {..}]).
+                apr = 0.0
+                for period, st in v.get("stats", []):
+                    if period == "day":
+                        apr = float(st.get("predictedApr", 0) or 0)
+                        break
+                parsed.append(
+                    {
+                        "validator": v.get("validator", ""),
+                        "name": v.get("name", "") or v.get("validator", "")[:10],
+                        "commission_pct": float(v.get("commission", 0) or 0) * 100.0,
+                        "apr_pct": apr * 100.0,
+                        "stake_hype": float(v.get("stake", 0) or 0) / (10**HYPE_WEI_DECIMALS),
+                    }
+                )
+            except (ValueError, TypeError, KeyError):
+                continue
+        parsed.sort(key=lambda x: x["apr_pct"], reverse=True)
+        return parsed[:limit]
+
+    async def get_hype_price(self) -> float:
+        """Return the current HYPE price in USD (from perp mids), or 0.0."""
+        mids = await self._info({"type": "allMids"}) or {}
+        try:
+            if isinstance(mids, dict):
+                return float(mids.get("HYPE", 0) or 0)
+            for m in mids:
+                if isinstance(m, dict) and m.get("coin") == "HYPE":
+                    return float(m.get("mid", 0) or 0)
+        except (ValueError, TypeError):
+            pass
+        return 0.0
+
     # ------------------------------------------------------------------ #
     # Vaults                                                             #
     # ------------------------------------------------------------------ #
@@ -674,6 +722,50 @@ class HyperLiquidClient:
     async def get_user_vault_equities(self, address: str) -> list:
         """Return the user's equity across all vaults they're invested in."""
         return await self._info({"type": "userVaultEquities", "user": address}) or []
+
+    async def get_vault_snapshot(self, vault_address: str, user: Optional[str] = None) -> dict:
+        """Return a parsed vault snapshot for display + the user's position in it.
+
+        ``{name, apr_pct, tvl_usd, allow_deposits, leader_commission_pct, user:{
+        equity_usd, pnl_usd, all_time_pnl_usd, lockup_until}}`` (``user`` is None
+        when the address isn't a follower).
+        """
+        d = await self.get_vault_details(vault_address, user)
+        if not d:
+            return {}
+
+        # TVL = the latest point of the daily accountValueHistory.
+        tvl = 0.0
+        try:
+            for period, series in d.get("portfolio", []):
+                if period == "day":
+                    hist = series.get("accountValueHistory", [])
+                    if hist:
+                        tvl = float(hist[-1][1])
+                    break
+        except (ValueError, TypeError, IndexError):
+            pass
+
+        snap = {
+            "name": d.get("name", ""),
+            "vault_address": d.get("vaultAddress", vault_address),
+            "apr_pct": float(d.get("apr", 0) or 0) * 100.0,
+            "tvl_usd": tvl,
+            "allow_deposits": bool(d.get("allowDeposits", True)),
+            "leader_commission_pct": float(d.get("leaderCommission", 0) or 0) * 100.0,
+            "user": None,
+        }
+        if user:
+            for f in d.get("followers", []):
+                if (f.get("user", "") or "").lower() == user.lower():
+                    snap["user"] = {
+                        "equity_usd": float(f.get("vaultEquity", 0) or 0),
+                        "pnl_usd": float(f.get("pnl", 0) or 0),
+                        "all_time_pnl_usd": float(f.get("allTimePnl", 0) or 0),
+                        "lockup_until": int(f.get("lockupUntil", 0) or 0),
+                    }
+                    break
+        return snap
 
     # ------------------------------------------------------------------ #
     # Referrals                                                          #

@@ -214,6 +214,8 @@ from bot.handlers.hl_ecosystem import (
     stakemove_handler,
     vault_handler,
     hl_ref_handler,
+    hl_cancel_handler,
+    hl_ecosystem_conversation,
 )
 from bot.handlers.dashboard import dashboard_handler, dashboard_menu_callback
 from bot.handlers.token import (
@@ -336,6 +338,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(unstake_handler)  # /unstake
     application.add_handler(stakemove_handler)  # /stakemove
     application.add_handler(vault_handler)  # /vault
+    application.add_handler(hl_ecosystem_conversation)  # stake/vault amount-entry flow
+    application.add_handler(hl_cancel_handler)  # dashboard close button
     application.add_handler(admin_hot_wallets_handler)  # /hotwallets
     application.add_handler(fees_handler)  # /fees
     application.add_handler(metrics_handler)  # /metrics

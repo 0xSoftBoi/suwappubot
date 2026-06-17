@@ -14,7 +14,6 @@ from bot.config.chains import CHAINS, ChainType
 from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
 
-
 logger = logging.getLogger(__name__)
 
 wallet_service = WalletService()
@@ -65,8 +64,7 @@ async def _build_portfolio_text(wallet_infos, user_id=None):
 
             if usd_value > 0.01:
                 lines.append(
-                    f"  {format_amount(amount, symbol=token)} "
-                    f"({format_usd(usd_value)})"
+                    f"  {format_amount(amount, symbol=token)} " f"({format_usd(usd_value)})"
                 )
             else:
                 lines.append(f"  {format_amount(amount, symbol=token)}")
@@ -75,11 +73,15 @@ async def _build_portfolio_text(wallet_infos, user_id=None):
     if user_id:
         try:
             with get_session() as session:
-                positions = session.query(PredictionPosition).filter(
-                    PredictionPosition.user_id == user_id,
-                    PredictionPosition.total_shares > 0,
-                    PredictionPosition.is_resolved == False,
-                ).all()
+                positions = (
+                    session.query(PredictionPosition)
+                    .filter(
+                        PredictionPosition.user_id == user_id,
+                        PredictionPosition.total_shares > 0,
+                        PredictionPosition.is_resolved == False,
+                    )
+                    .all()
+                )
 
                 if positions:
                     lines.append("\n*Predictions*")
@@ -103,6 +105,24 @@ async def _build_portfolio_text(wallet_infos, user_id=None):
         except Exception as e:
             logger.debug(f"Could not load prediction positions: {e}")
 
+    # HyperLiquid holdings (perps account value + HYPE staking + vault equity)
+    if user_id:
+        try:
+            from bot.services.perps_service import perps_service
+
+            hl = await perps_service.get_holdings_usd(user_id)
+            if hl["total_usd"] > 0.01:
+                lines.append("\n*HyperLiquid*")
+                if hl["perps_usd"] > 0.01:
+                    lines.append(f"  Perps account ({format_usd(hl['perps_usd'])})")
+                if hl["staking_usd"] > 0.01:
+                    lines.append(f"  HYPE staking ({format_usd(hl['staking_usd'])})")
+                if hl["vault_usd"] > 0.01:
+                    lines.append(f"  Vaults ({format_usd(hl['vault_usd'])})")
+                total_usd += hl["total_usd"]
+        except Exception as e:
+            logger.debug(f"Could not load HyperLiquid holdings: {e}")
+
     lines.append(f"\n\U0001f4b0 *Total Value:* {format_usd(total_usd)}")
 
     return "\n".join(lines)
@@ -110,21 +130,25 @@ async def _build_portfolio_text(wallet_infos, user_id=None):
 
 def _portfolio_keyboard():
     """Return standard portfolio keyboard."""
-    return InlineKeyboardMarkup([
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("\U0001f504 Refresh", callback_data="portfolio_refresh"),
-            InlineKeyboardButton("\U0001f504 Swap", callback_data="swap_start"),
-        ],
-        [InlineKeyboardButton("\u00ab Back", callback_data="main_menu")],
-    ])
+            [
+                InlineKeyboardButton("\U0001f504 Refresh", callback_data="portfolio_refresh"),
+                InlineKeyboardButton("\U0001f504 Swap", callback_data="swap_start"),
+            ],
+            [InlineKeyboardButton("\u00ab Back", callback_data="main_menu")],
+        ]
+    )
 
 
 def _error_keyboard():
     """Return error/retry keyboard."""
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("\U0001f504 Retry", callback_data="portfolio_refresh")],
-        [InlineKeyboardButton("\u00ab Back", callback_data="main_menu")],
-    ])
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("\U0001f504 Retry", callback_data="portfolio_refresh")],
+            [InlineKeyboardButton("\u00ab Back", callback_data="main_menu")],
+        ]
+    )
 
 
 @enforce_tos
@@ -141,13 +165,19 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             )
             return
 
-        wallets = session.query(Wallet).filter(
-            Wallet.user_id == db_user.id,
-            Wallet.is_active == True,
-        ).all()
+        wallets = (
+            session.query(Wallet)
+            .filter(
+                Wallet.user_id == db_user.id,
+                Wallet.is_active == True,
+            )
+            .all()
+        )
 
         if not wallets:
-            keyboard = [[InlineKeyboardButton("\U0001f45b Add Wallet", callback_data="wallet_menu")]]
+            keyboard = [
+                [InlineKeyboardButton("\U0001f45b Add Wallet", callback_data="wallet_menu")]
+            ]
             await update.message.reply_text(
                 "\U0001f45b Add a wallet first to view your portfolio!",
                 reply_markup=InlineKeyboardMarkup(keyboard),
@@ -168,6 +198,7 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).exception("Portfolio load failed")
         await loading_msg.edit_text(
             f"\u274c Error loading portfolio: {str(e)}",
@@ -190,13 +221,19 @@ async def portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await query.edit_message_text("\u274c Please use /start first.")
             return
 
-        wallets = session.query(Wallet).filter(
-            Wallet.user_id == db_user.id,
-            Wallet.is_active == True,
-        ).all()
+        wallets = (
+            session.query(Wallet)
+            .filter(
+                Wallet.user_id == db_user.id,
+                Wallet.is_active == True,
+            )
+            .all()
+        )
 
         if not wallets:
-            keyboard = [[InlineKeyboardButton("\U0001f45b Add Wallet", callback_data="wallet_menu")]]
+            keyboard = [
+                [InlineKeyboardButton("\U0001f45b Add Wallet", callback_data="wallet_menu")]
+            ]
             await query.edit_message_text(
                 "\U0001f45b Add a wallet first!",
                 reply_markup=InlineKeyboardMarkup(keyboard),
