@@ -133,6 +133,9 @@ class PerpsService:
         builder_address = await self.ensure_builder_approved(account)
         _, builder_fee = self._builder_config()
 
+        # Best-effort: attach Suwappu's referral code on the user's first trade.
+        await self.ensure_referrer(account)
+
         # Place order
         result = await self._client.place_order(
             address=account.hl_address,
@@ -433,6 +436,86 @@ class PerpsService:
                     session.add(order)
         except Exception as e:
             logger.error(f"Failed to place {order_type} order: {e}")
+
+    async def ensure_referrer(self, account: HyperLiquidAccount) -> None:
+        """Best-effort: attach Suwappu's referral code to the user once.
+
+        Fires on first perp use. If the user already has a referrer, HyperLiquid
+        rejects the action and we move on. Never blocks trading.
+        """
+        from bot.config.settings import settings
+
+        code = getattr(settings, "hl_referral_code", None)
+        if not code:
+            return
+        try:
+            state = await self._client.get_referral_state(account.hl_address)
+            if (state or {}).get("referredBy"):
+                return  # already referred (by us or anyone) — nothing to do
+            _, api_secret = self._decrypt_credentials(account)
+            ok = await self._client.set_referrer(api_secret, code)
+            if ok:
+                logger.info("Set referrer %s for user %s", code, account.user_id)
+        except Exception as e:
+            logger.debug("ensure_referrer skipped for user %s: %s", account.user_id, e)
+
+    async def place_twap(
+        self,
+        user_id: int,
+        market: str,
+        side: str,
+        size: float,
+        minutes: int,
+        randomize: bool = True,
+    ) -> Optional[str]:
+        """Place a TWAP order for the user. Returns the TWAP id, or None."""
+        account = self.get_account(user_id)
+        if not account:
+            return None
+        api_key, api_secret = self._decrypt_credentials(account)
+        builder_address, fee = self._builder_config()
+        if builder_address:
+            await self.ensure_builder_approved(account)
+        return await self._client.place_twap_order(
+            address=account.hl_address,
+            api_key=api_key,
+            api_secret=api_secret,
+            market=market,
+            side=side,
+            size=size,
+            minutes=minutes,
+            randomize=randomize,
+        )
+
+    async def stake(
+        self, user_id: int, validator: str, amount_hype: float, is_undelegate: bool = False
+    ) -> bool:
+        """Delegate (or undelegate) HYPE to a validator from the staking balance."""
+        account = self.get_account(user_id)
+        if not account:
+            return False
+        _, api_secret = self._decrypt_credentials(account)
+        return await self._client.delegate_stake(api_secret, validator, amount_hype, is_undelegate)
+
+    async def move_staking_balance(
+        self, user_id: int, amount_hype: float, is_deposit: bool
+    ) -> bool:
+        """Move HYPE between spot and staking balances (cDeposit/cWithdraw)."""
+        account = self.get_account(user_id)
+        if not account:
+            return False
+        _, api_secret = self._decrypt_credentials(account)
+        return await self._client.staking_transfer(api_secret, amount_hype, is_deposit)
+
+    async def vault_transfer(
+        self, user_id: int, vault_address: str, is_deposit: bool, usd: float
+    ) -> bool:
+        """Deposit into / withdraw from a vault for the user."""
+        account = self.get_account(user_id)
+        if not account:
+            return False
+        _, api_secret = self._decrypt_credentials(account)
+        return await self._client.vault_transfer(api_secret, vault_address, is_deposit, usd)
 
     def _decrypt_credentials(self, account: HyperLiquidAccount) -> tuple[str, str]:
         """Decrypt API credentials from account."""

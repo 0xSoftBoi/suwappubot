@@ -280,6 +280,13 @@ class Settings(BaseSettings):
             "builder fees (claimRewards). Keep secret; not needed to charge fees."
         ),
     )
+    hl_referral_code: Optional[str] = Field(
+        default=None,
+        description=(
+            "Suwappu's HyperLiquid referral code, auto-attached to users on their "
+            "first perp trade so Suwappu earns referral rewards. Unset = disabled."
+        ),
+    )
     hl_builder_fee_tenths_bps: int = Field(
         default=10,
         description=(

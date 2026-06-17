@@ -7,7 +7,12 @@ from dataclasses import dataclass
 
 import httpx
 
-from bot.services.hyperliquid_signing import sign_l1_action, sign_approve_builder_fee
+from bot.services.hyperliquid_signing import (
+    sign_l1_action,
+    sign_approve_builder_fee,
+    sign_token_delegate,
+    sign_staking_transfer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +21,15 @@ logger = logging.getLogger(__name__)
 # *balance* requirement, not a trading-volume one — volume gating applies to the
 # separate referral-code program, which needs $10k traded.)
 BUILDER_MIN_ACCOUNT_VALUE_USD = 100.0
+
+# HYPE uses 8 decimals for staking; the ``wei`` field in cDeposit/cWithdraw/
+# tokenDelegate actions is denominated in these 1e-8 HYPE units.
+HYPE_WEI_DECIMALS = 8
+
+
+def hype_to_wei(amount: float) -> int:
+    """Convert a HYPE amount to the integer ``wei`` units staking actions expect."""
+    return int(round(amount * (10**HYPE_WEI_DECIMALS)))
 
 
 @dataclass
@@ -458,6 +472,249 @@ class HyperLiquidClient:
         except Exception as e:
             logger.error(f"Failed to claim rewards: {e}")
             return False
+
+    # ------------------------------------------------------------------ #
+    # TWAP orders                                                        #
+    # ------------------------------------------------------------------ #
+
+    async def place_twap_order(
+        self,
+        address: str,
+        api_key: str,
+        api_secret: str,
+        market: str,
+        side: str,  # "long" or "short"
+        size: float,
+        minutes: int,
+        randomize: bool = True,
+        reduce_only: bool = False,
+    ) -> Optional[str]:
+        """Place a TWAP order that slices ``size`` evenly over ``minutes``.
+
+        Returns the TWAP id (as a string) on success, or None.
+        """
+        try:
+            asset = self.MARKETS.get(market, market.split("-")[0])
+            client = await self._get_client()
+            is_buy = side == "long"
+
+            action = {
+                "type": "twapOrder",
+                "twap": {
+                    "a": await self._resolve_asset_index(asset),
+                    "b": is_buy,
+                    "s": str(size),
+                    "r": reduce_only,
+                    "m": int(minutes),
+                    "t": bool(randomize),
+                },
+            }
+            nonce = int(time.time() * 1000)
+
+            response = await client.post(
+                self.EXCHANGE_URL,
+                json={
+                    "action": action,
+                    "nonce": nonce,
+                    "signature": self._sign_action(action, nonce, api_secret),
+                    "vaultAddress": None,
+                },
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            if response.status_code == 200:
+                data = response.json()
+                status = data.get("response", {}).get("data", {}).get("status", {})
+                if isinstance(status, dict) and "running" in status:
+                    return str(status["running"].get("twapId"))
+                logger.warning(f"Unexpected twapOrder response: {data}")
+                return None
+            logger.error(f"twapOrder failed: {response.status_code} {response.text[:200]}")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to place TWAP order: {e}")
+            return None
+
+    async def cancel_twap(
+        self,
+        address: str,
+        api_key: str,
+        api_secret: str,
+        market: str,
+        twap_id: int,
+    ) -> bool:
+        """Cancel a running TWAP order by id."""
+        try:
+            asset = self.MARKETS.get(market, market.split("-")[0])
+            client = await self._get_client()
+            action = {
+                "type": "twapCancel",
+                "a": await self._resolve_asset_index(asset),
+                "t": int(twap_id),
+            }
+            nonce = int(time.time() * 1000)
+            response = await client.post(
+                self.EXCHANGE_URL,
+                json={
+                    "action": action,
+                    "nonce": nonce,
+                    "signature": self._sign_action(action, nonce, api_secret),
+                    "vaultAddress": None,
+                },
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            return response.status_code == 200 and response.json().get("status") == "ok"
+        except Exception as e:
+            logger.error(f"Failed to cancel TWAP: {e}")
+            return False
+
+    # ------------------------------------------------------------------ #
+    # Staking (HYPE delegation)                                          #
+    # ------------------------------------------------------------------ #
+
+    async def _post_user_signed(self, action: dict, signature: dict, nonce: int) -> bool:
+        """POST a pre-signed user-signed action and return whether it succeeded."""
+        client = await self._get_client()
+        response = await client.post(
+            self.EXCHANGE_URL,
+            json={"action": action, "nonce": nonce, "signature": signature},
+        )
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("status") == "ok":
+                return True
+            logger.error(f"{action.get('type')} rejected: {data}")
+            return False
+        logger.error(f"{action.get('type')} failed: {response.status_code} {response.text[:200]}")
+        return False
+
+    async def staking_transfer(self, api_secret: str, amount_hype: float, is_deposit: bool) -> bool:
+        """Move HYPE between the spot balance and the staking balance.
+
+        ``is_deposit=True`` moves spot→staking (cDeposit); False moves staking→spot
+        (cWithdraw). HYPE must be in the staking balance before it can be delegated.
+        """
+        try:
+            nonce = int(time.time() * 1000)
+            action, signature = sign_staking_transfer(
+                api_secret, hype_to_wei(amount_hype), nonce, is_deposit, is_mainnet=True
+            )
+            return await self._post_user_signed(action, signature, nonce)
+        except Exception as e:
+            logger.error(f"Failed staking transfer: {e}")
+            return False
+
+    async def delegate_stake(
+        self, api_secret: str, validator: str, amount_hype: float, is_undelegate: bool
+    ) -> bool:
+        """Delegate (or undelegate) HYPE from the staking balance to a validator."""
+        try:
+            nonce = int(time.time() * 1000)
+            action, signature = sign_token_delegate(
+                api_secret, validator, hype_to_wei(amount_hype), is_undelegate, nonce, True
+            )
+            return await self._post_user_signed(action, signature, nonce)
+        except Exception as e:
+            logger.error(f"Failed to delegate stake: {e}")
+            return False
+
+    async def get_staking_summary(self, address: str) -> dict:
+        """Return the delegator summary (delegated, undelegated, pending, rewards)."""
+        return await self._info({"type": "delegatorSummary", "user": address}) or {}
+
+    async def get_delegations(self, address: str) -> list:
+        """Return the user's current per-validator delegations."""
+        return await self._info({"type": "delegations", "user": address}) or []
+
+    async def get_validators(self) -> list:
+        """Return all validator summaries (for picking a delegation target)."""
+        return await self._info({"type": "validatorSummaries"}) or []
+
+    # ------------------------------------------------------------------ #
+    # Vaults                                                             #
+    # ------------------------------------------------------------------ #
+
+    async def vault_transfer(
+        self, api_secret: str, vault_address: str, is_deposit: bool, usd: float
+    ) -> bool:
+        """Deposit USDC into (or withdraw from) a vault (HLP or a user vault).
+
+        ``usd`` is in dollars; it is converted to the integer micro-USD the
+        ``vaultTransfer`` action expects.
+        """
+        try:
+            client = await self._get_client()
+            action = {
+                "type": "vaultTransfer",
+                "vaultAddress": vault_address.lower(),
+                "isDeposit": is_deposit,
+                "usd": int(round(usd * 1_000_000)),
+            }
+            nonce = int(time.time() * 1000)
+            response = await client.post(
+                self.EXCHANGE_URL,
+                json={
+                    "action": action,
+                    "nonce": nonce,
+                    "signature": self._sign_action(action, nonce, api_secret),
+                    "vaultAddress": None,
+                },
+            )
+            return response.status_code == 200 and response.json().get("status") == "ok"
+        except Exception as e:
+            logger.error(f"Failed vault transfer: {e}")
+            return False
+
+    async def get_vault_details(self, vault_address: str, user: Optional[str] = None) -> dict:
+        """Return a vault's details (APR, TVL, leader) and optionally the user's stake."""
+        req = {"type": "vaultDetails", "vaultAddress": vault_address}
+        if user:
+            req["user"] = user
+        return await self._info(req) or {}
+
+    async def get_user_vault_equities(self, address: str) -> list:
+        """Return the user's equity across all vaults they're invested in."""
+        return await self._info({"type": "userVaultEquities", "user": address}) or []
+
+    # ------------------------------------------------------------------ #
+    # Referrals                                                          #
+    # ------------------------------------------------------------------ #
+
+    async def set_referrer(self, api_secret: str, code: str) -> bool:
+        """Attach a referral code to the signing account (once, on first trade)."""
+        try:
+            client = await self._get_client()
+            action = {"type": "setReferrer", "code": code}
+            nonce = int(time.time() * 1000)
+            response = await client.post(
+                self.EXCHANGE_URL,
+                json={
+                    "action": action,
+                    "nonce": nonce,
+                    "signature": self._sign_action(action, nonce, api_secret),
+                    "vaultAddress": None,
+                },
+            )
+            return response.status_code == 200 and response.json().get("status") == "ok"
+        except Exception as e:
+            logger.error(f"Failed to set referrer: {e}")
+            return False
+
+    async def get_referral_state(self, address: str) -> dict:
+        """Return referral state: who referred this user, and their referral earnings."""
+        return await self._info({"type": "referral", "user": address}) or {}
+
+    async def _info(self, body: dict):
+        """POST a request to the /info endpoint and return parsed JSON (or None)."""
+        try:
+            client = await self._get_client()
+            response = await client.post(self.INFO_URL, json=body)
+            if response.status_code == 200:
+                return response.json()
+            logger.error(f"info {body.get('type')} failed: {response.status_code}")
+            return None
+        except Exception as e:
+            logger.error(f"info {body.get('type')} error: {e}")
+            return None
 
     async def _set_leverage(
         self,

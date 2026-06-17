@@ -97,9 +97,14 @@ def sign_l1_action(
 #
 # Unlike L1 actions (which sign a phantom-agent hash on chainId 1337), user-signed
 # actions sign the action fields directly under the "HyperliquidSignTransaction"
-# EIP-712 domain on Arbitrum (chainId 42161 mainnet / 421614 testnet). This mirrors
+# EIP-712 domain. The reference SDK fixes ``signatureChainId`` to ``0x66eee``
+# (421614) and derives the domain ``chainId`` from it; ``hyperliquidChain``
+# ("Mainnet"/"Testnet") is what actually selects the environment. This mirrors
 # ``hyperliquid.utils.signing.sign_user_signed_action`` in the reference SDK; the
 # test suite asserts byte-for-byte parity.
+
+# signatureChainId for user-signed actions, as a hex string (matches the SDK).
+USER_SIGNED_CHAIN_ID = "0x66eee"
 
 _USD_SEND_SIGN_TYPES = [
     {"name": "hyperliquidChain", "type": "string"},
@@ -121,7 +126,9 @@ def _user_signed_payload(primary_type: str, payload_types: list[dict], action: d
         "domain": {
             "name": "HyperliquidSignTransaction",
             "version": "1",
-            "chainId": 42161,
+            # Derived from signatureChainId so the signed domain matches what the
+            # backend reconstructs from the action body (reference-SDK behaviour).
+            "chainId": int(action["signatureChainId"], 16),
             "verifyingContract": "0x0000000000000000000000000000000000000000",
         },
         "types": {
@@ -152,7 +159,7 @@ def sign_user_signed_action(
     in the request body alongside the returned signature.
     """
     account = Account.from_key(private_key)
-    action["signatureChainId"] = "0xa4b1"  # Arbitrum One (42161)
+    action["signatureChainId"] = USER_SIGNED_CHAIN_ID
     action["hyperliquidChain"] = "Mainnet" if is_mainnet else "Testnet"
     structured_data = encode_typed_data(
         full_message=_user_signed_payload(primary_type, payload_types, action)
@@ -195,6 +202,94 @@ def sign_approve_builder_fee(
         action,
         _APPROVE_BUILDER_FEE_SIGN_TYPES,
         "HyperliquidTransaction:ApproveBuilderFee",
+        is_mainnet,
+    )
+    return action, signature
+
+
+# --- Staking actions (user-signed) -------------------------------------------
+#
+# Moving HYPE between the spot and staking balances (cDeposit / cWithdraw) and
+# delegating it to a validator (tokenDelegate) are user-signed actions under the
+# same HyperliquidTransaction domain as approveBuilderFee. Field order in the
+# EIP-712 type lists below mirrors hyperliquid-python-sdk exactly.
+
+_TOKEN_DELEGATE_SIGN_TYPES = [
+    {"name": "hyperliquidChain", "type": "string"},
+    {"name": "validator", "type": "address"},
+    {"name": "wei", "type": "uint64"},
+    {"name": "isUndelegate", "type": "bool"},
+    {"name": "nonce", "type": "uint64"},
+]
+
+_C_DEPOSIT_SIGN_TYPES = [
+    {"name": "hyperliquidChain", "type": "string"},
+    {"name": "wei", "type": "uint64"},
+    {"name": "nonce", "type": "uint64"},
+]
+
+_C_WITHDRAW_SIGN_TYPES = [
+    {"name": "hyperliquidChain", "type": "string"},
+    {"name": "wei", "type": "uint64"},
+    {"name": "nonce", "type": "uint64"},
+]
+
+
+def sign_token_delegate(
+    private_key: str,
+    validator: str,
+    wei: int,
+    is_undelegate: bool,
+    nonce: int,
+    is_mainnet: bool = True,
+) -> tuple[dict, dict]:
+    """Build and sign a ``tokenDelegate`` action (delegate/undelegate HYPE).
+
+    Args:
+        validator: Validator address (42-char hex).
+        wei: Amount of HYPE in wei (1 HYPE = 1e8 wei on staking).
+        is_undelegate: False to delegate, True to undelegate.
+    """
+    action = {
+        "type": "tokenDelegate",
+        "validator": validator,
+        "wei": int(wei),
+        "isUndelegate": is_undelegate,
+        "nonce": nonce,
+    }
+    signature = sign_user_signed_action(
+        private_key,
+        action,
+        _TOKEN_DELEGATE_SIGN_TYPES,
+        "HyperliquidTransaction:TokenDelegate",
+        is_mainnet,
+    )
+    return action, signature
+
+
+def sign_staking_transfer(
+    private_key: str,
+    wei: int,
+    nonce: int,
+    is_deposit: bool,
+    is_mainnet: bool = True,
+) -> tuple[dict, dict]:
+    """Build and sign a ``cDeposit`` (spot→staking) or ``cWithdraw`` (staking→spot) action.
+
+    Args:
+        wei: Amount of HYPE in wei (1 HYPE = 1e8 wei).
+        is_deposit: True for cDeposit (into staking balance), False for cWithdraw.
+    """
+    action = {
+        "type": "cDeposit" if is_deposit else "cWithdraw",
+        "wei": int(wei),
+        "nonce": nonce,
+    }
+    signature = sign_user_signed_action(
+        private_key,
+        action,
+        _C_DEPOSIT_SIGN_TYPES if is_deposit else _C_WITHDRAW_SIGN_TYPES,
+        "HyperliquidTransaction:CDeposit" if is_deposit else "HyperliquidTransaction:CWithdraw",
         is_mainnet,
     )
     return action, signature

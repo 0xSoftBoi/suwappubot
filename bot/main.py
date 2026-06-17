@@ -207,6 +207,14 @@ from bot.handlers.savings import savings_conversation_handler
 from bot.handlers.borrow import borrow_conversation_handler
 from bot.handlers.btc import btc_conversation_handler
 from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
+from bot.handlers.hl_ecosystem import (
+    twap_handler,
+    stake_handler,
+    unstake_handler,
+    stakemove_handler,
+    vault_handler,
+    hl_ref_handler,
+)
 from bot.handlers.dashboard import dashboard_handler, dashboard_menu_callback
 from bot.handlers.token import (
     token_conv_handler,
@@ -322,6 +330,12 @@ def add_handlers(application: Application) -> None:
     application.add_handler(broadcast_handler)  # /broadcast
     application.add_handler(hl_builder_handler)  # /hlbuilder
     application.add_handler(hl_claim_handler)  # /hlclaim
+    application.add_handler(hl_ref_handler)  # /hlref (admin)
+    application.add_handler(twap_handler)  # /twap
+    application.add_handler(stake_handler)  # /stake
+    application.add_handler(unstake_handler)  # /unstake
+    application.add_handler(stakemove_handler)  # /stakemove
+    application.add_handler(vault_handler)  # /vault
     application.add_handler(admin_hot_wallets_handler)  # /hotwallets
     application.add_handler(fees_handler)  # /fees
     application.add_handler(metrics_handler)  # /metrics
@@ -541,6 +555,9 @@ async def post_init(application) -> None:
             BotCommand("checkin", "Daily check-in"),
             BotCommand("traders", "Copy trading"),
             BotCommand("perps", "Perpetual trading"),
+            BotCommand("twap", "TWAP order (slice over time)"),
+            BotCommand("stake", "Stake HYPE / view staking"),
+            BotCommand("vault", "HyperLiquid vaults"),
             BotCommand("predict", "Prediction markets"),
             BotCommand("token", "SUWP token & staking"),
             BotCommand("suwp", "SUWP token & staking"),

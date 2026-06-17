@@ -135,7 +135,7 @@ def test_approve_builder_fee_action_shape():
     assert action["builder"] == BUILDER.lower()
     assert action["nonce"] == 1700000000000
     assert action["hyperliquidChain"] == "Mainnet"
-    assert action["signatureChainId"] == "0xa4b1"
+    assert action["signatureChainId"] == "0x66eee"
     assert sig["v"] in (27, 28)
     assert sig["r"].startswith("0x") and len(sig["s"]) > 2
 
@@ -297,3 +297,158 @@ def test_claim_rewards_signs_l1_action():
     assert captured["action"] == {"type": "claimRewards"}
     # Signed as an L1 action -> recoverable r/s/v signature.
     assert captured["signature"]["v"] in (27, 28)
+
+
+# --- Ecosystem: TWAP, vaults, referrals, staking ---------------------------
+
+
+def _capturing_client():
+    """A HyperLiquidClient whose POSTs are captured (accepts headers kwarg)."""
+    captured = {}
+
+    async def _fake_post(url, json=None, headers=None):
+        captured.update(json or {})
+        captured["_url"] = url
+        # Provide a response shape that satisfies every method under test.
+        return _FakeResp(
+            {
+                "status": "ok",
+                "response": {"data": {"status": {"running": {"twapId": 77}}}},
+            }
+        )
+
+    client_stub = type("C", (), {"post": staticmethod(_fake_post)})()
+    hl = HyperLiquidClient()
+
+    async def _get_client():
+        return client_stub
+
+    hl._get_client = _get_client
+    # Avoid a real /info universe fetch for asset index resolution.
+    hl._asset_index_cache = {"BTC": 0, "ETH": 1, "HYPE": 2}
+    hl._asset_index_fetched_at = 9_999_999_999.0
+    return hl, captured
+
+
+def test_twap_order_action_shape():
+    hl, cap = _capturing_client()
+    twap_id = asyncio.run(
+        hl.place_twap_order("0xUser", "k", PK, "BTC", "long", 0.05, 30, randomize=True)
+    )
+    assert twap_id == "77"
+    twap = cap["action"]["twap"]
+    assert cap["action"]["type"] == "twapOrder"
+    assert twap == {"a": 0, "b": True, "s": "0.05", "r": False, "m": 30, "t": True}
+    assert cap["signature"]["v"] in (27, 28)
+
+
+def test_twap_cancel_action_shape():
+    hl, cap = _capturing_client()
+    ok = asyncio.run(hl.cancel_twap("0xUser", "k", PK, "ETH", 77))
+    assert ok is True
+    assert cap["action"] == {"type": "twapCancel", "a": 1, "t": 77}
+
+
+def test_vault_transfer_converts_usd_to_micros():
+    hl, cap = _capturing_client()
+    vault = "0x1234567890123456789012345678901234567890"
+    ok = asyncio.run(hl.vault_transfer(PK, vault, True, 12.5))
+    assert ok is True
+    assert cap["action"] == {
+        "type": "vaultTransfer",
+        "vaultAddress": vault,
+        "isDeposit": True,
+        "usd": 12_500_000,
+    }
+    assert cap["signature"]["v"] in (27, 28)
+
+
+def test_set_referrer_action_shape():
+    hl, cap = _capturing_client()
+    ok = asyncio.run(hl.set_referrer(PK, "SUWAPPU"))
+    assert ok is True
+    assert cap["action"] == {"type": "setReferrer", "code": "SUWAPPU"}
+    assert cap["signature"]["v"] in (27, 28)
+
+
+def test_hype_to_wei():
+    from bot.services.hyperliquid_client import hype_to_wei
+
+    assert hype_to_wei(1) == 100_000_000
+    assert hype_to_wei(2.5) == 250_000_000
+
+
+def test_token_delegate_is_user_signed():
+    hl, cap = _capturing_client()
+    validator = "0x" + "ab" * 20
+    ok = asyncio.run(hl.delegate_stake(PK, validator, 1.0, is_undelegate=False))
+    assert ok is True
+    action = cap["action"]
+    assert action["type"] == "tokenDelegate"
+    assert action["validator"] == validator
+    assert action["wei"] == 100_000_000
+    assert action["isUndelegate"] is False
+    # User-signed actions carry the chain markers (matching the reference SDK).
+    assert action["signatureChainId"] == "0x66eee"
+    assert action["hyperliquidChain"] == "Mainnet"
+    assert cap["signature"]["v"] in (27, 28)
+
+
+def test_staking_transfer_cdeposit_vs_cwithdraw():
+    hl, cap = _capturing_client()
+    asyncio.run(hl.staking_transfer(PK, 3.0, is_deposit=True))
+    assert cap["action"]["type"] == "cDeposit"
+    assert cap["action"]["wei"] == 300_000_000
+
+    hl2, cap2 = _capturing_client()
+    asyncio.run(hl2.staking_transfer(PK, 3.0, is_deposit=False))
+    assert cap2["action"]["type"] == "cWithdraw"
+
+
+def test_token_delegate_matches_reference_sdk():
+    """Byte-parity for the user-signed staking signature, when the SDK is present."""
+    pytest.importorskip("hyperliquid")
+    from eth_account import Account
+    from hyperliquid.utils import signing as sdk
+
+    if not hasattr(sdk, "sign_token_delegate_action"):
+        pytest.skip("reference SDK lacks sign_token_delegate_action")
+
+    from bot.services.hyperliquid_signing import sign_token_delegate
+
+    validator = "0x" + "cd" * 20
+    nonce = 1700000000000
+    sdk_action = {
+        "type": "tokenDelegate",
+        "validator": validator,
+        "wei": 100_000_000,
+        "isUndelegate": False,
+        "nonce": nonce,
+    }
+    expected = sdk.sign_token_delegate_action(Account.from_key(PK), sdk_action, True)
+    _, actual = sign_token_delegate(PK, validator, 100_000_000, False, nonce, True)
+    assert actual == expected
+
+
+def test_approve_builder_fee_matches_reference_sdk():
+    """Lock the (previously 0xa4b1) approveBuilderFee signature to the current SDK."""
+    pytest.importorskip("hyperliquid")
+    from eth_account import Account
+    from hyperliquid.utils import signing as sdk
+
+    if not hasattr(sdk, "sign_approve_builder_fee"):
+        pytest.skip("reference SDK lacks sign_approve_builder_fee")
+
+    from bot.services.hyperliquid_signing import sign_approve_builder_fee
+
+    nonce = 1700000000000
+    builder = "0x" + "ab" * 20
+    sdk_action = {
+        "type": "approveBuilderFee",
+        "maxFeeRate": "0.1%",
+        "builder": builder,
+        "nonce": nonce,
+    }
+    expected = sdk.sign_approve_builder_fee(Account.from_key(PK), sdk_action, True)
+    _, actual = sign_approve_builder_fee(PK, builder, "0.1%", nonce, True)
+    assert actual == expected
