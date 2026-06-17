@@ -254,7 +254,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def hl_builder_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /hlbuilder — show HyperLiquid builder-code status and $1k volume gate."""
+    """Handle /hlbuilder — show HyperLiquid builder-code status and account-value gate."""
     user = update.effective_user
 
     if not is_admin(user.id):
@@ -289,12 +289,48 @@ async def hl_builder_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"Max approved rate: {getattr(settings, 'hl_builder_max_fee_rate', 'n/a')}",
         "",
         f"{emoji} *{status}*",
-        f"Volume: ${elig['volume_usd']:,.2f} / ${elig['required_usd']:,.0f} required",
+        f"Account value: ${elig['account_value_usd']:,.2f} / "
+        f"${elig['required_usd']:,.0f} required",
     ]
     if not elig["eligible"]:
-        lines.append(f"Remaining: ${elig['remaining_usd']:,.2f} of volume to unlock fees")
+        lines.append(
+            f"Deposit ${elig['remaining_usd']:,.2f} more to the builder wallet to unlock fees"
+        )
+    lines.append("\nUse /hlclaim to sweep accrued builder fees to spot.")
 
     await loading.edit_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def hl_claim_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /hlclaim — claim accrued HyperLiquid builder fees to the builder's spot balance."""
+    user = update.effective_user
+
+    if not is_admin(user.id):
+        await update.message.reply_text("❌ This command is for admins only.")
+        return
+
+    builder_key = getattr(settings, "hl_builder_private_key", None)
+    if not builder_key:
+        await update.message.reply_text(
+            "⚙️ Set `HL_BUILDER_PRIVATE_KEY` (the builder wallet's key) to claim fees.",
+            parse_mode="Markdown",
+        )
+        return
+
+    loading = await update.message.reply_text("💸 Claiming builder rewards...")
+
+    from bot.services.hyperliquid_client import hyperliquid_client
+
+    ok = await hyperliquid_client.claim_rewards(builder_key)
+    if ok:
+        await loading.edit_text(
+            "✅ Builder rewards claimed to the builder's spot balance.\n"
+            "(HyperLiquid only releases rewards once they exceed $1.)"
+        )
+    else:
+        await loading.edit_text(
+            "❌ Claim failed (nothing to claim yet, or an API error). Check logs."
+        )
 
 
 # Create handlers
@@ -302,3 +338,4 @@ status_handler = CommandHandler("st", status_command)
 clear_cache_handler = CommandHandler("cc", clear_cache_command)
 broadcast_handler = CommandHandler("bc", broadcast_command)
 hl_builder_handler = CommandHandler("hlbuilder", hl_builder_command)
+hl_claim_handler = CommandHandler("hlclaim", hl_claim_command)

@@ -20,7 +20,7 @@ from bot.services.hyperliquid_signing import (
 )
 from bot.services.hyperliquid_client import (
     HyperLiquidClient,
-    BUILDER_VOLUME_REQUIREMENT_USD,
+    BUILDER_MIN_ACCOUNT_VALUE_USD,
 )
 
 # Well-known throwaway test key (same one the HL SDK uses in its own tests).
@@ -255,28 +255,45 @@ def test_order_omits_builder_when_unset():
     assert "builder" not in captured["action"]
 
 
-# --- Builder codes: $1k volume eligibility ---------------------------------
+# --- Builder codes: 100 USDC account-value eligibility ---------------------
 
 
 def test_builder_eligibility_below_threshold():
-    payload = {"dailyUserVlm": [{"userCross": "300", "userAdd": "100"}]}
+    payload = {"marginSummary": {"accountValue": "40"}}
     hl, _ = _client_with(_FakeResp(payload))
     result = asyncio.run(hl.check_builder_eligibility(BUILDER))
-    assert result["volume_usd"] == 400.0
-    assert result["required_usd"] == BUILDER_VOLUME_REQUIREMENT_USD
+    assert result["account_value_usd"] == 40.0
+    assert result["required_usd"] == BUILDER_MIN_ACCOUNT_VALUE_USD == 100.0
     assert result["eligible"] is False
-    assert result["remaining_usd"] == 600.0
+    assert result["remaining_usd"] == 60.0
 
 
 def test_builder_eligibility_met():
-    payload = {
-        "dailyUserVlm": [
-            {"userCross": "800", "userAdd": "300"},
-            {"userCross": "100", "userAdd": "0"},
-        ]
-    }
+    payload = {"marginSummary": {"accountValue": "150"}}
     hl, _ = _client_with(_FakeResp(payload))
     result = asyncio.run(hl.check_builder_eligibility(BUILDER))
-    assert result["volume_usd"] == 1200.0
+    assert result["account_value_usd"] == 150.0
     assert result["eligible"] is True
     assert result["remaining_usd"] == 0.0
+
+
+def test_claim_rewards_signs_l1_action():
+    captured = {}
+
+    async def _fake_post(url, json=None, headers=None):
+        captured.update(json or {})
+        return _FakeResp({"status": "ok"})
+
+    client_stub = type("C", (), {"post": staticmethod(_fake_post)})()
+    hl = HyperLiquidClient()
+
+    async def _get_client():
+        return client_stub
+
+    hl._get_client = _get_client
+
+    ok = asyncio.run(hl.claim_rewards(PK))
+    assert ok is True
+    assert captured["action"] == {"type": "claimRewards"}
+    # Signed as an L1 action -> recoverable r/s/v signature.
+    assert captured["signature"]["v"] in (27, 28)

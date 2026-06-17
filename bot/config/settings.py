@@ -273,6 +273,13 @@ class Settings(BaseSettings):
         default=None,
         description="Suwappu's HyperLiquid builder wallet (EVM address). Unset = no builder fee.",
     )
+    hl_builder_private_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Private key of the builder wallet — required only to claim accrued "
+            "builder fees (claimRewards). Keep secret; not needed to charge fees."
+        ),
+    )
     hl_builder_fee_tenths_bps: int = Field(
         default=10,
         description=(

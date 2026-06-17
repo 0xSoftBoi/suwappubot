@@ -11,9 +11,11 @@ from bot.services.hyperliquid_signing import sign_l1_action, sign_approve_builde
 
 logger = logging.getLogger(__name__)
 
-# Hyperliquid requires a builder address to have accrued at least this much
-# lifetime trading volume (USDC) before it is permitted to collect builder fees.
-BUILDER_VOLUME_REQUIREMENT_USD = 1_000.0
+# Hyperliquid requires a builder address to hold at least this much perps account
+# value (USDC) before it is permitted to collect builder fees. (This is an account
+# *balance* requirement, not a trading-volume one — volume gating applies to the
+# separate referral-code program, which needs $10k traded.)
+BUILDER_MIN_ACCOUNT_VALUE_USD = 100.0
 
 
 @dataclass
@@ -396,46 +398,66 @@ class HyperLiquidClient:
             logger.error(f"Failed to query maxBuilderFee: {e}")
             return 0
 
-    async def get_user_volume(self, address: str) -> float:
-        """Return the user's recent cumulative trading volume in USDC.
+    async def get_account_value(self, address: str) -> float:
+        """Return an address's perps account value (USDC) from clearinghouseState."""
+        state = await self.get_account_state(address)
+        if not state:
+            return 0.0
+        return float(state.get("margin_summary", {}).get("accountValue", 0) or 0)
 
-        Sums the per-day perp + spot notional from the ``userFees`` endpoint's
-        rolling ``dailyUserVlm`` window. Used to gauge progress toward the
-        builder-fee volume requirement.
+    async def check_builder_eligibility(self, builder_address: str) -> dict:
+        """Check whether the builder wallet meets Hyperliquid's requirement.
+
+        A builder may only collect fees once its wallet holds at least 100 USDC of
+        perps account value (and uses the standard account-abstraction mode).
+        Returns the current account value, the requirement, and an ``eligible`` flag.
+        """
+        account_value = await self.get_account_value(builder_address)
+        return {
+            "builder_address": builder_address,
+            "account_value_usd": account_value,
+            "required_usd": BUILDER_MIN_ACCOUNT_VALUE_USD,
+            "eligible": account_value >= BUILDER_MIN_ACCOUNT_VALUE_USD,
+            "remaining_usd": max(0.0, BUILDER_MIN_ACCOUNT_VALUE_USD - account_value),
+        }
+
+    async def claim_rewards(self, api_secret: str) -> bool:
+        """Claim accrued builder/referral rewards to the signer's spot balance.
+
+        Builder-code fees are collected via the same ``claimRewards`` action as
+        referral rewards. Must be signed by the builder wallet's own key. Rewards
+        are claimable once they exceed $1.
+
+        Args:
+            api_secret: The builder wallet's EVM private key.
         """
         try:
             client = await self._get_client()
+            action = {"type": "claimRewards"}
+            nonce = int(time.time() * 1000)
+
             response = await client.post(
-                self.INFO_URL,
-                json={"type": "userFees", "user": address},
+                self.EXCHANGE_URL,
+                json={
+                    "action": action,
+                    "nonce": nonce,
+                    "signature": self._sign_action(action, nonce, api_secret),
+                    "vaultAddress": None,
+                },
             )
-            if response.status_code != 200:
-                return 0.0
-            data = response.json() or {}
-            total = 0.0
-            for day in data.get("dailyUserVlm", []):
-                total += float(day.get("userCross", 0) or 0)
-                total += float(day.get("userAdd", 0) or 0)
-            return total
+
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("status") == "ok":
+                    return True
+                logger.error(f"claimRewards rejected: {data}")
+                return False
+
+            logger.error(f"claimRewards failed: {response.status_code} {response.text[:200]}")
+            return False
         except Exception as e:
-            logger.error(f"Failed to query user volume: {e}")
-            return 0.0
-
-    async def check_builder_eligibility(self, builder_address: str) -> dict:
-        """Check whether the builder wallet meets Hyperliquid's volume requirement.
-
-        Hyperliquid only lets a builder collect fees once its wallet has traded at
-        least $1k of volume. Returns the current volume, the requirement, and an
-        ``eligible`` flag.
-        """
-        volume = await self.get_user_volume(builder_address)
-        return {
-            "builder_address": builder_address,
-            "volume_usd": volume,
-            "required_usd": BUILDER_VOLUME_REQUIREMENT_USD,
-            "eligible": volume >= BUILDER_VOLUME_REQUIREMENT_USD,
-            "remaining_usd": max(0.0, BUILDER_VOLUME_REQUIREMENT_USD - volume),
-        }
+            logger.error(f"Failed to claim rewards: {e}")
+            return False
 
     async def _set_leverage(
         self,

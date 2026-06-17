@@ -76,6 +76,7 @@ from bot.handlers.admin import (
     clear_cache_handler,
     broadcast_handler,
     hl_builder_handler,
+    hl_claim_handler,
 )
 from bot.handlers.digest import digest_handler
 from bot.handlers.quickswap import (
@@ -320,6 +321,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(clear_cache_handler)  # /clearcache
     application.add_handler(broadcast_handler)  # /broadcast
     application.add_handler(hl_builder_handler)  # /hlbuilder
+    application.add_handler(hl_claim_handler)  # /hlclaim
     application.add_handler(admin_hot_wallets_handler)  # /hotwallets
     application.add_handler(fees_handler)  # /fees
     application.add_handler(metrics_handler)  # /metrics
