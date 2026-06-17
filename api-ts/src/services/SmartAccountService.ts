@@ -217,8 +217,21 @@ export const SmartAccountServiceLive = Layer.effect(
 								chain,
 								bundlerTransport: http(bundlerUrl),
 								userOperation: {
-									estimateFeesPerGas: async () =>
-										(await pimlicoClient.getUserOperationGasPrice()).fast,
+									// Prefer the bundler's own gas oracle (Pimlico's
+									// pimlico_getUserOperationGasPrice). Fall back to chain
+									// fee estimation for bundlers that don't implement it,
+									// so this path is not Pimlico-specific.
+									estimateFeesPerGas: async () => {
+										try {
+											return (await pimlicoClient.getUserOperationGasPrice()).fast
+										} catch {
+											const fees = await publicClient.estimateFeesPerGas()
+											return {
+												maxFeePerGas: fees.maxFeePerGas,
+												maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+											}
+										}
+									},
 								},
 							})
 							const userOpHash = await smartAccountClient.sendUserOperation({
