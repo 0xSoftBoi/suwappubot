@@ -39,15 +39,11 @@ class InternalAPIClient:
 
     async def init(self):
         """Initialize the client with env vars."""
-        self._base_url = os.getenv(
-            "INTERNAL_API_URL", "http://localhost:8000"
-        ).rstrip("/")
+        self._base_url = os.getenv("INTERNAL_API_URL", "http://localhost:8000").rstrip("/")
         self._api_key = os.getenv("INTERNAL_API_KEY", "")
 
         if not self._api_key:
-            logger.warning(
-                "[APIClient] INTERNAL_API_KEY not set, internal API calls will fail"
-            )
+            logger.warning("[APIClient] INTERNAL_API_KEY not set, internal API calls will fail")
 
         self._session = aiohttp.ClientSession(
             timeout=DEFAULT_TIMEOUT,
@@ -81,9 +77,7 @@ class InternalAPIClient:
         url = f"{self._base_url}{path}"
 
         try:
-            async with self._session.request(
-                method, url, params=params, json=json_data
-            ) as resp:
+            async with self._session.request(method, url, params=params, json=json_data) as resp:
                 body = await resp.json()
 
                 if resp.status >= 400:
@@ -151,9 +145,7 @@ class InternalAPIClient:
         if error_message:
             payload["errorMessage"] = error_message
 
-        return await self._request(
-            "PATCH", f"/internal/swap/{swap_id}", json_data=payload
-        )
+        return await self._request("PATCH", f"/internal/swap/{swap_id}", json_data=payload)
 
     # ─── User Endpoints ──────────────────────────────────────
 
@@ -173,6 +165,28 @@ class InternalAPIClient:
             "GET",
             "/internal/token/price",
             params={"chain": chain, "address": token_address},
+        )
+
+    # ─── Smart Accounts (ERC-4337) ───────────────────────────
+
+    async def get_smart_account_config(self) -> dict:
+        """Fetch the smart-account capability descriptor from api-ts.
+
+        Returns keys: enabled, entry_point, entry_point_version,
+        kernel_version, supported_chain_ids.
+        """
+        return await self._request("GET", "/v1/smart-account/config")
+
+    async def predict_smart_account(self, chain_id: int, owner: str) -> dict:
+        """Derive the counterfactual Kernel smart-account address for ``owner``.
+
+        Read-only. Returns keys: chain_id, owner, smart_account_address,
+        is_deployed.
+        """
+        return await self._request(
+            "POST",
+            "/v1/smart-account/predict",
+            json_data={"chainId": chain_id, "owner": owner},
         )
 
     # ─── Health ──────────────────────────────────────────────
