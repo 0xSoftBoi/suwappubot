@@ -91,3 +91,110 @@ def sign_l1_action(
     structured_data = encode_typed_data(full_message=_l1_payload(phantom_agent))
     signed = account.sign_message(structured_data)
     return {"r": to_hex(signed["r"]), "s": to_hex(signed["s"]), "v": signed["v"]}
+
+
+# --- User-signed actions (approveBuilderFee, approveAgent, usdSend, …) -------
+#
+# Unlike L1 actions (which sign a phantom-agent hash on chainId 1337), user-signed
+# actions sign the action fields directly under the "HyperliquidSignTransaction"
+# EIP-712 domain on Arbitrum (chainId 42161 mainnet / 421614 testnet). This mirrors
+# ``hyperliquid.utils.signing.sign_user_signed_action`` in the reference SDK; the
+# test suite asserts byte-for-byte parity.
+
+_USD_SEND_SIGN_TYPES = [
+    {"name": "hyperliquidChain", "type": "string"},
+    {"name": "destination", "type": "string"},
+    {"name": "amount", "type": "string"},
+    {"name": "time", "type": "uint64"},
+]
+
+_APPROVE_BUILDER_FEE_SIGN_TYPES = [
+    {"name": "hyperliquidChain", "type": "string"},
+    {"name": "maxFeeRate", "type": "string"},
+    {"name": "builder", "type": "address"},
+    {"name": "nonce", "type": "uint64"},
+]
+
+
+def _user_signed_payload(primary_type: str, payload_types: list[dict], action: dict) -> dict:
+    return {
+        "domain": {
+            "name": "HyperliquidSignTransaction",
+            "version": "1",
+            "chainId": 42161,
+            "verifyingContract": "0x0000000000000000000000000000000000000000",
+        },
+        "types": {
+            primary_type: payload_types,
+            "EIP712Domain": [
+                {"name": "name", "type": "string"},
+                {"name": "version", "type": "string"},
+                {"name": "chainId", "type": "uint256"},
+                {"name": "verifyingContract", "type": "address"},
+            ],
+        },
+        "primaryType": primary_type,
+        "message": action,
+    }
+
+
+def sign_user_signed_action(
+    private_key: str,
+    action: dict,
+    payload_types: list[dict],
+    primary_type: str,
+    is_mainnet: bool = True,
+) -> dict:
+    """Sign a user-signed action and return the ``{"r","s","v"}`` signature.
+
+    ``action`` is mutated to include ``signatureChainId`` and ``hyperliquidChain``
+    (as the reference SDK does), so the exact dict passed here is what must be sent
+    in the request body alongside the returned signature.
+    """
+    account = Account.from_key(private_key)
+    action["signatureChainId"] = "0xa4b1"  # Arbitrum One (42161)
+    action["hyperliquidChain"] = "Mainnet" if is_mainnet else "Testnet"
+    structured_data = encode_typed_data(
+        full_message=_user_signed_payload(primary_type, payload_types, action)
+    )
+    signed = account.sign_message(structured_data)
+    return {"r": to_hex(signed["r"]), "s": to_hex(signed["s"]), "v": signed["v"]}
+
+
+def sign_approve_builder_fee(
+    private_key: str,
+    builder: str,
+    max_fee_rate: str,
+    nonce: int,
+    is_mainnet: bool = True,
+) -> tuple[dict, dict]:
+    """Build and sign an ``approveBuilderFee`` action.
+
+    A user must approve a builder (and a maximum fee rate) before that builder may
+    attach fees to the user's orders. This is signed once per (user, builder) pair.
+
+    Args:
+        private_key: The user's EVM private key.
+        builder: The builder's address (lowercased before signing).
+        max_fee_rate: Max approved fee as a percent string, e.g. ``"0.1%"``.
+        nonce: Request nonce (ms since epoch); reused as the top-level nonce.
+        is_mainnet: True for api.hyperliquid.xyz, False for testnet.
+
+    Returns:
+        ``(action, signature)`` — send ``{"action": action, "nonce": nonce,
+        "signature": signature}`` to the /exchange endpoint.
+    """
+    action = {
+        "type": "approveBuilderFee",
+        "maxFeeRate": max_fee_rate,
+        "builder": builder.lower(),
+        "nonce": nonce,
+    }
+    signature = sign_user_signed_action(
+        private_key,
+        action,
+        _APPROVE_BUILDER_FEE_SIGN_TYPES,
+        "HyperliquidTransaction:ApproveBuilderFee",
+        is_mainnet,
+    )
+    return action, signature

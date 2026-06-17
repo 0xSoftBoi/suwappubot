@@ -23,12 +23,53 @@ class PerpsService:
     def __init__(self):
         self._client = hyperliquid_client
 
+    def _builder_config(self) -> tuple[Optional[str], int]:
+        """Return ``(builder_address, fee_tenths_bps)`` from settings, or ``(None, 0)``."""
+        from bot.config.settings import settings
+
+        address = getattr(settings, "hl_builder_address", None)
+        fee = int(getattr(settings, "hl_builder_fee_tenths_bps", 0) or 0)
+        if not address or fee <= 0:
+            return None, 0
+        return address, fee
+
+    async def ensure_builder_approved(self, account: HyperLiquidAccount) -> Optional[str]:
+        """Ensure the user has approved Suwappu's builder fee; approve once if not.
+
+        Returns the builder address to attach to orders, or None when no builder is
+        configured or approval could not be established. Failure to approve never
+        blocks trading — orders simply go out without a builder fee.
+        """
+        from bot.config.settings import settings
+
+        builder_address, fee = self._builder_config()
+        if not builder_address:
+            return None
+
+        try:
+            approved = await self._client.get_max_builder_fee(account.hl_address, builder_address)
+            if approved >= fee:
+                return builder_address
+
+            _, api_secret = self._decrypt_credentials(account)
+            ok = await self._client.approve_builder_fee(
+                api_secret, builder_address, settings.hl_builder_max_fee_rate
+            )
+            if ok:
+                logger.info("Approved builder fee %s for user %s", builder_address, account.user_id)
+                return builder_address
+            logger.warning("Builder fee approval failed for user %s", account.user_id)
+            return None
+        except Exception as e:
+            logger.warning("ensure_builder_approved error: %s", e)
+            return None
+
     def get_account(self, user_id: int) -> Optional[HyperLiquidAccount]:
         """Get user's HyperLiquid account."""
         with get_session() as session:
-            return session.query(HyperLiquidAccount).filter_by(
-                user_id=user_id, is_active=True
-            ).first()
+            return (
+                session.query(HyperLiquidAccount).filter_by(user_id=user_id, is_active=True).first()
+            )
 
     def setup_account(
         self,
@@ -88,6 +129,10 @@ class PerpsService:
         # Decrypt API credentials
         api_key, api_secret = self._decrypt_credentials(account)
 
+        # Ensure the builder fee is approved so Suwappu earns on this order.
+        builder_address = await self.ensure_builder_approved(account)
+        _, builder_fee = self._builder_config()
+
         # Place order
         result = await self._client.place_order(
             address=account.hl_address,
@@ -100,6 +145,8 @@ class PerpsService:
             order_type="market",
             tp_price=tp_price,
             sl_price=sl_price,
+            builder_address=builder_address,
+            builder_fee_tenths_bps=builder_fee if builder_address else None,
         )
 
         if not result:
@@ -151,9 +198,13 @@ class PerpsService:
 
         # Place TP/SL orders if specified
         if tp_price:
-            await self._place_tp_sl(user_id, account, market, side, size, "take_profit", tp_price, position_id)
+            await self._place_tp_sl(
+                user_id, account, market, side, size, "take_profit", tp_price, position_id
+            )
         if sl_price:
-            await self._place_tp_sl(user_id, account, market, side, size, "stop_loss", sl_price, position_id)
+            await self._place_tp_sl(
+                user_id, account, market, side, size, "stop_loss", sl_price, position_id
+            )
 
         logger.info(f"Opened {side} {market} position for user {user_id}: {size} @ {entry_price}")
         return position
@@ -166,9 +217,11 @@ class PerpsService:
     ) -> Optional[dict]:
         """Close a position (fully or partially)."""
         with get_session() as session:
-            position = session.query(PerpPosition).filter_by(
-                id=position_id, user_id=user_id, status="open"
-            ).first()
+            position = (
+                session.query(PerpPosition)
+                .filter_by(id=position_id, user_id=user_id, status="open")
+                .first()
+            )
 
             if not position:
                 raise ValueError("Position not found or already closed")
@@ -183,6 +236,8 @@ class PerpsService:
 
         api_key, api_secret = self._decrypt_credentials(account)
 
+        builder_address, builder_fee = self._builder_config()
+
         # Place close order (opposite side, reduce only)
         result = await self._client.place_order(
             address=account.hl_address,
@@ -193,6 +248,8 @@ class PerpsService:
             size=close_size,
             order_type="market",
             reduce_only=True,
+            builder_address=builder_address,
+            builder_fee_tenths_bps=builder_fee if builder_address else None,
         )
 
         if not result:
@@ -256,9 +313,11 @@ class PerpsService:
     ):
         """Modify take profit / stop loss for a position."""
         with get_session() as session:
-            position = session.query(PerpPosition).filter_by(
-                id=position_id, user_id=user_id, status="open"
-            ).first()
+            position = (
+                session.query(PerpPosition)
+                .filter_by(id=position_id, user_id=user_id, status="open")
+                .first()
+            )
 
             if not position:
                 raise ValueError("Position not found")
@@ -273,9 +332,12 @@ class PerpsService:
     def get_positions(self, user_id: int, status: str = "open") -> list[PerpPosition]:
         """Get user's positions."""
         with get_session() as session:
-            positions = session.query(PerpPosition).filter_by(
-                user_id=user_id, status=status
-            ).order_by(PerpPosition.opened_at.desc()).all()
+            positions = (
+                session.query(PerpPosition)
+                .filter_by(user_id=user_id, status=status)
+                .order_by(PerpPosition.opened_at.desc())
+                .all()
+            )
             for p in positions:
                 session.expunge(p)
             return positions
@@ -283,9 +345,9 @@ class PerpsService:
     def get_position(self, user_id: int, position_id: int) -> Optional[PerpPosition]:
         """Get a specific position."""
         with get_session() as session:
-            position = session.query(PerpPosition).filter_by(
-                id=position_id, user_id=user_id
-            ).first()
+            position = (
+                session.query(PerpPosition).filter_by(id=position_id, user_id=user_id).first()
+            )
             if position:
                 session.expunge(position)
             return position
@@ -299,14 +361,18 @@ class PerpsService:
         hl_positions = await self._client.get_open_positions(account.hl_address)
 
         with get_session() as session:
-            local_positions = session.query(PerpPosition).filter_by(
-                user_id=user_id, status="open"
-            ).all()
+            local_positions = (
+                session.query(PerpPosition).filter_by(user_id=user_id, status="open").all()
+            )
 
             for local_pos in local_positions:
                 # Find matching HL position
                 hl_match = next(
-                    (p for p in hl_positions if p["market"] == local_pos.market and p["side"] == local_pos.side),
+                    (
+                        p
+                        for p in hl_positions
+                        if p["market"] == local_pos.market and p["side"] == local_pos.side
+                    ),
                     None,
                 )
 
@@ -317,7 +383,11 @@ class PerpsService:
                     local_pos.size = Decimal(str(hl_match.get("size", float(local_pos.size))))
                 else:
                     # Position no longer exists on exchange — mark as closed/liquidated
-                    local_pos.status = "liquidated" if local_pos.unrealized_pnl and local_pos.unrealized_pnl < 0 else "closed"
+                    local_pos.status = (
+                        "liquidated"
+                        if local_pos.unrealized_pnl and local_pos.unrealized_pnl < 0
+                        else "closed"
+                    )
                     local_pos.closed_at = datetime.now(timezone.utc)
 
     async def _place_tp_sl(
@@ -370,8 +440,14 @@ class PerpsService:
         from bot.config.settings import settings
 
         key = settings.encryption_key
-        api_key = decrypt_private_key(account.api_key_encrypted, key) if account.api_key_encrypted else ""
-        api_secret = decrypt_private_key(account.api_secret_encrypted, key) if account.api_secret_encrypted else ""
+        api_key = (
+            decrypt_private_key(account.api_key_encrypted, key) if account.api_key_encrypted else ""
+        )
+        api_secret = (
+            decrypt_private_key(account.api_secret_encrypted, key)
+            if account.api_secret_encrypted
+            else ""
+        )
         return api_key, api_secret
 
 

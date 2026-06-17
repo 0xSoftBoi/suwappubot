@@ -7,14 +7,19 @@ from dataclasses import dataclass
 
 import httpx
 
-from bot.services.hyperliquid_signing import sign_l1_action
+from bot.services.hyperliquid_signing import sign_l1_action, sign_approve_builder_fee
 
 logger = logging.getLogger(__name__)
+
+# Hyperliquid requires a builder address to have accrued at least this much
+# lifetime trading volume (USDC) before it is permitted to collect builder fees.
+BUILDER_VOLUME_REQUIREMENT_USD = 1_000.0
 
 
 @dataclass
 class HLMarketInfo:
     """HyperLiquid market information."""
+
     name: str  # e.g., "ETH"
     sz_decimals: int
     max_leverage: int
@@ -25,6 +30,7 @@ class HLMarketInfo:
 @dataclass
 class HLOrderResult:
     """Result of a HyperLiquid order placement."""
+
     order_id: str
     status: str  # "filled", "open", "cancelled"
     fill_price: Optional[float] = None
@@ -83,13 +89,15 @@ class HyperLiquidClient:
 
             for asset_info in universe:
                 name = asset_info.get("name", "")
-                markets.append(HLMarketInfo(
-                    name=name,
-                    sz_decimals=asset_info.get("szDecimals", 2),
-                    max_leverage=asset_info.get("maxLeverage", 50),
-                    mark_price=0.0,  # Fetched separately
-                    funding_rate=0.0,
-                ))
+                markets.append(
+                    HLMarketInfo(
+                        name=name,
+                        sz_decimals=asset_info.get("szDecimals", 2),
+                        max_leverage=asset_info.get("maxLeverage", 50),
+                        mark_price=0.0,  # Fetched separately
+                        funding_rate=0.0,
+                    )
+                )
 
             return markets
         except Exception as e:
@@ -155,16 +163,18 @@ class HyperLiquidClient:
             position = pos_info.get("position", {})
             if float(position.get("szi", 0)) != 0:
                 size = float(position.get("szi", 0))
-                positions.append({
-                    "market": position.get("coin", "") + "-USD",
-                    "side": "long" if size > 0 else "short",
-                    "size": abs(size),
-                    "entry_price": float(position.get("entryPx", 0)),
-                    "unrealized_pnl": float(position.get("unrealizedPnl", 0)),
-                    "liquidation_price": float(position.get("liquidationPx", 0) or 0),
-                    "leverage": int(float(position.get("leverage", {}).get("value", 1))),
-                    "margin_used": float(position.get("marginUsed", 0)),
-                })
+                positions.append(
+                    {
+                        "market": position.get("coin", "") + "-USD",
+                        "side": "long" if size > 0 else "short",
+                        "size": abs(size),
+                        "entry_price": float(position.get("entryPx", 0)),
+                        "unrealized_pnl": float(position.get("unrealizedPnl", 0)),
+                        "liquidation_price": float(position.get("liquidationPx", 0) or 0),
+                        "leverage": int(float(position.get("leverage", {}).get("value", 1))),
+                        "margin_used": float(position.get("marginUsed", 0)),
+                    }
+                )
 
         return positions
 
@@ -182,8 +192,16 @@ class HyperLiquidClient:
         reduce_only: bool = False,
         tp_price: Optional[float] = None,
         sl_price: Optional[float] = None,
+        builder_address: Optional[str] = None,
+        builder_fee_tenths_bps: Optional[int] = None,
     ) -> Optional[HLOrderResult]:
-        """Place an order on HyperLiquid."""
+        """Place an order on HyperLiquid.
+
+        If ``builder_address`` and ``builder_fee_tenths_bps`` are provided, a
+        builder fee is attached to the order (the user must have previously
+        approved the builder via :meth:`approve_builder_fee`). ``builder_fee_tenths_bps``
+        is denominated in tenths of a basis point (10 = 1 bp = 0.01%).
+        """
         try:
             asset = self.MARKETS.get(market, market.split("-")[0])
             client = await self._get_client()
@@ -197,9 +215,19 @@ class HyperLiquidClient:
                 "p": str(price) if price else "0",
                 "s": str(size),
                 "r": reduce_only,
-                "t": {
-                    "limit": {"tif": "Gtc"} if order_type == "limit" else {"tif": "Ioc"},
-                } if order_type in ("limit", "market") else {"trigger": {"triggerPx": str(price), "isMarket": True, "tpsl": "tp" if order_type == "take_profit" else "sl"}},
+                "t": (
+                    {
+                        "limit": {"tif": "Gtc"} if order_type == "limit" else {"tif": "Ioc"},
+                    }
+                    if order_type in ("limit", "market")
+                    else {
+                        "trigger": {
+                            "triggerPx": str(price),
+                            "isMarket": True,
+                            "tpsl": "tp" if order_type == "take_profit" else "sl",
+                        }
+                    }
+                ),
             }
 
             # Set leverage
@@ -211,6 +239,15 @@ class HyperLiquidClient:
                 "orders": [order],
                 "grouping": "na",
             }
+
+            # Attach builder fee so Suwappu earns on the order. The builder
+            # address must be lowercased to match the approveBuilderFee signature,
+            # and the fee must not exceed the user's approved max fee rate.
+            if builder_address and builder_fee_tenths_bps and builder_fee_tenths_bps > 0:
+                action["builder"] = {
+                    "b": builder_address.lower(),
+                    "f": int(builder_fee_tenths_bps),
+                }
 
             nonce = int(time.time() * 1000)
 
@@ -270,10 +307,12 @@ class HyperLiquidClient:
 
             action = {
                 "type": "cancel",
-                "cancels": [{
-                    "a": await self._resolve_asset_index(asset),
-                    "o": int(order_id),
-                }],
+                "cancels": [
+                    {
+                        "a": await self._resolve_asset_index(asset),
+                        "o": int(order_id),
+                    }
+                ],
             }
 
             nonce = int(time.time() * 1000)
@@ -293,6 +332,110 @@ class HyperLiquidClient:
         except Exception as e:
             logger.error(f"Failed to cancel order: {e}")
             return False
+
+    async def approve_builder_fee(
+        self,
+        api_secret: str,
+        builder_address: str,
+        max_fee_rate: str = "0.1%",
+    ) -> bool:
+        """Approve a builder (and a max fee rate) for the signing user.
+
+        This is a one-time, per-(user, builder) action that authorizes the builder
+        to attach fees up to ``max_fee_rate`` to the user's future orders.
+
+        Args:
+            api_secret: The user's EVM private key.
+            builder_address: Suwappu's builder wallet address.
+            max_fee_rate: Max approved fee as a percent string, e.g. ``"0.1%"``.
+        """
+        try:
+            client = await self._get_client()
+            nonce = int(time.time() * 1000)
+            action, signature = sign_approve_builder_fee(
+                api_secret, builder_address, max_fee_rate, nonce, is_mainnet=True
+            )
+
+            response = await client.post(
+                self.EXCHANGE_URL,
+                json={"action": action, "nonce": nonce, "signature": signature},
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("status") == "ok":
+                    return True
+                logger.error(f"approveBuilderFee rejected: {data}")
+                return False
+
+            logger.error(f"approveBuilderFee failed: {response.status_code} {response.text[:200]}")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to approve builder fee: {e}")
+            return False
+
+    async def get_max_builder_fee(self, user_address: str, builder_address: str) -> int:
+        """Return the max builder fee (tenths of a bp) the user has approved for the builder.
+
+        Returns 0 when the user has not approved the builder.
+        """
+        try:
+            client = await self._get_client()
+            response = await client.post(
+                self.INFO_URL,
+                json={
+                    "type": "maxBuilderFee",
+                    "user": user_address,
+                    "builder": builder_address.lower(),
+                },
+            )
+            if response.status_code == 200:
+                return int(response.json() or 0)
+            return 0
+        except Exception as e:
+            logger.error(f"Failed to query maxBuilderFee: {e}")
+            return 0
+
+    async def get_user_volume(self, address: str) -> float:
+        """Return the user's recent cumulative trading volume in USDC.
+
+        Sums the per-day perp + spot notional from the ``userFees`` endpoint's
+        rolling ``dailyUserVlm`` window. Used to gauge progress toward the
+        builder-fee volume requirement.
+        """
+        try:
+            client = await self._get_client()
+            response = await client.post(
+                self.INFO_URL,
+                json={"type": "userFees", "user": address},
+            )
+            if response.status_code != 200:
+                return 0.0
+            data = response.json() or {}
+            total = 0.0
+            for day in data.get("dailyUserVlm", []):
+                total += float(day.get("userCross", 0) or 0)
+                total += float(day.get("userAdd", 0) or 0)
+            return total
+        except Exception as e:
+            logger.error(f"Failed to query user volume: {e}")
+            return 0.0
+
+    async def check_builder_eligibility(self, builder_address: str) -> dict:
+        """Check whether the builder wallet meets Hyperliquid's volume requirement.
+
+        Hyperliquid only lets a builder collect fees once its wallet has traded at
+        least $1k of volume. Returns the current volume, the requirement, and an
+        ``eligible`` flag.
+        """
+        volume = await self.get_user_volume(builder_address)
+        return {
+            "builder_address": builder_address,
+            "volume_usd": volume,
+            "required_usd": BUILDER_VOLUME_REQUIREMENT_USD,
+            "eligible": volume >= BUILDER_VOLUME_REQUIREMENT_USD,
+            "remaining_usd": max(0.0, BUILDER_VOLUME_REQUIREMENT_USD - volume),
+        }
 
     async def _set_leverage(
         self,
@@ -330,8 +473,16 @@ class HyperLiquidClient:
     # Fallback indices used only if the /info metadata fetch fails. The
     # authoritative mapping is the position of each asset in meta.universe.
     _FALLBACK_ASSET_INDICES = {
-        "BTC": 0, "ETH": 1, "SOL": 2, "ARB": 3, "AVAX": 4,
-        "DOGE": 5, "MATIC": 6, "OP": 7, "SUI": 8, "APT": 9,
+        "BTC": 0,
+        "ETH": 1,
+        "SOL": 2,
+        "ARB": 3,
+        "AVAX": 4,
+        "DOGE": 5,
+        "MATIC": 6,
+        "OP": 7,
+        "SUI": 8,
+        "APT": 9,
     }
     ASSET_INDEX_TTL = 3600.0  # seconds
 
@@ -344,23 +495,26 @@ class HyperLiquidClient:
         silently defaulting to index 0 (which would target BTC).
         """
         now = time.time()
-        if not self._asset_index_cache or (now - self._asset_index_fetched_at) > self.ASSET_INDEX_TTL:
+        if (
+            not self._asset_index_cache
+            or (now - self._asset_index_fetched_at) > self.ASSET_INDEX_TTL
+        ):
             try:
                 client = await self._get_client()
                 resp = await client.post(self.INFO_URL, json={"type": "meta"})
                 if resp.status_code == 200:
                     universe = resp.json().get("universe", [])
                     mapping = {
-                        info.get("name"): i
-                        for i, info in enumerate(universe)
-                        if info.get("name")
+                        info.get("name"): i for i, info in enumerate(universe) if info.get("name")
                     }
                     if mapping:
                         for name, fallback_idx in self._FALLBACK_ASSET_INDICES.items():
                             if name in mapping and mapping[name] != fallback_idx:
                                 logger.warning(
                                     "HyperLiquid asset index drift for %s: dynamic=%s hardcoded=%s",
-                                    name, mapping[name], fallback_idx,
+                                    name,
+                                    mapping[name],
+                                    fallback_idx,
                                 )
                         self._asset_index_cache = mapping
                         self._asset_index_fetched_at = now
