@@ -2136,6 +2136,7 @@ class SwapEngine:
         wallet_id: int,
         user_id: int,
         idempotency_key: Optional[str] = None,
+        automated: bool = False,
     ) -> SwapTransaction:
         """
         Execute a swap based on a quote.
@@ -2347,7 +2348,7 @@ class SwapEngine:
             try:
                 # Route to appropriate execution method based on provider
                 if quote.provider == "tempo_dex":
-                    tx_hash = await self._execute_tempo_dex_swap(quote, wallet, user_id)
+                    tx_hash = await self._execute_tempo_dex_swap(quote, wallet, user_id, automated)
                 elif quote.provider == "cow":
                     tx_hash = await self._execute_cow_swap(quote, wallet)
                 elif quote.provider == "socket":
@@ -3257,7 +3258,11 @@ class SwapEngine:
         return tx_hash.hex()
 
     async def _execute_tempo_dex_swap(
-        self, quote: SwapQuote, wallet_data: dict, user_id: Optional[int] = None
+        self,
+        quote: SwapQuote,
+        wallet_data: dict,
+        user_id: Optional[int] = None,
+        automated: bool = False,
     ) -> str:
         """Execute a same-chain stablecoin swap on Tempo's enshrined DEX.
 
@@ -3297,6 +3302,14 @@ class SwapEngine:
         if user_id is not None and tempo_fee_sponsor.enabled:
             decision = tempo_fee_sponsor.check_sponsorship(user_id, tx_type="swap")
             if decision.should_sponsor:
+                # Automated swaps (DCA/limit/snipe) sign with the user's scoped,
+                # on-chain-capped access key if they granted one — no root key,
+                # no re-auth. Manual swaps keep root signing.
+                access_key = None
+                if automated:
+                    from bot.services.tempo_keychain import tempo_keychain_service
+
+                    access_key = tempo_keychain_service.get_active_key(user_id)
                 try:
                     tx_hash = await self._execute_sponsored_tempo_swap(
                         wallet=wallet,
@@ -3307,6 +3320,7 @@ class SwapEngine:
                         min_amount_out=min_amount_out,
                         web3=web3,
                         chain_id=chain.chain_id,
+                        access_key=access_key,
                     )
                     # Tempo gas is sub-$0.001; record against the daily budget.
                     tempo_fee_sponsor.record_sponsored_tx(user_id, fee_usd=0.001)
@@ -3403,8 +3417,14 @@ class SwapEngine:
         min_amount_out: int,
         web3,
         chain_id: int,
+        access_key=None,
     ) -> str:
         """Submit a gasless Tempo swap as ONE type-0x76 fee-payer transaction.
+
+        When ``access_key`` (a TempoAccessKey) is given — the automated path — the
+        sender slot is signed by the scoped, on-chain-capped access key
+        (KeychainSignature) instead of the root wallet, so no root key or per-trade
+        re-auth is needed. The sponsor still pays gas.
 
         approve(DEX, amount_in) + swapExactAmountIn are batched into a single
         Tempo Transaction:
@@ -3465,7 +3485,12 @@ class SwapEngine:
             raise SwapError("Tempo fee payer cannot equal sender")
 
         sender_turnkey = wallet.is_turnkey_wallet
-        sender_key = None if sender_turnkey else self.wallet_service.get_private_key(wallet)
+        # Root key only needed when NOT using an access key (and not Turnkey).
+        sender_key = (
+            None
+            if (sender_turnkey or access_key is not None)
+            else self.wallet_service.get_private_key(wallet)
+        )
 
         # nonce_key 0 == protocol nonce, which is the standard account nonce.
         nonce = await asyncio.to_thread(
@@ -3495,15 +3520,20 @@ class SwapEngine:
             calls=calls,
         )
 
-        # 1) Sender signs the 0x76 hash (fee_token omitted), then we record the
-        #    sender_signature + sender_address on the tx.
-        sender_sig = await self._tempo_signature(
-            address=sender,
-            is_turnkey=sender_turnkey,
-            raw_key=sender_key,
-            hash32=tx.get_signing_hash(for_fee_payer=False),
-        )
-        tx = attrs.evolve(tx, sender_signature=sender_sig, sender_address=sender)
+        # 1) Sign the 0x76 sender hash. Automated path: the scoped access key signs
+        #    (KeychainSignature) on behalf of the root. Else the root wallet signs.
+        if access_key is not None:
+            from bot.services.tempo_keychain import tempo_keychain_service
+
+            tx = tempo_keychain_service.sign_swap_with_access_key(tx, sender, access_key)
+        else:
+            sender_sig = await self._tempo_signature(
+                address=sender,
+                is_turnkey=sender_turnkey,
+                raw_key=sender_key,
+                hash32=tx.get_signing_hash(for_fee_payer=False),
+            )
+            tx = attrs.evolve(tx, sender_signature=sender_sig, sender_address=sender)
 
         # 2) Set the fee token, then the sponsor counter-signs the 0x78 hash (which
         #    commits to fee_token + sender_address).
