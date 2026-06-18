@@ -342,6 +342,18 @@ class Settings(BaseSettings):
         default="US",
         description="Comma-separated regions blocked from HyperUnit native deposits.",
     )
+    # Non-US egress for HyperUnit (it geo-blocks the US). EITHER a reverse-proxy
+    # base URL that forwards to api.hyperunit.xyz, OR a forward HTTP proxy. Must
+    # be provisioned in a non-US region and only ever serves region-allowed users
+    # (the fund handler gates that). Unset = call HyperUnit directly.
+    hyperunit_egress_url: Optional[str] = Field(
+        default=None,
+        description="Non-US reverse-proxy base URL for HyperUnit (forwards to api.hyperunit.xyz).",
+    )
+    hyperunit_proxy_url: Optional[str] = Field(
+        default=None,
+        description="Non-US forward HTTP proxy for HyperUnit requests (e.g. http://host:port).",
+    )
 
     lisk_rpc_url: str = Field(default="https://rpc.api.lisk.com", description="Lisk RPC")
     sei_rpc_url: str = Field(default="https://evm-rpc.sei-apis.com", description="Sei RPC")
