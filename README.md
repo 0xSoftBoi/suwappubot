@@ -3,6 +3,7 @@
 Cross-chain DEX infrastructure for humans and AI agents — swap tokens across 14 chains via Telegram, WhatsApp, Discord, or programmatic API.
 
 [![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/features/agent_integration.md)
+[![ClawHub](https://img.shields.io/badge/ClawHub-suwappu--dex-ff4d4d)](https://clawhub.ai/0xsoftboi/suwappu-dex)
 [![A2A Protocol](https://img.shields.io/badge/A2A-Protocol-blue)](agent-card.json)
 [![Chains](https://img.shields.io/badge/Chains-14-green)]()
 [![Providers](https://img.shields.io/badge/Swap_Providers-10+-orange)]()
