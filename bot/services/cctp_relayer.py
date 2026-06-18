@@ -294,6 +294,75 @@ class CctpRelayer:
         except Exception as e:  # noqa: BLE001
             logger.warning("CCTP notify failed for %s: %s", dep["user_id"], e)
 
+    # ------------------------------------------------------------------ #
+    # Observability + recovery
+    # ------------------------------------------------------------------ #
+    def latest_for_user(self, user_id: int) -> Optional[dict]:
+        """Most recent CCTP deposit for a user (status + tx hashes), or None."""
+        with get_session() as session:
+            row = (
+                session.query(CctpDeposit)
+                .filter_by(user_id=user_id)
+                .order_by(CctpDeposit.id.desc())
+                .first()
+            )
+            if not row:
+                return None
+            return {
+                "id": row.id,
+                "status": row.status,
+                "from_chain": row.from_chain,
+                "amount_usd": int(row.amount_raw) / 1e6,
+                "burn_tx_hash": row.burn_tx_hash,
+                "mint_tx_hash": row.mint_tx_hash,
+                "credit_tx_hash": row.credit_tx_hash,
+                "last_error": row.last_error,
+                "attempts": row.attempts or 0,
+            }
+
+    def health(self) -> dict:
+        """Status counts across all CCTP deposits, for ops dashboards."""
+        from sqlalchemy import func
+
+        with get_session() as session:
+            rows = (
+                session.query(CctpDeposit.status, func.count(CctpDeposit.id))
+                .group_by(CctpDeposit.status)
+                .all()
+            )
+        counts = {status: int(n) for status, n in rows}
+        in_flight = sum(counts.get(s, 0) for s in ("burned", "attested", "minted"))
+        return {
+            "enabled": self.is_enabled(),
+            "running": self._running,
+            "counts": counts,
+            "in_flight": in_flight,
+            "failed": counts.get("failed", 0),
+            "credited": counts.get("credited", 0),
+        }
+
+    def requeue_failed(self) -> int:
+        """Reset failed deposits so the loop retries them. Returns the count."""
+        with get_session() as session:
+            failed = session.query(CctpDeposit).filter_by(status="failed").all()
+            n = 0
+            for row in failed:
+                # Resume at the furthest step we know completed.
+                row.status = "minted" if row.mint_tx_hash else "burned"
+                row.attempts = 0
+                row.last_error = None
+                n += 1
+            return n
+
+    async def relayer_balance_hype(self) -> Optional[float]:
+        """HYPE balance of the relayer wallet on HyperEVM (None if unset)."""
+        if not getattr(settings, "cctp_relayer_private_key", None):
+            return None
+        web3 = rpc_manager.get_web3(HYPEREVM_CHAIN)
+        acct = self._relayer_account(web3)
+        wei = await asyncio.to_thread(lambda: web3.eth.get_balance(acct.address))
+        return float(web3.from_wei(wei, "ether"))
+
 
 # Global instance.
 cctp_relayer = CctpRelayer()

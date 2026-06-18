@@ -212,6 +212,9 @@ async def fund_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "fund_cexec":
         return await _execute_cctp(update, context, user_id)
 
+    if data == "fund_cctpstat":
+        return await _check_cctp_status(update, context, user_id)
+
 
 async def _show_native(
     update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, asset: str
@@ -524,8 +527,45 @@ async def _execute_cctp(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     await _edit(
         update,
         text,
-        InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="perps_back")]]),
+        InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("🔄 Check CCTP status", callback_data="fund_cctpstat")],
+                [InlineKeyboardButton("🔙 Back", callback_data="perps_back")],
+            ]
+        ),
     )
+
+
+_CCTP_STATUS_LABEL = {
+    "burned": "⏳ Burned — awaiting Circle attestation",
+    "attested": "⏳ Attested — minting on HyperEVM",
+    "minted": "⏳ Minted — crediting HyperCore",
+    "credited": "✅ Credited to HyperCore spot",
+    "failed": "⚠️ Failed — our team will retry",
+}
+
+
+async def _check_cctp_status(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
+    """Show the user their most recent CCTP deposit's progress."""
+    dep = cctp_relayer.latest_for_user(user_id)
+    if not dep:
+        return await _edit(update, "No CCTP deposits yet.", _menu_keyboard())
+
+    label = _CCTP_STATUS_LABEL.get(dep["status"], dep["status"])
+    lines = [
+        "🟢 *CCTP Deposit Status*\n",
+        f"Amount: *${dep['amount_usd']:,.2f} USDC* from {dep['from_chain'].capitalize()}",
+        f"Status: {label}",
+    ]
+    if dep["status"] == "credited":
+        lines.append("\nMove it to your perp wallet to trade.")
+    keyboard_rows = []
+    if dep["status"] not in ("credited", "failed"):
+        keyboard_rows.append(
+            [InlineKeyboardButton("🔄 Check again", callback_data="fund_cctpstat")]
+        )
+    keyboard_rows.append([InlineKeyboardButton("🔙 Back", callback_data="fund_menu")])
+    await _edit(update, "\n".join(lines), InlineKeyboardMarkup(keyboard_rows))
 
 
 # Handlers to register in main.py.

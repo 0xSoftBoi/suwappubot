@@ -100,3 +100,29 @@ async def test_minted_resumes_at_credit():
     r._user_credit.assert_awaited_once()
     statuses = [c.args[1] for c in r._set_status.call_args_list]
     assert statuses == ["credited"]
+
+
+@pytest.mark.asyncio
+async def test_failed_deposit_bumped_after_error():
+    r = _relayer()
+    # mint blows up -> _advance raises -> process_once bumps the error.
+    r._relayer_send = AsyncMock(side_effect=RuntimeError("rpc down"))
+    r._bump_error = MagicMock()
+    complete = CctpAttestation(status="complete", message="0xmsg", attestation="0xatt")
+    with (
+        patch(
+            "bot.services.cctp_relayer.CctpRelayer._pending", MagicMock(return_value=[dict(DEP)])
+        ),
+        patch("bot.services.cctp_relayer.rpc_manager.get_web3", MagicMock()),
+        patch(
+            "bot.services.cctp_relayer.cctp_hypercore.get_attestation",
+            AsyncMock(return_value=complete),
+        ),
+        patch(
+            "bot.services.cctp_relayer.cctp_hypercore.build_receive_tx",
+            MagicMock(return_value={"to": "0xmt", "data": "0x", "value": 0}),
+        ),
+    ):
+        await r.process_once()
+    r._bump_error.assert_called_once()
+    assert r._bump_error.call_args.args[0] == DEP["id"]
