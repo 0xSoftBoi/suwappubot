@@ -14,6 +14,7 @@ recorded locally so they surface in the portfolio and the background monitor.
 """
 
 import logging
+from datetime import datetime, timezone
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -29,6 +30,8 @@ from bot.services.perps_service import perps_service
 from bot.services.hyperliquid_client import hyperliquid_client, HLP_VAULT_ADDRESS
 from bot.handlers.admin import is_admin
 from bot.utils.telegram_safe import safe_md
+from bot.models.hl_ecosystem import HLTwapOrder
+from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -42,19 +45,47 @@ def _require_account(user_id: int):
     return perps_service.get_account(user_id)
 
 
+def _bar(frac: float, width: int = 10) -> str:
+    """A unicode progress bar, e.g. ``▰▰▰▱▱▱▱▱▱▱``."""
+    frac = max(0.0, min(1.0, frac))
+    filled = round(frac * width)
+    return "▰" * filled + "▱" * (width - filled)
+
+
+def _arrow(side: str) -> str:
+    return "🟢" if side == "long" else "🔴"
+
+
+async def _reply_or_edit(update: Update, text: str, keyboard=None):
+    """Render to a command (reply) or a callback (edit) transparently."""
+    markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+    if update.callback_query is not None:
+        await update.callback_query.edit_message_text(
+            text, reply_markup=markup, parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
+
+
 # --------------------------------------------------------------------------- #
-# TWAP orders                                                                 #
+# TWAP orders — live dashboard + one-tap cancel                               #
 # --------------------------------------------------------------------------- #
 
 
 async def twap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/twap <MARKET> <long|short> <size> <minutes> — slice an order over time."""
+    """/twap — live TWAP dashboard. `/twap <MARKET> <long|short> <size> <minutes>` to start."""
     user_id = update.effective_user.id
     if not _require_account(user_id):
         await update.message.reply_text(_NO_ACCOUNT)
         return
 
     args = context.args or []
+    if args:
+        return await _twap_place(update, context, user_id, args)
+    await _render_twaps(update, user_id)
+
+
+async def _twap_place(update, context, user_id, args):
     if len(args) < 4:
         await update.message.reply_text(
             "\U0001f552 *TWAP order*\n\n"
@@ -82,13 +113,82 @@ async def twap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     twap_id = await perps_service.place_twap(user_id, market.upper(), side, size, minutes)
     if twap_id:
         await loading.edit_text(
-            f"✅ TWAP started (id `{twap_id}`)\n"
-            f"{side.upper()} {size} {market.upper()} over {minutes}m.\n"
-            f"You'll be notified when it completes.",
+            f"✅ TWAP started\n"
+            f"{_arrow(side)} {side.upper()} {size:g} {market.upper()} over {minutes}m.\n"
+            f"Track progress with /twap — you'll be notified when it completes.",
             parse_mode="Markdown",
         )
     else:
         await loading.edit_text("❌ TWAP order failed. Check your balance/market and try again.")
+
+
+def _load_running_twaps(user_id: int):
+    """Return running TWAPs as plain tuples (detached from the session)."""
+    with get_session() as session:
+        rows = (
+            session.query(HLTwapOrder)
+            .filter_by(user_id=user_id, status="running")
+            .order_by(HLTwapOrder.created_at.desc())
+            .all()
+        )
+        return [
+            (
+                r.id,
+                r.market,
+                r.side,
+                float(r.size or 0),
+                float(r.filled_size or 0),
+                int(r.minutes or 0),
+                r.created_at,
+            )
+            for r in rows
+        ]
+
+
+async def _render_twaps(update: Update, user_id: int):
+    twaps = _load_running_twaps(user_id)
+    lines = ["\U0001f552 *TWAP Orders*\n"]
+    keyboard = []
+    if twaps:
+        now = datetime.now(timezone.utc)
+        for rid, market, side, size, filled, minutes, created in twaps:
+            frac = (filled / size) if size else 0.0
+            created = created or now
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            elapsed_min = (now - created).total_seconds() / 60
+            eta = max(0, int(minutes - elapsed_min))
+            lines.append(
+                f"{_arrow(side)} *{side.upper()} {safe_md(market)}*\n"
+                f"`{_bar(frac)}` {frac*100:.0f}%  ·  {filled:g}/{size:g}  ·  ~{eta}m left"
+            )
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"❌ Cancel {side.upper()} {market}", callback_data=f"hltwapcancel:{rid}"
+                    )
+                ]
+            )
+    else:
+        lines.append("_No running TWAPs._")
+    lines.append("\nStart one: `/twap BTC long 0.05 30`")
+    keyboard.append([InlineKeyboardButton("🔄 Refresh", callback_data="hltwaprefresh")])
+    await _reply_or_edit(update, "\n".join(lines), keyboard)
+
+
+async def twap_refresh_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer("Refreshed")
+    await _render_twaps(update, update.effective_user.id)
+
+
+async def twap_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("Cancelling…")
+    rid = int(query.data.split(":")[1])
+    ok = await perps_service.cancel_twap(update.effective_user.id, rid)
+    if not ok:
+        await query.answer("Couldn't cancel (already done?)", show_alert=True)
+    await _render_twaps(update, update.effective_user.id)
 
 
 # --------------------------------------------------------------------------- #
@@ -554,6 +654,68 @@ async def hl_ref_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
+# --------------------------------------------------------------------------- #
+# /hl hub — one screen for the whole HyperLiquid footprint                     #
+# --------------------------------------------------------------------------- #
+
+
+async def hl_hub_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/hl — overview of your HyperLiquid holdings + quick links."""
+    user_id = update.effective_user.id
+    if not _require_account(user_id):
+        await update.message.reply_text(_NO_ACCOUNT)
+        return
+    await _render_hub(update, user_id)
+
+
+async def _render_hub(update: Update, user_id: int):
+    h = await perps_service.get_holdings_usd(user_id)
+    total = h["total_usd"]
+    lines = ["\U0001f7e3 *HyperLiquid*\n", f"*Total:* {_usd(total)}"]
+    parts = [
+        ("Perps", h["perps_usd"]),
+        ("Spot", h.get("spot_usd", 0.0)),
+        ("Staking", h["staking_usd"]),
+        ("Vaults", h["vault_usd"]),
+    ]
+    for label, val in parts:
+        if val > 0.01:
+            frac = (val / total) if total else 0.0
+            lines.append(f"{label:8} `{_bar(frac, 8)}` {_usd(val)}")
+    lines.append(
+        "\n\U0001fa99 /spot   \U0001f53a /stake   \U0001f3e6 /vault   "
+        "\U0001f552 /twap   \U0001f4ca /perps"
+    )
+    keyboard = [
+        [
+            InlineKeyboardButton("\U0001fa99 Spot", callback_data="hlhub:spot"),
+            InlineKeyboardButton("\U0001f53a Stake", callback_data="hlhub:stake"),
+            InlineKeyboardButton("\U0001f3e6 Vault", callback_data="hlhub:vault"),
+        ],
+        [InlineKeyboardButton("🔄 Refresh", callback_data="hlhub:refresh")],
+    ]
+    await _reply_or_edit(update, "\n".join(lines), keyboard)
+
+
+async def hl_hub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    section = query.data.split(":")[1]
+    if section == "refresh":
+        return await _render_hub(update, update.effective_user.id)
+    # Point the user at the relevant command (dashboards need their own message).
+    hint = {
+        "spot": "Send /spot to trade and view balances.",
+        "stake": "Send /stake to pick a validator and delegate.",
+        "vault": "Send /vault to deposit into HLP.",
+    }.get(section, "")
+    await query.answer(hint, show_alert=True)
+
+
+def _usd(v: float) -> str:
+    return f"${v:,.2f}"
+
+
 # Handlers ------------------------------------------------------------------ #
 twap_handler = CommandHandler("twap", twap_command)
 stake_handler = CommandHandler("stake", stake_command)
@@ -561,9 +723,13 @@ unstake_handler = CommandHandler("unstake", unstake_command)
 stakemove_handler = CommandHandler("stakemove", stakemove_command)
 vault_handler = CommandHandler("vault", vault_command)
 spot_handler = CommandHandler("spot", spot_command)
+hl_hub_handler = CommandHandler("hl", hl_hub_command)
 hl_ref_handler = CommandHandler("hlref", hl_ref_command)
 # Close button on dashboards shown outside an active conversation.
 hl_cancel_handler = CallbackQueryHandler(hl_cancel_callback, pattern=r"^hl_cancel$")
+hl_twap_cancel_handler = CallbackQueryHandler(twap_cancel_callback, pattern=r"^hltwapcancel:\d+$")
+hl_twap_refresh_handler = CallbackQueryHandler(twap_refresh_callback, pattern=r"^hltwaprefresh$")
+hl_hub_cb_handler = CallbackQueryHandler(hl_hub_callback, pattern=r"^hlhub:")
 
 # Button-driven amount-entry flow for staking + vault deposits.
 hl_ecosystem_conversation = ConversationHandler(

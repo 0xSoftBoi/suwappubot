@@ -354,3 +354,17 @@ def test_twap_filled_by_id_aggregates_slices():
     assert agg["77"]["ntl"] == 10 * 2.0 + 5 * 3.0  # 35.0
     assert agg["77"]["n"] == 2
     assert agg["88"]["sz"] == 1.0
+
+
+# --- UI helpers -------------------------------------------------------------
+
+
+def test_progress_bar_and_arrow():
+    from bot.handlers.hl_ecosystem import _bar, _arrow
+
+    assert _bar(0.0, 10) == "▱" * 10
+    assert _bar(1.0, 10) == "▰" * 10
+    assert _bar(0.5, 10) == "▰" * 5 + "▱" * 5
+    assert _bar(2.0, 4) == "▰" * 4  # clamps above 1.0
+    assert _bar(-1.0, 4) == "▱" * 4  # clamps below 0
+    assert _arrow("long") != _arrow("short")

@@ -638,6 +638,31 @@ class PerpsService:
                 self._award_xp(user_id, "hl_vault", int(usd / 10), f"Vault deposit ${usd}")
         return ok
 
+    async def cancel_twap(self, user_id: int, record_id: int) -> bool:
+        """Cancel a running TWAP (by local record id) on HyperLiquid."""
+        account = self.get_account(user_id)
+        if not account:
+            return False
+        from bot.models.hl_ecosystem import HLTwapOrder
+
+        with get_session() as session:
+            rec = session.query(HLTwapOrder).filter_by(id=record_id, user_id=user_id).first()
+            if not rec or rec.status != "running" or not rec.twap_id:
+                return False
+            market, twap_id = rec.market, int(rec.twap_id)
+
+        api_key, api_secret = self._decrypt_credentials(account)
+        ok = await self._client.cancel_twap(
+            account.hl_address, api_key, api_secret, market, twap_id
+        )
+        if ok:
+            with get_session() as session:
+                rec = session.query(HLTwapOrder).filter_by(id=record_id).first()
+                if rec:
+                    rec.status = "cancelled"
+                    rec.finished_at = datetime.now(timezone.utc)
+        return ok
+
     async def get_holdings_usd(self, user_id: int) -> dict:
         """Return the user's HyperLiquid holdings in USD for the portfolio view.
 
