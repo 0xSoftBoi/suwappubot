@@ -1,0 +1,31 @@
+# Non-US egress reverse proxy for HyperUnit.
+#
+# HyperUnit geo-blocks the US, and the Suwappu bot is US-hosted, so its
+# server-side calls exit a US IP even for allowed non-US users. Deploy THIS
+# service to a NON-US Railway region (Settings -> Region -> e.g. europe-west4 /
+# asia-southeast1) and point the bot at it via:
+#     HYPERUNIT_EGRESS_URL=https://<this-service>.up.railway.app
+# The bot only routes region-allowed (non-US) users here (handler-gated).
+#
+# Hardening (see README): keep this PRIVATE (Railway private networking) or
+# require EGRESS_SECRET so it isn't an open geo-bypass proxy.
+
+{
+	admin off
+	auto_https off
+}
+
+:{$PORT:8080} {
+	# Optional shared-secret gate. If EGRESS_SECRET is set on the service,
+	# only requests carrying the matching X-Egress-Secret header are forwarded.
+	@unauthorized {
+		not header X-Egress-Secret {$EGRESS_SECRET:__unset__}
+		expression {$EGRESS_SECRET:__unset__} != `__unset__`
+	}
+	respond @unauthorized 403
+
+	# Forward everything to HyperUnit from this region's (non-US) egress IP.
+	reverse_proxy https://api.hyperunit.xyz {
+		header_up Host api.hyperunit.xyz
+	}
+}
