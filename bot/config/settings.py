@@ -335,6 +335,14 @@ class Settings(BaseSettings):
         description="Alert admins once when the relayer wallet's HYPE drops below this.",
     )
 
+    # Regions (ISO-3166 alpha-2, comma-separated) where HyperUnit native deposits
+    # are NOT offered — HyperUnit geo-blocks these. Users with an unknown region
+    # are treated as restricted (feature hidden). Across/CCTP remain available.
+    hyperunit_restricted_regions: str = Field(
+        default="US",
+        description="Comma-separated regions blocked from HyperUnit native deposits.",
+    )
+
     lisk_rpc_url: str = Field(default="https://rpc.api.lisk.com", description="Lisk RPC")
     sei_rpc_url: str = Field(default="https://evm-rpc.sei-apis.com", description="Sei RPC")
     soneium_rpc_url: str = Field(default="https://rpc.soneium.org", description="Soneium RPC")
