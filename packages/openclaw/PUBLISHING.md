@@ -7,13 +7,13 @@ Three distribution surfaces. Do them in order; each is low effort and compounds 
 `server.json` in this folder is the registry manifest (`bot.suwappu/mcp-server`).
 
 ```bash
-# install the publisher CLI
-npm i -g @modelcontextprotocol/publisher    # or: brew install mcp-publisher
+# install the publisher (Go binary from github.com/modelcontextprotocol/registry — NOT the npm pkg)
+brew install mcp-publisher     # or download from the registry repo's Releases
 
-# prove ownership of the bot.suwappu namespace (ONE of):
-#  a) GitHub: authenticate as an account in a "suwappu" GitHub org, OR
-#  b) DNS: add a TXT record on suwappu.bot that the publisher prints
-mcp-publisher login            # GitHub OAuth or DNS flow
+# prove ownership of the bot.suwappu namespace, then publish.
+# The DNS TXT record + private key are pre-generated in ./registry-claim/ —
+# see registry-claim/NAMESPACE_CLAIM.md for the exact record and commands.
+mcp-publisher login dns --domain suwappu.bot --private-key "$(cat registry-claim/.private-key)"
 mcp-publisher publish ./server.json
 ```
 
