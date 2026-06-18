@@ -13,9 +13,27 @@ project's hand-rolled HyperLiquid client and keep the dependency surface small.
 from typing import Optional
 
 import msgpack
+from decimal import Decimal
 from eth_account import Account
 from eth_utils import keccak, to_hex
 from eth_account.messages import encode_typed_data
+
+
+def float_to_wire(x: float) -> str:
+    """Serialize a float to HyperLiquid's exact wire string.
+
+    Byte-for-byte identical to ``hyperliquid.utils.signing.float_to_wire``: at most
+    8 decimals, rejects values that would silently round, drops trailing zeros
+    (so ``1.0`` -> ``"1"``) and avoids scientific notation. Sending a raw
+    ``str(float)`` instead is the classic cause of HyperLiquid rejecting an order.
+    """
+    rounded = f"{x:.8f}"
+    if abs(float(rounded) - x) >= 1e-12:
+        raise ValueError("float_to_wire causes rounding", x)
+    if rounded == "-0":
+        rounded = "0"
+    normalized = Decimal(rounded).normalize()
+    return f"{normalized:f}"
 
 
 def _address_to_bytes(address: str) -> bytes:

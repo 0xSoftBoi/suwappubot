@@ -17,6 +17,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 from bot.services.hyperliquid_signing import (
     sign_l1_action,
     sign_approve_builder_fee,
+    float_to_wire,
 )
 from bot.services.hyperliquid_client import (
     HyperLiquidClient,
@@ -196,6 +197,11 @@ def test_order_attaches_builder_field():
     hl._get_client = _get_client
     hl._set_leverage = _noop_leverage
 
+    async def _mid(_market):
+        return 2000.0
+
+    hl.get_mark_price = _mid  # market order needs a mid to cross the book
+
     asyncio.run(
         hl.place_order(
             address="0xUser",
@@ -239,6 +245,11 @@ def test_order_omits_builder_when_unset():
 
     hl._get_client = _get_client
     hl._set_leverage = _noop_leverage
+
+    async def _mid(_market):
+        return 2000.0
+
+    hl.get_mark_price = _mid
 
     asyncio.run(
         hl.place_order(
@@ -452,3 +463,98 @@ def test_approve_builder_fee_matches_reference_sdk():
     expected = sdk.sign_approve_builder_fee(Account.from_key(PK), sdk_action, True)
     _, actual = sign_approve_builder_fee(PK, builder, "0.1%", nonce, True)
     assert actual == expected
+
+
+# --- Order wire format: byte-parity with the reference SDK ------------------
+# A wrong wire format (bare str(float), missing szDecimals rounding, or wrong
+# trigger key order) produces signatures HyperLiquid rejects. These lock our
+# serialization to the SDK's.
+
+
+def test_float_to_wire_matches_reference_sdk():
+    pytest.importorskip("hyperliquid")
+    from hyperliquid.utils.signing import float_to_wire as sdk_ftw
+
+    for x in [0.1, 1.0, 0.25, 2500.5, 100000.0, 0.0, 0.00010000, 73.205]:
+        assert float_to_wire(x) == sdk_ftw(x), x
+    # 1.0 normalizes to "1", not "1.0".
+    assert float_to_wire(1.0) == "1"
+
+
+def test_order_wire_matches_reference_sdk_limit():
+    pytest.importorskip("hyperliquid")
+    from hyperliquid.utils.signing import order_request_to_order_wire
+
+    sdk_wire = order_request_to_order_wire(
+        {
+            "coin": "ETH",
+            "is_buy": True,
+            "sz": 0.25,
+            "limit_px": 2500.5,
+            "order_type": {"limit": {"tif": "Gtc"}},
+            "reduce_only": False,
+        },
+        1,
+    )
+    ours = HyperLiquidClient._order_wire(
+        1, True, 2500.5, 0.25, sz_decimals=2, is_spot=False, tif="Gtc", reduce_only=False
+    )
+    assert ours == sdk_wire
+
+
+def test_order_wire_matches_reference_sdk_trigger():
+    pytest.importorskip("hyperliquid")
+    from hyperliquid.utils.signing import order_request_to_order_wire
+
+    sdk_wire = order_request_to_order_wire(
+        {
+            "coin": "ETH",
+            "is_buy": False,
+            "sz": 0.1,
+            "limit_px": 2600.0,
+            "order_type": {"trigger": {"isMarket": True, "triggerPx": 2600.0, "tpsl": "tp"}},
+            "reduce_only": True,
+        },
+        1,
+    )
+    ours = HyperLiquidClient._order_wire(
+        1, False, 2600.0, 0.1, sz_decimals=2, is_spot=False, reduce_only=True, tpsl="tp"
+    )
+    assert ours == sdk_wire
+
+
+def test_full_order_action_signature_matches_sdk():
+    """End-to-end: our assembled order action signs identically to the SDK."""
+    pytest.importorskip("hyperliquid")
+    from eth_account import Account
+    from hyperliquid.utils.signing import (
+        order_request_to_order_wire,
+        order_wires_to_order_action,
+        sign_l1_action as sdk_sign,
+    )
+
+    wire = order_request_to_order_wire(
+        {
+            "coin": "ETH",
+            "is_buy": True,
+            "sz": 0.25,
+            "limit_px": 2500.5,
+            "order_type": {"limit": {"tif": "Ioc"}},
+            "reduce_only": False,
+        },
+        1,
+    )
+    action = order_wires_to_order_action([wire])
+    ours = {
+        "type": "order",
+        "orders": [
+            HyperLiquidClient._order_wire(
+                1, True, 2500.5, 0.25, sz_decimals=2, is_spot=False, tif="Ioc"
+            )
+        ],
+        "grouping": "na",
+    }
+    assert ours == action
+    nonce = 1700000000000
+    expected = sdk_sign(Account.from_key(PK), action, None, nonce, None, True)
+    assert sign_l1_action(PK, ours, None, nonce, is_mainnet=True) == expected

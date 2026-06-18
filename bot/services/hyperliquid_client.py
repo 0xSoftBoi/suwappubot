@@ -12,6 +12,7 @@ from bot.services.hyperliquid_signing import (
     sign_approve_builder_fee,
     sign_token_delegate,
     sign_staking_transfer,
+    float_to_wire,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,7 @@ class HyperLiquidClient:
         self.EXCHANGE_URL = f"{base}/exchange"
         self._client: Optional[httpx.AsyncClient] = None
         self._asset_index_cache: dict[str, int] = {}
+        self._asset_sz_decimals: dict[str, int] = {}
         self._asset_index_fetched_at: float = 0.0
         self._spot_meta: dict = {}
         self._spot_meta_fetched_at: float = 0.0
@@ -240,28 +242,43 @@ class HyperLiquidClient:
             client = await self._get_client()
 
             is_buy = (side == "long" and not reduce_only) or (side == "short" and reduce_only)
+            asset_id = await self._resolve_asset_index(asset)
+            sz_dec = self._asset_sz_decimals.get(asset, 2)
 
-            # Build order
-            order = {
-                "a": await self._resolve_asset_index(asset),  # Asset index
-                "b": is_buy,
-                "p": str(price) if price else "0",
-                "s": str(size),
-                "r": reduce_only,
-                "t": (
-                    {
-                        "limit": {"tif": "Gtc"} if order_type == "limit" else {"tif": "Ioc"},
-                    }
-                    if order_type in ("limit", "market")
-                    else {
-                        "trigger": {
-                            "triggerPx": str(price),
-                            "isMarket": True,
-                            "tpsl": "tp" if order_type == "take_profit" else "sl",
-                        }
-                    }
-                ),
-            }
+            # Resolve the wire price. A "market" order is an IOC limit that crosses
+            # the book: send an aggressive price derived from the mid (a bare p="0"
+            # — the previous behaviour — never fills).
+            if order_type == "market":
+                mid = await self.get_mark_price(market) or 0.0
+                if mid <= 0:
+                    logger.error("No mid price for %s; cannot place market order", market)
+                    return None
+                px = mid * 1.05 if is_buy else mid * 0.95
+                order = self._order_wire(
+                    asset_id, is_buy, px, size, sz_dec, False, tif="Ioc", reduce_only=reduce_only
+                )
+            elif order_type == "limit":
+                order = self._order_wire(
+                    asset_id,
+                    is_buy,
+                    float(price),
+                    size,
+                    sz_dec,
+                    False,
+                    tif="Gtc",
+                    reduce_only=reduce_only,
+                )
+            else:  # take_profit / stop_loss trigger
+                order = self._order_wire(
+                    asset_id,
+                    is_buy,
+                    float(price),
+                    size,
+                    sz_dec,
+                    False,
+                    reduce_only=reduce_only,
+                    tpsl="tp" if order_type == "take_profit" else "sl",
+                )
 
             # Set leverage
             await self._set_leverage(client, address, api_key, api_secret, asset, leverage)
@@ -514,13 +531,15 @@ class HyperLiquidClient:
             asset = self.MARKETS.get(market, market.split("-")[0])
             client = await self._get_client()
             is_buy = side == "long"
+            asset_id = await self._resolve_asset_index(asset)
+            sz_dec = self._asset_sz_decimals.get(asset, 2)
 
             action = {
                 "type": "twapOrder",
                 "twap": {
-                    "a": await self._resolve_asset_index(asset),
+                    "a": asset_id,
                     "b": is_buy,
-                    "s": str(size),
+                    "s": float_to_wire(round(size, sz_dec)),
                     "r": reduce_only,
                     "m": int(minutes),
                     "t": bool(randomize),
@@ -902,14 +921,55 @@ class HyperLiquidClient:
         return 0.0
 
     @staticmethod
-    def _round_spot_price(px: float, sz_decimals: int) -> str:
-        """Round a spot price to HyperLiquid's rules: ≤5 sig figs and ≤(8 − szDec)
-        decimal places (integers are always allowed)."""
+    def _round_px(px: float, sz_decimals: int, is_spot: bool) -> float:
+        """Round a price to HyperLiquid's tick rules: ≤5 significant figures and
+        ≤(MAX_DECIMALS − szDecimals) decimal places, where MAX_DECIMALS is 8 for
+        spot and 6 for perps. Integers are always allowed."""
         if px <= 0:
-            return "0"
-        max_dec = max(0, 8 - sz_decimals)
+            return 0.0
+        max_dec = max(0, (8 if is_spot else 6) - sz_decimals)
         px = float(f"{px:.5g}")  # 5 significant figures
-        return str(round(px, max_dec))
+        return round(px, max_dec)
+
+    @staticmethod
+    def _round_spot_price(px: float, sz_decimals: int) -> str:
+        """Spot price as a wire string (kept for callers/tests)."""
+        return float_to_wire(HyperLiquidClient._round_px(px, sz_decimals, is_spot=True))
+
+    @staticmethod
+    def _order_wire(
+        asset_id: int,
+        is_buy: bool,
+        px: float,
+        sz: float,
+        sz_decimals: int,
+        is_spot: bool,
+        *,
+        tif: str = "Ioc",
+        reduce_only: bool = False,
+        tpsl: Optional[str] = None,
+    ) -> dict:
+        """Build one order's wire dict exactly as the reference SDK does.
+
+        Single source of truth for order serialization: rounds size to szDecimals
+        and price to the tick rules, then ``float_to_wire``s both. Key order
+        matches HyperLiquid's struct (a,b,p,s,r,t; trigger = isMarket,triggerPx,
+        tpsl) — required for the signature to validate server-side.
+        """
+        px_r = HyperLiquidClient._round_px(px, sz_decimals, is_spot)
+        sz_r = round(sz, sz_decimals)
+        if tpsl:
+            t = {"trigger": {"isMarket": True, "triggerPx": float_to_wire(px_r), "tpsl": tpsl}}
+        else:
+            t = {"limit": {"tif": tif}}
+        return {
+            "a": asset_id,
+            "b": is_buy,
+            "p": float_to_wire(px_r),
+            "s": float_to_wire(sz_r),
+            "r": reduce_only,
+            "t": t,
+        }
 
     async def get_spot_balances(self, address: str) -> list[dict]:
         """Return the user's spot balances: ``[{coin, token, total, hold}]`` (floats).
@@ -990,17 +1050,15 @@ class HyperLiquidClient:
                 logger.error(f"No mid price for spot pair {asset['name']}")
                 return None
             limit_px = mid * (1 + slippage) if is_buy else mid * (1 - slippage)
-            px_str = self._round_spot_price(limit_px, asset["sz_decimals"])
-            sz_str = str(round(size, asset["sz_decimals"]))
-
-            order = {
-                "a": asset["asset_id"],
-                "b": is_buy,
-                "p": px_str,
-                "s": sz_str,
-                "r": False,
-                "t": {"limit": {"tif": "Ioc"}},
-            }
+            order = self._order_wire(
+                asset["asset_id"],
+                is_buy,
+                limit_px,
+                size,
+                asset["sz_decimals"],
+                is_spot=True,
+                tif="Ioc",
+            )
             action = {"type": "order", "orders": [order], "grouping": "na"}
             if builder_address and builder_fee_tenths_bps and builder_fee_tenths_bps > 0:
                 action["builder"] = {
@@ -1134,6 +1192,11 @@ class HyperLiquidClient:
                                     fallback_idx,
                                 )
                         self._asset_index_cache = mapping
+                        self._asset_sz_decimals = {
+                            info.get("name"): int(info.get("szDecimals", 2))
+                            for info in universe
+                            if info.get("name")
+                        }
                         self._asset_index_fetched_at = now
             except Exception as e:
                 logger.warning("Failed to fetch HyperLiquid asset metadata, using fallback: %s", e)
