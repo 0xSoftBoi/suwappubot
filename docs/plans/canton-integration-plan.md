@@ -77,7 +77,9 @@ Implications:
 
 ---
 
-## 2.6 Custody shape — OPEN DECISION
+## 2.6 Custody shape — DEFERRED to DevNet measurement
+
+Both shapes stay open until the DevNet node is live; the data model is the last thing to commit. Decide from real numbers, not guesses.
 
 | | Per-user PartyID | Treasury / omnibus + DB |
 |---|---|---|
@@ -87,7 +89,7 @@ Implications:
 | User self-custody story | stronger (real Canton identity) | weaker (balance attributed in our DB) |
 | Used by | wallets | **DA's exchange-integration reference** (our closest analog) |
 
-Recommendation: **treasury/omnibus** unless a per-user on-ledger identity is a product requirement — it's what custodial apps of our shape actually run, and it sidesteps N× node cost + per-user UTXO management. This decision changes §4, §6, §7 and the DB.
+**Measure on DevNet before deciding:** (a) per-party storage/compute cost at 100 / 1k / 10k parties; (b) external-party onboarding latency (the create-wallet round-trip); (c) UTXO growth + `MergeDelegation` overhead per active user; (d) whether any product/regulatory requirement forces a per-user on-ledger identity. **Default if the numbers are a wash: treasury/omnibus** (DA's reference for our shape). Build §5 storage-agnostic so either fits; gate the schema choice behind this measurement.
 
 ---
 
