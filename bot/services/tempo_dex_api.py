@@ -25,8 +25,12 @@ TEMPO_DEX_ADDRESS = "0xDEc0000000000000000000000000000000000000"
 # Tempo payment lane transaction type
 TEMPO_TX_TYPE_PAYMENT_LANE = "0x7A"
 
-# ABI for the enshrined stablecoin DEX
-# Note: All amount params are uint128, not uint256
+# ABI for the enshrined stablecoin DEX.
+# Verified against tempoxyz/tempo-std src/interfaces/IStablecoinDEX.sol:
+#   - All amounts are uint128 (not uint256).
+#   - swapExactAmountIn/Out take (tokenIn, tokenOut, amount, limit) — there is NO
+#     recipient param; market swaps settle directly to the caller's wallet (no
+#     separate withdraw needed, unlike resting limit orders via place()).
 TEMPO_DEX_ABI = [
     {
         "inputs": [
@@ -34,7 +38,6 @@ TEMPO_DEX_ABI = [
             {"name": "tokenOut", "type": "address"},
             {"name": "amountIn", "type": "uint128"},
             {"name": "minAmountOut", "type": "uint128"},
-            {"name": "recipient", "type": "address"},
         ],
         "name": "swapExactAmountIn",
         "outputs": [{"name": "amountOut", "type": "uint128"}],
@@ -47,7 +50,6 @@ TEMPO_DEX_ABI = [
             {"name": "tokenOut", "type": "address"},
             {"name": "amountOut", "type": "uint128"},
             {"name": "maxAmountIn", "type": "uint128"},
-            {"name": "recipient", "type": "address"},
         ],
         "name": "swapExactAmountOut",
         "outputs": [{"name": "amountIn", "type": "uint128"}],
@@ -82,12 +84,14 @@ TEMPO_DEX_ABI = [
 def _get_tempo_web3() -> Web3:
     """Get a Web3 instance connected to Tempo via RPCManager."""
     from bot.services.rpc_manager import rpc_manager
+
     return rpc_manager.get_web3("tempo")
 
 
 @dataclass
 class TempoDexQuote:
     """Quote from the Tempo enshrined stablecoin DEX."""
+
     token_in: str
     token_in_address: str
     token_out: str
@@ -115,7 +119,9 @@ class TempoDexAPI:
         out_cfg = TOKENS.get(token_out.upper())
         if not (in_cfg and in_cfg.is_stablecoin and out_cfg and out_cfg.is_stablecoin):
             return False
-        return bool(get_token_address(token_in, "tempo")) and bool(get_token_address(token_out, "tempo"))
+        return bool(get_token_address(token_in, "tempo")) and bool(
+            get_token_address(token_out, "tempo")
+        )
 
     async def get_quote(
         self,
@@ -166,11 +172,13 @@ class TempoDexAPI:
         decimals_in = token_in_cfg.decimals if token_in_cfg else 6
         decimals_out = token_out_cfg.decimals if token_out_cfg else 6
 
-        amount_in_human = amount_in / (10 ** decimals_in)
-        amount_out_human = amount_out / (10 ** decimals_out)
+        amount_in_human = amount_in / (10**decimals_in)
+        amount_out_human = amount_out / (10**decimals_out)
 
         # Estimate price impact (stablecoin-to-stablecoin should be near 0)
-        price_impact = abs(1 - (amount_out_human / amount_in_human)) * 100 if amount_in_human > 0 else 0
+        price_impact = (
+            abs(1 - (amount_out_human / amount_in_human)) * 100 if amount_in_human > 0 else 0
+        )
 
         return TempoDexQuote(
             token_in=token_in.upper(),
@@ -194,8 +202,15 @@ class TempoDexAPI:
     ) -> dict:
         """Build a swap transaction for the enshrined DEX.
 
+        Flow (verified against the tempo-std IStablecoinDEX + Tempo docs):
+        approve(tokenIn -> DEX) then swapExactAmountIn. A market swap settles the
+        output directly to the caller's wallet, so no withdraw() step is needed.
+
+        ``sender`` is used only for the approval owner context; the swap call
+        itself takes no recipient.
+
         Returns dict with:
-            - approval_tx: ERC20 approve transaction
+            - approval_tx: TIP-20/ERC-20 approve transaction
             - swap_tx: The actual swap transaction data
         """
         addr_in = get_token_address(token_in, "tempo")
@@ -216,7 +231,6 @@ class TempoDexAPI:
                 Web3.to_checksum_address(addr_out),
                 amount_in,
                 min_amount_out,
-                Web3.to_checksum_address(sender),
             ],
         )
 
@@ -244,7 +258,6 @@ class TempoDexAPI:
         }
 
         return result
-
 
     def build_permit_swap_tx(
         self,
@@ -278,6 +291,7 @@ class TempoDexAPI:
 
         # Build permit call
         from bot.services.tempo_tip20 import TIP20_ABI
+
         token_contract = web3.eth.contract(
             address=Web3.to_checksum_address(addr_in),
             abi=TIP20_ABI,
@@ -307,7 +321,6 @@ class TempoDexAPI:
                 Web3.to_checksum_address(addr_out),
                 amount_in,
                 min_amount_out,
-                Web3.to_checksum_address(sender),
             ],
         )
 

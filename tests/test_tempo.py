@@ -103,6 +103,56 @@ class TestTempoDexSupportedPair:
         assert tempo_dex_api.is_supported_pair("PATHUSD", "WETH") is False
 
 
+class TestTempoDexAbiGroundTruth:
+    """Lock the on-chain ABI to tempoxyz/tempo-std reality. The enshrined DEX
+    swapExactAmountIn takes (tokenIn, tokenOut, amountIn, minAmountOut) — 4 args,
+    NO recipient — and market swaps settle directly to the wallet."""
+
+    def test_dex_address_matches_tempo_std(self):
+        assert tempo_dex_api.dex_address == "0xDEc0000000000000000000000000000000000000"
+
+    def test_swap_calldata_uses_4arg_selector(self):
+        from web3 import Web3
+
+        expected = (
+            "0x" + Web3.keccak(text="swapExactAmountIn(address,address,uint128,uint128)")[:4].hex()
+        )
+        # Encode offline with a provider-less Web3 (ABI encoding needs no RPC).
+        with patch("bot.services.tempo_dex_api._get_tempo_web3", return_value=Web3()):
+            bundle = tempo_dex_api.build_swap_tx(
+                "PATHUSD", "ALPHAUSD", 1_000_000, 990_000, sender="0x" + "11" * 20
+            )
+        assert bundle["swap_tx"]["data"].startswith(expected)
+        # approval targets the DEX as spender
+        assert bundle["approval_tx"]["to"].lower().startswith("0x20c0")
+
+
+class TestTempoTip20Memo:
+    """transferWithMemo memo is a fixed bytes32 (verified vs ITIP20.sol)."""
+
+    def test_encode_memo_pads_to_32_bytes(self):
+        from bot.services.tempo_tip20 import tempo_tip20
+
+        assert tempo_tip20.encode_memo("invoice-7") == b"invoice-7".ljust(32, b"\x00")
+        assert tempo_tip20.encode_memo("") == b"\x00" * 32
+        # Over-long memos are truncated to 32 bytes, never longer.
+        assert len(tempo_tip20.encode_memo("x" * 100)) == 32
+
+    def test_transfer_with_memo_uses_bytes32_selector(self):
+        from web3 import Web3
+        from bot.services.tempo_tip20 import tempo_tip20
+
+        expected = "0x" + Web3.keccak(text="transferWithMemo(address,uint256,bytes32)")[:4].hex()
+        with patch("bot.services.tempo_tip20._get_tempo_web3", return_value=Web3()):
+            tx = tempo_tip20.build_transfer_with_memo(
+                "0x20c0000000000000000000000000000000000000",
+                "0x" + "22" * 20,
+                1_000_000,
+                "hello",
+            )
+        assert tx["data"].startswith(expected)
+
+
 # ---------------------------------------------------------------------------
 # swap_engine — Tempo routing + slippage
 # ---------------------------------------------------------------------------
