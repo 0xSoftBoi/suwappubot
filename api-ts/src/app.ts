@@ -121,7 +121,7 @@ export function createApp(config: AppConfig) {
 	app.get('/llms.txt', (c) => {
 		return c.text(`# Suwappu API
 
-> Cross-chain DEX API for AI agents. Swap tokens across 15 chains.
+> Cross-chain DEX API for AI agents. Best-price swaps, HyperLiquid perps, and gasless trades across 40+ chains.
 
 ## Base URL
 https://api.suwappu.bot/v1/agent

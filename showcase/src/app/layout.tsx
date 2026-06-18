@@ -30,7 +30,7 @@ export const metadata: Metadata = {
     template: '%s | Suwappu',
   },
   description:
-    'One SDK. Fifteen chains. Swap tokens, trade perpetual futures, access prediction markets, and lend — all from a single API. Built for AI agents, bots, and developers.',
+    'One SDK. 40+ chains. Swap tokens, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend — all from a single API. Built for AI agents, bots, and developers.',
   keywords: [
     'cross-chain swap',
     'DEX SDK',
@@ -60,7 +60,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Suwappu — Cross-chain DeFi SDK for AI Agents',
     description:
-      'Swap tokens across 15 chains, trade perps, access prediction markets, and lend — one SDK, three lines of code.',
+      'Swap tokens across 40+ chains, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend — one SDK, three lines of code.',
     type: 'website',
     siteName: 'Suwappu',
     url: 'https://suwappu.bot',
@@ -80,7 +80,7 @@ export const metadata: Metadata = {
     creator: '@suwappubot',
     title: 'Suwappu — Cross-chain DeFi SDK for AI Agents',
     description:
-      'Swap tokens across 15 chains, trade perps, access prediction markets — one SDK, three lines of code.',
+      'Swap tokens across 40+ chains, trade HyperLiquid perps, make gasless trades — one SDK, three lines of code.',
     images: ['/social-card.svg'],
   },
   alternates: {
