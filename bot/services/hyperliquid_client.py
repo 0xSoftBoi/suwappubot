@@ -562,6 +562,10 @@ class HyperLiquidClient:
                 status = data.get("response", {}).get("data", {}).get("status", {})
                 if isinstance(status, dict) and "running" in status:
                     return str(status["running"].get("twapId"))
+                # HL returns {"status": {"error": "..."}} on rejection.
+                if isinstance(status, dict) and "error" in status:
+                    logger.error(f"twapOrder rejected: {status['error']}")
+                    return None
                 logger.warning(f"Unexpected twapOrder response: {data}")
                 return None
             logger.error(f"twapOrder failed: {response.status_code} {response.text[:200]}")
@@ -569,6 +573,20 @@ class HyperLiquidClient:
         except Exception as e:
             logger.error(f"Failed to place TWAP order: {e}")
             return None
+
+    async def get_twap_history(self, address: str) -> list:
+        """Return the user's TWAP history: ``[{time, state, status}]``.
+
+        ``state`` has ``coin, side, sz, executedSz, executedNtl, minutes, ...``;
+        ``status.status`` is one of ``activated | terminated | finished | error``.
+        This is the authoritative source for TWAP progress + completion (there is
+        no per-twapId status endpoint, so entries are matched by coin/side/time).
+        """
+        return await self._info({"type": "twapHistory", "user": address}) or []
+
+    async def get_twap_slice_fills(self, address: str) -> list:
+        """Return the user's TWAP slice fills: ``[{fill, twapId}]`` (most recent 2000)."""
+        return await self._info({"type": "userTwapSliceFills", "user": address}) or []
 
     async def cancel_twap(
         self,

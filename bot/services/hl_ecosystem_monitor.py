@@ -1,13 +1,14 @@
 """Background monitor for HyperLiquid ecosystem state (TWAP, staking, vaults).
 
-Webhooks don't exist for these, so we poll: TWAP orders are marked finished
-once their duration elapses (and the user is notified), undelegations are
-cleared once their 1-day lockup passes, and vault equity/PnL is refreshed so
+Webhooks don't exist for these, so we poll: running TWAPs are reconciled against
+the on-chain ``twapHistory`` state (executed size + terminal status), undelegations
+are cleared once their 1-day lockup passes, and vault equity/PnL is refreshed so
 the portfolio stays accurate. Mirrors the PerpsMonitor lifecycle.
 """
 
 import asyncio
 import logging
+from typing import Optional
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 
@@ -64,29 +65,107 @@ class HLEcosystemMonitor:
             await asyncio.sleep(self.POLL_INTERVAL)
 
     async def _tick(self):
-        await self._finish_elapsed_twaps()
+        await self._sync_twaps()
         await self._clear_unlocked_undelegations()
         await self._refresh_vault_positions()
 
-    async def _finish_elapsed_twaps(self):
-        """Mark running TWAPs finished once their slice window elapses; notify."""
+    @staticmethod
+    def _match_twap_entry(history: list, market: str, side: str, created_at) -> Optional[dict]:
+        """Match our local TWAP record to a twapHistory entry.
+
+        twapHistory has no twapId, so we correlate on coin + side + start time
+        (within a 5-minute window, picking the closest). Returns the entry or None.
+        """
+        coin = market.split("-")[0].upper()
+        want_side = "B" if side == "long" else "A"
+        created = created_at if created_at.tzinfo else created_at.replace(tzinfo=timezone.utc)
+        created_ms = int(created.timestamp() * 1000)
+        best, best_dt = None, 5 * 60 * 1000
+        for e in history:
+            st = e.get("state", {})
+            if (st.get("coin", "") or "").upper() != coin or st.get("side") != want_side:
+                continue
+            ts = int(st.get("timestamp", 0) or e.get("time", 0) or 0)
+            dt = abs(ts - created_ms)
+            if dt <= best_dt:
+                best, best_dt = e, dt
+        return best
+
+    async def _sync_twaps(self):
+        """Reconcile running TWAPs against on-chain twapHistory state.
+
+        Updates executed size from ``state.executedSz`` and resolves terminal
+        status (finished/terminated/error) from ``status.status`` — replacing the
+        old "duration elapsed" guess with HyperLiquid's actual TWAP state.
+        """
         now = datetime.now(timezone.utc)
-        to_notify = []
         with get_session() as session:
-            running = session.query(HLTwapOrder).filter(HLTwapOrder.status == "running").all()
-            for t in running:
-                created = t.created_at or now
-                if created.tzinfo is None:
-                    created = created.replace(tzinfo=timezone.utc)
-                if now >= created + timedelta(minutes=int(t.minutes) + 1):
-                    t.status = "finished"
-                    t.finished_at = now
-                    to_notify.append((t.user_id, t.side, float(t.size), t.market, t.minutes))
-        for user_id, side, size, market, minutes in to_notify:
-            await self._notify_user(
-                user_id,
-                f"\U0001f552 TWAP complete: {side.upper()} {size} {market} over {minutes}m finished.",
-            )
+            user_ids = [
+                uid
+                for (uid,) in session.query(HLTwapOrder.user_id)
+                .filter(HLTwapOrder.status == "running")
+                .distinct()
+                .all()
+            ]
+        for user_id in user_ids:
+            try:
+                with get_session() as session:
+                    acct = (
+                        session.query(HyperLiquidAccount)
+                        .filter_by(user_id=user_id, is_active=True)
+                        .first()
+                    )
+                    addr = acct.hl_address if acct else None
+                if not addr:
+                    continue
+                history = await hyperliquid_client.get_twap_history(addr)
+                notes = []
+                with get_session() as session:
+                    rows = (
+                        session.query(HLTwapOrder)
+                        .filter_by(user_id=user_id, status="running")
+                        .all()
+                    )
+                    for t in rows:
+                        entry = self._match_twap_entry(history, t.market, t.side, t.created_at)
+                        # Safety net: if no entry yet but well past the window, stop polling.
+                        if not entry:
+                            created = t.created_at or now
+                            if created.tzinfo is None:
+                                created = created.replace(tzinfo=timezone.utc)
+                            if now >= created + timedelta(minutes=int(t.minutes) + 10):
+                                t.status = "finished"
+                                t.finished_at = now
+                            continue
+                        state = entry.get("state", {})
+                        status = (entry.get("status", {}) or {}).get("status", "activated")
+                        t.filled_size = Decimal(str(state.get("executedSz", 0) or 0))
+                        if status in ("finished", "terminated", "error"):
+                            t.status = status
+                            t.finished_at = now
+                            notes.append(
+                                (
+                                    status,
+                                    t.side,
+                                    float(state.get("executedSz", 0) or 0),
+                                    float(t.size),
+                                    t.market,
+                                    float(state.get("executedNtl", 0) or 0),
+                                )
+                            )
+                for status, side, exec_sz, total_sz, market, ntl in notes:
+                    verb = {
+                        "finished": "completed",
+                        "terminated": "stopped early",
+                        "error": "errored",
+                    }[status]
+                    await self._notify_user(
+                        user_id,
+                        f"\U0001f552 TWAP {verb}: {side.upper()} {market} — "
+                        f"filled {exec_sz:g}/{total_sz:g} (${ntl:,.2f}).",
+                    )
+            except Exception as e:
+                logger.debug("twap sync failed for user %s: %s", user_id, e)
 
     async def _clear_unlocked_undelegations(self):
         """Notify + clear stake records whose 1-day undelegation lockup has passed."""

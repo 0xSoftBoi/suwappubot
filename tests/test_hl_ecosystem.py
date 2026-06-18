@@ -296,3 +296,44 @@ def test_spot_value_usd_prices_usdc_and_tokens():
     val = asyncio.run(hl.get_spot_value_usd("0xabc"))
     # USDC 100 + real HYPE 2*73.2; impostor (pair @500 has no mid) contributes 0.
     assert round(val, 2) == round(100 + 2 * 73.2, 2)  # 246.40
+
+
+# --- TWAP monitoring: match against real twapHistory state ------------------
+
+
+def test_twap_match_by_coin_side_time():
+    from bot.services.hl_ecosystem_monitor import HLEcosystemMonitor
+    from datetime import datetime, timezone
+
+    created = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    created_ms = int(created.timestamp() * 1000)
+    history = [
+        # wrong coin
+        {
+            "state": {"coin": "ETH", "side": "B", "timestamp": created_ms},
+            "status": {"status": "finished"},
+        },
+        # right coin/side, ~30s off -> the match
+        {
+            "state": {
+                "coin": "BTC",
+                "side": "B",
+                "timestamp": created_ms + 30000,
+                "executedSz": "0.5",
+            },
+            "status": {"status": "finished"},
+        },
+        # right coin wrong side
+        {
+            "state": {"coin": "BTC", "side": "A", "timestamp": created_ms},
+            "status": {"status": "finished"},
+        },
+    ]
+    m = HLEcosystemMonitor._match_twap_entry(history, "BTC", "long", created)
+    assert m is not None and m["state"]["executedSz"] == "0.5"
+    # short (side "A") matches the sell-side BTC entry, not the buy-side one.
+    s = HLEcosystemMonitor._match_twap_entry(history, "BTC", "short", created)
+    assert s is not None and s["state"]["side"] == "A"
+    # outside the 5-min window -> no match
+    history[1]["state"]["timestamp"] += 10 * 60 * 1000
+    assert HLEcosystemMonitor._match_twap_entry(history, "BTC", "long", created) is None
