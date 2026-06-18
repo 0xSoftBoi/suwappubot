@@ -16,6 +16,7 @@ from decimal import Decimal
 
 from bot.config.chains import get_chain_by_name
 from bot.config.tokens import get_token_decimals
+from bot.config.settings import settings
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
 
@@ -23,6 +24,16 @@ logger = logging.getLogger(__name__)
 
 # Across Protocol API
 ACROSS_API_URL = "https://app.across.to/api"
+
+# HyperLiquid HyperCore destination chain id used by the Across Swap API. A
+# deposit to this "chain" is auto-credited to the recipient's HyperCore account
+# (the account is created on first deposit if it doesn't exist).
+HYPERCORE_CHAIN_ID = 1337
+
+# The output token to request for a HyperCore USDC deposit ("USDC-SPOT"). Funds
+# arrive as a USDC *spot* balance on HyperCore. Per Across docs this is the
+# canonical USDC address used to denote USDC-SPOT for chain 1337.
+HYPERCORE_USDC_SPOT_TOKEN = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 
 # Across-supported chain IDs
 ACROSS_CHAIN_IDS = {
@@ -127,6 +138,29 @@ class AcrossStatus:
     status: str  # PENDING, FILLED, EXPIRED
     fill_tx_hash: Optional[str]
     raw_response: Dict[str, Any]
+
+
+@dataclass
+class HyperCoreDepositQuote:
+    """A quote + ready-to-send transactions for funding a HyperCore account.
+
+    Produced by the Across Swap API. `approval_txns` (zero or more) must be sent
+    before `swap_tx`. All tx dicts carry {to, data, value, chainId} on the
+    origin chain; the relayer credits HyperCore on the destination side.
+    """
+    from_chain: str
+    input_token: str
+    output_token: str
+    recipient: str  # the HyperCore account that gets credited
+    input_amount: str  # smallest units, origin token
+    expected_output: str  # smallest units of USDC credited to HyperCore
+    min_output: str  # minimum guaranteed output (slippage floor)
+    input_amount_human: float
+    expected_output_human: float
+    estimated_fill_time: int  # seconds
+    approval_txns: List[Dict[str, Any]]
+    swap_tx: Dict[str, Any]
+    raw_quote: Dict[str, Any]
 
 
 class AcrossError(Exception):
@@ -356,6 +390,127 @@ class AcrossAPI:
             
             return await response.json()
     
+    @staticmethod
+    def _normalize_tx(tx: Dict[str, Any], default_chain_id: int) -> Dict[str, Any]:
+        """Normalize an Across Swap API tx object to {to, data, value, chainId}."""
+        if not tx or not tx.get("to") or not tx.get("data"):
+            raise AcrossError(f"Malformed transaction in Across response: {tx}")
+        return {
+            "to": tx["to"],
+            "data": tx["data"],
+            "value": int(tx.get("value", 0) or 0),
+            "chainId": int(tx.get("chainId", default_chain_id) or default_chain_id),
+        }
+
+    async def get_hypercore_usdc_deposit(
+        self,
+        from_chain: str,
+        input_token_address: str,
+        amount: str,
+        recipient: str,
+        depositor: Optional[str] = None,
+        slippage_pct: float = 0.5,
+    ) -> HyperCoreDepositQuote:
+        """Quote a USDC deposit into a HyperLiquid HyperCore account via Across.
+
+        Uses the Across Swap API (`/swap/approval`) targeting `destinationChainId`
+        1337. The bridged funds land as a USDC *spot* balance on HyperCore and
+        the account is auto-created if it doesn't exist.
+
+        Args:
+            from_chain: source chain name (must be Across-supported).
+            input_token_address: the token being bridged on the origin chain
+                (typically the chain's USDC address).
+            amount: input amount in smallest units (string).
+            recipient: the HyperCore account (EVM address) to credit.
+            depositor: origin-chain sender; defaults to `recipient`.
+            slippage_pct: max slippage tolerance, percent (e.g. 0.5 = 0.5%).
+
+        Returns:
+            HyperCoreDepositQuote with approval_txns + swap_tx ready to sign/send.
+        """
+        if not recipient or not recipient.startswith("0x"):
+            raise AcrossError(f"Invalid HyperCore recipient address: {recipient!r}")
+
+        origin_chain_id = self.get_chain_id(from_chain)
+        depositor = depositor or recipient
+
+        await api_limiter.wait_and_acquire("across")
+        session = await get_session()
+
+        params = {
+            "tradeType": "minOutput",
+            "amount": str(amount),
+            "inputToken": input_token_address,
+            "outputToken": HYPERCORE_USDC_SPOT_TOKEN,
+            "originChainId": origin_chain_id,
+            "destinationChainId": HYPERCORE_CHAIN_ID,
+            "depositor": depositor,
+            "recipient": recipient,
+            "slippageTolerance": slippage_pct,
+        }
+        integrator_id = getattr(settings, "across_integrator_id", None)
+        if integrator_id:
+            params["integratorId"] = integrator_id
+
+        headers = {}
+        api_key = getattr(settings, "across_api_key", None)
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        async with session.get(
+            f"{self.api_url}/swap/approval", params=params, headers=headers
+        ) as response:
+            if response.status != 200:
+                error_text = await response.text()
+                raise AcrossError(f"Across swap/approval error ({response.status}): {error_text}")
+            data = await response.json()
+
+        # The swap tx may be returned as `swapTx` (object) or as the last entry
+        # of a `steps` array; approvals come as `approvalTxns` (list).
+        swap_tx_raw = data.get("swapTx") or data.get("tx")
+        if not swap_tx_raw and isinstance(data.get("steps"), list) and data["steps"]:
+            swap_tx_raw = data["steps"][-1].get("tx") or data["steps"][-1]
+        swap_tx = self._normalize_tx(swap_tx_raw, origin_chain_id)
+
+        approval_txns = [
+            self._normalize_tx(t, origin_chain_id)
+            for t in (data.get("approvalTxns") or [])
+            if t
+        ]
+
+        # Output amount fields (best-effort across response shapes).
+        expected_output = str(
+            data.get("expectedOutputAmount")
+            or data.get("outputAmount")
+            or (data.get("steps", [{}])[-1] if data.get("steps") else {}).get("outputAmount")
+            or "0"
+        )
+        min_output = str(data.get("minOutputAmount") or expected_output)
+
+        # USDC is 6 decimals on HyperCore spot; origin USDC is also 6.
+        in_decimals = get_token_decimals("USDC", from_chain) or 6
+        input_human = int(amount) / (10 ** in_decimals)
+        output_human = int(expected_output) / (10 ** 6) if expected_output.isdigit() else 0.0
+
+        return HyperCoreDepositQuote(
+            from_chain=from_chain,
+            input_token=input_token_address,
+            output_token=HYPERCORE_USDC_SPOT_TOKEN,
+            recipient=recipient,
+            input_amount=str(amount),
+            expected_output=expected_output,
+            min_output=min_output,
+            input_amount_human=input_human,
+            expected_output_human=output_human,
+            estimated_fill_time=int(
+                data.get("expectedFillTime") or data.get("estimatedFillTimeSec") or 60
+            ),
+            approval_txns=approval_txns,
+            swap_tx=swap_tx,
+            raw_quote=data,
+        )
+
     def build_deposit_calldata(
         self,
         quote: AcrossQuote,

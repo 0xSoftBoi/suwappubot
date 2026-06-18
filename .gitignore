@@ -30,3 +30,4 @@ scripts/deployed_addresses.json
 contracts/crytic-export/
 contracts/slither_results.json
 .venv-test/
+.claude/settings.local.json

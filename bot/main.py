@@ -80,6 +80,7 @@ from bot.handlers.admin import (
     broadcast_handler,
     hl_builder_handler,
     hl_claim_handler,
+    cctp_relay_handler,
 )
 from bot.handlers.digest import digest_handler
 from bot.handlers.quickswap import (
@@ -210,6 +211,7 @@ from bot.handlers.savings import savings_conversation_handler
 from bot.handlers.borrow import borrow_conversation_handler
 from bot.handlers.btc import btc_conversation_handler
 from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
+from bot.handlers.fund import fund_command_handler, fund_callback_handler
 from bot.handlers.hl_ecosystem import (
     twap_handler,
     stake_handler,
@@ -341,6 +343,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(broadcast_handler)  # /broadcast
     application.add_handler(hl_builder_handler)  # /hlbuilder
     application.add_handler(hl_claim_handler)  # /hlclaim
+    application.add_handler(cctp_relay_handler)  # /cctprelay
     application.add_handler(hl_ref_handler)  # /hlref (admin)
     application.add_handler(twap_handler)  # /twap
     application.add_handler(stake_handler)  # /stake
@@ -517,6 +520,10 @@ def add_handlers(application: Application) -> None:
 
     # Perps Trading callbacks
     application.add_handler(perps_menu_callback_handler)
+
+    # HyperLiquid funding (one-click cross-chain deposits)
+    application.add_handler(fund_command_handler)
+    application.add_handler(fund_callback_handler)
 
     # SUWP token staking callbacks
     application.add_handler(token_menu_callback_handler)

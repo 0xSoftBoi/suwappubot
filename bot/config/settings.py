@@ -299,6 +299,42 @@ class Settings(BaseSettings):
         description="Max builder fee rate users approve (percent string, e.g. '0.1%').",
     )
 
+    # HyperLiquid funding — one-click cross-chain deposits into a user's
+    # HyperCore account. USDC routes via the Across Swap API (chain 1337);
+    # native BTC/ETH/SOL route via HyperUnit. See bot/services/hyperliquid_funding.py.
+    across_integrator_id: Optional[str] = Field(
+        default=None,
+        description="Across integrator id for the Swap API (attribution). Unset = omitted.",
+    )
+    across_api_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Across Swap API key (sent as Bearer). Required for production "
+            "rate limits; quotes work without it in dev/testnet."
+        ),
+    )
+
+    # CCTP V2 native-USDC deposit relayer (completes burns on HyperEVM). The
+    # relayer wallet pays HYPE gas for the destination mint + a small gas-drop so
+    # the user's custodial wallet can credit HyperCore. DISABLED by default —
+    # only enable once the relayer wallet is funded with HYPE and tested.
+    cctp_relayer_enabled: bool = Field(
+        default=False,
+        description="Enable the CCTP->HyperCore deposit relayer + the CCTP funding option.",
+    )
+    cctp_relayer_private_key: Optional[str] = Field(
+        default=None,
+        description="Private key of the HYPE-funded relayer wallet on HyperEVM (hex).",
+    )
+    cctp_relayer_gas_drop_hype: float = Field(
+        default=0.02,
+        description="HYPE gas-dropped to a user's HyperEVM address to fund their Core-credit tx.",
+    )
+    cctp_relayer_min_hype_alert: float = Field(
+        default=0.5,
+        description="Alert admins once when the relayer wallet's HYPE drops below this.",
+    )
+
     lisk_rpc_url: str = Field(default="https://rpc.api.lisk.com", description="Lisk RPC")
     sei_rpc_url: str = Field(default="https://evm-rpc.sei-apis.com", description="Sei RPC")
     soneium_rpc_url: str = Field(default="https://rpc.soneium.org", description="Soneium RPC")
