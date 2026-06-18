@@ -81,6 +81,7 @@ from bot.handlers.admin import (
     hl_builder_handler,
     hl_claim_handler,
     cctp_relay_handler,
+    set_region_handler,
 )
 from bot.handlers.digest import digest_handler
 from bot.handlers.quickswap import (
@@ -344,6 +345,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(hl_builder_handler)  # /hlbuilder
     application.add_handler(hl_claim_handler)  # /hlclaim
     application.add_handler(cctp_relay_handler)  # /cctprelay
+    application.add_handler(set_region_handler)  # /setregion (admin: set user region)
     application.add_handler(hl_ref_handler)  # /hlref (admin)
     application.add_handler(twap_handler)  # /twap
     application.add_handler(stake_handler)  # /stake
