@@ -7,8 +7,9 @@ for their first few transactions (onboarding UX).
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 from datetime import datetime, timezone
+
+from bot.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ DEFAULT_FEE_TOKEN = "pathUSD"
 @dataclass
 class SponsorshipResult:
     """Result of a sponsorship check."""
+
     should_sponsor: bool
     reason: str
     remaining_txs: int
@@ -44,10 +46,24 @@ class TempoFeeSponsor:
         self.max_sponsored_txs = max_sponsored_txs
         self.daily_budget_usd = daily_budget_usd
         self.fee_token = fee_token
-        # In-memory tracking (production should use DB)
+        # In-memory tracking. NOTE: resets on process restart — acceptable for a
+        # best-effort onboarding perk (per-user cap + daily budget), but it is NOT
+        # a hard financial guarantee across restarts/replicas. If sponsorship spend
+        # ever needs to be authoritative, migrate to paymaster's DB-backed
+        # UserGasUsage table (see bot/services/paymaster.py).
         self._user_tx_counts: dict[int, int] = {}
         self._daily_spend: float = 0.0
         self._last_reset: datetime = datetime.now(timezone.utc)
+
+    @property
+    def enabled(self) -> bool:
+        """Whether gasless (fee-payer) Tempo swaps are turned on via config."""
+        return bool(getattr(settings, "tempo_fee_sponsor_enabled", False))
+
+    @property
+    def sponsor_wallet_name(self) -> str:
+        """Name of the HotWallet record that counter-signs as fee payer."""
+        return getattr(settings, "tempo_fee_sponsor_wallet_name", "tempo_fee_sponsor")
 
     def _reset_daily_if_needed(self):
         """Reset daily budget counter if a new day has started."""
@@ -109,32 +125,12 @@ class TempoFeeSponsor:
             f"daily: ${self._daily_spend:.2f}/${self.daily_budget_usd})"
         )
 
-    def build_sponsored_tx(
-        self,
-        tx: dict,
-        sponsor_address: str,
-        fee_token_address: Optional[str] = None,
-    ) -> dict:
-        """Wrap a transaction with fee sponsorship metadata.
-
-        On Tempo, fee sponsorship is done by setting the feePayer field
-        in the transaction to the sponsor's address.
-
-        Args:
-            tx: Original transaction dict
-            sponsor_address: Address that will pay the fee
-            fee_token_address: TIP-20 token address to pay fee in
-        """
-        # T2 breaking change: fee payer cannot equal sender
-        sender = tx.get("from", "")
-        if sender and sponsor_address.lower() == sender.lower():
-            raise ValueError("Tempo T2: fee payer cannot equal sender")
-
-        sponsored = dict(tx)
-        sponsored["feePayer"] = sponsor_address
-        if fee_token_address:
-            sponsored["feeToken"] = fee_token_address
-        return sponsored
+    # NOTE: The actual on-chain sponsored transaction is a Tempo type-0x76
+    # transaction with a fee_payer signature — it CANNOT be expressed as a plain
+    # eth_account tx dict (stock signing rejects feePayer/feeToken fields). The
+    # real build + dual-sign + submit lives in
+    # SwapEngine._execute_sponsored_tempo_swap() using the official `pytempo`
+    # SDK. This class owns only the sponsorship *policy* (limits + accounting).
 
 
 # Global instance

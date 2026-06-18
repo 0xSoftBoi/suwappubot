@@ -234,6 +234,21 @@ class Settings(BaseSettings):
         default="https://tempo-mainnet.drpc.org,https://rpc.tempo.xyz",
         description="Tempo mainnet RPC URL(s)",
     )
+    tempo_fee_sponsor_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable gasless (fee-payer) Tempo swaps. When True AND a sponsor "
+            "wallet is configured, the bot counter-signs Tempo type-0x76 swaps "
+            "as fee payer so new users pay no gas. Default off → users pay."
+        ),
+    )
+    tempo_fee_sponsor_wallet_name: str = Field(
+        default="tempo_fee_sponsor",
+        description=(
+            "Name of the HotWallet DB record whose key counter-signs Tempo "
+            "sponsored swaps as fee payer (pays gas in pathUSD)."
+        ),
+    )
     goat_rpc_url: Optional[str] = Field(
         default="https://rpc.goat.network",
         description="GOAT Network (Bitcoin L2, chain id 2345) RPC URL",
