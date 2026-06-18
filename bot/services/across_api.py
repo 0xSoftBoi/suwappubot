@@ -31,9 +31,14 @@ ACROSS_API_URL = "https://app.across.to/api"
 HYPERCORE_CHAIN_ID = 1337
 
 # The output token to request for a HyperCore USDC deposit ("USDC-SPOT"). Funds
-# arrive as a USDC *spot* balance on HyperCore. Per Across docs this is the
-# canonical USDC address used to denote USDC-SPOT for chain 1337.
-HYPERCORE_USDC_SPOT_TOKEN = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+# arrive as a USDC *spot* balance on HyperCore. This is the HyperCore USDC system
+# address (token index 0), verified live via Across /swap/tokens?chainId=1337 —
+# the USDC-SPOT token has 8 decimals on chain 1337 (NOT 6). (USDC-PERPS, for
+# direct-to-perp deposits, is 0x2100...0000.)
+HYPERCORE_USDC_SPOT_TOKEN = "0x2000000000000000000000000000000000000000"
+
+# Decimals of the chain-1337 USDC-SPOT output token (8, per the live token list).
+HYPERCORE_USDC_DECIMALS = 8
 
 # Across-supported chain IDs
 ACROSS_CHAIN_IDS = {
@@ -488,10 +493,14 @@ class AcrossAPI:
         )
         min_output = str(data.get("minOutputAmount") or expected_output)
 
-        # USDC is 6 decimals on HyperCore spot; origin USDC is also 6.
+        # Origin USDC is 6dp; the HyperCore USDC-SPOT output token is 8dp.
         in_decimals = get_token_decimals("USDC", from_chain) or 6
         input_human = int(amount) / (10 ** in_decimals)
-        output_human = int(expected_output) / (10 ** 6) if expected_output.isdigit() else 0.0
+        output_human = (
+            int(expected_output) / (10 ** HYPERCORE_USDC_DECIMALS)
+            if expected_output.isdigit()
+            else 0.0
+        )
 
         return HyperCoreDepositQuote(
             from_chain=from_chain,

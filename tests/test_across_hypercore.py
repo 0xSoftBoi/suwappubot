@@ -67,8 +67,9 @@ def _ok_response():
             "value": "0",
             "chainId": 42161,
         },
-        "expectedOutputAmount": "49950000",
-        "minOutputAmount": "49900000",
+        # 8-decimal USDC-SPOT output token on chain 1337 (49.95 / 49.90 USDC).
+        "expectedOutputAmount": "4995000000",
+        "minOutputAmount": "4990000000",
         "expectedFillTime": 15,
     }
 
@@ -99,10 +100,10 @@ async def test_hypercore_deposit_builds_params_and_txs():
     assert quote.approval_txns[0]["to"] == ARB_USDC
     assert quote.approval_txns[0]["value"] == 0
     assert quote.swap_tx["data"] == "0xabcdef"
-    assert quote.expected_output == "49950000"
-    assert quote.min_output == "49900000"
+    assert quote.expected_output == "4995000000"
+    assert quote.min_output == "4990000000"
     assert quote.estimated_fill_time == 15
-    # Human amounts (6-decimal USDC).
+    # Input USDC is 6dp; the HyperCore USDC-SPOT output token is 8dp.
     assert quote.input_amount_human == pytest.approx(50.0)
     assert quote.expected_output_human == pytest.approx(49.95)
 
