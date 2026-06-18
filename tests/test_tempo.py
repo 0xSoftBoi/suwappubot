@@ -144,6 +144,53 @@ class TestTempoDexAbiGroundTruth:
         assert bundle["approval_tx"]["to"].lower().startswith("0x20c0")
 
 
+class TestTempoTip20Endpoint:
+    """The /internal/tempo/tip20/{address} endpoint surfaces TIP-20 metadata to
+    api-ts / the bot on demand, and is gated by the internal API key."""
+
+    def _client(self, monkeypatch):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        import api.routes.internal as internal
+
+        monkeypatch.setenv("INTERNAL_API_KEY", "secret")
+        app = FastAPI()
+        app.include_router(internal.router)
+        return TestClient(app)
+
+    def test_requires_internal_key(self, monkeypatch):
+        client = self._client(monkeypatch)
+        r = client.get("/internal/tempo/tip20/0x20c0000000000000000000000000000000000000")
+        assert r.status_code == 401
+
+    def test_returns_tip20_metadata(self, monkeypatch):
+        from bot.services.tempo_tip20 import TIP20Info
+
+        client = self._client(monkeypatch)
+        info = TIP20Info(
+            address="0x20c0000000000000000000000000000000000000",
+            name="Path USD",
+            symbol="pathUSD",
+            decimals=18,
+            currency_code="USD",
+            compliance_policy=None,
+            is_tip20=True,
+        )
+        with patch(
+            "bot.services.tempo_tip20.tempo_tip20.get_tip20_info",
+            new=AsyncMock(return_value=info),
+        ):
+            r = client.get(
+                "/internal/tempo/tip20/0x20c0000000000000000000000000000000000000",
+                headers={"X-Internal-Key": "secret"},
+            )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["currency_code"] == "USD"
+        assert body["is_tip20"] is True
+        assert body["symbol"] == "pathUSD"
+
+
 class TestTempoTip20Memo:
     """transferWithMemo memo is a fixed bytes32 (verified vs ITIP20.sol)."""
 
