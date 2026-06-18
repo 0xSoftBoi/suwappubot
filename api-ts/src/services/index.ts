@@ -90,6 +90,19 @@ export {
 	TokenServiceLive,
 } from './TokenService'
 export { TurnkeyService, TurnkeyServiceLive, type TurnkeyWallet, type RawSignatureResult } from './TurnkeyService'
+export {
+	type PredictAddressParams,
+	type PredictAddressResult,
+	resolveViemChain,
+	type SendUserOperationParams,
+	type SendUserOperationResult,
+	type SmartAccountCall,
+	type SmartAccountConfig,
+	SmartAccountService,
+	type SmartAccountServiceInterface,
+	SmartAccountServiceLive,
+	SUPPORTED_SMART_ACCOUNT_CHAIN_IDS,
+} from './SmartAccountService'
 export { UserService, UserServiceLive } from './UserService'
 export { WalletService, WalletServiceLive } from './WalletService'
 export {

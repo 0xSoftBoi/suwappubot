@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import secrets
+import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
@@ -31,6 +32,8 @@ from bot.models.subscription import SubscriptionTier
 from bot.services.referral_service import referral_service
 from bot.services.points_service import points_service
 from bot.services.token_security.token_analyzer import token_analyzer
+from bot.services.spending_limits import spending_limit_service
+from bot.services.twofa import twofa_service
 from bot.services.x402_service import x402_service
 from bot.utils.quote_validator import quote_validator
 from bot.utils.cache import quote_cache
@@ -46,7 +49,12 @@ logger = logging.getLogger(__name__)
     ENTER_AMOUNT,
     SELECT_WALLETS,
     CONFIRM_SWAP,
-) = range(7)
+    ENTER_2FA_CODE,
+) = range(8)
+
+# A verified 2FA code covers re-quotes/retries within this window, so a quote
+# expiring while the user fetches their code doesn't loop them back into 2FA.
+TWOFA_VALID_SECONDS = 300
 
 swap_engine = SwapEngine()
 wallet_service = WalletService()
@@ -912,6 +920,13 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         context.user_data["swap"]["fee_percentage"] = fee_percentage
         context.user_data["swap"]["fee_usd"] = fee_usd
 
+        # USD value of the per-wallet outflow, for the spending-limit and 2FA
+        # gates at confirm time (None when no price is known — the gates then
+        # defer to the engine-side check).
+        context.user_data["swap"]["amount_usd"] = await spending_limit_service.usd_value(
+            swap_data["from_token"], quote.from_amount_human
+        )
+
         num_wallets = len(selected_wallet_ids)
         total_fee_usd = fee_usd * num_wallets
         total_from_human = quote.from_amount_human * num_wallets
@@ -1091,6 +1106,106 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             except SwapError:
                 pass  # Let the provider attempt the swap
 
+    # Spending-limit pre-check on the TOTAL outflow across selected wallets.
+    # The engine re-checks per wallet at execution; this gives the user a
+    # friendly early error before anything starts moving.
+    amount_usd = swap_data.get("amount_usd")
+    total_usd = amount_usd * len(selected_wallet_ids) if amount_usd is not None else None
+    if total_usd is not None:
+        limit_ok, limit_reason = spending_limit_service.check(user_id, total_usd)
+        if not limit_ok:
+            await query.edit_message_text(
+                f"🚫 {limit_reason}",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton("🔄 New Swap", callback_data="swap_start")],
+                        [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
+                    ]
+                ),
+            )
+            return ConversationHandler.END
+
+        # 2FA gate: at/above the user's threshold, demand a fresh TOTP code
+        # before any funds move (skipped when a code was verified moments ago,
+        # e.g. the quote expired mid-verification and was refreshed).
+        verified_at = swap_data.get("twofa_verified_at", 0)
+        recently_verified = (time.time() - verified_at) < TWOFA_VALID_SECONDS
+        if (
+            not recently_verified
+            and twofa_service.is_2fa_enabled(user_id)
+            and total_usd >= spending_limit_service.effective_2fa_threshold(user_id)
+        ):
+            swap_data["twofa_attempts"] = 0
+            await query.edit_message_text(
+                f"🔐 *2FA Required*\n\n"
+                f"This swap moves {format_usd(total_usd)}, which is at or above "
+                f"your 2FA threshold.\n\n"
+                f"Enter the 6-digit code from your authenticator app:",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")]]
+                ),
+            )
+            return ENTER_2FA_CODE
+
+    return await _run_confirmed_swap(query.edit_message_text, context)
+
+
+async def twofa_code_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Verify the TOTP code typed during swap confirmation, then execute."""
+    swap_data = context.user_data.get("swap")
+    user_id = context.user_data.get("user_id")
+    if not swap_data or not swap_data.get("quote") or not user_id:
+        await update.message.reply_text("❌ Session expired. Start again with /s")
+        return ConversationHandler.END
+
+    code = (update.message.text or "").strip()
+    if not twofa_service.verify_transaction(user_id, code):
+        attempts = swap_data.get("twofa_attempts", 0) + 1
+        swap_data["twofa_attempts"] = attempts
+        if attempts >= 3:
+            context.user_data.pop("swap", None)
+            await update.message.reply_text("🚫 Too many invalid 2FA codes. Swap cancelled.")
+            return ConversationHandler.END
+        await update.message.reply_text(
+            f"❌ Invalid code. {3 - attempts} attempt(s) left — try again:"
+        )
+        return ENTER_2FA_CODE
+
+    swap_data["twofa_verified_at"] = time.time()
+
+    # The quote may have gone stale while the user fetched their code — the
+    # recent verification carries over, so the refreshed quote won't re-prompt.
+    try:
+        quote_validator.validate_quote_freshness(swap_data["quote"])
+    except SwapError:
+        await update.message.reply_text(
+            "✅ Code verified — but the quote expired in the meantime. "
+            "Get a fresh one to continue:",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("🔄 New Quote", callback_data="swap_requote")],
+                    [InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")],
+                ]
+            ),
+        )
+        return CONFIRM_SWAP
+
+    status_msg = await update.message.reply_text("⏳ Executing multi-swap...")
+    return await _run_confirmed_swap(status_msg.edit_text, context)
+
+
+async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Execute the confirmed multi-swap.
+
+    ``edit`` updates the status message — ``query.edit_message_text`` when the
+    user confirmed via button, or ``Message.edit_text`` when they arrived via
+    the 2FA code path.
+    """
+    swap_data = context.user_data.get("swap")
+    quote: SwapQuote = swap_data.get("quote")
+    user_id = context.user_data.get("user_id")
+
     # Show safety simulation message for Solana Pro users
     status_text = "⏳ Executing multi-swap..."
     if quote.from_chain == "solana" and quote.to_chain == "solana":
@@ -1100,7 +1215,7 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                 "🛡️ *Running Deep State Simulation...*\n_Verifying tokens are tradeable and safe._"
             )
 
-    await query.edit_message_text(status_text, parse_mode="Markdown")
+    await edit(status_text, parse_mode="Markdown")
 
     try:
         attempt_id = swap_data.get("attempt_id") or "no_attempt"
@@ -1108,7 +1223,7 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
         # Progress update: building transactions
         if len(selected_wallet_ids) > 1:
-            await query.edit_message_text(
+            await edit(
                 f"⏳ Building transactions for {len(selected_wallet_ids)} wallets...",
                 parse_mode="Markdown",
             )
@@ -1126,7 +1241,7 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
 
         # Progress update: processing results
-        await query.edit_message_text("⏳ Processing results...", parse_mode="Markdown")
+        await edit("⏳ Processing results...", parse_mode="Markdown")
 
         # Process results
         num_success = 0
@@ -1188,15 +1303,13 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
         ]
 
-        await query.edit_message_text(
-            text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        await edit(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
     except SwapError as e:
         logger.error(
             f"Swap execution failed for user {context.user_data.get('user_id')}: {e}", exc_info=True
         )
-        await query.edit_message_text(
+        await edit(
             f"❌ Swap failed: {str(e)}",
             reply_markup=InlineKeyboardMarkup(
                 [
@@ -1209,7 +1322,7 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         logger.error(
             f"Swap unexpected error for user {context.user_data.get('user_id')}: {e}", exc_info=True
         )
-        await query.edit_message_text(
+        await edit(
             "❌ Something went wrong. Please try again.",
             reply_markup=InlineKeyboardMarkup(
                 [
@@ -1552,6 +1665,10 @@ swap_conversation_handler = ConversationHandler(
             CallbackQueryHandler(confirm_swap, pattern="^swap_confirm$"),
             CallbackQueryHandler(swap_requote, pattern="^swap_requote$"),
             CallbackQueryHandler(show_wallet_selection, pattern="^swap_back_to_wallets$"),
+        ],
+        ENTER_2FA_CODE: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, twofa_code_entered),
+            CallbackQueryHandler(swap_requote, pattern="^swap_requote$"),
         ],
     },
     fallbacks=[

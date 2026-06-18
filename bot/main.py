@@ -31,6 +31,9 @@ from bot.handlers.wallet import (
     wallet_import_handler,
 )
 from bot.handlers.swap import swap_conversation_handler, check_swap_status, swap_share_ref_handler
+from bot.handlers.twofa import twofa_conversation
+from bot.handlers.smart_account import smart_account_handler, smart_account_chain_handler
+from bot.handlers.recovery import recover_handler, recover_cancel_handler
 from bot.handlers.history import (
     history_handler,
     history_callback,
@@ -341,8 +344,16 @@ def add_handlers(application: Application) -> None:
     application.add_handler(borrow_conversation_handler)  # Borrow USDC vs cbBTC /borrow (Morpho)
     application.add_handler(btc_conversation_handler)  # BTC bridge /btc (Atomiq, Starknet)
     application.add_handler(token_conv_handler)  # SUWP token /token /suwp
+    application.add_handler(twofa_conversation)  # TOTP 2FA enrollment /2fa
+    application.add_handler(smart_account_handler)  # ERC-4337 smart account /sa
+    application.add_handler(recover_handler)  # DKIM-email social recovery /recover
 
     # ============ CALLBACK QUERY HANDLERS ============
+
+    # Smart accounts (ERC-4337) — chain switcher
+    application.add_handler(smart_account_chain_handler)
+    # Social recovery — cancel button
+    application.add_handler(recover_cancel_handler)
 
     # Navigation
     application.add_handler(CallbackQueryHandler(help_callback, pattern="^help$"))

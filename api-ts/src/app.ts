@@ -18,6 +18,7 @@ import {
 	perpsRoutes,
 	predictRoutes,
 	publicSwapRoutes,
+	smartAccountRoutes,
 	stakingRoutes,
 	swapRoutes,
 	webappRoutes,
@@ -89,6 +90,9 @@ export function createApp(config: AppConfig) {
 
 	// Staking routes - SUWP token staking dashboard
 	app.route('/staking', stakingRoutes)
+
+	// ERC-4337 smart-account routes - address prediction + capability descriptor
+	app.route('/v1/smart-account', smartAccountRoutes)
 
 	// Billing routes - Stripe subscription management
 	app.route('/billing', billingRoutes)

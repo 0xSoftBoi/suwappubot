@@ -85,6 +85,13 @@ export const EnvSchema = Schema.Struct({
 	STRIPE_WEBHOOK_SECRET: Schema.optional(Schema.String),
 	STRIPE_PRO_PRICE_ID: Schema.optional(Schema.String),
 	STRIPE_PREMIUM_PRICE_ID: Schema.optional(Schema.String),
+
+	// ERC-4337 smart accounts (Kernel v0.3.1 via permissionless.js / viem).
+	// OFF by default — predicting addresses is always available on supported
+	// chains, but submitting UserOperations requires a configured bundler.
+	SMART_ACCOUNT_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	// ERC-4337 bundler JSON-RPC endpoint (e.g. Pimlico). Required to send UserOps.
+	BUNDLER_RPC_URL: Schema.optional(Schema.String),
 })
 
 export type Env = Schema.Schema.Type<typeof EnvSchema>

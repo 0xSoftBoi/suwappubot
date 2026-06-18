@@ -173,8 +173,11 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         # Webhook events
         from bot.models.webhook_event import WebhookEvent
 
-        # Security models (audit logs, withdrawal whitelist, backup codes)
-        from bot.models.security import AuditLog, WithdrawalWhitelist, BackupCode
+        # Security models (audit logs, withdrawal whitelist, backup codes, spend events)
+        from bot.models.security import AuditLog, WithdrawalWhitelist, BackupCode, SpendEvent
+
+        # Social-recovery models (recovery_requests)
+        from bot.models.recovery import RecoveryRequest
 
         # Perpetual trading models
         from bot.models.perps import PerpPosition, PerpOrder, HyperLiquidAccount
@@ -392,6 +395,9 @@ def _ensure_schema(db_engine) -> None:
 
     # --- security tables (audit_logs, withdrawal_whitelist, backup_codes) ---
     _add_security_tables(db_engine, inspector, is_sqlite)
+
+    # --- social recovery: recovery_requests ---
+    _add_recovery_tables(db_engine, inspector, is_sqlite)
 
     # --- Phase 4 tables: perps, token ---
     _add_phase4_tables(db_engine, inspector, is_sqlite)
@@ -676,16 +682,28 @@ def _add_performance_indexes_v2(db_engine, inspector, is_sqlite: bool) -> None:
 
 
 def _add_security_tables(db_engine, inspector, is_sqlite: bool) -> None:
-    """Create security tables (audit_logs, withdrawal_whitelist, backup_codes) idempotently."""
+    """Create security tables (audit_logs, withdrawal_whitelist, backup_codes, spend_events) idempotently."""
     try:
-        from bot.models.security import AuditLog, WithdrawalWhitelist, BackupCode
+        from bot.models.security import AuditLog, WithdrawalWhitelist, BackupCode, SpendEvent
 
-        for model in (AuditLog, WithdrawalWhitelist, BackupCode):
+        for model in (AuditLog, WithdrawalWhitelist, BackupCode, SpendEvent):
             if not inspector.has_table(model.__tablename__):
                 model.__table__.create(bind=db_engine)
                 logger.info(f"Created {model.__tablename__} table")
     except Exception as e:
         logger.warning(f"Failed to create security tables: {e}")
+
+
+def _add_recovery_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create social-recovery tables (recovery_requests) idempotently."""
+    try:
+        from bot.models.recovery import RecoveryRequest
+
+        if not inspector.has_table(RecoveryRequest.__tablename__):
+            RecoveryRequest.__table__.create(bind=db_engine)
+            logger.info("Created recovery_requests table")
+    except Exception as e:
+        logger.warning(f"Failed to create recovery tables: {e}")
 
 
 def _add_phase4_tables(db_engine, inspector, is_sqlite: bool) -> None:

@@ -55,6 +55,7 @@ python-dotenv==1.2.1
 
 # ---- Crypto / encryption ----
 cryptography==48.0.0
+dnspython==2.8.0  # DKIM public-key (TXT) lookup for email social recovery
 pycryptodome==3.23.0
 cffi==2.0.0
 pycparser==2.23
