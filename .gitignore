@@ -30,3 +30,8 @@ scripts/deployed_addresses.json
 contracts/crytic-export/
 contracts/slither_results.json
 .venv-test/
+
+# Python test/coverage artifacts
+.coverage
+coverage.xml
+htmlcov/
