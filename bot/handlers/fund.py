@@ -16,7 +16,10 @@ import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
+from bot.config.settings import settings
 from bot.services.across_api import ACROSS_TOKENS
+from bot.services.cctp_hypercore import CCTP_V2_DOMAINS
+from bot.services.cctp_relayer import cctp_relayer
 from bot.services.hyperliquid_funding import (
     MIN_USDC_DEPOSIT,
     FundingError,
@@ -40,6 +43,16 @@ USDC_CHAINS = [
     if c in ACROSS_TOKENS.get("USDC", {})
 ]
 
+# CCTP native-USDC source chains (intersection with CCTP V2 domains).
+CCTP_CHAINS = [
+    c for c in ["arbitrum", "base", "optimism", "polygon", "ethereum"] if c in CCTP_V2_DOMAINS
+]
+
+
+def _cctp_enabled() -> bool:
+    return bool(getattr(settings, "cctp_relayer_enabled", False))
+
+
 # Native assets supported by HyperUnit, with display labels.
 NATIVE_LABELS = {"btc": "₿ BTC", "eth": "Ξ ETH", "sol": "◎ SOL"}
 
@@ -48,6 +61,8 @@ def _menu_keyboard() -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton("💵 Deposit USDC (any chain)", callback_data="fund_usdc")],
     ]
+    if _cctp_enabled():
+        rows.append([InlineKeyboardButton("🟢 USDC via CCTP (native)", callback_data="fund_cctp")])
     native_row = [
         InlineKeyboardButton(NATIVE_LABELS[a], callback_data=f"fund_native_{a}")
         for a in HYPERUNIT_ASSETS
@@ -162,6 +177,40 @@ async def fund_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---- Native: poll HyperUnit mint status --------------------------- #
     if data == "fund_natstat":
         return await _check_native_status(update, context, user_id)
+
+    # ---- CCTP (native USDC) ------------------------------------------- #
+    if data == "fund_cctp":
+        rows = [
+            [InlineKeyboardButton(c.capitalize(), callback_data=f"fund_cchain_{c}")]
+            for c in CCTP_CHAINS
+        ]
+        rows.append([InlineKeyboardButton("🔙 Back", callback_data="fund_menu")])
+        return await _edit(
+            update,
+            "🟢 *Deposit native USDC (CCTP)*\n\nWhich chain are your USDC funds on?",
+            InlineKeyboardMarkup(rows),
+        )
+
+    if data.startswith("fund_cchain_"):
+        chain = data.replace("fund_cchain_", "")
+        amt_buttons = [
+            InlineKeyboardButton(f"${a}", callback_data=f"fund_camt_{chain}_{a}")
+            for a in USDC_AMOUNTS
+        ]
+        rows = [amt_buttons[i : i + 3] for i in range(0, len(amt_buttons), 3)]
+        rows.append([InlineKeyboardButton("🔙 Back", callback_data="fund_cctp")])
+        return await _edit(
+            update,
+            f"🟢 *Native USDC from {chain.capitalize()}*\n\nHow much USDC? (min {MIN_USDC_DEPOSIT:g})",
+            InlineKeyboardMarkup(rows),
+        )
+
+    if data.startswith("fund_camt_"):
+        _, _, chain, amt = data.split("_", 3)
+        return await _show_cctp_quote(update, context, user_id, chain, float(amt))
+
+    if data == "fund_cexec":
+        return await _execute_cctp(update, context, user_id)
 
 
 async def _show_native(
@@ -381,6 +430,102 @@ async def _check_native_status(update: Update, context: ContextTypes.DEFAULT_TYP
             ]
         )
     await _edit(update, text, keyboard)
+
+
+async def _show_cctp_quote(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, chain: str, amount: float
+):
+    """Quote a CCTP native-USDC deposit and present a confirmation screen."""
+    wallet = wallet_service.get_default_wallet(user_id, "evm")
+    if not wallet:
+        return await _edit(
+            update,
+            "⚠️ You need an EVM wallet to deposit USDC. Create one in /wallet first.",
+            _menu_keyboard(),
+        )
+    try:
+        # Recipient is the custodial wallet so the relayer can complete the credit.
+        quote = await hyperliquid_funding.quote_cctp_deposit(
+            from_chain=chain,
+            amount_human=amount,
+            recipient_address=wallet.address,
+        )
+    except FundingError as e:
+        return await _edit(update, f"⚠️ {e}", _menu_keyboard())
+    except Exception as e:  # noqa: BLE001
+        logger.warning("CCTP quote failed (user %s): %s", user_id, e)
+        return await _edit(
+            update, "⚠️ Couldn't get a CCTP quote right now. Try again shortly.", _menu_keyboard()
+        )
+
+    context.user_data["fund_cctp_quote"] = quote
+    context.user_data["fund_cctp_wallet"] = {"id": wallet.id, "address": wallet.address}
+
+    fee = quote.max_fee / 1e6
+    text = (
+        f"🟢 *Confirm Native USDC Deposit*\n\n"
+        f"From: *{amount:g} USDC* on {chain.capitalize()}\n"
+        f"To: your HyperCore account\n`{quote.recipient}`\n\n"
+        f"• You receive ~*{quote.expected_output_human:.2f} USDC* spot\n"
+        f"• CCTP fee: ~*{fee:.2f} USDC* (Fast)\n"
+        f"• ~{quote.estimated_time}s + relayer completion on HyperEVM\n\n"
+        f"_You sign the burn; Suwappu's relayer finishes the mint + HyperCore "
+        f"credit (it pays HyperEVM gas)._"
+    )
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("✅ Confirm & Deposit", callback_data="fund_cexec")],
+            [InlineKeyboardButton("🔙 Back", callback_data=f"fund_cchain_{chain}")],
+        ]
+    )
+    await _edit(update, text, keyboard)
+
+
+async def _execute_cctp(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
+    """Sign + broadcast the CCTP burn, then hand off to the relayer."""
+    quote = context.user_data.get("fund_cctp_quote")
+    wallet_data = context.user_data.get("fund_cctp_wallet")
+    if not quote or not wallet_data:
+        return await _edit(
+            update, "⚠️ That quote expired. Start the deposit again.", _menu_keyboard()
+        )
+
+    await _edit(
+        update,
+        "⏳ Submitting your burn… the relayer will complete the deposit shortly.",
+        InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="fund_menu")]]),
+    )
+    try:
+        burn_hash = await hyperliquid_funding.execute_cctp_burn(wallet_data, quote)
+        cctp_relayer.record_burn(
+            user_id=user_id,
+            recipient_address=quote.recipient,
+            from_chain=quote.from_chain,
+            burn_tx_hash=burn_hash,
+            amount_raw=int(quote.input_amount),
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("CCTP burn execution failed (user %s): %s", user_id, e)
+        return await _edit(
+            update,
+            f"⚠️ Deposit failed: {e}\n\nNo funds were moved if you don't see a tx.",
+            _menu_keyboard(),
+        )
+    finally:
+        context.user_data.pop("fund_cctp_quote", None)
+        context.user_data.pop("fund_cctp_wallet", None)
+
+    text = (
+        "✅ *Burn submitted!*\n\n"
+        f"Tx: `{burn_hash}`\n\n"
+        "Our relayer is finishing the mint + HyperCore credit (native USDC, ~1-2 min). "
+        "You'll get a message when it lands as spot."
+    )
+    await _edit(
+        update,
+        text,
+        InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="perps_back")]]),
+    )
 
 
 # Handlers to register in main.py.
