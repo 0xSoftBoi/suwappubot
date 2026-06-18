@@ -55,6 +55,7 @@ class CctpRelayer:
         self._running = False
         self._task = None
         self._bot = None
+        self._low_balance_alerted = False  # throttle: one alert per low episode
         self.wallet_service = WalletService()
 
     # ------------------------------------------------------------------ #
@@ -88,7 +89,30 @@ class CctpRelayer:
                 await self.process_once()
             except Exception as e:  # noqa: BLE001 — never let the loop die
                 logger.warning("CCTP relayer loop error: %s", e)
+            try:
+                await self._check_low_balance()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("CCTP relayer balance check error: %s", e)
             await asyncio.sleep(self.POLL_INTERVAL)
+
+    async def _check_low_balance(self):
+        """Alert admins once when the relayer wallet's HYPE runs low.
+
+        A drained relayer silently strands every in-flight deposit at the mint
+        step, so we warn before that happens and re-arm once it's topped up.
+        """
+        threshold = float(getattr(settings, "cctp_relayer_min_hype_alert", 0.5) or 0)
+        bal = await self.relayer_balance_hype()
+        if bal is None:
+            return
+        if bal < threshold and not self._low_balance_alerted:
+            self._low_balance_alerted = True
+            await self._alert_admins(
+                f"⚠️ CCTP relayer HYPE low: {bal:.4f} (< {threshold:g}). "
+                "Top up the relayer wallet or deposits will stall at the mint step."
+            )
+        elif bal >= threshold:
+            self._low_balance_alerted = False
 
     # ------------------------------------------------------------------ #
     # Recording a new deposit (called after the user's burn is submitted)
@@ -233,7 +257,14 @@ class CctpRelayer:
             raise RuntimeError(
                 f"No custodial wallet for {dep['recipient']}; cannot sign HyperCore credit"
             )
-        credit_tx = cctp_hypercore.build_core_credit_tx(dep["amount_raw"])
+        # Credit the ACTUAL minted balance, not the pre-fee burn amount — CCTP V2
+        # deducts a fast-transfer fee, so amount_raw would over-transfer and revert.
+        minted = await asyncio.to_thread(
+            lambda: cctp_hypercore.usdc_balance_of(web3, dep["recipient"])
+        )
+        if minted <= 0:
+            raise RuntimeError("No native USDC at recipient yet; will retry")
+        credit_tx = cctp_hypercore.build_core_credit_tx(minted)
         chain = get_chain_by_name(HYPEREVM_CHAIN)
         nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(dep["recipient"]))
         full = {
@@ -293,6 +324,20 @@ class CctpRelayer:
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("CCTP notify failed for %s: %s", dep["user_id"], e)
+
+    @staticmethod
+    def _admin_ids() -> list:
+        raw = getattr(settings, "admin_telegram_ids", "") or ""
+        return [int(x) for x in raw.split(",") if x.strip()]
+
+    async def _alert_admins(self, text: str):
+        if not self._bot:
+            return
+        for admin_id in self._admin_ids():
+            try:
+                await self._bot.send_message(chat_id=admin_id, text=text)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("CCTP admin alert failed for %s: %s", admin_id, e)
 
     # ------------------------------------------------------------------ #
     # Observability + recovery

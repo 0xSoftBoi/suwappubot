@@ -330,6 +330,10 @@ class Settings(BaseSettings):
         default=0.02,
         description="HYPE gas-dropped to a user's HyperEVM address to fund their Core-credit tx.",
     )
+    cctp_relayer_min_hype_alert: float = Field(
+        default=0.5,
+        description="Alert admins once when the relayer wallet's HYPE drops below this.",
+    )
 
     lisk_rpc_url: str = Field(default="https://rpc.api.lisk.com", description="Lisk RPC")
     sei_rpc_url: str = Field(default="https://evm-rpc.sei-apis.com", description="Sei RPC")

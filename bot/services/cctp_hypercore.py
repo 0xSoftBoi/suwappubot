@@ -134,6 +134,13 @@ ERC20_ABI = [
         "stateMutability": "nonpayable",
         "type": "function",
     },
+    {
+        "inputs": [{"name": "account", "type": "address"}],
+        "name": "balanceOf",
+        "outputs": [{"name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
 ]
 
 
@@ -347,6 +354,13 @@ class CctpHyperCoreAPI:
             ],
         )
         return {"to": Web3.to_checksum_address(MESSAGE_TRANSMITTER_V2), "data": data, "value": 0}
+
+    def usdc_balance_of(self, web3, address: str) -> int:
+        """Native-USDC balance (smallest units) of `address` on HyperEVM."""
+        contract = web3.eth.contract(
+            address=Web3.to_checksum_address(HYPEREVM_NATIVE_USDC), abi=ERC20_ABI
+        )
+        return int(contract.functions.balanceOf(Web3.to_checksum_address(address)).call())
 
     def build_core_credit_tx(self, amount_raw: int) -> Dict[str, Any]:
         """Build the HyperEVM->HyperCore credit (ERC20 transfer to system addr).

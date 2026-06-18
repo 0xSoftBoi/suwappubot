@@ -179,6 +179,16 @@ async def fund_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await _check_native_status(update, context, user_id)
 
     # ---- CCTP (native USDC) ------------------------------------------- #
+    # Defensive: the CCTP buttons are hidden when disabled, but refuse stale
+    # initiations too (status checks stay allowed so past deposits are viewable).
+    if (
+        data == "fund_cctp"
+        or data.startswith("fund_cchain_")
+        or data.startswith("fund_camt_")
+        or data == "fund_cexec"
+    ) and not _cctp_enabled():
+        return await _edit(update, "CCTP deposits aren't enabled right now.", _menu_keyboard())
+
     if data == "fund_cctp":
         rows = [
             [InlineKeyboardButton(c.capitalize(), callback_data=f"fund_cchain_{c}")]

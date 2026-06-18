@@ -126,3 +126,33 @@ async def test_failed_deposit_bumped_after_error():
         await r.process_once()
     r._bump_error.assert_called_once()
     assert r._bump_error.call_args.args[0] == DEP["id"]
+
+
+@pytest.mark.asyncio
+async def test_low_balance_alerts_once_then_rearms():
+    r = CctpRelayer()
+    r._alert_admins = AsyncMock(return_value=None)
+    with patch("bot.services.cctp_relayer.settings") as s:
+        s.cctp_relayer_min_hype_alert = 0.5
+        # Below threshold -> alert once.
+        r.relayer_balance_hype = AsyncMock(return_value=0.1)
+        await r._check_low_balance()
+        await r._check_low_balance()  # still low -> no second alert
+        assert r._alert_admins.await_count == 1
+        # Recovers -> re-arm; drop again -> alerts once more.
+        r.relayer_balance_hype = AsyncMock(return_value=1.0)
+        await r._check_low_balance()
+        r.relayer_balance_hype = AsyncMock(return_value=0.1)
+        await r._check_low_balance()
+        assert r._alert_admins.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_low_balance_noop_when_no_key():
+    r = CctpRelayer()
+    r._alert_admins = AsyncMock(return_value=None)
+    r.relayer_balance_hype = AsyncMock(return_value=None)  # no relayer key
+    with patch("bot.services.cctp_relayer.settings") as s:
+        s.cctp_relayer_min_hype_alert = 0.5
+        await r._check_low_balance()
+    r._alert_admins.assert_not_awaited()
