@@ -82,6 +82,16 @@ flowchart LR
 | **MCP** | `/mcp` | 8 tools — get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory |
 | **A2A** | `/a2a` | Natural language — "swap 0.5 ETH to USDC on base", "price ETH SOL BTC" |
 
+**Framework toolkits:** [LangChain](https://github.com/0xSoftBoi/suwappu-langchain) · [CrewAI](https://github.com/0xSoftBoi/suwappu-crewai-crew) · **[OpenClaw](packages/openclaw/SKILL.md)** (zero-code, native MCP). Add Suwappu to any OpenClaw agent in one command:
+
+```bash
+openclaw mcp add suwappu --url https://api.suwappu.bot/mcp \
+  --transport streamable-http \
+  --header "Authorization=Bearer $SUWAPPU_API_KEY" --exclude execute_swap
+```
+
+See [docs/features/openclaw_integration.md](docs/features/openclaw_integration.md).
+
 ### Engagement
 - **Points/XP system** — Levels (Bronze → Platinum), daily check-ins, milestones, reward store
 - **3-tier referrals** — 30% fee share to referrers
