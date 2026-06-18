@@ -30,12 +30,13 @@ class FakeSwapEngine:
         self.captured["quote_kwargs"] = kwargs
         return type("Quote", (), kwargs)()
 
-    async def execute_swap(self, *, quote, wallet_id, user_id, idempotency_key):
+    async def execute_swap(self, *, quote, wallet_id, user_id, idempotency_key, automated=False):
         self.captured["execute_kwargs"] = {
             "quote": quote,
             "wallet_id": wallet_id,
             "user_id": user_id,
             "idempotency_key": idempotency_key,
+            "automated": automated,
         }
         with get_session() as session:
             swap = SwapTransaction(
@@ -107,6 +108,7 @@ def test_limit_order_executes_through_swap_engine(sqlite_db):
     assert captured["execute_kwargs"]["wallet_id"] == 1
     assert captured["execute_kwargs"]["user_id"] == 1
     assert captured["execute_kwargs"]["idempotency_key"].startswith("lo:1:")
+    assert captured["execute_kwargs"]["automated"] is True
 
     with get_session() as session:
         db_order = session.query(LimitOrder).filter(LimitOrder.id == 1).first()
@@ -155,32 +157,34 @@ def test_limit_order_expiration_handles_naive_utc_datetimes(sqlite_db):
     service = OrderService()
 
     with get_session() as session:
-        session.add_all([
-            User(id=1, username="limit-user"),
-            Wallet(
-                id=1,
-                user_id=1,
-                address="0xlimitwallet",
-                chain_type="evm",
-                encrypted_private_key="encrypted",
-                is_active=True,
-                is_default=True,
-            ),
-            LimitOrder(
-                id=1,
-                user_id=1,
-                wallet_id=1,
-                order_type=OrderType.LIMIT_BUY.value,
-                status=OrderStatus.PENDING.value,
-                from_chain="ethereum",
-                from_token="USDC",
-                to_chain="ethereum",
-                to_token="ETH",
-                amount="1000000000",
-                trigger_price=3000,
-                expires_at=datetime.utcnow() - timedelta(minutes=1),
-            ),
-        ])
+        session.add_all(
+            [
+                User(id=1, username="limit-user"),
+                Wallet(
+                    id=1,
+                    user_id=1,
+                    address="0xlimitwallet",
+                    chain_type="evm",
+                    encrypted_private_key="encrypted",
+                    is_active=True,
+                    is_default=True,
+                ),
+                LimitOrder(
+                    id=1,
+                    user_id=1,
+                    wallet_id=1,
+                    order_type=OrderType.LIMIT_BUY.value,
+                    status=OrderStatus.PENDING.value,
+                    from_chain="ethereum",
+                    from_token="USDC",
+                    to_chain="ethereum",
+                    to_token="ETH",
+                    amount="1000000000",
+                    trigger_price=3000,
+                    expires_at=datetime.utcnow() - timedelta(minutes=1),
+                ),
+            ]
+        )
 
     triggered = asyncio.run(service.check_limit_orders())
 
