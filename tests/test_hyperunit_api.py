@@ -37,9 +37,11 @@ class _FakeSession:
     def __init__(self, resp):
         self._resp = resp
         self.urls = []
+        self.kwargs = []
 
     def get(self, url, **kwargs):
         self.urls.append(url)
+        self.kwargs.append(kwargs)
         return self._resp
 
 
@@ -74,6 +76,31 @@ def test_get_minimum():
     assert get_minimum("btc") == 0.002
     assert get_minimum("eth") == 0.05
     assert get_minimum("sol") == 0.1
+
+
+# --------------------------- non-US egress hook ---------------------------- #
+def test_egress_base_url_override():
+    from types import SimpleNamespace
+    import bot.services.hyperunit_api as hu
+
+    with patch.object(
+        hu, "settings", SimpleNamespace(hyperunit_egress_url="https://eu-proxy.example.com/")
+    ):
+        api = hu.HyperUnitAPI()
+        assert api.api_url == "https://eu-proxy.example.com"
+
+
+@pytest.mark.asyncio
+async def test_proxy_forwarded_on_requests():
+    resp = _FakeResp(
+        200,
+        {"address": "bc1q", "signatures": {"a": "1", "b": "2"}, "status": "OK"},
+    )
+    p_sess, p_lim, session = _patch(resp)
+    with p_sess, p_lim, patch("bot.services.hyperunit_api._egress_proxy", lambda: "http://eu:3128"):
+        api = HyperUnitAPI()
+        await api.generate_deposit_address("btc", HL_ADDR)
+    assert session.kwargs[0].get("proxy") == "http://eu:3128"
 
 
 # --------------------------- generate address ------------------------------ #

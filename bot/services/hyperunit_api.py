@@ -24,12 +24,26 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
+from bot.config.settings import settings
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
 
 logger = logging.getLogger(__name__)
 
 HYPERUNIT_API_URL = "https://api.hyperunit.xyz"
+
+
+def _egress_base() -> str:
+    """Base URL for HyperUnit. A non-US reverse-proxy can be set via
+    settings.hyperunit_egress_url (HyperUnit geo-blocks the US). Only ever
+    reached for region-allowed users — the fund handler gates that."""
+    return (getattr(settings, "hyperunit_egress_url", None) or HYPERUNIT_API_URL).rstrip("/")
+
+
+def _egress_proxy() -> Optional[str]:
+    """Optional forward HTTP proxy (non-US egress) for HyperUnit requests."""
+    return getattr(settings, "hyperunit_proxy_url", None) or None
+
 
 # Destination chain value for HyperLiquid HyperCore in the /gen path.
 HYPERUNIT_DST_CHAIN = "hyperliquid"
@@ -114,8 +128,10 @@ def get_minimum(asset: str) -> float:
 class HyperUnitAPI:
     """Client for HyperUnit native-asset deposits into HyperCore."""
 
-    def __init__(self, api_url: str = HYPERUNIT_API_URL):
-        self.api_url = api_url.rstrip("/")
+    def __init__(self, api_url: Optional[str] = None):
+        # Default to the configured (possibly non-US) egress base; explicit
+        # api_url (e.g. in tests) overrides.
+        self.api_url = api_url.rstrip("/") if api_url else _egress_base()
 
     async def generate_deposit_address(
         self,
@@ -141,7 +157,7 @@ class HyperUnitAPI:
         session = await get_session()
 
         url = f"{self.api_url}/gen/{src_chain}/{HYPERUNIT_DST_CHAIN}/{asset_key}/{hl_address}"
-        async with session.get(url) as response:
+        async with session.get(url, proxy=_egress_proxy()) as response:
             if response.status != 200:
                 error_text = await response.text()
                 raise HyperUnitError(f"HyperUnit gen error ({response.status}): {error_text}")
@@ -187,7 +203,7 @@ class HyperUnitAPI:
         session = await get_session()
 
         url = f"{self.api_url}/operations/{address}"
-        async with session.get(url) as response:
+        async with session.get(url, proxy=_egress_proxy()) as response:
             if response.status == 404:
                 # No operation yet — user hasn't sent funds (or not seen).
                 return HyperUnitOperation(state="pending", destination_tx_hash=None, raw={})
