@@ -16,6 +16,7 @@ const chainIcons: Record<string, string> = {
   optimism: '🔴',
   base: '🔷',
   bsc: '🟡',
+  tempo: '⏱️',
 }
 
 // Chain colors for allocation chart
@@ -30,6 +31,7 @@ const chainColors: Record<string, string> = {
   optimism: 'bg-red-500',
   base: 'bg-blue-400',
   bsc: 'bg-yellow-500',
+  tempo: 'bg-amber-500',
 }
 
 // Get icon for token based on symbol or chain

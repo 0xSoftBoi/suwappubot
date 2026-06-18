@@ -20,6 +20,7 @@ const chainConfig: Record<string, string> = {
   bsc: 'BSC',
   avalanche: 'AVAX',
   solana: 'SOL',
+  tempo: 'USD',
 }
 
 export function SwapCard({ swap }: SwapCardProps) {
@@ -90,6 +91,7 @@ function getExplorerUrl(chain: string, txHash: string): string {
     bsc: 'https://bscscan.com/tx/',
     avalanche: 'https://snowtrace.io/tx/',
     solana: 'https://solscan.io/tx/',
+    tempo: 'https://explore.tempo.xyz/tx/',
   }
 
   const baseUrl = explorers[chain.toLowerCase()] || 'https://etherscan.io/tx/'

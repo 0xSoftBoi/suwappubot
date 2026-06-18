@@ -558,7 +558,9 @@ class SwapEngine:
         tasks = []
 
         if self._is_tempo_only_swap(from_chain, to_chain):
-            tasks.append(self._get_tempo_dex_quote(from_token, to_token, amount, amount_raw))
+            tasks.append(
+                self._get_tempo_dex_quote(from_token, to_token, amount, amount_raw, slippage)
+            )
 
         if self._is_solana_only_swap(from_chain, to_chain):
             tasks.append(
@@ -1280,6 +1282,7 @@ class SwapEngine:
         to_token: str,
         amount: float,
         amount_raw: str,
+        slippage: float = 0.5,
     ) -> SwapQuote:
         """Get quote from Tempo Enshrined DEX for same-chain stablecoin swaps."""
         if not tempo_dex_api.is_supported_pair(from_token, to_token):
@@ -1294,6 +1297,13 @@ class SwapEngine:
         to_amount_human = quote.amount_out_human
         exchange_rate = to_amount_human / amount if amount > 0 else 0
 
+        # Apply slippage to the min-out. The enshrined DEX barely moves on
+        # stablecoin pairs, but `quote.amount_out` is the live quote — without a
+        # tolerance any micro price drift between quote and execution reverts the
+        # swap. Use the smaller of the caller's slippage and the Tempo default.
+        slippage_pct = min(slippage, settings.tempo_swap_slippage_pct)
+        min_amount_out = int(quote.amount_out * (1 - slippage_pct / 100))
+
         return SwapQuote(
             provider="tempo_dex",
             from_chain="tempo",
@@ -1304,7 +1314,7 @@ class SwapEngine:
             from_amount_human=amount,
             to_amount=str(quote.amount_out),
             to_amount_human=to_amount_human,
-            to_amount_min=str(quote.amount_out),  # enshrined DEX has minimal slippage
+            to_amount_min=str(min_amount_out),
             gas_cost_usd=0.01,  # Tempo payment lane has near-zero gas
             fee_cost_usd=0,
             total_cost_usd=0.01,
@@ -2166,6 +2176,17 @@ class SwapEngine:
                     f"Citrea swaps must route via JuiceSwap (got provider '{quote.provider}')"
                 )
 
+        # Same hard backstop for Tempo: chain id 4217 is absent from every
+        # external aggregator — same-chain Tempo swaps must execute on the
+        # protocol-level enshrined DEX. Without this guard a tempo quote would
+        # fall through to the Li.Fi/EVM path (which can't build a Tempo tx).
+        if self._is_tempo_only_swap(quote.from_chain, quote.to_chain):
+            if quote.provider != "tempo_dex":
+                raise SwapError(
+                    f"Tempo swaps must route via the enshrined DEX "
+                    f"(got provider '{quote.provider}')"
+                )
+
         # Prevent concurrent swaps from same wallet (with bounded growth)
         if wallet_id not in self._wallet_locks:
             if len(self._wallet_locks) >= self._wallet_locks_max:
@@ -2355,6 +2376,8 @@ class SwapEngine:
                     tx_hash = await self._execute_goatswap_swap(quote, wallet)
                 elif quote.provider == "juiceswap":
                     tx_hash = await self._execute_juiceswap_swap(quote, wallet)
+                elif quote.provider == "tempo_dex":
+                    tx_hash = await self._execute_tempo_dex_swap(quote, wallet, user_id)
                 # (GOAT/Citrea guards live at the top of execute_swap — any
                 # goat/citrea quote reaching this dispatch is guaranteed
                 # provider == "goatswap"/"juiceswap")
@@ -3097,6 +3120,166 @@ class SwapEngine:
         from bot.services.univ3_fork_api import juiceswap_api
 
         return await self._execute_univ3_fork_swap(quote, wallet_data, juiceswap_api)
+
+    async def _execute_tempo_dex_swap(
+        self, quote: SwapQuote, wallet_data: dict, user_id: Optional[int] = None
+    ) -> str:
+        """Execute a same-chain Tempo swap on the protocol-level enshrined DEX.
+
+        Tempo is first-class native here — there is no external aggregator for
+        chain 4217, so this is the only execution path. Steps:
+
+        1. Rebuild the swap calldata from the stored quote (no re-quote).
+        2. Token approval — gasless via EIP-2612 permit (TIP-1004) when enabled
+           and the wallet can sign locally; otherwise a standard approve() tx.
+        3. swapExactAmountIn on the enshrined DEX (uint128 amounts).
+
+        Tempo has no EIP-1559, so all txs use legacy gasPrice (with the chain's
+        min-gas floor applied). Optionally records fee sponsorship for new users.
+        """
+        wallet = await self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
+        sender = wallet_data["address"]
+        chain = get_chain_by_name("tempo")
+        web3 = self._get_web3_with_fallback("tempo")
+        raw = quote.raw_quote or {}
+
+        amount_in = int(raw.get("amount_in") or quote.from_amount)
+        min_amount_out = int(quote.to_amount_min)
+        token_in_addr = raw.get("token_in") or get_token_address(quote.from_token, "tempo")
+
+        nonce = await asyncio.to_thread(
+            lambda: web3.eth.get_transaction_count(Web3.to_checksum_address(sender))
+        )
+        gas_price = apply_min_gas_price(
+            "tempo", await asyncio.to_thread(lambda: web3.eth.gas_price)
+        )
+
+        async def _send_and_wait(tx: dict, gas: int, label: str) -> None:
+            """Sign, broadcast, and confirm a single legacy-gas Tempo tx."""
+            nonlocal nonce
+            tx = dict(tx)
+            tx.update(
+                {
+                    "to": Web3.to_checksum_address(tx["to"]),
+                    "value": tx.get("value", 0),
+                    "gas": gas,
+                    "gasPrice": gas_price,
+                    "nonce": nonce,
+                    "chainId": chain.chain_id,
+                }
+            )
+            signed = await self.wallet_service.sign_evm_transaction(wallet, tx)
+            tx_hash = await asyncio.to_thread(
+                lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed.replace("0x", "")))
+            )
+            logger.info(f"Tempo {label} tx: {tx_hash.hex()}")
+            receipt = await asyncio.to_thread(
+                lambda: web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            )
+            if receipt["status"] != 1:
+                raise SwapError(f"Tempo {label} failed (tx: {tx_hash.hex()})")
+            nonce += 1
+
+        bundle = tempo_dex_api.build_swap_tx(
+            token_in=quote.from_token,
+            token_out=quote.to_token,
+            amount_in=amount_in,
+            min_amount_out=min_amount_out,
+            sender=sender,
+        )
+
+        # --- Step 2: approval (gasless permit when possible) ---
+        permit_used = False
+        if settings.tempo_use_permit and not wallet.is_turnkey_wallet and token_in_addr:
+            owner_key = None
+            try:
+                from bot.services.tempo_tip20 import tempo_tip20
+
+                owner_key = self.wallet_service.get_private_key(wallet)
+                if not owner_key.startswith("0x"):
+                    owner_key = "0x" + owner_key
+                v, r, s, deadline = await tempo_tip20.build_permit_signature(
+                    token_address=token_in_addr,
+                    owner_key=owner_key,
+                    spender=tempo_dex_api.dex_address,
+                    value=amount_in,
+                )
+                permit_bundle = tempo_dex_api.build_permit_swap_tx(
+                    token_in=quote.from_token,
+                    token_out=quote.to_token,
+                    amount_in=amount_in,
+                    min_amount_out=min_amount_out,
+                    sender=sender,
+                    permit_v=v,
+                    permit_r=r,
+                    permit_s=s,
+                    permit_deadline=deadline,
+                )
+                await _send_and_wait(permit_bundle["permit_tx"], 120_000, "permit")
+                bundle = {"swap_tx": permit_bundle["swap_tx"]}
+                permit_used = True
+            except Exception as e:
+                logger.warning(f"Tempo permit approval failed, falling back to approve(): {e}")
+            finally:
+                if owner_key:
+                    owner_key = None  # scrub the raw key reference
+
+        if not permit_used:
+            await _send_and_wait(bundle["approval_tx"], 100_000, "approval")
+
+        # --- Step 3: swap on the enshrined DEX ---
+        swap_tx = dict(bundle["swap_tx"])
+        gas_estimate = 250_000
+        try:
+            gas_estimate = await asyncio.to_thread(
+                lambda: web3.eth.estimate_gas(
+                    {
+                        "from": Web3.to_checksum_address(sender),
+                        "to": Web3.to_checksum_address(swap_tx["to"]),
+                        "data": swap_tx["data"],
+                        "value": swap_tx.get("value", 0),
+                    }
+                )
+            )
+            gas_estimate = int(gas_estimate * 1.3)
+        except Exception as e:
+            logger.warning(f"Tempo swap gas estimate failed, using default 250k: {e}")
+
+        swap_tx.update(
+            {
+                "to": Web3.to_checksum_address(swap_tx["to"]),
+                "value": swap_tx.get("value", 0),
+                "gas": gas_estimate,
+                "gasPrice": gas_price,
+                "nonce": nonce,
+                "chainId": chain.chain_id,
+            }
+        )
+        signed_swap = await self.wallet_service.sign_evm_transaction(wallet, swap_tx)
+        tx_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_swap.replace("0x", "")))
+        )
+
+        # Record fee sponsorship for new users (best-effort; never blocks the swap).
+        if settings.tempo_fee_sponsorship_enabled and user_id is not None:
+            try:
+                from bot.services.tempo_fee_sponsor import tempo_fee_sponsor
+
+                result = tempo_fee_sponsor.check_sponsorship(user_id, tx_type="swap")
+                if result.should_sponsor:
+                    tempo_fee_sponsor.record_sponsored_tx(user_id, quote.gas_cost_usd)
+            except Exception as e:
+                logger.debug(f"Tempo fee-sponsorship bookkeeping failed: {e}")
+
+        logger.info(
+            f"Tempo enshrined-DEX swap: {tx_hash.hex()} "
+            f"({quote.from_token}→{quote.to_token}, permit={permit_used}) — "
+            f"fire-and-monitor: receipt NOT awaited; final status from tx poller"
+        )
+        return tx_hash.hex()
 
     async def _execute_univ3_fork_swap(self, quote: SwapQuote, wallet_data: dict, venue_api) -> str:
         """Execute a same-chain swap on a direct UniV3-fork venue.

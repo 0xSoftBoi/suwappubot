@@ -22,7 +22,13 @@ from bot.utils.envelope_crypto import (
     SCHEME_LEGACY_FERNET_V1,
     SCHEME_KMS_AESGCM_V2,
 )
-from bot.models.custodial import HotWallet, CustodialBalance, CustodialTransaction, TransactionType, TransactionStatus
+from bot.models.custodial import (
+    HotWallet,
+    CustodialBalance,
+    CustodialTransaction,
+    TransactionType,
+    TransactionStatus,
+)
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -34,10 +40,11 @@ class HotWalletService:
     def _get_web3(self, chain_name: str) -> Web3:
         """Get Web3 instance for a chain via RPCManager."""
         from bot.services.rpc_manager import rpc_manager
+
         return rpc_manager.get_web3(chain_name)
-    
+
     # === Hot Wallet Management ===
-    
+
     async def create_hot_wallet(
         self,
         name: str,
@@ -47,7 +54,7 @@ class HotWalletService:
     ) -> HotWallet:
         """
         Create a new hot wallet.
-        
+
         Routes to Turnkey if configured, otherwise creates local wallet.
         """
         # Check if Turnkey is configured
@@ -55,12 +62,10 @@ class HotWalletService:
             return await self._create_turnkey_hot_wallet(
                 name, chain_type, is_deposit_wallet, is_gas_payer
             )
-        
+
         # Local hot wallet creation
-        return self._create_local_hot_wallet(
-            name, chain_type, is_deposit_wallet, is_gas_payer
-        )
-    
+        return self._create_local_hot_wallet(name, chain_type, is_deposit_wallet, is_gas_payer)
+
     def _create_local_hot_wallet(
         self,
         name: str,
@@ -75,15 +80,16 @@ class HotWalletService:
             private_key = account.key.hex()
         elif chain_type == "solana":
             from solders.keypair import Keypair
+
             keypair = Keypair()
             address = str(keypair.pubkey())
             private_key = base58.b58encode(bytes(keypair)).decode()
         else:
             raise ValueError(f"Unsupported chain type: {chain_type}")
-        
+
         # Use envelope encryption (v2) or legacy based on settings
         use_v2 = settings.wallet_encryption_scheme == SCHEME_KMS_AESGCM_V2
-        
+
         if use_v2:
             encrypted = encrypt_private_key_v2(private_key)
             db_fields = encode_for_db(encrypted)
@@ -96,7 +102,7 @@ class HotWalletService:
                 "kms_key_id": None,
                 "key_version": 1,
             }
-        
+
         with get_session() as session:
             wallet = HotWallet(
                 name=name,
@@ -115,9 +121,9 @@ class HotWalletService:
             session.add(wallet)
             session.flush()
             wallet_id = wallet.id
-        
+
         return self.get_hot_wallet_by_id(wallet_id)
-    
+
     async def _create_turnkey_hot_wallet(
         self,
         name: str,
@@ -127,19 +133,19 @@ class HotWalletService:
     ) -> HotWallet:
         """Create a hot wallet via Turnkey (in main organization)."""
         from bot.services.turnkey_client import get_turnkey_client
-        
+
         client = get_turnkey_client()
-        
+
         # Create wallet in main organization (for hot wallets)
         turnkey_wallet = await client.create_wallet(
             wallet_name=f"hot_{name}_{chain_type}",
             chain_type=chain_type,
             organization_id=None,  # Use parent org
         )
-        
+
         if not turnkey_wallet.address:
             raise RuntimeError("Turnkey hot wallet creation failed: no address returned")
-        
+
         with get_session() as session:
             wallet = HotWallet(
                 name=name,
@@ -157,10 +163,10 @@ class HotWalletService:
             session.add(wallet)
             session.flush()
             wallet_id = wallet.id
-        
+
         logger.info(f"Created Turnkey hot wallet: {turnkey_wallet.address}")
         return self.get_hot_wallet_by_id(wallet_id)
-    
+
     def import_hot_wallet(
         self,
         name: str,
@@ -177,15 +183,16 @@ class HotWalletService:
             address = account.address
         elif chain_type == "solana":
             from solders.keypair import Keypair
+
             key_bytes = base58.b58decode(private_key)
             keypair = Keypair.from_bytes(key_bytes)
             address = str(keypair.pubkey())
         else:
             raise ValueError(f"Unsupported chain type: {chain_type}")
-        
+
         # Use envelope encryption (v2) or legacy based on settings
         use_v2 = settings.wallet_encryption_scheme == SCHEME_KMS_AESGCM_V2
-        
+
         if use_v2:
             encrypted = encrypt_private_key_v2(private_key)
             db_fields = encode_for_db(encrypted)
@@ -198,7 +205,7 @@ class HotWalletService:
                 "kms_key_id": None,
                 "key_version": 1,
             }
-        
+
         with get_session() as session:
             wallet = HotWallet(
                 name=name,
@@ -216,48 +223,56 @@ class HotWalletService:
             session.add(wallet)
             session.flush()
             wallet_id = wallet.id
-        
+
         return self.get_hot_wallet_by_id(wallet_id)
-    
+
     def get_hot_wallet_by_id(self, wallet_id: int) -> Optional[HotWallet]:
         """Get hot wallet by ID."""
         with get_session() as session:
             return session.query(HotWallet).filter(HotWallet.id == wallet_id).first()
-    
+
     def get_deposit_wallet(self, chain_type: str) -> Optional[HotWallet]:
         """Get the primary deposit wallet for a chain type."""
         with get_session() as session:
-            return session.query(HotWallet).filter(
-                HotWallet.chain_type == chain_type,
-                HotWallet.is_deposit_wallet == True,
-                HotWallet.is_active == True,
-            ).first()
-    
+            return (
+                session.query(HotWallet)
+                .filter(
+                    HotWallet.chain_type == chain_type,
+                    HotWallet.is_deposit_wallet == True,
+                    HotWallet.is_active == True,
+                )
+                .first()
+            )
+
     def get_gas_payer_wallet(self, chain_type: str) -> Optional[HotWallet]:
         """Get the gas payer wallet for a chain type."""
         with get_session() as session:
-            return session.query(HotWallet).filter(
-                HotWallet.chain_type == chain_type,
-                HotWallet.is_gas_payer == True,
-                HotWallet.is_active == True,
-            ).first()
-    
+            return (
+                session.query(HotWallet)
+                .filter(
+                    HotWallet.chain_type == chain_type,
+                    HotWallet.is_gas_payer == True,
+                    HotWallet.is_active == True,
+                )
+                .first()
+            )
+
     def get_private_key(self, wallet: HotWallet, auto_migrate: bool = True) -> str:
         """
         Decrypt and return private key.
-        
+
         Handles both legacy (Fernet) and v2 (KMS + AES-GCM) encryption schemes.
         Optionally auto-migrates legacy wallets to v2 on first access.
-        
+
         Note: Turnkey wallets do not have accessible private keys.
-        
+
         Args:
             wallet: HotWallet object
             auto_migrate: Whether to migrate legacy wallets to v2
-            
+
         Returns:
             Decrypted private key string
-            
+
         Raises:
             ValueError: If wallet is a Turnkey wallet
         """
@@ -267,7 +282,7 @@ class HotWalletService:
                 "Cannot access private key for Turnkey hot wallet. "
                 "Use send_native_token or send_token instead."
             )
-        
+
         with get_session() as session:
             # Re-attach wallet to session for potential migration update
             wallet = session.merge(wallet)
@@ -276,9 +291,9 @@ class HotWalletService:
                 session=session,
                 auto_migrate=auto_migrate,
             )
-    
+
     # === Balance Management ===
-    
+
     def get_custodial_balance(
         self,
         user_id: int,
@@ -287,31 +302,39 @@ class HotWalletService:
     ) -> Decimal:
         """Get user's custodial balance for a token."""
         with get_session() as session:
-            balance = session.query(CustodialBalance).filter(
-                CustodialBalance.user_id == user_id,
-                CustodialBalance.chain == chain,
-                CustodialBalance.token_symbol == token_symbol,
-            ).first()
-            
+            balance = (
+                session.query(CustodialBalance)
+                .filter(
+                    CustodialBalance.user_id == user_id,
+                    CustodialBalance.chain == chain,
+                    CustodialBalance.token_symbol == token_symbol,
+                )
+                .first()
+            )
+
             if balance:
                 return Decimal(balance.balance)
             return Decimal("0")
-    
+
     def get_all_custodial_balances(self, user_id: int) -> dict[str, dict[str, Decimal]]:
         """Get all custodial balances for a user."""
         with get_session() as session:
-            balances = session.query(CustodialBalance).filter(
-                CustodialBalance.user_id == user_id,
-            ).all()
-            
+            balances = (
+                session.query(CustodialBalance)
+                .filter(
+                    CustodialBalance.user_id == user_id,
+                )
+                .all()
+            )
+
             result: dict[str, dict[str, Decimal]] = {}
             for bal in balances:
                 if bal.chain not in result:
                     result[bal.chain] = {}
                 result[bal.chain][bal.token_symbol] = Decimal(bal.balance)
-            
+
             return result
-    
+
     def update_custodial_balance(
         self,
         user_id: int,
@@ -322,14 +345,18 @@ class HotWalletService:
     ) -> Decimal:
         """Update custodial balance. Returns new balance."""
         token_address = get_token_address(token_symbol, chain) or NATIVE_TOKEN_ADDRESS
-        
+
         with get_session() as session:
-            balance = session.query(CustodialBalance).filter(
-                CustodialBalance.user_id == user_id,
-                CustodialBalance.chain == chain,
-                CustodialBalance.token_symbol == token_symbol,
-            ).first()
-            
+            balance = (
+                session.query(CustodialBalance)
+                .filter(
+                    CustodialBalance.user_id == user_id,
+                    CustodialBalance.chain == chain,
+                    CustodialBalance.token_symbol == token_symbol,
+                )
+                .first()
+            )
+
             if not balance:
                 balance = CustodialBalance(
                     user_id=user_id,
@@ -339,9 +366,9 @@ class HotWalletService:
                     balance="0",
                 )
                 session.add(balance)
-            
+
             current = Decimal(balance.balance)
-            
+
             if operation == "add":
                 new_balance = current + amount
             elif operation == "subtract":
@@ -350,14 +377,14 @@ class HotWalletService:
                     raise ValueError("Insufficient balance")
             else:
                 raise ValueError(f"Invalid operation: {operation}")
-            
+
             balance.balance = str(new_balance)
             session.flush()
-            
+
             return new_balance
-    
+
     # === Transaction Recording ===
-    
+
     def record_transaction(
         self,
         user_id: int,
@@ -374,7 +401,7 @@ class HotWalletService:
     ) -> CustodialTransaction:
         """Record a custodial transaction."""
         token_address = get_token_address(token_symbol, chain) or NATIVE_TOKEN_ADDRESS
-        
+
         with get_session() as session:
             tx = CustodialTransaction(
                 user_id=user_id,
@@ -393,12 +420,12 @@ class HotWalletService:
             session.add(tx)
             session.flush()
             tx_id = tx.id
-        
+
         with get_session() as session:
-            return session.query(CustodialTransaction).filter(
-                CustodialTransaction.id == tx_id
-            ).first()
-    
+            return (
+                session.query(CustodialTransaction).filter(CustodialTransaction.id == tx_id).first()
+            )
+
     def update_transaction_status(
         self,
         tx_id: int,
@@ -407,19 +434,19 @@ class HotWalletService:
     ) -> None:
         """Update transaction status."""
         with get_session() as session:
-            tx = session.query(CustodialTransaction).filter(
-                CustodialTransaction.id == tx_id
-            ).first()
-            
+            tx = (
+                session.query(CustodialTransaction).filter(CustodialTransaction.id == tx_id).first()
+            )
+
             if tx:
                 tx.status = status.value
                 if tx_hash:
                     tx.tx_hash = tx_hash
                 if status == TransactionStatus.COMPLETED:
                     tx.completed_at = datetime.now(timezone.utc)
-    
+
     # === Hot Wallet Operations ===
-    
+
     async def get_hot_wallet_balance(
         self,
         wallet: HotWallet,
@@ -427,7 +454,7 @@ class HotWalletService:
     ) -> Tuple[Decimal, dict[str, Decimal]]:
         """
         Get hot wallet balances.
-        
+
         Returns:
             Tuple of (native_balance, {token_symbol: balance})
         """
@@ -437,7 +464,7 @@ class HotWalletService:
             return await self._get_solana_wallet_balance(wallet)
         else:
             return Decimal("0"), {}
-    
+
     async def _get_evm_wallet_balance(
         self,
         wallet: HotWallet,
@@ -445,15 +472,16 @@ class HotWalletService:
     ) -> Tuple[Decimal, dict[str, Decimal]]:
         """Get EVM wallet balances."""
         web3 = self._get_web3(chain_name)
-        
+
         # Native balance
         native_wei = web3.eth.get_balance(Web3.to_checksum_address(wallet.address))
-        native_balance = Decimal(str(native_wei)) / Decimal(10 ** 18)
-        
+        native_balance = Decimal(str(native_wei)) / Decimal(10**18)
+
         # Token balances
         from bot.config.tokens import TOKENS
+
         token_balances = {}
-        
+
         for token_symbol, token in TOKENS.items():
             if chain_name in token.addresses:
                 token_address = token.addresses[chain_name]
@@ -468,7 +496,7 @@ class HotWalletService:
                         logger.debug(f"Failed to fetch {token_symbol} balance: {e}")
 
         return native_balance, token_balances
-    
+
     async def _get_erc20_balance(
         self,
         web3: Web3,
@@ -477,17 +505,21 @@ class HotWalletService:
         decimals: int,
     ) -> Decimal:
         """Get ERC20 token balance."""
-        abi = [{"constant": True, "inputs": [{"name": "_owner", "type": "address"}], 
-                "name": "balanceOf", "outputs": [{"name": "balance", "type": "uint256"}], "type": "function"}]
-        
-        contract = web3.eth.contract(
-            address=Web3.to_checksum_address(token_address),
-            abi=abi
-        )
-        
+        abi = [
+            {
+                "constant": True,
+                "inputs": [{"name": "_owner", "type": "address"}],
+                "name": "balanceOf",
+                "outputs": [{"name": "balance", "type": "uint256"}],
+                "type": "function",
+            }
+        ]
+
+        contract = web3.eth.contract(address=Web3.to_checksum_address(token_address), abi=abi)
+
         balance = contract.functions.balanceOf(Web3.to_checksum_address(wallet_address)).call()
-        return Decimal(str(balance)) / Decimal(10 ** decimals)
-    
+        return Decimal(str(balance)) / Decimal(10**decimals)
+
     async def _get_solana_wallet_balance(
         self,
         wallet: HotWallet,
@@ -495,7 +527,7 @@ class HotWalletService:
         """Get Solana wallet balances."""
         native_balance = Decimal("0")
         token_balances = {}
-        
+
         try:
             async with aiohttp.ClientSession() as session:
                 # SOL balance
@@ -503,18 +535,18 @@ class HotWalletService:
                     "jsonrpc": "2.0",
                     "id": 1,
                     "method": "getBalance",
-                    "params": [wallet.address]
+                    "params": [wallet.address],
                 }
                 async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                     result = await resp.json()
                     if "result" in result:
                         lamports = result["result"]["value"]
-                        native_balance = Decimal(str(lamports)) / Decimal(10 ** 9)
+                        native_balance = Decimal(str(lamports)) / Decimal(10**9)
         except Exception as e:
             logger.error(f"Error fetching Solana balance: {e}")
-        
+
         return native_balance, token_balances
-    
+
     async def send_native_token(
         self,
         wallet: HotWallet,
@@ -527,25 +559,25 @@ class HotWalletService:
             return await self._send_sol_native(wallet, to_address, amount)
         elif wallet.chain_type != "evm":
             raise NotImplementedError(f"Chain type {wallet.chain_type} not supported")
-        
+
         web3 = self._get_web3(chain_name)
         chain = get_chain_by_name(chain_name)
-        
-        amount_wei = int(amount * Decimal(10 ** 18))
-        
+
+        amount_wei = int(amount * Decimal(10**18))
+
         # Build transaction
         nonce = web3.eth.get_transaction_count(Web3.to_checksum_address(wallet.address))
         gas_price = web3.eth.gas_price
-        
+
         tx = {
-            'nonce': nonce,
-            'to': Web3.to_checksum_address(to_address),
-            'value': amount_wei,
-            'gas': 21000,
-            'gasPrice': gas_price,
-            'chainId': chain.chain_id,
+            "nonce": nonce,
+            "to": Web3.to_checksum_address(to_address),
+            "value": amount_wei,
+            "gas": 21000,
+            "gasPrice": gas_price,
+            "chainId": chain.chain_id,
         }
-        
+
         # Sign based on wallet provider
         if wallet.is_turnkey_wallet:
             signed_tx_hex = await self._sign_via_turnkey(wallet, tx)
@@ -556,7 +588,7 @@ class HotWalletService:
                 private_key = "0x" + private_key
             signed = Account.sign_transaction(tx, private_key)
             tx_hash = web3.eth.send_raw_transaction(signed.rawTransaction)
-        
+
         return tx_hash.hex()
 
     async def _send_sol_native(
@@ -574,7 +606,7 @@ class HotWalletService:
         from solders.message import Message
 
         # Get Solana RPC URL
-        rpc_url = getattr(settings, 'solana_rpc_url', None)
+        rpc_url = getattr(settings, "solana_rpc_url", None)
         if not rpc_url:
             raise ValueError("Solana RPC URL not configured")
 
@@ -589,11 +621,13 @@ class HotWalletService:
         # Create async client
         async with AsyncClient(rpc_url) as client:
             # Build transfer instruction
-            transfer_ix = transfer(TransferParams(
-                from_pubkey=keypair.pubkey(),
-                to_pubkey=Pubkey.from_string(to_address),
-                lamports=lamports,
-            ))
+            transfer_ix = transfer(
+                TransferParams(
+                    from_pubkey=keypair.pubkey(),
+                    to_pubkey=Pubkey.from_string(to_address),
+                    lamports=lamports,
+                )
+            )
 
             # Get recent blockhash
             blockhash_resp = await client.get_latest_blockhash()
@@ -629,11 +663,15 @@ class HotWalletService:
         from solders.pubkey import Pubkey
         from solders.transaction import Transaction
         from solders.message import Message
-        from spl.token.instructions import transfer_checked, TransferCheckedParams, get_associated_token_address
+        from spl.token.instructions import (
+            transfer_checked,
+            TransferCheckedParams,
+            get_associated_token_address,
+        )
         from spl.token.async_client import AsyncToken
 
         # Get Solana RPC URL
-        rpc_url = getattr(settings, 'solana_rpc_url', None)
+        rpc_url = getattr(settings, "solana_rpc_url", None)
         if not rpc_url:
             raise ValueError("Solana RPC URL not configured")
 
@@ -651,20 +689,24 @@ class HotWalletService:
         dest_ata = get_associated_token_address(dest_pubkey, mint_pubkey)
 
         # Convert amount to token units
-        amount_raw = int(amount * Decimal(10 ** decimals))
+        amount_raw = int(amount * Decimal(10**decimals))
 
         # Create async client
         async with AsyncClient(rpc_url) as client:
             # Build transfer_checked instruction (validates decimals for safety)
-            transfer_ix = transfer_checked(TransferCheckedParams(
-                program_id=Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),  # SPL Token program
-                source=source_ata,
-                mint=mint_pubkey,
-                dest=dest_ata,
-                owner=keypair.pubkey(),
-                amount=amount_raw,
-                decimals=decimals,
-            ))
+            transfer_ix = transfer_checked(
+                TransferCheckedParams(
+                    program_id=Pubkey.from_string(
+                        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+                    ),  # SPL Token program
+                    source=source_ata,
+                    mint=mint_pubkey,
+                    dest=dest_ata,
+                    owner=keypair.pubkey(),
+                    amount=amount_raw,
+                    decimals=decimals,
+                )
+            )
 
             # Get recent blockhash
             blockhash_resp = await client.get_latest_blockhash()
@@ -683,7 +725,9 @@ class HotWalletService:
             result = await client.send_transaction(tx)
             signature = str(result.value)
 
-            logger.info(f"Sent {amount} of token {token_address} to {to_address}, signature: {signature}")
+            logger.info(
+                f"Sent {amount} of token {token_address} to {to_address}, signature: {signature}"
+            )
             return signature
 
     async def send_token(
@@ -694,44 +738,80 @@ class HotWalletService:
         to_address: str,
         amount: Decimal,
         decimals: int,
+        memo: str = "",
     ) -> str:
-        """Send ERC20/SPL token from hot wallet. Returns tx hash/signature."""
+        """Send ERC20/SPL token from hot wallet. Returns tx hash/signature.
+
+        On Tempo (chain 4217), tokens are TIP-20 (an ERC-20 superset). Tempo
+        transfers are routed through ``transferWithMemo`` so an optional payment
+        ``memo`` can ride with the transfer; an empty memo still produces a real
+        TIP-20 transferWithMemo call. All other chains use plain ERC-20
+        ``transfer``.
+        """
         if wallet.chain_type == "solana":
             return await self._send_spl_token(wallet, token_address, to_address, amount, decimals)
         elif wallet.chain_type != "evm":
             raise NotImplementedError(f"Chain type {wallet.chain_type} not supported")
-        
+
         web3 = self._get_web3(chain_name)
         chain = get_chain_by_name(chain_name)
-        
-        amount_raw = int(amount * Decimal(10 ** decimals))
-        
-        # ERC20 transfer ABI
-        abi = [{"constant": False, "inputs": [{"name": "_to", "type": "address"}, 
-                {"name": "_value", "type": "uint256"}], "name": "transfer", 
-                "outputs": [{"name": "", "type": "bool"}], "type": "function"}]
-        
-        contract = web3.eth.contract(
-            address=Web3.to_checksum_address(token_address),
-            abi=abi
-        )
-        
-        # Build transaction
+
+        amount_raw = int(amount * Decimal(10**decimals))
+
         nonce = web3.eth.get_transaction_count(Web3.to_checksum_address(wallet.address))
         gas_price = web3.eth.gas_price
-        
-        tx = contract.functions.transfer(
-            Web3.to_checksum_address(to_address),
-            amount_raw
-        ).build_transaction({
-            'nonce': nonce,
-            'gasPrice': gas_price,
-            'chainId': chain.chain_id,
-        })
-        
+
+        if chain_name == "tempo":
+            # TIP-20 transferWithMemo (Tempo native). build_transfer_with_memo
+            # returns {to, data, value}; we add the standard tx fields here.
+            from bot.services.tempo_tip20 import tempo_tip20
+
+            base = tempo_tip20.build_transfer_with_memo(
+                token_address=token_address,
+                to=to_address,
+                amount=amount_raw,
+                memo=memo or "",
+            )
+            tx = {
+                "from": Web3.to_checksum_address(wallet.address),
+                "to": base["to"],
+                "data": base["data"],
+                "value": base.get("value", 0),
+                "nonce": nonce,
+                "gasPrice": gas_price,
+                "chainId": chain.chain_id,
+            }
+        else:
+            # ERC20 transfer ABI
+            abi = [
+                {
+                    "constant": False,
+                    "inputs": [
+                        {"name": "_to", "type": "address"},
+                        {"name": "_value", "type": "uint256"},
+                    ],
+                    "name": "transfer",
+                    "outputs": [{"name": "", "type": "bool"}],
+                    "type": "function",
+                }
+            ]
+
+            contract = web3.eth.contract(address=Web3.to_checksum_address(token_address), abi=abi)
+
+            # Build transaction
+            tx = contract.functions.transfer(
+                Web3.to_checksum_address(to_address), amount_raw
+            ).build_transaction(
+                {
+                    "nonce": nonce,
+                    "gasPrice": gas_price,
+                    "chainId": chain.chain_id,
+                }
+            )
+
         # Estimate gas
-        tx['gas'] = web3.eth.estimate_gas(tx)
-        
+        tx["gas"] = web3.eth.estimate_gas(tx)
+
         # Sign based on wallet provider
         if wallet.is_turnkey_wallet:
             signed_tx_hex = await self._sign_via_turnkey(wallet, tx)
@@ -742,16 +822,16 @@ class HotWalletService:
                 private_key = "0x" + private_key
             signed = Account.sign_transaction(tx, private_key)
             tx_hash = web3.eth.send_raw_transaction(signed.rawTransaction)
-        
+
         return tx_hash.hex()
-    
+
     async def _sign_via_turnkey(self, wallet: HotWallet, transaction: dict) -> str:
         """Sign a transaction via Turnkey API."""
         from bot.services.turnkey_client import get_turnkey_client
         import rlp
-        
+
         client = get_turnkey_client()
-        
+
         # Serialize transaction for Turnkey
         tx_data = [
             transaction.get("nonce", 0),
@@ -766,17 +846,16 @@ class HotWalletService:
         ]
         encoded = rlp.encode(tx_data)
         unsigned_tx_hex = "0x" + encoded.hex()
-        
+
         signed_tx = await client.sign_transaction(
             unsigned_transaction=unsigned_tx_hex,
             sign_with=wallet.address,
             transaction_type="TRANSACTION_TYPE_ETHEREUM",
             organization_id=None,  # Main org for hot wallets
         )
-        
+
         return signed_tx
 
 
 # Global instance
 hot_wallet_service = HotWalletService()
-

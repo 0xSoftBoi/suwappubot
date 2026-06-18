@@ -55,6 +55,7 @@ const CHAIN_COLORS: Record<string, string> = {
   base: 'bg-blue-700',
   avalanche: 'bg-red-600',
   solana: 'bg-gradient-to-r from-purple-500 to-teal-400',
+  tempo: 'bg-amber-500',
 }
 
 const CHAIN_LABELS: Record<string, string> = {
@@ -66,6 +67,7 @@ const CHAIN_LABELS: Record<string, string> = {
   base: 'BASE',
   avalanche: 'AVAX',
   solana: 'SOL',
+  tempo: 'USD',
 }
 
 // --- Risk level config ---

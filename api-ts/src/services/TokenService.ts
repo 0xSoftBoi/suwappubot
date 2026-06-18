@@ -120,6 +120,13 @@ export const CHAINS: Record<string, ChainInfo> = {
 		nativeToken: 'USD',
 		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
 	},
+	tp: {
+		id: 4217,
+		key: 'tempo',
+		name: 'Tempo',
+		nativeToken: 'USD',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
 	plasma: {
 		id: 9745,
 		key: 'plasma',

@@ -12,7 +12,8 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
-# Default sponsorship config
+# Default sponsorship config (used only as a hard fallback if settings are
+# unavailable; the constructor prefers values from bot.config.settings).
 MAX_SPONSORED_TXS_PER_USER = 3
 DAILY_SPONSOR_BUDGET_USD = 100.0
 DEFAULT_FEE_TOKEN = "pathUSD"
@@ -21,6 +22,7 @@ DEFAULT_FEE_TOKEN = "pathUSD"
 @dataclass
 class SponsorshipResult:
     """Result of a sponsorship check."""
+
     should_sponsor: bool
     reason: str
     remaining_txs: int
@@ -37,24 +39,49 @@ class TempoFeeSponsor:
 
     def __init__(
         self,
-        max_sponsored_txs: int = MAX_SPONSORED_TXS_PER_USER,
-        daily_budget_usd: float = DAILY_SPONSOR_BUDGET_USD,
+        max_sponsored_txs: Optional[int] = None,
+        daily_budget_usd: Optional[float] = None,
         fee_token: str = DEFAULT_FEE_TOKEN,
     ):
-        self.max_sponsored_txs = max_sponsored_txs
-        self.daily_budget_usd = daily_budget_usd
-        self.fee_token = fee_token
-        # In-memory tracking (production should use DB)
-        self._user_tx_counts: dict[int, int] = {}
-        self._daily_spend: float = 0.0
-        self._last_reset: datetime = datetime.now(timezone.utc)
+        # Prefer values from settings; fall back to module constants if either
+        # the caller passed explicit values or settings is unavailable.
+        if max_sponsored_txs is None or daily_budget_usd is None:
+            try:
+                from bot.config.settings import settings
 
-    def _reset_daily_if_needed(self):
-        """Reset daily budget counter if a new day has started."""
-        now = datetime.now(timezone.utc)
-        if now.date() > self._last_reset.date():
-            self._daily_spend = 0.0
-            self._last_reset = now
+                if max_sponsored_txs is None:
+                    max_sponsored_txs = settings.tempo_sponsor_max_txs
+                if daily_budget_usd is None:
+                    daily_budget_usd = settings.tempo_sponsor_daily_budget_usd
+            except Exception:
+                pass
+
+        self.max_sponsored_txs = (
+            max_sponsored_txs if max_sponsored_txs is not None else MAX_SPONSORED_TXS_PER_USER
+        )
+        self.daily_budget_usd = (
+            daily_budget_usd if daily_budget_usd is not None else DAILY_SPONSOR_BUDGET_USD
+        )
+        self.fee_token = fee_token
+
+    def _get_daily_spend(self) -> float:
+        """Sum today's (UTC) sponsored spend across all users.
+
+        The daily budget is global, so we aggregate every user's daily_spend_usd
+        for rows whose ``day`` is today. Rows from prior days are treated as 0
+        (lazy reset happens on write in record_sponsored_tx).
+        """
+        from database.db import get_session
+        from bot.models.tempo import TempoSponsorship
+
+        today = datetime.now(timezone.utc).date()
+        with get_session() as session:
+            rows = (
+                session.query(TempoSponsorship.daily_spend_usd)
+                .filter(TempoSponsorship.day == today)
+                .all()
+            )
+        return float(sum((r[0] or 0.0) for r in rows))
 
     def check_sponsorship(
         self,
@@ -64,14 +91,24 @@ class TempoFeeSponsor:
     ) -> SponsorshipResult:
         """Decide whether the bot should sponsor gas for this transaction.
 
+        Reads the per-user count and global daily spend from the DB so limits
+        hold across restarts/replicas.
+
         Args:
             user_id: Telegram user ID
             tx_type: Transaction type (swap, transfer, etc.)
             estimated_fee_usd: Estimated fee in USD
         """
-        self._reset_daily_if_needed()
+        from database.db import get_session
+        from bot.models.tempo import TempoSponsorship
 
-        user_count = self._user_tx_counts.get(user_id, 0)
+        today = datetime.now(timezone.utc).date()
+        with get_session() as session:
+            row = (
+                session.query(TempoSponsorship).filter(TempoSponsorship.user_id == user_id).first()
+            )
+            user_count = row.tx_count if row else 0
+
         remaining = max(0, self.max_sponsored_txs - user_count)
 
         # Check user limit
@@ -83,8 +120,9 @@ class TempoFeeSponsor:
                 fee_token=self.fee_token,
             )
 
-        # Check daily budget
-        if self._daily_spend + estimated_fee_usd > self.daily_budget_usd:
+        # Check daily budget (global, today only)
+        daily_spend = self._get_daily_spend()
+        if daily_spend + estimated_fee_usd > self.daily_budget_usd:
             return SponsorshipResult(
                 should_sponsor=False,
                 reason="Daily sponsorship budget exhausted",
@@ -100,13 +138,43 @@ class TempoFeeSponsor:
         )
 
     def record_sponsored_tx(self, user_id: int, fee_usd: float):
-        """Record that a sponsored transaction was executed."""
-        self._user_tx_counts[user_id] = self._user_tx_counts.get(user_id, 0) + 1
-        self._daily_spend += fee_usd
+        """Record that a sponsored transaction was executed (DB-backed).
+
+        Upserts the per-user row, increments tx_count, and adds to today's
+        daily_spend_usd. If the stored ``day`` is older than today (UTC), the
+        daily_spend resets before this fee is added.
+        """
+        from database.db import get_session
+        from bot.models.tempo import TempoSponsorship
+
+        today = datetime.now(timezone.utc).date()
+        with get_session() as session:
+            row = (
+                session.query(TempoSponsorship).filter(TempoSponsorship.user_id == user_id).first()
+            )
+            if row is None:
+                row = TempoSponsorship(
+                    user_id=user_id,
+                    tx_count=0,
+                    daily_spend_usd=0.0,
+                    day=today,
+                )
+                session.add(row)
+
+            # Daily reset: stored day older than today -> reset daily_spend.
+            if row.day != today:
+                row.daily_spend_usd = 0.0
+                row.day = today
+
+            row.tx_count = (row.tx_count or 0) + 1
+            row.daily_spend_usd = (row.daily_spend_usd or 0.0) + fee_usd
+            new_count = row.tx_count
+            new_daily = row.daily_spend_usd
+
         logger.info(
             f"Sponsored tx for user {user_id}: ${fee_usd:.4f} "
-            f"(total: {self._user_tx_counts[user_id]}/{self.max_sponsored_txs}, "
-            f"daily: ${self._daily_spend:.2f}/${self.daily_budget_usd})"
+            f"(total: {new_count}/{self.max_sponsored_txs}, "
+            f"daily: ${new_daily:.2f}/${self.daily_budget_usd})"
         )
 
     def build_sponsored_tx(

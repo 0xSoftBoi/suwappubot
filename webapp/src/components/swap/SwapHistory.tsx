@@ -55,6 +55,7 @@ const CHAIN_LABELS: Record<string, string> = {
   scroll: 'Scroll',
   sui: 'SUI',
   ton: 'TON',
+  tempo: 'Tempo',
 }
 
 const STATUS_CONFIG = {

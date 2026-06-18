@@ -38,6 +38,7 @@ from .subscription import (
 from .predict import PredictionOrder, PredictionPosition
 from .tracking import TrackedTwitterAccount, TrackedWallet
 from .btc_swap import BtcSwap
+from .tempo import TempoSponsorship
 
 __all__ = [
     "User",
@@ -91,4 +92,6 @@ __all__ = [
     "TrackedWallet",
     # BTC bridge (Atomiq)
     "BtcSwap",
+    # Tempo (chain 4217)
+    "TempoSponsorship",
 ]

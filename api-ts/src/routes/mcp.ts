@@ -101,7 +101,7 @@ const TOOLS = [
 	},
 	{
 		name: 'get_tempo_tokens',
-		description: 'Get TIP-20 token list on Tempo mainnet (chain ID 4217) with addresses and decimals. Tempo uses USD-denominated stablecoins: pathUSD, AlphaUSD, BetaUSD, ThetaUSD.',
+		description: 'Get TIP-20 token list on Tempo mainnet (chain ID 4217) with addresses, decimals, and TIP-20 metadata (currency code, isTip20 flag). Tempo uses USD-denominated stablecoins: pathUSD, AlphaUSD, BetaUSD, ThetaUSD.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -170,16 +170,44 @@ function isTempoChain(chain: string): boolean {
 	return n === 'tempo' || n === '4217'
 }
 
-const TEMPO_TOKENS = [
-	{ symbol: 'pathUSD', name: 'pathUSD', address: '0x20c0000000000000000000000000000000000000', decimals: 6, description: 'Tempo native stablecoin' },
-	{ symbol: 'AlphaUSD', name: 'AlphaUSD', address: '0x20c0000000000000000000000000000000000001', decimals: 6, description: 'Alpha yield-bearing stablecoin' },
-	{ symbol: 'BetaUSD', name: 'BetaUSD', address: '0x20c0000000000000000000000000000000000002', decimals: 6, description: 'Beta yield-bearing stablecoin' },
-	{ symbol: 'ThetaUSD', name: 'ThetaUSD', address: '0x20c0000000000000000000000000000000000003', decimals: 6, description: 'Theta yield-bearing stablecoin' },
-]
+// Tempo TIP-20 chain id. The token addresses/decimals live in the single source of
+// truth (COMMON_TOKENS[4217] in TokenService); only the human descriptions are kept
+// here since COMMON_TOKENS does not carry that metadata.
+const TEMPO_CHAIN_ID = 4217
+const TEMPO_TOKEN_DESCRIPTIONS: Record<string, string> = {
+	pathUSD: 'Tempo native stablecoin',
+	AlphaUSD: 'Alpha yield-bearing stablecoin',
+	BetaUSD: 'Beta yield-bearing stablecoin',
+	ThetaUSD: 'Theta yield-bearing stablecoin',
+}
+// TIP-20 tokens on Tempo are 6-decimal USD-denominated stablecoins.
+const TEMPO_TOKEN_DECIMALS = 6
+
+// Static TIP-20 metadata known for the Tempo native stablecoins. Currency code and the
+// isTip20 flag are constant for all COMMON_TOKENS[4217] entries (all are USD-denominated
+// TIP-20 tokens). Richer TIP-20 fields (compliance policy, transferWithMemo) live in the
+// Python `tempo_tip20` service and would need a dedicated internal endpoint to surface
+// here — not yet exposed, so only the statically-known fields are passed through.
+const TEMPO_TIP20_CURRENCY = 'USD'
+
+// Derive the Tempo token list from COMMON_TOKENS[4217] so MCP and TokenService never
+// drift apart. Adding a token to COMMON_TOKENS[4217] surfaces it here automatically.
+function buildTempoTokens() {
+	return Object.entries(COMMON_TOKENS[TEMPO_CHAIN_ID] || {}).map(([symbol, address]) => ({
+		symbol,
+		name: symbol,
+		address,
+		decimals: TEMPO_TOKEN_DECIMALS,
+		description: TEMPO_TOKEN_DESCRIPTIONS[symbol] || `${symbol} TIP-20 token on Tempo`,
+		// TIP-20 metadata passthrough (statically known for Tempo stablecoins).
+		currency: TEMPO_TIP20_CURRENCY,
+		isTip20: true,
+	}))
+}
 
 function handleGetTempoTokens(args: Record<string, unknown>) {
 	const search = (args.search as string)?.toUpperCase()
-	let tokens = TEMPO_TOKENS
+	let tokens = buildTempoTokens()
 	if (search) {
 		tokens = tokens.filter((t) => t.symbol.toUpperCase().includes(search))
 	}
@@ -188,7 +216,7 @@ function handleGetTempoTokens(args: Record<string, unknown>) {
 			type: 'text',
 			text: JSON.stringify({
 				chain: 'Tempo',
-				chain_id: 4217,
+				chain_id: TEMPO_CHAIN_ID,
 				native_token: 'USD',
 				tokens: tokens.map((t) => ({
 					symbol: t.symbol,
@@ -196,6 +224,8 @@ function handleGetTempoTokens(args: Record<string, unknown>) {
 					address: t.address,
 					decimals: t.decimals,
 					description: t.description,
+					currency: t.currency,
+					isTip20: t.isTip20,
 				})),
 			}),
 		}],

@@ -29,6 +29,7 @@ const CHAIN_MAP: Record<string, ChainInfo> = {
   solana: { name: 'Solana', abbreviation: 'SO', colorClass: 'bg-chain-solana' },
   sui: { name: 'Sui', abbreviation: 'SU', colorClass: 'bg-chain-sui' },
   ton: { name: 'TON', abbreviation: 'TO', colorClass: 'bg-chain-ton' },
+  tempo: { name: 'Tempo', abbreviation: 'TE', colorClass: 'bg-chain-tempo' },
 }
 
 const SIZE_CONFIG = {

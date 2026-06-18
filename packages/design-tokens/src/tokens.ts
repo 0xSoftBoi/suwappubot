@@ -100,6 +100,7 @@ export const designTokens = {
       solana: '#9945FF',
       sui: '#6FBCF0',
       ton: '#0098EA',
+      tempo: '#F5A623',
     },
 
     provider: {
