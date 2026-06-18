@@ -92,11 +92,12 @@ class HLEcosystemMonitor:
         return best
 
     async def _sync_twaps(self):
-        """Reconcile running TWAPs against on-chain twapHistory state.
+        """Reconcile running TWAPs against on-chain state.
 
-        Updates executed size from ``state.executedSz`` and resolves terminal
-        status (finished/terminated/error) from ``status.status`` — replacing the
-        old "duration elapsed" guess with HyperLiquid's actual TWAP state.
+        Exact ``filled_size`` and notional come from per-twapId slice fills
+        (userTwapSliceFills — the ground truth for amount); terminal status
+        (finished/terminated/error) comes from twapHistory. A TWAP is also
+        resolved when its exact fill reaches the ordered size.
         """
         now = datetime.now(timezone.utc)
         with get_session() as session:
@@ -118,6 +119,7 @@ class HLEcosystemMonitor:
                     addr = acct.hl_address if acct else None
                 if not addr:
                     continue
+                filled_by_id = await hyperliquid_client.get_twap_filled_by_id(addr)
                 history = await hyperliquid_client.get_twap_history(addr)
                 notes = []
                 with get_session() as session:
@@ -127,30 +129,44 @@ class HLEcosystemMonitor:
                         .all()
                     )
                     for t in rows:
+                        # Exact fill for THIS twap by id (ground truth).
+                        exact = filled_by_id.get(str(t.twap_id))
+                        filled = exact["sz"] if exact else None
+                        ntl = exact["ntl"] if exact else 0.0
+                        if filled is not None:
+                            t.filled_size = Decimal(str(filled))
+
+                        ordered = float(t.size or 0)
                         entry = self._match_twap_entry(history, t.market, t.side, t.created_at)
-                        # Safety net: if no entry yet but well past the window, stop polling.
-                        if not entry:
+                        status = (entry.get("status", {}) or {}).get("status") if entry else None
+                        # Fall back to executedNtl from history if no slice fills yet.
+                        if entry and not ntl:
+                            ntl = float((entry.get("state", {}) or {}).get("executedNtl", 0) or 0)
+
+                        terminal = None
+                        if status in ("finished", "terminated", "error"):
+                            terminal = status
+                        elif filled is not None and ordered > 0 and filled >= ordered * 0.999:
+                            terminal = "finished"
+                        else:
                             created = t.created_at or now
                             if created.tzinfo is None:
                                 created = created.replace(tzinfo=timezone.utc)
                             if now >= created + timedelta(minutes=int(t.minutes) + 10):
-                                t.status = "finished"
-                                t.finished_at = now
-                            continue
-                        state = entry.get("state", {})
-                        status = (entry.get("status", {}) or {}).get("status", "activated")
-                        t.filled_size = Decimal(str(state.get("executedSz", 0) or 0))
-                        if status in ("finished", "terminated", "error"):
-                            t.status = status
+                                # Safety net: window long past, stop polling.
+                                terminal = "finished"
+
+                        if terminal:
+                            t.status = terminal
                             t.finished_at = now
                             notes.append(
                                 (
-                                    status,
+                                    terminal,
                                     t.side,
-                                    float(state.get("executedSz", 0) or 0),
-                                    float(t.size),
+                                    float(t.filled_size or 0),
+                                    ordered,
                                     t.market,
-                                    float(state.get("executedNtl", 0) or 0),
+                                    ntl,
                                 )
                             )
                 for status, side, exec_sz, total_sz, market, ntl in notes:
@@ -158,7 +174,7 @@ class HLEcosystemMonitor:
                         "finished": "completed",
                         "terminated": "stopped early",
                         "error": "errored",
-                    }[status]
+                    }.get(status, status)
                     await self._notify_user(
                         user_id,
                         f"\U0001f552 TWAP {verb}: {side.upper()} {market} — "

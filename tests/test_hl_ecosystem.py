@@ -337,3 +337,20 @@ def test_twap_match_by_coin_side_time():
     # outside the 5-min window -> no match
     history[1]["state"]["timestamp"] += 10 * 60 * 1000
     assert HLEcosystemMonitor._match_twap_entry(history, "BTC", "long", created) is None
+
+
+def test_twap_filled_by_id_aggregates_slices():
+    hl = HyperLiquidClient()
+    _stub_info(
+        hl,
+        [
+            {"fill": {"sz": "10", "px": "2.0"}, "twapId": 77},
+            {"fill": {"sz": "5", "px": "3.0"}, "twapId": 77},
+            {"fill": {"sz": "1", "px": "9.0"}, "twapId": 88},
+        ],
+    )
+    agg = asyncio.run(hl.get_twap_filled_by_id("0xabc"))
+    assert agg["77"]["sz"] == 15.0
+    assert agg["77"]["ntl"] == 10 * 2.0 + 5 * 3.0  # 35.0
+    assert agg["77"]["n"] == 2
+    assert agg["88"]["sz"] == 1.0

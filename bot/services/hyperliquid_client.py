@@ -588,6 +588,26 @@ class HyperLiquidClient:
         """Return the user's TWAP slice fills: ``[{fill, twapId}]`` (most recent 2000)."""
         return await self._info({"type": "userTwapSliceFills", "user": address}) or []
 
+    async def get_twap_filled_by_id(self, address: str) -> dict:
+        """Exact filled size + notional per ``twapId`` from the slice fills.
+
+        Returns ``{str(twapId): {"sz": float, "ntl": float, "n": int}}``. This is
+        the ground-truth fill for a specific TWAP we placed (twapHistory carries
+        status but no twapId; the slice fills carry twapId but no status — so we
+        use this for the exact amount and twapHistory for terminal state).
+        """
+        agg: dict = {}
+        for f in await self.get_twap_slice_fills(address):
+            tid = str(f.get("twapId"))
+            fill = f.get("fill", {}) or {}
+            sz = float(fill.get("sz", 0) or 0)
+            px = float(fill.get("px", 0) or 0)
+            a = agg.setdefault(tid, {"sz": 0.0, "ntl": 0.0, "n": 0})
+            a["sz"] += sz
+            a["ntl"] += sz * px
+            a["n"] += 1
+        return agg
+
     async def cancel_twap(
         self,
         address: str,
