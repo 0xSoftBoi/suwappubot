@@ -262,6 +262,18 @@ class HyperLiquidFundingService:
         """Move `amount` USDC from the user's HyperCore spot to perp wallet."""
         return await perps_service.transfer_usd(user_id, amount, to_perp=True)
 
+    async def get_hl_balance(self, user_id: int) -> dict:
+        """Best-effort current HyperLiquid holdings (spot/perp/total USD).
+
+        Returns the `get_holdings_usd` dict, or all-zeros on any error so a
+        balance line never breaks the funding menu.
+        """
+        try:
+            return await perps_service.get_holdings_usd(user_id)
+        except Exception as e:  # noqa: BLE001 — context only, never block the menu
+            logger.warning("get_hl_balance failed (user %s): %s", user_id, e)
+            return {"perps_usd": 0.0, "spot_usd": 0.0, "total_usd": 0.0}
+
 
 # Global instance.
 hyperliquid_funding = HyperLiquidFundingService()

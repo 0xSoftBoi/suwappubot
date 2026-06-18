@@ -123,6 +123,31 @@ async def test_generate_raises_on_missing_address():
 
 
 @pytest.mark.asyncio
+async def test_generate_rejects_below_guardian_threshold():
+    # Only 1 of 3 guardian signatures -> not jointly attested -> refuse.
+    resp = _FakeResp(200, {"address": "0xabc", "status": "OK", "signatures": {"hl-node": "x"}})
+    p_sess, p_lim, _ = _patch(resp)
+    with p_sess, p_lim:
+        api = HyperUnitAPI()
+        with pytest.raises(HyperUnitError, match="guardian"):
+            await api.generate_deposit_address("eth", HL_ADDR)
+
+
+@pytest.mark.asyncio
+async def test_generate_accepts_two_of_three_guardian_sigs():
+    resp = _FakeResp(
+        200,
+        {"address": "0xabc", "status": "OK", "signatures": {"hl-node": "x", "node-1": "y"}},
+    )
+    p_sess, p_lim, _ = _patch(resp)
+    with p_sess, p_lim:
+        api = HyperUnitAPI()
+        out = await api.generate_deposit_address("eth", HL_ADDR)
+    assert out.address == "0xabc"
+    assert len(out.signatures) == 2
+
+
+@pytest.mark.asyncio
 async def test_generate_raises_on_missing_signatures():
     resp = _FakeResp(200, {"address": "0xabc", "status": "OK"})
     p_sess, p_lim, _ = _patch(resp)

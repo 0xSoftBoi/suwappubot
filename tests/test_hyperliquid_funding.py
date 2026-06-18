@@ -153,3 +153,27 @@ async def test_check_native_status_delegates():
         out = await svc.check_native_status("bc1qaddr")
     assert out is sentinel
     get_op.assert_awaited_once_with("bc1qaddr")
+
+
+@pytest.mark.asyncio
+async def test_get_hl_balance_passthrough():
+    svc = HyperLiquidFundingService()
+    holdings = {"perps_usd": 100.0, "spot_usd": 25.0, "total_usd": 125.0}
+    with patch(
+        "bot.services.hyperliquid_funding.perps_service.get_holdings_usd",
+        AsyncMock(return_value=holdings),
+    ):
+        out = await svc.get_hl_balance(1)
+    assert out == holdings
+
+
+@pytest.mark.asyncio
+async def test_get_hl_balance_returns_zeros_on_error():
+    svc = HyperLiquidFundingService()
+    with patch(
+        "bot.services.hyperliquid_funding.perps_service.get_holdings_usd",
+        AsyncMock(side_effect=RuntimeError("upstream down")),
+    ):
+        out = await svc.get_hl_balance(1)
+    assert out["total_usd"] == 0.0
+    assert out["perps_usd"] == 0.0

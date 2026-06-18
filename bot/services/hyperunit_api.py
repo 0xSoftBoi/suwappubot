@@ -34,6 +34,10 @@ HYPERUNIT_API_URL = "https://api.hyperunit.xyz"
 # Destination chain value for HyperLiquid HyperCore in the /gen path.
 HYPERUNIT_DST_CHAIN = "hyperliquid"
 
+# HyperUnit is a 2-of-3 MPC; require at least this many guardian signatures on
+# a generated deposit address before trusting it.
+GUARDIAN_THRESHOLD = 2
+
 # Supported native deposit assets -> the source chain HyperUnit expects.
 # Keyed by the asset symbol the user picks; value is the /gen :src_chain segment.
 HYPERUNIT_ASSETS: Dict[str, str] = {
@@ -147,14 +151,20 @@ class HyperUnitAPI:
         if not address:
             raise HyperUnitError(f"HyperUnit returned no deposit address: {data}")
 
-        # Defensive: refuse to hand back an address if the guardian set didn't
-        # acknowledge it (status must be OK and signatures present).
+        # Defensive: refuse to hand back an address unless the guardian set
+        # acknowledged it. HyperUnit is a 2-of-3 MPC, so require at least
+        # GUARDIAN_THRESHOLD non-empty signatures — a response with fewer means
+        # the address isn't jointly attested and funds sent to it could be lost.
         status = str(data.get("status", "")).upper()
         signatures = data.get("signatures") or {}
         if status and status != "OK":
             raise HyperUnitError(f"HyperUnit address not OK (status={status}): {data}")
-        if not signatures:
-            raise HyperUnitError("HyperUnit response missing guardian signatures")
+        valid_sigs = sum(1 for v in signatures.values() if v)
+        if valid_sigs < GUARDIAN_THRESHOLD:
+            raise HyperUnitError(
+                f"HyperUnit address has only {valid_sigs} guardian signature(s); "
+                f"need {GUARDIAN_THRESHOLD} (2-of-3 MPC). Refusing to use it."
+            )
 
         return HyperUnitDepositAddress(
             asset=asset_key,

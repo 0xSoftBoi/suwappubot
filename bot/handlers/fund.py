@@ -84,9 +84,15 @@ async def fund_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ),
         )
         return
+    bal = await hyperliquid_funding.get_hl_balance(update.effective_user.id)
+    bal_line = (
+        f"Balance: *${bal.get('perps_usd', 0):,.2f}* perp · "
+        f"*${bal.get('spot_usd', 0):,.2f}* spot\n\n"
+    )
     await _edit(
         update,
         "💰 *Fund HyperLiquid*\n\n"
+        f"{bal_line}"
         "Top up your HyperCore account from any chain — funds arrive as a USDC "
         "spot balance (or native BTC/ETH/SOL via HyperUnit).\n\n"
         "Choose how you'd like to deposit:",
@@ -232,15 +238,17 @@ async def _show_usdc_quote(
     context.user_data["fund_wallet"] = {"id": wallet.id, "address": wallet.address}
 
     eta = quote.estimated_fill_time
+    fee = max(0.0, amount - quote.expected_output_human)
     text = (
         f"💵 *Confirm Deposit*\n\n"
         f"From: *{amount:g} USDC* on {chain.capitalize()}\n"
         f"To: your HyperCore account\n"
         f"`{quote.recipient}`\n\n"
         f"• You receive ~*{quote.expected_output_human:.2f} USDC* spot\n"
+        f"• Bridge fee: ~*{fee:.2f} USDC*\n"
         f"• Arrives in ~{eta}s after the deposit confirms\n"
         f"• Signed from `{wallet.address}`\n\n"
-        f"_Funds land as spot; move to perp from Perps → Settings to trade._"
+        f"_Funds land as spot; tap Move to Perp after they arrive to trade._"
     )
     keyboard = InlineKeyboardMarkup(
         [
