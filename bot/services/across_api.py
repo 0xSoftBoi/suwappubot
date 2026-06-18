@@ -444,7 +444,10 @@ class AcrossAPI:
         session = await get_session()
 
         params = {
-            "tradeType": "minOutput",
+            # exactInput: `amount` is the USDC the user spends (origin 6dp). With
+            # minOutput, Across would instead read `amount` as the desired output
+            # (8dp) and bridge ~100x too little — verified live against the API.
+            "tradeType": "exactInput",
             "amount": str(amount),
             "inputToken": input_token_address,
             "outputToken": HYPERCORE_USDC_SPOT_TOKEN,

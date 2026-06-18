@@ -93,7 +93,7 @@ async def test_hypercore_deposit_builds_params_and_txs():
     assert session.params["outputToken"] == HYPERCORE_USDC_SPOT_TOKEN
     assert session.params["originChainId"] == 42161
     assert session.params["recipient"] == HL_ADDR
-    assert session.params["tradeType"] == "minOutput"
+    assert session.params["tradeType"] == "exactInput"
 
     # Parsed tx bundle.
     assert len(quote.approval_txns) == 1
