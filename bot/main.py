@@ -239,6 +239,7 @@ from bot.handlers.token import (
     bond_list_callback_handler,
 )
 from bot.handlers.mpp_handler import get_mpp_handlers
+from bot.handlers.tempo import get_tempo_handlers
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
@@ -555,6 +556,10 @@ def add_handlers(application: Application) -> None:
     for mpp_handler in get_mpp_handlers():
         application.add_handler(mpp_handler)
 
+    # Tempo session keys (access keys) — /tempo
+    for tempo_handler in get_tempo_handlers():
+        application.add_handler(tempo_handler)
+
     # Error handler
     application.add_error_handler(error_handler)
 
@@ -588,6 +593,7 @@ async def post_init(application) -> None:
             BotCommand("dca", "Dollar-cost averaging"),
             BotCommand("snipe", "Token sniping"),
             BotCommand("mpp", "Tempo machine payments (pay services/agents)"),
+            BotCommand("tempo", "Tempo session key for automated swaps"),
             BotCommand("hx", "Transaction history"),
             BotCommand("g", "Gas tracker"),
             BotCommand("f", "Favorite tokens"),
