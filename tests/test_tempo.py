@@ -53,6 +53,23 @@ class TestTempoChainConfig:
         assert get_chain_by_name("Tempo").chain_id == 4217
 
 
+class TestTempoTestnets:
+    """Testnet registry is for tooling only — must NOT leak into the bot's
+    user-selectable CHAINS, and must carry the real testnet chain IDs."""
+
+    def test_moderato_and_andantino_present(self):
+        from bot.config.chains import TEMPO_TESTNETS
+
+        assert TEMPO_TESTNETS["moderato"]["chain_id"] == 42431
+        assert TEMPO_TESTNETS["andantino"]["chain_id"] == 42429
+
+    def test_testnets_not_in_user_facing_chains(self):
+        # Testnets must never appear in the production chain picker.
+        assert "moderato" not in CHAINS
+        assert "andantino" not in CHAINS
+        assert get_chain_by_id(42431) is None
+
+
 class TestTempoSettings:
     def test_native_feature_flags_defaults(self):
         from bot.config.settings import settings
