@@ -549,6 +549,46 @@ async def hl_cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # --------------------------------------------------------------------------- #
+# USDC spot <-> perp transfer                                                  #
+# --------------------------------------------------------------------------- #
+
+
+async def hlmove_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/hlmove <amount> <perp|spot> — move USDC between your spot and perp wallets."""
+    user_id = update.effective_user.id
+    if not _require_account(user_id):
+        await update.message.reply_text(_NO_ACCOUNT)
+        return
+    args = context.args or []
+    if len(args) < 2 or args[1].lower() not in ("perp", "spot"):
+        await update.message.reply_text(
+            "\U0001f4b5 *Move USDC*\n\n"
+            "Usage: `/hlmove <amount> <perp|spot>`\n"
+            "`perp` = spot→perp (to trade perps), `spot` = perp→spot (to withdraw).\n"
+            "Example: `/hlmove 100 perp`",
+            parse_mode="Markdown",
+        )
+        return
+    try:
+        amount = float(args[0])
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("Amount must be a positive number.")
+        return
+
+    to_perp = args[1].lower() == "perp"
+    direction = "spot → perp" if to_perp else "perp → spot"
+    loading = await update.message.reply_text(
+        f"\U0001f4b5 Moving ${amount:,.2f} USDC ({direction})…"
+    )
+    ok = await perps_service.transfer_usd(user_id, amount, to_perp)
+    await loading.edit_text(
+        f"✅ Moved ${amount:,.2f} USDC ({direction})." if ok else "❌ Transfer failed."
+    )
+
+
+# --------------------------------------------------------------------------- #
 # HyperCore spot trading                                                      #
 # --------------------------------------------------------------------------- #
 
@@ -723,6 +763,7 @@ unstake_handler = CommandHandler("unstake", unstake_command)
 stakemove_handler = CommandHandler("stakemove", stakemove_command)
 vault_handler = CommandHandler("vault", vault_command)
 spot_handler = CommandHandler("spot", spot_command)
+hlmove_handler = CommandHandler("hlmove", hlmove_command)
 hl_hub_handler = CommandHandler("hl", hl_hub_command)
 hl_ref_handler = CommandHandler("hlref", hl_ref_command)
 # Close button on dashboards shown outside an active conversation.

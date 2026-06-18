@@ -311,3 +311,41 @@ def sign_staking_transfer(
         is_mainnet,
     )
     return action, signature
+
+
+_USD_CLASS_TRANSFER_SIGN_TYPES = [
+    {"name": "hyperliquidChain", "type": "string"},
+    {"name": "amount", "type": "string"},
+    {"name": "toPerp", "type": "bool"},
+    {"name": "nonce", "type": "uint64"},
+]
+
+
+def sign_usd_class_transfer(
+    private_key: str,
+    amount: str,
+    to_perp: bool,
+    nonce: int,
+    is_mainnet: bool = True,
+) -> tuple[dict, dict]:
+    """Build and sign a ``usdClassTransfer`` action — move USDC between the spot
+    and perp wallets (the prerequisite for trading perps or withdrawing).
+
+    Args:
+        amount: USDC amount as a string (matches the reference SDK's ``str(amount)``).
+        to_perp: True moves spot→perp, False moves perp→spot.
+    """
+    action = {
+        "type": "usdClassTransfer",
+        "amount": amount,
+        "toPerp": to_perp,
+        "nonce": nonce,
+    }
+    signature = sign_user_signed_action(
+        private_key,
+        action,
+        _USD_CLASS_TRANSFER_SIGN_TYPES,
+        "HyperliquidTransaction:UsdClassTransfer",
+        is_mainnet,
+    )
+    return action, signature

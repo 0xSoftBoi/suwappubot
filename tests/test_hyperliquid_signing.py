@@ -558,3 +558,19 @@ def test_full_order_action_signature_matches_sdk():
     nonce = 1700000000000
     expected = sdk_sign(Account.from_key(PK), action, None, nonce, None, True)
     assert sign_l1_action(PK, ours, None, nonce, is_mainnet=True) == expected
+
+
+def test_usd_class_transfer_matches_reference_sdk():
+    """spot<->perp USDC transfer must sign identically to the reference SDK."""
+    pytest.importorskip("hyperliquid")
+    from eth_account import Account
+    from hyperliquid.utils import signing as sdk
+
+    from bot.services.hyperliquid_signing import sign_usd_class_transfer
+
+    nonce = 1700000000000
+    sdk_action = {"type": "usdClassTransfer", "amount": "100.0", "toPerp": True, "nonce": nonce}
+    expected = sdk.sign_usd_class_transfer_action(Account.from_key(PK), sdk_action, True)
+    action, actual = sign_usd_class_transfer(PK, "100.0", True, nonce, is_mainnet=True)
+    assert actual == expected
+    assert action["type"] == "usdClassTransfer" and action["toPerp"] is True

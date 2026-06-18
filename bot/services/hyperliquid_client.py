@@ -12,6 +12,7 @@ from bot.services.hyperliquid_signing import (
     sign_approve_builder_fee,
     sign_token_delegate,
     sign_staking_transfer,
+    sign_usd_class_transfer,
     float_to_wire,
 )
 
@@ -675,6 +676,22 @@ class HyperLiquidClient:
             return await self._post_user_signed(action, signature, nonce)
         except Exception as e:
             logger.error(f"Failed staking transfer: {e}")
+            return False
+
+    async def usd_class_transfer(self, api_secret: str, amount: float, to_perp: bool) -> bool:
+        """Move USDC between the spot and perp wallets (usdClassTransfer).
+
+        ``to_perp=True`` moves spot→perp (needed before trading perps); False moves
+        perp→spot (e.g. before withdrawing).
+        """
+        try:
+            nonce = int(time.time() * 1000)
+            action, signature = sign_usd_class_transfer(
+                api_secret, str(amount), to_perp, nonce, is_mainnet=self.is_mainnet
+            )
+            return await self._post_user_signed(action, signature, nonce)
+        except Exception as e:
+            logger.error(f"Failed usdClassTransfer: {e}")
             return False
 
     async def delegate_stake(

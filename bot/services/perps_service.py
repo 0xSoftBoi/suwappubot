@@ -638,6 +638,14 @@ class PerpsService:
                 self._award_xp(user_id, "hl_vault", int(usd / 10), f"Vault deposit ${usd}")
         return ok
 
+    async def transfer_usd(self, user_id: int, amount: float, to_perp: bool) -> bool:
+        """Move USDC between the user's spot and perp wallets (usdClassTransfer)."""
+        account = self.get_account(user_id)
+        if not account:
+            return False
+        _, api_secret = self._decrypt_credentials(account)
+        return await self._client.usd_class_transfer(api_secret, amount, to_perp)
+
     async def cancel_twap(self, user_id: int, record_id: int) -> bool:
         """Cancel a running TWAP (by local record id) on HyperLiquid."""
         account = self.get_account(user_id)
