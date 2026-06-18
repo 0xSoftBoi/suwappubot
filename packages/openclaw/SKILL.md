@@ -1,6 +1,6 @@
 ---
 name: suwappu
-description: Cross-chain token swaps across 14 chains via Suwappu DEX infrastructure
+description: Cross-chain token swaps across 40+ chains via Suwappu DEX infrastructure
 tools:
   - get_quote
   - execute_swap
@@ -12,7 +12,7 @@ tools:
 
 # Suwappu — Cross-chain Swap Skill
 
-You can swap any token on any of 15 supported chains. Routing is handled automatically via Li.Fi, Jupiter, CoW Protocol, and Wormhole.
+You can swap any token across 40+ supported chains. Routing is handled automatically — best-price quotes are raced across Li.Fi, CoW Protocol, OKX, 1inch, KyberSwap, Jupiter (Solana), Across, and CCTP.
 
 ## Authentication
 

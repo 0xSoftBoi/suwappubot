@@ -38,76 +38,120 @@ export function generateMetadata({ params }: { params: Params }): Metadata {
   };
 }
 
+// Single-pass tokenizer: one global regex per language, applied with a replace
+// callback. The replacement text is never re-scanned, so highlight spans can
+// never nest or corrupt each other (the old multi-pass version matched flag/
+// keyword patterns *inside* already-inserted class names).
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function highlightCode(code: string, lang: string): string {
-  let escaped = code
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  const escaped = escapeHtml(code);
+  const span = (cls: string, text: string) => `<span class="${cls}">${text}</span>`;
 
   if (lang === 'json') {
-    // JSON: strings, numbers, booleans, null, keys
-    escaped = escaped
-      .replace(/(&quot;|")((?:(?!\1)[^\\]|\\.)*)(\1)\s*:/g, '<span class="hl-key">$1$2$3</span>:')
-      .replace(/(&quot;|")((?:(?!\1)[^\\]|\\.)*)(\1)/g, '<span class="hl-str">$1$2$3</span>')
-      .replace(/\b(true|false|null)\b/g, '<span class="hl-bool">$1</span>')
-      .replace(/\b(\d+\.?\d*)\b/g, '<span class="hl-num">$1</span>');
-    return escaped;
+    return escaped.replace(
+      /("(?:[^"\\]|\\.)*")(\s*:)|("(?:[^"\\]|\\.)*")|\b(true|false|null)\b|\b(\d+\.?\d*)\b/g,
+      (m, keyStr, colon, str, bool, num) => {
+        if (keyStr) return span('hl-key', keyStr) + colon;
+        if (str) return span('hl-str', str);
+        if (bool) return span('hl-bool', bool);
+        if (num) return span('hl-num', num);
+        return m;
+      },
+    );
   }
 
   if (lang === 'bash' || lang === 'sh') {
-    // Bash: comments, strings, variables, commands
-    escaped = escaped
-      .replace(/(#[^\n]*)/g, '<span class="hl-comment">$1</span>')
-      .replace(/"([^"]*?)"/g, '<span class="hl-str">"$1"</span>')
-      .replace(/'([^']*?)'/g, '<span class="hl-str">\'$1\'</span>')
-      .replace(/\b(curl|npm|bun|pip|export|echo|cd)\b/g, '<span class="hl-kw">$1</span>')
-      .replace(/(-[A-Za-z]+|--[a-z-]+)/g, '<span class="hl-flag">$1</span>')
-      .replace(/(https?:\/\/[^\s"'&]+)/g, '<span class="hl-url">$1</span>');
-    return escaped;
+    return escaped.replace(
+      /(#[^\n]*)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(https?:\/\/[^\s"'&]+)|(--?[A-Za-z][\w-]*)|\b(curl|npm|bun|npx|pip|export|echo|cd)\b/g,
+      (m, comment, str, url, flag, kw) => {
+        if (comment) return span('hl-comment', comment);
+        if (str) return span('hl-str', str);
+        if (url) return span('hl-url', url);
+        if (flag) return span('hl-flag', flag);
+        if (kw) return span('hl-kw', kw);
+        return m;
+      },
+    );
   }
 
-  // JS/TS/Python: keywords, strings, comments, numbers, then Suwappu SDK highlights
-  // Comments
-  escaped = escaped
-    .replace(/(\/\/[^\n]*)/g, '<span class="hl-comment">$1</span>')
-    .replace(/(#[^\n]*)/g, '<span class="hl-comment">$1</span>');
-
-  // Strings (double and single quoted)
-  escaped = escaped
-    .replace(/"([^"]*?)"/g, '<span class="hl-str">"$1"</span>')
-    .replace(/'([^']*?)'/g, '<span class="hl-str">\'$1\'</span>');
-
-  // Keywords
-  escaped = escaped.replace(
-    /\b(import|from|const|let|var|async|await|function|return|if|else|new|export|class|type|interface|def|print|for|in|try|except)\b/g,
-    '<span class="hl-kw">$1</span>',
+  // JS / TS / Python / default
+  return escaped.replace(
+    /(\/\/[^\n]*|#[^\n]*)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|(@suwappu\/sdk|suwappu_sk_\w+|\/v1\/agent\/[\w/:-]*)|\b(import|from|const|let|var|async|await|function|return|if|else|new|export|class|type|interface|def|print|for|in|try|except)\b|\b(true|false|null|None|True|False)\b|\b(\d+\.?\d*)\b/g,
+    (m, comment, str, sdk, kw, bool, num) => {
+      if (comment) return span('hl-comment', comment);
+      if (str) return span('hl-str', str);
+      if (sdk) return span('hl-suwappu', sdk);
+      if (kw) return span('hl-kw', kw);
+      if (bool) return span('hl-bool', bool);
+      if (num) return span('hl-num', num);
+      return m;
+    },
   );
-
-  // Numbers
-  escaped = escaped.replace(/\b(\d+\.?\d*)\b/g, '<span class="hl-num">$1</span>');
-
-  // Booleans / null
-  escaped = escaped.replace(/\b(true|false|null|None|True|False)\b/g, '<span class="hl-bool">$1</span>');
-
-  // Suwappu SDK — highlight key identifiers with the Summer Breeze accent.
-  escaped = escaped.replace(
-    /\b(Suwappu|suwappu|client\.(swap|getQuote|getBalance|getPortfolio|getPrice|getTokens|getChains|createWallet|limitOrder|dcaOrder|perps|predict|lend|execute)|@suwappu\/sdk|suwappu_sk_\w+|suwappu\.bot)\b/g,
-    '<span class="hl-suwappu">$1</span>',
-  );
-
-  // API paths
-  escaped = escaped.replace(
-    /(\/v1\/agent\/[a-z/:-]*)/g,
-    '<span class="hl-url">$1</span>',
-  );
-
-  return escaped;
 }
 
-function markdownToHtml(md: string): string {
+const REQUEST_LANGS = new Set([
+  'bash', 'sh', 'shell', 'curl', 'js', 'javascript', 'ts', 'typescript', 'py', 'python', 'go', 'ruby', 'rust',
+]);
+const LANG_LABEL: Record<string, string> = {
+  bash: 'cURL', sh: 'cURL', shell: 'cURL', curl: 'cURL',
+  js: 'JavaScript', javascript: 'JavaScript', ts: 'TypeScript', typescript: 'TypeScript',
+  py: 'Python', python: 'Python', go: 'Go', rust: 'Rust', ruby: 'Ruby', json: 'JSON', http: 'HTTP',
+};
+const langLabel = (l: string) =>
+  LANG_LABEL[(l || 'text').toLowerCase()] || (l ? l[0].toUpperCase() + l.slice(1) : 'Text');
+
+function slugify(s: string): string {
+  return s.toLowerCase().replace(/<[^>]+>/g, '').replace(/[^\w]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+export type TocItem = { level: number; text: string; id: string };
+
+// Headings for the "On this page" rail — fence-aware so `##` inside code blocks is ignored.
+export function buildToc(md: string): TocItem[] {
+  const items: TocItem[] = [];
+  let inFence = false;
+  for (const line of md.split('\n')) {
+    if (/^```/.test(line)) { inFence = !inFence; continue; }
+    if (inFence) continue;
+    const m = line.match(/^(#{2,3})\s+(.+?)\s*$/);
+    if (m) {
+      const text = m[2].trim();
+      items.push({ level: m[1].length, text: text.replace(/`/g, ''), id: slugify(text) });
+    }
+  }
+  return items;
+}
+
+export function markdownToHtml(md: string): string {
   let html = md;
 
-  // Code blocks with syntax highlighting (must be before inline code)
+  // Adjacent fenced blocks in *different request languages* (cURL/TS/Python) →
+  // one tabbed widget. The regex only matches runs of request-language fences,
+  // so a following ```json response always breaks the run (no dependency on
+  // prose separation) and renders standalone below.
+  const REQ = '(?:bash|sh|shell|curl|js|javascript|ts|typescript|py|python|go|ruby|rust)';
+  const tabGroupRe = new RegExp(
+    '```' + REQ + '\\n[\\s\\S]*?```(?:\\n```' + REQ + '\\n[\\s\\S]*?```)+',
+    'g',
+  );
+  html = html.replace(tabGroupRe, (group) => {
+    const fences = Array.from(group.matchAll(/```([\w-]*)\n([\s\S]*?)```/g));
+    const langs = fences.map((f) => (f[1] || 'text').toLowerCase());
+    const distinct = new Set(langs).size === langs.length;
+    if (!distinct || fences.length < 2) return group;
+    const tabs = fences
+      .map((f, i) => `<button type="button" class="code-tabs__tab${i === 0 ? ' is-active' : ''}" data-tab="${i}">${langLabel(f[1])}</button>`)
+      .join('');
+    const panels = fences
+      .map((f, i) => `<pre class="code-tabs__panel${i === 0 ? ' is-active' : ''}" data-tab="${i}"><code class="language-${f[1] || 'text'}">${highlightCode(f[2], (f[1] || 'text').toLowerCase())}</code></pre>`)
+      .join('');
+    return `<div class="code-tabs"><div class="code-tabs__bar">${tabs}</div>${panels}</div>`;
+  });
+
+  // Standalone code blocks with syntax highlighting (must be before inline code)
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_match, lang, code) => {
     const highlighted = highlightCode(code, lang || 'text');
     return `<pre><code class="language-${lang || 'text'}">${highlighted}</code></pre>`;
@@ -126,10 +170,19 @@ function markdownToHtml(md: string): string {
     return `<table><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`;
   });
 
-  // Headings
-  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Headings — stable slug ids (deterministic deep links for humans AND agents)
+  // plus HTTP method badges for "VERB /path" API-reference headings.
+  const renderHeading = (level: number, text: string) => {
+    const id = slugify(text);
+    const m = text.match(/^(GET|POST|PATCH|PUT|DELETE)\s+(\/\S+)\s*(.*)$/);
+    const inner = m
+      ? `<span class="doc-method doc-method--${m[1].toLowerCase()}">${m[1]}</span><code class="doc-method__path">${m[2]}</code>${m[3] ? ' ' + m[3] : ''}`
+      : text;
+    return `<h${level} id="${id}"><a class="doc-anchor" href="#${id}" aria-hidden="true">#</a>${inner}</h${level}>`;
+  };
+  html = html.replace(/^### (.+)$/gm, (_m, t) => renderHeading(3, t));
+  html = html.replace(/^## (.+)$/gm, (_m, t) => renderHeading(2, t));
+  html = html.replace(/^# (.+)$/gm, (_m, t) => renderHeading(1, t));
 
   // Blockquotes
   html = html.replace(/^>\s+(.+)$/gm, '<blockquote><p>$1</p></blockquote>');
@@ -165,6 +218,7 @@ export default function DocPage({ params }: { params: Params }) {
   }
 
   const html = markdownToHtml(page.body);
+  const toc = buildToc(page.body);
 
-  return <DocPageClient section={section} page={page} html={html} />;
+  return <DocPageClient section={section} page={page} html={html} toc={toc} />;
 }
