@@ -644,13 +644,20 @@ class PerpsService:
         ``{perps_usd, staking_usd, vault_usd, total_usd}``. Returns zeros (not an
         error) when the user has no HL account.
         """
-        zero = {"perps_usd": 0.0, "staking_usd": 0.0, "vault_usd": 0.0, "total_usd": 0.0}
+        zero = {
+            "perps_usd": 0.0,
+            "spot_usd": 0.0,
+            "staking_usd": 0.0,
+            "vault_usd": 0.0,
+            "total_usd": 0.0,
+        }
         account = self.get_account(user_id)
         if not account or not account.hl_address:
             return zero
         try:
             addr = account.hl_address
             perps_usd = await self._client.get_account_value(addr)
+            spot_usd = await self._client.get_spot_value_usd(addr)
 
             summary = await self._client.get_staking_summary(addr)
             staked_hype = float(summary.get("delegated", 0) or 0) + float(
@@ -663,9 +670,10 @@ class PerpsService:
             equities = await self._client.get_user_vault_equities(addr)
             vault_usd = sum(float(e.get("equity", 0) or 0) for e in equities)
 
-            total = perps_usd + staking_usd + vault_usd
+            total = perps_usd + spot_usd + staking_usd + vault_usd
             return {
                 "perps_usd": perps_usd,
+                "spot_usd": spot_usd,
                 "staking_usd": staking_usd,
                 "vault_usd": vault_usd,
                 "total_usd": total,
@@ -673,6 +681,50 @@ class PerpsService:
         except Exception as e:
             logger.warning("get_holdings_usd failed for user %s: %s", user_id, e)
             return zero
+
+    async def place_spot_order(
+        self,
+        user_id: int,
+        coin: str,
+        is_buy: bool,
+        amount: float,
+        amount_is_usd: bool = False,
+    ) -> Optional[HLOrderResult]:
+        """Place a marketable spot order. For buys, ``amount_is_usd`` lets the user
+        spend a USD notional (converted to size via the live mid)."""
+        account = self.get_account(user_id)
+        if not account:
+            return None
+        api_key, api_secret = self._decrypt_credentials(account)
+
+        asset = await self._client.resolve_spot_asset(coin)
+        if not asset:
+            return None
+
+        size = amount
+        if amount_is_usd:
+            mid = await self._client.get_spot_mid(asset["name"])
+            if mid <= 0:
+                return None
+            size = amount / mid
+
+        builder_address = await self.ensure_builder_approved(account)
+        _, builder_fee = self._builder_config()
+        await self.ensure_referrer(account)
+
+        result = await self._client.place_spot_order(
+            address=account.hl_address,
+            api_key=api_key,
+            api_secret=api_secret,
+            coin=coin,
+            is_buy=is_buy,
+            size=size,
+            builder_address=builder_address,
+            builder_fee_tenths_bps=builder_fee if builder_address else None,
+        )
+        if result:
+            self._award_xp(user_id, "hl_spot", 5, f"Spot {'buy' if is_buy else 'sell'} {coin}")
+        return result
 
     def _decrypt_credentials(self, account: HyperLiquidAccount) -> tuple[str, str]:
         """Decrypt API credentials from account."""

@@ -115,6 +115,8 @@ async def _build_portfolio_text(wallet_infos, user_id=None):
                 lines.append("\n*HyperLiquid*")
                 if hl["perps_usd"] > 0.01:
                     lines.append(f"  Perps account ({format_usd(hl['perps_usd'])})")
+                if hl.get("spot_usd", 0) > 0.01:
+                    lines.append(f"  Spot ({format_usd(hl['spot_usd'])})")
                 if hl["staking_usd"] > 0.01:
                     lines.append(f"  HYPE staking ({format_usd(hl['staking_usd'])})")
                 if hl["vault_usd"] > 0.01:

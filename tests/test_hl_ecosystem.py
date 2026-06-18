@@ -149,3 +149,134 @@ def test_hype_price_missing_returns_zero():
 def test_hype_to_wei_and_hlp_constant():
     assert hype_to_wei(1) == 100_000_000
     assert HLP_VAULT_ADDRESS.startswith("0x") and len(HLP_VAULT_ADDRESS) == 42
+
+
+# --- spot trading: impostor-safe asset resolution (money path) --------------
+
+_REAL_HYPE_ID = "0x0d01dc56dcaaca66ad901c959b4011ec"
+
+_SPOT_META = {
+    "tokens": [
+        {"name": "USDC", "index": 0, "isCanonical": True, "szDecimals": 8, "tokenId": "0xusdc"},
+        {"name": "PURR", "index": 1, "isCanonical": True, "szDecimals": 0, "tokenId": "0xpurr"},
+        # Real HYPE: non-canonical, must be matched by tokenId.
+        {
+            "name": "HYPE",
+            "index": 150,
+            "isCanonical": False,
+            "szDecimals": 2,
+            "tokenId": _REAL_HYPE_ID,
+        },
+        # Impostor sharing the HYPE name with a different id — must be ignored.
+        {"name": "HYPE", "index": 999, "isCanonical": False, "szDecimals": 2, "tokenId": "0xSCAM"},
+        # A non-canonical token that is NOT HYPE — resolving by name must refuse it.
+        {"name": "WOW", "index": 98, "isCanonical": False, "szDecimals": 2, "tokenId": "0xwow"},
+    ],
+    "universe": [
+        {"tokens": [1, 0], "name": "PURR/USDC", "index": 0, "isCanonical": True},
+        {"tokens": [150, 0], "name": "@107", "index": 107, "isCanonical": False},
+        {"tokens": [999, 0], "name": "@500", "index": 500, "isCanonical": False},
+        {"tokens": [98, 0], "name": "@109", "index": 109, "isCanonical": False},
+    ],
+}
+
+
+def _stub_spot_meta(hl):
+    async def _meta():
+        return _SPOT_META
+
+    hl._get_spot_meta = _meta
+
+
+def test_spot_resolve_hype_by_token_id_not_name():
+    hl = HyperLiquidClient()
+    _stub_spot_meta(hl)
+    a = asyncio.run(hl.resolve_spot_asset("HYPE"))
+    # Must pick the REAL HYPE (index 150 → universe 107 → asset 10107), not the scam.
+    assert a["asset_id"] == 10107
+    assert a["sz_decimals"] == 2
+    assert a["base_index"] == 150
+
+
+def test_spot_resolve_canonical_purr():
+    hl = HyperLiquidClient()
+    _stub_spot_meta(hl)
+    a = asyncio.run(hl.resolve_spot_asset("PURR"))
+    assert a["asset_id"] == 10000  # 10000 + universe index 0
+    assert a["sz_decimals"] == 0
+
+
+def test_spot_resolve_explicit_index():
+    hl = HyperLiquidClient()
+    _stub_spot_meta(hl)
+    a = asyncio.run(hl.resolve_spot_asset("@500"))
+    assert a["asset_id"] == 10500
+
+
+def test_spot_resolve_refuses_noncanonical_by_name():
+    hl = HyperLiquidClient()
+    _stub_spot_meta(hl)
+    # WOW is non-canonical and not the pinned HYPE → refuse (anti-impostor).
+    assert asyncio.run(hl.resolve_spot_asset("WOW")) is None
+    assert asyncio.run(hl.resolve_spot_asset("NOPE")) is None
+
+
+def test_spot_price_rounding_rules():
+    f = HyperLiquidClient._round_spot_price
+    assert f(73.20491, 2) == "73.205"  # 5 sig figs, ≤6 dp
+    assert f(0.10435612, 0) == "0.10436"  # ≤8 dp, 5 sig figs
+    assert f(0, 2) == "0"
+
+
+# --- spot balances + valuation ---------------------------------------------
+
+
+def _stub_dispatch(hl, by_type):
+    async def _info(body):
+        return by_type.get(body.get("type"))
+
+    hl._info = _info
+
+
+def test_spot_balances_filters_zero():
+    hl = HyperLiquidClient()
+    _stub_dispatch(
+        hl,
+        {
+            "spotClearinghouseState": {
+                "balances": [
+                    {"coin": "USDC", "token": 0, "total": "100.0", "hold": "0.0"},
+                    {"coin": "HYPE", "token": 150, "total": "2.0", "hold": "0.5"},
+                    {"coin": "DUST", "token": 7, "total": "0.0", "hold": "0.0"},
+                ]
+            }
+        },
+    )
+    bals = asyncio.run(hl.get_spot_balances("0xabc"))
+    coins = {b["coin"] for b in bals}
+    assert coins == {"USDC", "HYPE"}  # zero-balance DUST dropped
+
+
+def test_spot_value_usd_prices_usdc_and_tokens():
+    hl = HyperLiquidClient()
+    ctxs = [
+        {"coin": "PURR/USDC", "midPx": "0.10"},
+        {"coin": "@107", "midPx": "73.2"},
+    ]
+    _stub_dispatch(
+        hl,
+        {
+            "spotClearinghouseState": {
+                "balances": [
+                    {"coin": "USDC", "token": 0, "total": "100.0", "hold": "0"},
+                    {"coin": "HYPE", "token": 150, "total": "2.0", "hold": "0"},
+                    # Impostor HYPE (token 999) must NOT be priced off the real market.
+                    {"coin": "HYPE", "token": 999, "total": "5.0", "hold": "0"},
+                ]
+            },
+            "spotMetaAndAssetCtxs": [_SPOT_META, ctxs],
+        },
+    )
+    val = asyncio.run(hl.get_spot_value_usd("0xabc"))
+    # USDC 100 + real HYPE 2*73.2; impostor (pair @500 has no mid) contributes 0.
+    assert round(val, 2) == round(100 + 2 * 73.2, 2)  # 246.40

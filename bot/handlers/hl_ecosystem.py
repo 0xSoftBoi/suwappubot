@@ -449,6 +449,80 @@ async def hl_cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # --------------------------------------------------------------------------- #
+# HyperCore spot trading                                                      #
+# --------------------------------------------------------------------------- #
+
+
+async def spot_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/spot — spot balances. `/spot buy HYPE 25` (USD) or `/spot sell HYPE 0.5` (size)."""
+    user_id = update.effective_user.id
+    account = _require_account(user_id)
+    if not account:
+        await update.message.reply_text(_NO_ACCOUNT)
+        return
+
+    args = context.args or []
+    if not args:
+        balances = await hyperliquid_client.get_spot_balances(account.hl_address)
+        lines = ["\U0001fa99 *HyperCore Spot*\n"]
+        if balances:
+            for b in balances[:15]:
+                held = f" ({b['hold']:.4f} on hold)" if b["hold"] > 0 else ""
+                lines.append(f"• {b['total']:.6f} {safe_md(b['coin'])}{held}")
+        else:
+            lines.append("No spot balances.")
+        lines.append(
+            "\n*Trade:*\n"
+            "`/spot buy HYPE 25` — buy $25 of HYPE\n"
+            "`/spot sell HYPE 0.5` — sell 0.5 HYPE\n"
+            "Use a symbol (HYPE, PURR) or an `@index` pair. Marketable IOC orders."
+        )
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        return
+
+    if len(args) < 3 or args[0].lower() not in ("buy", "sell"):
+        await update.message.reply_text(
+            "Usage: `/spot buy <SYMBOL> <usd>` or `/spot sell <SYMBOL> <size>`",
+            parse_mode="Markdown",
+        )
+        return
+
+    is_buy = args[0].lower() == "buy"
+    coin = args[1]
+    try:
+        amount = float(args[2])
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("Amount must be a positive number.")
+        return
+
+    unit = "$" if is_buy else ""
+    suffix = "" if is_buy else f" {coin.upper()}"
+    loading = await update.message.reply_text(
+        f"\U0001fa99 {'Buying' if is_buy else 'Selling'} {unit}{amount}{suffix}…"
+    )
+    # Buys spend a USD notional; sells are in base-token size.
+    result = await perps_service.place_spot_order(
+        user_id, coin, is_buy, amount, amount_is_usd=is_buy
+    )
+    if result and result.status == "filled":
+        await loading.edit_text(
+            f"✅ {'Bought' if is_buy else 'Sold'} {result.filled_size:.6f} {coin.upper()} "
+            f"@ ${result.fill_price:,.4f}"
+        )
+    elif result:
+        await loading.edit_text(
+            f"✅ Order placed (resting, id `{result.order_id}`).", parse_mode="Markdown"
+        )
+    else:
+        await loading.edit_text(
+            "❌ Spot order failed. Check the symbol is supported (HYPE, PURR, or @index) "
+            "and you hold enough balance."
+        )
+
+
+# --------------------------------------------------------------------------- #
 # Referral admin                                                              #
 # --------------------------------------------------------------------------- #
 
@@ -486,6 +560,7 @@ stake_handler = CommandHandler("stake", stake_command)
 unstake_handler = CommandHandler("unstake", unstake_command)
 stakemove_handler = CommandHandler("stakemove", stakemove_command)
 vault_handler = CommandHandler("vault", vault_command)
+spot_handler = CommandHandler("spot", spot_command)
 hl_ref_handler = CommandHandler("hlref", hl_ref_command)
 # Close button on dashboards shown outside an active conversation.
 hl_cancel_handler = CallbackQueryHandler(hl_cancel_callback, pattern=r"^hl_cancel$")

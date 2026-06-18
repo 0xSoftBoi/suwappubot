@@ -213,6 +213,7 @@ from bot.handlers.hl_ecosystem import (
     unstake_handler,
     stakemove_handler,
     vault_handler,
+    spot_handler,
     hl_ref_handler,
     hl_cancel_handler,
     hl_ecosystem_conversation,
@@ -338,6 +339,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(unstake_handler)  # /unstake
     application.add_handler(stakemove_handler)  # /stakemove
     application.add_handler(vault_handler)  # /vault
+    application.add_handler(spot_handler)  # /spot
     application.add_handler(hl_ecosystem_conversation)  # stake/vault amount-entry flow
     application.add_handler(hl_cancel_handler)  # dashboard close button
     application.add_handler(admin_hot_wallets_handler)  # /hotwallets
@@ -562,6 +564,7 @@ async def post_init(application) -> None:
             BotCommand("twap", "TWAP order (slice over time)"),
             BotCommand("stake", "Stake HYPE / view staking"),
             BotCommand("vault", "HyperLiquid vaults"),
+            BotCommand("spot", "HyperCore spot trading"),
             BotCommand("predict", "Prediction markets"),
             BotCommand("token", "SUWP token & staking"),
             BotCommand("suwp", "SUWP token & staking"),

@@ -77,10 +77,16 @@ class HyperLiquidClient:
         "APT-USD": "APT",
     }
 
+    # Real HYPE spot token id (non-canonical + name-colliding with scams, so it
+    # must be pinned by id, never resolved by name) — see resolve_spot_asset.
+    HYPE_TOKEN_ID = "0x0d01dc56dcaaca66ad901c959b4011ec"
+
     def __init__(self):
         self._client: Optional[httpx.AsyncClient] = None
         self._asset_index_cache: dict[str, int] = {}
         self._asset_index_fetched_at: float = 0.0
+        self._spot_meta: dict = {}
+        self._spot_meta_fetched_at: float = 0.0
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -794,6 +800,233 @@ class HyperLiquidClient:
     async def get_referral_state(self, address: str) -> dict:
         """Return referral state: who referred this user, and their referral earnings."""
         return await self._info({"type": "referral", "user": address}) or {}
+
+    # ------------------------------------------------------------------ #
+    # HyperCore spot trading                                             #
+    # ------------------------------------------------------------------ #
+
+    async def _get_spot_meta(self) -> dict:
+        """Return cached spotMeta ({tokens, universe}); refreshed every 5 minutes."""
+        now = time.time()
+        if self._spot_meta and (now - self._spot_meta_fetched_at) < 300:
+            return self._spot_meta
+        meta = await self._info({"type": "spotMeta"})
+        if meta:
+            self._spot_meta = meta
+            self._spot_meta_fetched_at = now
+        return self._spot_meta or {}
+
+    async def resolve_spot_asset(self, coin: str) -> Optional[dict]:
+        """Resolve a spot pair to its order parameters — impostor-safe.
+
+        ``coin`` may be:
+          * ``"@N"`` — an explicit spot universe index (power users / any pair),
+          * a curated symbol — only USDC-quoted *canonical* tokens, plus HYPE
+            (pinned by tokenId, since the real HYPE is non-canonical and shares
+            its name with scam tokens).
+
+        Returns ``{asset_id, name, sz_decimals, base_index, symbol}`` or None.
+        The order asset id is ``10000 + universe_index`` (HyperLiquid's spot rule).
+        """
+        meta = await self._get_spot_meta()
+        universe = meta.get("universe", [])
+        tokens = meta.get("tokens", [])
+        if not universe:
+            return None
+
+        # Explicit "@N" — take the index from the matched entry itself (never guessed).
+        if coin.startswith("@") and coin[1:].isdigit():
+            idx = int(coin[1:])
+            u = next((x for x in universe if x.get("index") == idx), None)
+            if not u:
+                return None
+            return self._spot_asset_from_universe(u, tokens)
+
+        symbol = coin.upper().replace("/USDC", "")
+        # Find the *vetted* base token index for this symbol.
+        base_index = None
+        if symbol == "HYPE":
+            tok = next((t for t in tokens if t.get("tokenId") == self.HYPE_TOKEN_ID), None)
+            base_index = tok.get("index") if tok else None
+        else:
+            tok = next(
+                (t for t in tokens if t.get("name") == symbol and t.get("isCanonical")), None
+            )
+            base_index = tok.get("index") if tok else None
+        if base_index is None:
+            return None
+
+        # Find the USDC-quoted pair ([base, 0]) for that token.
+        u = next(
+            (x for x in universe if x.get("tokens", [None, None])[:2] == [base_index, 0]), None
+        )
+        if not u:
+            return None
+        return self._spot_asset_from_universe(u, tokens, symbol)
+
+    def _spot_asset_from_universe(self, u: dict, tokens: list, symbol: str = None) -> dict:
+        base_index = u.get("tokens", [0])[0]
+        base_tok = next((t for t in tokens if t.get("index") == base_index), {})
+        return {
+            "asset_id": 10000 + int(u.get("index", 0)),
+            "name": u.get("name", ""),
+            "sz_decimals": int(base_tok.get("szDecimals", 2)),
+            "base_index": base_index,
+            "symbol": symbol or base_tok.get("name", u.get("name", "")),
+        }
+
+    async def get_spot_mid(self, pair_name: str) -> float:
+        """Return a spot pair's mid price (matched by ``coin``, which is NOT
+        positionally aligned with the universe in spotMetaAndAssetCtxs)."""
+        res = await self._info({"type": "spotMetaAndAssetCtxs"})
+        try:
+            _, ctxs = res
+            for c in ctxs:
+                if c.get("coin") == pair_name:
+                    return float(c.get("midPx", 0) or 0)
+        except (TypeError, ValueError):
+            pass
+        return 0.0
+
+    @staticmethod
+    def _round_spot_price(px: float, sz_decimals: int) -> str:
+        """Round a spot price to HyperLiquid's rules: ≤5 sig figs and ≤(8 − szDec)
+        decimal places (integers are always allowed)."""
+        if px <= 0:
+            return "0"
+        max_dec = max(0, 8 - sz_decimals)
+        px = float(f"{px:.5g}")  # 5 significant figures
+        return str(round(px, max_dec))
+
+    async def get_spot_balances(self, address: str) -> list[dict]:
+        """Return the user's spot balances: ``[{coin, token, total, hold}]`` (floats).
+
+        ``token`` is the token *index* — the collision-free key (token *names* are
+        not unique: scams reuse real symbols).
+        """
+        state = await self._info({"type": "spotClearinghouseState", "user": address})
+        out = []
+        for b in (state or {}).get("balances", []):
+            total = float(b.get("total", 0) or 0)
+            if total > 0:
+                out.append(
+                    {
+                        "coin": b.get("coin", ""),
+                        "token": b.get("token"),
+                        "total": total,
+                        "hold": float(b.get("hold", 0) or 0),
+                    }
+                )
+        return out
+
+    async def get_spot_value_usd(self, address: str) -> float:
+        """Total USD value of the user's spot balances (USDC at $1, others at mid).
+
+        Prices each balance by its token *index* (not name) so duplicate-named
+        scam tokens can't be mispriced against a real token's market.
+        """
+        balances = await self.get_spot_balances(address)
+        if not balances:
+            return 0.0
+        res = await self._info({"type": "spotMetaAndAssetCtxs"})
+        try:
+            meta, ctxs = res
+        except (TypeError, ValueError):
+            return 0.0
+        mid_by_pair = {c.get("coin"): float(c.get("midPx", 0) or 0) for c in ctxs}
+        # token index -> its USDC pair name
+        pair_by_token = {}
+        for u in meta.get("universe", []):
+            toks = u.get("tokens", [None, None])
+            if len(toks) == 2 and toks[1] == 0:
+                pair_by_token[toks[0]] = u.get("name")
+        total = 0.0
+        for b in balances:
+            if b["coin"] == "USDC" or b.get("token") == 0:
+                total += b["total"]
+            else:
+                pair = pair_by_token.get(b.get("token"))
+                if pair:
+                    total += b["total"] * mid_by_pair.get(pair, 0.0)
+        return total
+
+    async def place_spot_order(
+        self,
+        address: str,
+        api_key: str,
+        api_secret: str,
+        coin: str,
+        is_buy: bool,
+        size: float,
+        slippage: float = 0.05,
+        builder_address: Optional[str] = None,
+        builder_fee_tenths_bps: Optional[int] = None,
+    ) -> Optional[HLOrderResult]:
+        """Place a marketable spot order (IOC limit crossing the spread by ``slippage``).
+
+        ``size`` is in base-token units. Returns an HLOrderResult or None.
+        """
+        try:
+            asset = await self.resolve_spot_asset(coin)
+            if not asset:
+                logger.error(f"Unknown/unsupported spot pair: {coin}")
+                return None
+
+            mid = await self.get_spot_mid(asset["name"])
+            if mid <= 0:
+                logger.error(f"No mid price for spot pair {asset['name']}")
+                return None
+            limit_px = mid * (1 + slippage) if is_buy else mid * (1 - slippage)
+            px_str = self._round_spot_price(limit_px, asset["sz_decimals"])
+            sz_str = str(round(size, asset["sz_decimals"]))
+
+            order = {
+                "a": asset["asset_id"],
+                "b": is_buy,
+                "p": px_str,
+                "s": sz_str,
+                "r": False,
+                "t": {"limit": {"tif": "Ioc"}},
+            }
+            action = {"type": "order", "orders": [order], "grouping": "na"}
+            if builder_address and builder_fee_tenths_bps and builder_fee_tenths_bps > 0:
+                action["builder"] = {
+                    "b": builder_address.lower(),
+                    "f": int(builder_fee_tenths_bps),
+                }
+
+            nonce = int(time.time() * 1000)
+            client = await self._get_client()
+            response = await client.post(
+                self.EXCHANGE_URL,
+                json={
+                    "action": action,
+                    "nonce": nonce,
+                    "signature": self._sign_action(action, nonce, api_secret),
+                    "vaultAddress": None,
+                },
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            if response.status_code == 200:
+                data = response.json()
+                statuses = data.get("response", {}).get("data", {}).get("statuses", [{}])
+                st = statuses[0] if statuses else {}
+                if "filled" in st:
+                    return HLOrderResult(
+                        order_id=str(st["filled"]["oid"]),
+                        status="filled",
+                        fill_price=float(st["filled"].get("avgPx", 0)),
+                        filled_size=float(st["filled"].get("totalSz", 0)),
+                    )
+                if "resting" in st:
+                    return HLOrderResult(order_id=str(st["resting"]["oid"]), status="open")
+                logger.warning(f"Unexpected spot order response: {data}")
+                return None
+            logger.error(f"Spot order failed: {response.status_code} {response.text[:200]}")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to place spot order: {e}")
+            return None
 
     async def _info(self, body: dict):
         """POST a request to the /info endpoint and return parsed JSON (or None)."""
