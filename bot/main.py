@@ -74,7 +74,13 @@ from bot.handlers.settings import (
     chain_menu_handler,
     chain_set_handler,
 )
-from bot.handlers.admin import status_handler, clear_cache_handler, broadcast_handler
+from bot.handlers.admin import (
+    status_handler,
+    clear_cache_handler,
+    broadcast_handler,
+    hl_builder_handler,
+    hl_claim_handler,
+)
 from bot.handlers.digest import digest_handler
 from bot.handlers.quickswap import (
     quickswap_handler,
@@ -204,6 +210,22 @@ from bot.handlers.savings import savings_conversation_handler
 from bot.handlers.borrow import borrow_conversation_handler
 from bot.handlers.btc import btc_conversation_handler
 from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
+from bot.handlers.hl_ecosystem import (
+    twap_handler,
+    stake_handler,
+    unstake_handler,
+    stakemove_handler,
+    vault_handler,
+    spot_handler,
+    hlmove_handler,
+    hl_hub_handler,
+    hl_ref_handler,
+    hl_cancel_handler,
+    hl_twap_cancel_handler,
+    hl_twap_refresh_handler,
+    hl_hub_cb_handler,
+    hl_ecosystem_conversation,
+)
 from bot.handlers.dashboard import dashboard_handler, dashboard_menu_callback
 from bot.handlers.token import (
     token_conv_handler,
@@ -317,6 +339,22 @@ def add_handlers(application: Application) -> None:
     application.add_handler(status_handler)  # /status
     application.add_handler(clear_cache_handler)  # /clearcache
     application.add_handler(broadcast_handler)  # /broadcast
+    application.add_handler(hl_builder_handler)  # /hlbuilder
+    application.add_handler(hl_claim_handler)  # /hlclaim
+    application.add_handler(hl_ref_handler)  # /hlref (admin)
+    application.add_handler(twap_handler)  # /twap
+    application.add_handler(stake_handler)  # /stake
+    application.add_handler(unstake_handler)  # /unstake
+    application.add_handler(stakemove_handler)  # /stakemove
+    application.add_handler(vault_handler)  # /vault
+    application.add_handler(spot_handler)  # /spot
+    application.add_handler(hlmove_handler)  # /hlmove (spot<->perp USDC)
+    application.add_handler(hl_hub_handler)  # /hl hub
+    application.add_handler(hl_ecosystem_conversation)  # stake/vault amount-entry flow
+    application.add_handler(hl_cancel_handler)  # dashboard close button
+    application.add_handler(hl_twap_cancel_handler)  # TWAP cancel button
+    application.add_handler(hl_twap_refresh_handler)  # TWAP refresh button
+    application.add_handler(hl_hub_cb_handler)  # /hl hub buttons
     application.add_handler(admin_hot_wallets_handler)  # /hotwallets
     application.add_handler(fees_handler)  # /fees
     application.add_handler(metrics_handler)  # /metrics
@@ -544,6 +582,12 @@ async def post_init(application) -> None:
             BotCommand("checkin", "Daily check-in"),
             BotCommand("traders", "Copy trading"),
             BotCommand("perps", "Perpetual trading"),
+            BotCommand("twap", "TWAP order (slice over time)"),
+            BotCommand("stake", "Stake HYPE / view staking"),
+            BotCommand("vault", "HyperLiquid vaults"),
+            BotCommand("spot", "HyperCore spot trading"),
+            BotCommand("hlmove", "Move USDC spot<->perp"),
+            BotCommand("hl", "HyperLiquid hub & holdings"),
             BotCommand("predict", "Prediction markets"),
             BotCommand("token", "SUWP token & staking"),
             BotCommand("suwp", "SUWP token & staking"),

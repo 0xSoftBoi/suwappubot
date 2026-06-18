@@ -265,6 +265,40 @@ class Settings(BaseSettings):
     hyperevm_rpc_url: str = Field(
         default="https://rpc.hyperliquid.xyz/evm", description="HyperEVM RPC"
     )
+
+    # HyperLiquid builder codes — Suwappu earns a builder fee on perp orders routed
+    # through it. The builder wallet must accrue $1k of trading volume before
+    # HyperLiquid permits fee collection (see check_builder_eligibility).
+    hl_builder_address: Optional[str] = Field(
+        default=None,
+        description="Suwappu's HyperLiquid builder wallet (EVM address). Unset = no builder fee.",
+    )
+    hl_builder_private_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Private key of the builder wallet — required only to claim accrued "
+            "builder fees (claimRewards). Keep secret; not needed to charge fees."
+        ),
+    )
+    hl_referral_code: Optional[str] = Field(
+        default=None,
+        description=(
+            "Suwappu's HyperLiquid referral code, auto-attached to users on their "
+            "first perp trade so Suwappu earns referral rewards. Unset = disabled."
+        ),
+    )
+    hl_builder_fee_tenths_bps: int = Field(
+        default=10,
+        description=(
+            "Builder fee attached to each perp order, in tenths of a basis point "
+            "(10 = 1 bp = 0.01%). Must not exceed hl_builder_max_fee_rate."
+        ),
+    )
+    hl_builder_max_fee_rate: str = Field(
+        default="0.1%",
+        description="Max builder fee rate users approve (percent string, e.g. '0.1%').",
+    )
+
     lisk_rpc_url: str = Field(default="https://rpc.api.lisk.com", description="Lisk RPC")
     sei_rpc_url: str = Field(default="https://evm-rpc.sei-apis.com", description="Sei RPC")
     soneium_rpc_url: str = Field(default="https://rpc.soneium.org", description="Soneium RPC")
