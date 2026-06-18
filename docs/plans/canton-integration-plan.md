@@ -1,8 +1,22 @@
 # Canton Network Integration — Scope & Build Plan
 
-**Status:** Scoped, pre-implementation
+**Status:** Scoped, pre-implementation — **revised v2 after benchmarking other Canton builds**
 **Branch:** `claude/canton-first-class-2z7p6n`
-**Decisions (locked):** First-class (single codebase, not a fork) · run our **own validator node** · full scope **including swaps**.
+**Decisions (locked):** First-class · run our **own validator node** · full scope **including swaps**.
+**Open decision:** custody shape — per-user PartyID vs treasury/omnibus + DB (see §2.6).
+
+---
+
+## 0. Benchmark vs other Canton builds (what changed in v2)
+
+Stress-tested the v1 plan against how the ecosystem actually integrates Canton (Dfns/Fireblocks/BitGo custody, CantonSwap, OneSwap, and Digital Asset's own exchange-integration reference).
+
+**Held up:** Ed25519 external-party keys; UTXO `Holding` model; running our own validator node; and — double-validated by both CantonSwap *and* OneSwap — **swap execution = intent-based "send tokens to a pool party (+memo), it detects the deposit and auto-executes."**
+
+**Corrected:**
+1. **Don't hand-roll the JSON Ledger API in Python.** DA explicitly recommends building "thin wrappers over the **Wallet SDK**," which is **TypeScript/NodeJS-only** and handles party allocation, prepared-tx decode/validate, and sign+submit. Reimplementing Canton's transaction-tree hashing in Python is the highest money-path risk in the whole project and is unnecessary. → **Canton lives in `api-ts/` over `@canton-network/wallet-sdk`; the Python bot calls api-ts over HTTP.** The v1 `bot/services/canton_ledger_api.py` is removed.
+2. **Custody shape is a real fork** (§2.6) — DA's reference for our exact shape (custodial app, many users) uses an omnibus `treasuryParty` + integration DB, not one party per user.
+3. **A transaction-history ingestion service is mandatory** (§5.5) — there's no public explorer; history is read from our own node into a DB (analogous to the existing `tx_poller`).
 
 ---
 
@@ -63,17 +77,32 @@ Implications:
 
 ---
 
-## 5. JSON Ledger API client (the core new component)
+## 2.6 Custody shape — OPEN DECISION
 
-New file `bot/services/canton_ledger_api.py` — a thin async HTTP client (httpx) wrapping:
+| | Per-user PartyID | Treasury / omnibus + DB |
+|---|---|---|
+| On-ledger identities | one party **per user** on our node | **one** `treasuryParty` for all users |
+| Matches rest of bot | ✅ (one address per user) | ❌ (custodial-by-DB, like an exchange) |
+| Node cost / UTXO upkeep | N× (per-party storage + compute + onboarding round-trip) | 1× |
+| User self-custody story | stronger (real Canton identity) | weaker (balance attributed in our DB) |
+| Used by | wallets | **DA's exchange-integration reference** (our closest analog) |
 
-- `prepare(commands) -> {preparedTransaction, preparedTransactionHash}` via `POST /v2/interactive-submission/prepare`
-- `execute(preparedTransaction, signature, hashingSchemeVersion=V2, partySignatures) -> txId` via `POST /v2/interactive-submission/execute`
-- `active_contracts(party, interfaceFilter)` for reading `Holding` UTXOs
-- `allocate_external_party(pubkey, …)` for onboarding
-- Independent **hash recomputation** of the transaction tree to verify the node's `preparedTransactionHash` before signing (security: don't blind-sign what the node returns)
+Recommendation: **treasury/omnibus** unless a per-user on-ledger identity is a product requirement — it's what custodial apps of our shape actually run, and it sidesteps N× node cost + per-user UTXO management. This decision changes §4, §6, §7 and the DB.
 
-Signing helper in `wallet.py`: `sign_canton_hash(wallet, hash_bytes) -> signature` using the decrypted key (Ed25519/P-256 via `cryptography`).
+---
+
+## 5. Canton service — in `api-ts/`, over the official Wallet SDK (NOT Python)
+
+**Revised in v2.** Canton's ledger access lives in the TypeScript API as thin wrappers over `@canton-network/wallet-sdk`, which already does party allocation, prepared-tx decode/validate, and sign+submit — so we never reimplement Canton's tx-tree hashing (the key money-path risk). The Python bot calls these endpoints over HTTP, exactly as it delegates other work to api-ts.
+
+New in `api-ts/src/services/canton/`:
+- `CantonLedgerService` — wraps the Wallet SDK: `allocateExternalParty(pubkey)`, `activeHoldings(party)`, `prepareAndSubmit(commands, signer)`.
+- `CantonSigner` — Ed25519 signing from the decrypted key (key custody/decryption can stay where wallet keys live today; the SDK consumes a signing callback).
+
+New routes (called by the Python bot): `POST /v1/canton/party` (onboard), `GET /v1/canton/balance`, `POST /v1/canton/transfer`, `POST /v1/canton/swap`.
+
+### 5.5 Transaction-history ingestion service (mandatory, new)
+There is no public explorer/RPC for arbitrary history — it must be read from our own node and persisted. Add an ingestion worker (api-ts background service, mirrors the role of the bot's `tx_poller`) that streams updates via the Ledger API into a `canton_tx` table for balances, deposit detection, and swap-completion tracking.
 
 ---
 
@@ -114,22 +143,31 @@ New file `bot/services/canton_swap_api.py` mirrors `jupiter_api.py`/`sunswap_api
 
 ## 9. File-by-file plan & effort
 
+**api-ts (the Canton-facing core):**
+
 | # | File | Change | ~LOC |
 |---|------|--------|------|
-| 1 | `bot/config/chains.py` | `ChainType.CANTON`; `CHAINS["canton"]` config (str chain_id, native `CC`, `CANTON_LEDGER_API_URL` env, explorer, emoji) | 15 |
-| 2 | `bot/utils/validators.py` | `validate_canton_address()` (PartyID format) + dispatch branch | 25 |
-| 3 | `bot/services/canton_ledger_api.py` | **NEW** — prepare/execute/active_contracts/allocate + hash verify | 200 |
-| 4 | `bot/services/wallet.py` | `create_canton_wallet()` (async, onboard), `sign_canton_hash()`, dispatcher branches | 90 |
-| 5 | `bot/services/canton_swap_api.py` | **NEW** — `/nswap/tokens`, `/nswap/quote` client | 120 |
-| 6 | `bot/services/swap_engine.py` | `_is_canton_swap()`, quote branch, execute = transfer-with-memo, cross-chain guard | 120 |
-| 7 | balance/portfolio handlers | `ChainType.CANTON` branch → `get_canton_balance()` | 60 |
-| 8 | `bot/config/tokens.py` | Canton token list (seed from `/nswap/tokens`) | 30 |
-| 9 | `api-ts/src/config/chains.ts` | Add canton to metadata maps (read-only; signing stays Python) | 30 |
-| 10 | `requirements.txt` | `httpx` (likely present), `cryptography` (present) for Ed25519/P-256 | 2 |
-| 11 | `tests/test_canton_*.py` | wallet create (mocked node), quote parse, transfer/swap command build, hash-verify | 250 |
-| | **Total (ex-node)** | | **~900** |
+| 1 | `api-ts/src/services/canton/CantonLedgerService.ts` | **NEW** — wrap Wallet SDK: allocate party, active holdings, prepare+sign+submit | 180 |
+| 2 | `api-ts/src/services/canton/CantonSwapClient.ts` | **NEW** — `/nswap/tokens`, `/nswap/quote` | 90 |
+| 3 | `api-ts/src/services/canton/CantonIngestionService.ts` | **NEW** — stream ledger updates → `canton_tx` table | 120 |
+| 4 | `api-ts/src/routes/canton.ts` | **NEW** — `POST /v1/canton/{party,transfer,swap}`, `GET /v1/canton/balance` | 100 |
+| 5 | api-ts Drizzle schema | `canton_tx` (+ `canton_party` if omnibus) | 40 |
+| 6 | `api-ts/package.json` | add `@canton-network/wallet-sdk` | 1 |
 
-No DB migration. No `packages/shared` change required for v1.
+**bot (thin client + UX):**
+
+| # | File | Change | ~LOC |
+|---|------|--------|------|
+| 7 | `bot/config/chains.py` | `ChainType.CANTON`; `CHAINS["canton"]` (str id, native `CC`, explorer, emoji) | 15 |
+| 8 | `bot/utils/validators.py` | `validate_canton_address()` (PartyID) + dispatch | 25 |
+| 9 | `bot/services/canton_client.py` | **NEW** — httpx client calling api-ts canton routes | 60 |
+| 10 | `bot/services/wallet.py` | `create_canton_wallet()` → calls api-ts onboard; store PartyID | 40 |
+| 11 | `bot/services/swap_engine.py` | `_is_canton_swap()` quote/execute via canton_client; cross-chain guard | 90 |
+| 12 | balance/portfolio handlers | `ChainType.CANTON` branch | 50 |
+| 13 | tests (`pytest` + `vitest`) | onboarding (mocked SDK), quote parse, transfer/swap build, ingestion | 250 |
+| | **Total (ex-node)** | | **~1,100** |
+
+DB: one new api-ts table (`canton_tx`). Key custody can reuse the existing encrypted-key store; the SDK consumes a signing callback so raw keys need not leave the bot's KMS path (design detail to finalize with custody shape §2.6).
 
 ---
 
