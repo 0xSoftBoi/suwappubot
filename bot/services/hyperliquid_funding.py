@@ -30,6 +30,7 @@ from bot.services.across_api import (
     HyperCoreDepositQuote,
     across_api,
 )
+from bot.services.cctp_hypercore import CctpBurnQuote, CctpHyperCoreError, cctp_hypercore
 from bot.services.hyperunit_api import (
     HyperUnitDepositAddress,
     get_minimum,
@@ -261,6 +262,39 @@ class HyperLiquidFundingService:
     async def move_spot_to_perp(self, user_id: int, amount: float) -> bool:
         """Move `amount` USDC from the user's HyperCore spot to perp wallet."""
         return await perps_service.transfer_usd(user_id, amount, to_perp=True)
+
+    # ------------------------------------------------------------------ #
+    # CCTP V2 native-USDC rail (burn step only — see cctp_hypercore docstring)
+    # ------------------------------------------------------------------ #
+    async def quote_cctp_deposit(
+        self,
+        user_id: int,
+        from_chain: str,
+        amount_human: float,
+        fast: bool = True,
+    ) -> CctpBurnQuote:
+        """Quote the CCTP V2 source-chain burn that funds the user's HL account.
+
+        Native-USDC alternative to the Across rail. Returns ONLY the user-signable
+        approve+burn on the source chain; the HyperEVM mint + HyperCore credit must
+        be completed by a HYPE-funded relayer (not yet wired) — so this is not a
+        complete one-tap deposit on its own. Prefer `quote_usdc_deposit` (Across)
+        for now.
+        """
+        if amount_human < MIN_USDC_DEPOSIT:
+            raise FundingError(
+                f"Minimum deposit is {MIN_USDC_DEPOSIT:g} USDC (got {amount_human:g})."
+            )
+        hl_address = self._require_hl_address(user_id)
+        try:
+            return await cctp_hypercore.quote_burn(
+                from_chain=from_chain,
+                amount_human=amount_human,
+                recipient=hl_address,
+                fast=fast,
+            )
+        except CctpHyperCoreError as e:
+            raise FundingError(f"CCTP deposit unavailable: {e}") from e
 
     async def get_hl_balance(self, user_id: int) -> dict:
         """Best-effort current HyperLiquid holdings (spot/perp/total USD).
