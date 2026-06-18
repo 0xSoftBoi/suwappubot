@@ -423,6 +423,8 @@ def _ensure_schema(db_engine) -> None:
     _add_auth_tables(db_engine, inspector, is_sqlite)
     _add_btc_swap_tables(db_engine, inspector, is_sqlite)
     _add_btc_swap_v2_columns(db_engine, inspector, is_sqlite)
+    _add_btc_swap_dst_chain_column(db_engine, inspector, is_sqlite)
+    _add_morpho_tables(db_engine, inspector, is_sqlite)
 
     # --- performance indexes ---
     _add_performance_indexes(db_engine, inspector, is_sqlite)
@@ -598,6 +600,36 @@ def _add_btc_swap_v2_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 logger.info(f"Added btc_swaps.{col_name}")
             except Exception as e:
                 logger.warning(f"Could not add btc_swaps.{col_name}: {e}")
+
+
+def _add_btc_swap_dst_chain_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add dst_chain column to btc_swaps (Citrea deposit destinations) idempotently."""
+    if not inspector.has_table("btc_swaps"):
+        return
+    cols = {c["name"] for c in inspector.get_columns("btc_swaps")}
+    if "dst_chain" not in cols:
+        if is_sqlite:
+            ddl = "ALTER TABLE btc_swaps ADD COLUMN dst_chain VARCHAR(32)"
+        else:
+            ddl = "ALTER TABLE btc_swaps ADD COLUMN IF NOT EXISTS dst_chain VARCHAR(32)"
+        try:
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info("Added btc_swaps.dst_chain")
+        except Exception as e:
+            logger.warning(f"Could not add btc_swaps.dst_chain: {e}")
+
+
+def _add_morpho_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the morpho_positions table (borrow-position health watchlist)."""
+    try:
+        from bot.models.morpho import MorphoPosition
+
+        if not inspector.has_table("morpho_positions"):
+            MorphoPosition.__table__.create(bind=db_engine)
+            logger.info("Created morpho_positions table")
+    except Exception as e:
+        logger.warning(f"Failed to create morpho_positions table: {e}")
 
 
 def _add_performance_indexes(db_engine, inspector, is_sqlite: bool) -> None:
@@ -1296,7 +1328,9 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
         # --- daily_quests ---
         if "daily_quests" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS daily_quests (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         date VARCHAR(10) NOT NULL,
@@ -1307,9 +1341,13 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         xp_reward INTEGER DEFAULT 0,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS daily_quests (
                         id SERIAL PRIMARY KEY,
                         date VARCHAR(10) NOT NULL,
@@ -1320,14 +1358,18 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         xp_reward INTEGER DEFAULT 0,
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
 
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_quests_date ON daily_quests(date)"))
 
         # --- user_quests ---
         if "user_quests" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS user_quests (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         user_id INTEGER NOT NULL REFERENCES users(id),
@@ -1338,9 +1380,13 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         claimed BOOLEAN DEFAULT FALSE,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS user_quests (
                         id SERIAL PRIMARY KEY,
                         user_id INTEGER NOT NULL REFERENCES users(id),
@@ -1351,7 +1397,9 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         claimed BOOLEAN DEFAULT FALSE,
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
 
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_user_quests_user_id ON user_quests(user_id)")
@@ -1365,7 +1413,9 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
         # --- jackpot_pools ---
         if "jackpot_pools" not in tables:
             if is_sqlite:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS jackpot_pools (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         date VARCHAR(10) NOT NULL UNIQUE,
@@ -1376,9 +1426,13 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         drawn_at DATETIME,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
-                """))
+                """
+                    )
+                )
             else:
-                conn.execute(text("""
+                conn.execute(
+                    text(
+                        """
                     CREATE TABLE IF NOT EXISTS jackpot_pools (
                         id SERIAL PRIMARY KEY,
                         date VARCHAR(10) NOT NULL UNIQUE,
@@ -1389,7 +1443,9 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         drawn_at TIMESTAMP,
                         created_at TIMESTAMP DEFAULT NOW()
                     )
-                """))
+                """
+                    )
+                )
 
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_jackpot_pools_date ON jackpot_pools(date)")

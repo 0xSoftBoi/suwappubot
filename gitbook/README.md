@@ -4,7 +4,7 @@ The cross-chain DeFi API built for AI agents. Suwappu gives your agent the abili
 
 ## Why Suwappu?
 
-- **15+ Chains** -- Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Fantom, Linea, Mantle, Gnosis, Scroll, Sui, TON, and Tempo
+- **15 Chains** -- Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Fantom, Linea, Mantle, Gnosis, Scroll, TRON, and Starknet
 - **9 Swap Providers** -- Aggregated liquidity from leading DEXs and bridges for optimal pricing
 - **3 Protocols** -- REST API, MCP (Model Context Protocol), and A2A (Agent-to-Agent) so your agent can connect however it works best
 - **Perpetual Futures** -- Trade leveraged long/short positions on 10 major assets via HyperLiquid

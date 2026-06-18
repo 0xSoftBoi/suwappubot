@@ -4,6 +4,7 @@ import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import jwt from 'jsonwebtoken'
 import { EnvService } from '../config/EnvService'
+import { DEFAULT_SLIPPAGE } from '../config/constants'
 import { logger } from '../lib/logger'
 import { DrizzleService, requireDb, wallets } from '../db'
 import { mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
@@ -316,7 +317,7 @@ publicSwapRoutes.get('/quote', flexAuth(), async (c) => {
 				toToken,
 				fromAmount,
 				fromAddress: walletAddress,
-				slippage: slippage ? parseFloat(slippage) : 0.03,
+				slippage: slippage ? parseFloat(slippage) : DEFAULT_SLIPPAGE,
 				order: order || 'RECOMMENDED',
 			}
 
@@ -472,6 +473,9 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 							return result.signedTransaction
 						},
 						wallet.id,
+						// wallet.userId === authUser.userId (getActiveWallets filters by it)
+						// and maps to Python wallets.user_id — required for ownership check.
+						authUser.userId,
 						publicSwapUnsignedTx,
 					)
 				},
@@ -512,7 +516,10 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 			}
 
 			const newStatus = txHash ? 'submitted' : 'signed'
-			yield* swapService.updateSwapStatus(swapRecord.id, newStatus, txHash || signedTransaction)
+			// SECURITY: Never persist the raw signed tx into tx_hash — a signed,
+			// un-broadcast tx is replayable. Store null on broadcast failure and
+			// keep the non-terminal 'signed' status.
+			yield* swapService.updateSwapStatus(swapRecord.id, newStatus, txHash ?? undefined)
 			yield* deleteCachedQuote(redis, quoteId)
 
 			return {

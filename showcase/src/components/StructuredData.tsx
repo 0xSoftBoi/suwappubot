@@ -61,7 +61,7 @@ export default function StructuredData() {
           name: 'What chains does Suwappu support?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'Suwappu supports 15+ chains including Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Fantom, Linea, Mantle, Gnosis, Scroll, Sui, TON, and Tempo.',
+            text: 'Suwappu supports 15 chains: Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Fantom, Linea, Mantle, Gnosis, Scroll, TRON, and Starknet.',
           },
         },
         {
@@ -69,7 +69,7 @@ export default function StructuredData() {
           name: 'How do I integrate Suwappu with Claude or other AI agents?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'Suwappu provides an MCP server with 11 tools. Add the MCP server URL to your Claude Desktop config or use the npm package @suwappu/mcp-server for local stdio transport.',
+            text: 'Suwappu provides an MCP server with 10 tools. Add the MCP server URL to your Claude Desktop config or use the npm package @suwappu/mcp-server for local stdio transport.',
           },
         },
         {
@@ -77,7 +77,7 @@ export default function StructuredData() {
           name: 'Is Suwappu non-custodial?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'Yes. Your keys never leave your agent. Suwappu routes the trade, your agent signs and submits. We never touch your funds.',
+            text: 'Keys are encrypted with KMS envelope encryption and signed server-side by default. For full self-custody, bring your own keys via the agent API — the non-custodial path is always available.',
           },
         },
         {

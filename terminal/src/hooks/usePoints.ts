@@ -59,9 +59,12 @@ export function useRedeemReward() {
 }
 
 export function usePointsLeaderboard(timeframe?: string, limit?: number) {
+  const { isAuthenticated } = useAuth()
+
   return useQuery({
     queryKey: ['points', 'leaderboard', timeframe, limit],
     queryFn: () => api.getPointsLeaderboard(timeframe, limit),
+    enabled: isAuthenticated,
     staleTime: 30_000,
     refetchInterval: 120_000,
   })

@@ -38,9 +38,17 @@ def _install_stub(name):
     sys.modules[name] = m
 
 
-for _n in ("qrcode", "qrcode.constants", "qrcode.image", "qrcode.image.styledpil",
-           "qrcode.image.styles", "qrcode.image.styles.moduledrawers",
-           "qrcode.image.styles.colormasks", "PIL", "PIL.Image"):
+for _n in (
+    "qrcode",
+    "qrcode.constants",
+    "qrcode.image",
+    "qrcode.image.styledpil",
+    "qrcode.image.styles",
+    "qrcode.image.styles.moduledrawers",
+    "qrcode.image.styles.colormasks",
+    "PIL",
+    "PIL.Image",
+):
     _install_stub(_n)
 
 _PATH = pathlib.Path(__file__).resolve().parents[1] / "bot" / "handlers" / "custodial.py"
@@ -69,7 +77,9 @@ def _patch(monkeypatch):
 
 def test_withdraw_select_token_guards_missing_user(monkeypatch):
     _patch(monkeypatch)
-    query = SimpleNamespace(data="withdraw_token_USDC", answer=AsyncMock(), edit_message_text=AsyncMock())
+    query = SimpleNamespace(
+        data="withdraw_token_USDC", answer=AsyncMock(), edit_message_text=AsyncMock()
+    )
     update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=12345))
     ctx = SimpleNamespace(user_data={"withdraw_chain": "base"})
     assert _run(custodial.withdraw_select_token(update, ctx)) == END
@@ -77,11 +87,34 @@ def test_withdraw_select_token_guards_missing_user(monkeypatch):
     assert "/start" in query.edit_message_text.await_args.args[0]
 
 
-def test_withdraw_confirm_guards_missing_user(monkeypatch):
+def test_withdraw_confirm_shows_card_without_touching_db(monkeypatch):
+    # The confirm step now only validates the address and shows a confirmation
+    # card (no DB lookup, no send) — the user guard and the irreversible send
+    # both moved to withdraw_execute, which runs on the "Confirm Send" tap.
     _patch(monkeypatch)
     msg = SimpleNamespace(text=VALID_ADDR, reply_text=AsyncMock())
     update = SimpleNamespace(message=msg, effective_user=SimpleNamespace(id=12345))
-    ctx = SimpleNamespace(user_data={"withdraw_token": "USDC", "withdraw_chain": "base", "withdraw_amount": 1.0})
-    assert _run(custodial.withdraw_confirm(update, ctx)) == END
+    ctx = SimpleNamespace(
+        user_data={"withdraw_token": "USDC", "withdraw_chain": "base", "withdraw_amount": 1.0}
+    )
+    assert _run(custodial.withdraw_confirm(update, ctx)) == custodial.CONFIRM_WITHDRAWAL
     msg.reply_text.assert_awaited_once()
-    assert "/start" in msg.reply_text.await_args.args[0]
+    assert "Confirm Withdrawal" in msg.reply_text.await_args.args[0]
+    assert ctx.user_data["withdraw_address"] == VALID_ADDR
+
+
+def test_withdraw_execute_guards_missing_user(monkeypatch):
+    _patch(monkeypatch)
+    query = SimpleNamespace(answer=AsyncMock(), edit_message_text=AsyncMock())
+    update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=12345))
+    ctx = SimpleNamespace(
+        user_data={
+            "withdraw_token": "USDC",
+            "withdraw_chain": "base",
+            "withdraw_amount": 1.0,
+            "withdraw_address": VALID_ADDR,
+        }
+    )
+    assert _run(custodial.withdraw_execute(update, ctx)) == END
+    query.edit_message_text.assert_awaited_once()
+    assert "/start" in query.edit_message_text.await_args.args[0]

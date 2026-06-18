@@ -31,6 +31,10 @@ interface TradingContextType {
   // Refs for focusing swap inputs via hotkeys
   buyInputRef: RefObject<HTMLInputElement | null>
   sellInputRef: RefObject<HTMLInputElement | null>
+
+  // Quick-buy pre-fill: DiscoveryPanel sets this so SwapPanel picks it up
+  pendingSwapAmount: string
+  setPendingSwapAmount: (amount: string) => void
 }
 
 const TradingContext = createContext<TradingContextType | undefined>(undefined)
@@ -40,6 +44,7 @@ export function TradingProvider({ children }: { children: ReactNode }) {
   const [chartInterval, setChartIntervalState] = useState<Interval>('1h')
   const [chartFullscreen, setChartFullscreen] = useState(false)
   const [side, setSideState] = useState<Side>('buy')
+  const [pendingSwapAmount, setPendingSwapAmountState] = useState('')
 
   const buyInputRef = useRef<HTMLInputElement | null>(null)
   const sellInputRef = useRef<HTMLInputElement | null>(null)
@@ -60,6 +65,10 @@ export function TradingProvider({ children }: { children: ReactNode }) {
     setSideState(s)
   }, [])
 
+  const setPendingSwapAmount = useCallback((amount: string) => {
+    setPendingSwapAmountState(amount)
+  }, [])
+
   return (
     <TradingContext.Provider
       value={{
@@ -73,6 +82,8 @@ export function TradingProvider({ children }: { children: ReactNode }) {
         setSide,
         buyInputRef,
         sellInputRef,
+        pendingSwapAmount,
+        setPendingSwapAmount,
       }}
     >
       {children}

@@ -277,6 +277,12 @@ async def lifespan(app: FastAPI):
 
             await btc_bridge_poller.start(bot=bot_app.bot if bot_initialized else None)
 
+        if getattr(settings, "morpho_enabled", False):
+            await asyncio.sleep(2)
+            from bot.services.morpho_monitor import morpho_monitor
+
+            await morpho_monitor.start(bot=bot_app.bot if bot_initialized else None)
+
         # Start Discord alert service if Discord bot is available
         if discord_bot:
             try:
@@ -376,6 +382,10 @@ async def lifespan(app: FastAPI):
             from bot.services.btc_bridge_poller import btc_bridge_poller
 
             await btc_bridge_poller.stop()
+        if getattr(settings, "morpho_enabled", False):
+            from bot.services.morpho_monitor import morpho_monitor
+
+            await morpho_monitor.stop()
 
     # Stop auth challenge cleanup
     auth_cleanup_task.cancel()
@@ -1347,6 +1357,35 @@ async def _verify_passkey_challenge(client_data_json: str, expected_type: str) -
         raise HTTPException(status_code=400, detail="Passkey challenge type mismatch")
 
 
+def _require_passkey_enabled() -> None:
+    """Gate for /auth/passkey/* endpoints.
+
+    These handlers do NOT verify the WebAuthn attestation (register/complete) or
+    assertion signature (authenticate/complete): no COSE public key is stored at
+    registration, so authentication cannot cryptographically bind the assertion to
+    a registered credential. As shipped, anyone who obtains a (single-use) Redis
+    challenge can mint a session JWT for any credentialId — account takeover.
+
+    Until real verification is implemented, the whole surface is disabled by
+    default and returns 503.
+
+    TODO(security): implement real WebAuthn verification with the `webauthn`
+    PyPI library (py_webauthn):
+      - register/complete: verify_registration_response(); persist the returned
+        COSE credential_public_key + sign_count on the User row (needs a new
+        column / migration in database/db.py).
+      - authenticate/complete: verify_authentication_response() against the stored
+        public key, checking the RP ID hash, user-present/verified flags, and the
+        signature, and enforce monotonic sign_count.
+    Then flip passkey_auth_enabled default to True (or set the env var).
+    """
+    if not settings.passkey_auth_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="Passkey auth is disabled pending WebAuthn verification",
+        )
+
+
 @app.post(
     "/auth/passkey/register/init", response_model=PasskeyRegisterInitResponse, tags=["Passkey"]
 )
@@ -1355,6 +1394,7 @@ async def passkey_register_init(request: PasskeyRegisterInitRequest):
     Initialize passkey registration.
     Returns a challenge for WebAuthn credential creation.
     """
+    _require_passkey_enabled()
     import secrets
     import time
 
@@ -1406,6 +1446,7 @@ async def passkey_register_complete(
     Verifies the WebAuthn credential and creates user + wallet (Turnkey if
     configured, otherwise a local encrypted wallet via WalletService).
     """
+    _require_passkey_enabled()
     await _verify_passkey_challenge(request.clientDataJSON, "webauthn.create")
 
     existing_user = (
@@ -1545,6 +1586,7 @@ async def passkey_auth_init():
     Initialize passkey authentication.
     Returns a challenge for WebAuthn assertion.
     """
+    _require_passkey_enabled()
     import secrets
     import time
     import urllib.parse
@@ -1585,6 +1627,7 @@ async def passkey_auth_complete(
     Complete passkey authentication.
     Verifies the WebAuthn assertion and returns a session.
     """
+    _require_passkey_enabled()
     await _verify_passkey_challenge(request.clientDataJSON, "webauthn.get")
 
     user = db.query(User).filter(User.passkey_credential_id == request.credentialId).first()

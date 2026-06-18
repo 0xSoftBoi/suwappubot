@@ -4,6 +4,11 @@ import { AddWalletForm } from './AddWalletForm'
 import { WalletActivityFeed } from './WalletActivityFeed'
 import { WalletProfileCard } from './WalletProfileCard'
 
+// NOTE: /webapp/wallet-tracker/* endpoints do not exist in api-ts. All add/remove/
+// activity calls 404. Gate panel as coming soon until backend routes are built.
+// Remove COMING_SOON when that work is done.
+const COMING_SOON = true
+
 function truncateAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`
 }
@@ -45,6 +50,18 @@ export function WalletTrackerPanel() {
           }}
           onBack={() => setSelectedAddress(null)}
         />
+      </div>
+    )
+  }
+
+  if (COMING_SOON) {
+    return (
+      <div className="h-full flex flex-col p-4 gap-3" data-testid="wallet-tracker">
+        <h3 className="text-sm font-semibold">Wallet Tracker</h3>
+        <div className="rounded-lg border border-terminal-border bg-terminal-bg px-3 py-3 text-sm text-terminal-text-muted">
+          <span className="font-semibold text-terminal-text">Coming soon</span> — Wallet tracking is not yet available.
+          The backend endpoint is under development.
+        </div>
       </div>
     )
   }

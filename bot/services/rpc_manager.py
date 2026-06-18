@@ -31,22 +31,63 @@ logger = logging.getLogger(__name__)
 
 # Chain ID map for chainlist.org lookup
 CHAINLIST_IDS: Dict[str, int] = {
-    "ethereum": 1, "bsc": 56, "polygon": 137, "arbitrum": 42161,
-    "optimism": 10, "base": 8453, "avalanche": 43114, "fantom": 250,
-    "linea": 59144, "mantle": 5000, "gnosis": 100, "scroll": 534352,
+    "ethereum": 1,
+    "bsc": 56,
+    "polygon": 137,
+    "arbitrum": 42161,
+    "optimism": 10,
+    "base": 8453,
+    "avalanche": 43114,
+    "fantom": 250,
+    "linea": 59144,
+    "mantle": 5000,
+    "gnosis": 100,
+    "scroll": 534352,
     # New Li.Fi-supported chains (2025-2026)
-    "flare": 14, "unichain": 130, "sonic": 146, "opbnb": 204,
-    "fraxtal": 252, "zksync": 324, "worldchain": 480, "flow": 747,
-    "hyperevm": 999, "lisk": 1135, "sei": 1329, "soneium": 1868,
-    "swellchain": 1923, "abstract": 2741, "kaia": 8217, "apechain": 33139,
-    "mode": 34443, "hemi": 43111, "bob": 60808, "berachain": 80094,
+    "flare": 14,
+    "unichain": 130,
+    "sonic": 146,
+    "opbnb": 204,
+    "fraxtal": 252,
+    "zksync": 324,
+    "worldchain": 480,
+    "flow": 747,
+    "hyperevm": 999,
+    "lisk": 1135,
+    "sei": 1329,
+    "soneium": 1868,
+    "swellchain": 1923,
+    "abstract": 2741,
+    "kaia": 8217,
+    "apechain": 33139,
+    "mode": 34443,
+    "hemi": 43111,
+    "bob": 60808,
+    "berachain": 80094,
     "taiko": 167000,
+    # GOAT Network (Bitcoin L2) — same-chain swaps route via GOATSwap, not aggregators
+    "goat": 2345,
+    # Rootstock (Bitcoin sidechain) — routes via Li.Fi only; legacy gas, EIP-1191 checksums
+    "rootstock": 30,
+    # Citrea (Bitcoin ZK rollup) — same-chain swaps route via JuiceSwap, not aggregators
+    "citrea": 4114,
 }
 
 # Chains needing PoA middleware
 POA_CHAINS = {
-    "bsc", "polygon", "arbitrum", "optimism", "base", "gnosis", "scroll",
-    "linea", "mantle", "opbnb", "zksync", "mode", "bob",
+    "bsc",
+    "polygon",
+    "arbitrum",
+    "optimism",
+    "base",
+    "gnosis",
+    "scroll",
+    "linea",
+    "mantle",
+    "opbnb",
+    "zksync",
+    "mode",
+    "bob",
 }
 
 # Registrable domains we trust to host RPC endpoints. Only endpoints whose host
@@ -55,21 +96,56 @@ POA_CHAINS = {
 # response from injecting attacker-controlled RPC URLs that could read pending
 # transactions, front-run, or forge responses. Configured endpoints from
 # settings.py are trusted regardless of this list.
-TRUSTED_RPC_DOMAINS = frozenset({
-    # Multi-chain public/paid providers
-    "publicnode.com", "1rpc.io", "drpc.org", "llamarpc.com",
-    "blockpi.network", "alchemy.com", "infura.io", "ankr.com",
-    "blastapi.io", "nodereal.io", "meowrpc.com", "tenderly.co",
-    # Chain-native / first-party RPC domains
-    "binance.org", "bnbchain.org", "arbitrum.io", "optimism.io",
-    "base.org", "avax.network", "fantom.network", "ftm.tools",
-    "linea.build", "mantle.xyz", "gnosischain.com", "scroll.io",
-    "tempo.xyz", "soniclabs.com", "frax.com", "zksync.io",
-    "onflow.org", "hyperliquid.xyz", "lisk.com", "sei-apis.com",
-    "soneium.org", "alt.technology", "abs.xyz", "kaia.io",
-    "apechain.com", "mode.network", "hemi.network", "gobob.xyz",
-    "berachain.com", "taiko.xyz", "unichain.org", "flare.network",
-})
+TRUSTED_RPC_DOMAINS = frozenset(
+    {
+        # Multi-chain public/paid providers
+        "publicnode.com",
+        "1rpc.io",
+        "drpc.org",
+        "llamarpc.com",
+        "blockpi.network",
+        "alchemy.com",
+        "infura.io",
+        "ankr.com",
+        "blastapi.io",
+        "nodereal.io",
+        "meowrpc.com",
+        "tenderly.co",
+        # Chain-native / first-party RPC domains
+        "binance.org",
+        "bnbchain.org",
+        "arbitrum.io",
+        "optimism.io",
+        "base.org",
+        "avax.network",
+        "fantom.network",
+        "ftm.tools",
+        "linea.build",
+        "mantle.xyz",
+        "gnosischain.com",
+        "scroll.io",
+        "tempo.xyz",
+        "soniclabs.com",
+        "frax.com",
+        "zksync.io",
+        "onflow.org",
+        "hyperliquid.xyz",
+        "lisk.com",
+        "sei-apis.com",
+        "soneium.org",
+        "alt.technology",
+        "abs.xyz",
+        "kaia.io",
+        "apechain.com",
+        "mode.network",
+        "hemi.network",
+        "gobob.xyz",
+        "berachain.com",
+        "taiko.xyz",
+        "unichain.org",
+        "flare.network",
+    }
+)
 
 
 def _is_trusted_rpc_url(url: str) -> bool:
@@ -93,14 +169,15 @@ def _is_trusted_rpc_url(url: str) -> bool:
 
 
 class RPCTier(Enum):
-    PAID = 1       # Infura, Alchemy (user-configured keys)
-    PUBLIC = 2     # Free public RPCs from settings.py
-    DISCOVERED = 3 # Fetched from chainlist.org at runtime
+    PAID = 1  # Infura, Alchemy (user-configured keys)
+    PUBLIC = 2  # Free public RPCs from settings.py
+    DISCOVERED = 3  # Fetched from chainlist.org at runtime
 
 
 @dataclass
 class RPCEndpoint:
     """Health-tracked RPC endpoint."""
+
     url: str
     chain: str
     tier: RPCTier
@@ -210,17 +287,24 @@ class RPCManager:
             if settings.infura_api_key:
                 infura_net = settings.INFURA_NETWORKS.get(chain_name)
                 if infura_net:
-                    endpoints.append(RPCEndpoint(
-                        url=f"https://{infura_net}.infura.io/v3/{settings.infura_api_key}",
-                        chain=chain_name, tier=RPCTier.PAID,
-                    ))
+                    endpoints.append(
+                        RPCEndpoint(
+                            url=f"https://{infura_net}.infura.io/v3/{settings.infura_api_key}",
+                            chain=chain_name,
+                            tier=RPCTier.PAID,
+                        )
+                    )
 
             # Tier 1: Alchemy
             alchemy_url = settings.get_alchemy_rpc_url(chain_name)
             if alchemy_url:
-                endpoints.append(RPCEndpoint(
-                    url=alchemy_url, chain=chain_name, tier=RPCTier.PAID,
-                ))
+                endpoints.append(
+                    RPCEndpoint(
+                        url=alchemy_url,
+                        chain=chain_name,
+                        tier=RPCTier.PAID,
+                    )
+                )
 
             # Tier 2: Public RPCs from settings
             attr_name = f"{chain_name.lower().replace('-', '_')}_rpc_url"
@@ -228,9 +312,13 @@ class RPCManager:
             for url in rpc_str.split(","):
                 url = url.strip()
                 if url:
-                    endpoints.append(RPCEndpoint(
-                        url=url, chain=chain_name, tier=RPCTier.PUBLIC,
-                    ))
+                    endpoints.append(
+                        RPCEndpoint(
+                            url=url,
+                            chain=chain_name,
+                            tier=RPCTier.PUBLIC,
+                        )
+                    )
 
             self._endpoints[chain_name] = endpoints
 
@@ -286,9 +374,13 @@ class RPCManager:
                         logger.debug(f"Chainlist: rejected untrusted RPC {rpc_url[:80]}")
                         continue
 
-                    self._endpoints.setdefault(chain_name, []).append(RPCEndpoint(
-                        url=rpc_url, chain=chain_name, tier=RPCTier.DISCOVERED,
-                    ))
+                    self._endpoints.setdefault(chain_name, []).append(
+                        RPCEndpoint(
+                            url=rpc_url,
+                            chain=chain_name,
+                            tier=RPCTier.DISCOVERED,
+                        )
+                    )
                     existing_urls.add(rpc_url)
                     added += 1
 
@@ -387,15 +479,17 @@ class RPCManager:
         for chain_name, endpoints in sorted(self._endpoints.items()):
             eps = []
             for ep in sorted(endpoints, key=lambda e: e.health_score, reverse=True):
-                eps.append({
-                    "url": ep.url[:60] + ("..." if len(ep.url) > 60 else ""),
-                    "tier": ep.tier.name,
-                    "score": round(ep.health_score, 3),
-                    "success_rate": round(ep.success_rate, 2),
-                    "latency_ms": round(ep.avg_latency_ms, 0),
-                    "reqs": ep.total_requests,
-                    "circuit": "OPEN" if ep.is_circuit_open else "ok",
-                })
+                eps.append(
+                    {
+                        "url": ep.url[:60] + ("..." if len(ep.url) > 60 else ""),
+                        "tier": ep.tier.name,
+                        "score": round(ep.health_score, 3),
+                        "success_rate": round(ep.success_rate, 2),
+                        "latency_ms": round(ep.avg_latency_ms, 0),
+                        "reqs": ep.total_requests,
+                        "circuit": "OPEN" if ep.is_circuit_open else "ok",
+                    }
+                )
             report[chain_name] = eps
         return report
 
@@ -408,10 +502,12 @@ class RPCManager:
         return None
 
     def _create_web3(self, chain_name: str, rpc_url: str) -> Web3:
-        web3 = Web3(Web3.HTTPProvider(
-            rpc_url,
-            request_kwargs={"timeout": 3, "headers": {"Content-Type": "application/json"}},
-        ))
+        web3 = Web3(
+            Web3.HTTPProvider(
+                rpc_url,
+                request_kwargs={"timeout": 3, "headers": {"Content-Type": "application/json"}},
+            )
+        )
         if chain_name in POA_CHAINS:
             web3.middleware_onion.inject(poa_middleware, layer=0)
         return web3
@@ -454,7 +550,8 @@ class RPCManager:
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.post(
-                        ep.url, json=payload,
+                        ep.url,
+                        json=payload,
                         timeout=aiohttp.ClientTimeout(total=5),
                     ) as resp:
                         latency = (time.monotonic() - start) * 1000

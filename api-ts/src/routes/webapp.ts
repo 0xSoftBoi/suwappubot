@@ -155,13 +155,21 @@ webappRoutes.post('/telegram/auth', async (c) => {
 	return c.json(result.right)
 })
 
-// POST /webapp/turnkey/oauth-wallet - Create wallet via OAuth provider
-webappRoutes.post('/turnkey/oauth-wallet', async (c) => {
-	const body = await c.req.json().catch(() => ({}))
-	const { provider, oauthToken, telegramUserId } = body
+// Protected webapp routes
+const protectedWebapp = new Hono()
+protectedWebapp.use('*', telegramAuth())
 
-	if (!provider || !oauthToken || !telegramUserId) {
-		return c.json({ error: 'Missing required fields: provider, oauthToken, telegramUserId' }, 400)
+// POST /webapp/turnkey/oauth-wallet - Create wallet via OAuth provider
+// SECURITY: Mounted on the protected router. The wallet owner is the
+// authenticated Telegram user — any body-supplied telegramUserId is ignored
+// so a caller cannot attach a wallet to a victim's account.
+protectedWebapp.post('/turnkey/oauth-wallet', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const body = await c.req.json().catch(() => ({}))
+	const { provider, oauthToken } = body
+
+	if (!provider || !oauthToken) {
+		return c.json({ error: 'Missing required fields: provider, oauthToken' }, 400)
 	}
 
 	const result = await runEffectEither(
@@ -170,15 +178,16 @@ webappRoutes.post('/turnkey/oauth-wallet', async (c) => {
 			const userService = yield* UserService
 			const walletService = yield* WalletService
 
-			// Create sub-org with OAuth authenticator + wallet
+			// Create sub-org with OAuth authenticator + wallet, keyed to the
+			// authenticated Telegram user (never a caller-supplied id).
 			const turnkeyWallet = yield* turnkeyService.createSubOrgWithOAuth(
 				provider,
 				oauthToken,
-				String(telegramUserId)
+				String(telegramUser.id)
 			)
 
-			// Find user by telegram ID and save wallet
-			const userOption = yield* userService.getUserByTelegramId(Number(telegramUserId))
+			// Resolve the authenticated user and save wallet
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
 
 			if (Option.isSome(userOption)) {
 				const user = userOption.value
@@ -206,10 +215,6 @@ webappRoutes.post('/turnkey/oauth-wallet', async (c) => {
 
 	return c.json(result.right)
 })
-
-// Protected webapp routes
-const protectedWebapp = new Hono()
-protectedWebapp.use('*', telegramAuth())
 
 // GET /webapp/users/me/portfolio
 // Protected routes use /webapp/me/* paths

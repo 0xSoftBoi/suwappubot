@@ -6,6 +6,7 @@ import { TrendingTable } from './TrendingTable'
 import { PulseTab } from './PulseTab'
 import { TokenDetailView } from './TokenDetailView'
 import { usePair } from '../../contexts/PairContext'
+import { useTrading } from '../../contexts/TradingContext'
 import { pairFromToken } from '../../lib/quoteTokens'
 
 type Tab = 'pulse' | 'new' | 'trending'
@@ -32,6 +33,7 @@ export function DiscoveryPanel() {
   const [securityLoading, setSecurityLoading] = useState<Set<string>>(new Set())
   const [selectedToken, setSelectedToken] = useState<PulseToken | null>(null)
   const { setSelectedPair } = usePair()
+  const { setPendingSwapAmount } = useTrading()
 
   // Clicking a token in the feed loads it everywhere: it becomes the active
   // pair (chart + order book + swap panel all follow) and opens its detail view.
@@ -48,6 +50,24 @@ export function DiscoveryPanel() {
 
   const { data: newPools, isLoading: newLoading, dataUpdatedAt: newUpdated } = useNewPools(chain)
   const { data: trendingPools, isLoading: trendingLoading, dataUpdatedAt: trendingUpdated } = useTrendingPools(chain)
+
+  // FIX 3: Quick-buy from Pulse/NewPairs — selects the token as the active pair
+  // and pre-fills the swap amount so the user lands in SwapPanel ready to confirm.
+  const handleQuickBuy = (amount: number, tokenAddress: string) => {
+    // Try to resolve the token from newPools (New Pairs tab)
+    const pool = newPools?.find(p => p.baseToken.address === tokenAddress)
+    if (pool) {
+      setSelectedPair(pairFromToken({
+        symbol: pool.baseToken.symbol,
+        name: pool.name,
+        address: pool.baseToken.address,
+        chain: chain,
+        decimals: 18,
+      }))
+    }
+    // Pre-fill the SwapPanel amount and force buy side via shared context
+    setPendingSwapAmount(String(amount))
+  }
 
   const isLoading = activeTab === 'new' ? newLoading : trendingLoading
   const lastUpdated = activeTab === 'pulse' ? null : (activeTab === 'new' ? newUpdated : trendingUpdated)
@@ -107,7 +127,7 @@ export function DiscoveryPanel() {
         {selectedToken ? (
           <TokenDetailView token={selectedToken} onBack={() => setSelectedToken(null)} />
         ) : activeTab === 'pulse' ? (
-          <PulseTab onSelectToken={handleSelectToken} />
+          <PulseTab onSelectToken={handleSelectToken} onBuy={handleQuickBuy} />
         ) : isLoading ? (
           <div className="flex items-center justify-center h-32 text-terminal-text-muted text-sm animate-pulse">
             Loading {activeTab === 'new' ? 'new pairs' : 'trending pools'}...
@@ -117,6 +137,7 @@ export function DiscoveryPanel() {
             pools={newPools || []}
             securityMap={securityMap}
             securityLoading={securityLoading}
+            onBuy={handleQuickBuy}
           />
         ) : (
           <TrendingTable

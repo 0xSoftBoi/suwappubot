@@ -26,6 +26,13 @@ class ChainConfig:
     explorer_url: str
     logo_emoji: str
     lifi_chain_id: Optional[int] = None  # Li.Fi uses numeric chain IDs
+    # Chains with no EIP-1559 support must use legacy gasPrice transactions only.
+    # (Our EVM send path is already legacy-gasPrice everywhere; this flag documents
+    # the constraint and guards any future EIP-1559 migration.)
+    legacy_gas_only: bool = False
+    # Network-enforced minimum gas price in wei (e.g. Rootstock's 0.06 gwei floor).
+    # Applied via apply_min_gas_price() in the tx-build path.
+    min_gas_price_wei: int = 0
 
 
 # Chain configurations
@@ -233,6 +240,54 @@ CHAINS: dict[str, ChainConfig] = {
         explorer_url="https://plasmascan.to",
         logo_emoji="🟪",
         lifi_chain_id=9745,
+    ),
+    "goat": ChainConfig(
+        chain_id=2345,
+        name="goat",
+        display_name="GOAT",
+        chain_type=ChainType.EVM,
+        native_token="BTC",
+        native_decimals=18,  # GOAT's native BTC uses 18 decimals (ETH-style), NOT 8
+        rpc_url_env="GOAT_RPC_URL",
+        explorer_url="https://explorer.goat.network",
+        logo_emoji="🐐",
+        lifi_chain_id=None,  # Li.Fi does not support GOAT — routes via GOATSwap only
+    ),
+    "rootstock": ChainConfig(
+        chain_id=30,
+        name="rootstock",
+        display_name="Rootstock",
+        chain_type=ChainType.EVM,
+        native_token="RBTC",
+        native_decimals=18,
+        rpc_url_env="ROOTSTOCK_RPC_URL",
+        explorer_url="https://rootstock.blockscout.com",
+        logo_emoji="🟧",
+        # Routing: Li.Fi ONLY (chain 30, verified live). Rootstock must NOT be added
+        # to the 1inch/0x/Kyber/OKX/Across/CCTP chain dicts — absence = excluded.
+        lifi_chain_id=30,
+        # Rootstock has no EIP-1559 (eth_feeHistory unsupported) and uses
+        # EIP-1191 chain-salted checksums — compare addresses lowercased,
+        # never validate by EIP-55 checksum.
+        legacy_gas_only=True,
+        min_gas_price_wei=60_000_000,  # 0.06 gwei network minimum
+    ),
+    "citrea": ChainConfig(
+        chain_id=4114,
+        name="citrea",
+        display_name="Citrea",
+        chain_type=ChainType.EVM,
+        native_token="cBTC",
+        native_decimals=18,  # native cBTC uses 18 decimals (ETH-style), NOT 8
+        rpc_url_env="CITREA_RPC_URL",
+        explorer_url="https://explorer.mainnet.citrea.xyz",
+        logo_emoji="🍊",
+        # Routing: JuiceSwap (direct UniV3 fork) ONLY — Citrea (chain id 4114)
+        # is absent from EVERY aggregator (LiFi/1inch/0x/Kyber/OKX/CoW/Socket).
+        lifi_chain_id=None,
+        # EIP-1559 OK (Type-2 zkEVM, Pectra), but the L1 (Bitcoin DA) fee
+        # surcharge is NOT included in eth_estimateGas — execution adds 15%
+        # headroom (see univ3_fork_api.CITREA_VENUE.gas_headroom_pct).
     ),
     # === New Li.Fi-supported chains (2025-2026) ===
     "sonic": ChainConfig(
@@ -488,6 +543,17 @@ CHAINS: dict[str, ChainConfig] = {
         lifi_chain_id=14,
     ),
 }
+
+
+def apply_min_gas_price(chain_name: str, gas_price: int) -> int:
+    """Enforce a chain's network-minimum gas price (wei) on a fetched gas price.
+
+    Rootstock rejects txs below 60M wei (0.06 gwei); other chains pass through.
+    """
+    chain = CHAINS.get(chain_name.lower())
+    if chain and chain.min_gas_price_wei:
+        return max(int(gas_price), chain.min_gas_price_wei)
+    return int(gas_price)
 
 
 def get_chain_by_id(chain_id: Union[int, str]) -> Optional[ChainConfig]:

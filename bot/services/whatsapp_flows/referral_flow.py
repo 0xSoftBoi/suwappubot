@@ -33,7 +33,9 @@ class ReferralFlow(BaseWhatsAppFlow):
             ],
         )
 
-    async def _step_show_menu(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_show_menu(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         db_uid = state.data.get("user_db_id") or user_db_id
 
         if text == "ref_link":
@@ -55,15 +57,21 @@ class ReferralFlow(BaseWhatsAppFlow):
                 ],
             )
 
-    async def _step_show_referral_link(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_show_referral_link(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         await self._clear(user_id)
         return FlowResponse("Type *ref* to return to the referral menu.")
 
-    async def _step_show_xp(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_show_xp(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         await self._clear(user_id)
         return FlowResponse("Type *ref* to return to the referral menu.")
 
-    async def _step_daily_checkin(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_daily_checkin(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         await self._clear(user_id)
         return FlowResponse("Type *ref* to return to the referral menu.")
 
@@ -82,15 +90,20 @@ class ReferralFlow(BaseWhatsAppFlow):
 
                 # Generate referral code from user ID
                 ref_code = f"REF{user.id:06d}"
-                phone_id = settings.whatsapp_phone_number_id or "YOUR_BOT_PHONE"
-                link = f"https://wa.me/{phone_id}?text=ref_{ref_code}"
+                business_phone = settings.whatsapp_business_phone
+                if business_phone:
+                    link = f"https://wa.me/{business_phone}?text=ref_{ref_code}"
+                    link_section = f"{link}\n\nShare this link with friends. When they sign up and trade, you both earn rewards!"
+                else:
+                    link_section = (
+                        f"Referral links will be available once we launch — "
+                        f"your referral code is *{ref_code}*"
+                    )
 
                 return FlowResponse(
                     text=(
                         f"*Your Referral Link*\n\n"
-                        f"{link}\n\n"
-                        f"Share this link with friends. When they sign up and trade, "
-                        f"you both earn rewards!\n\n"
+                        f"{link_section}\n\n"
                         f"Referrals so far: *{user.referral_count or 0}*\n"
                         f"Total earned: *${user.total_referral_rewards or 0:.2f}*"
                     ),

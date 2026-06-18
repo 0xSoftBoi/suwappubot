@@ -4,6 +4,7 @@ import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import openApiSpec from '../../openapi-agent.json'
+import { isStarknet } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import type { Agent } from '../db'
 import { agentCredits, agentCreditTopups, requireDb, swapTransactions, webhookEvents } from '../db'
@@ -598,6 +599,14 @@ agentRoutes.post('/quote', async (c) => {
 	)
 
 	const chainKey = from_chain || chain || 'ethereum'
+
+	// Starknet is read-only in the TS stack — signing/broadcast lives in the Python bot
+	if (isStarknet(chainKey) || (to_chain && isStarknet(to_chain))) {
+		return c.json(
+			{ success: false, error: 'Starknet transactions are handled by the bot backend' },
+			400,
+		)
+	}
 
 	// Check if this is a Solana swap
 	if (isSolanaChain(chainKey)) {

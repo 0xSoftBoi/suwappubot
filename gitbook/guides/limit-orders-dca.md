@@ -2,26 +2,37 @@
 
 Set price-triggered swap orders that execute automatically when your target price is reached.
 
+> **Authentication note:** The `/webapp/me/limit-orders` endpoints are protected by Telegram Mini App authentication (`X-Telegram-Init-Data`). They are accessible only from inside the Suwappu Telegram Mini App, not via agent API keys. Agent/API-key access to limit orders is not yet available.
+
 ## How It Works
 
 1. You set a token pair, target price, and trigger condition (price goes above or below)
 2. Suwappu monitors the price continuously
 3. When the target is hit, the swap executes automatically
 
-## Creating a Limit Order
+## Authentication (Mini App only)
 
-```bash
-curl -X POST https://api.suwappu.bot/webapp/me/limit-orders \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "fromChain": "base",
-    "fromToken": "USDC",
-    "toToken": "ETH",
-    "amount": "500",
-    "targetPrice": "2800",
-    "triggerType": "lte"
-  }'
+These routes require the Telegram Web App `initData` string passed as the `X-Telegram-Init-Data` header:
+
+```typescript
+// Inside the Telegram Mini App
+const initData = window.Telegram.WebApp.initData;
+
+const res = await fetch('https://api.suwappu.bot/webapp/me/limit-orders', {
+  method: 'POST',
+  headers: {
+    'X-Telegram-Init-Data': initData,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    fromChain: 'base',
+    fromToken: 'USDC',
+    toToken: 'ETH',
+    amount: '500',
+    targetPrice: '2800',
+    triggerType: 'lte',
+  }),
+});
 ```
 
 | Parameter | Type | Required | Description |
@@ -50,20 +61,6 @@ curl -X POST https://api.suwappu.bot/webapp/me/limit-orders \
     "created_at": "2026-03-29T12:00:00Z"
   }
 }
-```
-
-## Listing Orders
-
-```bash
-curl https://api.suwappu.bot/webapp/me/limit-orders \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
-```
-
-## Canceling an Order
-
-```bash
-curl -X DELETE https://api.suwappu.bot/webapp/me/limit-orders/lo_abc123 \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
 
 ## Use Cases

@@ -73,7 +73,7 @@ List all available tools and their input schemas:
 
 **Response:**
 
-Returns an array of tool definitions. See the tool reference below for all eleven tools.
+Returns an array of tool definitions. See the tool reference below for all ten tools.
 
 ## Available Tools
 
@@ -322,24 +322,6 @@ Get detailed market information with live CLOB midpoint prices for each outcome.
 }
 ```
 
-### 11. perps_markets
-
-List available perpetual futures markets on HyperLiquid with current prices and funding rates.
-
-**Example call:**
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 13,
-  "method": "tools/call",
-  "params": {
-    "name": "perps_markets",
-    "arguments": {}
-  }
-}
-```
-
 ## Response Format
 
 All `tools/call` responses return content as an array of parts:
@@ -375,7 +357,7 @@ Run directly:
 SUWAPPU_API_KEY=suwappu_sk_YOUR_KEY npx @suwappu/mcp-server
 ```
 
-The stdio server connects to the Suwappu API and exposes the same eleven tools as the remote endpoint. Use this when your MCP client requires a local process (e.g., Claude Desktop with stdio transport).
+The stdio server connects to the Suwappu API and exposes the same ten tools as the remote endpoint. Use this when your MCP client requires a local process (e.g., Claude Desktop with stdio transport).
 
 ## Claude Desktop Configuration
 

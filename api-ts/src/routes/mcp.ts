@@ -11,6 +11,7 @@
 import { Hono } from 'hono'
 import { Effect, Either, Option } from 'effect'
 import { AgentService, TokenService, SwapService, BalanceService, JupiterService, CHAINS, COMMON_TOKENS, SOLANA_TOKENS, type QuoteParams } from '../services'
+import { isStarknet } from '../config/chains'
 import { PolymarketService } from '../services/PolymarketService'
 import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
@@ -233,6 +234,11 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 	}
 
 	const chainKey = (from_chain || chain || 'ethereum') as string
+
+	// Starknet is read-only in the TS stack — signing/broadcast lives in the Python bot
+	if (isStarknet(chainKey) || (to_chain && isStarknet(to_chain))) {
+		return { isError: true, content: [{ type: 'text', text: 'Starknet transactions are handled by the bot backend' }] }
+	}
 
 	if (isSolanaChain(chainKey)) {
 		const result = await runEffectEither(

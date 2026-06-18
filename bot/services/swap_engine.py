@@ -31,7 +31,7 @@ from bot.services.rpc_manager import rpc_manager
 from bot.services.spending_limits import spending_limit_service
 from bot.utils.cache import quote_cache
 from bot.utils.performance import track_time, MetricNames
-from bot.config.chains import CHAINS, ChainType, get_chain_by_name
+from bot.config.chains import CHAINS, ChainType, apply_min_gas_price, get_chain_by_name
 from bot.config.tokens import get_token_address, get_token_decimals, NATIVE_TOKEN_ADDRESS
 from bot.services.lifi_api import LiFiAPI, LiFiQuote, LiFiError
 from bot.services.jupiter_api import JupiterAPI, JupiterQuote, JupiterError
@@ -84,6 +84,20 @@ try:
 except ImportError:
     USE_CPP_CORE = False
     logger.info("C++ core not available, using Python fallback")
+
+
+# Max ERC-20 approval value (2**256 - 1). Used when approval_mode == "unlimited".
+MAX_UINT256 = 2**256 - 1
+
+# Tokens whose `approve()` reverts when changing a NON-zero allowance directly to
+# another non-zero value (the classic USDT mainnet pattern: require allowance to be
+# reset to 0 first). In "exact" approval mode we may re-approve from a leftover
+# non-zero allowance, so for these tokens we must send a 0-approval first. Keys are
+# lowercased token contract addresses. In "unlimited" mode the first approval is
+# from a (near-)zero allowance to max-uint, so this never triggers.
+RESET_REQUIRED_TOKENS = {
+    "0xdac17f958d2ee523a2206206994597c13d831ec7",  # USDT (Ethereum mainnet)
+}
 
 
 @dataclass
@@ -258,6 +272,24 @@ class SwapEngine:
         chains = (from_chain.lower(), to_chain.lower())
         return "starknet" in chains and chains[0] != chains[1]
 
+    def _is_goat_swap(self, from_chain: str, to_chain: str) -> bool:
+        """Check if this is a GOAT-to-GOAT swap (use GOATSwap directly)."""
+        return from_chain.lower() == "goat" and to_chain.lower() == "goat"
+
+    def _is_goat_cross_chain(self, from_chain: str, to_chain: str) -> bool:
+        """Check if GOAT is involved in a cross-chain swap (not yet supported)."""
+        chains = (from_chain.lower(), to_chain.lower())
+        return "goat" in chains and chains[0] != chains[1]
+
+    def _is_citrea_swap(self, from_chain: str, to_chain: str) -> bool:
+        """Check if this is a Citrea-to-Citrea swap (use JuiceSwap directly)."""
+        return from_chain.lower() == "citrea" and to_chain.lower() == "citrea"
+
+    def _is_citrea_cross_chain(self, from_chain: str, to_chain: str) -> bool:
+        """Check if Citrea is involved in a cross-chain swap (not yet supported)."""
+        chains = (from_chain.lower(), to_chain.lower())
+        return "citrea" in chains and chains[0] != chains[1]
+
     def _is_ccip_route(
         self, from_chain: str, to_chain: str, from_token: str, to_token: str
     ) -> bool:
@@ -335,6 +367,79 @@ class SwapEngine:
         if USE_CPP_CORE:
             return suwappu_core.to_human_amount(amount_raw, decimals)
         return int(amount_raw) / (10**decimals)
+
+    def _approval_amount(self, swap_amount: int) -> int:
+        """Resolve the ERC-20 approval amount per the configured approval policy.
+
+        - "unlimited" (default): max uint256, so the router is approved once and
+          subsequent swaps skip the approval tx (fewer txs, but the full balance
+          stays exposed to the router forever).
+        - "exact": approve only the amount this swap will pull (token base units),
+          so no standing allowance survives the swap.
+
+        ``swap_amount`` MUST be the exact base-unit value the router will transfer
+        from the user (i.e. the same value the allowance check compares against).
+        """
+        if str(getattr(settings, "approval_mode", "unlimited")).lower() == "exact":
+            return int(swap_amount)
+        return MAX_UINT256
+
+    async def _send_reset_approval_if_needed(
+        self,
+        *,
+        web3,
+        token_contract,
+        token_addr: str,
+        spender: str,
+        current_allowance: int,
+        sender: str,
+        chain_id: int,
+        gas_price: int,
+        nonce: int,
+        wallet,
+    ) -> int:
+        """For USDT-style reset-required tokens in 'exact' mode, approve 0 first.
+
+        Some tokens (USDT mainnet) revert ``approve`` when moving a NON-zero
+        allowance directly to another non-zero value. This only matters in
+        'exact' mode, where a re-approval can start from a leftover non-zero
+        allowance. Sends a 0-approval tx (waiting for the receipt) and returns
+        the next nonce to use. No-op (returns the same nonce) otherwise.
+        """
+        if str(getattr(settings, "approval_mode", "unlimited")).lower() != "exact":
+            return nonce
+        if current_allowance <= 0:
+            return nonce
+        if token_addr.lower() not in RESET_REQUIRED_TOKENS:
+            return nonce
+
+        reset_data = token_contract.functions.approve(spender, 0).build_transaction(
+            {
+                "from": sender,
+                "nonce": nonce,
+                "chainId": chain_id,
+                "gasPrice": gas_price,
+                "gas": 100_000,
+            }
+        )
+        reset_tx = {
+            "to": token_addr,
+            "data": reset_data["data"],
+            "value": 0,
+            "gas": reset_data.get("gas", 60000),
+            "gasPrice": gas_price,
+            "nonce": nonce,
+            "chainId": chain_id,
+        }
+        signed_reset = await self.wallet_service.sign_evm_transaction(wallet, reset_tx)
+        reset_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_reset.replace("0x", "")))
+        )
+        logger.info(f"Reset-required token allowance zeroed first: {reset_hash.hex()}")
+        await asyncio.to_thread(
+            lambda: web3.eth.wait_for_transaction_receipt(reset_hash, timeout=120)
+        )
+        return nonce + 1
 
     async def _gather_quotes(self, tasks: list) -> list:
         """Run quote tasks in parallel, return successful SwapQuote results."""
@@ -435,6 +540,18 @@ class SwapEngine:
                 "Phase 2 will add BTC/EVM bridging to Starknet."
             )
 
+        if self._is_goat_cross_chain(from_chain, to_chain):
+            raise SwapError(
+                "Cross-chain swaps from/to GOAT Network are not yet supported "
+                "(bridge via Symbiosis coming)."
+            )
+
+        if self._is_citrea_cross_chain(from_chain, to_chain):
+            raise SwapError(
+                "Cross-chain swaps from/to Citrea are not yet supported. "
+                "Bridge BTC in via /btc (Lightning → Citrea cBTC)."
+            )
+
         amount_raw = self._get_token_amount_raw(amount, from_token, from_chain)
         slippage_bps = int(slippage * 100)
 
@@ -477,11 +594,42 @@ class SwapEngine:
                 )
             )
 
+        # GOAT-only swaps route EXCLUSIVELY through GOATSwap (direct Uniswap V3
+        # fork). GOAT (chain id 2345) is absent from EVERY aggregator chain map
+        # (LiFi/1inch/0x/Kyber/OKX/CoW/Socket) — keep it out of those paths.
+        if self._is_goat_swap(from_chain, to_chain):
+            tasks.append(
+                self._get_goatswap_quote(
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    slippage_bps,
+                )
+            )
+
+        # Citrea-only swaps route EXCLUSIVELY through JuiceSwap (direct Uniswap
+        # V3 fork). Citrea (chain id 4114) is absent from EVERY aggregator chain
+        # map (LiFi/1inch/0x/Kyber/OKX/CoW/Socket) — keep it out of those paths.
+        if self._is_citrea_swap(from_chain, to_chain):
+            tasks.append(
+                self._get_juiceswap_quote(
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    slippage_bps,
+                )
+            )
+
         # OKX DEX covers TRON, EVM, and Solana (same-chain only) — add if configured
+        # (GOAT/Citrea excluded: not in OKX_CHAIN_IDS, routed via UniV3 forks above)
         if (
             self.okx_dex.is_configured
             and from_chain.lower() == to_chain.lower()
             and not self._is_starknet_swap(from_chain, to_chain)
+            and not self._is_goat_swap(from_chain, to_chain)
+            and not self._is_citrea_swap(from_chain, to_chain)
         ):
             tasks.append(
                 self._get_okx_dex_quote(
@@ -498,6 +646,7 @@ class SwapEngine:
             )
 
         # 1inch (EVM same-chain only) — add if configured
+        # (GOAT is intentionally absent from ONEINCH_CHAIN_IDS — GOATSwap only)
         if (
             self.oneinch.is_configured
             and from_chain.lower() == to_chain.lower()
@@ -518,6 +667,7 @@ class SwapEngine:
             )
 
         # 0x Swap API v2 (EVM same-chain only) — add if configured
+        # (GOAT is intentionally absent from ZEROX_CHAIN_IDS — GOATSwap only)
         if (
             self.zerox.is_configured
             and from_chain.lower() == to_chain.lower()
@@ -538,6 +688,7 @@ class SwapEngine:
             )
 
         # KyberSwap (EVM same-chain only) — add if enabled (no key, gated on flag)
+        # (GOAT is intentionally absent from KYBERSWAP_CHAIN_SLUGS — GOATSwap only)
         if (
             self.kyberswap.is_configured
             and from_chain.lower() == to_chain.lower()
@@ -557,12 +708,16 @@ class SwapEngine:
                 )
             )
 
-        # EVM routing: Li.Fi + LayerZero (not for Solana-only, TRON-only, or Tempo-only)
+        # EVM routing: Li.Fi + LayerZero (not for Solana-only, TRON-only, Tempo-only,
+        # Starknet, GOAT, or Citrea — Li.Fi has no chain id for GOAT/Citrea; the
+        # direct UniV3-fork venues handle them)
         if (
             not self._is_solana_only_swap(from_chain, to_chain)
             and not self._is_tron_only_swap(from_chain, to_chain)
             and not self._is_tempo_only_swap(from_chain, to_chain)
             and not self._is_starknet_swap(from_chain, to_chain)
+            and not self._is_goat_swap(from_chain, to_chain)
+            and not self._is_citrea_swap(from_chain, to_chain)
         ):
             if self._is_layerzero_route(from_chain, to_chain, from_token, to_token):
                 tasks.append(
@@ -986,6 +1141,138 @@ class SwapEngine:
             exchange_rate=exchange_rate,
             raw_quote=quote.raw_response,
             platform_fee_bps=effective_fee_bps,
+        )
+
+    async def _get_goatswap_quote(
+        self,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: str,
+        slippage_bps: int,
+    ) -> SwapQuote:
+        """Get quote from GOATSwap (direct Uniswap V3 fork) for GOAT-only swaps."""
+        from bot.services.goatswap_api import goatswap_api
+
+        return await self._get_univ3_fork_quote(
+            goatswap_api, from_token, to_token, amount, amount_raw, slippage_bps
+        )
+
+    async def _get_juiceswap_quote(
+        self,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: str,
+        slippage_bps: int,
+    ) -> SwapQuote:
+        """Get quote from JuiceSwap (direct Uniswap V3 fork) for Citrea-only swaps."""
+        from bot.services.univ3_fork_api import juiceswap_api
+
+        return await self._get_univ3_fork_quote(
+            juiceswap_api, from_token, to_token, amount, amount_raw, slippage_bps
+        )
+
+    async def _get_univ3_fork_quote(
+        self,
+        venue_api,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: str,
+        slippage_bps: int,
+    ) -> SwapQuote:
+        """Get a quote from a direct UniV3-fork venue (GOATSwap / JuiceSwap).
+
+        Native BTC input ("BTC") is handled via the venue's wrapped-native token
+        + msg.value; native output is rejected by the venue API (v1 — receive
+        the wrapped-native token instead).
+        """
+        from bot.services.univ3_fork_api import compute_min_out
+
+        venue = venue_api.venue
+        chain_name = venue.chain_name
+
+        from_token_address = get_token_address(from_token, chain_name)
+        to_token_address = get_token_address(to_token, chain_name)
+
+        if not from_token_address or not to_token_address:
+            raise SwapError(
+                f"Token not supported on {venue.display_name}'s chain "
+                f"({chain_name}): {from_token} or {to_token}"
+            )
+
+        gs_quote = await venue_api.get_quote(
+            token_in=from_token_address,
+            token_out=to_token_address,
+            amount_in=int(amount_raw),
+        )
+
+        if gs_quote.amount_out <= 0:
+            raise SwapError(
+                f"{venue.display_name} returned a zero output for "
+                f"{from_token}→{to_token} — refusing to quote"
+            )
+
+        min_out = compute_min_out(gs_quote.amount_out, slippage_bps)
+        to_amount_human = self._get_token_amount_human(
+            str(gs_quote.amount_out), to_token, chain_name
+        )
+        exchange_rate = to_amount_human / amount if amount > 0 else 0
+
+        # Honest gas estimate: 300k gas * live gas price * cached BTC price
+        # (both GOAT and Citrea gas are BTC-denominated, 18 decimals). The gas
+        # price is one cheap eth_gasPrice on the same RPC the quote just used;
+        # the BTC price comes ONLY from the price cache — no extra HTTP fetch at
+        # quote time. If either is unavailable we report 0.0 and the UI shows
+        # "varies" instead of a fabricated number. The venue's gas headroom
+        # (Citrea L1 fee surcharge, +15%) is included in the display estimate.
+        gas_cost_usd = 0.0
+        try:
+            from bot.services.rpc_manager import rpc_manager
+            from bot.utils.cache import price_cache
+
+            btc_price = await price_cache.get("price_BTC") or await price_cache.get("price_WBTC")
+            if btc_price:
+                web3 = rpc_manager.get_web3(chain_name)
+                gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+                gas_units = venue_api.apply_gas_headroom(300_000)
+                gas_cost_usd = gas_units * gas_price / 1e18 * float(btc_price)
+        except Exception as e:
+            logger.debug(
+                f"{venue.display_name} gas cost estimate unavailable (will display 'varies'): {e}"
+            )
+
+        raw = dict(gs_quote.raw_response)
+        raw.update(
+            {
+                "token_in": gs_quote.token_in,
+                "token_out": gs_quote.token_out,
+                "amount_in": gs_quote.amount_in,
+                "fee_tier": gs_quote.fee_tier,
+                "native_in": gs_quote.native_in,
+                "suwappu_slippage_bps": slippage_bps,
+            }
+        )
+
+        return SwapQuote(
+            provider=venue.name,
+            from_chain=chain_name,
+            to_chain=chain_name,
+            from_token=from_token,
+            to_token=to_token,
+            from_amount=amount_raw,
+            from_amount_human=amount,
+            to_amount=str(gs_quote.amount_out),
+            to_amount_human=to_amount_human,
+            to_amount_min=str(min_out),
+            gas_cost_usd=gas_cost_usd,  # 0.0 = unknown (no cached BTC price) → UI shows "varies"
+            fee_cost_usd=0,
+            total_cost_usd=gas_cost_usd,
+            estimated_time=5,  # both GOAT and Citrea have ~2-5s blocks
+            price_impact=0.0,
+            exchange_rate=exchange_rate,
+            raw_quote=raw,
         )
 
     async def _get_tempo_dex_quote(
@@ -1863,6 +2150,23 @@ class SwapEngine:
         Raises:
             SwapError: If validation fails or swap execution fails
         """
+        # Hard backstop BEFORE any provider dispatch: GOAT must NEVER execute via
+        # the Li.Fi/EVM aggregator path — no aggregator supports chain id 2345.
+        # Checked up-front so a mis-built quote fails before locks/DB/funds.
+        if "goat" in (quote.from_chain.lower(), quote.to_chain.lower()):
+            if quote.provider != "goatswap":
+                raise SwapError(
+                    f"GOAT swaps must route via GOATSwap (got provider '{quote.provider}')"
+                )
+
+        # Same hard backstop for Citrea: chain id 4114 is absent from every
+        # aggregator — only the direct JuiceSwap path may execute.
+        if "citrea" in (quote.from_chain.lower(), quote.to_chain.lower()):
+            if quote.provider != "juiceswap":
+                raise SwapError(
+                    f"Citrea swaps must route via JuiceSwap (got provider '{quote.provider}')"
+                )
+
         # Prevent concurrent swaps from same wallet (with bounded growth)
         if wallet_id not in self._wallet_locks:
             if len(self._wallet_locks) >= self._wallet_locks_max:
@@ -2071,6 +2375,13 @@ class SwapEngine:
                     tx_hash = await self._execute_kyberswap_swap(quote, wallet)
                 elif quote.provider == "avnu":
                     tx_hash = await self._execute_avnu_swap(quote, wallet)
+                elif quote.provider == "goatswap":
+                    tx_hash = await self._execute_goatswap_swap(quote, wallet)
+                elif quote.provider == "juiceswap":
+                    tx_hash = await self._execute_juiceswap_swap(quote, wallet)
+                # (GOAT/Citrea guards live at the top of execute_swap — any
+                # goat/citrea quote reaching this dispatch is guaranteed
+                # provider == "goatswap"/"juiceswap")
                 elif "starknet" in (quote.from_chain.lower(), quote.to_chain.lower()):
                     # Hard guard: Starknet must NEVER fall into the Li.Fi/EVM path.
                     raise SwapError(
@@ -2280,7 +2591,10 @@ class SwapEngine:
         if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
             # Check native balance before attempting approval — need ETH for gas
             native_balance_wei = await asyncio.to_thread(lambda: web3.eth.get_balance(sender))
-            gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+            # Floor to the chain's network minimum (Rootstock: 60M wei / 0.06 gwei)
+            gas_price = apply_min_gas_price(
+                quote.from_chain, await asyncio.to_thread(lambda: web3.eth.gas_price)
+            )
             # Approval costs ~50k gas; swap ~200k gas; require enough for both
             min_gas_wei = gas_price * 300_000
             if native_balance_wei < min_gas_wei:
@@ -2322,7 +2636,21 @@ class SwapEngine:
             )
 
             if current_allowance < amount_needed:
-                max_approval = 2**256 - 1
+                # 'exact' mode on a reset-required token (USDT mainnet): zero the
+                # allowance first, since approve() reverts non-zero -> non-zero.
+                nonce = await self._send_reset_approval_if_needed(
+                    web3=web3,
+                    token_contract=token_contract,
+                    token_addr=token_addr,
+                    spender=spender,
+                    current_allowance=current_allowance,
+                    sender=sender,
+                    chain_id=chain.chain_id,
+                    gas_price=gas_price,
+                    nonce=nonce,
+                    wallet=wallet,
+                )
+                max_approval = self._approval_amount(amount_needed)
                 # Pass gas explicitly to skip eth_estimateGas simulation
                 approve_data = token_contract.functions.approve(
                     spender, max_approval
@@ -2365,8 +2693,14 @@ class SwapEngine:
             "data": tx_request.get("data"),
             "value": _parse_int(tx_request.get("value"), 0),
             "gas": _parse_int(tx_request.get("gasLimit"), 500000),
-            "gasPrice": _parse_int(
-                tx_request.get("gasPrice"), await asyncio.to_thread(lambda: web3.eth.gas_price)
+            # Floor to the chain's network minimum (Rootstock has no EIP-1559 and
+            # rejects gasPrice below 60M wei; LiFi-provided gasPrice is floored too)
+            "gasPrice": apply_min_gas_price(
+                quote.from_chain,
+                _parse_int(
+                    tx_request.get("gasPrice"),
+                    await asyncio.to_thread(lambda: web3.eth.gas_price),
+                ),
             ),
             "nonce": nonce,
             "chainId": chain.chain_id,
@@ -2788,6 +3122,136 @@ class SwapEngine:
         from bot.services.rpc_manager import rpc_manager
 
         return rpc_manager.get_web3(chain_name)
+
+    async def _execute_goatswap_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a GOAT-only swap via GOATSwap SwapRouter02 (multicall style)."""
+        from bot.services.goatswap_api import goatswap_api
+
+        return await self._execute_univ3_fork_swap(quote, wallet_data, goatswap_api)
+
+    async def _execute_juiceswap_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a Citrea-only swap via JuiceSwap SwapRouter (deadline-in-struct)."""
+        from bot.services.univ3_fork_api import juiceswap_api
+
+        return await self._execute_univ3_fork_swap(quote, wallet_data, juiceswap_api)
+
+    async def _execute_univ3_fork_swap(self, quote: SwapQuote, wallet_data: dict, venue_api) -> str:
+        """Execute a same-chain swap on a direct UniV3-fork venue.
+
+        Steps:
+        1. Rebuild the venue quote from stored raw_quote data (no re-quote).
+        2. ERC20 input: approve the exact amount to the router, wait for receipt.
+           Native BTC input: no approval — amount rides as msg.value (router
+           wraps into the wrapped-native token itself).
+        3. exactInputSingle per the venue's router style (GOATSwap: wrapped in
+           multicall(deadline); JuiceSwap: deadline inside the params struct)
+           with amountOutMinimum from the quoted min-out.
+
+        Gas: on top of the usual 1.3x estimate buffer, the venue's
+        gas_headroom_pct is applied (Citrea: +15% — the L1 fee surcharge is not
+        included in eth_estimateGas).
+        """
+        from bot.services.univ3_fork_api import UniV3ForkQuote
+
+        venue = venue_api.venue
+        wallet = await self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
+        sender = wallet_data["address"]
+        chain = get_chain_by_name(venue.chain_name)
+        web3 = self._get_web3_with_fallback(venue.chain_name)
+        raw = quote.raw_quote or {}
+
+        gs_quote = UniV3ForkQuote(
+            token_in=raw["token_in"],
+            token_out=raw["token_out"],
+            amount_in=int(raw["amount_in"]),
+            amount_out=int(quote.to_amount),
+            fee_tier=int(raw["fee_tier"]),
+            native_in=bool(raw.get("native_in")),
+        )
+        amount_out_min = int(quote.to_amount_min)
+
+        nonce = await asyncio.to_thread(
+            lambda: web3.eth.get_transaction_count(Web3.to_checksum_address(sender))
+        )
+        gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+
+        # Step 1: exact-amount ERC20 approval (skipped for native BTC input)
+        if not gs_quote.native_in:
+            approve_tx = venue_api.build_approve_tx(gs_quote.token_in, gs_quote.amount_in)
+            approve_tx.update(
+                {
+                    "gas": venue_api.apply_gas_headroom(80_000),
+                    "gasPrice": gas_price,
+                    "nonce": nonce,
+                    "chainId": chain.chain_id,
+                }
+            )
+            signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
+            approve_hash = await asyncio.to_thread(
+                lambda: web3.eth.send_raw_transaction(
+                    bytes.fromhex(signed_approve.replace("0x", ""))
+                )
+            )
+            logger.info(f"{venue.display_name} approval tx: {approve_hash.hex()}")
+            receipt = await asyncio.to_thread(
+                lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+            )
+            if receipt["status"] != 1:
+                raise SwapError(
+                    f"{venue.display_name} ERC20 approval failed (tx: {approve_hash.hex()})"
+                )
+            nonce += 1
+
+        # Step 2: swap via the venue router (style-specific calldata)
+        swap_tx = venue_api.build_swap_tx(
+            quote=gs_quote,
+            recipient=sender,
+            amount_out_min=amount_out_min,
+        )
+
+        gas_estimate = 300_000
+        try:
+            gas_estimate = await asyncio.to_thread(
+                lambda: web3.eth.estimate_gas(
+                    {
+                        "from": Web3.to_checksum_address(sender),
+                        "to": swap_tx["to"],
+                        "data": swap_tx["data"],
+                        "value": swap_tx["value"],
+                    }
+                )
+            )
+            gas_estimate = int(gas_estimate * 1.3)
+        except Exception as e:
+            logger.warning(f"{venue.display_name} gas estimate failed, using default 300k: {e}")
+
+        # Venue headroom on top (Citrea: L1 fee surcharge not in estimateGas)
+        gas_estimate = venue_api.apply_gas_headroom(gas_estimate)
+
+        swap_tx.update(
+            {
+                "gas": gas_estimate,
+                "gasPrice": gas_price,
+                "nonce": nonce,
+                "chainId": chain.chain_id,
+            }
+        )
+
+        signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, swap_tx)
+        tx_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        )
+
+        logger.info(
+            f"{venue.display_name} exactInputSingle: {tx_hash.hex()} "
+            f"({quote.from_token}→{quote.to_token} fee tier {gs_quote.fee_tier}) — "
+            f"fire-and-monitor: swap receipt NOT awaited here; final status comes "
+            f"from the tx poller"
+        )
+        return tx_hash.hex()
 
     async def _execute_layerzero_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a cross-chain transfer via LayerZero/Stargate V2.
@@ -3545,7 +4009,22 @@ class SwapEngine:
 
                 if current_allowance < amount_needed:
                     nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
-                    max_approval = 2**256 - 1
+                    gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+                    # 'exact' mode on a reset-required token (USDT mainnet): zero the
+                    # allowance first, since approve() reverts non-zero -> non-zero.
+                    nonce = await self._send_reset_approval_if_needed(
+                        web3=web3,
+                        token_contract=token_contract,
+                        token_addr=token_addr,
+                        spender=spender,
+                        current_allowance=current_allowance,
+                        sender=sender,
+                        chain_id=chain.chain_id,
+                        gas_price=gas_price,
+                        nonce=nonce,
+                        wallet=wallet,
+                    )
+                    max_approval = self._approval_amount(amount_needed)
                     approve_data = token_contract.functions.approve(
                         spender, max_approval
                     ).build_transaction(
@@ -3553,7 +4032,7 @@ class SwapEngine:
                             "from": sender,
                             "nonce": nonce,
                             "chainId": chain.chain_id,
-                            "gasPrice": await asyncio.to_thread(lambda: web3.eth.gas_price),
+                            "gasPrice": gas_price,
                         }
                     )
                     approve_tx = {
@@ -3673,7 +4152,22 @@ class SwapEngine:
 
             if current_allowance < amount_needed:
                 nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
-                max_approval = 2**256 - 1
+                gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+                # 'exact' mode on a reset-required token (USDT mainnet): zero the
+                # allowance first, since approve() reverts non-zero -> non-zero.
+                nonce = await self._send_reset_approval_if_needed(
+                    web3=web3,
+                    token_contract=token_contract,
+                    token_addr=token_addr,
+                    spender=spender,
+                    current_allowance=current_allowance,
+                    sender=sender,
+                    chain_id=chain.chain_id,
+                    gas_price=gas_price,
+                    nonce=nonce,
+                    wallet=wallet,
+                )
+                max_approval = self._approval_amount(amount_needed)
                 approve_data = token_contract.functions.approve(
                     spender, max_approval
                 ).build_transaction(
@@ -3681,7 +4175,7 @@ class SwapEngine:
                         "from": sender,
                         "nonce": nonce,
                         "chainId": chain.chain_id,
-                        "gasPrice": await asyncio.to_thread(lambda: web3.eth.gas_price),
+                        "gasPrice": gas_price,
                     }
                 )
                 approve_tx = {
@@ -3809,7 +4303,22 @@ class SwapEngine:
 
                 if current_allowance < amount_needed:
                     nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
-                    max_approval = 2**256 - 1
+                    gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+                    # 'exact' mode on a reset-required token (USDT mainnet): zero the
+                    # allowance first, since approve() reverts non-zero -> non-zero.
+                    nonce = await self._send_reset_approval_if_needed(
+                        web3=web3,
+                        token_contract=token_contract,
+                        token_addr=token_addr,
+                        spender=spender,
+                        current_allowance=current_allowance,
+                        sender=sender,
+                        chain_id=chain.chain_id,
+                        gas_price=gas_price,
+                        nonce=nonce,
+                        wallet=wallet,
+                    )
+                    max_approval = self._approval_amount(amount_needed)
                     approve_data = token_contract.functions.approve(
                         spender, max_approval
                     ).build_transaction(
@@ -3817,7 +4326,7 @@ class SwapEngine:
                             "from": sender,
                             "nonce": nonce,
                             "chainId": chain.chain_id,
-                            "gasPrice": await asyncio.to_thread(lambda: web3.eth.gas_price),
+                            "gasPrice": gas_price,
                         }
                     )
                     approve_tx = {
@@ -3937,7 +4446,23 @@ class SwapEngine:
 
             if current_allowance < amount_needed:
                 nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
-                max_approval = 2**256 - 1
+                gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+                # 'exact' mode on a reset-required token (USDT mainnet): zero the
+                # allowance first, since approve() reverts non-zero -> non-zero.
+                # The KyberSwap router is both spender and tx target.
+                nonce = await self._send_reset_approval_if_needed(
+                    web3=web3,
+                    token_contract=token_contract,
+                    token_addr=token_addr,
+                    spender=router,
+                    current_allowance=current_allowance,
+                    sender=sender,
+                    chain_id=chain.chain_id,
+                    gas_price=gas_price,
+                    nonce=nonce,
+                    wallet=wallet,
+                )
+                max_approval = self._approval_amount(amount_needed)
                 approve_data = token_contract.functions.approve(
                     router, max_approval
                 ).build_transaction(
@@ -3945,7 +4470,7 @@ class SwapEngine:
                         "from": sender,
                         "nonce": nonce,
                         "chainId": chain.chain_id,
-                        "gasPrice": await asyncio.to_thread(lambda: web3.eth.gas_price),
+                        "gasPrice": gas_price,
                     }
                 )
                 approve_tx = {

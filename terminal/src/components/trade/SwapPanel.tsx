@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { OrderTabs } from './OrderTabs'
 import { TokenInput } from '../swap/TokenInput'
 import { QuoteComparison } from '../swap/QuoteComparison'
@@ -16,8 +16,8 @@ import toast from 'react-hot-toast'
 type OrderTab = 'swap' | 'limit' | 'dca'
 
 export function SwapPanel() {
-  const { isAuthenticated } = useAuth()
-  const { side, setSide } = useTrading()
+  const { isAuthenticated, signInWithGoogle } = useAuth()
+  const { side, setSide, pendingSwapAmount, setPendingSwapAmount } = useTrading()
   const { selectedPair, setSelectedPair } = usePair()
   const [activeTab, setActiveTab] = useState<OrderTab>('swap')
   const [amount, setAmount] = useState('')
@@ -58,8 +58,23 @@ export function SwapPanel() {
     slippage,
   } : null
 
-  const { data: quote, isLoading: quoteLoading, error: quoteError } = useSwapQuote(quoteRequest)
+  const { data: quote, isLoading: quoteLoading, error: quoteError, refetch: refetchQuote } = useSwapQuote(quoteRequest)
   const { mutate: executeSwap, isPending: executing } = useSwapExecute()
+
+  // FIX 5: Ticking staleness check — flips to true without user interaction
+  const [isQuoteStale, setIsQuoteStale] = useState(false)
+  const staleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  useEffect(() => {
+    if (staleTimerRef.current) clearInterval(staleTimerRef.current)
+    if (!quote?.expiresAt) {
+      setIsQuoteStale(false)
+      return
+    }
+    const check = () => setIsQuoteStale(Date.now() >= new Date(quote.expiresAt).getTime())
+    check()
+    staleTimerRef.current = setInterval(check, 1000)
+    return () => { if (staleTimerRef.current) clearInterval(staleTimerRef.current) }
+  }, [quote?.expiresAt, quote?.id])
 
   const handleSwap = () => {
     if (!quote) return
@@ -91,6 +106,14 @@ export function SwapPanel() {
   }
 
   const flipTokens = () => changeSide(side === 'buy' ? 'sell' : 'buy')
+
+  // FIX 3: Consume quick-buy pre-fill from DiscoveryPanel
+  useEffect(() => {
+    if (!pendingSwapAmount) return
+    setSide('buy')
+    setAmount(pendingSwapAmount)
+    setPendingSwapAmount('')
+  }, [pendingSwapAmount, setPendingSwapAmount, setSide])
 
   if (activeTab === 'limit') {
     return (
@@ -174,16 +197,17 @@ export function SwapPanel() {
       {/* Slippage */}
       <SlippageControl value={slippage} onChange={setSlippage} />
 
-      {/* TP/SL */}
+      {/* TP/SL — Coming soon: backend execute endpoint only accepts quoteId */}
       <div>
         <button
           onClick={() => setShowTpSl(prev => !prev)}
           className="text-xs text-terminal-text-secondary hover:text-terminal-text-primary transition-colors"
         >
           TP/SL {showTpSl ? '▴' : '▾'}
+          <span className="ml-1.5 text-[10px] text-terminal-text-muted italic">Coming soon</span>
         </button>
         {showTpSl && (
-          <div className="mt-2 flex flex-col gap-2">
+          <div className="mt-2 flex flex-col gap-2 opacity-50 pointer-events-none select-none">
             <div>
               <label className="text-xs text-terminal-text-secondary mb-1 block">Take Profit</label>
               <input
@@ -191,20 +215,15 @@ export function SwapPanel() {
                 value={tpPrice}
                 onChange={e => setTpPrice(e.target.value)}
                 placeholder="TP price"
+                disabled
                 className="terminal-input w-full font-mono text-sm"
               />
               <div className="flex gap-1 mt-1">
                 {['+5%', '+10%', '+20%'].map(pct => (
                   <button
                     key={pct}
-                    onClick={() => {
-                      if (!quote) return
-                      const pctNum = parseFloat(pct)
-                      if (isNaN(pctNum)) return
-                      setTpPrice((parseFloat(quote.toAmount) * (1 + pctNum / 100)).toFixed(6))
-                    }}
-                    className="text-xs px-2 py-0.5 rounded bg-terminal-bg-tertiary text-terminal-text-secondary
-                               hover:text-bull transition-colors"
+                    disabled
+                    className="text-xs px-2 py-0.5 rounded bg-terminal-bg-tertiary text-terminal-text-secondary"
                   >
                     {pct}
                   </button>
@@ -218,20 +237,15 @@ export function SwapPanel() {
                 value={slPrice}
                 onChange={e => setSlPrice(e.target.value)}
                 placeholder="SL price"
+                disabled
                 className="terminal-input w-full font-mono text-sm"
               />
               <div className="flex gap-1 mt-1">
                 {['-5%', '-10%', '-20%'].map(pct => (
                   <button
                     key={pct}
-                    onClick={() => {
-                      if (!quote) return
-                      const pctNum = parseFloat(pct)
-                      if (isNaN(pctNum)) return
-                      setSlPrice((parseFloat(quote.toAmount) * (1 + pctNum / 100)).toFixed(6))
-                    }}
-                    className="text-xs px-2 py-0.5 rounded bg-terminal-bg-tertiary text-terminal-text-secondary
-                               hover:text-bear transition-colors"
+                    disabled
+                    className="text-xs px-2 py-0.5 rounded bg-terminal-bg-tertiary text-terminal-text-secondary"
                   >
                     {pct}
                   </button>
@@ -254,25 +268,37 @@ export function SwapPanel() {
 
       {/* Execute button */}
       <button
-        onClick={handleSwap}
-        disabled={!quote || executing || !isAuthenticated}
+        onClick={
+          !isAuthenticated
+            ? // Google OAuth, not signIn(): the passkey endpoints are server-gated
+              // (503) until real WebAuthn verification ships.
+              () => signInWithGoogle()
+            : isQuoteStale
+              ? () => void refetchQuote()
+              : handleSwap
+        }
+        disabled={isAuthenticated && !isQuoteStale && (!quote || executing)}
         className={`w-full py-3 text-base font-semibold rounded transition-colors disabled:opacity-50 ${
           !isAuthenticated
-            ? 'bg-terminal-bg-tertiary text-terminal-text-muted'
-            : side === 'buy'
-              ? 'bg-bull hover:bg-bull/80 text-white disabled:bg-bull/30'
-              : 'bg-bear hover:bg-bear/80 text-white disabled:bg-bear/30'
+            ? 'bg-terminal-bg-tertiary text-terminal-text hover:bg-terminal-bg-secondary border border-terminal-border'
+            : isQuoteStale
+              ? 'bg-yellow-600/20 text-yellow-400 border border-yellow-600/40 hover:bg-yellow-600/30'
+              : side === 'buy'
+                ? 'bg-bull hover:bg-bull/80 text-white disabled:bg-bull/30'
+                : 'bg-bear hover:bg-bear/80 text-white disabled:bg-bear/30'
         }`}
       >
         {!isAuthenticated
-          ? 'Create Turnkey wallet'
-          : executing
-            ? 'Executing...'
-            : quoteLoading
-              ? 'Getting Quote...'
-              : quote
-                ? `${side === 'buy' ? 'Buy' : 'Sell'} ${toToken?.symbol || ''}`
-                : 'Enter Amount'
+          ? 'Connect wallet to trade'
+          : isQuoteStale
+            ? 'Quote expired — refresh'
+            : executing
+              ? 'Executing...'
+              : quoteLoading
+                ? 'Getting Quote...'
+                : quote
+                  ? `${side === 'buy' ? 'Buy' : 'Sell'} ${toToken?.symbol || ''}`
+                  : 'Enter Amount'
         }
       </button>
 

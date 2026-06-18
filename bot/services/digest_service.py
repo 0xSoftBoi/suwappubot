@@ -82,29 +82,41 @@ class DigestService:
         cutoff = now - timedelta(days=DIGEST_INTERVAL_DAYS)
 
         with get_session() as session:
+            # Include users with either Telegram or WhatsApp so WA-only users get digests
             users = (
                 session.query(User)
                 .filter(
                     User.weekly_digest == True,  # noqa: E712
-                    User.telegram_id.isnot(None),
                 )
+                .filter((User.telegram_id.isnot(None)) | (User.whatsapp_id.isnot(None)))
                 .all()
             )
             due_users = [u for u in users if is_digest_due(u.last_digest_at, now)]
             # Detach so we can use IDs after session closes
             due_info = [
-                (u.id, u.telegram_id, [(w.id, w.address, w.chain_type, w.name) for w in u.wallets])
+                (
+                    u.id,
+                    u.telegram_id,
+                    u.whatsapp_id,
+                    [(w.id, w.address, w.chain_type, w.name) for w in u.wallets],
+                )
                 for u in due_users
             ]
 
-        for user_id, telegram_id, wallet_infos in due_info:
+        for user_id, telegram_id, whatsapp_id, wallet_infos in due_info:
             try:
-                await self._send_digest(user_id, telegram_id, wallet_infos)
+                await self._send_digest(user_id, telegram_id, whatsapp_id, wallet_infos)
             except Exception as exc:
                 logger.warning(f"Failed to send digest to user {user_id}: {exc}")
 
-    async def _send_digest(self, user_id: int, telegram_id: int, wallet_infos: list) -> None:
-        """Build and send the digest message for one user."""
+    async def _send_digest(
+        self,
+        user_id: int,
+        telegram_id: int,
+        whatsapp_id: str,
+        wallet_infos: list,
+    ) -> None:
+        """Build and send the digest message for one user via Telegram and/or WhatsApp."""
         from bot.services.wallet import WalletService
         from bot.services.price_service import PriceService
         from bot.utils.formatters import format_usd
@@ -155,11 +167,31 @@ class DigestService:
             f"_Use /p for a full breakdown or /digest to turn off these summaries._"
         )
 
-        await self._bot.send_message(
-            chat_id=telegram_id,
-            text=text,
-            parse_mode="Markdown",
-        )
+        # Telegram delivery (guarded: some WhatsApp-only users have no telegram_id)
+        if telegram_id and self._bot:
+            await self._bot.send_message(
+                chat_id=telegram_id,
+                text=text,
+                parse_mode="Markdown",
+            )
+
+        # WhatsApp delivery via pre-approved template (works outside 24h window)
+        if whatsapp_id:
+            try:
+                from bot.services.whatsapp_service import whatsapp_service
+                from bot.services.whatsapp_templates import template_service
+
+                if whatsapp_service.is_configured():
+                    # Compute a simple 24h change percentage for the template.
+                    # We use 0% as a safe default when historical data isn't available.
+                    change_pct = "0.00"
+                    await template_service.send_daily_portfolio(
+                        to=whatsapp_id,
+                        total_value=f"{total_usd:.2f}",
+                        change_pct=change_pct,
+                    )
+            except Exception as wa_exc:
+                logger.warning(f"WhatsApp digest delivery failed for user {user_id}: {wa_exc}")
 
         # Mark digest as sent
         now = datetime.now(timezone.utc)
@@ -169,7 +201,7 @@ class DigestService:
                 user.last_digest_at = now
                 session.commit()
 
-        logger.info(f"Sent weekly digest to user {user_id} (tg={telegram_id})")
+        logger.info(f"Sent weekly digest to user {user_id} (tg={telegram_id}, wa={whatsapp_id})")
 
 
 digest_service = DigestService()

@@ -4,6 +4,7 @@ Telegram WebApp authentication and endpoints.
 This module handles Telegram Mini App initData validation
 per https://core.telegram.org/bots/webapps#validating-data
 """
+
 import hmac
 import hashlib
 import json
@@ -141,7 +142,9 @@ async def _fetch_morpho_lending_markets(limit: int = 24) -> List["WebAppLendingM
         response.raise_for_status()
     payload = response.json()
     if payload.get("errors"):
-        raise HTTPException(status_code=502, detail="Morpho lending market provider returned an error")
+        raise HTTPException(
+            status_code=502, detail="Morpho lending market provider returned an error"
+        )
 
     markets: List[WebAppLendingMarket] = []
     for item in ((payload.get("data") or {}).get("markets") or {}).get("items") or []:
@@ -164,6 +167,7 @@ async def get_terminal_auth_payload(
 
 
 # --- Models ---
+
 
 class TelegramUser(BaseModel):
     id: int
@@ -360,6 +364,7 @@ class WebAppCopilotResponse(BaseModel):
 
 # --- Helpers ---
 
+
 def validate_telegram_init_data(init_data: str, bot_token: str) -> Optional[Dict]:
     """
     Validate Telegram WebApp initData using HMAC-SHA256.
@@ -376,35 +381,40 @@ def validate_telegram_init_data(init_data: str, bot_token: str) -> Optional[Dict
         parsed = parse_qs(init_data)
 
         # Extract and remove hash
-        received_hash = parsed.pop('hash', [None])[0]
+        received_hash = parsed.pop("hash", [None])[0]
         if not received_hash:
             return None
 
         # Build the data check string (sorted alphabetically, newline-separated)
-        data_check_string = '\n'.join(
-            f'{k}={unquote(v[0])}' for k, v in sorted(parsed.items())
-        )
+        data_check_string = "\n".join(f"{k}={unquote(v[0])}" for k, v in sorted(parsed.items()))
 
         # Create secret key: HMAC-SHA256(bot_token, "WebAppData")
-        secret_key = hmac.new(
-            b'WebAppData',
-            bot_token.encode('utf-8'),
-            hashlib.sha256
-        ).digest()
+        secret_key = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256).digest()
 
         # Calculate expected hash
         calculated_hash = hmac.new(
-            secret_key,
-            data_check_string.encode('utf-8'),
-            hashlib.sha256
+            secret_key, data_check_string.encode("utf-8"), hashlib.sha256
         ).hexdigest()
 
         # Constant-time comparison
         if not hmac.compare_digest(calculated_hash, received_hash):
             return None
 
+        # Replay protection: the HMAC alone is valid forever, so captured initData
+        # could be replayed indefinitely. Telegram includes auth_date (unix seconds);
+        # reject anything older than 24h, or missing/non-numeric.
+        auth_date_raw = parsed.get("auth_date", [None])[0]
+        if auth_date_raw is None:
+            return None
+        try:
+            auth_date = int(auth_date_raw)
+        except (TypeError, ValueError):
+            return None
+        if time.time() - auth_date > 86400:
+            return None
+
         # Parse user data from initData
-        user_data = parsed.get('user', [None])[0]
+        user_data = parsed.get("user", [None])[0]
         if user_data:
             return json.loads(unquote(user_data))
 
@@ -417,7 +427,8 @@ def validate_telegram_init_data(init_data: str, bot_token: str) -> Optional[Dict
 def _cleanup_terminal_quote_cache() -> None:
     now = time.time()
     expired = [
-        quote_id for quote_id, entry in _terminal_quote_cache.items()
+        quote_id
+        for quote_id, entry in _terminal_quote_cache.items()
         if now - entry["created_at"] > _QUOTE_TTL_SECONDS
     ]
     for quote_id in expired:
@@ -557,7 +568,9 @@ def _parse_copilot_swap(text: str) -> WebAppSwapQuoteRequest:
     )
 
 
-async def _fetch_live_token_price(symbol: str, requested_chain: Optional[str] = None) -> WebAppCopilotResponse:
+async def _fetch_live_token_price(
+    symbol: str, requested_chain: Optional[str] = None
+) -> WebAppCopilotResponse:
     token = TOKENS.get(symbol.upper())
     if not token:
         raise HTTPException(status_code=400, detail=f"Unsupported token {symbol}")
@@ -631,10 +644,15 @@ async def _fetch_live_token_price(symbol: str, requested_chain: Optional[str] = 
 
 
 def _default_terminal_wallet(db: Session, user_id: int) -> Optional[Wallet]:
-    return db.query(Wallet).filter(
-        Wallet.user_id == user_id,
-        Wallet.is_active == True,
-    ).order_by(Wallet.is_default.desc(), Wallet.id.asc()).first()
+    return (
+        db.query(Wallet)
+        .filter(
+            Wallet.user_id == user_id,
+            Wallet.is_active == True,
+        )
+        .order_by(Wallet.is_default.desc(), Wallet.id.asc())
+        .first()
+    )
 
 
 def _require_terminal_user(auth_payload: Optional[Dict]) -> int:
@@ -797,7 +815,9 @@ def _float_value(value: Any, default: float = 0.0) -> float:
 
 def _dca_order_response(order) -> Dict[str, Any]:
     amount_per_order = _float_value(order.amount_per_execution)
-    total_amount = _float_value(order.max_total_amount, amount_per_order * float(order.max_executions or 0))
+    total_amount = _float_value(
+        order.max_total_amount, amount_per_order * float(order.max_executions or 0)
+    )
     return {
         "id": str(order.id),
         "fromToken": order.from_token,
@@ -840,20 +860,30 @@ def _limit_order_target_symbol(order_type: str, from_token: str, to_token: str) 
     return from_token
 
 
-async def _validate_limit_order_market(order_type: str, from_token: str, to_token: str, trigger_price: float) -> float:
+async def _validate_limit_order_market(
+    order_type: str, from_token: str, to_token: str, trigger_price: float
+) -> float:
     from bot.services.price_service import price_service
 
     target_symbol = _limit_order_target_symbol(order_type, from_token, to_token)
     current_price = await price_service.get_price(target_symbol)
     if current_price is None or current_price <= 0:
-        raise HTTPException(status_code=400, detail=f"Live USD price is not available for {target_symbol}")
+        raise HTTPException(
+            status_code=400, detail=f"Live USD price is not available for {target_symbol}"
+        )
 
     if order_type == "limit_buy" and trigger_price > current_price:
-        raise HTTPException(status_code=400, detail="Limit buy target must be at or below the current market price")
+        raise HTTPException(
+            status_code=400, detail="Limit buy target must be at or below the current market price"
+        )
     if order_type in {"limit_sell", "take_profit"} and trigger_price < current_price:
-        raise HTTPException(status_code=400, detail="Sell target must be at or above the current market price")
+        raise HTTPException(
+            status_code=400, detail="Sell target must be at or above the current market price"
+        )
     if order_type == "stop_loss" and trigger_price > current_price:
-        raise HTTPException(status_code=400, detail="Stop-loss target must be at or below the current market price")
+        raise HTTPException(
+            status_code=400, detail="Stop-loss target must be at or below the current market price"
+        )
 
     return float(current_price)
 
@@ -874,10 +904,7 @@ async def get_telegram_user(
     if not x_telegram_init_data:
         raise HTTPException(status_code=401, detail="Missing Telegram authentication")
 
-    user_data = validate_telegram_init_data(
-        x_telegram_init_data,
-        settings.telegram_bot_token
-    )
+    user_data = validate_telegram_init_data(x_telegram_init_data, settings.telegram_bot_token)
 
     if not user_data:
         raise HTTPException(status_code=401, detail="Invalid Telegram authentication")
@@ -886,6 +913,7 @@ async def get_telegram_user(
 
 
 # --- Endpoints ---
+
 
 @router.post("/validate", response_model=ValidateResponse)
 async def validate_webapp(
@@ -900,18 +928,12 @@ async def validate_webapp(
     if not x_telegram_init_data:
         return ValidateResponse(valid=False)
 
-    user_data = validate_telegram_init_data(
-        x_telegram_init_data,
-        settings.telegram_bot_token
-    )
+    user_data = validate_telegram_init_data(x_telegram_init_data, settings.telegram_bot_token)
 
     if not user_data:
         return ValidateResponse(valid=False)
 
-    return ValidateResponse(
-        valid=True,
-        user=TelegramUser(**user_data) if user_data else None
-    )
+    return ValidateResponse(valid=True, user=TelegramUser(**user_data) if user_data else None)
 
 
 def _token_response(symbol: str, token, chain: str) -> Optional[WebAppToken]:
@@ -996,7 +1018,8 @@ def _dex_pair_to_pool(pair: Dict[str, Any]) -> Dict[str, Any]:
     price_change = pair.get("priceChange") or {}
     created_at = pair.get("pairCreatedAt")
     return {
-        "name": pair.get("pairAddress") or f"{base_token.get('symbol', 'UNKNOWN')}/{quote_token.get('symbol', 'UNKNOWN')}",
+        "name": pair.get("pairAddress")
+        or f"{base_token.get('symbol', 'UNKNOWN')}/{quote_token.get('symbol', 'UNKNOWN')}",
         "address": pair.get("pairAddress") or "",
         "createdAt": datetime.utcfromtimestamp(created_at / 1000).isoformat() if created_at else "",
         "baseToken": {
@@ -1022,14 +1045,17 @@ async def _fetch_dex_pools(chain: str, limit: int, mode: str) -> List[Dict[str, 
     query = _DEX_SEARCH_QUERY.get(chain_key, chain_key)
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
-            response = await client.get("https://api.dexscreener.com/latest/dex/search", params={"q": query})
+            response = await client.get(
+                "https://api.dexscreener.com/latest/dex/search", params={"q": query}
+            )
             response.raise_for_status()
             payload = response.json()
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Discovery provider failed: {exc}")
 
     pairs = [
-        pair for pair in payload.get("pairs", [])
+        pair
+        for pair in payload.get("pairs", [])
         if str(pair.get("chainId", "")).lower() == dex_chain_id
     ]
     if mode == "new":
@@ -1083,7 +1109,9 @@ async def search_tokens(q: str, chain: str = "ethereum"):
     matches: List[WebAppToken] = []
     native_token = _native_token_response(chain.lower())
     if native_token:
-        native_haystack = f"{native_token.symbol} {native_token.name} {native_token.address}".lower()
+        native_haystack = (
+            f"{native_token.symbol} {native_token.name} {native_token.address}".lower()
+        )
         if query in native_haystack:
             matches.append(native_token)
 
@@ -1100,12 +1128,16 @@ async def search_tokens(q: str, chain: str = "ethereum"):
 
 
 @router.get("/discovery/new")
-async def get_terminal_new_pools(chain: str = "ethereum", limit: int = Query(default=20, ge=1, le=50)):
+async def get_terminal_new_pools(
+    chain: str = "ethereum", limit: int = Query(default=20, ge=1, le=50)
+):
     return await _fetch_dex_pools(chain, limit, "new")
 
 
 @router.get("/discovery/trending")
-async def get_terminal_trending_pools(chain: str = "ethereum", limit: int = Query(default=20, ge=1, le=50)):
+async def get_terminal_trending_pools(
+    chain: str = "ethereum", limit: int = Query(default=20, ge=1, le=50)
+):
     return await _fetch_dex_pools(chain, limit, "trending")
 
 
@@ -1114,18 +1146,28 @@ def _windowed_trader_pnl(db, trader_user_ids):
     populated by the copy-trade settlement pipeline). One grouped query, no N+1."""
     from bot.models.copy_trading import TraderTrade
     from sqlalchemy import func, case
+
     if not trader_user_ids:
         return {}
     now = datetime.utcnow()
     d7, d30 = now - timedelta(days=7), now - timedelta(days=30)
-    rows = db.query(
-        TraderTrade.trader_id,
-        func.sum(case((TraderTrade.created_at >= d7, TraderTrade.pnl_usd), else_=0.0)).label("p7"),
-        func.sum(case((TraderTrade.created_at >= d30, TraderTrade.pnl_usd), else_=0.0)).label("p30"),
-    ).filter(
-        TraderTrade.trader_id.in_(trader_user_ids),
-        TraderTrade.created_at >= d30,
-    ).group_by(TraderTrade.trader_id).all()
+    rows = (
+        db.query(
+            TraderTrade.trader_id,
+            func.sum(case((TraderTrade.created_at >= d7, TraderTrade.pnl_usd), else_=0.0)).label(
+                "p7"
+            ),
+            func.sum(case((TraderTrade.created_at >= d30, TraderTrade.pnl_usd), else_=0.0)).label(
+                "p30"
+            ),
+        )
+        .filter(
+            TraderTrade.trader_id.in_(trader_user_ids),
+            TraderTrade.created_at >= d30,
+        )
+        .group_by(TraderTrade.trader_id)
+        .all()
+    )
     return {r.trader_id: (float(r.p7 or 0), float(r.p30 or 0)) for r in rows}
 
 
@@ -1142,15 +1184,20 @@ async def get_terminal_top_traders(
 
     # Pull a generous pool by all-time rank, then (if a timeframe is selected) re-rank
     # by real windowed PnL so the 7d/30d toggle actually changes the order.
-    profiles = db.query(TraderProfile, User).join(
-        User, TraderProfile.user_id == User.id
-    ).filter(
-        TraderProfile.is_public == True,
-    ).order_by(
-        TraderProfile.rank_score.desc(),
-        TraderProfile.total_pnl_usd.desc(),
-        TraderProfile.total_trades.desc(),
-    ).limit(max(limit, 100)).all()
+    profiles = (
+        db.query(TraderProfile, User)
+        .join(User, TraderProfile.user_id == User.id)
+        .filter(
+            TraderProfile.is_public == True,
+        )
+        .order_by(
+            TraderProfile.rank_score.desc(),
+            TraderProfile.total_pnl_usd.desc(),
+            TraderProfile.total_trades.desc(),
+        )
+        .limit(max(limit, 100))
+        .all()
+    )
 
     pnl_windows = _windowed_trader_pnl(db, [p.user_id for p, _u in profiles])
 
@@ -1185,18 +1232,26 @@ async def get_terminal_trader_profile(
     user_id = _require_terminal_user(auth_payload)
     from bot.models.copy_trading import CopyFollow, TraderProfile
 
-    profile = db.query(TraderProfile).filter(
-        TraderProfile.id == trader_id,
-        TraderProfile.is_public == True,
-    ).first()
+    profile = (
+        db.query(TraderProfile)
+        .filter(
+            TraderProfile.id == trader_id,
+            TraderProfile.is_public == True,
+        )
+        .first()
+    )
     if not profile:
         raise HTTPException(status_code=404, detail="Trader not found")
 
-    follow = db.query(CopyFollow).filter(
-        CopyFollow.follower_id == user_id,
-        CopyFollow.trader_id == profile.user_id,
-        CopyFollow.is_active == True,
-    ).first()
+    follow = (
+        db.query(CopyFollow)
+        .filter(
+            CopyFollow.follower_id == user_id,
+            CopyFollow.trader_id == profile.user_id,
+            CopyFollow.is_active == True,
+        )
+        .first()
+    )
 
     _pw = _windowed_trader_pnl(db, [profile.user_id]).get(profile.user_id, (0.0, 0.0))
     return {
@@ -1225,19 +1280,27 @@ async def follow_terminal_trader(
     user_id = _require_terminal_user(auth_payload)
     from bot.models.copy_trading import CopyFollow, TraderProfile
 
-    profile = db.query(TraderProfile).filter(
-        TraderProfile.id == trader_id,
-        TraderProfile.is_public == True,
-    ).first()
+    profile = (
+        db.query(TraderProfile)
+        .filter(
+            TraderProfile.id == trader_id,
+            TraderProfile.is_public == True,
+        )
+        .first()
+    )
     if not profile:
         raise HTTPException(status_code=404, detail="Trader not found")
     if profile.user_id == user_id:
         raise HTTPException(status_code=400, detail="You cannot follow yourself")
 
-    follow = db.query(CopyFollow).filter(
-        CopyFollow.follower_id == user_id,
-        CopyFollow.trader_id == profile.user_id,
-    ).first()
+    follow = (
+        db.query(CopyFollow)
+        .filter(
+            CopyFollow.follower_id == user_id,
+            CopyFollow.trader_id == profile.user_id,
+        )
+        .first()
+    )
     if follow and follow.is_active:
         raise HTTPException(status_code=409, detail="Already following this trader")
     if not follow:
@@ -1264,11 +1327,15 @@ async def unfollow_terminal_trader(
     if not profile:
         raise HTTPException(status_code=404, detail="Trader not found")
 
-    follow = db.query(CopyFollow).filter(
-        CopyFollow.follower_id == user_id,
-        CopyFollow.trader_id == profile.user_id,
-        CopyFollow.is_active == True,
-    ).first()
+    follow = (
+        db.query(CopyFollow)
+        .filter(
+            CopyFollow.follower_id == user_id,
+            CopyFollow.trader_id == profile.user_id,
+            CopyFollow.is_active == True,
+        )
+        .first()
+    )
     if not follow:
         raise HTTPException(status_code=404, detail="Not following this trader")
 
@@ -1286,12 +1353,18 @@ async def get_terminal_following(
     user_id = _require_terminal_user(auth_payload)
     from bot.models.copy_trading import CopyFollow, TraderProfile
 
-    rows = db.query(CopyFollow, TraderProfile).join(
-        TraderProfile, CopyFollow.trader_id == TraderProfile.user_id,
-    ).filter(
-        CopyFollow.follower_id == user_id,
-        CopyFollow.is_active == True,
-    ).all()
+    rows = (
+        db.query(CopyFollow, TraderProfile)
+        .join(
+            TraderProfile,
+            CopyFollow.trader_id == TraderProfile.user_id,
+        )
+        .filter(
+            CopyFollow.follower_id == user_id,
+            CopyFollow.is_active == True,
+        )
+        .all()
+    )
 
     return [
         {
@@ -1316,9 +1389,15 @@ async def get_terminal_copy_trades(
     user_id = _require_terminal_user(auth_payload)
     from bot.models.copy_trading import CopyTrade
 
-    trades = db.query(CopyTrade).filter(
-        CopyTrade.copier_id == user_id,
-    ).order_by(CopyTrade.created_at.desc()).limit(limit).all()
+    trades = (
+        db.query(CopyTrade)
+        .filter(
+            CopyTrade.copier_id == user_id,
+        )
+        .order_by(CopyTrade.created_at.desc())
+        .limit(limit)
+        .all()
+    )
 
     return [
         {
@@ -1349,11 +1428,15 @@ async def update_terminal_follow_settings(
     if not profile:
         raise HTTPException(status_code=404, detail="Trader not found")
 
-    follow = db.query(CopyFollow).filter(
-        CopyFollow.follower_id == user_id,
-        CopyFollow.trader_id == profile.user_id,
-        CopyFollow.is_active == True,
-    ).first()
+    follow = (
+        db.query(CopyFollow)
+        .filter(
+            CopyFollow.follower_id == user_id,
+            CopyFollow.trader_id == profile.user_id,
+            CopyFollow.is_active == True,
+        )
+        .first()
+    )
     if not follow:
         raise HTTPException(status_code=404, detail="Not following this trader")
 
@@ -1370,9 +1453,14 @@ async def get_terminal_alerts(
     user_id = _require_terminal_user(auth_payload)
     from bot.models.advanced import AdvancedPriceAlert
 
-    alerts = db.query(AdvancedPriceAlert).filter(
-        AdvancedPriceAlert.user_id == user_id,
-    ).order_by(AdvancedPriceAlert.created_at.desc()).all()
+    alerts = (
+        db.query(AdvancedPriceAlert)
+        .filter(
+            AdvancedPriceAlert.user_id == user_id,
+        )
+        .order_by(AdvancedPriceAlert.created_at.desc())
+        .all()
+    )
 
     return [_alert_response(alert) for alert in alerts]
 
@@ -1413,10 +1501,14 @@ async def delete_terminal_alert(
     user_id = _require_terminal_user(auth_payload)
     from bot.models.advanced import AdvancedPriceAlert
 
-    alert = db.query(AdvancedPriceAlert).filter(
-        AdvancedPriceAlert.id == alert_id,
-        AdvancedPriceAlert.user_id == user_id,
-    ).first()
+    alert = (
+        db.query(AdvancedPriceAlert)
+        .filter(
+            AdvancedPriceAlert.id == alert_id,
+            AdvancedPriceAlert.user_id == user_id,
+        )
+        .first()
+    )
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
 
@@ -1433,10 +1525,15 @@ async def get_terminal_tracked_wallets(
     user_id = _require_terminal_user(auth_payload)
     from bot.models.tracking import TrackedWallet
 
-    wallets = db.query(TrackedWallet).filter(
-        TrackedWallet.user_id == user_id,
-        TrackedWallet.is_active == True,
-    ).order_by(TrackedWallet.created_at.desc()).all()
+    wallets = (
+        db.query(TrackedWallet)
+        .filter(
+            TrackedWallet.user_id == user_id,
+            TrackedWallet.is_active == True,
+        )
+        .order_by(TrackedWallet.created_at.desc())
+        .all()
+    )
     return [_tracked_wallet_response(wallet) for wallet in wallets]
 
 
@@ -1453,10 +1550,14 @@ async def create_terminal_tracked_wallet(
     label = body.label.strip() if body.label and body.label.strip() else None
     chain = _chain_for_tracked_wallet(address, body.chain)
 
-    wallet = db.query(TrackedWallet).filter(
-        TrackedWallet.user_id == user_id,
-        TrackedWallet.address.ilike(address),
-    ).first()
+    wallet = (
+        db.query(TrackedWallet)
+        .filter(
+            TrackedWallet.user_id == user_id,
+            TrackedWallet.address.ilike(address),
+        )
+        .first()
+    )
     if wallet:
         wallet.label = label
         wallet.chain = chain
@@ -1487,11 +1588,15 @@ async def delete_terminal_tracked_wallet(
     from bot.models.tracking import TrackedWallet
 
     normalized = _normalize_tracked_wallet_address(address)
-    wallet = db.query(TrackedWallet).filter(
-        TrackedWallet.user_id == user_id,
-        TrackedWallet.address.ilike(normalized),
-        TrackedWallet.is_active == True,
-    ).first()
+    wallet = (
+        db.query(TrackedWallet)
+        .filter(
+            TrackedWallet.user_id == user_id,
+            TrackedWallet.address.ilike(normalized),
+            TrackedWallet.is_active == True,
+        )
+        .first()
+    )
     if not wallet:
         raise HTTPException(status_code=404, detail="Tracked wallet not found")
 
@@ -1523,14 +1628,16 @@ async def get_terminal_wallet_activities(
 
     from bot.models.tracking import TrackedWallet
 
-    wallets = db.query(TrackedWallet).filter(
-        TrackedWallet.user_id == user_id,
-        TrackedWallet.is_active == True,
-    ).all()
-    if not wallets:
-        _terminal_activity_cache[user_id] = (
-            time.monotonic() + _ACTIVITY_TTL_SECONDS, []
+    wallets = (
+        db.query(TrackedWallet)
+        .filter(
+            TrackedWallet.user_id == user_id,
+            TrackedWallet.is_active == True,
         )
+        .all()
+    )
+    if not wallets:
+        _terminal_activity_cache[user_id] = (time.monotonic() + _ACTIVITY_TTL_SECONDS, [])
         return []
 
     try:
@@ -1539,9 +1646,7 @@ async def get_terminal_wallet_activities(
         logger.warning("wallet-tracker activities failed for user %s: %s", user_id, exc)
         activities = []
 
-    _terminal_activity_cache[user_id] = (
-        time.monotonic() + _ACTIVITY_TTL_SECONDS, activities
-    )
+    _terminal_activity_cache[user_id] = (time.monotonic() + _ACTIVITY_TTL_SECONDS, activities)
     return activities
 
 
@@ -1590,16 +1695,18 @@ async def _build_wallet_activities(wallets) -> List[Dict[str, Any]]:
             token_address = ""
             if isinstance(t.raw_contract, dict):
                 token_address = t.raw_contract.get("address") or ""
-            raw.append({
-                "wallet": wallet,
-                "transfer": t,
-                "qty": float(qty),
-                "action": "buy" if is_incoming else "sell",
-                "symbol": symbol,
-                "tokenAddress": token_address,
-                "timestamp": t.block_timestamp,
-                "block_num": t.block_num,
-            })
+            raw.append(
+                {
+                    "wallet": wallet,
+                    "transfer": t,
+                    "qty": float(qty),
+                    "action": "buy" if is_incoming else "sell",
+                    "symbol": symbol,
+                    "tokenAddress": token_address,
+                    "timestamp": t.block_timestamp,
+                    "block_num": t.block_num,
+                }
+            )
 
     if not raw:
         return []
@@ -1616,19 +1723,21 @@ async def _build_wallet_activities(wallets) -> List[Dict[str, Any]]:
     for item in raw:
         t = item["transfer"]
         price = float(prices.get(item["symbol"], 0.0) or 0.0)
-        activities.append({
-            "id": f"{t.tx_hash}:{item['wallet'].address.lower()}:{item['action']}",
-            "walletAddress": item["wallet"].address,
-            "walletLabel": item["wallet"].label,
-            "action": item["action"],
-            "tokenSymbol": item["symbol"],
-            "tokenAddress": item["tokenAddress"],
-            "amount": item["qty"] * price,
-            "priceUsd": price,
-            "chain": (item["wallet"].chain or "ethereum").lower(),
-            "timestamp": item["timestamp"] or "",
-            "txHash": t.tx_hash,
-        })
+        activities.append(
+            {
+                "id": f"{t.tx_hash}:{item['wallet'].address.lower()}:{item['action']}",
+                "walletAddress": item["wallet"].address,
+                "walletLabel": item["wallet"].label,
+                "action": item["action"],
+                "tokenSymbol": item["symbol"],
+                "tokenAddress": item["tokenAddress"],
+                "amount": item["qty"] * price,
+                "priceUsd": price,
+                "chain": (item["wallet"].chain or "ethereum").lower(),
+                "timestamp": item["timestamp"] or "",
+                "txHash": t.tx_hash,
+            }
+        )
 
     activities.sort(key=lambda a: a["timestamp"], reverse=True)
     return activities[:_ACTIVITY_MAX]
@@ -1642,10 +1751,15 @@ async def get_terminal_tweet_accounts(
     user_id = _require_terminal_user(auth_payload)
     from bot.models.tracking import TrackedTwitterAccount
 
-    accounts = db.query(TrackedTwitterAccount).filter(
-        TrackedTwitterAccount.user_id == user_id,
-        TrackedTwitterAccount.is_active == True,
-    ).order_by(TrackedTwitterAccount.created_at.desc()).all()
+    accounts = (
+        db.query(TrackedTwitterAccount)
+        .filter(
+            TrackedTwitterAccount.user_id == user_id,
+            TrackedTwitterAccount.is_active == True,
+        )
+        .order_by(TrackedTwitterAccount.created_at.desc())
+        .all()
+    )
     return [_twitter_account_response(account) for account in accounts]
 
 
@@ -1659,15 +1773,23 @@ async def create_terminal_tweet_account(
     from bot.models.tracking import TrackedTwitterAccount
 
     handle = _normalize_twitter_handle(body.handle)
-    account_count = db.query(TrackedTwitterAccount).filter(
-        TrackedTwitterAccount.user_id == user_id,
-        TrackedTwitterAccount.is_active == True,
-    ).count()
+    account_count = (
+        db.query(TrackedTwitterAccount)
+        .filter(
+            TrackedTwitterAccount.user_id == user_id,
+            TrackedTwitterAccount.is_active == True,
+        )
+        .count()
+    )
 
-    account = db.query(TrackedTwitterAccount).filter(
-        TrackedTwitterAccount.user_id == user_id,
-        TrackedTwitterAccount.handle.ilike(handle),
-    ).first()
+    account = (
+        db.query(TrackedTwitterAccount)
+        .filter(
+            TrackedTwitterAccount.user_id == user_id,
+            TrackedTwitterAccount.handle.ilike(handle),
+        )
+        .first()
+    )
     if account:
         account.is_active = True
         account.display_name = handle
@@ -1697,11 +1819,15 @@ async def delete_terminal_tweet_account(
     from bot.models.tracking import TrackedTwitterAccount
 
     normalized = _normalize_twitter_handle(handle)
-    account = db.query(TrackedTwitterAccount).filter(
-        TrackedTwitterAccount.user_id == user_id,
-        TrackedTwitterAccount.handle.ilike(normalized),
-        TrackedTwitterAccount.is_active == True,
-    ).first()
+    account = (
+        db.query(TrackedTwitterAccount)
+        .filter(
+            TrackedTwitterAccount.user_id == user_id,
+            TrackedTwitterAccount.handle.ilike(normalized),
+            TrackedTwitterAccount.is_active == True,
+        )
+        .first()
+    )
     if not account:
         raise HTTPException(status_code=404, detail="Tracked account not found")
 
@@ -1727,9 +1853,14 @@ async def get_terminal_limit_orders(
     user_id = _require_terminal_user(auth_payload)
     from bot.models.advanced import LimitOrder
 
-    orders = db.query(LimitOrder).filter(
-        LimitOrder.user_id == user_id,
-    ).order_by(LimitOrder.created_at.desc()).all()
+    orders = (
+        db.query(LimitOrder)
+        .filter(
+            LimitOrder.user_id == user_id,
+        )
+        .order_by(LimitOrder.created_at.desc())
+        .all()
+    )
     return [_limit_order_response(order) for order in orders]
 
 
@@ -1778,7 +1909,11 @@ async def create_terminal_limit_order(
         amount=amount_raw,
         trigger_price=body.triggerPrice,
         slippage=body.slippage,
-        expires_at=datetime.utcnow() + timedelta(hours=body.expiresInHours) if body.expiresInHours else None,
+        expires_at=(
+            datetime.utcnow() + timedelta(hours=body.expiresInHours)
+            if body.expiresInHours
+            else None
+        ),
     )
     db.add(order)
     db.commit()
@@ -1795,14 +1930,20 @@ async def cancel_terminal_limit_order(
     user_id = _require_terminal_user(auth_payload)
     from bot.models.advanced import LimitOrder, OrderStatus
 
-    order = db.query(LimitOrder).filter(
-        LimitOrder.id == order_id,
-        LimitOrder.user_id == user_id,
-    ).first()
+    order = (
+        db.query(LimitOrder)
+        .filter(
+            LimitOrder.id == order_id,
+            LimitOrder.user_id == user_id,
+        )
+        .first()
+    )
     if not order:
         raise HTTPException(status_code=404, detail="Limit order not found")
     if order.status not in {OrderStatus.PENDING.value, OrderStatus.TRIGGERED.value}:
-        raise HTTPException(status_code=400, detail="Only pending or triggered orders can be cancelled")
+        raise HTTPException(
+            status_code=400, detail="Only pending or triggered orders can be cancelled"
+        )
 
     order.status = OrderStatus.CANCELLED.value
     db.commit()
@@ -1817,9 +1958,14 @@ async def get_terminal_dca_orders(
     user_id = _require_terminal_user(auth_payload)
     from bot.models.advanced import DCAOrder
 
-    orders = db.query(DCAOrder).filter(
-        DCAOrder.user_id == user_id,
-    ).order_by(DCAOrder.created_at.desc()).all()
+    orders = (
+        db.query(DCAOrder)
+        .filter(
+            DCAOrder.user_id == user_id,
+        )
+        .order_by(DCAOrder.created_at.desc())
+        .all()
+    )
 
     return [_dca_order_response(order) for order in orders]
 
@@ -1878,10 +2024,14 @@ async def pause_terminal_dca_order(
     user_id = _require_terminal_user(auth_payload)
     from bot.models.advanced import DCAOrder
 
-    order = db.query(DCAOrder).filter(
-        DCAOrder.id == order_id,
-        DCAOrder.user_id == user_id,
-    ).first()
+    order = (
+        db.query(DCAOrder)
+        .filter(
+            DCAOrder.id == order_id,
+            DCAOrder.user_id == user_id,
+        )
+        .first()
+    )
     if not order:
         raise HTTPException(status_code=404, detail="DCA order not found")
     if order.status == "cancelled":
@@ -1901,10 +2051,14 @@ async def cancel_terminal_dca_order(
     user_id = _require_terminal_user(auth_payload)
     from bot.models.advanced import DCAOrder
 
-    order = db.query(DCAOrder).filter(
-        DCAOrder.id == order_id,
-        DCAOrder.user_id == user_id,
-    ).first()
+    order = (
+        db.query(DCAOrder)
+        .filter(
+            DCAOrder.id == order_id,
+            DCAOrder.user_id == user_id,
+        )
+        .first()
+    )
     if not order:
         raise HTTPException(status_code=404, detail="DCA order not found")
 
@@ -1923,7 +2077,9 @@ async def get_terminal_lending_markets(
     except HTTPException:
         raise
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="Morpho lending market provider is unavailable") from exc
+        raise HTTPException(
+            status_code=502, detail="Morpho lending market provider is unavailable"
+        ) from exc
 
 
 @router.get("/lending/markets/{market_id}", response_model=WebAppLendingMarket)
@@ -1937,7 +2093,9 @@ async def get_terminal_lending_market(
     except HTTPException:
         raise
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="Morpho lending market provider is unavailable") from exc
+        raise HTTPException(
+            status_code=502, detail="Morpho lending market provider is unavailable"
+        ) from exc
     for market in markets:
         if market.id == market_id:
             return market
@@ -1965,29 +2123,24 @@ async def get_chains():
 
 @router.get("/users/me/portfolio", response_model=WebAppPortfolio)
 async def get_my_portfolio(
-    tg_user: TelegramUser = Depends(get_telegram_user),
-    db: Session = Depends(get_db)
+    tg_user: TelegramUser = Depends(get_telegram_user), db: Session = Depends(get_db)
 ):
     """
     Get the current user's portfolio based on Telegram authentication.
     """
     from bot.services.wallet import WalletService
+
     wallet_service = WalletService()
 
     # Find user by telegram_id
     user = db.query(User).filter(User.telegram_id == tg_user.id).first()
     if not user:
         return WebAppPortfolio(
-            totalUsdValue=0.0,
-            tokens=[],
-            lastUpdated=datetime.utcnow().isoformat()
+            totalUsdValue=0.0, tokens=[], lastUpdated=datetime.utcnow().isoformat()
         )
 
     # Get all active wallets
-    wallets = db.query(Wallet).filter(
-        Wallet.user_id == user.id,
-        Wallet.is_active == True
-    ).all()
+    wallets = db.query(Wallet).filter(Wallet.user_id == user.id, Wallet.is_active == True).all()
 
     tokens = []
     total_usd = 0.0
@@ -2000,29 +2153,28 @@ async def get_my_portfolio(
                     if balance > 0:
                         # Simple USD estimation (would use price service in production)
                         usd_value = balance  # Placeholder
-                        tokens.append(WebAppPortfolioToken(
-                            symbol=symbol,
-                            name=symbol,
-                            address="0x...",
-                            chain=chain_name,
-                            balance=str(balance),
-                            usdValue=usd_value,
-                        ))
+                        tokens.append(
+                            WebAppPortfolioToken(
+                                symbol=symbol,
+                                name=symbol,
+                                address="0x...",
+                                chain=chain_name,
+                                balance=str(balance),
+                                usdValue=usd_value,
+                            )
+                        )
                         total_usd += usd_value
         except Exception:
             continue
 
     return WebAppPortfolio(
-        totalUsdValue=total_usd,
-        tokens=tokens,
-        lastUpdated=datetime.utcnow().isoformat()
+        totalUsdValue=total_usd, tokens=tokens, lastUpdated=datetime.utcnow().isoformat()
     )
 
 
 @router.get("/portfolio", response_model=WebAppPortfolio)
 async def get_terminal_portfolio(
-    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
-    db: Session = Depends(get_db)
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload), db: Session = Depends(get_db)
 ):
     """
     Get the current terminal user's portfolio using JWT auth.
@@ -2034,10 +2186,7 @@ async def get_terminal_portfolio(
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    wallets = db.query(Wallet).filter(
-        Wallet.user_id == user.id,
-        Wallet.is_active == True
-    ).all()
+    wallets = db.query(Wallet).filter(Wallet.user_id == user.id, Wallet.is_active == True).all()
 
     tokens: List[WebAppPortfolioToken] = []
     total_usd = 0.0
@@ -2049,9 +2198,7 @@ async def get_terminal_portfolio(
             continue
 
     return WebAppPortfolio(
-        totalUsdValue=total_usd,
-        tokens=tokens,
-        lastUpdated=datetime.utcnow().isoformat()
+        totalUsdValue=total_usd, tokens=tokens, lastUpdated=datetime.utcnow().isoformat()
     )
 
 
@@ -2183,7 +2330,9 @@ async def create_terminal_swap_quote(
 
     from_token = _webapp_swap_token(from_symbol, body.fromChain)
     to_token = _webapp_swap_token(to_symbol, body.toChain)
-    expires_at = datetime.utcnow() + timedelta(seconds=getattr(quote, "expires_in", _QUOTE_TTL_SECONDS))
+    expires_at = datetime.utcnow() + timedelta(
+        seconds=getattr(quote, "expires_in", _QUOTE_TTL_SECONDS)
+    )
 
     return WebAppSwapQuoteResponse(
         id=quote_id,
@@ -2268,7 +2417,7 @@ async def get_my_swaps(
     limit: int = 20,
     offset: int = 0,
     tg_user: TelegramUser = Depends(get_telegram_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Get the current user's swap history based on Telegram authentication.
@@ -2279,11 +2428,14 @@ async def get_my_swaps(
         return []
 
     # Get swaps
-    swaps = db.query(SwapTransaction).filter(
-        SwapTransaction.user_id == user.id
-    ).order_by(
-        SwapTransaction.created_at.desc()
-    ).offset(offset).limit(limit).all()
+    swaps = (
+        db.query(SwapTransaction)
+        .filter(SwapTransaction.user_id == user.id)
+        .order_by(SwapTransaction.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
 
     return [
         WebAppSwap(
@@ -2310,6 +2462,7 @@ async def get_my_swaps(
 
 # --- Wallet Management Endpoints ---
 
+
 class LinkedWallet(BaseModel):
     address: str
     chainType: str
@@ -2332,8 +2485,7 @@ class WalletCreateResponse(BaseModel):
 
 @router.get("/users/me/wallets", response_model=List[LinkedWallet])
 async def get_my_wallets(
-    tg_user: TelegramUser = Depends(get_telegram_user),
-    db: Session = Depends(get_db)
+    tg_user: TelegramUser = Depends(get_telegram_user), db: Session = Depends(get_db)
 ):
     """
     Get all wallets linked to the current Telegram user.
@@ -2344,10 +2496,7 @@ async def get_my_wallets(
         return []
 
     # Get all active wallets
-    wallets = db.query(Wallet).filter(
-        Wallet.user_id == user.id,
-        Wallet.is_active == True
-    ).all()
+    wallets = db.query(Wallet).filter(Wallet.user_id == user.id, Wallet.is_active == True).all()
 
     return [
         LinkedWallet(
@@ -2363,8 +2512,7 @@ async def get_my_wallets(
 
 @router.post("/wallets/default", response_model=WalletCreateResponse)
 async def get_or_create_wallet(
-    tg_user: TelegramUser = Depends(get_telegram_user),
-    db: Session = Depends(get_db)
+    tg_user: TelegramUser = Depends(get_telegram_user), db: Session = Depends(get_db)
 ):
     """
     Get the user's default wallet, or create one if none exists.
@@ -2390,11 +2538,11 @@ async def get_or_create_wallet(
         db.refresh(user)
 
     # Check if user already has a default wallet
-    default_wallet = db.query(Wallet).filter(
-        Wallet.user_id == user.id,
-        Wallet.is_active == True,
-        Wallet.is_default == True
-    ).first()
+    default_wallet = (
+        db.query(Wallet)
+        .filter(Wallet.user_id == user.id, Wallet.is_active == True, Wallet.is_default == True)
+        .first()
+    )
 
     if default_wallet:
         return WalletCreateResponse(
@@ -2407,18 +2555,18 @@ async def get_or_create_wallet(
     try:
         if is_turnkey_configured():
             turnkey = get_turnkey_client()
-            
+
             # Create sub-organization for user
             sub_org_name = f"tg_user_{user.id}"
             sub_org = await turnkey.create_sub_organization(name=sub_org_name)
-            
+
             # Create EVM wallet
             turnkey_wallet = await turnkey.create_wallet(
                 wallet_name="Telegram Wallet",
                 chain_type="evm",
                 organization_id=sub_org.sub_org_id,
             )
-            
+
             # Store wallet in database
             wallet = Wallet(
                 user_id=user.id,
@@ -2435,7 +2583,7 @@ async def get_or_create_wallet(
             )
             db.add(wallet)
             db.commit()
-            
+
             return WalletCreateResponse(
                 success=True,
                 address=turnkey_wallet.address,
@@ -2462,9 +2610,7 @@ async def get_or_create_wallet(
 
 @router.delete("/wallets/{address}")
 async def unlink_wallet(
-    address: str,
-    tg_user: TelegramUser = Depends(get_telegram_user),
-    db: Session = Depends(get_db)
+    address: str, tg_user: TelegramUser = Depends(get_telegram_user), db: Session = Depends(get_db)
 ):
     """
     Unlink (deactivate) a wallet from the current Telegram user.
@@ -2475,11 +2621,11 @@ async def unlink_wallet(
         raise HTTPException(status_code=404, detail="User not found")
 
     # Find the wallet
-    wallet = db.query(Wallet).filter(
-        Wallet.user_id == user.id,
-        Wallet.address.ilike(address),
-        Wallet.is_active == True
-    ).first()
+    wallet = (
+        db.query(Wallet)
+        .filter(Wallet.user_id == user.id, Wallet.address.ilike(address), Wallet.is_active == True)
+        .first()
+    )
 
     if not wallet:
         raise HTTPException(status_code=404, detail="Wallet not found")
@@ -2496,37 +2642,44 @@ async def unlink_wallet(
 # router (/v1/mobile/points/*) which isn't reachable via api.suwappu.bot. Delegate to
 # the same handlers (identical JWT auth) so the rewards dashboard + check-in work.
 
+
 @router.get("/points/profile")
 async def webapp_points_profile(request: Request):
     from api.routes.mobile import get_points
+
     return await get_points(request)
 
 
 @router.post("/points/checkin")
 async def webapp_points_checkin(request: Request):
     from api.routes.mobile import daily_checkin
+
     return await daily_checkin(request)
 
 
 @router.get("/points/milestones")
 async def webapp_points_milestones(request: Request):
     from api.routes.mobile import get_milestones
+
     return await get_milestones(request)
 
 
 @router.get("/points/rewards")
 async def webapp_points_rewards(request: Request):
     from api.routes.mobile import get_rewards
+
     return await get_rewards(request)
 
 
 @router.post("/points/rewards/{reward_id}/redeem")
 async def webapp_points_redeem(request: Request, reward_id: int):
     from api.routes.mobile import redeem_reward
+
     return await redeem_reward(request, reward_id)
 
 
 @router.get("/points/leaderboard")
 async def webapp_points_leaderboard(request: Request, limit: int = Query(default=50, le=100)):
     from api.routes.mobile import get_leaderboard
+
     return await get_leaderboard(request, limit)

@@ -30,7 +30,7 @@ from bot.handlers.wallet import (
     wallet_qr_callback,
     wallet_import_handler,
 )
-from bot.handlers.swap import swap_conversation_handler, check_swap_status
+from bot.handlers.swap import swap_conversation_handler, check_swap_status, swap_share_ref_handler
 from bot.handlers.twofa import twofa_conversation
 from bot.handlers.smart_account import smart_account_handler, smart_account_chain_handler
 from bot.handlers.recovery import recover_handler, recover_cancel_handler
@@ -104,7 +104,13 @@ from bot.handlers.admin_fees import (
 )
 
 # New handlers
-from bot.handlers.alerts import alerts_handler, alert_conversation, alerts_menu_callback
+from bot.handlers.alerts import (
+    alerts_handler,
+    alert_conversation,
+    alerts_menu_callback,
+    alert_manage_callback,
+    alert_delete_callback,
+)
 from bot.handlers.referral import (
     referral_handler,
     ref_menu_callback_handler,
@@ -195,6 +201,7 @@ from bot.handlers.copy import (
 from bot.handlers.snipe import snipe_conversation_handler
 from bot.handlers.predict import predict_conversation_handler
 from bot.handlers.savings import savings_conversation_handler
+from bot.handlers.borrow import borrow_conversation_handler
 from bot.handlers.btc import btc_conversation_handler
 from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
 from bot.handlers.dashboard import dashboard_handler, dashboard_menu_callback
@@ -318,6 +325,9 @@ def add_handlers(application: Application) -> None:
     # ============ CONVERSATION HANDLERS ============
     # Must be added before generic callback handlers
     application.add_handler(swap_conversation_handler)
+    application.add_handler(
+        swap_share_ref_handler
+    )  # post-swap referral share (outside conversation)
     application.add_handler(wallet_import_handler)
     application.add_handler(slippage_conversation)
     application.add_handler(recovery_conversation)  # settings_recovery -> set email
@@ -331,6 +341,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(perps_conversation_handler)  # Perps trading /perps
     application.add_handler(predict_conversation_handler)  # Prediction markets /predict
     application.add_handler(savings_conversation_handler)  # USDC savings /save (Aave V3 Base)
+    application.add_handler(borrow_conversation_handler)  # Borrow USDC vs cbBTC /borrow (Morpho)
     application.add_handler(btc_conversation_handler)  # BTC bridge /btc (Atomiq, Starknet)
     application.add_handler(token_conv_handler)  # SUWP token /token /suwp
     application.add_handler(twofa_conversation)  # TOTP 2FA enrollment /2fa
@@ -419,6 +430,8 @@ def add_handlers(application: Application) -> None:
 
     # Alerts
     application.add_handler(CallbackQueryHandler(alerts_menu_callback, pattern="^alerts_menu$"))
+    application.add_handler(CallbackQueryHandler(alert_manage_callback, pattern="^alert_manage$"))
+    application.add_handler(CallbackQueryHandler(alert_delete_callback, pattern="^alert_delete_"))
 
     # Referrals & Fees
     application.add_handler(ref_menu_callback_handler)
@@ -539,6 +552,7 @@ async def post_init(application) -> None:
             BotCommand("c", "Custodial wallet"),
             BotCommand("dashboard", "Open Mini App"),
             BotCommand("btc", "BTC bridge (Lightning ⇄ Starknet)"),
+            BotCommand("borrow", "Borrow USDC against BTC"),
             BotCommand("tax", "Tax export"),
             BotCommand("set", "Settings"),
             BotCommand("h", "Help"),

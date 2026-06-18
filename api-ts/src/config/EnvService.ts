@@ -1,5 +1,10 @@
 import { Schema } from '@effect/schema'
 import { Context, Effect, Layer } from 'effect'
+import {
+	DEFAULT_AGENT_FEE_BPS,
+	DEFAULT_FEE_WALLET_EVM,
+	DEFAULT_FEE_WALLET_SOLANA,
+} from './constants'
 
 export const EnvSchema = Schema.Struct({
 	NODE_ENV: Schema.optionalWith(Schema.Literal('development', 'test', 'production'), {
@@ -62,14 +67,15 @@ export const EnvSchema = Schema.Struct({
 		default: () => '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
 	}),
 
-	// Fee Collection
+	// Fee Collection (defaults centralized in ./constants — single source of truth)
 	FEE_WALLET_EVM: Schema.optionalWith(Schema.String, {
-		default: () => '0x6456f69215C470e1545Ed6eea4621C136B30D85d',
+		default: () => DEFAULT_FEE_WALLET_EVM,
 	}),
 	FEE_WALLET_SOLANA: Schema.optionalWith(Schema.String, {
-		default: () => '4Xxbeusi6NL46AtZQHJrPREtYFCByKE48oxrpLvWEWJh',
+		default: () => DEFAULT_FEE_WALLET_SOLANA,
 	}),
-	FEE_BPS: Schema.optionalWith(Schema.NumberFromString, { default: () => 30 }), // 0.3% default
+	// Flat agent-surface platform fee (0.3%). NOT tier-aware — see DEFAULT_AGENT_FEE_BPS.
+	FEE_BPS: Schema.optionalWith(Schema.NumberFromString, { default: () => DEFAULT_AGENT_FEE_BPS }),
 
 	// Polymarket
 	POLYMARKET_CREDENTIAL_KEY: Schema.optional(Schema.String),

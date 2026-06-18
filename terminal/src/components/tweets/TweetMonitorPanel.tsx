@@ -3,6 +3,11 @@ import { AddAccountModal } from './AddAccountModal'
 import { TweetCard } from './TweetCard'
 import { useState } from 'react'
 
+// NOTE: /webapp/tweets/* endpoints do not exist in api-ts. The account-persistence
+// and tweet-feed calls all 404. This panel is gated as coming soon until the backend
+// routes are implemented. Remove COMING_SOON when that work is done.
+const COMING_SOON = true
+
 const SENTIMENT_FILTERS: { id: SentimentFilter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'bullish', label: 'Bullish' },
@@ -37,71 +42,85 @@ export function TweetMonitorPanel() {
           )}
         </h3>
         <button
-          onClick={() => setIsModalOpen(true)}
-          className="terminal-button text-xs px-3 py-1"
+          onClick={() => !COMING_SOON && setIsModalOpen(true)}
+          disabled={COMING_SOON}
+          className="terminal-button text-xs px-3 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
           data-testid="add-account-btn"
         >
           Manage Accounts
         </button>
       </div>
 
-      <div className="text-xs text-terminal-text-muted">
-        Tracked account persistence is connected. Tweet provider is not connected yet.
-      </div>
-      {error && (
-        <div className="text-xs text-bear" data-testid="tweet-monitor-error">
-          {error instanceof Error ? error.message : 'Tweet monitor request failed.'}
+      {COMING_SOON ? (
+        <div className="rounded-lg border border-terminal-border bg-terminal-bg px-3 py-3 text-sm text-terminal-text-muted">
+          <span className="font-semibold text-terminal-text">Coming soon</span> — Tweet monitoring is not yet available.
+          The backend endpoint is under development.
         </div>
-      )}
-      {isLoading && (
-        <div className="text-xs text-terminal-text-muted" data-testid="tweet-monitor-loading">
-          Loading tracked accounts...
-        </div>
-      )}
-
-      {/* Sentiment filter bar */}
-      <div className="flex items-center gap-1 shrink-0" data-testid="sentiment-filters">
-        {SENTIMENT_FILTERS.map(f => (
-          <button
-            key={f.id}
-            onClick={() => setSentimentFilter(f.id)}
-            className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-              sentimentFilter === f.id
-                ? 'bg-sakura-600/20 text-sakura-400'
-                : 'text-terminal-text-secondary hover:text-terminal-text'
-            }`}
-            data-testid={`filter-${f.id}`}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Tweet feed */}
-      <div className="flex-1 overflow-y-auto space-y-2" data-testid="tweet-feed">
-        {accounts.length === 0 ? (
-          <div className="text-center text-terminal-text-muted text-sm py-8">
-            <p className="mb-2">No accounts tracked</p>
-            <p className="text-xs">Tweet provider is not connected yet.</p>
+      ) : (
+        <>
+          <div className="text-xs text-terminal-text-muted">
+            Tracked account persistence is connected. Tweet provider is not connected yet.
           </div>
-        ) : tweets.length === 0 ? (
-          <div className="text-center text-terminal-text-muted text-sm py-8">
-            Tweet provider is not connected yet.
-          </div>
-        ) : (
-          tweets.map(tweet => (
-            <TweetCard key={tweet.id} tweet={tweet} />
-          ))
-        )}
-      </div>
+          {error && (
+            <div className="text-xs text-bear" data-testid="tweet-monitor-error">
+              {error instanceof Error ? error.message : 'Tweet monitor request failed.'}
+            </div>
+          )}
+          {isLoading && (
+            <div className="text-xs text-terminal-text-muted" data-testid="tweet-monitor-loading">
+              Loading tracked accounts...
+            </div>
+          )}
+        </>
+      )}
 
-      <AddAccountModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onAdd={addAccount}
-        onRemove={removeAccount}
-        accounts={accounts}
-      />
+      {!COMING_SOON && (
+        <>
+          {/* Sentiment filter bar */}
+          <div className="flex items-center gap-1 shrink-0" data-testid="sentiment-filters">
+            {SENTIMENT_FILTERS.map(f => (
+              <button
+                key={f.id}
+                onClick={() => setSentimentFilter(f.id)}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                  sentimentFilter === f.id
+                    ? 'bg-sakura-600/20 text-sakura-400'
+                    : 'text-terminal-text-secondary hover:text-terminal-text'
+                }`}
+                data-testid={`filter-${f.id}`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Tweet feed */}
+          <div className="flex-1 overflow-y-auto space-y-2" data-testid="tweet-feed">
+            {accounts.length === 0 ? (
+              <div className="text-center text-terminal-text-muted text-sm py-8">
+                <p className="mb-2">No accounts tracked</p>
+                <p className="text-xs">Tweet provider is not connected yet.</p>
+              </div>
+            ) : tweets.length === 0 ? (
+              <div className="text-center text-terminal-text-muted text-sm py-8">
+                Tweet provider is not connected yet.
+              </div>
+            ) : (
+              tweets.map(tweet => (
+                <TweetCard key={tweet.id} tweet={tweet} />
+              ))
+            )}
+          </div>
+
+          <AddAccountModal
+            isOpen={isModalOpen}
+            onClose={() => setIsModalOpen(false)}
+            onAdd={addAccount}
+            onRemove={removeAccount}
+            accounts={accounts}
+          />
+        </>
+      )}
     </div>
   )
 }

@@ -32,6 +32,18 @@ export function Swap() {
     }
   }, [tokens, fromToken])
 
+  // Honor the user's saved slippage preference (stored in basis points); fall back to 0.5%
+  const { data: prefsData } = useQuery({
+    queryKey: ['preferences'],
+    queryFn: () => api.getUserPreferences(),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+  const slippagePct =
+    prefsData?.preferences?.defaultSlippage != null
+      ? prefsData.preferences.defaultSlippage / 100
+      : 0.5
+
   // Build quote request
   const quoteRequest = useMemo(() => {
     if (!fromToken || !toToken || !fromAmount) return null
@@ -42,9 +54,9 @@ export function Swap() {
       toChain: toToken.chain,
       amount: fromAmount,
       fromDecimals: fromToken.decimals,
-      slippage: 0.5,
+      slippage: slippagePct,
     }
-  }, [fromToken, toToken, fromAmount])
+  }, [fromToken, toToken, fromAmount, slippagePct])
 
   // Fetch quote (debounced)
   const { 
@@ -62,7 +74,8 @@ export function Swap() {
     reset: resetSwapState,
   } = useSwapExecute()
 
-  const TERMINAL_STATUSES = ['completed', 'failed', 'success', 'cancelled']
+  // 'signed' = tx signed but broadcast failed server-side; it never progresses, so stop polling
+  const TERMINAL_STATUSES = ['completed', 'failed', 'success', 'cancelled', 'signed']
 
   // Poll for swap status after execution
   const { data: swapStatus } = useQuery({
@@ -133,7 +146,6 @@ export function Swap() {
     : undefined
   const priceImpact = quote ? `${quote.priceImpact.toFixed(2)}%` : undefined
   const networkFee = quote ? `~$${quote.gasUsd.toFixed(2)}` : undefined
-  const minReceived = quote && toToken ? `${quote.minReceived} ${toToken.symbol}` : undefined
 
   // Convert SwapToken to Token for TokenInput
   const fromTokenDisplay = fromToken ? {
