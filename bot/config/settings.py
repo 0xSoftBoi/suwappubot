@@ -299,6 +299,21 @@ class Settings(BaseSettings):
         description="Max builder fee rate users approve (percent string, e.g. '0.1%').",
     )
 
+    # HyperLiquid funding — one-click cross-chain deposits into a user's
+    # HyperCore account. USDC routes via the Across Swap API (chain 1337);
+    # native BTC/ETH/SOL route via HyperUnit. See bot/services/hyperliquid_funding.py.
+    across_integrator_id: Optional[str] = Field(
+        default=None,
+        description="Across integrator id for the Swap API (attribution). Unset = omitted.",
+    )
+    across_api_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Across Swap API key (sent as Bearer). Required for production "
+            "rate limits; quotes work without it in dev/testnet."
+        ),
+    )
+
     lisk_rpc_url: str = Field(default="https://rpc.api.lisk.com", description="Lisk RPC")
     sei_rpc_url: str = Field(default="https://evm-rpc.sei-apis.com", description="Sei RPC")
     soneium_rpc_url: str = Field(default="https://rpc.soneium.org", description="Soneium RPC")
