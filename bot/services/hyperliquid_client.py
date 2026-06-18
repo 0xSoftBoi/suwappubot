@@ -60,6 +60,7 @@ class HyperLiquidClient:
     """Client for HyperLiquid perpetuals exchange."""
 
     BASE_URL = "https://api.hyperliquid.xyz"
+    TESTNET_BASE_URL = "https://api.hyperliquid-testnet.xyz"
     INFO_URL = f"{BASE_URL}/info"
     EXCHANGE_URL = f"{BASE_URL}/exchange"
 
@@ -81,7 +82,14 @@ class HyperLiquidClient:
     # must be pinned by id, never resolved by name) — see resolve_spot_asset.
     HYPE_TOKEN_ID = "0x0d01dc56dcaaca66ad901c959b4011ec"
 
-    def __init__(self):
+    def __init__(self, testnet: bool = False):
+        # Instance URLs/flag shadow the class defaults so a testnet client can be
+        # constructed without touching the global mainnet singleton. is_mainnet
+        # flows into every signature (phantom-agent source "a" vs "b").
+        self.is_mainnet = not testnet
+        base = self.TESTNET_BASE_URL if testnet else self.BASE_URL
+        self.INFO_URL = f"{base}/info"
+        self.EXCHANGE_URL = f"{base}/exchange"
         self._client: Optional[httpx.AsyncClient] = None
         self._asset_index_cache: dict[str, int] = {}
         self._asset_index_fetched_at: float = 0.0
@@ -378,7 +386,7 @@ class HyperLiquidClient:
             client = await self._get_client()
             nonce = int(time.time() * 1000)
             action, signature = sign_approve_builder_fee(
-                api_secret, builder_address, max_fee_rate, nonce, is_mainnet=True
+                api_secret, builder_address, max_fee_rate, nonce, is_mainnet=self.is_mainnet
             )
 
             response = await client.post(
@@ -605,7 +613,7 @@ class HyperLiquidClient:
         try:
             nonce = int(time.time() * 1000)
             action, signature = sign_staking_transfer(
-                api_secret, hype_to_wei(amount_hype), nonce, is_deposit, is_mainnet=True
+                api_secret, hype_to_wei(amount_hype), nonce, is_deposit, is_mainnet=self.is_mainnet
             )
             return await self._post_user_signed(action, signature, nonce)
         except Exception as e:
@@ -619,7 +627,12 @@ class HyperLiquidClient:
         try:
             nonce = int(time.time() * 1000)
             action, signature = sign_token_delegate(
-                api_secret, validator, hype_to_wei(amount_hype), is_undelegate, nonce, True
+                api_secret,
+                validator,
+                hype_to_wei(amount_hype),
+                is_undelegate,
+                nonce,
+                self.is_mainnet,
             )
             return await self._post_user_signed(action, signature, nonce)
         except Exception as e:
@@ -1135,10 +1148,10 @@ class HyperLiquidClient:
     def _sign_action(self, action: dict, nonce: int, api_secret: str) -> dict:
         """Sign an L1 action for the HyperLiquid exchange API via EIP-712.
 
-        ``api_secret`` is the account's EVM private key. Mainnet is assumed
-        (BASE_URL points at api.hyperliquid.xyz) and there is no vault address.
+        ``api_secret`` is the account's EVM private key; there is no vault address.
+        Network (mainnet/testnet) follows ``self.is_mainnet``.
         """
-        return sign_l1_action(api_secret, action, None, nonce, is_mainnet=True)
+        return sign_l1_action(api_secret, action, None, nonce, is_mainnet=self.is_mainnet)
 
     async def close(self):
         """Close HTTP client."""

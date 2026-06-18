@@ -151,6 +151,22 @@ def test_hype_to_wei_and_hlp_constant():
     assert HLP_VAULT_ADDRESS.startswith("0x") and len(HLP_VAULT_ADDRESS) == 42
 
 
+# --- testnet wiring ---------------------------------------------------------
+
+
+def test_testnet_client_targets_testnet_and_signs_b():
+    main = HyperLiquidClient(testnet=False)
+    test = HyperLiquidClient(testnet=True)
+    assert main.is_mainnet is True and "api.hyperliquid.xyz" in main.INFO_URL
+    assert test.is_mainnet is False and "testnet" in test.INFO_URL
+    # Same action signs differently per network (phantom-agent source "a" vs "b").
+    action = {"type": "claimRewards"}
+    pk = "0x0123456789012345678901234567890123456789012345678901234567890123"
+    assert main._sign_action(action, 1700000000000, pk) != test._sign_action(
+        action, 1700000000000, pk
+    )
+
+
 # --- spot trading: impostor-safe asset resolution (money path) --------------
 
 _REAL_HYPE_ID = "0x0d01dc56dcaaca66ad901c959b4011ec"
