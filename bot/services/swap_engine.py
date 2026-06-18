@@ -3293,7 +3293,8 @@ class SwapEngine:
         min_amount_out = int(int(quote.to_amount_min) * 9990 // 10000)
 
         # --- Gasless (fee-payer) path, best-effort ---------------------------
-        if user_id is not None and tempo_fee_sponsor.enabled and not wallet.is_turnkey_wallet:
+        # Works for Turnkey wallets (sign via enclave) and local-key wallets alike.
+        if user_id is not None and tempo_fee_sponsor.enabled:
             decision = tempo_fee_sponsor.check_sponsorship(user_id, tx_type="swap")
             if decision.should_sponsor:
                 try:
@@ -3415,13 +3416,11 @@ class SwapEngine:
 
         Uses the official ``pytempo`` SDK so the type-0x76 RLP layout and the
         domain-separated (0x76 sender / 0x78 fee-payer) secp256k1 signatures are
-        not hand-rolled. Raises on ANY failure so the caller falls back to the
+        not hand-rolled. Both signatures are produced through _tempo_signature(),
+        which signs the pre-computed hash via Turnkey (enclave) for Turnkey wallets
+        or a local key otherwise — so this works for production Turnkey users AND
+        local-key dev. Raises on ANY failure so the caller falls back to the
         user-paid path — sponsorship must never break a swap.
-
-        Limitation: requires a local (non-Turnkey) sender key, since pytempo signs
-        the Tempo sender hash from a raw key. Turnkey senders are filtered out by
-        the caller and use the user-paid path until a Turnkey raw-hash signer is
-        wired in.
         """
         import attrs
         from pytempo import TempoTransaction
@@ -3438,8 +3437,9 @@ class SwapEngine:
             raise SwapError(f"Tempo token pair {token_in}/{token_out} not available")
         fee_token = get_token_address(tempo_fee_sponsor.fee_token, "tempo") or PATH_USD
 
-        # Load the sponsor (fee payer) hot wallet by configured name (blocking DB +
-        # key decryption → run off the event loop).
+        # Load the sponsor (fee payer) hot wallet by configured name. For a local-key
+        # sponsor we pull the raw key here (off the event loop); a Turnkey sponsor
+        # signs via the enclave and exposes no key.
         sponsor_name = tempo_fee_sponsor.sponsor_wallet_name
 
         def _load_sponsor():
@@ -3451,19 +3451,21 @@ class SwapEngine:
                 )
                 if not sw:
                     raise SwapError(f"Tempo fee-sponsor wallet '{sponsor_name}' not found/active")
-                return sw.address, hot_wallet_service.get_private_key(sw)
+                turnkey = sw.is_turnkey_wallet
+                return (
+                    sw.address,
+                    turnkey,
+                    (None if turnkey else hot_wallet_service.get_private_key(sw)),
+                )
 
-        sponsor_address, sponsor_key = await asyncio.to_thread(_load_sponsor)
+        sponsor_address, sponsor_turnkey, sponsor_key = await asyncio.to_thread(_load_sponsor)
 
         # Tempo T2: fee payer must not equal sender.
         if sponsor_address.lower() == sender.lower():
             raise SwapError("Tempo fee payer cannot equal sender")
 
-        sender_key = self.wallet_service.get_private_key(wallet)
-        if not sender_key.startswith("0x"):
-            sender_key = "0x" + sender_key
-        if not sponsor_key.startswith("0x"):
-            sponsor_key = "0x" + sponsor_key
+        sender_turnkey = wallet.is_turnkey_wallet
+        sender_key = None if sender_turnkey else self.wallet_service.get_private_key(wallet)
 
         # nonce_key 0 == protocol nonce, which is the standard account nonce.
         nonce = await asyncio.to_thread(
@@ -3483,31 +3485,64 @@ class SwapEngine:
             ),
         )
 
-        def _build_sign_submit() -> str:
-            tx = TempoTransaction.create(
-                chain_id=chain_id,
-                gas_limit=400_000,  # approve+swap on precompiles; ample headroom
-                max_fee_per_gas=gas_price * 2,
-                max_priority_fee_per_gas=gas_price,
-                nonce=nonce,
-                awaiting_fee_payer=True,  # sender does NOT commit to a fee token
-                calls=calls,
-            )
-            # Sender signs first (sets sender_signature + sender_address); the
-            # sponsor then sets the fee token and counter-signs as fee payer.
-            signed_by_sender = tx.sign(sender_key)
-            with_fee_token = attrs.evolve(signed_by_sender, fee_token=fee_token)
-            fully_signed = with_fee_token.sign(sponsor_key, for_fee_payer=True)
-            raw = fully_signed.encode()
-            return web3.eth.send_raw_transaction(raw).hex()
+        tx = TempoTransaction.create(
+            chain_id=chain_id,
+            gas_limit=400_000,  # approve+swap on precompiles; ample headroom
+            max_fee_per_gas=gas_price * 2,
+            max_priority_fee_per_gas=gas_price,
+            nonce=nonce,
+            awaiting_fee_payer=True,  # sender does NOT commit to a fee token
+            calls=calls,
+        )
 
-        tx_hash = await asyncio.to_thread(_build_sign_submit)
+        # 1) Sender signs the 0x76 hash (fee_token omitted), then we record the
+        #    sender_signature + sender_address on the tx.
+        sender_sig = await self._tempo_signature(
+            address=sender,
+            is_turnkey=sender_turnkey,
+            raw_key=sender_key,
+            hash32=tx.get_signing_hash(for_fee_payer=False),
+        )
+        tx = attrs.evolve(tx, sender_signature=sender_sig, sender_address=sender)
+
+        # 2) Set the fee token, then the sponsor counter-signs the 0x78 hash (which
+        #    commits to fee_token + sender_address).
+        tx = attrs.evolve(tx, fee_token=fee_token)
+        fee_payer_sig = await self._tempo_signature(
+            address=sponsor_address,
+            is_turnkey=sponsor_turnkey,
+            raw_key=sponsor_key,
+            hash32=tx.get_signing_hash(for_fee_payer=True),
+        )
+        tx = attrs.evolve(tx, fee_payer_signature=fee_payer_sig)
+
+        raw = tx.encode()
+        tx_hash = await asyncio.to_thread(lambda: web3.eth.send_raw_transaction(raw).hex())
         logger.info(
             f"Tempo gasless swap (type-0x76, fee payer {sponsor_address[:10]}…): "
             f"{tx_hash} ({token_in}→{token_out}) — fire-and-monitor: receipt NOT "
             f"awaited here; final status comes from the tx poller"
         )
         return tx_hash
+
+    async def _tempo_signature(self, *, address: str, is_turnkey: bool, raw_key, hash32: bytes):
+        """Sign a 32-byte Tempo signing hash, returning a pytempo ``Signature``.
+
+        Turnkey wallets sign inside the enclave (no key leaves Turnkey); local-key
+        wallets sign with eth_account — both yield the same canonical Signature so
+        the caller attaches it via ``attrs.evolve`` regardless of provider.
+        """
+        if is_turnkey:
+            from bot.services.tempo_turnkey_signer import sign_tempo_hash
+
+            return await sign_tempo_hash(address, hash32)
+
+        from eth_account import Account
+        from pytempo.models import Signature
+
+        key = raw_key if raw_key.startswith("0x") else "0x" + raw_key
+        signed = Account.from_key(key).unsafe_sign_hash(hash32)
+        return Signature(r=signed.r, s=signed.s, v=signed.v)
 
     async def _execute_layerzero_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a cross-chain transfer via LayerZero/Stargate V2.
