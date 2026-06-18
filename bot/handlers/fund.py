@@ -28,6 +28,8 @@ from bot.services.hyperliquid_funding import (
 from bot.services.hyperunit_api import HYPERUNIT_ASSETS
 from bot.services.perps_service import perps_service
 from bot.services.wallet import WalletService
+from bot.models.user import User
+from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -53,23 +55,47 @@ def _cctp_enabled() -> bool:
     return bool(getattr(settings, "cctp_relayer_enabled", False))
 
 
+def _restricted_regions() -> set:
+    raw = getattr(settings, "hyperunit_restricted_regions", "US") or ""
+    return {r.strip().upper() for r in raw.split(",") if r.strip()}
+
+
+def hyperunit_allowed(user_id: int) -> bool:
+    """Whether HyperUnit native deposits may be offered to this user.
+
+    HyperUnit geo-blocks some regions (e.g. the US), so the native BTC/ETH/SOL
+    path is only offered to users whose stored region is known AND not in the
+    restricted set. Unknown region -> not allowed (fail-closed). Across/CCTP
+    remain available to everyone.
+    """
+    try:
+        with get_session() as session:
+            user = session.query(User).filter(User.telegram_id == user_id).first()
+            region = (user.region or "").strip().upper() if user else ""
+        return bool(region) and region not in _restricted_regions()
+    except Exception as e:  # noqa: BLE001 — never break the menu on a region read
+        logger.warning("region lookup failed for %s: %s", user_id, e)
+        return False
+
+
 # Native assets supported by HyperUnit, with display labels.
 NATIVE_LABELS = {"btc": "₿ BTC", "eth": "Ξ ETH", "sol": "◎ SOL"}
 
 
-def _menu_keyboard() -> InlineKeyboardMarkup:
+def _menu_keyboard(allow_native: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton("💵 Deposit USDC (any chain)", callback_data="fund_usdc")],
     ]
     if _cctp_enabled():
         rows.append([InlineKeyboardButton("🟢 USDC via CCTP (native)", callback_data="fund_cctp")])
-    native_row = [
-        InlineKeyboardButton(NATIVE_LABELS[a], callback_data=f"fund_native_{a}")
-        for a in HYPERUNIT_ASSETS
-        if a in NATIVE_LABELS
-    ]
-    if native_row:
-        rows.append(native_row)
+    if allow_native:
+        native_row = [
+            InlineKeyboardButton(NATIVE_LABELS[a], callback_data=f"fund_native_{a}")
+            for a in HYPERUNIT_ASSETS
+            if a in NATIVE_LABELS
+        ]
+        if native_row:
+            rows.append(native_row)
     rows.append([InlineKeyboardButton("🔙 Back", callback_data="perps_back")])
     return InlineKeyboardMarkup(rows)
 
@@ -104,14 +130,18 @@ async def fund_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Balance: *${bal.get('perps_usd', 0):,.2f}* perp · "
         f"*${bal.get('spot_usd', 0):,.2f}* spot\n\n"
     )
+    allow_native = hyperunit_allowed(update.effective_user.id)
+    native_line = (
+        "spot balance (or native BTC/ETH/SOL via HyperUnit)." if allow_native else "spot balance."
+    )
     await _edit(
         update,
         "💰 *Fund HyperLiquid*\n\n"
         f"{bal_line}"
-        "Top up your HyperCore account from any chain — funds arrive as a USDC "
-        "spot balance (or native BTC/ETH/SOL via HyperUnit).\n\n"
+        f"Top up your HyperCore account from any chain — funds arrive as a USDC "
+        f"{native_line}\n\n"
         "Choose how you'd like to deposit:",
-        _menu_keyboard(),
+        _menu_keyboard(allow_native=allow_native),
     )
 
 
@@ -127,6 +157,15 @@ async def fund_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await fund_command(update, context)
 
     # ---- Native (HyperUnit) ------------------------------------------- #
+    # Region-gated: HyperUnit geo-blocks some regions (e.g. US). Refuse stale
+    # buttons too; the status check (fund_natstat) stays allowed.
+    if data.startswith("fund_native_") and not hyperunit_allowed(user_id):
+        return await _edit(
+            update,
+            "Native BTC/ETH/SOL deposits aren't available in your region. "
+            "Use *Deposit USDC* instead — it works from any chain.",
+            _menu_keyboard(allow_native=False),
+        )
     if data.startswith("fund_native_"):
         asset = data.replace("fund_native_", "")
         return await _show_native(update, context, user_id, asset)

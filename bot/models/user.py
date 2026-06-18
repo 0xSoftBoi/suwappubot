@@ -35,6 +35,11 @@ class User(Base):
     panic_sell_enabled = Column(Boolean, default=False)
     gas_mode = Column(String(10), default="auto")  # Read/written by api-ts (webapp gas settings)
 
+    # Region (ISO-3166 alpha-2, e.g. "US", "GB"). Set by onboarding/KYC. Used to
+    # gate region-restricted features (e.g. HyperUnit native deposits, which are
+    # not available to US users). None = unknown -> treated as restricted.
+    region = Column(String(8), nullable=True)
+
     # Terms of Service
     tos_accepted = Column(Boolean, default=False)
     tos_accepted_at = Column(DateTime, nullable=True)
