@@ -102,6 +102,27 @@ async def _build_portfolio_text(wallet_infos, user_id=None):
                             f"    {format_usd(value)} ({pnl_pct:+.1f}%)"
                         )
                         total_usd += value
+
+                # Resolved winners are settled but not auto-redeemed for EOAs, so
+                # they still hold real value (1:1 pUSD). Keep them in the total as
+                # claimable rather than letting them disappear post-resolution.
+                claimable = (
+                    session.query(PredictionPosition)
+                    .filter(
+                        PredictionPosition.user_id == user_id,
+                        PredictionPosition.is_resolved == True,  # noqa: E712
+                        PredictionPosition.resolved_payout > 0,
+                    )
+                    .all()
+                )
+                if claimable:
+                    claimable_total = sum(float(p.resolved_payout or 0) for p in claimable)
+                    lines.append("\n*Predictions — Claimable*")
+                    lines.append(
+                        f"  \U0001f3c6 {len(claimable)} resolved "
+                        f"({format_usd(claimable_total)} to redeem)"
+                    )
+                    total_usd += claimable_total
         except Exception as e:
             logger.debug(f"Could not load prediction positions: {e}")
 

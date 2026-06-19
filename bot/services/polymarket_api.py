@@ -29,6 +29,7 @@ CLOB_BASE_URL = "https://clob.polymarket.com"
 @dataclass
 class MarketInfo:
     """Polymarket market data."""
+
     condition_id: str
     question: str
     description: str = ""
@@ -48,6 +49,7 @@ class MarketInfo:
 @dataclass
 class OrderbookSummary:
     """Simplified orderbook data."""
+
     token_id: str
     best_bid: float = 0.0
     best_ask: float = 0.0
@@ -59,6 +61,7 @@ class OrderbookSummary:
 @dataclass
 class CLOBCredentials:
     """CLOB API credentials derived from wallet signing."""
+
     api_key: str
     secret: str
     passphrase: str
@@ -67,6 +70,7 @@ class CLOBCredentials:
 @dataclass
 class OrderResult:
     """Result of an order placement."""
+
     success: bool
     order_id: str = ""
     status: str = ""
@@ -208,6 +212,46 @@ class PolymarketClient:
             logger.error(f"get_midpoint error: {e}")
             return None
 
+    async def get_clob_market(self, condition_id: str) -> Optional[dict]:
+        """Fetch a market from the CLOB API keyed by condition_id.
+
+        Unlike the Gamma endpoint, the CLOB ``/markets/{condition_id}`` response
+        carries per-token ``winner`` booleans once a market resolves, which is the
+        ground truth the background monitor uses to settle positions. Returns the
+        raw dict (with ``closed``, ``active`` and a ``tokens`` array of
+        ``{token_id, outcome, price, winner}``), or ``None`` on error.
+        """
+        if not condition_id:
+            return None
+        try:
+            session = await self._get_session()
+            async with session.get(f"{CLOB_BASE_URL}/markets/{condition_id}") as resp:
+                if resp.status != 200:
+                    return None
+                return await resp.json()
+        except Exception as e:
+            logger.error(f"get_clob_market error: {e}")
+            return None
+
+    @staticmethod
+    def resolve_winner(clob_market: dict) -> Optional[dict]:
+        """Given a raw CLOB market, return resolution info or ``None`` if unresolved.
+
+        Returns ``{"winning_token_ids": set[str], "closed": bool}`` only when the
+        market is closed AND at least one token is flagged ``winner``. A closed
+        market with no winner flags yet (mid-resolution) is treated as unresolved
+        so we don't settle prematurely.
+        """
+        if not clob_market or not clob_market.get("closed"):
+            return None
+        tokens = clob_market.get("tokens") or []
+        winners = {
+            str(t.get("token_id")) for t in tokens if t.get("winner") is True and t.get("token_id")
+        }
+        if not winners:
+            return None
+        return {"winning_token_ids": winners, "closed": True}
+
     # ============ CLOB API (Authenticated Trading via Official SDK) ============
 
     def _get_clob_client(self, private_key: str):
@@ -260,14 +304,20 @@ class PolymarketClient:
                     status=resp.get("status", "placed"),
                 )
             else:
-                error_msg = resp.get("errorMsg", resp.get("error", "Unknown error")) if resp else "No response"
+                error_msg = (
+                    resp.get("errorMsg", resp.get("error", "Unknown error"))
+                    if resp
+                    else "No response"
+                )
                 return OrderResult(success=False, error=str(error_msg))
 
         except Exception as e:
             logger.error(f"place_order error: {e}")
             return OrderResult(success=False, error=str(e))
 
-    async def cancel_order(self, creds: CLOBCredentials, wallet_address: str, order_id: str) -> bool:
+    async def cancel_order(
+        self, creds: CLOBCredentials, wallet_address: str, order_id: str
+    ) -> bool:
         """Cancel an open order."""
         try:
             path = f"/order/{order_id}"

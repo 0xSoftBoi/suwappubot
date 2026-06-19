@@ -68,6 +68,7 @@ MARKETS_PER_PAGE = 5
 
 # ============ HELPERS ============
 
+
 def truncate(text: str, max_len: int = 100) -> str:
     """Truncate text to max length."""
     if len(text) <= max_len:
@@ -135,6 +136,7 @@ def _get_no_token(market: MarketInfo) -> Optional[dict]:
 
 # ============ MAIN COMMAND ============
 
+
 @enforce_tos
 async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle /predict command or the 'predict_open' menu button.
@@ -160,11 +162,15 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             return ConversationHandler.END
 
-        wallet = session.query(Wallet).filter(
-            Wallet.user_id == db_user.id,
-            Wallet.chain_type == "evm",
-            Wallet.is_default == True,
-        ).first()
+        wallet = (
+            session.query(Wallet)
+            .filter(
+                Wallet.user_id == db_user.id,
+                Wallet.chain_type == "evm",
+                Wallet.is_default == True,
+            )
+            .first()
+        )
 
         if not wallet:
             await update.effective_message.reply_text(
@@ -229,6 +235,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 # ============ BROWSE MARKETS ============
 
+
 async def trending_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show trending markets."""
     query = update.callback_query
@@ -241,14 +248,14 @@ async def trending_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     if not markets:
         await query.edit_message_text(
-            "*Trending Markets*\n\n"
-            "No markets available right now.\n"
-            "Try again later.",
+            "*Trending Markets*\n\n" "No markets available right now.\n" "Try again later.",
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Refresh", callback_data="pred_trending")],
-                [InlineKeyboardButton("Back", callback_data="pred_menu")],
-            ]),
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("Refresh", callback_data="pred_trending")],
+                    [InlineKeyboardButton("Back", callback_data="pred_menu")],
+                ]
+            ),
         )
         return BROWSE_MARKETS
 
@@ -265,13 +272,11 @@ async def search_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await query.answer()
 
     await query.edit_message_text(
-        "*Search Markets*\n\n"
-        "Send your search query.\n\n"
-        "_Example: election, bitcoin, AI_",
+        "*Search Markets*\n\n" "Send your search query.\n\n" "_Example: election, bitcoin, AI_",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Cancel", callback_data="pred_cancel")]
-        ]),
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Cancel", callback_data="pred_cancel")]]
+        ),
     )
 
     context.user_data["predict"]["awaiting_search"] = True
@@ -293,14 +298,14 @@ async def receive_search_query(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if not markets:
         await update.message.reply_text(
-            f"*Search: \"{search_text}\"*\n\n"
-            "No markets found.\n"
-            "Try a different search term.",
+            f'*Search: "{search_text}"*\n\n' "No markets found.\n" "Try a different search term.",
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Search Again", callback_data="pred_search")],
-                [InlineKeyboardButton("Back", callback_data="pred_menu")],
-            ]),
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("Search Again", callback_data="pred_search")],
+                    [InlineKeyboardButton("Back", callback_data="pred_menu")],
+                ]
+            ),
         )
         return BROWSE_MARKETS
 
@@ -323,12 +328,14 @@ async def _show_market_list(query, context, markets, page, title) -> int:
 
     for i, market in enumerate(page_markets, start=start + 1):
         text += _build_market_card(market, i) + "\n\n"
-        keyboard.append([
-            InlineKeyboardButton(
-                f"View #{i}",
-                callback_data=f"pred_detail_{start + (i - start - 1)}",
-            )
-        ])
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    f"View #{i}",
+                    callback_data=f"pred_detail_{start + (i - start - 1)}",
+                )
+            ]
+        )
 
     # Pagination buttons
     nav_row = []
@@ -363,12 +370,14 @@ async def _show_market_list_msg(message, context, markets, page, title) -> int:
 
     for i, market in enumerate(page_markets, start=start + 1):
         text += _build_market_card(market, i) + "\n\n"
-        keyboard.append([
-            InlineKeyboardButton(
-                f"View #{i}",
-                callback_data=f"pred_detail_{start + (i - start - 1)}",
-            )
-        ])
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    f"View #{i}",
+                    callback_data=f"pred_detail_{start + (i - start - 1)}",
+                )
+            ]
+        )
 
     nav_row = []
     if end < len(markets):
@@ -412,6 +421,7 @@ async def page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 
 # ============ MARKET DETAIL ============
+
 
 async def market_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show detailed view of a specific market."""
@@ -511,6 +521,7 @@ async def back_to_list_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 # ============ ENTER AMOUNT ============
 
+
 async def buy_yes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start Buy YES flow."""
     return await _start_buy_flow(update, context, "Yes")
@@ -594,13 +605,11 @@ async def custom_amount_callback(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
 
     await query.edit_message_text(
-        "*Enter Custom Amount*\n\n"
-        "Enter the amount of USDC to spend:\n\n"
-        "_Example: 15.50_",
+        "*Enter Custom Amount*\n\n" "Enter the amount of USDC to spend:\n\n" "_Example: 15.50_",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Cancel", callback_data="pred_cancel")]
-        ]),
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Cancel", callback_data="pred_cancel")]]
+        ),
     )
 
     context.user_data["predict"]["awaiting_custom_amount"] = True
@@ -630,14 +639,14 @@ async def receive_custom_amount(update: Update, context: ContextTypes.DEFAULT_TY
 
     except ValueError:
         await update.message.reply_text(
-            "Invalid amount. Please enter a valid number.\n"
-            "_Example: 25.00_",
+            "Invalid amount. Please enter a valid number.\n" "_Example: 25.00_",
             parse_mode="Markdown",
         )
         return ENTER_AMOUNT
 
 
 # ============ CONFIRM ORDER ============
+
 
 async def show_order_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show order confirmation via callback query."""
@@ -758,10 +767,14 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
     try:
         # Get private key (backup key for Turnkey wallets)
         with get_session() as session:
-            wallet = session.query(Wallet).filter(
-                Wallet.id == wallet_id,
-                Wallet.user_id == user_id,
-            ).first()
+            wallet = (
+                session.query(Wallet)
+                .filter(
+                    Wallet.id == wallet_id,
+                    Wallet.user_id == user_id,
+                )
+                .first()
+            )
             if not wallet:
                 raise Exception("Wallet not found")
             if wallet.is_turnkey_wallet:
@@ -780,9 +793,7 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
 
         # Update order in DB
         with get_session() as session:
-            db_order = session.query(PredictionOrder).filter(
-                PredictionOrder.id == order_id
-            ).first()
+            db_order = session.query(PredictionOrder).filter(PredictionOrder.id == order_id).first()
             if db_order:
                 if result.success:
                     db_order.status = "placed"
@@ -791,11 +802,15 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
                     db_order.shares = Decimal(str(shares))
 
                     # Update or create position
-                    position = session.query(PredictionPosition).filter(
-                        PredictionPosition.user_id == user_id,
-                        PredictionPosition.market_id == market.condition_id,
-                        PredictionPosition.token_id == token_id,
-                    ).first()
+                    position = (
+                        session.query(PredictionPosition)
+                        .filter(
+                            PredictionPosition.user_id == user_id,
+                            PredictionPosition.market_id == market.condition_id,
+                            PredictionPosition.token_id == token_id,
+                        )
+                        .first()
+                    )
 
                     if position:
                         old_total = float(position.total_cost_usdc or 0)
@@ -804,7 +819,9 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
                         new_shares = old_shares + shares
                         position.total_shares = Decimal(str(new_shares))
                         position.total_cost_usdc = Decimal(str(new_total))
-                        position.avg_entry_price = Decimal(str(new_total / new_shares)) if new_shares > 0 else Decimal("0")
+                        position.avg_entry_price = (
+                            Decimal(str(new_total / new_shares)) if new_shares > 0 else Decimal("0")
+                        )
                         position.current_price = Decimal(str(price))
                     else:
                         position = PredictionPosition(
@@ -852,17 +869,14 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
         logger.error(f"Predict order execution error: {e}")
 
         with get_session() as session:
-            db_order = session.query(PredictionOrder).filter(
-                PredictionOrder.id == order_id
-            ).first()
+            db_order = session.query(PredictionOrder).filter(PredictionOrder.id == order_id).first()
             if db_order:
                 db_order.status = "failed"
                 db_order.error_message = str(e)
                 session.commit()
 
         await query.edit_message_text(
-            f"*Order Failed*\n\n"
-            f"An unexpected error occurred. Please try again.",
+            f"*Order Failed*\n\n" f"An unexpected error occurred. Please try again.",
             parse_mode="Markdown",
         )
 
@@ -871,6 +885,7 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 
 # ============ MY POSITIONS ============
+
 
 async def positions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show user's open positions."""
@@ -881,22 +896,46 @@ async def positions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = pred_data.get("user_id")
 
     with get_session() as session:
-        positions = session.query(PredictionPosition).filter(
-            PredictionPosition.user_id == user_id,
-            PredictionPosition.total_shares > 0,
-            PredictionPosition.is_resolved == False,
-        ).order_by(PredictionPosition.created_at.desc()).limit(10).all()
+        positions = (
+            session.query(PredictionPosition)
+            .filter(
+                PredictionPosition.user_id == user_id,
+                PredictionPosition.total_shares > 0,
+                PredictionPosition.is_resolved == False,
+            )
+            .order_by(PredictionPosition.created_at.desc())
+            .limit(10)
+            .all()
+        )
 
-        if not positions:
+        # Resolved winners the monitor settled but the user hasn't redeemed yet.
+        # Polymarket doesn't auto-redeem for EOAs, so these hold real claimable
+        # value (winning CTF tokens redeem 1:1 for pUSD) — surface them instead of
+        # letting them vanish after the one-time resolution notification.
+        claimable = (
+            session.query(PredictionPosition)
+            .filter(
+                PredictionPosition.user_id == user_id,
+                PredictionPosition.is_resolved == True,  # noqa: E712
+                PredictionPosition.resolved_payout > 0,
+            )
+            .order_by(PredictionPosition.updated_at.desc())
+            .limit(10)
+            .all()
+        )
+
+        if not positions and not claimable:
             await query.edit_message_text(
                 "*My Positions*\n\n"
                 "No open positions.\n\n"
                 "Browse markets to place your first prediction!",
                 parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Browse Markets", callback_data="pred_trending")],
-                    [InlineKeyboardButton("Back", callback_data="pred_menu")],
-                ]),
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton("Browse Markets", callback_data="pred_trending")],
+                        [InlineKeyboardButton("Back", callback_data="pred_menu")],
+                    ]
+                ),
             )
             return MY_POSITIONS
 
@@ -925,18 +964,34 @@ async def positions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 f"  Value: {format_usdc(value)} | {pnl_emoji} {pnl_pct:+.1f}%\n\n"
             )
 
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"Sell {pos.outcome}",
-                    callback_data=f"pred_sell_{pos.id}",
-                ),
-            ])
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"Sell {pos.outcome}",
+                        callback_data=f"pred_sell_{pos.id}",
+                    ),
+                ]
+            )
 
-        pnl_emoji = "\U0001f4c8" if total_pnl >= 0 else "\U0001f4c9"
-        text += (
-            f"*Total Value:* {format_usdc(total_value)}\n"
-            f"*Unrealized PnL:* {pnl_emoji} {format_usdc(total_pnl)}"
-        )
+        if positions:
+            pnl_emoji = "\U0001f4c8" if total_pnl >= 0 else "\U0001f4c9"
+            text += (
+                f"*Total Value:* {format_usdc(total_value)}\n"
+                f"*Unrealized PnL:* {pnl_emoji} {format_usdc(total_pnl)}"
+            )
+
+        # Resolved winners (queried above) hold real claimable value — surface them.
+        if claimable:
+            total_claimable = sum(float(p.resolved_payout or 0) for p in claimable)
+            text += "\n\n\U0001f3c6 *Claimable (resolved)*\n"
+            for pos in claimable:
+                payout = float(pos.resolved_payout or 0)
+                text += (
+                    f"\U0001f7e2 {truncate(pos.market_question or 'Unknown', 50)}\n"
+                    f"  {pos.outcome} | {format_usdc(payout)} to redeem\n"
+                )
+            text += f"*Total claimable:* {format_usdc(total_claimable)}\n"
+            text += "_Redeem on Polymarket to receive pUSD on Polygon._"
 
     keyboard.append([InlineKeyboardButton("Refresh", callback_data="pred_positions")])
     keyboard.append([InlineKeyboardButton("Back", callback_data="pred_menu")])
@@ -959,10 +1014,14 @@ async def sell_position_callback(update: Update, context: ContextTypes.DEFAULT_T
     position_id = int(query.data.replace("pred_sell_", ""))
 
     with get_session() as session:
-        pos = session.query(PredictionPosition).filter(
-            PredictionPosition.id == position_id,
-            PredictionPosition.user_id == pred_data.get("user_id"),
-        ).first()
+        pos = (
+            session.query(PredictionPosition)
+            .filter(
+                PredictionPosition.id == position_id,
+                PredictionPosition.user_id == pred_data.get("user_id"),
+            )
+            .first()
+        )
 
         if not pos:
             await query.edit_message_text("Position not found.")
@@ -1015,10 +1074,14 @@ async def confirm_sell_callback(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         # Get private key (backup key for Turnkey wallets)
         with get_session() as session:
-            wallet = session.query(Wallet).filter(
-                Wallet.id == wallet_id,
-                Wallet.user_id == user_id,
-            ).first()
+            wallet = (
+                session.query(Wallet)
+                .filter(
+                    Wallet.id == wallet_id,
+                    Wallet.user_id == user_id,
+                )
+                .first()
+            )
             if not wallet:
                 raise Exception("Wallet not found")
             if wallet.is_turnkey_wallet:
@@ -1059,9 +1122,13 @@ async def confirm_sell_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 session.add(sell_order)
 
                 # Zero out position
-                pos = session.query(PredictionPosition).filter(
-                    PredictionPosition.id == position_id,
-                ).first()
+                pos = (
+                    session.query(PredictionPosition)
+                    .filter(
+                        PredictionPosition.id == position_id,
+                    )
+                    .first()
+                )
                 if pos:
                     pos.total_shares = Decimal("0")
 
@@ -1076,17 +1143,14 @@ async def confirm_sell_callback(update: Update, context: ContextTypes.DEFAULT_TY
             )
         else:
             await query.edit_message_text(
-                f"*Sell Failed*\n\n"
-                f"Error: {result.error}\n\n"
-                f"Use /predict to try again.",
+                f"*Sell Failed*\n\n" f"Error: {result.error}\n\n" f"Use /predict to try again.",
                 parse_mode="Markdown",
             )
 
     except Exception as e:
         logger.error(f"Sell position error: {e}")
         await query.edit_message_text(
-            f"*Sell Failed*\n\n"
-            f"An unexpected error occurred.",
+            f"*Sell Failed*\n\n" f"An unexpected error occurred.",
             parse_mode="Markdown",
         )
 
@@ -1095,6 +1159,7 @@ async def confirm_sell_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 # ============ HISTORY ============
+
 
 async def history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show order history."""
@@ -1105,9 +1170,15 @@ async def history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     user_id = pred_data.get("user_id")
 
     with get_session() as session:
-        orders = session.query(PredictionOrder).filter(
-            PredictionOrder.user_id == user_id,
-        ).order_by(PredictionOrder.created_at.desc()).limit(15).all()
+        orders = (
+            session.query(PredictionOrder)
+            .filter(
+                PredictionOrder.user_id == user_id,
+            )
+            .order_by(PredictionOrder.created_at.desc())
+            .limit(15)
+            .all()
+        )
 
         if not orders:
             await query.edit_message_text(
@@ -1115,10 +1186,12 @@ async def history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 "No orders yet.\n"
                 "Place your first prediction to get started!",
                 parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Browse Markets", callback_data="pred_trending")],
-                    [InlineKeyboardButton("Back", callback_data="pred_menu")],
-                ]),
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton("Browse Markets", callback_data="pred_trending")],
+                        [InlineKeyboardButton("Back", callback_data="pred_menu")],
+                    ]
+                ),
             )
             return HISTORY
 
@@ -1157,6 +1230,7 @@ async def history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 # ============ CANCEL ============
+
 
 async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle cancel."""

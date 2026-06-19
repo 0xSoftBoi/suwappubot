@@ -3,7 +3,7 @@ import { Effect, Either } from 'effect'
 import { Hono } from 'hono'
 import type { Agent } from '../db'
 import { ExternalServiceError, mapErrorToResponse, ValidationError } from '../errors'
-import { buildClobAuthMessage, buildOrderTypedData, hashEip712Order, type ClobOrderData } from '../lib/polymarket-eip712'
+import { buildClobAuthMessage, buildOrderTypedData, hashEip712Order, ZERO_BYTES32, type ClobOrderData } from '../lib/polymarket-eip712'
 import { agentBearerAuth } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { PolymarketService } from '../services/PolymarketService'
@@ -264,17 +264,21 @@ predictRoutes.post('/order', agentBearerAuth(), async (c) => {
 				credentials = newCreds
 			}
 
-			// Step 2: Build EIP712 order and sign
+			// Step 2: Build EIP712 order and sign.
+			// v2 Polymarket CTF Exchange order schema (see lib/polymarket-eip712.ts):
+			// no taker/expiration/nonce/feeRateBps — instead timestamp (ms), metadata,
+			// and a bytes32 builder code. Builder defaults to none; set
+			// POLYMARKET_BUILDER_CODE (32-byte hex) once enrolled in the builder program
+			// to earn the on-chain maker/taker rebate.
 			const salt = BigInt('0x' + randomBytes(8).toString('hex')).toString()
-			const nonce = '0'
 			const walletAddress = (agent.metadata as Record<string, string> | null)?.walletAddress || ''
 			const subOrgId = (agent.metadata as Record<string, string> | null)?.subOrgId || ''
+			const builderCode = process.env.POLYMARKET_BUILDER_CODE || ZERO_BYTES32
 
 			const orderData: ClobOrderData = {
 				salt,
 				maker: walletAddress,
 				signer: walletAddress,
-				taker: '0x0000000000000000000000000000000000000000',
 				tokenId: orderParams.tokenId,
 				makerAmount: orderParams.side === 'BUY'
 					? String(Math.floor(parseFloat(orderParams.size) * parseFloat(orderParams.price) * 1e6))
@@ -282,11 +286,11 @@ predictRoutes.post('/order', agentBearerAuth(), async (c) => {
 				takerAmount: orderParams.side === 'BUY'
 					? String(Math.floor(parseFloat(orderParams.size) * 1e6))
 					: String(Math.floor(parseFloat(orderParams.size) * parseFloat(orderParams.price) * 1e6)),
-				expiration: String(orderParams.expiration ?? 0),
-				nonce,
-				feeRateBps: String(orderParams.feeRateBps ?? 0),
 				side: orderParams.side === 'BUY' ? 0 : 1,
 				signatureType: 0,
+				timestamp: String(Date.now()),
+				metadata: ZERO_BYTES32,
+				builder: builderCode,
 			}
 
 			const typedData = buildOrderTypedData(orderData)
