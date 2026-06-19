@@ -2,12 +2,16 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import type { HLMarket } from '../../types/api'
+import { usePerpsFunding, formatCountdown, formatFundingPct } from '../../hooks/usePerpsFunding'
+import { usePerpsMarginMode } from '../../hooks/usePerpsMarginMode'
+import type { MarginMode } from '../../types/perps'
 
 export function PerpsPanel() {
   const [selectedMarket, setSelectedMarket] = useState('ETH-USD')
   const [side, setSide] = useState<'long' | 'short'>('long')
   const [size, setSize] = useState('')
   const [leverage, setLeverage] = useState(5)
+  const [marginMode, setMarginMode] = usePerpsMarginMode()
 
   const { data: markets } = useQuery({
     queryKey: ['perps-markets'],
@@ -16,6 +20,14 @@ export function PerpsPanel() {
   })
 
   const market = markets?.find((m: HLMarket) => m.name === selectedMarket)
+  // Live funding: rate is real (market.fundingRate); countdown is derived from
+  // HyperLiquid's fixed hourly schedule + the wall clock, ticking every second.
+  const funding = usePerpsFunding(market)
+
+  const marginModes: { value: MarginMode; label: string }[] = [
+    { value: 'cross', label: 'Cross' },
+    { value: 'isolated', label: 'Isolated' },
+  ]
 
   return (
     <div className="p-4 flex flex-col gap-3">
@@ -38,6 +50,42 @@ export function PerpsPanel() {
             </option>
           ))}
         </select>
+      </div>
+
+      {/* Live funding — real rate + next-funding countdown */}
+      {market && (
+        <div className="flex items-center justify-between bg-terminal-bg rounded px-3 py-2 text-xs">
+          <span className="text-terminal-text-secondary">Funding / 1h</span>
+          <span className="flex items-center gap-2 font-mono">
+            <span className={funding.hourlyRate >= 0 ? 'text-bull' : 'text-bear'}>
+              {formatFundingPct(funding.hourlyRate)}
+            </span>
+            <span className="text-terminal-text-muted">·</span>
+            <span className="text-terminal-text-muted" title="Time until the next hourly funding payment">
+              in {formatCountdown(funding.msUntilNextFunding)}
+            </span>
+          </span>
+        </div>
+      )}
+
+      {/* Margin mode (saved locally as a preference; applies once execution lands) */}
+      <div>
+        <label className="text-xs text-terminal-text-secondary mb-1 block">Margin mode</label>
+        <div className="grid grid-cols-2 gap-1">
+          {marginModes.map(m => (
+            <button
+              key={m.value}
+              onClick={() => setMarginMode(m.value)}
+              className={`py-1.5 rounded text-xs font-semibold transition-colors
+                ${marginMode === m.value
+                  ? 'bg-terminal-bg-tertiary border border-sakura-500 text-terminal-text'
+                  : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
+                }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Side toggle */}
@@ -104,7 +152,7 @@ export function PerpsPanel() {
             <span className="font-mono">${market.markPrice.toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-terminal-text-secondary">Margin</span>
+            <span className="text-terminal-text-secondary">Margin ({marginMode})</span>
             <span className="font-mono">
               ${((parseFloat(size) * market.markPrice) / leverage).toFixed(2)}
             </span>
