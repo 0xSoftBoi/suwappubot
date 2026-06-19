@@ -57,6 +57,7 @@ from bot.services.health_monitor import health_monitor
 from bot.services.balance_refresher import balance_refresher
 from bot.services.perps_monitor import perps_monitor
 from bot.services.hl_ecosystem_monitor import hl_ecosystem_monitor
+from bot.services.hl_ws_alerts import hl_ws_alerts
 from bot.services.predict_monitor import predict_monitor
 from bot.services.cctp_relayer import cctp_relayer
 from bot.services.event_bus import event_bus
@@ -281,6 +282,9 @@ async def lifespan(app: FastAPI):
         # Prediction-market loop: live PnL refresh + market-resolution settlement.
         await predict_monitor.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
+        # Real-time HyperLiquid WS alert feed (no-op unless hl_ws/whale flags on).
+        await hl_ws_alerts.start(bot=bot_app.bot if bot_initialized else None)
+        await asyncio.sleep(2)
         # CCTP -> HyperCore deposit relayer (no-op unless cctp_relayer_enabled).
         await cctp_relayer.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
@@ -394,6 +398,7 @@ async def lifespan(app: FastAPI):
         await perps_monitor.stop()
         await hl_ecosystem_monitor.stop()
         await predict_monitor.stop()
+        await hl_ws_alerts.stop()
         if getattr(settings, "starknet_btc_bridge_enabled", False):
             from bot.services.btc_bridge_poller import btc_bridge_poller
 
@@ -890,7 +895,12 @@ async def health_ready():
     # Background service heartbeats (TTL 60s; missing key = service dead)
     now = time.time()
     svc_heartbeats: dict = {}
-    for svc in ("tx_poller", "balance_refresher", "perps_monitor", "predict_monitor"):
+    watched_services = ["tx_poller", "balance_refresher", "perps_monitor", "predict_monitor"]
+    if getattr(settings, "hl_ws_alerts_enabled", False) or getattr(
+        settings, "hl_whale_alerts_enabled", False
+    ):
+        watched_services.append("hl_ws_alerts")
+    for svc in watched_services:
         last = await redis_cache.get(f"service:{svc}:heartbeat")
         if last is None:
             svc_heartbeats[svc] = "unknown"

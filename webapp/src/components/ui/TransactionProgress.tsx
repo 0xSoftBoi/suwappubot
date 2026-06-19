@@ -36,6 +36,7 @@ const explorerUrls: Record<string, string> = {
   optimism: 'https://optimistic.etherscan.io/tx/',
   base: 'https://basescan.org/tx/',
   bsc: 'https://bscscan.com/tx/',
+  tempo: 'https://explore.tempo.xyz/tx/',
 }
 
 // Step configuration

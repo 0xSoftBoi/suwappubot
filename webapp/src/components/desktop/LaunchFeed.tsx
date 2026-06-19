@@ -45,6 +45,7 @@ const SNIPE_PRESETS: { label: string; amount: string }[] = [
 function nativeSymbol(chain: string): string {
   const lower = chain.toLowerCase()
   if (lower === 'sol' || lower === 'solana') return 'SOL'
+  if (lower === 'tempo') return 'USD'
   return 'ETH'
 }
 
@@ -162,7 +163,7 @@ export function LaunchFeed() {
 
       {/* Chain filters */}
       <div className="flex gap-1.5 px-4 py-2 border-b border-suwappu-sakura-mid/10">
-        {['all', 'eth', 'sol', 'base'].map((chain) => (
+        {['all', 'eth', 'sol', 'base', 'tempo'].map((chain) => (
           <button
             key={chain}
             onClick={() => setFilter(chain)}

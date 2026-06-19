@@ -497,6 +497,25 @@ class Settings(BaseSettings):
         description="Default MetaMorpho USDC earn vault on Base (Steakhouse USDC)",
     )
 
+    # HyperLiquid real-time WebSocket alert feed (fills / liquidations / funding / whales).
+    # Connects to wss://api.hyperliquid.xyz/ws and pushes Telegram alerts. OFF by default.
+    hl_ws_alerts_enabled: bool = Field(
+        default=False,
+        description="Enable the HyperLiquid WebSocket alert feed (per-user fills/liquidations/funding).",
+    )
+    hl_whale_alerts_enabled: bool = Field(
+        default=False,
+        description="Enable HyperLiquid whale-trade alerts (large single trades on major coins).",
+    )
+    hl_whale_alert_threshold_usd: float = Field(
+        default=1_000_000.0,
+        description="Minimum single-trade notional (USD) to emit a HyperLiquid whale alert.",
+    )
+    hl_whale_alert_coins: str = Field(
+        default="BTC,ETH,SOL,HYPE",
+        description="Comma-separated coins to watch for HyperLiquid whale trades.",
+    )
+
     # Infura network name mappings
     INFURA_NETWORKS: ClassVar[Dict[str, str]] = {
         "ethereum": "mainnet",
@@ -735,6 +754,43 @@ class Settings(BaseSettings):
         ),
     )
 
+    # === Tempo native features (chain id 4217) ===
+    # Tempo is first-class native: same-chain stablecoin swaps route through the
+    # protocol-level enshrined DEX, NOT any external aggregator (none support 4217).
+    tempo_swap_slippage_pct: float = Field(
+        default=0.1,
+        description=(
+            "Slippage tolerance (%) applied to the enshrined-DEX min-out. Stablecoin "
+            "pairs barely move, so a tight default avoids needless reverts."
+        ),
+    )
+    tempo_use_permit: bool = Field(
+        default=True,
+        description=(
+            "Use EIP-2612 permit (TIP-1004) for gasless token approval on Tempo swaps "
+            "instead of a separate approve() tx. Local wallets only; falls back to "
+            "approve() for Turnkey wallets or on any permit error."
+        ),
+    )
+    tempo_fee_sponsorship_enabled: bool = Field(
+        default=False,
+        description=(
+            "When true, the bot sponsors gas (paid in TIP-20 stablecoins) for a new "
+            "user's first few Tempo transactions. Requires tempo_sponsor_address to be "
+            "set. Default off so the bot never spends funds unexpectedly."
+        ),
+    )
+    tempo_sponsor_address: Optional[str] = Field(
+        default=None,
+        description="EVM address that pays sponsored Tempo gas (Tempo T2 feePayer).",
+    )
+    tempo_sponsor_max_txs: int = Field(
+        default=3, description="Max sponsored Tempo transactions per user."
+    )
+    tempo_sponsor_daily_budget_usd: float = Field(
+        default=100.0, description="Daily Tempo fee-sponsorship budget in USD."
+    )
+
     # Polymarket API (optional — for pre-configured CLOB credentials)
     polymarket_clob_api_key: Optional[str] = Field(
         default=None, description="Polymarket CLOB API key (optional)"
@@ -744,6 +800,14 @@ class Settings(BaseSettings):
     )
     polymarket_clob_passphrase: Optional[str] = Field(
         default=None, description="Polymarket CLOB API passphrase (optional)"
+    )
+    polymarket_restricted_regions: Optional[str] = Field(
+        default=None,
+        description=(
+            "Comma-separated ISO2 regions where Polymarket on-chain redemption is "
+            "geo-blocked. Falls back to hyperunit_restricted_regions (default 'US') "
+            "when unset."
+        ),
     )
 
     # Fee Configuration (competitive pricing)

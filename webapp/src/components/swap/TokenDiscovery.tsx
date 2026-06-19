@@ -40,6 +40,7 @@ const CHAINS = [
   { id: 'polygon', label: 'Polygon' },
   { id: 'arbitrum', label: 'Arbitrum' },
   { id: 'base', label: 'Base' },
+  { id: 'tempo', label: 'Tempo' },
   { id: 'solana', label: 'Solana' },
   { id: 'avalanche', label: 'Avalanche' },
 ]
@@ -50,6 +51,7 @@ const CHAIN_COLORS: Record<string, string> = {
   polygon: 'bg-purple-500',
   arbitrum: 'bg-blue-400',
   base: 'bg-blue-600',
+  tempo: 'bg-amber-500',
   solana: 'bg-gradient-to-r from-purple-500 to-teal-400',
   avalanche: 'bg-red-500',
 }

@@ -275,17 +275,27 @@ predictRoutes.post('/order', agentBearerAuth(), async (c) => {
 			const subOrgId = (agent.metadata as Record<string, string> | null)?.subOrgId || ''
 			const builderCode = process.env.POLYMARKET_BUILDER_CODE || ZERO_BYTES32
 
+			// CLOB amount math (6-decimal base units for both collateral and shares).
+			// pUSD collateral = 6dp; outcome (share) tokens = 6dp. `price` is the
+			// per-share price in pUSD (0..1), `size` is the number of shares.
+			//   BUY  -> maker gives pUSD, taker gives shares:
+			//             makerAmount = size * price (pUSD)   takerAmount = size (shares)
+			//   SELL -> maker gives shares, taker gives pUSD:
+			//             makerAmount = size (shares)         takerAmount = size * price (pUSD)
+			// Both legs scaled by 1e6. Math.round (not floor) avoids dropping a base
+			// unit from float rounding; the signed amounts and the POSTed amounts are
+			// the same strings (placeOrder serializes this exact struct).
+			const size = parseFloat(orderParams.size)
+			const price = parseFloat(orderParams.price)
+			const sharesBase = String(Math.round(size * 1e6))
+			const usdBase = String(Math.round(size * price * 1e6))
 			const orderData: ClobOrderData = {
 				salt,
 				maker: walletAddress,
 				signer: walletAddress,
 				tokenId: orderParams.tokenId,
-				makerAmount: orderParams.side === 'BUY'
-					? String(Math.floor(parseFloat(orderParams.size) * parseFloat(orderParams.price) * 1e6))
-					: String(Math.floor(parseFloat(orderParams.size) * 1e6)),
-				takerAmount: orderParams.side === 'BUY'
-					? String(Math.floor(parseFloat(orderParams.size) * 1e6))
-					: String(Math.floor(parseFloat(orderParams.size) * parseFloat(orderParams.price) * 1e6)),
+				makerAmount: orderParams.side === 'BUY' ? usdBase : sharesBase,
+				takerAmount: orderParams.side === 'BUY' ? sharesBase : usdBase,
 				side: orderParams.side === 'BUY' ? 0 : 1,
 				signatureType: 0,
 				timestamp: String(Date.now()),
@@ -306,8 +316,15 @@ predictRoutes.post('/order', agentBearerAuth(), async (c) => {
 				'PAYLOAD_ENCODING_HEXADECIMAL',
 			)
 
-			// Step 3: Submit to CLOB
-			const clobOrder = yield* pm.placeOrder(credentials, walletAddress, orderParams, sig.signature).pipe(
+			// Step 3: Submit to CLOB. Pass the SAME signed order object that produced
+			// the digest above so the serialized REST body matches the signature.
+			// orderType defaults to GTC (resting limit order); FOK/FAK/GTD can be
+			// surfaced later via the request schema.
+			const clobOrder = yield* pm.placeOrder(credentials, walletAddress, {
+				order: orderData,
+				signature: sig.signature,
+				orderType: 'GTC',
+			}).pipe(
 				Effect.mapError((e) => new ExternalServiceError({
 					message: `CLOB order placement failed: ${e.message}`,
 					service: 'polymarket-clob',

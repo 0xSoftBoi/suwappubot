@@ -545,6 +545,28 @@ CHAINS: dict[str, ChainConfig] = {
 }
 
 
+# Tempo testnets — intentionally NOT in CHAINS (not user-selectable in the bot).
+# For tooling / integration tests only. Verified against tempoxyz docs + ChainList.
+# The enshrined DEX (0xDEc0…), TIP-20 factory (0x20Fc…), and the stablecoin
+# precompiles (0x20C0…0000-0003) are system contracts identical to mainnet, so the
+# same client code (bot/services/tempo_*.py) works against these RPCs unchanged.
+TEMPO_TESTNETS: dict[str, dict] = {
+    # Current primary testnet (chain id confirmed via tempoxyz/tempo + ChainList).
+    "moderato": {
+        "chain_id": 42431,
+        "rpc_url": "https://rpc.moderato.tempo.xyz",
+        "explorer_url": "https://explore.tempo.xyz",
+    },
+    # Earlier testnet; RPC reachable via thirdweb's proxy (no canonical
+    # *.tempo.xyz host published, so we don't guess one).
+    "andantino": {
+        "chain_id": 42429,
+        "rpc_url": "https://42429.rpc.thirdweb.com",
+        "explorer_url": "https://explore.tempo.xyz",
+    },
+}
+
+
 def apply_min_gas_price(chain_name: str, gas_price: int) -> int:
     """Enforce a chain's network-minimum gas price (wei) on a fetched gas price.
 
