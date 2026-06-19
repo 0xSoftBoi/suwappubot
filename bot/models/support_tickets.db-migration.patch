@@ -1,0 +1,45 @@
+diff --git a/database/db.py b/database/db.py
+index 1808c18..964a48b 100644
+--- a/database/db.py
++++ b/database/db.py
+@@ -449,6 +449,16 @@ def _ensure_schema(db_engine) -> None:
+     if "prediction_positions" in tables:
+         _add_prediction_redeem_columns(db_engine, inspector, is_sqlite)
+ 
++    # --- support_tickets table (user support requests + bug reports) ---
++    if not inspector.has_table("support_tickets"):
++        from bot.models.support import SupportTicket
++
++        SupportTicket.__table__.create(bind=db_engine)
++        logger.info("Created support_tickets table")
++    else:
++        # Existing deployments predate the `kind` column; add it idempotently.
++        _add_support_ticket_kind_column(db_engine, inspector, is_sqlite)
++
+ 
+ def _add_digest_columns(db_engine, inspector, is_sqlite: bool) -> None:
+     """Add weekly_digest and last_digest_at columns to users table idempotently."""
+@@ -474,6 +484,23 @@ def _add_digest_columns(db_engine, inspector, is_sqlite: bool) -> None:
+             logger.info(f"Added users.{col_name}")
+ 
+ 
++def _add_support_ticket_kind_column(db_engine, inspector, is_sqlite: bool) -> None:
++    """Add the `kind` column to support_tickets for pre-bug-report deployments."""
++    cols = {c["name"] for c in inspector.get_columns("support_tickets")}
++    if "kind" in cols:
++        return
++    if is_sqlite:
++        ddl = "ALTER TABLE support_tickets ADD COLUMN kind VARCHAR(20) DEFAULT 'support'"
++    else:
++        ddl = (
++            "ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS "
++            "kind VARCHAR(20) DEFAULT 'support'"
++        )
++    with db_engine.begin() as conn:
++        conn.execute(text(ddl))
++    logger.info("Added support_tickets.kind")
++
++
+ def _add_agent_drizzle_columns(db_engine, inspector, table_name: str, is_sqlite: bool) -> None:
+     """Add columns to agents table to match Drizzle schema."""
+     cols = {c["name"] for c in inspector.get_columns(table_name)}
