@@ -11,6 +11,8 @@
     "test": "bun test src/__tests__/",
     "test:watch": "bun test --watch src/__tests__/",
     "test:coverage": "bun test --coverage src/__tests__/",
+    "generate:openapi": "bun run scripts/gen-openapi.ts",
+    "check:openapi": "bun run scripts/gen-openapi.ts --check",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",

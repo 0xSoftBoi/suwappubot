@@ -333,9 +333,88 @@ async def hl_claim_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
 
 
+async def cctp_relay_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/cctprelay — CCTP deposit-relayer health; `/cctprelay retry` requeues failed."""
+    user = update.effective_user
+    if not is_admin(user.id):
+        await update.message.reply_text("❌ This command is for admins only.")
+        return
+
+    from bot.services.cctp_relayer import cctp_relayer
+
+    arg = (context.args[0].lower() if context.args else "").strip()
+    if arg == "retry":
+        n = cctp_relayer.requeue_failed()
+        await update.message.reply_text(f"♻️ Requeued {n} failed CCTP deposit(s).")
+        return
+
+    health = cctp_relayer.health()
+    try:
+        bal = await cctp_relayer.relayer_balance_hype()
+    except Exception:  # noqa: BLE001
+        bal = None
+
+    counts = health["counts"]
+    lines = [
+        "🟢 *CCTP Relayer*\n",
+        f"Enabled: {'✅' if health['enabled'] else '❌'}   Running: {'✅' if health['running'] else '❌'}",
+        f"Relayer HYPE: {bal:.4f}" if bal is not None else "Relayer HYPE: (no key set)",
+        "",
+        f"In-flight: {health['in_flight']}   Credited: {health['credited']}   "
+        f"Failed: {health['failed']}",
+        "By status: " + (", ".join(f"{k}={v}" for k, v in counts.items()) or "none"),
+    ]
+    if health["failed"]:
+        lines.append("\nUse `/cctprelay retry` to requeue failed deposits.")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def set_region_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/setregion <telegram_id> <ISO2> — set a user's region (drives geo-gated features).
+
+    Operator/KYC-driven on purpose: region must come from a trusted verification,
+    NOT user self-attestation, or US users could claim a non-US region to reach
+    US-restricted features (e.g. HyperUnit native deposits).
+    """
+    user = update.effective_user
+    if not is_admin(user.id):
+        await update.message.reply_text("❌ This command is for admins only.")
+        return
+
+    if len(context.args) != 2 or not context.args[1].isalpha() or len(context.args[1]) != 2:
+        await update.message.reply_text(
+            "Usage: `/setregion <telegram_id> <ISO2>`\nExample: `/setregion 123456789 GB`\n"
+            "Use a 2-letter ISO-3166 code; clears with code `XX`.",
+            parse_mode="Markdown",
+        )
+        return
+
+    try:
+        target_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ telegram_id must be a number.")
+        return
+    region = context.args[1].upper()
+
+    with get_session() as session:
+        target = session.query(User).filter(User.telegram_id == target_id).first()
+        if not target:
+            await update.message.reply_text(f"❌ No user with telegram_id {target_id}.")
+            return
+        target.region = None if region == "XX" else region
+
+    await update.message.reply_text(
+        f"✅ Set region for {target_id} to *{region}*."
+        + ("" if region != "US" else " (US — HyperUnit native deposits stay disabled.)"),
+        parse_mode="Markdown",
+    )
+
+
 # Create handlers
 status_handler = CommandHandler("st", status_command)
 clear_cache_handler = CommandHandler("cc", clear_cache_command)
 broadcast_handler = CommandHandler("bc", broadcast_command)
 hl_builder_handler = CommandHandler("hlbuilder", hl_builder_command)
 hl_claim_handler = CommandHandler("hlclaim", hl_claim_command)
+set_region_handler = CommandHandler("setregion", set_region_command)
+cctp_relay_handler = CommandHandler("cctprelay", cctp_relay_command)

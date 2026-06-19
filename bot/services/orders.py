@@ -532,6 +532,7 @@ class OrderService:
                 wallet_id=order.wallet_id,
                 user_id=order.user_id,
                 idempotency_key=idempotency_key,
+                automated=True,
             )
 
             # 4. Update status on submission
@@ -600,6 +601,7 @@ class OrderService:
                 wallet_id=order.wallet_id,
                 user_id=order.user_id,
                 idempotency_key=idempotency_key,
+                automated=True,
             )
 
             # 3. Update DCA Stats on success

@@ -1,11 +1,11 @@
 # Suwappu API
 
-The cross-chain DeFi API built for AI agents. Suwappu gives your agent the ability to swap tokens, trade perpetual futures, access prediction markets, and browse lending protocols across 15+ blockchain networks through a single unified interface. Whether you're building an autonomous trading bot, a portfolio manager, or a conversational finance assistant, Suwappu handles routing, execution, and settlement so your agent can focus on strategy.
+The cross-chain DeFi API built for AI agents. Suwappu gives your agent the ability to swap tokens, trade perpetual futures, access prediction markets, and browse lending protocols across 40+ blockchain networks through a single unified interface. Whether you're building an autonomous trading bot, a portfolio manager, or a conversational finance assistant, Suwappu handles routing, execution, and settlement so your agent can focus on strategy.
 
 ## Why Suwappu?
 
-- **15 Chains** -- Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Fantom, Linea, Mantle, Gnosis, Scroll, TRON, and Starknet
-- **9 Swap Providers** -- Aggregated liquidity from leading DEXs and bridges for optimal pricing
+- **40+ Chains** -- Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Starknet, TRON, Tempo, Bitcoin L2s, and 30+ more
+- **9 Swap Providers** -- Best-price routing raced across LiFi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, and CCTP
 - **3 Protocols** -- REST API, MCP (Model Context Protocol), and A2A (Agent-to-Agent) so your agent can connect however it works best
 - **Perpetual Futures** -- Trade leveraged long/short positions on 10 major assets via HyperLiquid
 - **Prediction Markets** -- Browse and trade binary outcome markets on Polymarket

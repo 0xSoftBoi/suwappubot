@@ -18,6 +18,7 @@ from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction, SwapStatus
 from bot.services.swap_engine import SwapEngine, SwapQuote
 from bot.utils.exceptions import SwapError
+from bot.services.error_guidance import classify_swap_failure, ErrorGuidance
 from bot.services.wallet import WalletService
 from bot.services.fee_service import fee_service
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
@@ -58,6 +59,62 @@ TWOFA_VALID_SECONDS = 300
 
 swap_engine = SwapEngine()
 wallet_service = WalletService()
+
+
+def _guidance_keyboard(guidance: ErrorGuidance) -> InlineKeyboardMarkup:
+    """Build the inline keyboard for a classified swap failure.
+
+    The primary button is the guidance's single next action (Retry / Re-quote /
+    Check status). A Main Menu escape hatch is always appended.
+    """
+    payload = guidance.action_payload or {}
+    rows: list[list[InlineKeyboardButton]] = []
+
+    btn_text = payload.get("button_text")
+    if btn_text:
+        # Re-quote stays inside the conversation; everything else restarts the
+        # swap flow via the top-level swap_start callback.
+        callback = payload.get("button_callback") or (
+            "swap_requote" if guidance.category == "slippage_exceeded" else "swap_start"
+        )
+        rows.append([InlineKeyboardButton(btn_text, callback_data=callback)])
+
+    rows.append([InlineKeyboardButton("« Main Menu", callback_data="main_menu")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def _render_swap_failure(edit, exc_or_message, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Classify a failure and render the calm, plain-language guidance card.
+
+    ``edit`` is the status-message editor (``query.edit_message_text`` or
+    ``Message.edit_text``). Best-effort: a rendering failure never masks the
+    original error.
+    """
+    swap_data = context.user_data.get("swap") or {}
+    ctx = {
+        "from_chain": swap_data.get("from_chain"),
+        "to_chain": swap_data.get("to_chain"),
+        "from_token": swap_data.get("from_token"),
+        "is_cross_chain": (
+            swap_data.get("from_chain")
+            and swap_data.get("to_chain")
+            and swap_data.get("from_chain") != swap_data.get("to_chain")
+        ),
+    }
+    guidance = classify_swap_failure(exc_or_message, ctx)
+    try:
+        await edit(
+            guidance.to_message(),
+            parse_mode="Markdown",
+            reply_markup=_guidance_keyboard(guidance),
+        )
+    except Exception:
+        # If Markdown/edit fails, fall back to a plain-text version so the user
+        # still gets the diagnosis rather than a silent failure.
+        await edit(
+            f"{guidance.title}\n\n{guidance.explanation}\n\nNext: {guidance.next_action}",
+            reply_markup=_guidance_keyboard(guidance),
+        )
 
 
 def _prewarm_quote_key(swap_data: dict, wallet_id: int, platform_fee_bps: int) -> str:
@@ -995,30 +1052,14 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         logger.error(
             f"Quote failed for user {context.user_data.get('user_id')}: {e}", exc_info=True
         )
-        await query.edit_message_text(
-            f"❌ Error getting quote: {str(e)}",
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [InlineKeyboardButton("🔄 Try Again", callback_data="swap_start")],
-                    [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
-                ]
-            ),
-        )
+        await _render_swap_failure(query.edit_message_text, e, context)
         return ConversationHandler.END
     except Exception as e:
         logger.error(
             f"Quote unexpected error for user {context.user_data.get('user_id')}: {e}",
             exc_info=True,
         )
-        await query.edit_message_text(
-            "❌ Something went wrong. Please try again.",
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [InlineKeyboardButton("🔄 Try Again", callback_data="swap_start")],
-                    [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
-                ]
-            ),
-        )
+        await _render_swap_failure(query.edit_message_text, e, context)
         return ConversationHandler.END
 
 
@@ -1309,28 +1350,12 @@ async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
         logger.error(
             f"Swap execution failed for user {context.user_data.get('user_id')}: {e}", exc_info=True
         )
-        await edit(
-            f"❌ Swap failed: {str(e)}",
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [InlineKeyboardButton("🔄 Try Again", callback_data="swap_start")],
-                    [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
-                ]
-            ),
-        )
+        await _render_swap_failure(edit, e, context)
     except Exception as e:
         logger.error(
             f"Swap unexpected error for user {context.user_data.get('user_id')}: {e}", exc_info=True
         )
-        await edit(
-            "❌ Something went wrong. Please try again.",
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [InlineKeyboardButton("🔄 Try Again", callback_data="swap_start")],
-                    [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
-                ]
-            ),
-        )
+        await _render_swap_failure(edit, e, context)
 
     return ConversationHandler.END
 

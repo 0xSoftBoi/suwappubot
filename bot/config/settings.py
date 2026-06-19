@@ -234,6 +234,21 @@ class Settings(BaseSettings):
         default="https://tempo-mainnet.drpc.org,https://rpc.tempo.xyz",
         description="Tempo mainnet RPC URL(s)",
     )
+    tempo_fee_sponsor_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable gasless (fee-payer) Tempo swaps. When True AND a sponsor "
+            "wallet is configured, the bot counter-signs Tempo type-0x76 swaps "
+            "as fee payer so new users pay no gas. Default off → users pay."
+        ),
+    )
+    tempo_fee_sponsor_wallet_name: str = Field(
+        default="tempo_fee_sponsor",
+        description=(
+            "Name of the HotWallet DB record whose key counter-signs Tempo "
+            "sponsored swaps as fee payer (pays gas in pathUSD)."
+        ),
+    )
     goat_rpc_url: Optional[str] = Field(
         default="https://rpc.goat.network",
         description="GOAT Network (Bitcoin L2, chain id 2345) RPC URL",
@@ -297,6 +312,62 @@ class Settings(BaseSettings):
     hl_builder_max_fee_rate: str = Field(
         default="0.1%",
         description="Max builder fee rate users approve (percent string, e.g. '0.1%').",
+    )
+
+    # HyperLiquid funding — one-click cross-chain deposits into a user's
+    # HyperCore account. USDC routes via the Across Swap API (chain 1337);
+    # native BTC/ETH/SOL route via HyperUnit. See bot/services/hyperliquid_funding.py.
+    across_integrator_id: Optional[str] = Field(
+        default=None,
+        description="Across integrator id for the Swap API (attribution). Unset = omitted.",
+    )
+    across_api_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Across Swap API key (sent as Bearer). Required for production "
+            "rate limits; quotes work without it in dev/testnet."
+        ),
+    )
+
+    # CCTP V2 native-USDC deposit relayer (completes burns on HyperEVM). The
+    # relayer wallet pays HYPE gas for the destination mint + a small gas-drop so
+    # the user's custodial wallet can credit HyperCore. DISABLED by default —
+    # only enable once the relayer wallet is funded with HYPE and tested.
+    cctp_relayer_enabled: bool = Field(
+        default=False,
+        description="Enable the CCTP->HyperCore deposit relayer + the CCTP funding option.",
+    )
+    cctp_relayer_private_key: Optional[str] = Field(
+        default=None,
+        description="Private key of the HYPE-funded relayer wallet on HyperEVM (hex).",
+    )
+    cctp_relayer_gas_drop_hype: float = Field(
+        default=0.02,
+        description="HYPE gas-dropped to a user's HyperEVM address to fund their Core-credit tx.",
+    )
+    cctp_relayer_min_hype_alert: float = Field(
+        default=0.5,
+        description="Alert admins once when the relayer wallet's HYPE drops below this.",
+    )
+
+    # Regions (ISO-3166 alpha-2, comma-separated) where HyperUnit native deposits
+    # are NOT offered — HyperUnit geo-blocks these. Users with an unknown region
+    # are treated as restricted (feature hidden). Across/CCTP remain available.
+    hyperunit_restricted_regions: str = Field(
+        default="US",
+        description="Comma-separated regions blocked from HyperUnit native deposits.",
+    )
+    # Non-US egress for HyperUnit (it geo-blocks the US). EITHER a reverse-proxy
+    # base URL that forwards to api.hyperunit.xyz, OR a forward HTTP proxy. Must
+    # be provisioned in a non-US region and only ever serves region-allowed users
+    # (the fund handler gates that). Unset = call HyperUnit directly.
+    hyperunit_egress_url: Optional[str] = Field(
+        default=None,
+        description="Non-US reverse-proxy base URL for HyperUnit (forwards to api.hyperunit.xyz).",
+    )
+    hyperunit_proxy_url: Optional[str] = Field(
+        default=None,
+        description="Non-US forward HTTP proxy for HyperUnit requests (e.g. http://host:port).",
     )
 
     lisk_rpc_url: str = Field(default="https://rpc.api.lisk.com", description="Lisk RPC")

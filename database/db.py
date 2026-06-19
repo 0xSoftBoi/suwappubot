@@ -341,6 +341,7 @@ def _ensure_schema(db_engine) -> None:
     if "swap_transactions" in tables:
         _add_swap_agent_columns(db_engine, inspector, is_sqlite)
         _add_swap_price_columns(db_engine, inspector, is_sqlite)
+        _add_swap_error_category_column(db_engine, inspector, is_sqlite)
 
     # --- user_settings: MEV protection column + quick trade presets ---
     if "user_settings" in tables:
@@ -420,6 +421,8 @@ def _ensure_schema(db_engine) -> None:
     _add_staking_tables(db_engine, inspector, is_sqlite)
     _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite)
     _add_hyperliquid_ecosystem_tables(db_engine, inspector, is_sqlite)
+    _add_cctp_tables(db_engine, inspector, is_sqlite)
+    _add_user_region_column(db_engine, inspector, is_sqlite)
     _add_savings_tables(db_engine, inspector, is_sqlite)
     _add_auth_tables(db_engine, inspector, is_sqlite)
     _add_btc_swap_tables(db_engine, inspector, is_sqlite)
@@ -533,6 +536,34 @@ def _add_hyperliquid_ecosystem_tables(db_engine, inspector, is_sqlite: bool) -> 
                 logger.info(f"Created {model.__tablename__} table")
     except Exception as e:
         logger.warning(f"Failed to create HyperLiquid ecosystem tables: {e}")
+
+
+def _add_cctp_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the CCTP deposit-relay table idempotently."""
+    try:
+        from bot.models.cctp import CctpDeposit
+
+        if not inspector.has_table(CctpDeposit.__tablename__):
+            CctpDeposit.__table__.create(bind=db_engine)
+            logger.info(f"Created {CctpDeposit.__tablename__} table")
+    except Exception as e:
+        logger.warning(f"Failed to create CCTP tables: {e}")
+
+
+def _add_user_region_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add users.region (ISO-3166 alpha-2) for region-gated features, idempotently."""
+    try:
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "region" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE users ADD COLUMN region VARCHAR(8)"
+            else:
+                ddl = "ALTER TABLE users ADD COLUMN IF NOT EXISTS region VARCHAR(8)"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info("Added users.region")
+    except Exception as e:
+        logger.warning(f"Failed to add users.region: {e}")
 
 
 def _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -1102,6 +1133,25 @@ def _add_swap_price_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 ddl = f"ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
+
+
+def _add_swap_error_category_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add the classified failure-cause column to swap_transactions.
+
+    Populated from error_guidance.classify_swap_failure for analytics on why
+    swaps fail (gas, balance, slippage, simulation revert, timeout, etc.).
+    """
+    cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
+
+    if "error_category" not in cols:
+        if is_sqlite:
+            ddl = "ALTER TABLE swap_transactions ADD COLUMN error_category VARCHAR(40)"
+        else:
+            ddl = (
+                "ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS error_category VARCHAR(40)"
+            )
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
 
 
 def _add_user_settings_mev_column(db_engine, inspector, is_sqlite: bool) -> None:

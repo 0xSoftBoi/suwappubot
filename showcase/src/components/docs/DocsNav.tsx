@@ -1,5 +1,7 @@
 'use client';
 
+import DocsSearch from './DocsSearch';
+
 type Section = {
   id: string;
   title: string;
@@ -12,6 +14,7 @@ export default function DocsNav({ sections, currentSection }: {
 }) {
   return (
     <nav className="docs-nav">
+      <DocsSearch />
       <a href="/" className="docs-nav__back">&larr; Home</a>
       {sections.map((section) => (
         <div key={section.id} className="docs-nav__section">

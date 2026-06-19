@@ -45,6 +45,7 @@ from bot.services.socket_api import SocketAPI, socket_api, SocketError
 from bot.services.jito_api import JitoAPI, jito_api, JitoError, TipPriority
 from bot.services.sunswap_api import SunSwapAPI, SunSwapQuote, SunSwapError
 from bot.services.tempo_dex_api import TempoDexAPI, tempo_dex_api
+from bot.services.tempo_fee_sponsor import tempo_fee_sponsor
 from bot.services.okx_dex_api import OKXDEXAPI, OKXDEXQuote, OKXDEXError, OKX_CHAIN_IDS
 from bot.services.oneinch_api import (
     OneInchAPI,
@@ -2135,6 +2136,7 @@ class SwapEngine:
         wallet_id: int,
         user_id: int,
         idempotency_key: Optional[str] = None,
+        automated: bool = False,
     ) -> SwapTransaction:
         """
         Execute a swap based on a quote.
@@ -2345,7 +2347,9 @@ class SwapEngine:
 
             try:
                 # Route to appropriate execution method based on provider
-                if quote.provider == "cow":
+                if quote.provider == "tempo_dex":
+                    tx_hash = await self._execute_tempo_dex_swap(quote, wallet, user_id, automated)
+                elif quote.provider == "cow":
                     tx_hash = await self._execute_cow_swap(quote, wallet)
                 elif quote.provider == "socket":
                     tx_hash = await self._execute_socket_swap(quote, wallet)
@@ -2472,6 +2476,23 @@ class SwapEngine:
             except Exception as e:
                 logger.error(f"Swap execution failed: {e}", exc_info=True)
 
+                # Classify the failure cause for analytics (best-effort — never
+                # let diagnosis raise over the original error).
+                try:
+                    from bot.services.error_guidance import classify_swap_failure
+
+                    error_category = classify_swap_failure(
+                        e,
+                        {
+                            "from_chain": quote.from_chain,
+                            "to_chain": quote.to_chain,
+                            "from_token": quote.from_token,
+                            "is_cross_chain": quote.from_chain != quote.to_chain,
+                        },
+                    ).category
+                except Exception:  # pragma: no cover - defensive
+                    error_category = "unknown"
+
                 # Mark as failed
                 def _mark_failed():
                     with get_session() as session:
@@ -2483,6 +2504,7 @@ class SwapEngine:
                         if db_tx:
                             db_tx.status = SwapStatus.FAILED.value
                             db_tx.error_message = str(e)
+                            db_tx.error_category = error_category
 
                 await run_in_db(_mark_failed)
 
@@ -3252,6 +3274,323 @@ class SwapEngine:
             f"from the tx poller"
         )
         return tx_hash.hex()
+
+    async def _execute_tempo_dex_swap(
+        self,
+        quote: SwapQuote,
+        wallet_data: dict,
+        user_id: Optional[int] = None,
+        automated: bool = False,
+    ) -> str:
+        """Execute a same-chain stablecoin swap on Tempo's enshrined DEX.
+
+        Steps:
+        1. Rebuild the swap/approval calldata from stored raw_quote (no re-quote).
+        2. Approve the exact input amount to the enshrined DEX, wait for receipt.
+        3. Call swapExactAmountIn with a min-out that carries a small (10 bps)
+           execution buffer below the quoted out — the enshrined stablecoin DEX
+           has minimal slippage, but the quote stores min-out == quoted-out, so a
+           tiny buffer avoids a revert (and wasted gas) if the price ticks between
+           quote and execution.
+
+        Tempo gas is paid in TIP-20 stablecoins via legacy gasPrice (no EIP-1559),
+        which matches our EVM send path everywhere else.
+
+        Gasless path: when fee sponsorship is enabled and this user is within the
+        sponsorship limits, the whole approve+swap is submitted as ONE Tempo
+        type-0x76 transaction co-signed by a sponsor (fee payer) so the user pays
+        no gas — see _execute_sponsored_tempo_swap(). ANY failure there falls
+        through to the normal user-paid path below; sponsorship never breaks a swap.
+        """
+        wallet = await self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
+        sender = wallet_data["address"]
+        chain = get_chain_by_name("tempo")
+        web3 = self._get_web3_with_fallback("tempo")
+        raw = quote.raw_quote or {}
+
+        amount_in = int(raw["amount_in"])
+        # 10 bps execution buffer below the quoted/stored min-out (see docstring).
+        min_amount_out = int(int(quote.to_amount_min) * 9990 // 10000)
+
+        # --- Gasless (fee-payer) path, best-effort ---------------------------
+        # Works for Turnkey wallets (sign via enclave) and local-key wallets alike.
+        if user_id is not None and tempo_fee_sponsor.enabled:
+            decision = tempo_fee_sponsor.check_sponsorship(user_id, tx_type="swap")
+            if decision.should_sponsor:
+                # Automated swaps (DCA/limit/snipe) sign with the user's scoped,
+                # on-chain-capped access key if they granted one — no root key,
+                # no re-auth. Manual swaps keep root signing.
+                access_key = None
+                if automated:
+                    from bot.services.tempo_keychain import tempo_keychain_service
+
+                    access_key = tempo_keychain_service.get_active_key(user_id)
+                try:
+                    tx_hash = await self._execute_sponsored_tempo_swap(
+                        wallet=wallet,
+                        sender=sender,
+                        token_in=quote.from_token,
+                        token_out=quote.to_token,
+                        amount_in=amount_in,
+                        min_amount_out=min_amount_out,
+                        web3=web3,
+                        chain_id=chain.chain_id,
+                        access_key=access_key,
+                    )
+                    # Tempo gas is sub-$0.001; record against the daily budget.
+                    tempo_fee_sponsor.record_sponsored_tx(user_id, fee_usd=0.001)
+                    return tx_hash
+                except Exception as e:
+                    logger.warning(
+                        f"Tempo sponsored (gasless) swap failed; "
+                        f"falling back to user-paid path: {e}"
+                    )
+            else:
+                logger.debug(f"Tempo sponsorship declined for {user_id}: {decision.reason}")
+
+        txs = tempo_dex_api.build_swap_tx(
+            token_in=quote.from_token,
+            token_out=quote.to_token,
+            amount_in=amount_in,
+            min_amount_out=min_amount_out,
+            sender=sender,
+        )
+
+        nonce = await asyncio.to_thread(
+            lambda: web3.eth.get_transaction_count(Web3.to_checksum_address(sender))
+        )
+        gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+
+        # Step 1: exact-amount ERC20/TIP-20 approval to the enshrined DEX.
+        approve_tx = dict(txs["approval_tx"])
+        approve_tx.update(
+            {
+                "gas": 80_000,
+                "gasPrice": gas_price,
+                "nonce": nonce,
+                "chainId": chain.chain_id,
+            }
+        )
+        signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
+        approve_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_approve.replace("0x", "")))
+        )
+        logger.info(f"Tempo DEX approval tx: {approve_hash.hex()}")
+        receipt = await asyncio.to_thread(
+            lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+        )
+        if receipt["status"] != 1:
+            raise SwapError(f"Tempo DEX approval failed (tx: {approve_hash.hex()})")
+        nonce += 1
+
+        # Step 2: swapExactAmountIn on the enshrined DEX.
+        swap_tx = dict(txs["swap_tx"])
+        gas_estimate = 250_000
+        try:
+            gas_estimate = await asyncio.to_thread(
+                lambda: web3.eth.estimate_gas(
+                    {
+                        "from": Web3.to_checksum_address(sender),
+                        "to": swap_tx["to"],
+                        "data": swap_tx["data"],
+                        "value": swap_tx["value"],
+                    }
+                )
+            )
+            gas_estimate = int(gas_estimate * 1.3)
+        except Exception as e:
+            logger.warning(f"Tempo DEX gas estimate failed, using default 250k: {e}")
+
+        swap_tx.update(
+            {
+                "gas": gas_estimate,
+                "gasPrice": gas_price,
+                "nonce": nonce,
+                "chainId": chain.chain_id,
+            }
+        )
+
+        signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, swap_tx)
+        tx_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        )
+        logger.info(
+            f"Tempo DEX swapExactAmountIn: {tx_hash.hex()} "
+            f"({quote.from_token}→{quote.to_token}) — fire-and-monitor: swap receipt "
+            f"NOT awaited here; final status comes from the tx poller"
+        )
+        return tx_hash.hex()
+
+    async def _execute_sponsored_tempo_swap(
+        self,
+        *,
+        wallet,
+        sender: str,
+        token_in: str,
+        token_out: str,
+        amount_in: int,
+        min_amount_out: int,
+        web3,
+        chain_id: int,
+        access_key=None,
+    ) -> str:
+        """Submit a gasless Tempo swap as ONE type-0x76 fee-payer transaction.
+
+        When ``access_key`` (a TempoAccessKey) is given — the automated path — the
+        sender slot is signed by the scoped, on-chain-capped access key
+        (KeychainSignature) instead of the root wallet, so no root key or per-trade
+        re-auth is needed. The sponsor still pays gas.
+
+        approve(DEX, amount_in) + swapExactAmountIn are batched into a single
+        Tempo Transaction:
+          - the user (sender) signs the sender hash with fee_token omitted
+            (``awaiting_fee_payer=True``),
+          - a sponsor HotWallet counter-signs as fee payer, choosing the fee
+            token (pathUSD) and paying gas,
+          - the dual-signed tx is broadcast via ``eth_sendRawTransaction``.
+
+        Uses the official ``pytempo`` SDK so the type-0x76 RLP layout and the
+        domain-separated (0x76 sender / 0x78 fee-payer) secp256k1 signatures are
+        not hand-rolled. Both signatures are produced through _tempo_signature(),
+        which signs the pre-computed hash via Turnkey (enclave) for Turnkey wallets
+        or a local key otherwise — so this works for production Turnkey users AND
+        local-key dev. Raises on ANY failure so the caller falls back to the
+        user-paid path — sponsorship must never break a swap.
+        """
+        import attrs
+        from pytempo import TempoTransaction
+        from pytempo.contracts import TIP20, StablecoinDEX, PATH_USD
+
+        from bot.config.tokens import get_token_address
+        from bot.models.custodial import HotWallet
+        from bot.services.hot_wallet import hot_wallet_service
+        from database.db import get_session
+
+        addr_in = get_token_address(token_in, "tempo")
+        addr_out = get_token_address(token_out, "tempo")
+        if not addr_in or not addr_out:
+            raise SwapError(f"Tempo token pair {token_in}/{token_out} not available")
+        fee_token = get_token_address(tempo_fee_sponsor.fee_token, "tempo") or PATH_USD
+
+        # Load the sponsor (fee payer) hot wallet by configured name. For a local-key
+        # sponsor we pull the raw key here (off the event loop); a Turnkey sponsor
+        # signs via the enclave and exposes no key.
+        sponsor_name = tempo_fee_sponsor.sponsor_wallet_name
+
+        def _load_sponsor():
+            with get_session() as session:
+                sw = (
+                    session.query(HotWallet)
+                    .filter(HotWallet.name == sponsor_name, HotWallet.is_active == True)
+                    .first()
+                )
+                if not sw:
+                    raise SwapError(f"Tempo fee-sponsor wallet '{sponsor_name}' not found/active")
+                turnkey = sw.is_turnkey_wallet
+                return (
+                    sw.address,
+                    turnkey,
+                    (None if turnkey else hot_wallet_service.get_private_key(sw)),
+                )
+
+        sponsor_address, sponsor_turnkey, sponsor_key = await asyncio.to_thread(_load_sponsor)
+
+        # Tempo T2: fee payer must not equal sender.
+        if sponsor_address.lower() == sender.lower():
+            raise SwapError("Tempo fee payer cannot equal sender")
+
+        sender_turnkey = wallet.is_turnkey_wallet
+        # Root key only needed when NOT using an access key (and not Turnkey).
+        sender_key = (
+            None
+            if (sender_turnkey or access_key is not None)
+            else self.wallet_service.get_private_key(wallet)
+        )
+
+        # nonce_key 0 == protocol nonce, which is the standard account nonce.
+        nonce = await asyncio.to_thread(
+            lambda: web3.eth.get_transaction_count(Web3.to_checksum_address(sender))
+        )
+        gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price) or 2_000_000_000
+
+        calls = (
+            TIP20(Web3.to_checksum_address(addr_in)).approve(
+                spender=StablecoinDEX.ADDRESS, amount=amount_in
+            ),
+            StablecoinDEX.swap_exact_amount_in(
+                token_in=Web3.to_checksum_address(addr_in),
+                token_out=Web3.to_checksum_address(addr_out),
+                amount_in=amount_in,
+                min_amount_out=min_amount_out,
+            ),
+        )
+
+        tx = TempoTransaction.create(
+            chain_id=chain_id,
+            gas_limit=400_000,  # approve+swap on precompiles; ample headroom
+            max_fee_per_gas=gas_price * 2,
+            max_priority_fee_per_gas=gas_price,
+            nonce=nonce,
+            awaiting_fee_payer=True,  # sender does NOT commit to a fee token
+            calls=calls,
+        )
+
+        # 1) Sign the 0x76 sender hash. Automated path: the scoped access key signs
+        #    (KeychainSignature) on behalf of the root. Else the root wallet signs.
+        if access_key is not None:
+            from bot.services.tempo_keychain import tempo_keychain_service
+
+            tx = tempo_keychain_service.sign_swap_with_access_key(tx, sender, access_key)
+        else:
+            sender_sig = await self._tempo_signature(
+                address=sender,
+                is_turnkey=sender_turnkey,
+                raw_key=sender_key,
+                hash32=tx.get_signing_hash(for_fee_payer=False),
+            )
+            tx = attrs.evolve(tx, sender_signature=sender_sig, sender_address=sender)
+
+        # 2) Set the fee token, then the sponsor counter-signs the 0x78 hash (which
+        #    commits to fee_token + sender_address).
+        tx = attrs.evolve(tx, fee_token=fee_token)
+        fee_payer_sig = await self._tempo_signature(
+            address=sponsor_address,
+            is_turnkey=sponsor_turnkey,
+            raw_key=sponsor_key,
+            hash32=tx.get_signing_hash(for_fee_payer=True),
+        )
+        tx = attrs.evolve(tx, fee_payer_signature=fee_payer_sig)
+
+        raw = tx.encode()
+        tx_hash = await asyncio.to_thread(lambda: web3.eth.send_raw_transaction(raw).hex())
+        logger.info(
+            f"Tempo gasless swap (type-0x76, fee payer {sponsor_address[:10]}…): "
+            f"{tx_hash} ({token_in}→{token_out}) — fire-and-monitor: receipt NOT "
+            f"awaited here; final status comes from the tx poller"
+        )
+        return tx_hash
+
+    async def _tempo_signature(self, *, address: str, is_turnkey: bool, raw_key, hash32: bytes):
+        """Sign a 32-byte Tempo signing hash, returning a pytempo ``Signature``.
+
+        Turnkey wallets sign inside the enclave (no key leaves Turnkey); local-key
+        wallets sign with eth_account — both yield the same canonical Signature so
+        the caller attaches it via ``attrs.evolve`` regardless of provider.
+        """
+        if is_turnkey:
+            from bot.services.tempo_turnkey_signer import sign_tempo_hash
+
+            return await sign_tempo_hash(address, hash32)
+
+        from eth_account import Account
+        from pytempo.models import Signature
+
+        key = raw_key if raw_key.startswith("0x") else "0x" + raw_key
+        signed = Account.from_key(key).unsafe_sign_hash(hash32)
+        return Signature(r=signed.r, s=signed.s, v=signed.v)
 
     async def _execute_layerzero_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a cross-chain transfer via LayerZero/Stargate V2.
