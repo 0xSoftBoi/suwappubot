@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { Context, Effect, Layer } from 'effect'
+import type { ClobOrderData } from '../lib/polymarket-eip712'
 
 export interface MarketToken {
 	tokenId: string
@@ -85,6 +86,21 @@ export interface PlaceOrderParams {
 	feeRateBps?: number | undefined
 }
 
+// CLOB /order accepts a time-in-force qualifier alongside the signed order.
+//   GTC = Good-Til-Cancelled, GTD = Good-Til-Date, FOK = Fill-Or-Kill,
+//   FAK = Fill-And-Kill (partial fill, cancel remainder).
+export type ClobOrderType = 'GTC' | 'GTD' | 'FOK' | 'FAK'
+
+// The exact order object that was EIP-712 signed (lib/polymarket-eip712.ts
+// ClobOrderData) plus the resulting signature. This is what gets serialized
+// into the CLOB POST /order body — the body MUST carry the same amounts/side/
+// signatureType that went into the signed digest, or the CLOB rejects it.
+export interface SignedClobOrder {
+	order: ClobOrderData
+	signature: string
+	orderType: ClobOrderType
+}
+
 export interface ClobOrder {
 	id: string
 	status: string
@@ -122,7 +138,7 @@ export class PolymarketService extends Context.Tag('PolymarketService')<
 		getTrades: (tokenId: string, limit?: number) => Effect.Effect<Trade[], Error>
 		getEvents: (query?: string, limit?: number) => Effect.Effect<PredictionEvent[], Error>
 		createApiCredentials: (walletAddress: string, nonce: string, signature: string) => Effect.Effect<ClobApiCredentials, Error>
-		placeOrder: (credentials: ClobApiCredentials, walletAddress: string, order: PlaceOrderParams, signature: string) => Effect.Effect<ClobOrder, Error>
+		placeOrder: (credentials: ClobApiCredentials, walletAddress: string, signed: SignedClobOrder) => Effect.Effect<ClobOrder, Error>
 		cancelOrder: (credentials: ClobApiCredentials, walletAddress: string, orderId: string) => Effect.Effect<{ success: boolean }, Error>
 		getPositions: (credentials: ClobApiCredentials, walletAddress: string) => Effect.Effect<ClobPosition[], Error>
 		getOrders: (credentials: ClobApiCredentials, walletAddress: string, status?: string) => Effect.Effect<ClobOrder[], Error>
@@ -354,22 +370,58 @@ async function createApiCredentialsImpl(
 	return { apiKey: data.apiKey, secret: data.secret, passphrase: data.passphrase }
 }
 
+// Serialize the *signed* order into the exact JSON shape the CLOB POST /order
+// endpoint expects (per py-clob-client / clob-client `EXCHANGE` order builder).
+//
+// CRITICAL: the body must describe THE SAME order that was EIP-712 signed —
+// identical maker/signer/tokenId/makerAmount/takerAmount/signatureType — or the
+// CLOB recovers a different digest and rejects the signature. The only encoding
+// differences vs the signed struct are presentational:
+//   - all integer fields are sent as decimal STRINGS (the signed struct uses
+//     uint256; JSON has no bigint, so the client sends strings),
+//   - `side` is sent as the "BUY" | "SELL" enum string in the POST body, even
+//     though the signed struct hashed it as 0 (BUY) / 1 (SELL).
+//
+// The v2 schema dropped taker/expiration/nonce/feeRateBps from the signed
+// struct, but the CLOB POST body is still validated against the client's order
+// model which carries those legacy fields with defaults (taker = zero address,
+// expiration = "0", nonce = "0", feeRateBps = "0"). They are NOT part of the
+// signed digest, so they must use exactly these neutral defaults.
+export function buildClobOrderBody(signed: SignedClobOrder, owner: string): {
+	order: Record<string, string | number>
+	owner: string
+	orderType: ClobOrderType
+} {
+	const o = signed.order
+	return {
+		order: {
+			salt: o.salt,
+			maker: o.maker,
+			signer: o.signer,
+			taker: '0x0000000000000000000000000000000000000000',
+			tokenId: o.tokenId,
+			makerAmount: o.makerAmount,
+			takerAmount: o.takerAmount,
+			expiration: '0',
+			nonce: '0',
+			feeRateBps: '0',
+			side: o.side === 0 ? 'BUY' : 'SELL',
+			signatureType: o.signatureType,
+			signature: signed.signature,
+		},
+		owner,
+		orderType: signed.orderType,
+	}
+}
+
 async function placeOrderImpl(
 	credentials: ClobApiCredentials,
 	walletAddress: string,
-	order: PlaceOrderParams,
-	signature: string,
+	signed: SignedClobOrder,
 ): Promise<ClobOrder> {
 	const path = '/order'
-	const bodyObj = {
-		tokenID: order.tokenId,
-		price: order.price,
-		size: order.size,
-		side: order.side,
-		signature,
-		feeRateBps: order.feeRateBps ?? 0,
-		...(order.expiration && { expiration: order.expiration }),
-	}
+	// `owner` is the CLOB API key id (L2 creds), NOT the wallet address.
+	const bodyObj = buildClobOrderBody(signed, credentials.apiKey)
 	const body = JSON.stringify(bodyObj)
 	const headers = buildClobAuthHeaders(credentials, walletAddress, 'POST', path, body)
 
@@ -458,8 +510,8 @@ export const PolymarketServiceLive = Layer.succeed(PolymarketService, {
 		Effect.tryPromise({ try: () => getEventsImpl(query, limit), catch: (e) => e as Error }),
 	createApiCredentials: (walletAddress, nonce, signature) =>
 		Effect.tryPromise({ try: () => createApiCredentialsImpl(walletAddress, nonce, signature), catch: (e) => e as Error }),
-	placeOrder: (credentials, walletAddress, order, signature) =>
-		Effect.tryPromise({ try: () => placeOrderImpl(credentials, walletAddress, order, signature), catch: (e) => e as Error }),
+	placeOrder: (credentials, walletAddress, signed) =>
+		Effect.tryPromise({ try: () => placeOrderImpl(credentials, walletAddress, signed), catch: (e) => e as Error }),
 	cancelOrder: (credentials, walletAddress, orderId) =>
 		Effect.tryPromise({ try: () => cancelOrderImpl(credentials, walletAddress, orderId), catch: (e) => e as Error }),
 	getPositions: (credentials, walletAddress) =>

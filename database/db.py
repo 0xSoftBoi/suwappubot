@@ -445,6 +445,10 @@ def _ensure_schema(db_engine) -> None:
         TempoSponsorship.__table__.create(bind=db_engine)
         logger.info("Created tempo_sponsorships table")
 
+    # --- prediction_positions: on-chain redemption columns ---
+    if "prediction_positions" in tables:
+        _add_prediction_redeem_columns(db_engine, inspector, is_sqlite)
+
 
 def _add_digest_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Add weekly_digest and last_digest_at columns to users table idempotently."""
@@ -1238,6 +1242,39 @@ def _add_advanced_order_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 ddl = f"ALTER TABLE limit_orders ADD COLUMN {col_name} {col_type} DEFAULT {default}"
             else:
                 ddl = f"ALTER TABLE limit_orders ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+
+def _add_prediction_redeem_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add on-chain redemption columns to prediction_positions idempotently.
+
+    Resolved winning Polymarket positions are surfaced as "Claimable" until the
+    user redeems them on-chain (CTF/NegRiskAdapter ``redeemPositions``). These
+    columns track that redemption so a claimed position drops off the list and
+    its redeem tx is traceable. Additive + idempotent — safe to run repeatedly.
+    """
+    cols = {c["name"] for c in inspector.get_columns("prediction_positions")}
+
+    new_columns = [
+        ("claimed", "BOOLEAN", "FALSE"),
+        ("redeem_tx_hash", "VARCHAR(255)", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                # SQLite has no boolean literal; 0/NULL map cleanly.
+                sqlite_default = "0" if col_type == "BOOLEAN" else default
+                ddl = (
+                    f"ALTER TABLE prediction_positions ADD COLUMN "
+                    f"{col_name} {col_type} DEFAULT {sqlite_default}"
+                )
+            else:
+                ddl = (
+                    f"ALTER TABLE prediction_positions ADD COLUMN IF NOT EXISTS "
+                    f"{col_name} {col_type} DEFAULT {default}"
+                )
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
 

@@ -2,8 +2,17 @@
 
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, BigInteger, String, Float, Boolean, DateTime,
-    ForeignKey, Text, Numeric, UniqueConstraint,
+    Column,
+    Integer,
+    BigInteger,
+    String,
+    Float,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Text,
+    Numeric,
+    UniqueConstraint,
 )
 from sqlalchemy.sql import func
 
@@ -12,6 +21,7 @@ from database.db import Base
 
 class PredictionOrder(Base):
     """Individual prediction market order."""
+
     __tablename__ = "prediction_orders"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -48,6 +58,7 @@ class PredictionOrder(Base):
 
 class PredictionPosition(Base):
     """Aggregated prediction market position for a user."""
+
     __tablename__ = "prediction_positions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -71,6 +82,13 @@ class PredictionPosition(Base):
     # Resolution
     is_resolved = Column(Boolean, default=False)
     resolved_payout = Column(Numeric(20, 6), nullable=True)
+
+    # On-chain redemption (CTF/NegRiskAdapter redeemPositions). A resolved
+    # winning position stays "Claimable" until the user redeems it on-chain;
+    # once redeemed we set claimed=True (clears it from the claimable list) and
+    # record the redeem tx hash for the user/support to trace on Polygonscan.
+    claimed = Column(Boolean, default=False)
+    redeem_tx_hash = Column(String(255), nullable=True)
 
     # Timestamps
     created_at = Column(DateTime, server_default=func.now())

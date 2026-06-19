@@ -497,6 +497,25 @@ class Settings(BaseSettings):
         description="Default MetaMorpho USDC earn vault on Base (Steakhouse USDC)",
     )
 
+    # HyperLiquid real-time WebSocket alert feed (fills / liquidations / funding / whales).
+    # Connects to wss://api.hyperliquid.xyz/ws and pushes Telegram alerts. OFF by default.
+    hl_ws_alerts_enabled: bool = Field(
+        default=False,
+        description="Enable the HyperLiquid WebSocket alert feed (per-user fills/liquidations/funding).",
+    )
+    hl_whale_alerts_enabled: bool = Field(
+        default=False,
+        description="Enable HyperLiquid whale-trade alerts (large single trades on major coins).",
+    )
+    hl_whale_alert_threshold_usd: float = Field(
+        default=1_000_000.0,
+        description="Minimum single-trade notional (USD) to emit a HyperLiquid whale alert.",
+    )
+    hl_whale_alert_coins: str = Field(
+        default="BTC,ETH,SOL,HYPE",
+        description="Comma-separated coins to watch for HyperLiquid whale trades.",
+    )
+
     # Infura network name mappings
     INFURA_NETWORKS: ClassVar[Dict[str, str]] = {
         "ethereum": "mainnet",
@@ -781,6 +800,14 @@ class Settings(BaseSettings):
     )
     polymarket_clob_passphrase: Optional[str] = Field(
         default=None, description="Polymarket CLOB API passphrase (optional)"
+    )
+    polymarket_restricted_regions: Optional[str] = Field(
+        default=None,
+        description=(
+            "Comma-separated ISO2 regions where Polymarket on-chain redemption is "
+            "geo-blocked. Falls back to hyperunit_restricted_regions (default 'US') "
+            "when unset."
+        ),
     )
 
     # Fee Configuration (competitive pricing)

@@ -25,6 +25,74 @@ logger = logging.getLogger(__name__)
 GAMMA_BASE_URL = "https://gamma-api.polymarket.com"
 CLOB_BASE_URL = "https://clob.polymarket.com"
 
+# ── On-chain redemption (Polygon, chain 137) ───────────────────────────────
+# Polymarket migrated to pUSD collateral in April 2026. This 0xC011a7... is a
+# deliberate Polymarket vanity address (NOT Synthetix sUSD) — verified on-chain.
+POLYGON_CHAIN_ID = 137
+PUSD_COLLATERAL_ADDRESS = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB"  # 6 decimals
+# Standard Gnosis ConditionalTokens framework deployment used by Polymarket.
+CTF_ADDRESS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
+# Neg-risk markets redeem through the adapter, NOT the plain CTF, and with a
+# DIFFERENT redeemPositions signature.
+NEG_RISK_ADAPTER_ADDRESS = "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296"
+# parentCollectionId is bytes32(0) for these single-condition markets.
+ZERO_BYTES32 = "0x" + "00" * 32
+
+# Plain Gnosis CTF: redeemPositions(collateral, parentCollectionId, conditionId, indexSets)
+# plus payoutDenominator(conditionId) which is the on-chain resolution ground truth.
+CTF_ABI = [
+    {
+        "constant": False,
+        "inputs": [
+            {"name": "collateralToken", "type": "address"},
+            {"name": "parentCollectionId", "type": "bytes32"},
+            {"name": "conditionId", "type": "bytes32"},
+            {"name": "indexSets", "type": "uint256[]"},
+        ],
+        "name": "redeemPositions",
+        "outputs": [],
+        "payable": False,
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+    {
+        "constant": True,
+        "inputs": [{"name": "", "type": "bytes32"}],
+        "name": "payoutDenominator",
+        "outputs": [{"name": "", "type": "uint256"}],
+        "payable": False,
+        "stateMutability": "view",
+        "type": "function",
+    },
+]
+
+# NegRiskAdapter: redeemPositions(conditionId, amounts) — different signature.
+NEG_RISK_ADAPTER_ABI = [
+    {
+        "constant": False,
+        "inputs": [
+            {"name": "_conditionId", "type": "bytes32"},
+            {"name": "_amounts", "type": "uint256[]"},
+        ],
+        "name": "redeemPositions",
+        "outputs": [],
+        "payable": False,
+        "stateMutability": "nonpayable",
+        "type": "function",
+    }
+]
+
+
+@dataclass
+class RedeemResult:
+    """Result of an on-chain redemption attempt."""
+
+    success: bool
+    tx_hash: str = ""
+    error: str = ""
+    # Machine-readable hint so the handler can pick the right error_guidance copy.
+    error_category: str = ""
+
 
 @dataclass
 class MarketInfo:
@@ -352,6 +420,208 @@ class PolymarketClient:
         except Exception as e:
             logger.error(f"get_positions error: {e}")
             return []
+
+    # ============ On-Chain Redemption (CTF / NegRiskAdapter) ============
+
+    async def is_neg_risk_market(self, condition_id: str) -> bool:
+        """Whether ``condition_id`` is a neg-risk (multi-outcome) market.
+
+        Neg-risk markets redeem through the NegRiskAdapter with a different
+        ``redeemPositions`` signature, so the redeem path MUST branch on this.
+        Gamma/CLOB market objects expose a ``negRisk`` / ``neg_risk`` boolean;
+        we check both the CLOB and Gamma shapes and fail-closed to plain CTF
+        (the common case) if neither is present.
+        """
+        try:
+            clob_market = await self.get_clob_market(condition_id)
+            if isinstance(clob_market, dict):
+                for key in ("neg_risk", "negRisk", "negRiskMarket", "neg_risk_market"):
+                    if key in clob_market:
+                        return bool(clob_market.get(key))
+            gamma_market = await self.get_market(condition_id)
+            # get_market returns MarketInfo (no neg_risk field); fall back to the
+            # raw Gamma payload only when the CLOB object was silent.
+        except Exception as e:
+            logger.warning(f"is_neg_risk_market check failed for {condition_id}: {e}")
+        return False
+
+    def _get_polygon_web3(self):
+        """Polygon Web3 via the bot's health-tracked RPC manager."""
+        from bot.services.rpc_manager import rpc_manager
+
+        return rpc_manager.get_web3("polygon")
+
+    def is_resolved_onchain(self, condition_id: str) -> bool:
+        """On-chain resolution ground truth: ``payoutDenominator(conditionId) != 0``.
+
+        The CLOB ``winner`` flag lags resolution by minutes; before spending gas on
+        a redeem we confirm the condition is actually reported on-chain. A zero (or
+        unreadable) denominator means "not resolved yet" — refuse to redeem.
+        """
+        try:
+            from web3 import Web3
+
+            web3 = self._get_polygon_web3()
+            ctf = web3.eth.contract(address=Web3.to_checksum_address(CTF_ADDRESS), abi=CTF_ABI)
+            cid = self._to_bytes32(condition_id)
+            denom = ctf.functions.payoutDenominator(cid).call()
+            return int(denom) != 0
+        except Exception as e:
+            logger.warning(f"payoutDenominator read failed for {condition_id}: {e}")
+            return False
+
+    @staticmethod
+    def _to_bytes32(value: str) -> bytes:
+        """Normalize a 0x-prefixed condition id into 32 raw bytes."""
+        from web3 import Web3
+
+        return Web3.to_bytes(hexstr=value)
+
+    async def redeem_position(
+        self,
+        wallet,
+        condition_id: str,
+        neg_risk: Optional[bool] = None,
+    ) -> RedeemResult:
+        """Redeem a resolved winning position on-chain for pUSD.
+
+        Branches on neg-risk:
+          * plain CTF  -> redeemPositions(collateral, parentCollectionId=0,
+            conditionId, indexSets=[1, 2])
+          * neg-risk   -> NegRiskAdapter.redeemPositions(conditionId, amounts)
+
+        Confirms ``payoutDenominator != 0`` on-chain BEFORE building the tx so we
+        never spend gas on an unresolved market. Signing/sending reuses the bot's
+        WalletService (Turnkey API or local key) + RPC manager — no new signer.
+
+        Returns a :class:`RedeemResult`. ``wallet`` is the user's EVM Wallet ORM
+        row; it is the Polymarket trading wallet and pays MATIC for gas.
+        """
+        if not condition_id:
+            return RedeemResult(success=False, error="Missing condition id.")
+
+        # Resolve neg-risk if the caller didn't already determine it.
+        if neg_risk is None:
+            neg_risk = await self.is_neg_risk_market(condition_id)
+
+        # Heavy lifting (sync web3 + signing) runs off the event loop.
+        import asyncio as _asyncio
+
+        return await _asyncio.to_thread(
+            self._redeem_position_sync, wallet, condition_id, bool(neg_risk)
+        )
+
+    def _redeem_position_sync(self, wallet, condition_id: str, neg_risk: bool) -> RedeemResult:
+        """Blocking redeem: confirm resolution, build, sign, send, await receipt."""
+        from web3 import Web3
+
+        # Ground-truth resolution check — refuse to redeem an unresolved market.
+        if not self.is_resolved_onchain(condition_id):
+            return RedeemResult(
+                success=False,
+                error="Market is not resolved on-chain yet. Try again once it settles.",
+                error_category="not_resolved",
+            )
+
+        try:
+            web3 = self._get_polygon_web3()
+            from_addr = Web3.to_checksum_address(wallet.address)
+            cid = self._to_bytes32(condition_id)
+
+            if neg_risk:
+                contract = web3.eth.contract(
+                    address=Web3.to_checksum_address(NEG_RISK_ADAPTER_ADDRESS),
+                    abi=NEG_RISK_ADAPTER_ABI,
+                )
+                # amounts = [0, 0] lets the adapter redeem the caller's full
+                # balance of each outcome index (standard Polymarket usage).
+                contract_fn = contract.functions.redeemPositions(cid, [0, 0])
+            else:
+                contract = web3.eth.contract(
+                    address=Web3.to_checksum_address(CTF_ADDRESS), abi=CTF_ABI
+                )
+                # Binary market: both index sets [1, 2]; only the winning leg pays.
+                contract_fn = contract.functions.redeemPositions(
+                    Web3.to_checksum_address(PUSD_COLLATERAL_ADDRESS),
+                    self._to_bytes32(ZERO_BYTES32),
+                    cid,
+                    [1, 2],
+                )
+
+            nonce = web3.eth.get_transaction_count(from_addr)
+            gas_price = web3.eth.gas_price
+            tx = contract_fn.build_transaction(
+                {
+                    "from": from_addr,
+                    "nonce": nonce,
+                    "gasPrice": gas_price,
+                    "chainId": POLYGON_CHAIN_ID,
+                }
+            )
+            # estimate_gas also surfaces an insufficient-MATIC / revert early,
+            # before we broadcast anything.
+            try:
+                tx["gas"] = int(web3.eth.estimate_gas(tx) * 1.3)
+            except Exception as e:
+                msg = str(e).lower()
+                if "insufficient funds" in msg or "gas required" in msg:
+                    return RedeemResult(
+                        success=False,
+                        error="Not enough MATIC on Polygon to cover the redeem gas fee.",
+                        error_category="insufficient_gas",
+                    )
+                return RedeemResult(success=False, error=f"Redeem could not be prepared: {e}")
+
+            raw = self._sign_evm_tx(wallet, tx)
+            tx_hash = web3.eth.send_raw_transaction(raw)
+            # Point of no return — broadcast. Never re-send on failure below.
+            hex_hash = tx_hash.hex()
+            if not hex_hash.startswith("0x"):
+                hex_hash = "0x" + hex_hash
+            try:
+                receipt = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
+            except Exception as e:
+                return RedeemResult(
+                    success=False,
+                    tx_hash=hex_hash,
+                    error=f"Submitted but confirmation timed out: {e}",
+                    error_category="pending",
+                )
+            if receipt.get("status") != 1:
+                return RedeemResult(
+                    success=False,
+                    tx_hash=hex_hash,
+                    error="Redeem transaction reverted on-chain.",
+                    error_category="reverted",
+                )
+            return RedeemResult(success=True, tx_hash=hex_hash)
+
+        except Exception as e:
+            logger.error(f"redeem_position error for {condition_id}: {e}")
+            msg = str(e).lower()
+            if "insufficient funds" in msg:
+                return RedeemResult(
+                    success=False,
+                    error="Not enough MATIC on Polygon to cover the redeem gas fee.",
+                    error_category="insufficient_gas",
+                )
+            return RedeemResult(success=False, error=str(e))
+
+    @staticmethod
+    def _sign_evm_tx(wallet, tx: dict) -> bytes:
+        """Sign via WalletService.sign_evm_transaction (Turnkey API or local key).
+
+        Runs inside ``asyncio.to_thread`` (no running event loop in this thread),
+        so ``asyncio.run`` is safe — mirrors savings_service's signer.
+        """
+        import asyncio as _asyncio
+
+        from bot.services.wallet import WalletService
+
+        signed_hex = _asyncio.run(WalletService().sign_evm_transaction(wallet, tx))
+        if signed_hex.startswith("0x"):
+            signed_hex = signed_hex[2:]
+        return bytes.fromhex(signed_hex)
 
     # ============ Helpers ============
 
