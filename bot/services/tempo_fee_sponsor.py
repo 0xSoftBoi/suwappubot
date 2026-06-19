@@ -189,6 +189,38 @@ class TempoFeeSponsor:
             f"daily: ${new_daily:.2f}/${self.daily_budget_usd})"
         )
 
+    def build_sponsored_tx(self, tx: dict, sponsor_address: str) -> dict:
+        """Validate + shape a fee-payer (type-0x76) sponsored-tx *request*.
+
+        This is the policy/validation layer only: it enforces Tempo's fee-payer
+        invariants and returns a normalized request dict annotated with the fee
+        payer and fee token. It does NOT build or sign the on-chain tx — the real
+        type-0x76 RLP build + dual-sign + submit lives in
+        ``SwapEngine._execute_sponsored_tempo_swap()`` via the ``pytempo`` SDK (a
+        plain eth_account tx dict cannot express the feePayer/feeToken fields).
+
+        Args:
+            tx: the base transaction request (must carry the sender as ``from``).
+            sponsor_address: the fee payer that will counter-sign and pay gas.
+
+        Raises:
+            ValueError: if the sender is missing, the sponsor is missing, or the
+                fee payer equals the sender (Tempo rejects feePayer == sender).
+        """
+        sender = (tx or {}).get("from")
+        if not sender:
+            raise ValueError("sponsored tx requires a sender ('from')")
+        if not sponsor_address:
+            raise ValueError("sponsored tx requires a fee payer (sponsor_address)")
+        if sponsor_address.lower() == sender.lower():
+            raise ValueError("fee payer cannot equal sender")
+        return {
+            **tx,
+            "feePayer": sponsor_address,
+            "feeToken": self.fee_token,
+            "awaitingFeePayer": True,
+        }
+
     # NOTE: The actual on-chain sponsored transaction is a Tempo type-0x76
     # transaction with a fee_payer signature — it CANNOT be expressed as a plain
     # eth_account tx dict (stock signing rejects feePayer/feeToken fields). The

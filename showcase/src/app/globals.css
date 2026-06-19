@@ -253,10 +253,10 @@ html {
 .summer-nav__cta {
   justify-self: end;
   padding: 0 14px;
-  border: 1px solid #0d95bd;
-  color: white;
-  background: linear-gradient(180deg, #20b9de, #0b8bc7);
-  box-shadow: 0 8px 18px rgba(14, 118, 158, 0.22);
+  border: 1px solid #d17a1e;
+  color: #17324a;
+  background: linear-gradient(180deg, #f6a93c, #e58d2b);
+  box-shadow: 0 8px 18px rgba(229, 141, 43, 0.24);
 }
 
 /* Secondary header CTA (e.g. Open Terminal next to the solid Open Bot) */
@@ -483,10 +483,12 @@ html {
 }
 
 .summer-button--primary {
-  border: 1px solid #0d95bd;
-  color: white;
-  background: linear-gradient(180deg, #20b9de, #0b8bc7);
-  box-shadow: 0 9px 18px rgba(14, 118, 158, 0.24);
+  /* Persimmon is the single primary-CTA accent (brand). Dark ink keeps AA
+     contrast (~6:1) on the warm fill — white would only reach ~2.5:1. */
+  border: 1px solid #d17a1e;
+  color: #17324a;
+  background: linear-gradient(180deg, #f6a93c, #e58d2b);
+  box-shadow: 0 9px 18px rgba(229, 141, 43, 0.3);
 }
 
 .summer-button--secondary {
@@ -499,6 +501,7 @@ html {
   width: fit-content;
   max-width: 100%;
   display: flex;
+  align-items: center;
   gap: 8px;
   margin-top: 20px;
   padding: 10px 12px;
@@ -508,6 +511,27 @@ html {
   color: var(--summer-muted);
   font-family: var(--font-mono);
   font-size: 0.78rem;
+}
+.summer-install__prompt { color: var(--summer-persimmon); font-weight: 700; }
+.summer-install--copy {
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s var(--pp-ease, ease), box-shadow 0.2s var(--pp-ease, ease);
+}
+.summer-install--copy code { color: var(--summer-ink); }
+.summer-install--copy:hover {
+  border-color: var(--summer-persimmon);
+  box-shadow: 0 4px 12px rgba(229, 141, 43, 0.14);
+}
+.summer-install__hint {
+  margin-left: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(229, 141, 43, 0.12);
+  color: #b96a12;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .summer-install span {
@@ -1006,6 +1030,36 @@ html {
   font-size: 0.68rem;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+/* Live market proof: 24h change colors + source note + live pulse */
+.summer-proof__chg--up { color: var(--summer-green); }
+.summer-proof__chg--down { color: #d4483f; }
+.summer-proof__chg--flat { color: var(--summer-persimmon); font-weight: 700; }
+.summer-proof__note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 2px 0;
+  color: var(--summer-muted);
+  font-size: 0.74rem;
+  line-height: 1.55;
+}
+.summer-proof__live { display: inline-flex; flex: 0 0 auto; width: 8px; height: 8px; }
+.summer-proof__live i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--summer-green);
+  animation: proof-pulse 2s var(--pp-ease, ease) infinite;
+}
+@keyframes proof-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(47, 143, 91, 0.45); }
+  70% { box-shadow: 0 0 0 6px rgba(47, 143, 91, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(47, 143, 91, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .summer-proof__live i { animation: none; }
 }
 
 /* ── Live hero terminal ── */
@@ -2219,8 +2273,8 @@ button:focus:not(:focus-visible) {
   text-align: center;
   font-size: 1rem;
   font-weight: 600;
-  color: white;
-  background: var(--suwappu-summer-accent);
+  color: #17324a;
+  background: linear-gradient(180deg, #f6a93c, #e58d2b);
   padding: 0.875rem 1.25rem;
   border-radius: 50px;
   text-decoration: none;
@@ -2229,7 +2283,7 @@ button:focus:not(:focus-visible) {
 }
 
 .nav__drawer-cta:hover {
-  background: #ec4899;
+  background: linear-gradient(180deg, #f8b450, #d9821f);
 }
 
 .nav__drawer-cta--whatsapp {
@@ -3951,6 +4005,116 @@ button:focus:not(:focus-visible) {
 }
 .pricing-table__group:last-child .pricing-table__row:last-child { border-bottom: 0; }
 
+/* Screen-reader-only utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ===== Compare page ===== */
+.compare { margin-top: 1rem; }
+.compare__title { margin: 0 0 1rem; color: var(--summer-ink); font-family: var(--font-display); font-size: 1.6rem; }
+.compare__scroll { overflow-x: auto; border-radius: 12px; }
+.compare-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--summer-line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.82);
+  font-size: 0.9rem;
+}
+.compare-table th, .compare-table td { text-align: center; vertical-align: middle; }
+.compare-table thead th {
+  padding: 16px 14px;
+  border-bottom: 1px solid var(--summer-line);
+  background: rgba(14, 165, 233, 0.05);
+}
+.compare-table__rowhead {
+  text-align: left;
+  padding: 13px 18px;
+  color: #345069;
+  font-weight: 500;
+  font-size: 0.9rem;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.7);
+  min-width: 230px;
+}
+.compare-table__colhead { min-width: 120px; }
+.compare-table__colname { display: block; color: var(--summer-ink); font-family: var(--font-display); font-size: 1.02rem; font-weight: 700; }
+.compare-table__colsub {
+  display: block;
+  margin-top: 3px;
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.compare-table__colhead--us {
+  background: linear-gradient(180deg, rgba(229, 141, 43, 0.18), rgba(229, 141, 43, 0.06));
+  box-shadow: inset 0 -2px 0 var(--summer-persimmon);
+}
+.compare-table__colhead--us .compare-table__colsub { color: #b96a12; }
+.compare-table__cat th {
+  text-align: left;
+  padding: 9px 18px;
+  background: rgba(247, 253, 255, 0.85);
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.7);
+}
+.compare-cell { padding: 12px 14px; border-bottom: 1px solid rgba(207, 227, 234, 0.7); }
+.compare-cell--us { background: rgba(229, 141, 43, 0.05); }
+.compare-table tbody tr:last-child .compare-cell { border-bottom: 0; }
+.compare-cell__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-weight: 800;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+.compare-cell--yes .compare-cell__glyph,
+.compare-cell__glyph.compare-cell--yes { background: rgba(47, 143, 91, 0.14); color: var(--summer-green); }
+.compare-cell--partial .compare-cell__glyph,
+.compare-cell__glyph.compare-cell--partial { background: rgba(229, 141, 43, 0.16); color: #b96a12; }
+.compare-cell--no .compare-cell__glyph,
+.compare-cell__glyph.compare-cell--no { background: rgba(120, 144, 156, 0.12); color: #90a4ae; }
+.compare__legend { display: flex; flex-wrap: wrap; gap: 18px; margin: 16px 2px 0; color: var(--summer-muted); font-size: 0.82rem; }
+.compare-legend__item { display: inline-flex; align-items: center; gap: 7px; }
+.compare-legend__item .compare-cell__glyph { width: 20px; height: 20px; font-size: 0.78rem; }
+.compare__note { margin: 14px 2px 0; color: var(--summer-muted); font-size: 0.78rem; line-height: 1.6; max-width: 760px; }
+.compare-why { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 3rem; }
+.compare-why__card {
+  padding: 24px;
+  border: 1px solid var(--summer-line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 12px 24px rgba(33, 88, 110, 0.06);
+}
+.compare-why__card h3 { margin: 10px 0 8px; color: var(--summer-ink); font-size: 1.15rem; }
+.compare-why__card p { margin: 0; color: var(--summer-muted); font-size: 0.92rem; line-height: 1.62; }
+@media (max-width: 860px) { .compare-why { grid-template-columns: 1fr; } }
+@media (max-width: 720px) {
+  .compare-table { font-size: 0.82rem; }
+  .compare-table__rowhead { min-width: 180px; }
+}
+
 /* Security */
 .security-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 1rem; }
 .security-card { padding: 20px; border: 1px solid var(--summer-line); border-radius: 12px; background: rgba(255, 255, 255, 0.86); box-shadow: 0 12px 24px rgba(33, 88, 110, 0.06); }
@@ -4238,10 +4402,10 @@ button:focus:not(:focus-visible) {
 }
 .nav__link { color: #4f6f7f; }
 .nav__link:hover { color: #17324a; }
-.nav__cta { background: linear-gradient(180deg, #20b9de, #0b8bc7); }
+.nav__cta { background: linear-gradient(180deg, #f6a93c, #e58d2b); color: #17324a; }
 .nav__cta:hover {
-  background: linear-gradient(180deg, #3fc6e6, #0a7fb4);
-  box-shadow: 0 6px 18px rgba(14, 118, 158, 0.28);
+  background: linear-gradient(180deg, #f8b450, #d9821f);
+  box-shadow: 0 6px 18px rgba(229, 141, 43, 0.3);
 }
 
 /* ================================================================
@@ -4804,6 +4968,27 @@ button:focus:not(:focus-visible) {
   letter-spacing: 0.1em;
 }
 
+/* ── Trust strip: lift the flat pills to a real surface with deliberate hover ── */
+.summer-page--cosmic .summer-trust {
+  border: 1px solid var(--pp-border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, rgba(240, 250, 254, 0.86) 100%);
+  box-shadow: var(--pp-shadow);
+}
+.summer-page--cosmic .summer-trust__chips b {
+  border-color: var(--pp-border);
+  background: linear-gradient(180deg, #ffffff 0%, rgba(238, 248, 252, 0.92) 100%);
+  box-shadow: 0 1px 2px rgba(33, 88, 110, 0.06);
+  transition: transform 0.2s var(--pp-ease), border-color 0.2s var(--pp-ease),
+    box-shadow 0.2s var(--pp-ease), color 0.2s var(--pp-ease);
+}
+.summer-page--cosmic .summer-trust__chips b:hover {
+  transform: translateY(-2px);
+  border-color: var(--summer-persimmon);
+  color: var(--summer-persimmon);
+  box-shadow: 0 6px 14px rgba(229, 141, 43, 0.16);
+}
+
 /* ── Section panels (hub / tempo / agents / sdk): give the wash real depth ── */
 .summer-page--cosmic .summer-hub,
 .summer-page--cosmic .summer-tempo,
@@ -4844,7 +5029,7 @@ button:focus:not(:focus-visible) {
 }
 .summer-page--cosmic .summer-button--primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 14px 30px -10px rgba(11, 139, 199, 0.6);
+  box-shadow: 0 14px 30px -10px rgba(229, 141, 43, 0.55);
 }
 
 /* ── Mobile: collapse the bento back to a single column ── */
@@ -4869,6 +5054,7 @@ button:focus:not(:focus-visible) {
   .summer-page--cosmic .summer-agents__card,
   .summer-page--cosmic .summer-stat,
   .summer-page--cosmic .summer-button,
+  .summer-page--cosmic .summer-trust__chips b,
   .summer-page--cosmic .summer-table__row {
     transition: none;
   }
@@ -4877,7 +5063,36 @@ button:focus:not(:focus-visible) {
   .summer-page--cosmic .summer-hub__card:hover,
   .summer-page--cosmic .summer-agents__card:hover,
   .summer-page--cosmic .summer-stat:hover,
+  .summer-page--cosmic .summer-trust__chips b:hover,
   .summer-page--cosmic .summer-button--primary:hover {
     transform: none;
+  }
+}
+
+/* ── Scroll-entrance: sections rise + fade as they enter the viewport.
+   Pure CSS (scroll-driven animations) — no JS, no CLS. Progressive
+   enhancement: only runs where animation-timeline is supported (Chromium);
+   Safari/Firefox simply show static content. Disabled under reduced-motion. ── */
+@keyframes section-rise {
+  from { opacity: 0; transform: translateY(26px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .summer-page--cosmic .summer-shell > .summer-stats,
+    .summer-page--cosmic .summer-shell > .summer-trust,
+    .summer-page--cosmic .summer-shell > .summer-features,
+    .summer-page--cosmic .summer-shell > .summer-modules,
+    .summer-page--cosmic .summer-shell > .summer-hub,
+    .summer-page--cosmic .summer-shell > .summer-tempo,
+    .summer-page--cosmic .summer-shell > .summer-sdk,
+    .summer-page--cosmic .summer-shell > .summer-agents,
+    .summer-page--cosmic .summer-shell > .summer-proof,
+    .summer-page--cosmic .summer-shell > .summer-referral,
+    .summer-page--cosmic .summer-shell > .summer-cta {
+      animation: section-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 18%;
+    }
   }
 }
