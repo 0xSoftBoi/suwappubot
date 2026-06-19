@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <main className="summer-page docs-shell">
+    <main id="main-content" className="summer-page docs-shell">
       <Navigation />
       <div className="summer-shell mkt-page">
         <article className="legal-page">

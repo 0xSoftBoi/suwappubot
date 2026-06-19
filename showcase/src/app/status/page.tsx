@@ -39,7 +39,7 @@ export default function StatusPage() {
         : { cls: 'is-down', text: 'Some systems are degraded' };
 
   return (
-    <main className="summer-page docs-shell">
+    <main id="main-content" className="summer-page docs-shell">
       <Navigation />
       <div className="status-page">
         <p className="section__label">System status</p>

@@ -23,6 +23,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
       { label: 'Cross-chain treasury', href: '/solutions#treasury' },
       { label: 'HyperLiquid perps', href: '/solutions#perps' },
       { label: 'Sniping & alerts', href: '/solutions#sniping' },
+      { label: 'Compare', href: '/compare' },
     ],
   },
   {
