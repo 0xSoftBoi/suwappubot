@@ -64,3 +64,7 @@
 * [Perpetual Futures Trading](guides/perps-trading.md)
 * [Prediction Markets](guides/prediction-markets.md)
 * [Limit Orders](guides/limit-orders-dca.md)
+
+## Changelog
+
+* [Changelog](changelog/README.md)

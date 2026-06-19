@@ -1,195 +1,73 @@
-# Suwappu
+# Suwappu API
 
-> Cross-chain DEX infrastructure. SDK, REST API, Telegram bot, and agent tooling for swaps, perps, predictions, and lending across 15 chains.
+> Cross-chain DeFi API built for AI agents — best-price swaps, HyperLiquid perps, and gasless trades across 40+ chains through one REST API, an MCP server, and a TypeScript SDK.
 
-## Install
+Base URL: https://api.suwappu.bot/v1/agent
+Auth: Bearer token — `Authorization: Bearer suwappu_sk_...` (get a key from `POST /register`, no auth required).
 
-TypeScript:
-```bash
-bun add @suwappu/sdk
-```
+## Instructions for LLM Agents
 
-Python:
-```bash
-uv add suwappu
-# or: pip install suwappu
-```
+- Register first: `POST /register {"name":"my-agent"}` returns an API key; authenticate every other call with that bearer token.
+- Swap flow: `POST /quote` returns a `quote_id` (valid ~60s) → `POST /swap/execute` (managed wallet, server-signed) or `POST /swap` (returns an unsigned tx for client signing) → `GET /swap/status/:swapId`.
+- Errors return a JSON envelope with an error code and message; rate-limited requests return HTTP 429. Always read the error body and back off on 429.
+- Do not hardcode chains or token symbols — call `GET /chains` and `GET /tokens?chain=...` for the authoritative lists.
+- Machine-readable contracts: OpenAPI 3.1 at https://api.suwappu.bot/v1/agent/openapi, A2A agent card at https://api.suwappu.bot/.well-known/agent-card.json.
+- Every docs page is available as clean Markdown by appending `.md` to its URL (or sending `Accept: text/markdown`).
+
+## Quick Start
+- [Overview](https://suwappu.bot/docs/quick-start/overview.md): Suwappu is a cross-chain DeFi API built for AI agents. Register an agent, get a swap quote, and execute it across 40+ blockchain networks in four short HTTP calls — Suwappu handles best-price routing,
+- [Your First Swap](https://suwappu.bot/docs/quick-start/first-swap.md): A complete walkthrough that takes you from zero to a settled cross-chain swap using the real Suwappu agent endpoints. Every request below targets `https://api.suwappu.bot`.
+- [SDK Examples](https://suwappu.bot/docs/quick-start/sdk-examples.md): TypeScript examples for the most common agent operations — quote, swap, and portfolio. The SDK is a thin wrapper over the REST API; every call maps one-to-one to an endpoint under `/v1/agent`, so the
 
 ## Authentication
+- [Overview](https://suwappu.bot/docs/authentication/overview.md): Suwappu uses API keys as bearer tokens. You receive a key when you register an agent, and you send it on every authenticated request as an `Authorization: Bearer ...` header. There are no other creden
+- [Rate Limits](https://suwappu.bot/docs/authentication/rate-limits.md): Suwappu rate-limits requests with a sliding 60-second window. Authenticated agent endpoints are limited per agent by tier; public endpoints are limited per client IP. Limits are subject to change — al
 
-Register for an API key:
-```
-POST https://api.suwappu.bot/v1/agent/register
-```
+## API Reference
+- [Overview](https://suwappu.bot/docs/api-reference/overview.md): The complete reference for Suwappu's agent API. All endpoints are served under `https://api.suwappu.bot/v1/agent` and, unless noted as public, require an `Authorization: Bearer suwappu_sk_...` header.
+- [POST /register](https://suwappu.bot/docs/api-reference/registration.md): Register a new agent and receive an API key. This is the only endpoint you can call without authentication, and the returned key is shown exactly once.
+- [GET/PATCH/DELETE /me](https://suwappu.bot/docs/api-reference/agent-profile.md): Read, update, or permanently delete your agent. All three operations require your API key and act on the agent that key belongs to.
+- [GET /chains](https://suwappu.bot/docs/api-reference/chains.md): List every chain Suwappu can route through. This endpoint is public — use it to discover the chain `key` values you pass to the quote, swap, and token endpoints.
+- [GET /tokens](https://suwappu.bot/docs/api-reference/tokens.md): List the tokens Suwappu recognizes by symbol on each chain. Use it to resolve a symbol to its on-chain address and decimals before quoting.
+- [GET /prices](https://suwappu.bot/docs/api-reference/prices.md): Fetch current USD prices and 24-hour change for token symbols. Prices are cached for 60 seconds and sourced from CoinGecko.
+- [GET /portfolio](https://suwappu.bot/docs/api-reference/portfolio.md): Fetch live token balances and total USD value for a wallet. You can only read your own agent's managed wallet — requests for any other address are rejected.
+- [POST /quote](https://suwappu.bot/docs/api-reference/quote.md): Get a swap quote with pricing, route, and a `quote_id` you can hand to the swap endpoints. Quotes work for same-chain and cross-chain swaps across EVM chains (via Li.Fi) and Solana (via Jupiter), and
+- [POST /swap](https://suwappu.bot/docs/api-reference/swap.md): Build an unsigned transaction from a quote so you can sign and broadcast it yourself. Use this for self-custody. If you want Suwappu to sign with your managed wallet instead, use [`POST /v1/agent/swap
+- [POST /swap/execute](https://suwappu.bot/docs/api-reference/swap-execute.md): Execute a quoted swap end-to-end using your agent's managed wallet. Suwappu signs and broadcasts the transaction — you only send a `quote_id`. This is the simplest path and requires no key handling on
+- [GET /swap/status/:id](https://suwappu.bot/docs/api-reference/swap-status.md): Look up the current status of a single swap by its ID. Poll this after [`POST /v1/agent/swap/execute`](swap-execute.md), or use [Webhooks](webhooks.md) to be notified instead.
+- [GET /swaps](https://suwappu.bot/docs/api-reference/swap-history.md): List your agent's past swaps with pagination and optional status filtering. Returns swaps newest-first.
+- [GET/POST /wallets](https://suwappu.bot/docs/api-reference/wallets.md): Create and list your agent's managed (Turnkey) wallet. Managed wallets let Suwappu sign and broadcast swaps for you — the private key lives in a Turnkey secure enclave and is never exposed.
+- [POST /keys/rotate](https://suwappu.bot/docs/api-reference/keys.md): Rotate your agent's API key. The old key is invalidated immediately and a new one is returned exactly once. Use this if a key is leaked or on a regular rotation schedule.
+- [Webhooks](https://suwappu.bot/docs/api-reference/webhooks.md): Receive signed HTTP callbacks when your swaps and other events change state, instead of polling. Set a `callback_url` on your agent, verify the signature on each delivery, and inspect delivery history
+- [POST /execute](https://suwappu.bot/docs/api-reference/execute.md): Send a plain-English command and let Suwappu parse it into an action. The endpoint understands swap, quote/price, and balance/portfolio commands, and returns a structured result you can act on.
+- [Perpetual Futures](https://suwappu.bot/docs/api-reference/perps.md): Trade perpetual futures on HyperLiquid through the Suwappu API. Supports 10 markets with up to 20x leverage.
+- [Prediction Markets](https://suwappu.bot/docs/api-reference/predict.md): Trade prediction markets on Polymarket through the Suwappu API. Browse events, check prices, and place orders on binary outcome markets.
+- [Lending Markets](https://suwappu.bot/docs/api-reference/lend.md): Access DeFi lending markets through the Morpho protocol integration. Browse markets on Base and check rates.
+- [Error Codes](https://suwappu.bot/docs/api-reference/errors.md): Suwappu returns conventional HTTP status codes and a JSON body describing what went wrong. Successful responses include `"success": true`; error responses include an `"error"` field and usually a huma
 
-Set the key in your environment:
-```
-SUWAPPU_API_KEY=your_key_here
-```
+## Protocols
+- [Overview](https://suwappu.bot/docs/protocols/overview.md): Suwappu speaks three protocols over the same base URL (`https://api.suwappu.bot`) so your agent can integrate however it works best: a plain REST API, the Model Context Protocol (MCP) for LLM tool use
+- [A2A Protocol](https://suwappu.bot/docs/protocols/a2a.md): The A2A (Agent-to-Agent) protocol lets other agents talk to Suwappu in natural language over JSON-RPC 2.0. You send a message like `"swap 0.5 ETH to USDC on base"` and Suwappu returns a task containin
+- [MCP Protocol](https://suwappu.bot/docs/protocols/mcp.md): The MCP protocol lets LLMs like Claude interact with Suwappu as a tool provider. Claude Desktop, Claude Code, Cursor, and other MCP-compatible clients can discover and call Suwappu's tools automatical
+- [Agent Card](https://suwappu.bot/docs/protocols/agent-card.md): The agent card is a machine-readable JSON document that describes Suwappu's capabilities, endpoints, authentication requirements, and skills. It follows the A2A (Agent-to-Agent) protocol specification
+- [OpenAPI Spec](https://suwappu.bot/docs/protocols/openapi.md): Suwappu publishes several machine-readable discovery files so agents can learn the API without reading docs: an OpenAPI 3.1 specification, an `llms.txt` summary, an A2A agent card, and an OpenAI-style
 
-## SDK Usage (TypeScript)
+## Changelog
+- [Changelog](https://suwappu.bot/docs/changelog/overview.md): Notable changes to the Suwappu agent API, SDK, and docs. Dates are in UTC. Breaking changes are called out explicitly; the API is versioned under `/v1/agent`.
 
-```typescript
-import { createClient } from "@suwappu/sdk";
-
-const client = createClient({ apiKey: process.env.SUWAPPU_API_KEY });
-
-// Swaps
-const quote = await client.getQuote("ETH", "USDC", 1.0, "arbitrum");
-const tx = await client.executeSwap(quote.id);
-const balances = await client.getPortfolio();
-
-// Perps (Hyperliquid)
-const markets = await client.perps.markets();
-const perpQuote = await client.perps.quote("ETH-USD", "long", 1, 5);
-const positions = await client.perps.positions("0x...");
-
-// Predictions (Polymarket)
-const predMarkets = await client.predict.markets("crypto");
-const detail = await client.predict.market(predMarkets[0].id);
-
-// Lending (Morpho on Base)
-const lendMarkets = await client.lend.markets(8453);
-const market = await client.lend.market(lendMarkets[0].id);
-```
-
-## SDK Usage (Python)
-
-```python
-from suwappu import create_client
-
-client = create_client(api_key="your_key")
-
-# Swaps
-quote = await client.get_quote("ETH", "USDC", 1.0, "arbitrum")
-tx = await client.execute_swap(quote.id)
-
-# Perps
-markets = await client.perps.markets()
-perp_quote = await client.perps.quote("ETH-USD", "long", 1, 5)
-
-# Predictions
-pred_markets = await client.predict.markets("crypto")
-
-# Lending
-lend_markets = await client.lend.markets(chain_id=8453)
-```
-
-## Tools (10 total)
-
-| Tool | Purpose | Parameters |
-|------|---------|------------|
-| `get_quote` | Best swap route for a token pair | `from_token, to_token, amount, chain` |
-| `execute_swap` | Execute a previously quoted swap | `quote_id, wallet_address` |
-| `get_portfolio` | Wallet balances across chains | `wallet_address, chain` (optional) |
-| `get_prices` | Current token prices | `symbols` (comma-separated) |
-| `list_chains` | All supported chains and status | none |
-| `list_tokens` | Searchable token registry per chain | `chain, search` (optional) |
-| `get_tempo_tokens` | TIP-20 token list on Tempo mainnet | `search` (optional) |
-| `browse_mpp_directory` | Micropayment Protocol service directory | `category` (optional) |
-| `predict_markets` | Polymarket prediction markets | `query` (optional), `limit` (optional) |
-| `predict_market_detail` | Prediction market details with CLOB prices | `market_id` |
-
-## REST API
-
-Base URL: `https://api.suwappu.bot`
-
-### Swaps
-```
-POST /v1/agent/quote           { "fromToken", "toToken", "amount", "chain" }
-POST /v1/agent/swap            { "quoteId": "..." }
-GET  /v1/agent/portfolio       ?chain=arbitrum (optional)
-GET  /v1/agent/prices          ?token=ETH&chain=arbitrum (optional)
-GET  /v1/agent/chains
-GET  /v1/agent/tokens          ?chain=arbitrum
-POST /v1/agent/register
-```
-
-### Perps (Hyperliquid)
-```
-GET  /v1/agent/perps/markets
-POST /v1/agent/perps/quote     { "market", "side", "size", "leverage" }
-GET  /v1/agent/perps/positions ?address=0x...
-```
-
-### Predictions (Polymarket)
-```
-GET  /v1/agent/predict/markets ?query=crypto&limit=20
-GET  /v1/agent/predict/market/:id
-```
-
-### Lending (Morpho)
-```
-GET  /v1/agent/lend/markets    ?chainId=8453
-GET  /v1/agent/lend/market/:id
-```
-
-All endpoints require `Authorization: Bearer <SUWAPPU_API_KEY>` except `/health` and `/v1/agent/register`.
-
-## Supported Chains
-
-Ethereum, Arbitrum, Base, Optimism, Polygon, Avalanche, BNB Chain, Solana, Fantom, zkSync, Linea, Scroll, Blast, Gnosis, Aurora.
-
-## Routing Providers
-
-Li.Fi, Jupiter, CoW Protocol, Socket, 1inch, Wormhole, CCTP, Jito, Uniswap.
-
-- EVM chains: Li.Fi, CoW Protocol, Socket, 1inch, Uniswap
-- Solana: Jupiter, Jito
-- Cross-chain bridges: Wormhole, CCTP
-- MEV protection: CoW Protocol (EVM), Jito bundles (Solana) — enabled by default
-
-## Wallets
-
-Non-custodial. Powered by Turnkey TEE hardware. Private keys never leave the secure enclave. Users can export keys anytime.
-
-## Typical Agent Flow
-
-1. `list_chains` — discover available chains
-2. `get_quote ETH USDC 1.0 arbitrum` — find best route and price
-3. `execute_swap <quote_id>` — confirm and execute on-chain
-4. `get_portfolio` — verify the swap landed
-
-## Interfaces
-
-The same routing engine powers:
-- **Telegram bot**: [@suwappu_bot](https://t.me/suwappu_bot)
-- **TypeScript SDK**: `bun add @suwappu/sdk`
-- **Python SDK**: `uv add suwappu`
-- **OpenClaw module**: `bun add @suwappu/openclaw`
-- **REST API**: `api.suwappu.bot/v1/`
-- **WhatsApp, Discord, iOS**: same wallet everywhere
-
-## Agent Discovery
-
-- Agent Card (A2A): https://api.suwappu.bot/.well-known/agent.json
-- OpenAPI Spec: https://api.suwappu.bot/v1/agent/openapi
-- MCP Endpoint: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0, 10 tools)
-- llms.txt: https://suwappu.bot/llms.txt
-
-## MCP Server Setup
-
-Add to Claude Desktop config:
-```json
-{
-  "mcpServers": {
-    "suwappu": {
-      "url": "https://api.suwappu.bot/mcp",
-      "headers": { "Authorization": "Bearer suwappu_sk_YOUR_KEY" }
-    }
-  }
-}
-```
-
-Or via npm for local stdio:
-```bash
-SUWAPPU_API_KEY=suwappu_sk_YOUR_KEY npx @suwappu/mcp-server
-```
-
-## Links
-
-- Bot: https://t.me/suwappu_bot
-- API: https://api.suwappu.bot
-- Docs: https://suwappu.bot/docs
-- Homepage: https://suwappu.bot
-- GitHub: https://github.com/0xSoftBoi/suwappubot
+## Optional
+- [All Chains](https://suwappu.bot/docs/chains-reference/overview.md): Suwappu supports 40+ blockchain networks across four chain types: EVM, Solana, TRON, and Starknet. Every chain is accessible through the same unified API -- the `chain` parameter in your requests dete
+- [EVM Chains](https://suwappu.bot/docs/chains-reference/evm-chains.md): Suwappu supports 40+ EVM-compatible networks, all sharing the `0x...` address format and the ERC-20 token standard. A single EVM managed wallet works across every EVM chain. Pass the chain **key** (e.
+- [Solana](https://suwappu.bot/docs/chains-reference/solana.md): Suwappu supports Solana swaps through the Jupiter aggregator, with SPL-token routing and Base58 addresses. Solana wallets are separate from EVM wallets — a Solana swap signs with a Solana keypair, not
+- [Overview](https://suwappu.bot/docs/guides/overview.md): Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guide is self-contained and uses real endpoints against the production base URL `https://api.suwappu.bot`. Start with cross-
+- [Cross-Chain Swaps](https://suwappu.bot/docs/guides/cross-chain-swaps.md): Walk through a complete cross-chain swap with the Suwappu API: get a quote that bridges between two chains, execute it with a managed wallet, and poll for the final status. Suwappu races up to nine ag
+- [Managed Wallets](https://suwappu.bot/docs/guides/managed-wallets.md): Managed wallets let your agent swap without ever touching a private key. Suwappu provisions a server-side wallet (secured by Turnkey) tied to your agent, signs transactions on your behalf, and broadca
+- [Webhook Setup](https://suwappu.bot/docs/guides/webhook-setup.md): Instead of polling for swap status, register a `callback_url` and Suwappu will POST signed events to your server as swaps progress. Every delivery is signed with HMAC-SHA256 so you can verify it came
+- [Building a Trading Bot](https://suwappu.bot/docs/guides/building-a-trading-bot.md): Build a simple automated trading bot on the Suwappu API. This tutorial wires together the core endpoints — register, create a managed wallet, watch prices, quote, and execute — into a small price-trig
+- [Portfolio Rebalancer](https://suwappu.bot/docs/guides/portfolio-rebalancer.md): Build a periodic portfolio rebalancer that reads your wallet's holdings, compares them to target allocations, and issues swaps to bring the portfolio back in line. It combines three endpoints: portfol
+- [Trading CLI](https://suwappu.bot/docs/guides/trading-cli.md): Build a small command-line tool that quotes and executes swaps against the Suwappu API. It's a thin wrapper over the REST endpoints — useful for manual trading, scripting, and as a starting point for
+- [Natural Language Trade CLI](https://suwappu.bot/docs/guides/natural-language-cli.md): Build a CLI that takes plain-English commands and routes them through the Suwappu `/execute` endpoint. Instead of constructing JSON for each swap, you type `swap 0.5 ETH to USDC on base` and the API p
+- [MCP Portfolio Advisor](https://suwappu.bot/docs/guides/mcp-portfolio-advisor.md): Turn Suwappu's MCP server into a hands-on portfolio advisor inside Claude, Cursor, or any MCP client. Once connected, your agent can read live balances and prices, reason about allocation, and propose
+- [Perpetual Futures Trading](https://suwappu.bot/docs/guides/perps-trading.md): Trade perpetual futures through Suwappu's HyperLiquid integration. Open leveraged long and short positions on 10 major crypto assets.
+- [Prediction Markets](https://suwappu.bot/docs/guides/prediction-markets.md): Trade binary outcome markets on Polymarket through the Suwappu API. Browse events, check live prices, and place orders.
+- [Limit Orders](https://suwappu.bot/docs/guides/limit-orders-dca.md): Set price-triggered swap orders that execute automatically when your target price is reached.

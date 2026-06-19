@@ -6,7 +6,7 @@ export default function StructuredData() {
       '@type': 'SoftwareApplication',
       name: 'Suwappu',
       description:
-        'Cross-chain DeFi SDK for AI agents — swap tokens, trade perpetual futures, access prediction markets, and lend across 15+ blockchains.',
+        'Cross-chain DeFi SDK for AI agents — swap tokens, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend across 40+ blockchains.',
       url: 'https://suwappu.bot',
       applicationCategory: 'FinanceApplication',
       operatingSystem: 'Web, iOS',
@@ -14,8 +14,9 @@ export default function StructuredData() {
       keywords:
         'cross-chain swap, DEX aggregator, DeFi SDK, AI agent tooling, MCP server, perpetual futures, prediction markets, lending',
       featureList: [
-        'Cross-chain token swaps across 15+ blockchains',
+        'Cross-chain token swaps across 40+ blockchains',
         'Perpetual futures trading via HyperLiquid',
+        'Gasless fee-sponsored swaps on Tempo',
         'Prediction markets via Polymarket',
         'DeFi lending via Morpho',
         'MCP server for Claude and AI agents',
@@ -61,7 +62,7 @@ export default function StructuredData() {
           name: 'What chains does Suwappu support?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'Suwappu supports 15 chains: Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Fantom, Linea, Mantle, Gnosis, Scroll, TRON, and Starknet.',
+            text: 'Suwappu supports 40+ chains, including Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Starknet, TRON, Tempo, and Bitcoin L2s, plus best-price routing across 9 aggregators.',
           },
         },
         {

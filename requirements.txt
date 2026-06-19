@@ -55,6 +55,7 @@ python-dotenv==1.2.1
 
 # ---- Crypto / encryption ----
 cryptography==48.0.0
+dnspython==2.8.0  # DKIM public-key (TXT) lookup for email social recovery
 pycryptodome==3.23.0
 cffi==2.0.0
 pycparser==2.23
@@ -64,6 +65,10 @@ pyotp==2.9.0
 # ---- EVM / web3 ----
 web3==7.16.0
 eth-account==0.13.7
+# Tempo Transaction (type 0x76) SDK — builds + dual-signs fee-payer (gasless)
+# transactions for Tempo. Pure-Python, deps already satisfied above
+# (web3/eth-account/rlp/attrs). Used by the Tempo sponsored-swap path.
+pytempo==0.5.1
 eth_abi==5.2.0
 eth-hash==0.7.1
 eth-keyfile==0.8.1

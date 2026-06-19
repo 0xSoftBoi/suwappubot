@@ -24,6 +24,7 @@ import { PolymarketServiceLive } from './PolymarketService'
 import { PolymarketCredentialServiceLive } from './PolymarketCredentialService'
 import { WalletServiceLive } from './WalletService'
 import { StripeServiceLive } from './StripeService'
+import { SmartAccountServiceLive } from './SmartAccountService'
 
 // Base configuration layer
 export const ConfigLayer = EnvServiceLive
@@ -39,6 +40,9 @@ export const TurnkeyLayer = TurnkeyServiceLive.pipe(Layer.provide(ConfigLayer))
 
 // Stripe layer depends on config
 export const StripeLayer = StripeServiceLive.pipe(Layer.provide(ConfigLayer))
+
+// Smart-account (ERC-4337) layer depends on config only
+export const SmartAccountLayer = SmartAccountServiceLive.pipe(Layer.provide(ConfigLayer))
 
 // Redis layer depends on config
 export const RedisLayer = RedisServiceLive.pipe(Layer.provide(ConfigLayer))
@@ -84,6 +88,7 @@ export const MainLayer = Layer.mergeAll(
 	ServicesLayer,
 	PolymarketCredentialLayer,
 	StripeLayer,
+	SmartAccountLayer,
 )
 
 // Type alias for the full context

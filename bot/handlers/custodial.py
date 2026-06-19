@@ -503,12 +503,21 @@ async def withdraw_enter_amount(update: Update, context: ContextTypes.DEFAULT_TY
     token = context.user_data.get("withdraw_token")
     chain = context.user_data.get("withdraw_chain")
 
+    # Tempo TIP-20 supports an on-chain payment memo. Offer it inline (append
+    # "| memo") so we don't add a state to the irreversible withdraw flow.
+    memo_hint = ""
+    if (chain or "").lower() == "tempo":
+        memo_hint = (
+            "\n\n_Tip: add an on-chain memo by appending_ `| your memo` "
+            "_(e.g._ `0xabc...123 | invoice 42`_)._"
+        )
+
     await update.message.reply_text(
         f"📤 *Confirm Withdrawal*\n\n"
         f"Token: {token}\n"
         f"Chain: {chain}\n"
         f"Amount: {format_amount(amount, symbol=token)}\n\n"
-        f"Please enter the destination address:",
+        f"Please enter the destination address:" + memo_hint,
         parse_mode="Markdown",
     )
 
@@ -522,11 +531,20 @@ async def withdraw_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     "Confirm Send" (withdraw_execute). This prevents an accidental paste from
     instantly draining funds to an unverified address.
     """
-    to_address = update.message.text.strip()
+    raw_input = update.message.text.strip()
 
     chain = context.user_data.get("withdraw_chain")
     token = context.user_data.get("withdraw_token")
     amount = context.user_data.get("withdraw_amount")
+
+    # Tempo only: an optional on-chain memo can be appended after a "|".
+    memo = None
+    to_address = raw_input
+    if (chain or "").lower() == "tempo" and "|" in raw_input:
+        addr_part, _, memo_part = raw_input.partition("|")
+        to_address = addr_part.strip()
+        memo = memo_part.strip()[:32] or None
+    context.user_data["withdraw_memo"] = memo
 
     # Validate the address format for the selected chain (Solana/TRON/EVM).
     if not validate_withdraw_address(chain, to_address):
@@ -554,11 +572,13 @@ async def withdraw_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             InlineKeyboardButton("❌ Cancel", callback_data="custodial_menu"),
         ],
     ]
+    memo_line = f"Memo: `{memo}`\n" if memo else ""
     await update.message.reply_text(
         f"📤 *Confirm Withdrawal*\n\n"
         f"Token: {token}\n"
         f"Chain: {chain_display}\n"
-        f"Amount: {format_amount(amount, symbol=token)}\n\n"
+        f"Amount: {format_amount(amount, symbol=token)}\n"
+        f"{memo_line}\n"
         f"Destination:\n`{to_address}`\n\n"
         f"⚠️ This is irreversible. Double-check the address before confirming.",
         parse_mode="Markdown",
@@ -574,6 +594,7 @@ def _clear_withdraw_context(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.pop("withdraw_amount", None)
     context.user_data.pop("withdraw_balance", None)
     context.user_data.pop("withdraw_address", None)
+    context.user_data.pop("withdraw_memo", None)
 
 
 async def withdraw_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

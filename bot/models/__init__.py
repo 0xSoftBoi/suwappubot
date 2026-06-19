@@ -39,6 +39,7 @@ from .predict import PredictionOrder, PredictionPosition
 from .tracking import TrackedTwitterAccount, TrackedWallet
 from .btc_swap import BtcSwap
 from .tempo import TempoSponsorship
+from .tempo_access_key import TempoAccessKey
 
 __all__ = [
     "User",
@@ -94,4 +95,5 @@ __all__ = [
     "BtcSwap",
     # Tempo (chain 4217)
     "TempoSponsorship",
+    "TempoAccessKey",
 ]

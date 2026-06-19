@@ -1,33 +1,43 @@
 import Analytics from '@/components/Analytics';
 import StructuredData from '@/components/StructuredData';
+import LiveTerminal from '@/components/LiveTerminal';
+import SummerFooter from '@/components/SummerFooter';
+import CosmicAtmosphere from '@/components/CosmicAtmosphere';
 import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
 
 const TERMINAL_URL = 'https://terminal.suwappu.bot';
 
-const features = [
+const stats = [
+  { value: '40+', label: 'Chains' },
+  { value: '9', label: 'Routers' },
+  { value: '20x', label: 'Perps leverage' },
+  { value: '$0.001', label: 'Gasless on Tempo' },
+];
+
+const engineFeatures = [
   {
-    icon: '🌐',
+    mark: 'fruit',
     title: 'Cross-chain by default',
     description:
-      'Ethereum, Base, Arbitrum, Solana, Polygon, BSC, Avalanche, and more — one engine routes across all of them.',
+      'Ethereum, Base, Arbitrum, Solana, Polygon, BSC, Avalanche, Starknet, Bitcoin L2s and 30+ more — one engine routes across all of them.',
   },
   {
-    icon: '🛡️',
+    mark: 'sun',
     title: 'Best-price routing',
     description:
       'Every swap races LiFi, CoW, OKX, 1inch and KyberSwap (plus Jupiter on Solana). You get the best quote, not the first one.',
   },
   {
-    icon: '🔑',
+    mark: 'soft',
     title: 'Secure key management',
     description:
       'Keys encrypted with KMS envelope encryption and signed server-side — or bring your own keys via the agent API for full self-custody.',
   },
   {
-    icon: '🔌',
+    mark: 'mist',
     title: 'Everywhere you work',
     description:
-      'Telegram bot, WhatsApp bot, TypeScript SDK, MCP server, and REST API. Pick the interface that fits.',
+      'Telegram bot, WhatsApp bot, trading terminal, TypeScript SDK, MCP server, and REST API. Pick the interface that fits.',
   },
 ];
 
@@ -35,109 +45,103 @@ const modules = [
   {
     eyebrow: 'Live workspace',
     title: 'Terminal',
-    body: 'Charts, market tables, order books, swap tickets, wallet rail, and execution controls in one dense trading surface.',
+    body: 'Charts, market tables, order books, swap tickets, perps, wallet rail, and execution controls in one dense trading surface.',
     stat: 'Full desk',
   },
   {
     eyebrow: 'Execution layer',
     title: 'Agent API',
     body: 'Quotes, swaps, status checks, perps, prediction markets, lending, and managed wallet actions through one API.',
-    stat: '15+ chains',
+    stat: '40+ chains',
   },
   {
     eyebrow: 'Fast command lane',
     title: 'Telegram bot',
-    body: 'Ask for a quote, follow a route, watch a wallet, or execute from the bot without leaving the flow.',
+    body: 'Quote, swap, snipe, run perps, stake, set DCA, copy traders, or watch a wallet — all without leaving the chat.',
     stat: '@suwappu_bot',
+  },
+];
+
+// HyperLiquid hub cards — perps, funding, staking, vaults, TWAP, spot.
+const hyperliquid = [
+  {
+    cmd: '/perps',
+    title: 'Perpetuals',
+    body: 'Long or short BTC, ETH, SOL and more up to 20x. Take-profit, stop-loss, and live PnL with one-tap close.',
+  },
+  {
+    cmd: '/fund',
+    title: 'One-click funding',
+    body: 'Deposit USDC via Across or native BTC/ETH/SOL via HyperUnit into your HyperCore account from any chain.',
+  },
+  {
+    cmd: '/stake',
+    title: 'HYPE staking',
+    body: 'Delegate to a ranked validator picker — APR and commission visible — with auto-compounding. No address pasting.',
+  },
+  {
+    cmd: '/vault',
+    title: 'Vaults',
+    body: 'Deposit to HLP and user vaults with live APR, TVL, and PnL surfaced right in the flow.',
+  },
+  {
+    cmd: '/twap',
+    title: 'TWAP orders',
+    body: 'Split a large order evenly over time with randomization — persisted and monitored in the background.',
+  },
+  {
+    cmd: '/spot',
+    title: 'Spot + transfers',
+    body: 'Trade HyperLiquid spot and move USDC between spot and perp wallets instantly with /hlmove.',
+  },
+];
+
+// "Works with" — chains and routers Suwappu routes across (borrowed-legitimacy strip).
+const trustChains = [
+  'Ethereum', 'Base', 'Arbitrum', 'Optimism', 'Solana', 'Polygon',
+  'BSC', 'Avalanche', 'Starknet', 'HyperLiquid', 'Tempo',
+];
+const trustRouters = ['LiFi', 'CoW', 'OKX', '1inch', 'KyberSwap', 'Jupiter', 'Across', 'CCTP'];
+
+// Agent / MCP credibility cards.
+const agentCards = [
+  {
+    tag: 'MCP server',
+    title: 'Drop into any MCP client',
+    body: 'Quotes, swaps, perps, and portfolio as agent-callable tools in Claude, Cursor, or any MCP host.',
+  },
+  {
+    tag: 'SDK + REST',
+    title: 'Same surface, in code',
+    body: '`bun add @suwappu/sdk` or call the REST API directly — the exact execution layer the terminal runs on.',
+  },
+  {
+    tag: 'Discoverable',
+    title: 'llms.txt + agent.json',
+    body: 'Machine-readable docs and an agent manifest so an LLM can find every action without hand-holding.',
+  },
+  {
+    tag: 'Guardrails',
+    title: 'You set the limits',
+    body: 'Per-key slippage caps, spend limits, allowed chains and pairs, plus 2FA. Agents act inside your rails.',
   },
 ];
 
 const sdkLines = [
   'bun add @suwappu/sdk',
-  'suwappu quote ETH USDC 1.0 --chain base',
+  "suwappu quote ETH USDC 1.0 --chain base",
   'route: Base -> Uniswap V3',
   'out: 3,483.28 USDC',
-  'suwappu execute quote_live_42',
-  'status: confirmed',
+  'suwappu perps long BTC --size 0.1 --lev 5x',
+  'status: filled',
 ];
 
 const rows = [
   ['ETH/USDC', '$3,483.28', '+6.94%', 'Uniswap V3'],
+  ['BTC-PERP', '$64,180', '+1.42%', 'HyperLiquid'],
   ['SOL/USDC', '$182.34', '+2.14%', 'Jupiter'],
-  ['BASE/ETH', '$1.02', '+0.62%', 'Base'],
+  ['pathUSD', '$1.00', 'gasless', 'Tempo'],
 ];
-
-const candles = [34, 48, 42, 56, 62, 58, 70, 66, 78, 72, 84, 80];
-
-function TerminalPreview() {
-  return (
-    <div className="summer-terminal" aria-label="Terminal preview">
-      <div className="summer-flower summer-flower--mist summer-terminal__flower" aria-hidden="true" />
-      <div className="summer-terminal__bar">
-        <div className="summer-terminal__dots" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-        </div>
-        <span className="summer-terminal__host">terminal.suwappu.bot</span>
-        <span className="summer-pill">live route</span>
-      </div>
-
-      <div className="summer-terminal__grid">
-        <div className="summer-chart">
-          <div className="summer-chart__head">
-            <div>
-              <p>Market</p>
-              <strong>ETH/USDC</strong>
-            </div>
-            <div>
-              <strong>$3,483.28</strong>
-              <span>+6.94%</span>
-            </div>
-          </div>
-          <div className="summer-chart__plot">
-            <div className="summer-chart__gridlines" />
-            <img className="summer-chart__fruit" src="/logo.svg" alt="" aria-hidden="true" />
-            <div className="summer-flower summer-flower--sun summer-chart__flower" aria-hidden="true" />
-            <div className="summer-chart__candles">
-              {candles.map((height, index) => (
-                <span
-                  key={`${height}-${index}`}
-                  style={{ height: `${height}%` }}
-                  className={index % 5 === 2 ? 'summer-candle summer-candle--sky' : 'summer-candle'}
-                />
-              ))}
-            </div>
-            <span className="summer-chart__price">$3,483.28</span>
-          </div>
-        </div>
-
-        <div className="summer-stack">
-          <div className="summer-mini-panel">
-            <div className="summer-mini-panel__head">
-              <strong>Route</strong>
-              <span>98.2%</span>
-            </div>
-            <dl>
-              <div><dt>ETH</dt><dd>Base</dd></div>
-              <div><dt>USDC</dt><dd>Uniswap V3</dd></div>
-              <div><dt>Gas</dt><dd>$0.12</dd></div>
-            </dl>
-          </div>
-          <div className="summer-mini-panel">
-            <strong>Wallet rail</strong>
-            {['Treasury lane', 'Solana float', 'Base scout'].map((item) => (
-              <div className="summer-wallet-row" key={item}>
-                <span>{item}</span>
-                <b>+2.1%</b>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function Hero() {
   return (
@@ -151,11 +155,15 @@ function Hero() {
       </div>
       <img className="summer-hero__fruit" src="/logo.svg" alt="" aria-hidden="true" />
       <div className="summer-hero__copy">
-        <p className="summer-kicker">Cross-chain execution</p>
-        <h1>Suwappu</h1>
+        <p className="summer-kicker">suwappu · cross-chain execution</p>
+        <h1 className="summer-hero__h1">
+          Cross-chain swaps,<br />
+          HyperLiquid perps,<br />
+          and <span className="summer-hero__accent">gasless</span> trades.
+        </h1>
         <p className="summer-hero__lead">
-          One execution workspace for terminal trading, agent APIs, wallet rails,
-          bot commands, and route-aware swaps.
+          One bot does all of it — best-price routing across 40+ chains, perps up to
+          20x, and sponsored-gas swaps. From Telegram, a terminal, or one SDK call.
         </p>
         <div className="summer-actions">
           <a
@@ -178,7 +186,7 @@ function Hero() {
           <code>bun add @suwappu/sdk</code>
         </div>
       </div>
-      <TerminalPreview />
+      <LiveTerminal />
     </section>
   );
 }
@@ -188,7 +196,8 @@ export default function Home() {
     <>
       <StructuredData />
       <Analytics />
-      <main id="main-content" className="summer-page">
+      <main id="main-content" className="summer-page summer-page--cosmic">
+        <CosmicAtmosphere />
         <div className="summer-bg summer-bg--stem" aria-hidden="true" />
         <div className="summer-bg summer-bg--bloom" aria-hidden="true" />
         <div className="summer-mobile-rail" aria-hidden="true">
@@ -206,9 +215,12 @@ export default function Home() {
             <span>suwappu</span>
           </a>
           <nav aria-label="Primary navigation">
-            <a href="#terminal">Terminal</a>
+            <a href="#engine">Engine</a>
+            <a href="#hyperliquid">HyperLiquid</a>
+            <a href="#tempo">Tempo</a>
+            <a href="#agents">Agents</a>
             <a href="#api">API</a>
-            <a href="#bot">Bot</a>
+            <a href="/pricing">Pricing</a>
             <a href="/docs">Docs</a>
           </nav>
           <a className="summer-nav__cta" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
@@ -222,6 +234,72 @@ export default function Home() {
         <div className="summer-shell">
           <Hero />
 
+          {/* ── STATS STRIP ── */}
+          <section className="summer-stats" aria-label="At a glance">
+            {stats.map((s) => (
+              <div className="summer-stat" key={s.label}>
+                <strong>{s.value}</strong>
+                <span>{s.label}</span>
+              </div>
+            ))}
+          </section>
+
+          {/* ── WORKS WITH ── */}
+          <section className="summer-trust" aria-label="Works with">
+            <p className="summer-trust__label">Routes across every major chain &amp; aggregator</p>
+            <div className="summer-trust__rows">
+              <div className="summer-trust__group">
+                <span>Chains</span>
+                <div className="summer-trust__chips">
+                  {trustChains.map((c) => (
+                    <b key={c}>{c}</b>
+                  ))}
+                  <b>+30 more</b>
+                </div>
+              </div>
+              <div className="summer-trust__group">
+                <span>Routers</span>
+                <div className="summer-trust__chips">
+                  {trustRouters.map((r) => (
+                    <b key={r}>{r}</b>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="summer-verify">
+              <span>Don&apos;t trust, verify</span>
+              <a href="/status">Live status</a>
+              <a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer">GitHub</a>
+              <a href="/docs/api-reference/overview">OpenAPI spec</a>
+              <a href="/llms.txt" target="_blank" rel="noopener noreferrer">llms.txt</a>
+            </div>
+          </section>
+
+          {/* ── CROSS-CHAIN ENGINE ── */}
+          <section id="engine" className="summer-features" aria-label="Cross-chain engine">
+            <div className="summer-features__head">
+              <p className="summer-kicker">The engine</p>
+              <h2>One router for every chain.</h2>
+            </div>
+            <div className="summer-features__grid">
+              {engineFeatures.map((feature) => (
+                <article className="summer-feature" key={feature.title}>
+                  <span
+                    className={
+                      feature.mark === 'fruit'
+                        ? 'summer-feature__mark summer-feature__mark--fruit'
+                        : `summer-feature__mark summer-flower summer-flower--${feature.mark}`
+                    }
+                    aria-hidden="true"
+                  />
+                  <h3>{feature.title}</h3>
+                  <p>{feature.description}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          {/* ── PRODUCT MODULES ── */}
           <section id="terminal" className="summer-modules" aria-label="Product modules">
             {modules.map((module, index) => (
               <article className="summer-module" key={module.title}>
@@ -241,17 +319,80 @@ export default function Home() {
             ))}
           </section>
 
+          {/* ── HYPERLIQUID HUB ── */}
+          <section id="hyperliquid" className="summer-hub" aria-label="HyperLiquid hub">
+            <div className="summer-flower summer-flower--sun summer-hub__flower" aria-hidden="true" />
+            <div className="summer-hub__head">
+              <div>
+                <p className="summer-kicker">HyperLiquid, built in</p>
+                <h2>Perps, funding, staking, vaults.</h2>
+              </div>
+              <p>
+                The full HyperLiquid ecosystem from inside the bot — fund your
+                HyperCore account from any chain, trade perps up to 20x, stake HYPE,
+                and earn in vaults. No bridging tabs, no address pasting.
+              </p>
+            </div>
+            <div className="summer-hub__grid">
+              {hyperliquid.map((card) => (
+                <article className="summer-hub__card" key={card.cmd}>
+                  <code className="summer-hub__cmd">{card.cmd}</code>
+                  <h3>{card.title}</h3>
+                  <p>{card.body}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          {/* ── TEMPO GASLESS RAIL ── */}
+          <section id="tempo" className="summer-tempo" aria-label="Tempo gasless">
+            <div className="summer-flower summer-flower--mist summer-tempo__flower" aria-hidden="true" />
+            <div className="summer-tempo__copy">
+              <p className="summer-kicker">Tempo, first-class</p>
+              <h2>Your first swaps are on us.</h2>
+              <p>
+                Suwappu sponsors gas for new users with Tempo fee-payer transactions —
+                you trade TIP-20 stablecoins for about a tenth of a cent while we cover
+                the rest. Falls back to a normal swap if sponsorship is unavailable, so
+                nothing ever blocks.
+              </p>
+              <div className="summer-tempo__tags">
+                <span>Type 0x76 fee-payer</span>
+                <span>~$0.001 per swap</span>
+                <span>Machine Payments (/mpp)</span>
+              </div>
+            </div>
+            <div className="summer-tempo__rail" aria-hidden="true">
+              <div className="summer-tempo__step">
+                <strong>You swap</strong>
+                <span>100 USDC → pathUSD</span>
+              </div>
+              <div className="summer-tempo__arrow">↓</div>
+              <div className="summer-tempo__step">
+                <strong>We sponsor gas</strong>
+                <span>fee-payer counter-signs 0x76</span>
+              </div>
+              <div className="summer-tempo__arrow">↓</div>
+              <div className="summer-tempo__step summer-tempo__step--ok">
+                <strong>Settled on Tempo</strong>
+                <span>you paid $0.001</span>
+              </div>
+            </div>
+          </section>
+
+          {/* ── AGENT API + SDK ── */}
           <section id="api" className="summer-sdk">
             <div className="summer-flower summer-flower--mist summer-sdk__flower" aria-hidden="true" />
             <div>
-              <p className="summer-kicker">SDK lane</p>
-              <h2>Three calls. Full route.</h2>
+              <p className="summer-kicker">Agent API &amp; SDK</p>
+              <h2>Quote, swap, trade — in code.</h2>
               <p>
-                Quote, execute, and track a trade across the same execution
-                surface the terminal uses.
+                The same execution surface the terminal uses, exposed as an SDK, MCP
+                server, and REST API. Swaps, perps, prediction markets, and lending
+                from a handful of calls.
               </p>
               <div className="summer-flow">
-                {['Register an agent', 'Request a quote', 'Execute the route', 'Track status'].map((step, index) => (
+                {['Register an agent', 'Request a quote', 'Execute the route', 'Open a perp'].map((step, index) => (
                   <div key={step}>
                     <span>0{index + 1}</span>
                     <strong>{step}</strong>
@@ -277,16 +418,41 @@ export default function Home() {
             </div>
           </section>
 
+          {/* ── BUILT FOR AI AGENTS ── */}
+          <section id="agents" className="summer-agents" aria-label="Built for AI agents">
+            <div className="summer-flower summer-flower--soft summer-agents__flower" aria-hidden="true" />
+            <div className="summer-agents__head">
+              <p className="summer-kicker">Built for AI agents</p>
+              <h2>Let an agent execute. You set the limits.</h2>
+              <p>
+                Suwappu exposes the same execution surface as an MCP server, a
+                TypeScript SDK, and a REST API — discoverable through llms.txt and an
+                agent manifest, with policy guardrails so autonomous swaps stay inside
+                the rails you define.
+              </p>
+            </div>
+            <div className="summer-agents__grid">
+              {agentCards.map((card) => (
+                <article className="summer-agents__card" key={card.tag}>
+                  <b>{card.tag}</b>
+                  <h3>{card.title}</h3>
+                  <p>{card.body}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          {/* ── MARKET PROOF ── */}
           <section id="bot" className="summer-proof">
             <div className="summer-flower summer-flower--soft summer-proof__flower" aria-hidden="true" />
             <div className="summer-proof__head">
               <div>
                 <p className="summer-kicker">Market proof</p>
-                <h2>Readable trading primitives.</h2>
+                <h2>Spot, perps, and gasless — side by side.</h2>
               </div>
               <p>
-                Market rows, route health, wallet watch, bot commands, and API
-                status stay visible without making the page feel crowded.
+                Market rows, route health, perps, and gasless Tempo pairs stay visible
+                without making the page feel crowded.
               </p>
             </div>
             <div className="summer-table">
@@ -307,24 +473,7 @@ export default function Home() {
             </div>
           </section>
 
-          <section id="features" className="summer-features" aria-label="Why Suwappu">
-            <div className="summer-features__head">
-              <p className="summer-kicker">Why Suwappu</p>
-              <h2>Built for agents and humans.</h2>
-            </div>
-            <div className="summer-features__grid">
-              {features.map((feature) => (
-                <article className="summer-feature" key={feature.title}>
-                  <span className="summer-feature__icon" aria-hidden="true">
-                    {feature.icon}
-                  </span>
-                  <h3>{feature.title}</h3>
-                  <p>{feature.description}</p>
-                </article>
-              ))}
-            </div>
-          </section>
-
+          {/* ── REFERRAL ── */}
           <section className="summer-referral" aria-label="Referral program">
             <p className="summer-kicker">Earn with Suwappu</p>
             <h2>30% of every trading fee. Forever.</h2>
@@ -343,12 +492,13 @@ export default function Home() {
             </a>
           </section>
 
+          {/* ── CTA ── */}
           <section className="summer-cta" aria-label="Get started">
             <p className="summer-kicker">Start now</p>
             <h2>Your next swap is one line away.</h2>
             <p className="summer-cta__lead">
               Open the bot, or install the SDK and connect your agent — best-price
-              swaps across 15 chains.
+              swaps, perps, and gasless trades across 40+ chains.
             </p>
             <code className="summer-cta__code">bun add @suwappu/sdk</code>
             <div className="summer-actions summer-cta__actions">
@@ -376,6 +526,8 @@ export default function Home() {
             </div>
           </section>
         </div>
+
+        <SummerFooter />
       </main>
     </>
   );

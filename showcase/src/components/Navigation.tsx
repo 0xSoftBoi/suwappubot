@@ -35,8 +35,11 @@ export default function Navigation() {
 
       {/* Desktop links */}
       <div className="nav__links">
-        <a href="#terminal" className="nav__link">How it works</a>
-        <a href="#features" className="nav__link">Features</a>
+        <a href="/#hyperliquid" className="nav__link">HyperLiquid</a>
+        <a href="/#tempo" className="nav__link">Tempo</a>
+        <a href="/#agents" className="nav__link">Agents</a>
+        <a href="/solutions" className="nav__link">Solutions</a>
+        <a href="/pricing" className="nav__link">Pricing</a>
         <a href="/docs" className="nav__link">Docs</a>
         <a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer" className="nav__link">GitHub</a>
         <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="nav__cta">
@@ -71,9 +74,13 @@ export default function Navigation() {
         aria-modal="true"
         aria-label="Navigation menu"
       >
-        <a href="#terminal" className="nav__drawer-link" onClick={closeMenu}>How it works</a>
-        <a href="#features" className="nav__drawer-link" onClick={closeMenu}>Features</a>
+        <a href="/#hyperliquid" className="nav__drawer-link" onClick={closeMenu}>HyperLiquid</a>
+        <a href="/#tempo" className="nav__drawer-link" onClick={closeMenu}>Tempo</a>
+        <a href="/#agents" className="nav__drawer-link" onClick={closeMenu}>Agents</a>
+        <a href="/solutions" className="nav__drawer-link" onClick={closeMenu}>Solutions</a>
+        <a href="/pricing" className="nav__drawer-link" onClick={closeMenu}>Pricing</a>
         <a href="/docs" className="nav__drawer-link" onClick={closeMenu}>Docs</a>
+        <a href="/status" className="nav__drawer-link" onClick={closeMenu}>Status</a>
         <a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer" className="nav__drawer-link" onClick={closeMenu}>GitHub</a>
         <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="nav__drawer-cta" onClick={closeMenu}>
           Open Bot

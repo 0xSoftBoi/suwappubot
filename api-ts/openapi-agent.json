@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Suwappu Agent API",
-    "description": "Cross-chain DEX API for AI agents. Swap tokens across 7+ chains via structured endpoints.",
-    "version": "0.4.0",
+    "description": "Cross-chain DEX API for AI agents. Swap tokens across 7+ chains via structured endpoints.\n\n## Errors\nErrors come in two envelope shapes:\n\n1. **Handler / validation errors** — `{ \"success\": false, \"error\": \"...\", \"message\": \"...\", \"fields\": {...} }`. Returned for validation failures (400), forbidden wallet ownership (403), and not-found resources (404) raised inside route handlers.\n2. **Gateway errors** — `{ \"error\": \"...\", \"requestId\": \"...\", \"timestamp\": \"...\" }`. Returned by the global error handler for auth failures (401), rate limiting (429), and unhandled errors (500).\n\nThe `Error` component schema is permissive and covers both shapes; the per-operation examples show the exact body for that case.\n\n## Rate limits\nAuthenticated endpoints are rate-limited per agent by tier (sliding 60s window): `free` = 30 req/min, `agent` = 100 req/min, `pro` = 500 req/min. Public endpoints are rate-limited per client IP. On 429 the response includes `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers.",
+    "version": "0.5.0",
     "contact": {
       "name": "Suwappu",
       "url": "https://suwappu.bot"
@@ -13,6 +13,10 @@
     {
       "url": "https://api.suwappu.bot/v1/agent",
       "description": "Production"
+    },
+    {
+      "url": "https://devapi.suwappu.bot/v1/agent",
+      "description": "Development"
     }
   ],
   "security": [
@@ -25,19 +29,21 @@
       "post": {
         "summary": "Register a new agent",
         "operationId": "registerAgent",
+        "description": "Create a new agent and receive an API key. Public endpoint, rate-limited to 5 requests/min per client IP.",
         "security": [],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": ["name"],
-                "properties": {
-                  "name": { "type": "string", "minLength": 3, "maxLength": 50, "pattern": "^[a-zA-Z0-9_-]+$" },
-                  "description": { "type": "string", "maxLength": 500 },
-                  "callback_url": { "type": "string", "format": "uri" },
-                  "metadata": { "type": "object" }
+                "$ref": "#/components/schemas/RegisterAgentRequest"
+              },
+              "example": {
+                "name": "my-trading-agent",
+                "description": "An agent that swaps ETH for USDC on Base",
+                "callback_url": "https://example.com/webhooks/suwappu",
+                "metadata": {
+                  "team": "alpha"
                 }
               }
             }
@@ -49,22 +55,42 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean" },
-                    "agent": {
-                      "type": "object",
-                      "properties": {
-                        "id": { "type": "string", "format": "uuid" },
-                        "name": { "type": "string" },
-                        "api_key": { "type": "string" },
-                        "created_at": { "type": "string", "format": "date-time" }
-                      }
-                    }
+                  "$ref": "#/components/schemas/RegisterAgentResponse"
+                },
+                "example": {
+                  "success": true,
+                  "message": "Welcome to Suwappu!",
+                  "agent": {
+                    "id": "9f8b2c1a-3d4e-5f6a-7b8c-9d0e1f2a3b4c",
+                    "name": "my-trading-agent",
+                    "api_key": "suwappu_sk_live_4f3a2b1c9d8e7f6a5b4c3d2e1f0a9b8c",
+                    "created_at": "2026-06-18T12:00:00.000Z"
+                  },
+                  "important": "SAVE YOUR API KEY! It cannot be retrieved later.",
+                  "docs": "https://api.suwappu.bot/docs"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON body or validation error (e.g. name too short, name already taken)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "Validation error",
+                  "fields": {
+                    "name": "Name must be at least 3 characters"
                   }
                 }
               }
             }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitedPublic"
           }
         }
       }
@@ -73,6 +99,7 @@
       "get": {
         "summary": "List supported chains",
         "operationId": "listChains",
+        "description": "List all supported chains (EVM, Solana, Sui, TON). Public endpoint, no auth required.",
         "security": [],
         "responses": {
           "200": {
@@ -82,21 +109,39 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
+                    "success": {
+                      "type": "boolean"
+                    },
                     "chains": {
                       "type": "array",
                       "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {},
-                          "key": { "type": "string" },
-                          "name": { "type": "string" },
-                          "native_token": { "type": "string" },
-                          "type": { "type": "string", "enum": ["evm", "solana"] }
-                        }
+                        "$ref": "#/components/schemas/Chain"
                       }
+                    },
+                    "note": {
+                      "type": "string"
                     }
                   }
+                },
+                "example": {
+                  "success": true,
+                  "chains": [
+                    {
+                      "id": 8453,
+                      "key": "base",
+                      "name": "Base",
+                      "native_token": "ETH",
+                      "type": "evm"
+                    },
+                    {
+                      "id": "solana",
+                      "key": "solana",
+                      "name": "Solana",
+                      "native_token": "SOL",
+                      "type": "solana"
+                    }
+                  ],
+                  "note": "Use chain key (e.g., \"base\", \"solana\") in requests. Solana uses Jupiter, EVM chains use Li.Fi."
                 }
               }
             }
@@ -108,10 +153,19 @@
       "get": {
         "summary": "Get OpenAPI spec",
         "operationId": "getOpenApiSpec",
+        "description": "Returns this OpenAPI 3.1 specification document. Public endpoint.",
         "security": [],
         "responses": {
           "200": {
-            "description": "OpenAPI 3.1 specification"
+            "description": "OpenAPI 3.1 specification",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "OpenAPI 3.1 document"
+                }
+              }
+            }
           }
         }
       }
@@ -120,6 +174,7 @@
       "get": {
         "summary": "Get current agent profile",
         "operationId": "getAgentProfile",
+        "description": "Get the authenticated agent's profile and usage stats. Rate-limited by tier.",
         "responses": {
           "200": {
             "description": "Agent profile",
@@ -128,42 +183,131 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "agent": { "$ref": "#/components/schemas/AgentProfile" }
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "agent": {
+                      "$ref": "#/components/schemas/AgentProfile"
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "agent": {
+                    "id": "9f8b2c1a-3d4e-5f6a-7b8c-9d0e1f2a3b4c",
+                    "name": "my-trading-agent",
+                    "description": "An agent that swaps ETH for USDC on Base",
+                    "rate_limit_tier": "free",
+                    "stats": {
+                      "total_requests": 142,
+                      "total_swaps": 7
+                    },
+                    "created_at": "2026-06-18T12:00:00.000Z",
+                    "last_active_at": "2026-06-18T15:30:00.000Z"
                   }
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       },
       "patch": {
         "summary": "Update agent profile",
         "operationId": "updateAgentProfile",
+        "description": "Update the agent's description, callback_url, and/or metadata. At least one field is required. Rate-limited by tier.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "description": { "type": "string", "maxLength": 500 },
-                  "callback_url": { "type": "string", "format": "uri", "nullable": true },
-                  "metadata": { "type": "object" }
-                }
+                "$ref": "#/components/schemas/UpdateAgentRequest"
+              },
+              "example": {
+                "description": "Updated description",
+                "callback_url": "https://example.com/webhooks/suwappu"
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "Updated agent profile" }
+          "200": {
+            "description": "Updated agent profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "agent": {
+                      "$ref": "#/components/schemas/AgentProfile"
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "agent": {
+                    "id": "9f8b2c1a-3d4e-5f6a-7b8c-9d0e1f2a3b4c",
+                    "name": "my-trading-agent",
+                    "description": "Updated description",
+                    "callback_url": "https://example.com/webhooks/suwappu",
+                    "rate_limit_tier": "free",
+                    "stats": {
+                      "total_requests": 142,
+                      "total_swaps": 7
+                    },
+                    "updated_at": "2026-06-18T15:35:00.000Z"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON body or validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "Validation error",
+                  "fields": {
+                    "callback_url": "callback_url must not point to a private or metadata endpoint"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
         }
       },
       "delete": {
         "summary": "Permanently delete agent",
         "operationId": "deleteAgent",
+        "description": "Permanently delete the authenticated agent. This is irreversible. Rate-limited by tier.",
         "responses": {
-          "204": { "description": "Agent deleted" }
+          "204": {
+            "description": "Agent deleted (no content)"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
         }
       }
     },
@@ -171,6 +315,7 @@
       "post": {
         "summary": "Deactivate agent",
         "operationId": "deactivateAgent",
+        "description": "Deactivate the agent (reversible via /reactivate). Rate-limited by tier.",
         "responses": {
           "200": {
             "description": "Agent deactivated",
@@ -179,12 +324,26 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "message": { "type": "string" }
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
                   }
+                },
+                "example": {
+                  "success": true,
+                  "message": "Agent deactivated. Use POST /v1/agent/reactivate to restore."
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       }
@@ -193,6 +352,7 @@
       "post": {
         "summary": "Reactivate a deactivated agent",
         "operationId": "reactivateAgent",
+        "description": "Reactivate a previously deactivated agent. Accepts auth from inactive agents. Rate-limited by tier.",
         "responses": {
           "200": {
             "description": "Agent reactivated",
@@ -201,12 +361,26 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "message": { "type": "string" }
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
                   }
+                },
+                "example": {
+                  "success": true,
+                  "message": "Agent reactivated."
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       }
@@ -215,6 +389,7 @@
       "post": {
         "summary": "Rotate API key",
         "operationId": "rotateApiKey",
+        "description": "Generate a new API key and invalidate the current one. Save the returned key — it cannot be retrieved later. Rate-limited by tier.",
         "responses": {
           "200": {
             "description": "New API key",
@@ -223,13 +398,30 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "api_key": { "type": "string" },
-                    "message": { "type": "string" }
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "api_key": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
                   }
+                },
+                "example": {
+                  "success": true,
+                  "api_key": "suwappu_sk_live_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+                  "message": "API key rotated. Save this key — the old key is now invalid."
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       }
@@ -238,23 +430,21 @@
       "post": {
         "summary": "Get a swap quote",
         "operationId": "getQuote",
+        "description": "Get a swap quote (EVM via Li.Fi, Solana via Jupiter). Returns a `quote_id` valid for 60 seconds, usable with POST /swap or POST /swap/execute. Authenticated and rate-limited by tier; may be metered (x402) when metering is enabled.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": ["from_token", "to_token", "amount"],
-                "properties": {
-                  "from_token": { "type": "string", "description": "Source token symbol (e.g. ETH, SOL, USDC)" },
-                  "to_token": { "type": "string", "description": "Destination token symbol" },
-                  "amount": { "type": "string", "description": "Amount in human-readable format (e.g. \"0.5\")" },
-                  "chain": { "type": "string", "description": "Chain key (e.g. base, solana)" },
-                  "from_chain": { "type": "string" },
-                  "to_chain": { "type": "string" },
-                  "wallet_address": { "type": "string" },
-                  "slippage": { "type": "number", "minimum": 0, "maximum": 1 }
-                }
+                "$ref": "#/components/schemas/QuoteRequest"
+              },
+              "example": {
+                "from_token": "ETH",
+                "to_token": "USDC",
+                "amount": "0.5",
+                "chain": "base",
+                "wallet_address": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
+                "slippage": 0.03
               }
             }
           }
@@ -265,20 +455,65 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean" },
-                    "quote_id": { "type": "string" },
-                    "from_token": { "type": "object" },
-                    "to_token": { "type": "object" },
-                    "amount_in": { "type": "string" },
-                    "amount_out": { "type": "string" },
-                    "exchange_rate": { "type": "string" },
-                    "expires_in_seconds": { "type": "integer" }
-                  }
+                  "$ref": "#/components/schemas/Quote"
+                },
+                "example": {
+                  "success": true,
+                  "quote_id": "lifi_0x8453_4f3a2b1c9d8e",
+                  "from_chain": "Base",
+                  "from_chain_id": 8453,
+                  "to_chain": "Base",
+                  "to_chain_id": 8453,
+                  "chain_type": "evm",
+                  "from_token": {
+                    "symbol": "ETH",
+                    "address": "0x0000000000000000000000000000000000000000",
+                    "decimals": 18
+                  },
+                  "to_token": {
+                    "symbol": "USDC",
+                    "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                    "decimals": 6
+                  },
+                  "amount_in": "0.5",
+                  "amount_out": "1623.412000",
+                  "amount_out_min": "1574.709640",
+                  "exchange_rate": "3246.824000",
+                  "price_impact": "0.02%",
+                  "estimated_gas_usd": "$0.15",
+                  "bridge_fee_usd": "$0",
+                  "route": "Uniswap V3",
+                  "slippage": "3.0%",
+                  "estimated_time_seconds": 30,
+                  "expires_in_seconds": 60,
+                  "dex": "Li.Fi"
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid JSON body, validation error, unknown chain/token, or Starknet (handled by bot backend)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "Validation Error",
+                  "message": "Token not found: FOO on Base"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "402": {
+            "$ref": "#/components/responses/PaymentRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       }
@@ -287,23 +522,83 @@
       "post": {
         "summary": "Get unsigned swap transaction",
         "operationId": "getSwapTransaction",
+        "description": "Build an unsigned transaction from a cached `quote_id`. The `wallet_address` must be the agent's own managed wallet. Authenticated and rate-limited by tier; may be metered (x402).",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": ["wallet_address"],
-                "properties": {
-                  "quote_id": { "type": "string" },
-                  "wallet_address": { "type": "string" }
-                }
+                "$ref": "#/components/schemas/SwapRequest"
+              },
+              "example": {
+                "quote_id": "lifi_0x8453_4f3a2b1c9d8e",
+                "wallet_address": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e"
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "Unsigned transaction for signing" }
+          "200": {
+            "description": "Unsigned transaction for signing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapTransaction"
+                },
+                "example": {
+                  "success": true,
+                  "status": "ready",
+                  "message": "Transaction ready for signing",
+                  "quote_id": "lifi_0x8453_4f3a2b1c9d8e",
+                  "chain_type": "evm",
+                  "swap": {
+                    "from_chain": 8453,
+                    "to_chain": 8453,
+                    "from_token": "ETH",
+                    "to_token": "USDC",
+                    "amount_in": "500000000000000000",
+                    "expected_amount_out": "1623412000",
+                    "minimum_amount_out": "1574709640"
+                  },
+                  "transaction": {
+                    "to": "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
+                    "from": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
+                    "value": "500000000000000000",
+                    "data": "0x4630a0d8...",
+                    "chain_id": 8453,
+                    "gas_limit": "350000"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON body, validation error, missing quote_id, or quote expired/not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "Quote expired or not found",
+                  "hint": "Request a new quote using POST /v1/agent/quote"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "402": {
+            "$ref": "#/components/responses/PaymentRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/WalletOwnership"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
         }
       }
     },
@@ -311,16 +606,16 @@
       "post": {
         "summary": "Execute managed swap via server-side signing",
         "operationId": "executeSwap",
+        "description": "Execute a swap from a cached `quote_id` using the agent's managed (Turnkey) wallet. The agent must have created a wallet via POST /wallets first. Authenticated and rate-limited by tier; may be metered (x402).",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": ["quote_id"],
-                "properties": {
-                  "quote_id": { "type": "string" }
-                }
+                "$ref": "#/components/schemas/ExecuteSwapRequest"
+              },
+              "example": {
+                "quote_id": "lifi_0x8453_4f3a2b1c9d8e"
               }
             }
           }
@@ -331,16 +626,44 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean" },
-                    "swap_id": { "type": "integer" },
-                    "status": { "type": "string" },
-                    "tx_hash": { "type": "string", "nullable": true }
+                  "$ref": "#/components/schemas/ExecuteSwapResponse"
+                },
+                "example": {
+                  "success": true,
+                  "swap_id": 4821,
+                  "status": "pending",
+                  "tx_hash": null,
+                  "tracking": {
+                    "poll_url": "/v1/agent/swap/status/4821",
+                    "webhook_note": "You will receive webhook notifications at your callback_url"
                   }
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid JSON body, validation error, no managed wallet, quote expired/not found, or internal API not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "No managed wallet found",
+                  "hint": "Create a wallet first using POST /v1/agent/wallets"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "402": {
+            "$ref": "#/components/responses/PaymentRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       }
@@ -349,12 +672,16 @@
       "get": {
         "summary": "Get swap status",
         "operationId": "getSwapStatus",
+        "description": "Get the status of a swap by its numeric id. Only the agent that created the swap can read it. Rate-limited by tier.",
         "parameters": [
           {
             "name": "swapId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            },
+            "example": 4821
           }
         ],
         "responses": {
@@ -363,18 +690,60 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean" },
-                    "swap_id": { "type": "integer" },
-                    "status": { "type": "string" },
-                    "tx_hash": { "type": "string", "nullable": true },
-                    "from_token": { "type": "string" },
-                    "to_token": { "type": "string" }
-                  }
+                  "$ref": "#/components/schemas/SwapStatus"
+                },
+                "example": {
+                  "success": true,
+                  "swap_id": 4821,
+                  "status": "completed",
+                  "tx_hash": "0x9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b",
+                  "from_chain": "base",
+                  "to_chain": "base",
+                  "from_token": "ETH",
+                  "to_token": "USDC",
+                  "from_amount": "500000000000000000",
+                  "to_amount": "1623412000",
+                  "error_message": null,
+                  "created_at": "2026-06-18T15:30:00.000Z",
+                  "completed_at": "2026-06-18T15:30:42.000Z"
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid swap ID (non-numeric)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "Invalid swap ID"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Swap not found (or not owned by this agent)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "Validation Error",
+                  "message": "Swap not found"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       }
@@ -383,13 +752,91 @@
       "get": {
         "summary": "Get swap history",
         "operationId": "listSwaps",
+        "description": "Paginated swap history for the authenticated agent, newest first. Rate-limited by tier.",
         "parameters": [
-          { "name": "status", "in": "query", "schema": { "type": "string" } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } }
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/SwapStatusValue"
+            },
+            "description": "Filter by swap status"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            }
+          }
         ],
         "responses": {
-          "200": { "description": "Paginated swap history" }
+          "200": {
+            "description": "Paginated swap history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "swaps": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SwapStatus"
+                      }
+                    },
+                    "pagination": {
+                      "$ref": "#/components/schemas/Pagination"
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "swaps": [
+                    {
+                      "swap_id": 4821,
+                      "status": "completed",
+                      "tx_hash": "0x9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b",
+                      "from_chain": "base",
+                      "to_chain": "base",
+                      "from_token": "ETH",
+                      "to_token": "USDC",
+                      "from_amount": "500000000000000000",
+                      "to_amount": "1623412000",
+                      "created_at": "2026-06-18T15:30:00.000Z",
+                      "completed_at": "2026-06-18T15:30:42.000Z"
+                    }
+                  ],
+                  "pagination": {
+                    "total": 7,
+                    "limit": 20,
+                    "offset": 0,
+                    "has_more": false
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
         }
       }
     },
@@ -397,23 +844,76 @@
       "post": {
         "summary": "Execute natural language command",
         "operationId": "executeCommand",
+        "description": "Parse and act on a natural-language command (e.g. \"swap 0.5 ETH to USDC on Base\"). If a `wallet_address` is supplied it must be the agent's own managed wallet. Authenticated and rate-limited by tier; may be metered (x402).",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": ["command"],
-                "properties": {
-                  "command": { "type": "string", "maxLength": 500, "description": "Natural language command (e.g. \"swap 0.5 ETH to USDC on Base\")" },
-                  "wallet_address": { "type": "string" }
-                }
+                "$ref": "#/components/schemas/ExecuteCommandRequest"
+              },
+              "example": {
+                "command": "swap 0.5 ETH to USDC on base",
+                "wallet_address": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e"
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "Command result" }
+          "200": {
+            "description": "Command result. The `action` field indicates how the command was interpreted (swap, quote, portfolio, or unknown).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecuteCommandResponse"
+                },
+                "example": {
+                  "success": true,
+                  "action": "swap",
+                  "status": "quoted",
+                  "message": "Quote ready: 0.5 ETH -> 1623.412000 USDC on Base",
+                  "quote_id": "lifi_0x8453_4f3a2b1c9d8e",
+                  "from_token": "ETH",
+                  "to_token": "USDC",
+                  "amount_in": "0.5",
+                  "amount_out": "1623.412000",
+                  "chain": "Base",
+                  "chain_id": 8453,
+                  "next_step": "Sign and submit the transaction to execute the swap"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON body, validation error, or unparseable command details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "Validation error",
+                  "fields": {
+                    "command": "command is required"
+                  },
+                  "hint": "Example: {\"command\": \"swap 0.5 ETH to USDC on Base\", \"wallet_address\": \"0x...\"}"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "402": {
+            "$ref": "#/components/responses/PaymentRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/WalletOwnership"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
         }
       }
     },
@@ -421,9 +921,25 @@
       "get": {
         "summary": "Get wallet balances",
         "operationId": "getPortfolio",
+        "description": "Get live token balances for the agent's managed wallet. `wallet_address` must match the agent's own managed wallet. Authenticated and rate-limited by tier; may be metered (x402).",
         "parameters": [
-          { "name": "wallet_address", "in": "query", "required": true, "schema": { "type": "string" } },
-          { "name": "chain", "in": "query", "schema": { "type": "string" } }
+          {
+            "name": "wallet_address",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e"
+          },
+          {
+            "name": "chain",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional chain filter (e.g. base, solana). Omit for all chains."
+          }
         ],
         "responses": {
           "200": {
@@ -431,27 +947,60 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean" },
-                    "wallet_address": { "type": "string" },
-                    "total_usd": { "type": "string" },
-                    "balances": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "symbol": { "type": "string" },
-                          "chain": { "type": "string" },
-                          "balance": { "type": "string" },
-                          "usd_value": { "type": "string" }
-                        }
-                      }
+                  "$ref": "#/components/schemas/Portfolio"
+                },
+                "example": {
+                  "success": true,
+                  "wallet_address": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
+                  "wallet_type": "evm",
+                  "chain_filter": "all",
+                  "total_usd": "2451.33",
+                  "balances": [
+                    {
+                      "symbol": "ETH",
+                      "name": "Ethereum",
+                      "chain": "base",
+                      "balance": "0.25",
+                      "usd_value": "811.71"
+                    },
+                    {
+                      "symbol": "USDC",
+                      "name": "USD Coin",
+                      "chain": "base",
+                      "balance": "1639.62",
+                      "usd_value": "1639.62"
                     }
-                  }
+                  ]
                 }
               }
             }
+          },
+          "400": {
+            "description": "Missing required query parameter wallet_address",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "Missing required query parameter: wallet_address",
+                  "hint": "GET /v1/agent/portfolio?wallet_address=0x..."
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "402": {
+            "$ref": "#/components/responses/PaymentRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/WalletOwnership"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       }
@@ -460,13 +1009,17 @@
       "get": {
         "summary": "Get token prices",
         "operationId": "getTokenPrices",
+        "description": "Get USD prices and 24h change for up to 20 token symbols. Authenticated and rate-limited by tier; may be metered (x402).",
         "parameters": [
           {
             "name": "symbols",
             "in": "query",
             "required": true,
-            "schema": { "type": "string" },
-            "description": "Comma-separated token symbols (max 20). E.g. ETH,SOL,USDC"
+            "schema": {
+              "type": "string"
+            },
+            "description": "Comma-separated token symbols (1-20). E.g. ETH,SOL,USDC",
+            "example": "ETH,SOL,USDC"
           }
         ],
         "responses": {
@@ -475,24 +1028,51 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean" },
-                    "prices": {
-                      "type": "object",
-                      "additionalProperties": {
-                        "type": "object",
-                        "properties": {
-                          "usd": { "type": "number" },
-                          "change_24h": { "type": "number", "nullable": true }
-                        }
-                      }
+                  "$ref": "#/components/schemas/Prices"
+                },
+                "example": {
+                  "success": true,
+                  "prices": {
+                    "ETH": {
+                      "usd": 3246.82,
+                      "change_24h": 1.42
                     },
-                    "unknown_symbols": { "type": "array", "items": { "type": "string" } }
+                    "SOL": {
+                      "usd": 152.91,
+                      "change_24h": -0.87
+                    },
+                    "USDC": {
+                      "usd": 1,
+                      "change_24h": 0.01
+                    }
                   }
                 }
               }
             }
+          },
+          "400": {
+            "description": "Missing symbols parameter or more than 20 symbols",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "Missing required query parameter: symbols",
+                  "hint": "GET /v1/agent/prices?symbols=ETH,SOL,USDC"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "402": {
+            "$ref": "#/components/responses/PaymentRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       }
@@ -501,36 +1081,81 @@
       "get": {
         "summary": "List available tokens",
         "operationId": "listTokens",
+        "description": "List common tokens per chain. With no `chain` param, returns tokens grouped by chain. Authenticated and rate-limited by tier; may be metered (x402).",
         "parameters": [
-          { "name": "chain", "in": "query", "schema": { "type": "string" }, "description": "Filter by chain (e.g. base, solana). Omit for all chains." },
-          { "name": "search", "in": "query", "schema": { "type": "string" }, "description": "Filter by symbol substring (e.g. USD)" }
+          {
+            "name": "chain",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by chain (e.g. base, solana). Omit for all chains."
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by symbol substring (e.g. USD)"
+          }
         ],
         "responses": {
           "200": {
-            "description": "Token list",
+            "description": "Token list. When `chain` is provided returns `chain`, `chain_id`, and a flat `tokens` array; when omitted returns a `chains` array each with its own `tokens`.",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean" },
-                    "chain": { "type": "string" },
-                    "chain_id": {},
-                    "tokens": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "symbol": { "type": "string" },
-                          "address": { "type": "string" },
-                          "decimals": { "type": "integer" }
-                        }
-                      }
+                  "$ref": "#/components/schemas/TokenList"
+                },
+                "example": {
+                  "success": true,
+                  "chain": "Base",
+                  "chain_id": 8453,
+                  "tokens": [
+                    {
+                      "symbol": "USDC",
+                      "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                      "decimals": 6
+                    },
+                    {
+                      "symbol": "WETH",
+                      "address": "0x4200000000000000000000000000000000000006",
+                      "decimals": 18
                     }
-                  }
+                  ]
                 }
               }
             }
+          },
+          "400": {
+            "description": "Unknown chain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "Unknown chain: foo",
+                  "supported": [
+                    "ethereum",
+                    "base",
+                    "arbitrum",
+                    "solana"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "402": {
+            "$ref": "#/components/responses/PaymentRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       }
@@ -539,6 +1164,7 @@
       "get": {
         "summary": "List agent wallets",
         "operationId": "listWallets",
+        "description": "List the agent's managed wallet(s). Returns an empty list if no wallet has been created. Rate-limited by tier.",
         "responses": {
           "200": {
             "description": "Agent wallets",
@@ -547,28 +1173,53 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
+                    "success": {
+                      "type": "boolean"
+                    },
                     "wallets": {
                       "type": "array",
                       "items": {
-                        "type": "object",
-                        "properties": {
-                          "address": { "type": "string" },
-                          "chain_type": { "type": "string" },
-                          "supported_chains": { "type": "array", "items": { "type": "string" } }
-                        }
+                        "$ref": "#/components/schemas/Wallet"
                       }
+                    },
+                    "hint": {
+                      "type": "string"
                     }
                   }
+                },
+                "example": {
+                  "success": true,
+                  "wallets": [
+                    {
+                      "address": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
+                      "chain_type": "evm",
+                      "supported_chains": [
+                        "ethereum",
+                        "polygon",
+                        "arbitrum",
+                        "optimism",
+                        "base",
+                        "bsc",
+                        "avalanche"
+                      ]
+                    }
+                  ]
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       },
       "post": {
         "summary": "Create agent wallet",
         "operationId": "createWallet",
+        "description": "Create a managed (Turnkey) EVM wallet for the agent. Fund it to start swapping. Rate-limited by tier.",
         "responses": {
           "201": {
             "description": "Wallet created",
@@ -577,19 +1228,244 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
+                    "success": {
+                      "type": "boolean"
+                    },
                     "wallet": {
-                      "type": "object",
-                      "properties": {
-                        "address": { "type": "string" },
-                        "chain_type": { "type": "string" },
-                        "supported_chains": { "type": "array", "items": { "type": "string" } }
-                      }
+                      "$ref": "#/components/schemas/Wallet"
+                    },
+                    "message": {
+                      "type": "string"
                     }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "wallet": {
+                    "address": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
+                    "chain_type": "evm",
+                    "supported_chains": [
+                      "ethereum",
+                      "polygon",
+                      "arbitrum",
+                      "optimism",
+                      "base",
+                      "bsc"
+                    ]
+                  },
+                  "message": "Wallet created. Fund it to start swapping."
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/wallet/policy": {
+      "post": {
+        "summary": "Create wallet policy",
+        "operationId": "createWalletPolicy",
+        "description": "Create a Turnkey policy (spending limit or address whitelist) on the agent's managed wallet sub-org. Requires a wallet created via POST /wallets. Rate-limited by tier.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePolicyRequest"
+              },
+              "example": {
+                "type": "spending_limit",
+                "params": {
+                  "maxAmountWei": "1000000000000000000",
+                  "timeWindowSeconds": 86400
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Policy created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "policy": {
+                      "$ref": "#/components/schemas/Policy"
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "policy": {
+                    "policyId": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+                    "type": "spending_limit",
+                    "condition": "eth.value <= 1000000000000000000"
                   }
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid request or no managed wallet found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "No managed wallet found",
+                  "hint": "Create a wallet first"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/wallet/policies": {
+      "get": {
+        "summary": "List wallet policies",
+        "operationId": "listWalletPolicies",
+        "description": "List the Turnkey policies on the agent's managed wallet sub-org. Requires a wallet created via POST /wallets. Rate-limited by tier.",
+        "responses": {
+          "200": {
+            "description": "Wallet policies",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "policies": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Policy"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "policies": [
+                    {
+                      "policyId": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+                      "policyName": "agent-spending-limit-86400s"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No managed wallet found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "No managed wallet found",
+                  "hint": "Create a wallet first"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/wallet/policy/{policyId}": {
+      "delete": {
+        "summary": "Delete wallet policy",
+        "operationId": "deleteWalletPolicy",
+        "description": "Delete an agent-created Turnkey policy. Protected (non-agent) guardrail policies cannot be deleted. Rate-limited by tier.",
+        "parameters": [
+          {
+            "name": "policyId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "a1b2c3d4-5678-90ab-cdef-1234567890ab"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Policy deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "deleted": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "deleted": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No managed wallet, policy not found, or attempt to delete a protected (non-agent) policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "Validation Error",
+                  "message": "Cannot delete a protected (non-agent) policy"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       }
@@ -598,11 +1474,46 @@
       "get": {
         "summary": "List webhook events",
         "operationId": "listWebhookEvents",
+        "description": "Paginated delivery log of webhook events for the agent, newest first. Rate-limited by tier.",
         "parameters": [
-          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["pending", "delivered", "failed"] } },
-          { "name": "event_type", "in": "query", "schema": { "type": "string" } },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } },
-          { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } }
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "delivered",
+                "failed"
+              ]
+            }
+          },
+          {
+            "name": "event_type",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -612,16 +1523,67 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
+                    "success": {
+                      "type": "boolean"
+                    },
                     "events": {
                       "type": "array",
-                      "items": { "$ref": "#/components/schemas/WebhookEvent" }
+                      "items": {
+                        "$ref": "#/components/schemas/WebhookEvent"
+                      }
                     },
-                    "pagination": { "$ref": "#/components/schemas/Pagination" }
+                    "pagination": {
+                      "$ref": "#/components/schemas/Pagination"
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "events": [
+                    {
+                      "id": 12,
+                      "event_type": "swap.completed",
+                      "status": "delivered",
+                      "attempts": 1,
+                      "last_error": null,
+                      "response_status": 200,
+                      "callback_url": "https://example.com/webhooks/suwappu",
+                      "created_at": "2026-06-18T15:30:42.000Z",
+                      "delivered_at": "2026-06-18T15:30:43.000Z"
+                    }
+                  ],
+                  "pagination": {
+                    "total": 1,
+                    "limit": 20,
+                    "offset": 0,
+                    "has_more": false
                   }
                 }
               }
             }
+          },
+          "400": {
+            "description": "Validation error on query parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "Validation error",
+                  "fields": {
+                    "limit": "Number must be less than or equal to 100"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       }
@@ -630,22 +1592,1436 @@
       "post": {
         "summary": "Send test webhook",
         "operationId": "testWebhook",
+        "description": "Send a signed test webhook to the agent's configured callback_url. Requires callback_url to be set via PATCH /me. Rate-limited by tier.",
         "responses": {
           "200": {
-            "description": "Test result",
+            "description": "Test result. `success` is false (with HTTP 200) when the callback could not be reached.",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "callback_url": { "type": "string" },
-                    "status_code": { "type": "integer" },
-                    "response_time_ms": { "type": "integer" }
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "callback_url": {
+                      "type": "string"
+                    },
+                    "status_code": {
+                      "type": "integer"
+                    },
+                    "response_time_ms": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "callback_url": "https://example.com/webhooks/suwappu",
+                  "status_code": 200,
+                  "response_time_ms": 142
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No callback_url configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "No callback_url configured",
+                  "hint": "Set callback_url via PATCH /v1/agent/me first"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/billing": {
+      "get": {
+        "summary": "Get billing balance and metering info",
+        "operationId": "getBilling",
+        "description": "Current credit balance, tier, metering status, and cost weights for pay-per-call (x402) metering. Not metered. Rate-limited by tier.",
+        "responses": {
+          "200": {
+            "description": "Billing info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Billing"
+                },
+                "example": {
+                  "success": true,
+                  "agent_id": "9f8b2c1a-3d4e-5f6a-7b8c-9d0e1f2a3b4c",
+                  "tier": "free",
+                  "metering_enabled": false,
+                  "bypass_tiers": [
+                    "agent",
+                    "pro"
+                  ],
+                  "is_metered": true,
+                  "credits": {
+                    "balance": 0,
+                    "lifetime_purchased": 0,
+                    "lifetime_used": 0
+                  },
+                  "credit_usd_value": 0.001,
+                  "cost_weights": {
+                    "quote": 1,
+                    "swap": 2,
+                    "execute": 5
                   }
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/billing/topup": {
+      "post": {
+        "summary": "Top up credits from on-chain USDC payment",
+        "operationId": "topupBilling",
+        "description": "Credit the agent's balance from a verified on-chain USDC payment. Idempotent on txHash (no double-credit). Not metered. Rate-limited by tier.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TopupRequest"
+              },
+              "example": {
+                "txHash": "0x9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b",
+                "chain": "base",
+                "amount": "5"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Credits applied (or already processed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopupResponse"
+                },
+                "example": {
+                  "success": true,
+                  "already_processed": false,
+                  "tx_hash": "0x9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b",
+                  "credits_added": 5000,
+                  "balance": 5000,
+                  "message": "Credited 5000 credits."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON body, validation error, non-positive amount, payment not verified, or verification not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "Validation Error",
+                  "message": "Payment not verified on-chain"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/perps/markets": {
+      "get": {
+        "summary": "List perp markets",
+        "operationId": "listPerpMarkets",
+        "description": "List available Hyperliquid perpetual markets with current mark prices. Public endpoint, no auth required.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Available perp markets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "markets": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PerpMarket"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "markets": [
+                    {
+                      "name": "ETH-USD",
+                      "asset": "ETH",
+                      "szDecimals": 4,
+                      "maxLeverage": 25,
+                      "markPrice": 3246.8,
+                      "fundingRate": 0
+                    },
+                    {
+                      "name": "BTC-USD",
+                      "asset": "BTC",
+                      "szDecimals": 5,
+                      "maxLeverage": 40,
+                      "markPrice": 67120.5,
+                      "fundingRate": 0
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/perps/quote": {
+      "post": {
+        "summary": "Get a perp position quote",
+        "operationId": "getPerpQuote",
+        "description": "Estimate entry price, required margin, liquidation price, and fees for a Hyperliquid perp position. Computed off live mark prices; does not open a position. Authenticated and rate-limited by tier.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PerpsQuoteRequest"
+              },
+              "example": {
+                "market": "ETH-USD",
+                "side": "long",
+                "size": 1,
+                "leverage": 5
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Perp position quote",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerpQuote"
+                },
+                "example": {
+                  "market": "ETH-USD",
+                  "side": "long",
+                  "size": 1,
+                  "leverage": 5,
+                  "entryPrice": 3246.8,
+                  "margin": 649.36,
+                  "liquidationPrice": 2662.38,
+                  "fundingRate": 0,
+                  "fee": 0.65
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body, unknown market, leverage out of range, or below minimum margin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Invalid request",
+                  "details": [
+                    {
+                      "path": [
+                        "leverage"
+                      ],
+                      "message": "Number must be less than or equal to 20"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/perps/positions": {
+      "get": {
+        "summary": "List open perp positions",
+        "operationId": "listPerpPositions",
+        "description": "List open Hyperliquid perp positions for an on-chain address (read from the public clearinghouse state). Accepts flexible auth.",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "EVM address to read positions for.",
+            "example": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Open perp positions (empty array if none)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "positions": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PerpPosition"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "positions": [
+                    {
+                      "id": "ETH-0",
+                      "market": "ETH-USD",
+                      "side": "long",
+                      "size": 1.5,
+                      "leverage": 5,
+                      "entryPrice": 3200,
+                      "markPrice": 3246.8,
+                      "margin": 960,
+                      "unrealizedPnl": 70.2,
+                      "liquidationPrice": 2680.5,
+                      "fundingRate": 0
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required query parameter address",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "address query parameter required"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/predict/markets": {
+      "get": {
+        "summary": "List prediction markets",
+        "operationId": "listPredictionMarkets",
+        "description": "List active Polymarket prediction markets, optionally filtered by a search query. Public endpoint, no auth required.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional full-text search over market questions."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            },
+            "description": "Max markets to return (default 20)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active prediction markets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "markets": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PredictionMarket"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "markets": [
+                    {
+                      "id": "0x1234abcd",
+                      "question": "Will ETH close above $4000 in 2026?",
+                      "outcomes": [
+                        "Yes",
+                        "No"
+                      ],
+                      "outcomePrices": [
+                        0.62,
+                        0.38
+                      ],
+                      "tokens": [
+                        {
+                          "tokenId": "71321045...",
+                          "outcome": "Yes"
+                        },
+                        {
+                          "tokenId": "52114319...",
+                          "outcome": "No"
+                        }
+                      ],
+                      "volume": 1842300.5,
+                      "liquidity": 312450,
+                      "endDate": "2026-12-31T23:59:59.000Z",
+                      "active": true,
+                      "category": "Crypto"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/predict/events": {
+      "get": {
+        "summary": "Browse prediction events",
+        "operationId": "listPredictionEvents",
+        "description": "Browse or search Polymarket events (groups of related markets). Public endpoint, no auth required.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional full-text search over event titles."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prediction events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "markets": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/PredictionMarket"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "events": [
+                    {
+                      "id": "ev_2026_btc",
+                      "title": "Bitcoin price 2026",
+                      "description": "Markets on BTC price milestones in 2026.",
+                      "markets": []
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/predict/market/{id}": {
+      "get": {
+        "summary": "Get prediction market detail",
+        "operationId": "getPredictionMarket",
+        "description": "Get full detail for a single prediction market, including description and resolved outcome (if any). Public endpoint, no auth required.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "0x1234abcd"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prediction market detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PredictionMarketDetail"
+                },
+                "example": {
+                  "id": "0x1234abcd",
+                  "question": "Will ETH close above $4000 in 2026?",
+                  "outcomes": [
+                    "Yes",
+                    "No"
+                  ],
+                  "outcomePrices": [
+                    0.62,
+                    0.38
+                  ],
+                  "tokens": [
+                    {
+                      "tokenId": "71321045...",
+                      "outcome": "Yes"
+                    },
+                    {
+                      "tokenId": "52114319...",
+                      "outcome": "No"
+                    }
+                  ],
+                  "volume": 1842300.5,
+                  "liquidity": 312450,
+                  "endDate": "2026-12-31T23:59:59.000Z",
+                  "active": true,
+                  "category": "Crypto",
+                  "description": "Resolves YES if the ETH/USD close on Dec 31 2026 is above $4000.",
+                  "createdAt": "2026-01-02T00:00:00.000Z",
+                  "resolvedOutcome": null
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Market not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Market 0x1234abcd not found"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/predict/market/{id}/book": {
+      "get": {
+        "summary": "Get prediction market order book",
+        "operationId": "getPredictionMarketBook",
+        "description": "Get the live CLOB order book (bids/asks) for every outcome of a prediction market. Public endpoint, no auth required.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "0x1234abcd"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Order book per outcome",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "marketId": {
+                      "type": "string"
+                    },
+                    "question": {
+                      "type": "string"
+                    },
+                    "outcomes": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/OrderBook"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "marketId": "0x1234abcd",
+                  "question": "Will ETH close above $4000 in 2026?",
+                  "outcomes": [
+                    {
+                      "outcome": "Yes",
+                      "tokenId": "71321045...",
+                      "market": "0x1234abcd",
+                      "assetId": "71321045...",
+                      "bids": [
+                        {
+                          "price": "0.61",
+                          "size": "1200"
+                        }
+                      ],
+                      "asks": [
+                        {
+                          "price": "0.63",
+                          "size": "900"
+                        }
+                      ],
+                      "midpoint": "0.62",
+                      "lastTradePrice": "0.62",
+                      "tickSize": "0.01"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Market not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Market 0x1234abcd not found"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/predict/market/{id}/price": {
+      "get": {
+        "summary": "Get prediction market midpoint prices",
+        "operationId": "getPredictionMarketPrice",
+        "description": "Get live CLOB midpoint prices for each outcome of a prediction market. Public endpoint, no auth required.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "0x1234abcd"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Midpoint price per outcome",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "marketId": {
+                      "type": "string"
+                    },
+                    "question": {
+                      "type": "string"
+                    },
+                    "prices": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "outcome": {
+                            "type": "string"
+                          },
+                          "tokenId": {
+                            "type": "string"
+                          },
+                          "mid": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "marketId": "0x1234abcd",
+                  "question": "Will ETH close above $4000 in 2026?",
+                  "prices": [
+                    {
+                      "outcome": "Yes",
+                      "tokenId": "71321045...",
+                      "mid": "0.62"
+                    },
+                    {
+                      "outcome": "No",
+                      "tokenId": "52114319...",
+                      "mid": "0.38"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Market not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Market 0x1234abcd not found"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/predict/market/{id}/trades": {
+      "get": {
+        "summary": "Get recent prediction market trades",
+        "operationId": "getPredictionMarketTrades",
+        "description": "Get recent trades across all outcomes of a prediction market, merged and sorted newest-first. Public endpoint, no auth required.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "0x1234abcd"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recent trades",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "marketId": {
+                      "type": "string"
+                    },
+                    "question": {
+                      "type": "string"
+                    },
+                    "trades": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "price": {
+                            "type": "string"
+                          },
+                          "size": {
+                            "type": "string"
+                          },
+                          "side": {
+                            "type": "string"
+                          },
+                          "timestamp": {
+                            "type": "string"
+                          },
+                          "outcome": {
+                            "type": "string"
+                          },
+                          "tokenId": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "marketId": "0x1234abcd",
+                  "question": "Will ETH close above $4000 in 2026?",
+                  "trades": [
+                    {
+                      "id": "tr_991",
+                      "price": "0.62",
+                      "size": "150",
+                      "side": "BUY",
+                      "timestamp": "1781827200",
+                      "outcome": "Yes",
+                      "tokenId": "71321045..."
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Market not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Market 0x1234abcd not found"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/predict/order": {
+      "post": {
+        "summary": "Place a prediction market order",
+        "operationId": "placePredictionOrder",
+        "description": "Place a limit order on the Polymarket CLOB. Requires the agent to have a managed wallet address and Turnkey sub-org configured in its metadata; CLOB API credentials are lazily created (signed via Turnkey) on first use. Authenticated and rate-limited by tier.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaceOrderRequest"
+              },
+              "example": {
+                "tokenId": "71321045...",
+                "price": "0.62",
+                "size": "10",
+                "side": "BUY"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Order submitted to the CLOB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "order": {
+                      "$ref": "#/components/schemas/ClobOrder"
+                    }
+                  }
+                },
+                "example": {
+                  "order": {
+                    "id": "0xorder123",
+                    "status": "live",
+                    "market": "0x1234abcd",
+                    "asset_id": "71321045...",
+                    "side": "BUY",
+                    "original_size": "10",
+                    "size_matched": "0",
+                    "price": "0.62",
+                    "created_at": "2026-06-18T15:30:00.000Z",
+                    "expiration": "0",
+                    "type": "GTC"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body, validation error, or the agent has no wallet address / Turnkey sub-org configured for Polymarket trading",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Validation Error",
+                  "message": "Agent has no wallet address configured for Polymarket trading"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/predict/order/{id}": {
+      "delete": {
+        "summary": "Cancel a prediction market order",
+        "operationId": "cancelPredictionOrder",
+        "description": "Cancel an open Polymarket CLOB order by id. Requires existing CLOB credentials (place an order first to initialize them). Authenticated and rate-limited by tier.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "0xorder123"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancel result from the CLOB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "example": {
+                  "canceled": [
+                    "0xorder123"
+                  ],
+                  "not_canceled": {}
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No Polymarket credentials found (place an order first to initialize)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Validation Error",
+                  "message": "No Polymarket credentials found. Place an order first to initialize."
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/predict/positions": {
+      "get": {
+        "summary": "List prediction market positions",
+        "operationId": "listPredictionPositions",
+        "description": "List the agent's Polymarket positions, enriched with the current midpoint price and unrealized PnL. Requires existing CLOB credentials (place an order first to initialize them). Authenticated and rate-limited by tier.",
+        "responses": {
+          "200": {
+            "description": "Positions with current price and unrealized PnL (empty array if none)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "positions": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ClobPosition"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "positions": [
+                    {
+                      "asset": "71321045...",
+                      "conditionId": "0x1234abcd",
+                      "size": "10",
+                      "avgPrice": "0.58",
+                      "currentPrice": "0.62",
+                      "unrealizedPnl": "0.400000"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No Polymarket credentials found (place an order first to initialize)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Validation Error",
+                  "message": "No Polymarket credentials found. Place an order first to initialize."
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/predict/orders": {
+      "get": {
+        "summary": "List prediction market orders",
+        "operationId": "listPredictionOrders",
+        "description": "List the agent's open/matched Polymarket CLOB orders, optionally filtered by status. Requires existing CLOB credentials (place an order first to initialize them). Authenticated and rate-limited by tier.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional order status filter (e.g. live, matched)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Open/matched orders (empty array if none)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "orders": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ClobOrder"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "orders": [
+                    {
+                      "id": "0xorder123",
+                      "status": "live",
+                      "market": "0x1234abcd",
+                      "asset_id": "71321045...",
+                      "side": "BUY",
+                      "original_size": "10",
+                      "size_matched": "0",
+                      "price": "0.62",
+                      "created_at": "2026-06-18T15:30:00.000Z",
+                      "expiration": "0",
+                      "type": "GTC"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No Polymarket credentials found (place an order first to initialize)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Validation Error",
+                  "message": "No Polymarket credentials found. Place an order first to initialize."
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/lend/markets": {
+      "get": {
+        "summary": "List lending markets",
+        "operationId": "listLendingMarkets",
+        "description": "List Morpho Blue lending markets for a chain, ordered by supply size. Read-only (supply/withdraw/borrow/repay are not yet exposed via this API). Public endpoint, no auth required.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "chainId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 8453
+            },
+            "description": "EVM chain id (default 8453 = Base)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lending markets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "markets": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/LendingMarket"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "markets": [
+                    {
+                      "id": "0xmarket1",
+                      "loanToken": "USDC",
+                      "collateralToken": "WETH",
+                      "lltv": 0.86,
+                      "supplyApy": 4.21,
+                      "borrowApy": 6.84,
+                      "totalSupply": 12450000,
+                      "totalBorrow": 8230000,
+                      "utilization": 66.1,
+                      "chainId": 8453
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/lend/market/{id}": {
+      "get": {
+        "summary": "Get lending market detail",
+        "operationId": "getLendingMarket",
+        "description": "Get full detail for a single Morpho Blue lending market, including oracle, interest-rate model, and creation time. Read-only. Public endpoint, no auth required.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "0xmarket1"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lending market detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LendingMarketDetail"
+                },
+                "example": {
+                  "id": "0xmarket1",
+                  "loanToken": "USDC",
+                  "collateralToken": "WETH",
+                  "lltv": 0.86,
+                  "supplyApy": 4.21,
+                  "borrowApy": 6.84,
+                  "totalSupply": 12450000,
+                  "totalBorrow": 8230000,
+                  "utilization": 66.1,
+                  "chainId": 8453,
+                  "oracle": "0xOracleAddress00000000000000000000000000",
+                  "irm": "0xIrmAddress0000000000000000000000000000000",
+                  "createdAt": "2025-03-01T00:00:00.000Z"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Market not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Market 0xmarket1 not found"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/mcp": {
+      "post": {
+        "summary": "MCP JSON-RPC endpoint (Model Context Protocol)",
+        "operationId": "mcpJsonRpc",
+        "description": "Model Context Protocol endpoint over the MCP Streamable HTTP transport (JSON-RPC 2.0). Lets MCP-capable agents discover and invoke Suwappu tools (`get_quote`, `execute_swap`, `get_portfolio`, `predict_markets`, …), read resources (`suwappu://openapi.json`, `suwappu://chains`, token lists) and fetch prompt templates natively. Authenticated with the same agent API key as `/v1/agent/*` (Bearer). Quotes created here share a cache with `POST /v1/agent/quote`, so a quote_id from either surface works in the other. Note: this endpoint is mounted at the API root (`https://api.suwappu.bot/mcp`), not under `/v1/agent`.",
+        "servers": [
+          {
+            "url": "https://api.suwappu.bot",
+            "description": "Production"
+          },
+          {
+            "url": "https://devapi.suwappu.bot",
+            "description": "Development"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "jsonrpc",
+                  "method"
+                ],
+                "properties": {
+                  "jsonrpc": {
+                    "type": "string",
+                    "enum": [
+                      "2.0"
+                    ],
+                    "description": "JSON-RPC protocol version. Always \"2.0\"."
+                  },
+                  "id": {
+                    "description": "Request id echoed back in the response. Omit for notifications.",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "method": {
+                    "type": "string",
+                    "description": "MCP method to invoke.",
+                    "enum": [
+                      "initialize",
+                      "tools/list",
+                      "tools/call",
+                      "resources/list",
+                      "resources/read",
+                      "prompts/list",
+                      "prompts/get",
+                      "notifications/initialized"
+                    ]
+                  },
+                  "params": {
+                    "type": "object",
+                    "description": "Method parameters (e.g. tool name + arguments for tools/call).",
+                    "additionalProperties": true
+                  }
+                }
+              },
+              "example": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                  "name": "get_quote",
+                  "arguments": {
+                    "from_token": "ETH",
+                    "to_token": "USDC",
+                    "amount": "0.5",
+                    "chain": "base"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "JSON-RPC 2.0 response envelope (result or error). MCP returns 200 even for JSON-RPC-level errors; check the `error` member.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "jsonrpc"
+                  ],
+                  "properties": {
+                    "jsonrpc": {
+                      "type": "string",
+                      "enum": [
+                        "2.0"
+                      ]
+                    },
+                    "id": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "result": {
+                      "type": "object",
+                      "description": "Present on success.",
+                      "additionalProperties": true
+                    },
+                    "error": {
+                      "type": "object",
+                      "description": "Present on a JSON-RPC error.",
+                      "properties": {
+                        "code": {
+                          "type": "integer"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "data": {
+                          "description": "Optional error detail."
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "jsonrpc": "2.0",
+                  "id": 1,
+                  "result": {
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "{\"quote_id\":\"lifi_0x8453_4f3a2b1c9d8e\",\"from_chain\":\"Base\",\"to_chain\":\"Base\",\"chain_type\":\"evm\",\"from_token\":\"ETH\",\"to_token\":\"USDC\",\"amount_in\":\"0.5\",\"amount_out\":\"1623.412000\",\"expires_in_seconds\":60}"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No content. Returned for JSON-RPC notifications (e.g. notifications/initialized)."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       }
@@ -659,47 +3035,1905 @@
         "description": "API key from POST /register (suwappu_sk_...)"
       }
     },
+    "responses": {
+      "Unauthorized": {
+        "description": "Missing or invalid API key. Returned by the gateway error handler.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": "Invalid or inactive API key",
+              "requestId": "3f9a1c2b-4d5e-6f7a-8b9c-0d1e2f3a4b5c",
+              "timestamp": "2026-06-18T15:30:00.000Z"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Rate limit exceeded for the agent's tier (free=30, agent=100, pro=500 requests/min). See Retry-After header.",
+        "headers": {
+          "Retry-After": {
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Seconds until the window resets"
+          },
+          "X-RateLimit-Limit": {
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-RateLimit-Remaining": {
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-RateLimit-Reset": {
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": "Rate limit exceeded. 30 requests per minute for free tier. Retry after 42s.",
+              "requestId": "3f9a1c2b-4d5e-6f7a-8b9c-0d1e2f3a4b5c",
+              "timestamp": "2026-06-18T15:30:00.000Z"
+            }
+          }
+        }
+      },
+      "RateLimitedPublic": {
+        "description": "IP rate limit exceeded (5 requests/min for /register). See Retry-After header.",
+        "headers": {
+          "Retry-After": {
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Seconds until the window resets"
+          },
+          "X-RateLimit-Limit": {
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-RateLimit-Remaining": {
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-RateLimit-Reset": {
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": "Rate limit exceeded. 5 requests per minute. Retry after 38s.",
+              "requestId": "3f9a1c2b-4d5e-6f7a-8b9c-0d1e2f3a4b5c",
+              "timestamp": "2026-06-18T15:30:00.000Z"
+            }
+          }
+        }
+      },
+      "PaymentRequired": {
+        "description": "Insufficient prepaid credits when x402 metering is enabled. Pay USDC and top up via POST /billing/topup. The challenge is also base64-encoded in the X-Payment-Required header.",
+        "headers": {
+          "X-Payment-Required": {
+            "schema": {
+              "type": "string"
+            },
+            "description": "Base64-encoded x402 challenge"
+          },
+          "Accept-Payment": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PaymentChallenge"
+            },
+            "example": {
+              "x402Version": 1,
+              "accepts": [
+                {
+                  "scheme": "exact",
+                  "network": "base",
+                  "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                  "maxAmountRequired": "1000",
+                  "payTo": "0xFeeC0lleCt0r0000000000000000000000000000",
+                  "resource": "/v1/agent/quote",
+                  "description": "Suwappu agent API call: quote (1 credit)",
+                  "mimeType": "application/json"
+                }
+              ],
+              "error": "insufficient_credits",
+              "cost_credits": 1,
+              "credit_usd_value": 0.001,
+              "topup": "POST /v1/agent/billing/topup with {txHash, chain, amount}"
+            }
+          }
+        }
+      },
+      "WalletOwnership": {
+        "description": "The supplied wallet_address is not the agent's managed wallet.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "success": false,
+              "error": "wallet_address is not your managed wallet"
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Internal or upstream service error.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": "Internal Server Error",
+              "requestId": "3f9a1c2b-4d5e-6f7a-8b9c-0d1e2f3a4b5c",
+              "timestamp": "2026-06-18T15:30:00.000Z"
+            }
+          }
+        }
+      }
+    },
     "schemas": {
+      "Error": {
+        "type": "object",
+        "description": "Standardized error body. Two shapes exist: handler/validation errors include `success: false` and `error` (and optionally `message`, `fields`, `hint`); gateway errors (auth/rate-limit/unhandled) include `error`, `requestId`, and `timestamp`. All fields are documented here; any given error uses the relevant subset.",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ],
+            "description": "Present (false) on handler/validation errors."
+          },
+          "error": {
+            "type": "string",
+            "description": "Human-readable error label or message.",
+            "example": "Validation Error"
+          },
+          "message": {
+            "type": "string",
+            "description": "Detailed error message.",
+            "example": "Token not found: FOO on Base"
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Per-field validation errors keyed by field path.",
+            "example": {
+              "amount": "amount must be a positive number"
+            }
+          },
+          "hint": {
+            "type": "string",
+            "description": "Actionable hint for fixing the request."
+          },
+          "resource": {
+            "type": "string",
+            "description": "Resource name on not-found errors."
+          },
+          "service": {
+            "type": "string",
+            "description": "Upstream service name on external-service errors."
+          },
+          "requestId": {
+            "type": "string",
+            "description": "Request correlation id (gateway errors).",
+            "example": "3f9a1c2b-4d5e-6f7a-8b9c-0d1e2f3a4b5c"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO timestamp (gateway errors)."
+          }
+        },
+        "example": {
+          "success": false,
+          "error": "Validation Error",
+          "message": "amount must be a positive number",
+          "fields": {
+            "amount": "amount must be a positive number"
+          }
+        }
+      },
+      "PaymentChallenge": {
+        "type": "object",
+        "description": "x402 payment-required challenge returned with HTTP 402 when metering is enabled and credits are insufficient.",
+        "properties": {
+          "x402Version": {
+            "type": "integer",
+            "example": 1
+          },
+          "accepts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "scheme": {
+                  "type": "string",
+                  "example": "exact"
+                },
+                "network": {
+                  "type": "string",
+                  "example": "base"
+                },
+                "asset": {
+                  "type": "string",
+                  "description": "USDC token address"
+                },
+                "maxAmountRequired": {
+                  "type": "string",
+                  "description": "Amount in USDC base units"
+                },
+                "payTo": {
+                  "type": "string"
+                },
+                "resource": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "mimeType": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "error": {
+            "type": "string",
+            "example": "insufficient_credits"
+          },
+          "cost_credits": {
+            "type": "number"
+          },
+          "credit_usd_value": {
+            "type": "number"
+          },
+          "topup": {
+            "type": "string"
+          }
+        }
+      },
+      "Chain": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "Numeric chain id for EVM chains, or string id (e.g. \"solana\") for non-EVM.",
+            "example": 8453
+          },
+          "key": {
+            "type": "string",
+            "description": "Chain key used in requests.",
+            "example": "base"
+          },
+          "name": {
+            "type": "string",
+            "example": "Base"
+          },
+          "native_token": {
+            "type": "string",
+            "example": "ETH"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "evm",
+              "solana",
+              "move",
+              "ton"
+            ],
+            "description": "Chain family."
+          }
+        }
+      },
+      "TokenRef": {
+        "type": "object",
+        "description": "Resolved token reference within a quote.",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "example": "USDC"
+          },
+          "address": {
+            "type": "string",
+            "example": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+          },
+          "decimals": {
+            "type": "integer",
+            "example": 6
+          }
+        }
+      },
+      "RegisterAgentRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 50,
+            "pattern": "^[a-zA-Z0-9_-]+$",
+            "description": "Alphanumeric with underscores/hyphens.",
+            "example": "my-trading-agent"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "callback_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Public HTTPS URL for webhook delivery. Must be a public URL (no private/loopback/metadata hosts)."
+          },
+          "metadata": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "RegisterAgentResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "api_key": {
+                "type": "string",
+                "description": "Save this — it cannot be retrieved later."
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "important": {
+            "type": "string"
+          },
+          "next_steps": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "docs": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateAgentRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "callback_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "description": "Public webhook URL. Must be a public URL (no private/loopback/metadata hosts)."
+          },
+          "metadata": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": true
+          }
+        },
+        "description": "At least one field must be provided."
+      },
       "AgentProfile": {
         "type": "object",
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "name": { "type": "string" },
-          "description": { "type": "string", "nullable": true },
-          "rate_limit_tier": { "type": "string" },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "9f8b2c1a-3d4e-5f6a-7b8c-9d0e1f2a3b4c"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "callback_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "rate_limit_tier": {
+            "type": "string",
+            "enum": [
+              "free",
+              "agent",
+              "pro"
+            ],
+            "example": "free"
+          },
           "stats": {
             "type": "object",
             "properties": {
-              "total_requests": { "type": "integer" },
-              "total_swaps": { "type": "integer" }
+              "total_requests": {
+                "type": "integer"
+              },
+              "total_swaps": {
+                "type": "integer"
+              }
             }
           },
-          "created_at": { "type": "string", "format": "date-time" },
-          "last_active_at": { "type": "string", "format": "date-time", "nullable": true }
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_active_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "QuoteRequest": {
+        "type": "object",
+        "properties": {
+          "from_token": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Source token symbol (e.g. ETH, SOL, USDC).",
+            "example": "ETH"
+          },
+          "to_token": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Destination token symbol.",
+            "example": "USDC"
+          },
+          "amount": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Positive decimal string, max 1,000,000 units.",
+            "example": "0.5"
+          },
+          "chain": {
+            "type": "string",
+            "description": "Chain key (e.g. base, solana). See GET /chains for the full list.",
+            "example": "base"
+          },
+          "from_chain": {
+            "type": "string",
+            "description": "Source chain key for cross-chain swaps."
+          },
+          "to_chain": {
+            "type": "string",
+            "description": "Destination chain key for cross-chain swaps."
+          },
+          "wallet_address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$",
+            "description": "EVM address (0x + 40 hex). Must not be the zero address. When provided, the response includes executable transaction data."
+          },
+          "slippage": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 0.5,
+            "description": "Fractional slippage (e.g. 0.03 = 3%). Defaults to 0.03."
+          }
+        },
+        "required": [
+          "from_token",
+          "to_token",
+          "amount"
+        ]
+      },
+      "Quote": {
+        "type": "object",
+        "description": "Quote response. EVM (Li.Fi) and Solana (Jupiter) quotes share most fields; EVM quotes add chain ids and gas/bridge estimates, Solana quotes add `dex: Jupiter` and `requires_wallet`.",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "quote_id": {
+            "type": "string",
+            "description": "Use with POST /swap or POST /swap/execute within 60s.",
+            "example": "lifi_0x8453_4f3a2b1c9d8e"
+          },
+          "from_chain": {
+            "type": "string",
+            "example": "Base"
+          },
+          "from_chain_id": {
+            "type": "integer",
+            "example": 8453
+          },
+          "to_chain": {
+            "type": "string",
+            "example": "Base"
+          },
+          "to_chain_id": {
+            "type": "integer",
+            "example": 8453
+          },
+          "chain": {
+            "type": "string",
+            "description": "Present for Solana quotes.",
+            "example": "Solana"
+          },
+          "chain_type": {
+            "type": "string",
+            "enum": [
+              "evm",
+              "solana"
+            ]
+          },
+          "from_token": {
+            "$ref": "#/components/schemas/TokenRef"
+          },
+          "to_token": {
+            "$ref": "#/components/schemas/TokenRef"
+          },
+          "amount_in": {
+            "type": "string",
+            "example": "0.5"
+          },
+          "amount_out": {
+            "type": "string",
+            "example": "1623.412000"
+          },
+          "amount_out_min": {
+            "type": "string",
+            "example": "1574.709640"
+          },
+          "exchange_rate": {
+            "type": "string",
+            "example": "3246.824000"
+          },
+          "price_impact": {
+            "type": "string",
+            "example": "0.02%"
+          },
+          "estimated_gas_usd": {
+            "type": "string",
+            "example": "$0.15"
+          },
+          "bridge_fee_usd": {
+            "type": "string",
+            "example": "$0"
+          },
+          "route": {
+            "type": "string",
+            "example": "Uniswap V3"
+          },
+          "slippage": {
+            "type": "string",
+            "example": "3.0%"
+          },
+          "estimated_time_seconds": {
+            "type": "integer",
+            "example": 30
+          },
+          "expires_in_seconds": {
+            "type": "integer",
+            "example": 60
+          },
+          "dex": {
+            "type": "string",
+            "enum": [
+              "Li.Fi",
+              "Jupiter"
+            ]
+          },
+          "requires_wallet": {
+            "type": "boolean",
+            "description": "Present for Solana quotes."
+          },
+          "wallet_type": {
+            "type": "string",
+            "description": "Present for Solana quotes."
+          },
+          "transaction": {
+            "type": "object",
+            "description": "Present only when wallet_address was supplied (EVM).",
+            "properties": {
+              "to": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              },
+              "data": {
+                "type": "string"
+              },
+              "chain_id": {
+                "type": "integer"
+              },
+              "gas_limit": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "SwapRequest": {
+        "type": "object",
+        "properties": {
+          "quote_id": {
+            "type": "string",
+            "description": "A quote_id from POST /quote.",
+            "example": "lifi_0x8453_4f3a2b1c9d8e"
+          },
+          "from_token": {
+            "type": "string"
+          },
+          "to_token": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "chain": {
+            "type": "string"
+          },
+          "wallet_address": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Must be the agent's own managed wallet.",
+            "example": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e"
+          },
+          "slippage": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "wallet_address"
+        ]
+      },
+      "SwapTransaction": {
+        "type": "object",
+        "description": "Unsigned transaction ready for signing. EVM returns a `transaction` object with calldata; Solana returns a base64 serialized transaction.",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "quote_id": {
+            "type": "string"
+          },
+          "chain_type": {
+            "type": "string",
+            "enum": [
+              "evm",
+              "solana"
+            ]
+          },
+          "chain": {
+            "type": "string",
+            "description": "Present for Solana."
+          },
+          "swap": {
+            "type": "object",
+            "properties": {
+              "from_chain": {},
+              "to_chain": {},
+              "from_token": {
+                "type": "string"
+              },
+              "to_token": {
+                "type": "string"
+              },
+              "amount_in": {
+                "type": "string"
+              },
+              "expected_amount_out": {
+                "type": "string"
+              },
+              "minimum_amount_out": {
+                "type": "string"
+              }
+            }
+          },
+          "transaction": {
+            "type": "object",
+            "properties": {
+              "to": {
+                "type": "string"
+              },
+              "from": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              },
+              "data": {
+                "type": "string"
+              },
+              "chain_id": {
+                "type": "integer"
+              },
+              "gas_limit": {
+                "type": "string"
+              },
+              "gas_price": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "description": "\"solana\" for Solana transactions."
+              },
+              "serialized_transaction": {
+                "type": "string",
+                "description": "Base64 (Solana)."
+              },
+              "last_valid_block_height": {
+                "type": "integer",
+                "description": "Solana."
+              }
+            }
+          },
+          "instructions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ExecuteSwapRequest": {
+        "type": "object",
+        "properties": {
+          "quote_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A quote_id from POST /quote.",
+            "example": "lifi_0x8453_4f3a2b1c9d8e"
+          }
+        },
+        "required": [
+          "quote_id"
+        ]
+      },
+      "ExecuteSwapResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "swap_id": {
+            "type": "integer",
+            "example": 4821
+          },
+          "status": {
+            "$ref": "#/components/schemas/SwapStatusValue"
+          },
+          "tx_hash": {
+            "type": "string",
+            "nullable": true
+          },
+          "tracking": {
+            "type": "object",
+            "properties": {
+              "poll_url": {
+                "type": "string"
+              },
+              "webhook_note": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "SwapStatusValue": {
+        "type": "string",
+        "description": "Swap lifecycle status. Representative set; downstream values come from the swap pipeline.",
+        "enum": [
+          "pending",
+          "submitted",
+          "confirmed",
+          "completed",
+          "failed"
+        ]
+      },
+      "SwapStatus": {
+        "type": "object",
+        "properties": {
+          "swap_id": {
+            "type": "integer",
+            "example": 4821
+          },
+          "status": {
+            "$ref": "#/components/schemas/SwapStatusValue"
+          },
+          "tx_hash": {
+            "type": "string",
+            "nullable": true
+          },
+          "from_chain": {
+            "type": "string",
+            "nullable": true
+          },
+          "to_chain": {
+            "type": "string",
+            "nullable": true
+          },
+          "from_token": {
+            "type": "string",
+            "nullable": true
+          },
+          "to_token": {
+            "type": "string",
+            "nullable": true
+          },
+          "from_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "to_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "error_message": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "ExecuteCommandRequest": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Natural language command (e.g. \"swap 0.5 ETH to USDC on Base\").",
+            "example": "swap 0.5 ETH to USDC on base"
+          },
+          "wallet_address": {
+            "type": "string",
+            "description": "When provided, must be the agent's own managed wallet."
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "ExecuteCommandResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "swap",
+              "quote",
+              "portfolio",
+              "unknown"
+            ],
+            "description": "How the command was interpreted."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "quoted",
+              "unrecognized"
+            ],
+            "description": "Present for swap/unknown actions."
+          },
+          "message": {
+            "type": "string"
+          },
+          "quote_id": {
+            "type": "string"
+          },
+          "from_token": {
+            "type": "string"
+          },
+          "to_token": {
+            "type": "string"
+          },
+          "amount_in": {
+            "type": "string"
+          },
+          "amount_out": {
+            "type": "string"
+          },
+          "chain": {
+            "type": "string"
+          },
+          "chain_id": {
+            "type": "integer"
+          },
+          "exchange_rate": {
+            "type": "string"
+          },
+          "next_step": {
+            "type": "string"
+          },
+          "supported_commands": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Portfolio": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "wallet_address": {
+            "type": "string"
+          },
+          "wallet_type": {
+            "type": "string",
+            "enum": [
+              "evm",
+              "solana"
+            ]
+          },
+          "chain_filter": {
+            "type": "string",
+            "description": "Requested chain filter, or \"all\"."
+          },
+          "total_usd": {
+            "type": "string",
+            "example": "2451.33"
+          },
+          "balances": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "symbol": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "chain": {
+                  "type": "string"
+                },
+                "balance": {
+                  "type": "string"
+                },
+                "usd_value": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Prices": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "prices": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "usd": {
+                  "type": "number"
+                },
+                "change_24h": {
+                  "type": "number",
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "unknown_symbols": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Symbols that could not be priced (present only when non-empty)."
+          }
+        }
+      },
+      "TokenList": {
+        "type": "object",
+        "description": "When `chain` is provided: `chain`, `chain_id`, and a flat `tokens` array. When omitted: a `chains` array, each entry with its own `tokens`.",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "chain": {
+            "type": "string"
+          },
+          "chain_id": {
+            "description": "Numeric for EVM, \"solana\" for Solana."
+          },
+          "tokens": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "symbol": {
+                  "type": "string"
+                },
+                "address": {
+                  "type": "string"
+                },
+                "decimals": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "chains": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "chain": {
+                  "type": "string"
+                },
+                "chain_id": {},
+                "tokens": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "symbol": {
+                        "type": "string"
+                      },
+                      "address": {
+                        "type": "string"
+                      },
+                      "decimals": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Wallet": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "example": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e"
+          },
+          "chain_type": {
+            "type": "string",
+            "enum": [
+              "evm"
+            ]
+          },
+          "supported_chains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "CreatePolicyRequest": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "spending_limit",
+              "whitelist"
+            ]
+          },
+          "params": {
+            "type": "object",
+            "properties": {
+              "maxAmountWei": {
+                "type": "string",
+                "pattern": "^\\d+$",
+                "description": "Required for spending_limit. Max value in wei."
+              },
+              "timeWindowSeconds": {
+                "type": "number",
+                "description": "Time window for spending_limit."
+              },
+              "allowedAddresses": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]{40}$"
+                },
+                "description": "Required for whitelist."
+              }
+            }
+          }
+        },
+        "required": [
+          "type",
+          "params"
+        ]
+      },
+      "Policy": {
+        "type": "object",
+        "properties": {
+          "policyId": {
+            "type": "string",
+            "example": "a1b2c3d4-5678-90ab-cdef-1234567890ab"
+          },
+          "policyName": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "spending_limit",
+              "whitelist"
+            ]
+          },
+          "condition": {
+            "type": "string"
+          }
+        }
+      },
+      "Billing": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "agent_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "free",
+              "agent",
+              "pro"
+            ]
+          },
+          "metering_enabled": {
+            "type": "boolean"
+          },
+          "bypass_tiers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "is_metered": {
+            "type": "boolean"
+          },
+          "credits": {
+            "type": "object",
+            "properties": {
+              "balance": {
+                "type": "number"
+              },
+              "lifetime_purchased": {
+                "type": "number"
+              },
+              "lifetime_used": {
+                "type": "number"
+              }
+            }
+          },
+          "credit_usd_value": {
+            "type": "number",
+            "example": 0.001
+          },
+          "cost_weights": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "topup": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "TopupRequest": {
+        "type": "object",
+        "properties": {
+          "txHash": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 128,
+            "description": "On-chain USDC payment tx hash.",
+            "example": "0x9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b"
+          },
+          "chain": {
+            "default": "base",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "description": "Chain the payment was made on.",
+            "example": "base"
+          },
+          "amount": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "USDC amount paid (string or number; coerced to a number).",
+            "example": "5"
+          }
+        },
+        "required": [
+          "txHash",
+          "amount"
+        ]
+      },
+      "TopupResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "already_processed": {
+            "type": "boolean"
+          },
+          "tx_hash": {
+            "type": "string"
+          },
+          "credits_added": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "message": {
+            "type": "string"
+          }
         }
       },
       "WebhookEvent": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer" },
-          "event_type": { "type": "string" },
-          "status": { "type": "string" },
-          "attempts": { "type": "integer" },
-          "last_error": { "type": "string", "nullable": true },
-          "response_status": { "type": "integer", "nullable": true },
-          "callback_url": { "type": "string" },
-          "created_at": { "type": "string", "format": "date-time" },
-          "delivered_at": { "type": "string", "format": "date-time", "nullable": true }
+          "id": {
+            "type": "integer"
+          },
+          "event_type": {
+            "type": "string",
+            "example": "swap.completed"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "delivered",
+              "failed"
+            ]
+          },
+          "attempts": {
+            "type": "integer"
+          },
+          "last_error": {
+            "type": "string",
+            "nullable": true
+          },
+          "response_status": {
+            "type": "integer",
+            "nullable": true
+          },
+          "callback_url": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "delivered_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
         }
       },
       "Pagination": {
         "type": "object",
         "properties": {
-          "total": { "type": "integer" },
-          "limit": { "type": "integer" },
-          "offset": { "type": "integer" },
-          "has_more": { "type": "boolean" }
+          "total": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "has_more": {
+            "type": "boolean"
+          }
         }
+      },
+      "PerpsQuoteRequest": {
+        "type": "object",
+        "properties": {
+          "market": {
+            "type": "string",
+            "description": "Perp market symbol (e.g. ETH-USD). See GET /perps/markets.",
+            "example": "ETH-USD"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "long",
+              "short"
+            ],
+            "description": "Position direction."
+          },
+          "size": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Position size in base units (positive).",
+            "example": 1
+          },
+          "leverage": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 20,
+            "description": "Leverage multiplier (1-20).",
+            "example": 5
+          }
+        },
+        "required": [
+          "market",
+          "side",
+          "size",
+          "leverage"
+        ],
+        "description": "Perp position quote request (Hyperliquid)."
+      },
+      "PerpMarket": {
+        "type": "object",
+        "description": "A Hyperliquid perpetual market.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "ETH-USD"
+          },
+          "asset": {
+            "type": "string",
+            "example": "ETH"
+          },
+          "szDecimals": {
+            "type": "integer",
+            "description": "Size decimals for the market."
+          },
+          "maxLeverage": {
+            "type": "integer",
+            "example": 25
+          },
+          "markPrice": {
+            "type": "number",
+            "example": 3246.8
+          },
+          "fundingRate": {
+            "type": "number",
+            "description": "Current funding rate (0 when not fetched)."
+          }
+        }
+      },
+      "PerpQuote": {
+        "type": "object",
+        "description": "Estimated entry, margin, liquidation, and fees for a perp position. Does not open a position.",
+        "properties": {
+          "market": {
+            "type": "string",
+            "example": "ETH-USD"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "long",
+              "short"
+            ]
+          },
+          "size": {
+            "type": "number"
+          },
+          "leverage": {
+            "type": "number"
+          },
+          "entryPrice": {
+            "type": "number"
+          },
+          "margin": {
+            "type": "number",
+            "description": "Required margin in USD."
+          },
+          "liquidationPrice": {
+            "type": "number"
+          },
+          "fundingRate": {
+            "type": "number"
+          },
+          "fee": {
+            "type": "number",
+            "description": "Estimated open fee in USD."
+          }
+        }
+      },
+      "PerpPosition": {
+        "type": "object",
+        "description": "An open Hyperliquid perp position.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "market": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "long",
+              "short"
+            ]
+          },
+          "size": {
+            "type": "number"
+          },
+          "leverage": {
+            "type": "number"
+          },
+          "entryPrice": {
+            "type": "number"
+          },
+          "markPrice": {
+            "type": "number"
+          },
+          "margin": {
+            "type": "number"
+          },
+          "unrealizedPnl": {
+            "type": "number"
+          },
+          "liquidationPrice": {
+            "type": "number"
+          },
+          "fundingRate": {
+            "type": "number"
+          }
+        }
+      },
+      "PredictionMarket": {
+        "type": "object",
+        "description": "A Polymarket prediction market.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "outcomes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "Yes",
+              "No"
+            ]
+          },
+          "outcomePrices": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "example": [
+              0.62,
+              0.38
+            ]
+          },
+          "tokens": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tokenId": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "volume": {
+            "type": "number"
+          },
+          "liquidity": {
+            "type": "number"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "category": {
+            "type": "string"
+          }
+        }
+      },
+      "PredictionMarketDetail": {
+        "type": "object",
+        "description": "Full prediction market detail (extends PredictionMarket).",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PredictionMarket"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "resolvedOutcome": {
+                "type": "string",
+                "nullable": true,
+                "description": "The winning outcome once resolved, else null."
+              }
+            }
+          }
+        ]
+      },
+      "OrderBook": {
+        "type": "object",
+        "description": "CLOB order book for a single market outcome.",
+        "properties": {
+          "outcome": {
+            "type": "string"
+          },
+          "tokenId": {
+            "type": "string"
+          },
+          "market": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "bids": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "price": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "asks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "price": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "midpoint": {
+            "type": "string"
+          },
+          "lastTradePrice": {
+            "type": "string"
+          },
+          "tickSize": {
+            "type": "string"
+          }
+        }
+      },
+      "PlaceOrderRequest": {
+        "type": "object",
+        "properties": {
+          "tokenId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "CLOB token id for the outcome. See GET /predict/market/{id}."
+          },
+          "price": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Decimal string between 0 and 1.",
+            "example": "0.62"
+          },
+          "size": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Positive decimal string (number of shares).",
+            "example": "10"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "BUY",
+              "SELL"
+            ],
+            "description": "Order direction."
+          },
+          "expiration": {
+            "type": "number"
+          },
+          "feeRateBps": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 500,
+            "description": "Optional fee rate in basis points (0-500)."
+          }
+        },
+        "required": [
+          "tokenId",
+          "price",
+          "size",
+          "side"
+        ],
+        "description": "Prediction-market limit order (Polymarket CLOB)."
+      },
+      "CancelOrderRequest": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The CLOB order id to cancel."
+          }
+        },
+        "required": [
+          "orderId"
+        ],
+        "description": "Cancel a prediction-market order by id."
+      },
+      "ClobOrder": {
+        "type": "object",
+        "description": "A Polymarket CLOB order.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "example": "live"
+          },
+          "market": {
+            "type": "string"
+          },
+          "asset_id": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "BUY",
+              "SELL"
+            ]
+          },
+          "original_size": {
+            "type": "string"
+          },
+          "size_matched": {
+            "type": "string"
+          },
+          "price": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "expiration": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "example": "GTC"
+          }
+        }
+      },
+      "ClobPosition": {
+        "type": "object",
+        "description": "A Polymarket position, enriched with current midpoint price and unrealized PnL.",
+        "properties": {
+          "asset": {
+            "type": "string",
+            "description": "CLOB token id."
+          },
+          "conditionId": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "avgPrice": {
+            "type": "string"
+          },
+          "currentPrice": {
+            "type": "string",
+            "description": "Live midpoint price."
+          },
+          "realizedPnl": {
+            "type": "string"
+          },
+          "unrealizedPnl": {
+            "type": "string",
+            "description": "size * (currentPrice - avgPrice)."
+          }
+        }
+      },
+      "LendingMarket": {
+        "type": "object",
+        "description": "A Morpho Blue lending market.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "loanToken": {
+            "type": "string",
+            "example": "USDC"
+          },
+          "collateralToken": {
+            "type": "string",
+            "example": "WETH"
+          },
+          "lltv": {
+            "type": "number",
+            "description": "Liquidation loan-to-value ratio (0-1).",
+            "example": 0.86
+          },
+          "supplyApy": {
+            "type": "number",
+            "description": "Supply APY as a percentage.",
+            "example": 4.21
+          },
+          "borrowApy": {
+            "type": "number",
+            "description": "Borrow APY as a percentage.",
+            "example": 6.84
+          },
+          "totalSupply": {
+            "type": "number",
+            "description": "Total supplied, USD."
+          },
+          "totalBorrow": {
+            "type": "number",
+            "description": "Total borrowed, USD."
+          },
+          "utilization": {
+            "type": "number",
+            "description": "Utilization as a percentage."
+          },
+          "chainId": {
+            "type": "integer",
+            "example": 8453
+          }
+        }
+      },
+      "LendingMarketDetail": {
+        "type": "object",
+        "description": "Full lending market detail (extends LendingMarket).",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LendingMarket"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "oracle": {
+                "type": "string",
+                "description": "Oracle contract address."
+              },
+              "irm": {
+                "type": "string",
+                "description": "Interest-rate model contract address."
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        ]
       }
     }
   }

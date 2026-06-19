@@ -37,6 +37,7 @@ def _stored_secret(user_id: int) -> str:
 
 # --- Encryption at rest ---------------------------------------------------
 
+
 def test_setup_2fa_stores_ciphertext_not_plaintext(sqlite_db):
     secret, _uri = twofa_service.setup_2fa(1)
     stored = _stored_secret(1)
@@ -61,6 +62,7 @@ def test_disable_2fa_with_encrypted_secret(sqlite_db):
 
 
 # --- Legacy plaintext healing ---------------------------------------------
+
 
 def test_legacy_plaintext_secret_is_healed_on_read(sqlite_db):
     secret = pyotp.random_base32()
@@ -99,6 +101,7 @@ def test_unpadded_legacy_secret_is_healed(sqlite_db):
 
 # --- Threshold persistence + enforcement ----------------------------------
 
+
 def test_threshold_set_get_roundtrip(sqlite_db):
     assert twofa_service.set_2fa_threshold(1, 250) is True
     assert twofa_service.get_2fa_threshold(1) == 250.0
@@ -119,6 +122,7 @@ def test_requires_2fa_uses_persisted_threshold(sqlite_db):
 
 
 # --- DB backfill migration -------------------------------------------------
+
 
 def test_backfill_encrypts_plaintext_rows(sqlite_db):
     import database.db as db
@@ -153,10 +157,37 @@ def test_backfill_skips_corrupted_rows(sqlite_db):
     assert _stored_secret(1) == corrupt, "corrupted row must be skipped, not mangled"
 
 
+# --- Enrollment (begin/confirm) ---------------------------------------------
+
+
+def test_begin_enrollment_does_not_enable_until_confirmed(sqlite_db):
+    secret, uri = twofa_service.begin_enrollment(1)
+    assert "otpauth://" in uri
+    # Not active yet — a user who never scans the secret must not be locked out.
+    assert twofa_service.is_2fa_enabled(1) is False
+    # Stored encrypted, not plaintext.
+    assert _stored_secret(1) != secret
+
+    assert twofa_service.confirm_enrollment(1, "000000") is False
+    assert twofa_service.is_2fa_enabled(1) is False
+
+    code = pyotp.TOTP(secret).now()
+    assert twofa_service.confirm_enrollment(1, code) is True
+    assert twofa_service.is_2fa_enabled(1) is True
+
+
+def test_begin_enrollment_rejected_when_already_enabled(sqlite_db):
+    twofa_service.setup_2fa(1)
+    with pytest.raises(ValueError):
+        twofa_service.begin_enrollment(1)
+
+
 # --- Turnkey fail-closed ---------------------------------------------------
+
 
 def test_turnkey_import_private_key_fails_closed():
     from bot.services.turnkey_client import TurnkeyClient
+
     client = TurnkeyClient.__new__(TurnkeyClient)  # avoid __init__ creds
     with pytest.raises(NotImplementedError):
         asyncio.run(client.import_private_key("0xabc", "k", "CURVE_SECP256K1"))
@@ -164,5 +195,6 @@ def test_turnkey_import_private_key_fails_closed():
 
 class _FakeUser:
     """Minimal stand-in so _read_secret can decrypt without a DB write-back."""
+
     def __init__(self, totp_secret):
         self.totp_secret = totp_secret

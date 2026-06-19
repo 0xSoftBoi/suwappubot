@@ -18,6 +18,7 @@ import { ValidationError } from '../errors'
 import { agentBearerAuth } from '../middleware'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
+import openApiSpec from '../../openapi-agent.json'
 import type { Agent } from '../db'
 
 type McpContext = { Variables: { agent: Agent } }
@@ -143,6 +144,45 @@ const TOOLS = [
 		},
 	},
 ]
+
+// ---------------------------------------------------------------
+// Tool annotations (MCP behavioural hints, spec 2025-03-26)
+//
+// Hints only — clients MUST NOT make security decisions from them.
+// readOnlyHint:   tool does not mutate server/chain state
+// destructiveHint: tool may perform irreversible updates (only meaningful when not read-only)
+// idempotentHint:  repeated identical calls have no additional effect
+// openWorldHint:   tool talks to external systems (chains, DEX aggregators, oracles)
+// ---------------------------------------------------------------
+
+type ToolAnnotations = {
+	title: string
+	readOnlyHint: boolean
+	destructiveHint?: boolean
+	idempotentHint?: boolean
+	openWorldHint: boolean
+}
+
+const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
+	get_quote: { title: 'Get Swap Quote', readOnlyHint: true, idempotentHint: false, openWorldHint: true },
+	get_portfolio: { title: 'Get Portfolio', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+	get_prices: { title: 'Get Token Prices', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+	list_chains: { title: 'List Supported Chains', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+	list_tokens: { title: 'List Tokens', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+	// Builds an UNSIGNED transaction — it never broadcasts, so it is not destructive
+	// on its own. The user signs and submits. Not read-only because it consumes a
+	// one-time cached quote.
+	execute_swap: { title: 'Prepare Swap Transaction', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+	get_tempo_tokens: { title: 'Get Tempo (TIP-20) Tokens', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+	browse_mpp_directory: { title: 'Browse MPP Service Directory', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+	predict_markets: { title: 'Search Prediction Markets', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+	predict_market_detail: { title: 'Prediction Market Detail', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+}
+
+const TOOLS_WITH_ANNOTATIONS = TOOLS.map((t) => ({
+	...t,
+	...(TOOL_ANNOTATIONS[t.name] ? { annotations: TOOL_ANNOTATIONS[t.name] } : {}),
+}))
 
 // ---------------------------------------------------------------
 // JSON-RPC helpers
@@ -548,6 +588,99 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent) {
 }
 
 // ---------------------------------------------------------------
+// Resources (MCP resources/list + resources/read)
+//
+// Self-contained, in-process data agents can read once and cache: the
+// OpenAPI contract, the supported-chain list, and curated token lists.
+// ---------------------------------------------------------------
+
+const RESOURCES = [
+	{ uri: 'suwappu://openapi.json', name: 'OpenAPI Specification', description: 'OpenAPI 3.1 spec for the full Suwappu agent REST API.', mimeType: 'application/json' },
+	{ uri: 'suwappu://chains', name: 'Supported Chains', description: 'All blockchain networks Suwappu can swap across.', mimeType: 'application/json' },
+	{ uri: 'suwappu://tokens/solana', name: 'Solana Token List', description: 'Curated SPL token list (symbol, mint address, decimals).', mimeType: 'application/json' },
+	{ uri: 'suwappu://tokens/tempo', name: 'Tempo TIP-20 Token List', description: 'TIP-20 stablecoins on Tempo mainnet (chain 4217).', mimeType: 'application/json' },
+] as const
+
+function readResource(uri: string): { contents: Array<{ uri: string; mimeType: string; text: string }> } | null {
+	let text: string | null
+	switch (uri) {
+		case 'suwappu://openapi.json':
+			text = JSON.stringify(openApiSpec)
+			break
+		case 'suwappu://chains':
+			text = handleListChains().content[0].text
+			break
+		case 'suwappu://tokens/solana':
+			text = JSON.stringify({
+				chain: 'Solana',
+				tokens: Object.entries(SOLANA_TOKENS).map(([s, i]) => ({ symbol: s, address: i.address, decimals: i.decimals })),
+			})
+			break
+		case 'suwappu://tokens/tempo':
+			text = handleGetTempoTokens({}).content[0].text
+			break
+		default:
+			text = null
+	}
+	if (text === null) return null
+	const mimeType = RESOURCES.find((r) => r.uri === uri)?.mimeType ?? 'application/json'
+	return { contents: [{ uri, mimeType, text }] }
+}
+
+// ---------------------------------------------------------------
+// Prompts (MCP prompts/list + prompts/get)
+//
+// Reusable workflow templates that chain the tools above into the
+// common agent journeys: swap, portfolio review, market research.
+// ---------------------------------------------------------------
+
+type PromptArg = { name: string; description: string; required: boolean }
+
+const PROMPTS: Array<{ name: string; description: string; arguments: PromptArg[]; build: (a: Record<string, string>) => string }> = [
+	{
+		name: 'swap_tokens',
+		description: 'Guided cross-chain swap: quote then prepare the unsigned transaction.',
+		arguments: [
+			{ name: 'from_token', description: 'Token to sell (e.g. ETH, USDC)', required: true },
+			{ name: 'to_token', description: 'Token to buy', required: true },
+			{ name: 'amount', description: 'Amount of from_token in human units', required: true },
+			{ name: 'chain', description: 'Chain to swap on (defaults to ethereum)', required: false },
+			{ name: 'wallet_address', description: 'Wallet that will sign the transaction', required: false },
+		],
+		build: (a) =>
+			`Swap ${a.amount ?? '<amount>'} ${a.from_token ?? '<from_token>'} to ${a.to_token ?? '<to_token>'}` +
+			`${a.chain ? ` on ${a.chain}` : ''}.\n\n` +
+			`1. Call get_quote with from_token, to_token, amount${a.chain ? ', chain' : ''}` +
+			`${a.wallet_address ? ', wallet_address' : ''} and report the quote_id, expected output, route and price impact.\n` +
+			`2. Ask the user to confirm.\n` +
+			`3. On confirmation, call execute_swap with the quote_id and wallet_address, then return the unsigned transaction for the user to sign.`,
+	},
+	{
+		name: 'check_portfolio',
+		description: 'Fetch and summarise a wallet portfolio across all chains.',
+		arguments: [
+			{ name: 'wallet_address', description: 'Wallet address to inspect (0x… or Solana base58)', required: true },
+			{ name: 'chain', description: 'Optional chain to filter to', required: false },
+		],
+		build: (a) =>
+			`Review the portfolio for ${a.wallet_address ?? '<wallet_address>'}${a.chain ? ` on ${a.chain}` : ''}.\n\n` +
+			`Call get_portfolio, then summarise total USD value and the largest holdings, flagging any dust.`,
+	},
+	{
+		name: 'research_prediction_market',
+		description: 'Find a prediction market by topic and report live outcome prices.',
+		arguments: [
+			{ name: 'topic', description: 'Topic or category to search (e.g. "bitcoin", "election")', required: true },
+		],
+		build: (a) =>
+			`Research prediction markets about "${a.topic ?? '<topic>'}".\n\n` +
+			`1. Call predict_markets with query="${a.topic ?? '<topic>'}".\n` +
+			`2. For the most relevant market, call predict_market_detail with its market_id.\n` +
+			`3. Report the question, live outcome prices, volume and resolution date.`,
+	},
+]
+
+// ---------------------------------------------------------------
 // MCP JSON-RPC endpoint
 // ---------------------------------------------------------------
 
@@ -576,12 +709,41 @@ mcpRoutes.post('/', async (c) => {
 		case 'initialize':
 			return c.json(rpcOk(req.id, {
 				protocolVersion: '2024-11-05',
-				capabilities: { tools: {} },
-				serverInfo: { name: 'suwappu', version: '0.5.0' },
+				capabilities: { tools: {}, resources: {}, prompts: {} },
+				serverInfo: { name: 'suwappu', version: '0.6.0' },
 			}), 200)
 
 		case 'tools/list':
-			return c.json(rpcOk(req.id, { tools: TOOLS }), 200)
+			return c.json(rpcOk(req.id, { tools: TOOLS_WITH_ANNOTATIONS }), 200)
+
+		case 'resources/list':
+			return c.json(rpcOk(req.id, { resources: RESOURCES }), 200)
+
+		case 'resources/read': {
+			const uri = (req.params || {}).uri as string | undefined
+			if (!uri) return c.json(rpcErr(req.id, -32602, 'Missing resource uri'), 200)
+			const res = readResource(uri)
+			if (!res) return c.json(rpcErr(req.id, -32602, `Unknown resource: ${uri}`), 200)
+			return c.json(rpcOk(req.id, res), 200)
+		}
+
+		case 'prompts/list':
+			return c.json(rpcOk(req.id, {
+				prompts: PROMPTS.map((p) => ({ name: p.name, description: p.description, arguments: p.arguments })),
+			}), 200)
+
+		case 'prompts/get': {
+			const { name, arguments: args } = (req.params || {}) as { name?: string; arguments?: Record<string, string> }
+			if (!name) return c.json(rpcErr(req.id, -32602, 'Missing prompt name'), 200)
+			const prompt = PROMPTS.find((p) => p.name === name)
+			if (!prompt) return c.json(rpcErr(req.id, -32602, `Unknown prompt: ${name}`), 200)
+			const missing = prompt.arguments.filter((a) => a.required && !(args || {})[a.name]).map((a) => a.name)
+			if (missing.length > 0) return c.json(rpcErr(req.id, -32602, `Missing required argument(s): ${missing.join(', ')}`), 200)
+			return c.json(rpcOk(req.id, {
+				description: prompt.description,
+				messages: [{ role: 'user', content: { type: 'text', text: prompt.build(args || {}) } }],
+			}), 200)
+		}
 
 		case 'tools/call': {
 			const { name, arguments: args } = (req.params || {}) as { name?: string; arguments?: Record<string, unknown> }
@@ -636,3 +798,5 @@ mcpRoutes.post('/', async (c) => {
 })
 
 export { mcpRoutes }
+// Exported for unit testing the static MCP surface (tools/resources/prompts).
+export { TOOLS_WITH_ANNOTATIONS, RESOURCES, PROMPTS, readResource }

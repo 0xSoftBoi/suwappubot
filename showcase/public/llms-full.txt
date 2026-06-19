@@ -1,0 +1,5205 @@
+# Suwappu API
+
+> Cross-chain DeFi API built for AI agents — best-price swaps, HyperLiquid perps, and gasless trades across 40+ chains through one REST API, an MCP server, and a TypeScript SDK.
+
+Base URL: https://api.suwappu.bot/v1/agent
+Auth: Bearer token — `Authorization: Bearer suwappu_sk_...` (get a key from `POST /register`, no auth required).
+
+
+
+# Quick Start
+
+
+---
+
+# Quick Start
+
+Suwappu is a cross-chain DeFi API built for AI agents. Register an agent, get a swap quote, and execute it across 40+ blockchain networks in four short HTTP calls — Suwappu handles best-price routing, signing, and settlement for you.
+
+## What you get
+
+- **Cross-chain swaps** across 40+ chains (EVM, Solana, Sui, TON) with best-price routing that races 9 aggregators — LiFi, CoW, OKX, 1inch, KyberSwap, Jupiter (Solana), Across, and CCTP.
+- **Managed wallets** — server-side key management via Turnkey, so your agent never handles a private key.
+- **A single bearer token** (`suwappu_sk_...`) that authenticates every request.
+- **Three protocols** — REST, MCP (Model Context Protocol), and A2A (Agent-to-Agent) — all backed by the same engine.
+
+## The core flow
+
+Every swap follows the same four steps:
+
+1. **Register** — `POST /v1/agent/register` returns your `api_key`. No auth required.
+2. **Quote** — `POST /v1/agent/quote` returns a `quote_id` and pricing, valid for 60 seconds.
+3. **Swap** — `POST /v1/agent/swap/execute` (managed wallet) submits the swap, or `POST /v1/agent/swap` returns an unsigned transaction for you to sign.
+4. **Status** — `GET /v1/agent/swap/status/:swapId` polls until the swap completes.
+
+## Base URL
+
+```
+https://api.suwappu.bot
+```
+
+All agent endpoints live under `/v1/agent`. Authenticate with `Authorization: Bearer suwappu_sk_...`.
+
+## Next steps
+
+| Page | Description |
+|------|-------------|
+| [Your First Swap](first-swap.md) | A full register → quote → swap → status walkthrough with curl |
+| [SDK Examples](sdk-examples.md) | TypeScript examples using the `@suwappu/sdk` package |
+| [Authentication](../authentication/README.md) | API keys, bearer tokens, and key rotation |
+| [API Reference](../api-reference/README.md) | Every endpoint, parameter, and response shape |
+
+
+---
+
+# Your First Swap
+
+A complete walkthrough that takes you from zero to a settled cross-chain swap using the real Suwappu agent endpoints. Every request below targets `https://api.suwappu.bot`.
+
+## 1. Register your agent
+
+Registration is public — no auth required. Pick a unique `name` (3–50 characters, alphanumeric plus `_` and `-`).
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/register \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-first-agent"}'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/register", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ name: "my-first-agent" }),
+});
+const agent = await res.json();
+```
+```python
+import requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/register",
+    json={"name": "my-first-agent"},
+)
+agent = res.json()
+```
+
+**Response (`201`):**
+
+```json
+{
+  "success": true,
+  "message": "Welcome to Suwappu!",
+  "agent": {
+    "id": "a1b2c3d4-...",
+    "name": "my-first-agent",
+    "api_key": "suwappu_sk_xxxxxxxxxxxxxxxxxxxxxxxx",
+    "created_at": "2026-06-18T12:00:00.000Z"
+  },
+  "important": "SAVE YOUR API KEY! It cannot be retrieved later."
+}
+```
+
+Save `api_key` somewhere safe — it is shown only once and cannot be recovered. If you lose it, [rotate the key](../api-reference/keys.md).
+
+## 2. Create a managed wallet (optional)
+
+To let Suwappu sign and broadcast for you, create a managed (Turnkey) EVM wallet. Its address is stored against your agent and is the only address you can swap from.
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/wallets \
+  -H "Authorization: Bearer suwappu_sk_..."
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/wallets", {
+  method: "POST",
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const wallet = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/wallets",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+wallet = res.json()
+```
+
+**Response (`201`):**
+
+```json
+{
+  "success": true,
+  "wallet": {
+    "address": "0xAbC...123",
+    "chain_type": "evm",
+    "supported_chains": ["ethereum", "polygon", "arbitrum", "optimism", "base", "bsc"]
+  },
+  "message": "Wallet created. Fund it to start swapping."
+}
+```
+
+Fund the address before swapping. If you prefer to sign transactions yourself, skip this step and use the [`POST /v1/agent/swap`](../api-reference/swap.md) flow instead.
+
+## 3. Get a quote
+
+Quotes are valid for 60 seconds. For a same-chain swap, pass `chain`; for a cross-chain swap, pass `from_chain` and `to_chain`.
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer suwappu_sk_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "from_token": "ETH",
+    "to_token": "USDC",
+    "amount": "0.1",
+    "chain": "base",
+    "wallet_address": "0xAbC...123"
+  }'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/quote", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    from_token: "ETH",
+    to_token: "USDC",
+    amount: "0.1",
+    chain: "base",
+    wallet_address: "0xAbC...123",
+  }),
+});
+const quote = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/quote",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    json={
+        "from_token": "ETH",
+        "to_token": "USDC",
+        "amount": "0.1",
+        "chain": "base",
+        "wallet_address": "0xAbC...123",
+    },
+)
+quote = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "quote_id": "0x9f3c...",
+  "from_chain": "Base",
+  "from_chain_id": 8453,
+  "to_chain": "Base",
+  "to_chain_id": 8453,
+  "chain_type": "evm",
+  "from_token": { "symbol": "ETH", "address": "0xEee...", "decimals": 18 },
+  "to_token": { "symbol": "USDC", "address": "0x833...", "decimals": 6 },
+  "amount_in": "0.1",
+  "amount_out": "324.118200",
+  "amount_out_min": "320.876000",
+  "exchange_rate": "3241.18",
+  "price_impact": "0.02%",
+  "estimated_gas_usd": "$0.04",
+  "route": "Li.Fi",
+  "slippage": "3.0%",
+  "expires_in_seconds": 60,
+  "dex": "Li.Fi"
+}
+```
+
+If you passed `wallet_address`, the response also includes a `transaction` object with the unsigned calldata.
+
+## 4. Execute the swap
+
+### Managed wallet (Suwappu signs)
+
+If you created a managed wallet in step 2, hand the `quote_id` to `/swap/execute` and Suwappu signs and broadcasts.
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \
+  -H "Authorization: Bearer suwappu_sk_..." \
+  -H "Content-Type: application/json" \
+  -d '{"quote_id": "0x9f3c..."}'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/swap/execute", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ quote_id: "0x9f3c..." }),
+});
+const swap = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/swap/execute",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    json={"quote_id": "0x9f3c..."},
+)
+swap = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "swap_id": 4812,
+  "status": "pending",
+  "tx_hash": null,
+  "tracking": {
+    "poll_url": "/v1/agent/swap/status/4812",
+    "webhook_note": "Set callback_url via PATCH /v1/agent/me to receive webhook notifications"
+  }
+}
+```
+
+### Self-custody (you sign)
+
+Alternatively, call [`POST /v1/agent/swap`](../api-reference/swap.md) with `quote_id` and your `wallet_address` to receive an unsigned transaction you sign and broadcast yourself.
+
+## 5. Check the status
+
+Poll with the `swap_id` returned above.
+
+```bash
+curl https://api.suwappu.bot/v1/agent/swap/status/4812 \
+  -H "Authorization: Bearer suwappu_sk_..."
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/swap/status/4812", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const status = await res.json();
+```
+```python
+import os, requests
+
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/swap/status/4812",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+status = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "swap_id": 4812,
+  "status": "completed",
+  "tx_hash": "0xabc...def",
+  "from_chain": "base",
+  "to_chain": "base",
+  "from_token": "ETH",
+  "to_token": "USDC",
+  "from_amount": "0.1",
+  "to_amount": "324.12",
+  "error_message": null,
+  "created_at": "2026-06-18T12:00:10.000Z",
+  "completed_at": "2026-06-18T12:00:28.000Z"
+}
+```
+
+That's it — your agent just executed a cross-chain swap. To set up push notifications instead of polling, see [Webhooks](../api-reference/webhooks.md).
+
+
+---
+
+# SDK Examples
+
+TypeScript examples for the most common agent operations — quote, swap, and portfolio. The SDK is a thin wrapper over the REST API; every call maps one-to-one to an endpoint under `/v1/agent`, so the request and response shapes match the [API Reference](../api-reference/README.md) exactly.
+
+## Install
+
+```bash
+bun add @suwappu/sdk
+```
+
+## Initialize the client
+
+```ts
+import { Suwappu } from '@suwappu/sdk'
+
+const client = new Suwappu({ apiKey: process.env.SUWAPPU_KEY! })
+```
+
+Your API key comes from [registration](../api-reference/registration.md) and looks like `suwappu_sk_...`. Every request the client makes sends it as `Authorization: Bearer <key>`.
+
+## Get a quote
+
+```ts
+const quote = await client.quote({
+  from_token: 'ETH',
+  to_token: 'USDC',
+  amount: '0.1',
+  chain: 'base',
+})
+
+console.log(`${quote.amount_in} ETH -> ${quote.amount_out} USDC`)
+console.log(`Quote ID: ${quote.quote_id} (valid 60s)`)
+```
+
+## Execute a swap (managed wallet)
+
+```ts
+// Create a managed wallet once, then fund it.
+const { wallet } = await client.createWallet()
+console.log('Fund this address:', wallet.address)
+
+// Quote, then execute against your managed wallet.
+const quote = await client.quote({
+  from_token: 'ETH',
+  to_token: 'USDC',
+  amount: '0.1',
+  chain: 'base',
+  wallet_address: wallet.address,
+})
+
+const swap = await client.executeSwap({ quote_id: quote.quote_id })
+console.log('Swap submitted:', swap.swap_id, swap.status)
+
+// Poll for completion.
+const status = await client.swapStatus(swap.swap_id)
+console.log('Final status:', status.status, status.tx_hash)
+```
+
+## Read a portfolio
+
+```ts
+const portfolio = await client.portfolio({ wallet_address: wallet.address })
+
+console.log(`Total: $${portfolio.total_usd}`)
+for (const b of portfolio.balances) {
+  console.log(`${b.symbol} on ${b.chain}: ${b.balance} ($${b.usd_value})`)
+}
+```
+
+## Prefer plain `fetch`?
+
+The SDK is optional. Every example above is a single HTTP call you can make directly:
+
+```ts
+const apiKey = process.env.SUWAPPU_KEY!
+
+const quote = await fetch('https://api.suwappu.bot/v1/agent/quote', {
+  method: 'POST',
+  headers: {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    from_token: 'ETH',
+    to_token: 'USDC',
+    amount: '0.1',
+    chain: 'base',
+  }),
+}).then((r) => r.json())
+
+console.log(`Quote ID: ${quote.quote_id}`)
+```
+
+See the [API Reference](../api-reference/README.md) for the full set of endpoints and their exact request and response fields.
+
+
+
+# Authentication
+
+
+---
+
+# Authentication
+
+Suwappu uses API keys as bearer tokens. You receive a key when you register an agent, and you send it on every authenticated request as an `Authorization: Bearer ...` header. There are no other credentials to manage — signing and settlement happen server-side with managed wallets.
+
+## Getting a key
+
+Register an agent (no auth required) and Suwappu returns your key:
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/register \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-agent"}'
+```
+
+The response contains `agent.api_key`, a token of the form `suwappu_sk_...`:
+
+```json
+{
+  "success": true,
+  "agent": {
+    "id": "a1b2c3d4-...",
+    "name": "my-agent",
+    "api_key": "suwappu_sk_xxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  "important": "SAVE YOUR API KEY! It cannot be retrieved later."
+}
+```
+
+**The key is shown only once.** Suwappu stores only a SHA-256 hash of it and cannot recover the plaintext. If you lose it, [rotate the key](rate-limits.md) (which invalidates the old one).
+
+## Sending the key
+
+Pass the key in the `Authorization` header on every authenticated endpoint:
+
+```bash
+curl https://api.suwappu.bot/v1/agent/me \
+  -H "Authorization: Bearer suwappu_sk_xxxxxxxxxxxxxxxxxxxxxxxx"
+```
+
+```ts
+fetch('https://api.suwappu.bot/v1/agent/me', {
+  headers: { Authorization: `Bearer ${process.env.SUWAPPU_KEY}` },
+})
+```
+
+Public endpoints — `POST /v1/agent/register` and `GET /v1/agent/chains` — do not require a key.
+
+## Key rotation
+
+Rotate a key at any time. The old key is invalidated immediately, so update your clients before the next request.
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/keys/rotate \
+  -H "Authorization: Bearer suwappu_sk_OLD_KEY"
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "api_key": "suwappu_sk_NEW_KEY",
+  "message": "API key rotated. Save this key — the old key is now invalid."
+}
+```
+
+See [`POST /v1/agent/keys/rotate`](../api-reference/keys.md) for details.
+
+## Managed wallets and signing
+
+Suwappu agents use **managed (Turnkey) wallets**. Private keys live in Turnkey's secure enclaves and never touch your code or Suwappu's application servers. When you call [`POST /v1/agent/swap/execute`](../api-reference/swap-execute.md), Suwappu signs and broadcasts on your behalf using your agent's managed wallet — you only ever send a `quote_id`.
+
+A managed wallet's address is bound to your agent. Swap, portfolio, and execute endpoints reject any `wallet_address` that is not your own managed wallet, which prevents constructing fund-moving transactions from arbitrary addresses or enumerating other agents' balances.
+
+If you prefer self-custody, use [`POST /v1/agent/swap`](../api-reference/swap.md), which returns an unsigned transaction for you to sign and broadcast yourself.
+
+## Security notes
+
+- **Treat your key like a password.** Anyone with it can swap from your managed wallet. Store it in a secret manager, never in source control.
+- **Use HTTPS only.** All requests must go to `https://api.suwappu.bot`.
+- **Scope wallet permissions.** Attach Turnkey spending-limit and address-whitelist policies to your managed wallet via `POST /v1/agent/wallet/policy` to cap what a compromised key can do.
+- **Webhook payloads are signed.** Verify the `X-Suwappu-Signature` HMAC (keyed with the SHA-256 of your API key) on every webhook before trusting it. See [Webhooks](../api-reference/webhooks.md).
+- See [Rate Limits](rate-limits.md) for per-tier request quotas.
+
+
+---
+
+# Rate Limits
+
+Suwappu rate-limits requests with a sliding 60-second window. Authenticated agent endpoints are limited per agent by tier; public endpoints are limited per client IP. Limits are subject to change — always read the response headers rather than hard-coding values.
+
+## Per-agent limits (authenticated)
+
+Authenticated `/v1/agent/*` endpoints are limited per agent based on your `rate_limit_tier`, over a rolling one-minute window:
+
+| Tier | Requests / minute |
+|------|-------------------|
+| `free` | 30 |
+| `agent` | 100 |
+| `pro` | 500 |
+
+New agents start on the `free` tier. Check your current tier via [`GET /v1/agent/me`](../api-reference/agent-profile.md) (the `rate_limit_tier` field). These defaults are subject to change.
+
+## Per-IP limits (public)
+
+Public endpoints are limited per client IP over the same one-minute window. Registration is intentionally strict to deter abuse:
+
+| Endpoint | Requests / minute (per IP) |
+|----------|----------------------------|
+| `POST /v1/agent/register` | 5 |
+| `GET /v1/agent/chains` | No explicit IP limit |
+
+## Response headers
+
+Every rate-limited response includes headers describing your current budget:
+
+| Header | Meaning |
+|--------|---------|
+| `X-RateLimit-Limit` | Maximum requests allowed in the current window |
+| `X-RateLimit-Remaining` | Requests remaining in the current window |
+| `X-RateLimit-Reset` | Unix timestamp (seconds) when the window resets (sent on `429`) |
+| `Retry-After` | Seconds to wait before retrying (sent on `429`) |
+
+## When you exceed a limit
+
+You receive a `429 Too Many Requests`. Back off until `Retry-After` seconds have elapsed, then retry.
+
+```json
+{
+  "message": "Rate limit exceeded. 30 requests per minute for free tier. Retry after 12s."
+}
+```
+
+A robust client reads `Retry-After` and retries with exponential backoff rather than hammering the endpoint.
+
+## Tips
+
+- Quotes are cached for 60 seconds — reuse a `quote_id` instead of re-quoting in a tight loop.
+- Batch price lookups: [`GET /v1/agent/prices`](../api-reference/prices.md) accepts up to 20 comma-separated symbols in a single request.
+- Prefer [webhooks](../api-reference/webhooks.md) over polling [`GET /v1/agent/swap/status/:id`](../api-reference/swap-status.md) to track swap completion without burning request budget.
+
+
+
+# API Reference
+
+
+---
+
+# API Reference
+
+The complete reference for Suwappu's agent API. All endpoints are served under `https://api.suwappu.bot/v1/agent` and, unless noted as public, require an `Authorization: Bearer suwappu_sk_...` header.
+
+## Base URL
+
+```
+https://api.suwappu.bot/v1/agent
+```
+
+## Conventions
+
+- Requests and responses are JSON. Send `Content-Type: application/json` on any request with a body.
+- Successful responses include `"success": true`. Errors include `"error"` and usually a `"message"`. See [Error Codes](errors.md).
+- Amounts in requests are human-readable decimal strings (e.g. `"0.1"`), not wei or lamports.
+- Quotes expire 60 seconds after they are issued.
+
+## Endpoints
+
+### Account
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| [`/register`](registration.md) | POST | Register a new agent (public) |
+| [`/me`](agent-profile.md) | GET / PATCH / DELETE | Read, update, or delete your agent profile |
+| [`/keys/rotate`](keys.md) | POST | Rotate your API key |
+
+### Market data
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| [`/chains`](chains.md) | GET | List supported chains (public) |
+| [`/tokens`](tokens.md) | GET | List available tokens per chain |
+| [`/prices`](prices.md) | GET | Get USD prices for token symbols |
+
+### Trading
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| [`/quote`](quote.md) | POST | Get a swap quote |
+| [`/swap`](swap.md) | POST | Build an unsigned swap transaction |
+| [`/swap/execute`](swap-execute.md) | POST | Execute a swap with your managed wallet |
+| [`/swap/status/:id`](swap-status.md) | GET | Get the status of a swap |
+| [`/swaps`](swap-history.md) | GET | Paginated swap history |
+| [`/execute`](execute.md) | POST | Run a natural-language command |
+
+### Wallets and portfolio
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| [`/portfolio`](portfolio.md) | GET | Get wallet balances and total USD value |
+| [`/wallets`](wallets.md) | GET / POST | List or create managed wallets |
+
+### Webhooks
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| [`/webhooks`](webhooks.md) | GET | List webhook delivery events |
+| [`/webhooks/test`](webhooks.md) | POST | Send a test webhook to your callback URL |
+
+## Other surfaces
+
+Perpetual futures, prediction markets, and lending live under `/v1/agent/perps`, `/v1/agent/predict`, and `/v1/agent/lend` — see [Perpetual Futures](perps.md), [Prediction Markets](predict.md), and [Lending](lend.md). The same engine is also exposed over [MCP and A2A](../protocols/README.md).
+
+
+---
+
+# Registration
+
+Register a new agent and receive an API key. This is the only endpoint you can call without authentication, and the returned key is shown exactly once.
+
+## POST /v1/agent/register
+
+Public — no `Authorization` header. Rate-limited to 5 requests per minute per IP.
+
+### Request body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Unique agent name. 3–50 chars, alphanumeric plus `_` and `-` only |
+| `description` | string | No | Free-text description, up to 500 chars |
+| `callback_url` | string | No | HTTPS URL for webhook deliveries. Must be a public host (private/metadata IPs are rejected) |
+| `metadata` | object | No | Arbitrary key/value metadata |
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-agent",
+    "description": "Autonomous DCA bot",
+    "callback_url": "https://my-bot.example.com/webhooks"
+  }'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/register", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    name: "my-agent",
+    description: "Autonomous DCA bot",
+    callback_url: "https://my-bot.example.com/webhooks",
+  }),
+});
+const agent = await res.json();
+```
+```python
+import requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/register",
+    json={
+        "name": "my-agent",
+        "description": "Autonomous DCA bot",
+        "callback_url": "https://my-bot.example.com/webhooks",
+    },
+)
+agent = res.json()
+```
+
+### Response (`201`)
+
+```json
+{
+  "success": true,
+  "message": "Welcome to Suwappu!",
+  "agent": {
+    "id": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+    "name": "my-agent",
+    "api_key": "suwappu_sk_xxxxxxxxxxxxxxxxxxxxxxxx",
+    "created_at": "2026-06-18T12:00:00.000Z"
+  },
+  "important": "SAVE YOUR API KEY! It cannot be retrieved later.",
+  "next_steps": {
+    "step_1": "Save your api_key securely",
+    "step_2": "Use Authorization: Bearer YOUR_API_KEY for all requests",
+    "step_3": "Try POST /v1/agent/quote with {\"from_token\": \"ETH\", \"to_token\": \"USDC\", \"amount\": \"0.1\", \"chain\": \"base\"}"
+  },
+  "docs": "https://api.suwappu.bot/docs"
+}
+```
+
+Store `agent.api_key` immediately — Suwappu keeps only a hash and cannot return it again.
+
+### Errors
+
+| Status | Cause |
+|--------|-------|
+| `400` | Invalid JSON body, validation error (e.g. name too short / wrong charset), or the name is already taken |
+| `429` | More than 5 registrations per minute from your IP |
+
+See [Authentication](../authentication/README.md) for how to use the key, and [Agent Profile](agent-profile.md) to update or delete the agent later.
+
+
+---
+
+# Agent Profile
+
+Read, update, or permanently delete your agent. All three operations require your API key and act on the agent that key belongs to.
+
+## GET /v1/agent/me
+
+Return your agent's profile and usage stats.
+
+```bash
+curl https://api.suwappu.bot/v1/agent/me \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/me", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const agent = await res.json();
+```
+```python
+import os, requests
+
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/me",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+agent = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "agent": {
+    "id": "a1b2c3d4-...",
+    "name": "my-agent",
+    "description": "Autonomous DCA bot",
+    "rate_limit_tier": "free",
+    "stats": {
+      "total_requests": 142,
+      "total_swaps": 17
+    },
+    "created_at": "2026-06-18T12:00:00.000Z",
+    "last_active_at": "2026-06-18T15:30:00.000Z"
+  }
+}
+```
+
+## PATCH /v1/agent/me
+
+Update one or more profile fields. At least one field must be provided.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `description` | string | New description, up to 500 chars |
+| `callback_url` | string \| null | Webhook URL (public host required). Send `null` to clear it |
+| `metadata` | object | Replacement metadata object |
+
+```bash
+curl -X PATCH https://api.suwappu.bot/v1/agent/me \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"callback_url": "https://my-bot.example.com/webhooks"}'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/me", {
+  method: "PATCH",
+  headers: {
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ callback_url: "https://my-bot.example.com/webhooks" }),
+});
+const agent = await res.json();
+```
+```python
+import os, requests
+
+res = requests.patch(
+    "https://api.suwappu.bot/v1/agent/me",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    json={"callback_url": "https://my-bot.example.com/webhooks"},
+)
+agent = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "agent": {
+    "id": "a1b2c3d4-...",
+    "name": "my-agent",
+    "description": "Autonomous DCA bot",
+    "callback_url": "https://my-bot.example.com/webhooks",
+    "metadata": {},
+    "rate_limit_tier": "free",
+    "stats": { "total_requests": 142, "total_swaps": 17 },
+    "updated_at": "2026-06-18T15:31:00.000Z"
+  }
+}
+```
+
+## DELETE /v1/agent/me
+
+Permanently delete your agent. This is irreversible and invalidates your API key.
+
+```bash
+curl -X DELETE https://api.suwappu.bot/v1/agent/me \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/me", {
+  method: "DELETE",
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+// 204 No Content on success
+```
+```python
+import os, requests
+
+res = requests.delete(
+    "https://api.suwappu.bot/v1/agent/me",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+# 204 No Content on success
+```
+
+Returns `204 No Content` with an empty body on success.
+
+## Deactivate and reactivate
+
+To temporarily disable an agent without deleting it:
+
+```bash
+# Deactivate
+curl -X POST https://api.suwappu.bot/v1/agent/me/deactivate \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+
+# Reactivate (works even while inactive)
+curl -X POST https://api.suwappu.bot/v1/agent/reactivate \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+Both return `{ "success": true, "message": "..." }`.
+
+### Errors
+
+| Status | Cause |
+|--------|-------|
+| `400` | Invalid JSON body, or PATCH with no fields / invalid `callback_url` |
+| `401` | Missing or invalid API key |
+
+
+---
+
+# Chains
+
+List every chain Suwappu can route through. This endpoint is public — use it to discover the chain `key` values you pass to the quote, swap, and token endpoints.
+
+## GET /v1/agent/chains
+
+Public — no `Authorization` header required.
+
+```bash
+curl https://api.suwappu.bot/v1/agent/chains
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/chains");
+const chains = await res.json();
+```
+```python
+import requests
+
+res = requests.get("https://api.suwappu.bot/v1/agent/chains")
+chains = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "chains": [
+    { "id": 1, "key": "ethereum", "name": "Ethereum", "native_token": "ETH", "type": "evm" },
+    { "id": 8453, "key": "base", "name": "Base", "native_token": "ETH", "type": "evm" },
+    { "id": 42161, "key": "arbitrum", "name": "Arbitrum", "native_token": "ETH", "type": "evm" },
+    { "id": "solana", "key": "solana", "name": "Solana", "native_token": "SOL", "type": "solana" },
+    { "id": "sui", "key": "sui", "name": "Sui", "native_token": "SUI", "type": "move" },
+    { "id": "ton", "key": "ton", "name": "TON", "native_token": "TON", "type": "ton" }
+  ],
+  "note": "Use chain key (e.g., \"base\", \"solana\") in requests. Solana uses Jupiter, EVM chains use Li.Fi."
+}
+```
+
+Suwappu supports 40+ chains across EVM, Solana, Sui, and TON. The list above is abridged — call the endpoint for the full, current set.
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | number \| string | Chain ID. Numeric for EVM chains; a string key for Solana, Sui, and TON |
+| `key` | string | The value to pass as `chain` / `from_chain` / `to_chain` in requests |
+| `name` | string | Human-readable chain name |
+| `native_token` | string | Symbol of the chain's gas token |
+| `type` | string | `evm`, `solana`, `move`, or `ton` |
+
+### Routing
+
+Best-price routing races up to 9 aggregators — LiFi, CoW, OKX, 1inch, KyberSwap, Jupiter (Solana), Across, and CCTP — to find the best execution for each request. EVM routes are quoted via Li.Fi; Solana routes via Jupiter.
+
+See [Tokens](tokens.md) to list the tradable tokens on a given chain.
+
+
+---
+
+# Tokens
+
+List the tokens Suwappu recognizes by symbol on each chain. Use it to resolve a symbol to its on-chain address and decimals before quoting.
+
+## GET /v1/agent/tokens
+
+Requires authentication.
+
+### Query parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `chain` | string | No | Chain key (e.g. `base`, `solana`). Omit to return tokens for all chains |
+| `search` | string | No | Case-insensitive symbol substring filter (e.g. `USD`) |
+
+### List tokens on one chain
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/tokens?chain=base" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/tokens?chain=base", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const tokens = await res.json();
+```
+```python
+import os, requests
+
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/tokens",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    params={"chain": "base"},
+)
+tokens = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "chain": "Base",
+  "chain_id": 8453,
+  "tokens": [
+    { "symbol": "ETH", "address": "0xEeee...EEeE", "decimals": 18 },
+    { "symbol": "USDC", "address": "0x833589...2913", "decimals": 6 }
+  ]
+}
+```
+
+### List tokens across all chains
+
+Omit `chain` to receive a grouped list:
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/tokens?search=USDC" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/tokens?search=USDC", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const tokens = await res.json();
+```
+```python
+import os, requests
+
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/tokens",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    params={"search": "USDC"},
+)
+tokens = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "chains": [
+    {
+      "chain": "Ethereum",
+      "chain_id": 1,
+      "tokens": [{ "symbol": "USDC", "address": "0xA0b8...eB48", "decimals": 6 }]
+    },
+    {
+      "chain": "Solana",
+      "chain_id": "solana",
+      "tokens": [{ "symbol": "USDC", "address": "EPjF...Dt1v", "decimals": 6 }]
+    }
+  ]
+}
+```
+
+### Notes
+
+- `chain_id` is numeric for EVM chains and the string `"solana"` for Solana.
+- The symbols listed are the common, pre-resolved tokens. You can also pass any token address directly to [`POST /v1/agent/quote`](quote.md).
+
+### Errors
+
+| Status | Cause |
+|--------|-------|
+| `400` | Unknown `chain` value (the response lists supported chains) |
+| `401` | Missing or invalid API key |
+
+
+---
+
+# Prices
+
+Fetch current USD prices and 24-hour change for token symbols. Prices are cached for 60 seconds and sourced from CoinGecko.
+
+## GET /v1/agent/prices
+
+Requires authentication.
+
+### Query parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `symbols` | string | Yes | 1–20 comma-separated token symbols (e.g. `ETH,SOL,USDC`) |
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/prices?symbols=ETH,SOL,USDC" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/prices?symbols=ETH,SOL,USDC", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const prices = await res.json();
+```
+```python
+import os, requests
+
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/prices",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    params={"symbols": "ETH,SOL,USDC"},
+)
+prices = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "prices": {
+    "ETH": { "usd": 3241.18, "change_24h": 1.92 },
+    "SOL": { "usd": 168.40, "change_24h": -0.74 },
+    "USDC": { "usd": 1.0, "change_24h": 0.01 }
+  }
+}
+```
+
+If any requested symbol isn't recognized, the response includes an `unknown_symbols` array:
+
+```json
+{
+  "success": true,
+  "prices": { "ETH": { "usd": 3241.18, "change_24h": 1.92 } },
+  "unknown_symbols": ["FOO"]
+}
+```
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `prices` | object | Map of uppercased symbol to a price object |
+| `prices[SYM].usd` | number | Current USD price |
+| `prices[SYM].change_24h` | number \| null | 24-hour percentage change, or `null` if unavailable |
+| `unknown_symbols` | string[] | Requested symbols with no known price mapping (omitted when empty) |
+
+### Supported symbols
+
+Common majors are mapped, including `ETH`, `SOL`, `BNB`, `USDC`, `USDT`, `BTC`, `DAI`, `WBTC`, `ARB`, `OP`, `AVAX`, `MATIC`, `WETH`, `BONK`, `JUP`, and `RAY`. Calling the endpoint without `symbols` returns the full supported list in the error response.
+
+### Errors
+
+| Status | Cause |
+|--------|-------|
+| `400` | `symbols` missing, empty, or more than 20 symbols provided |
+| `401` | Missing or invalid API key |
+
+
+---
+
+# Portfolio
+
+Fetch live token balances and total USD value for a wallet. You can only read your own agent's managed wallet — requests for any other address are rejected.
+
+## GET /v1/agent/portfolio
+
+Requires authentication.
+
+### Query parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `wallet_address` | string | Yes | Your managed wallet address. Must match the wallet bound to your agent |
+| `chain` | string | No | Filter balances to a single chain (e.g. `base`). Omit for all chains |
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/portfolio?wallet_address=0xAbC...123" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/portfolio?wallet_address=0xAbC...123", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const portfolio = await res.json();
+```
+```python
+import os, requests
+
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/portfolio",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    params={"wallet_address": "0xAbC...123"},
+)
+portfolio = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "wallet_address": "0xAbC...123",
+  "wallet_type": "evm",
+  "chain_filter": "all",
+  "total_usd": "1284.55",
+  "balances": [
+    {
+      "symbol": "ETH",
+      "name": "Ethereum",
+      "chain": "base",
+      "balance": "0.312",
+      "usd_value": "1011.45"
+    },
+    {
+      "symbol": "USDC",
+      "name": "USD Coin",
+      "chain": "base",
+      "balance": "273.10",
+      "usd_value": "273.10"
+    }
+  ]
+}
+```
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `wallet_type` | string | `evm` or `solana`, inferred from the address (and `chain` if given) |
+| `chain_filter` | string | The chain you filtered on, or `all` |
+| `total_usd` | string | Sum of all returned balances' USD value |
+| `balances[]` | array | Per-token holdings with `symbol`, `name`, `chain`, `balance`, and `usd_value` |
+
+### Errors
+
+| Status | Cause |
+|--------|-------|
+| `400` | Missing `wallet_address` query parameter |
+| `403` | `wallet_address` is not your agent's managed wallet |
+| `401` | Missing or invalid API key |
+
+Create a managed wallet first with [`POST /v1/agent/wallets`](wallets.md).
+
+
+---
+
+# Quote
+
+Get a swap quote with pricing, route, and a `quote_id` you can hand to the swap endpoints. Quotes work for same-chain and cross-chain swaps across EVM chains (via Li.Fi) and Solana (via Jupiter), and are valid for 60 seconds.
+
+## POST /v1/agent/quote
+
+Requires authentication.
+
+### Request body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `from_token` | string | Yes | Source token symbol or address (e.g. `ETH`) |
+| `to_token` | string | Yes | Destination token symbol or address (e.g. `USDC`) |
+| `amount` | string | Yes | Human-readable input amount (e.g. `"0.5"`). Must be > 0 and ≤ 1,000,000 |
+| `chain` | string | No | Chain key for a same-chain swap (e.g. `base`). Defaults to `ethereum` |
+| `from_chain` | string | No | Source chain for a cross-chain swap |
+| `to_chain` | string | No | Destination chain for a cross-chain swap |
+| `wallet_address` | string | No | Your managed EVM wallet. When provided, the response includes executable `transaction` data |
+| `slippage` | number | No | Slippage tolerance as a decimal (e.g. `0.03` = 3%), 0–0.5. Defaults to 3% |
+
+### Same-chain (EVM)
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"from_token": "ETH", "to_token": "USDC", "amount": "0.5", "chain": "base"}'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/quote", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ from_token: "ETH", to_token: "USDC", amount: "0.5", chain: "base" }),
+});
+const quote = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/quote",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    json={"from_token": "ETH", "to_token": "USDC", "amount": "0.5", "chain": "base"},
+)
+quote = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "quote_id": "0x9f3c...",
+  "from_chain": "Base",
+  "from_chain_id": 8453,
+  "to_chain": "Base",
+  "to_chain_id": 8453,
+  "chain_type": "evm",
+  "from_token": { "symbol": "ETH", "address": "0xEee...", "decimals": 18 },
+  "to_token": { "symbol": "USDC", "address": "0x833...", "decimals": 6 },
+  "amount_in": "0.5",
+  "amount_out": "1620.591000",
+  "amount_out_min": "1572.973000",
+  "exchange_rate": "3241.18",
+  "price_impact": "0.03%",
+  "estimated_gas_usd": "$0.04",
+  "bridge_fee_usd": "$0.00",
+  "route": "Li.Fi",
+  "slippage": "3.0%",
+  "estimated_time_seconds": 30,
+  "expires_in_seconds": 60,
+  "dex": "Li.Fi"
+}
+```
+
+When `wallet_address` is provided, the response also includes a `transaction` object (`to`, `value`, `data`, `chain_id`, `gas_limit`) you can sign directly.
+
+### Solana (via Jupiter)
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"from_token": "SOL", "to_token": "USDC", "amount": "1", "chain": "solana"}'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/quote", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ from_token: "SOL", to_token: "USDC", amount: "1", chain: "solana" }),
+});
+const quote = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/quote",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    json={"from_token": "SOL", "to_token": "USDC", "amount": "1", "chain": "solana"},
+)
+quote = res.json()
+```
+
+Solana responses set `chain_type: "solana"`, `dex: "Jupiter"`, and include a `route` describing the AMM hops.
+
+### Cross-chain
+
+Pass `from_chain` and `to_chain` instead of `chain`:
+
+```json
+{
+  "from_token": "USDC",
+  "to_token": "ETH",
+  "amount": "100",
+  "from_chain": "arbitrum",
+  "to_chain": "base"
+}
+```
+
+### Notes
+
+- The returned `quote_id` is required by [`POST /v1/agent/swap`](swap.md) and [`POST /v1/agent/swap/execute`](swap-execute.md).
+- Quotes are bound to your agent and expire after 60 seconds.
+- Starknet swaps are not handled here — they are processed by the bot backend and return `400` if requested.
+
+### Errors
+
+| Status | Cause |
+|--------|-------|
+| `400` | Invalid JSON, validation error, unknown chain, unknown token, or invalid amount |
+| `401` | Missing or invalid API key |
+
+
+---
+
+# Swap (Unsigned Transaction)
+
+Build an unsigned transaction from a quote so you can sign and broadcast it yourself. Use this for self-custody. If you want Suwappu to sign with your managed wallet instead, use [`POST /v1/agent/swap/execute`](swap-execute.md).
+
+## POST /v1/agent/swap
+
+Requires authentication.
+
+### Request body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `quote_id` | string | Yes | A `quote_id` from [`POST /v1/agent/quote`](quote.md), issued within the last 60 seconds |
+| `wallet_address` | string | Yes | The wallet that will sign. For EVM this must be your agent's managed wallet |
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/swap \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"quote_id": "0x9f3c...", "wallet_address": "0xAbC...123"}'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/swap", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ quote_id: "0x9f3c...", wallet_address: "0xAbC...123" }),
+});
+const swap = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/swap",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    json={"quote_id": "0x9f3c...", "wallet_address": "0xAbC...123"},
+)
+swap = res.json()
+```
+
+### Response (EVM)
+
+```json
+{
+  "success": true,
+  "status": "ready",
+  "message": "Transaction ready for signing",
+  "quote_id": "0x9f3c...",
+  "chain_type": "evm",
+  "swap": {
+    "from_chain": "base",
+    "to_chain": "base",
+    "from_token": "ETH",
+    "to_token": "USDC",
+    "amount_in": "500000000000000000",
+    "expected_amount_out": "1620591000",
+    "minimum_amount_out": "1572973000"
+  },
+  "transaction": {
+    "to": "0x1111...",
+    "from": "0xAbC...123",
+    "value": "500000000000000000",
+    "data": "0x...",
+    "chain_id": 8453,
+    "gas_limit": "210000",
+    "gas_price": "..."
+  },
+  "instructions": [
+    "1. Sign this transaction with your wallet",
+    "2. Submit the signed transaction to the chain RPC",
+    "3. Monitor the transaction hash for confirmation"
+  ]
+}
+```
+
+### Response (Solana)
+
+For a Solana quote, the response returns a base64-encoded transaction to deserialize, sign, and submit:
+
+```json
+{
+  "success": true,
+  "status": "ready",
+  "message": "Solana transaction ready for signing",
+  "quote_id": "jupiter_...",
+  "chain": "solana",
+  "transaction": {
+    "type": "solana",
+    "serialized_transaction": "<base64>",
+    "last_valid_block_height": 287654321
+  }
+}
+```
+
+### Notes
+
+- Amounts in this response are in smallest units (wei / lamports), not human-readable decimals.
+- The EVM transaction is built with `from: wallet_address`, so that address must be your agent's managed wallet — otherwise the request returns `403`.
+- This endpoint does **not** broadcast. To have Suwappu sign and submit, use [`POST /v1/agent/swap/execute`](swap-execute.md).
+
+### Errors
+
+| Status | Cause |
+|--------|-------|
+| `400` | Missing/invalid body, `quote_id` missing, or the quote is expired / not found / belongs to another agent |
+| `403` | `wallet_address` is not your managed wallet (EVM) |
+| `401` | Missing or invalid API key |
+
+
+---
+
+# Swap Execute (Managed Wallet)
+
+Execute a quoted swap end-to-end using your agent's managed wallet. Suwappu signs and broadcasts the transaction — you only send a `quote_id`. This is the simplest path and requires no key handling on your side.
+
+## POST /v1/agent/swap/execute
+
+Requires authentication and a managed wallet (create one with [`POST /v1/agent/wallets`](wallets.md)).
+
+### Request body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `quote_id` | string | Yes | A `quote_id` from [`POST /v1/agent/quote`](quote.md), issued within the last 60 seconds |
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"quote_id": "0x9f3c..."}'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/swap/execute", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ quote_id: "0x9f3c..." }),
+});
+const swap = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/swap/execute",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    json={"quote_id": "0x9f3c..."},
+)
+swap = res.json()
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "swap_id": 4812,
+  "status": "pending",
+  "tx_hash": null,
+  "tracking": {
+    "poll_url": "/v1/agent/swap/status/4812",
+    "webhook_note": "Set callback_url via PATCH /v1/agent/me to receive webhook notifications"
+  }
+}
+```
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `swap_id` | number | Identifier to poll via [`GET /v1/agent/swap/status/:swapId`](swap-status.md) |
+| `status` | string | Initial swap status, e.g. `pending` |
+| `tx_hash` | string \| null | Transaction hash once broadcast, otherwise `null` |
+| `tracking.poll_url` | string | Status endpoint for this swap |
+| `tracking.webhook_note` | string | Whether webhook notifications are configured |
+
+### How it works
+
+The wallet's private key lives in Turnkey's secure enclave. When you call this endpoint, Suwappu builds the transaction from your cached quote, signs it server-side with your managed wallet, and broadcasts it. The call is idempotent per `(agent, quote_id)`, so retrying the same `quote_id` will not double-submit.
+
+### Errors
+
+| Status | Cause |
+|--------|-------|
+| `400` | Missing/invalid body; no managed wallet found; or the quote is expired / not found / belongs to another agent |
+| `401` | Missing or invalid API key |
+
+If you would rather sign yourself, use [`POST /v1/agent/swap`](swap.md) to get an unsigned transaction. Track completion via [Swap Status](swap-status.md) or [Webhooks](webhooks.md).
+
+
+---
+
+# Swap Status
+
+Look up the current status of a single swap by its ID. Poll this after [`POST /v1/agent/swap/execute`](swap-execute.md), or use [Webhooks](webhooks.md) to be notified instead.
+
+## GET /v1/agent/swap/status/:swapId
+
+Requires authentication. `:swapId` is the numeric `swap_id` returned by the execute endpoint. You can only read swaps belonging to your own agent.
+
+```bash
+curl https://api.suwappu.bot/v1/agent/swap/status/4812 \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/swap/status/4812", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const status = await res.json();
+```
+```python
+import os, requests
+
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/swap/status/4812",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+status = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "swap_id": 4812,
+  "status": "completed",
+  "tx_hash": "0xabc...def",
+  "from_chain": "base",
+  "to_chain": "base",
+  "from_token": "ETH",
+  "to_token": "USDC",
+  "from_amount": "0.1",
+  "to_amount": "324.12",
+  "error_message": null,
+  "created_at": "2026-06-18T12:00:10.000Z",
+  "completed_at": "2026-06-18T12:00:28.000Z"
+}
+```
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `swap_id` | number | The swap's ID |
+| `status` | string | Current status (e.g. `pending`, `completed`, `failed`) |
+| `tx_hash` | string \| null | On-chain transaction hash once broadcast |
+| `from_chain` / `to_chain` | string | Source and destination chains |
+| `from_token` / `to_token` | string | Token symbols |
+| `from_amount` / `to_amount` | string | Input and output amounts |
+| `error_message` | string \| null | Failure reason when `status` is `failed` |
+| `created_at` / `completed_at` | string \| null | Timestamps |
+
+### Errors
+
+| Status | Cause |
+|--------|-------|
+| `400` | `swapId` is not a valid integer, or the swap was not found for your agent |
+| `401` | Missing or invalid API key |
+
+For a list of all your swaps, see [Swap History](swap-history.md).
+
+
+---
+
+# Swap History
+
+List your agent's past swaps with pagination and optional status filtering. Returns swaps newest-first.
+
+## GET /v1/agent/swaps
+
+Requires authentication. Returns only swaps belonging to your own agent.
+
+### Query parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `status` | string | No | Filter by status (e.g. `completed`, `pending`, `failed`) |
+| `limit` | number | No | Page size, 1–100. Defaults to 20 |
+| `offset` | number | No | Number of records to skip. Defaults to 0 |
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/swaps?status=completed&limit=10" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/swaps?status=completed&limit=10", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const history = await res.json();
+```
+```python
+import os, requests
+
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/swaps",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    params={"status": "completed", "limit": 10},
+)
+history = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "swaps": [
+    {
+      "swap_id": 4812,
+      "status": "completed",
+      "tx_hash": "0xabc...def",
+      "from_chain": "base",
+      "to_chain": "base",
+      "from_token": "ETH",
+      "to_token": "USDC",
+      "from_amount": "0.1",
+      "to_amount": "324.12",
+      "created_at": "2026-06-18T12:00:10.000Z",
+      "completed_at": "2026-06-18T12:00:28.000Z"
+    }
+  ],
+  "pagination": {
+    "total": 17,
+    "limit": 10,
+    "offset": 0,
+    "has_more": true
+  }
+}
+```
+
+### Pagination
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `total` | number | Total swaps matching the filter |
+| `limit` | number | Page size used |
+| `offset` | number | Offset used |
+| `has_more` | boolean | Whether more records exist beyond this page |
+
+Increase `offset` by `limit` to walk through pages.
+
+### Errors
+
+| Status | Cause |
+|--------|-------|
+| `401` | Missing or invalid API key |
+
+For a single swap, see [Swap Status](swap-status.md).
+
+
+---
+
+# Wallets
+
+Create and list your agent's managed (Turnkey) wallet. Managed wallets let Suwappu sign and broadcast swaps for you — the private key lives in a Turnkey secure enclave and is never exposed.
+
+## POST /v1/agent/wallets
+
+Create a managed EVM wallet for your agent. The wallet's address is bound to your agent and becomes the only address you can swap from and read balances for.
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/wallets \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/wallets", {
+  method: "POST",
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const wallet = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/wallets",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+wallet = res.json()
+```
+
+### Response (`201`)
+
+```json
+{
+  "success": true,
+  "wallet": {
+    "address": "0xAbC...123",
+    "chain_type": "evm",
+    "supported_chains": ["ethereum", "polygon", "arbitrum", "optimism", "base", "bsc"]
+  },
+  "message": "Wallet created. Fund it to start swapping."
+}
+```
+
+Fund the address before swapping. The same EVM address works across all supported EVM chains.
+
+## GET /v1/agent/wallets
+
+List your agent's wallet(s).
+
+```bash
+curl https://api.suwappu.bot/v1/agent/wallets \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/wallets", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const wallets = await res.json();
+```
+```python
+import os, requests
+
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/wallets",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+wallets = res.json()
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "wallets": [
+    {
+      "address": "0xAbC...123",
+      "chain_type": "evm",
+      "supported_chains": ["ethereum", "polygon", "arbitrum", "optimism", "base", "bsc", "avalanche"]
+    }
+  ]
+}
+```
+
+If no wallet exists yet, `wallets` is an empty array with a hint to create one.
+
+## Wallet policies
+
+Attach Turnkey policies to constrain what your managed wallet can do — spending limits and address whitelists — using these endpoints:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/agent/wallet/policy` | POST | Create a `spending_limit` or `whitelist` policy |
+| `/v1/agent/wallet/policies` | GET | List policies on your wallet |
+| `/v1/agent/wallet/policy/:policyId` | DELETE | Delete an agent-created policy |
+
+**Create a spending limit:**
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/wallet/policy \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "spending_limit", "params": {"maxAmountWei": "1000000000000000000", "timeWindowSeconds": 86400}}'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/wallet/policy", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ type: "spending_limit", params: { maxAmountWei: "1000000000000000000", timeWindowSeconds: 86400 } }),
+});
+const policy = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/wallet/policy",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    json={"type": "spending_limit", "params": {"maxAmountWei": "1000000000000000000", "timeWindowSeconds": 86400}},
+)
+policy = res.json()
+```
+
+**Create an address whitelist:**
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/wallet/policy \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "whitelist", "params": {"allowedAddresses": ["0x1111...", "0x2222..."]}}'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/wallet/policy", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ type: "whitelist", params: { allowedAddresses: ["0x1111...", "0x2222..."] } }),
+});
+const policy = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/wallet/policy",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    json={"type": "whitelist", "params": {"allowedAddresses": ["0x1111...", "0x2222..."]}},
+)
+policy = res.json()
+```
+
+You can only delete policies your agent created; admin/guardrail policies are protected.
+
+### Errors
+
+| Status | Cause |
+|--------|-------|
+| `400` | No managed wallet found, or invalid policy body |
+| `401` | Missing or invalid API key |
+
+
+---
+
+# API Key Rotation
+
+Rotate your agent's API key. The old key is invalidated immediately and a new one is returned exactly once. Use this if a key is leaked or on a regular rotation schedule.
+
+## POST /v1/agent/keys/rotate
+
+Requires authentication with your current (still valid) key.
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/keys/rotate \
+  -H "Authorization: Bearer suwappu_sk_OLD_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/keys/rotate", {
+  method: "POST",
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const rotated = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/keys/rotate",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+rotated = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "api_key": "suwappu_sk_NEW_KEY",
+  "message": "API key rotated. Save this key — the old key is now invalid."
+}
+```
+
+### Important
+
+- The **old key stops working immediately**. Update every client before making the next request.
+- The new key is shown **only once** — Suwappu stores only a hash and cannot return it again.
+- Your agent's identity, managed wallet, and history are unchanged; only the key changes.
+
+### Errors
+
+| Status | Cause |
+|--------|-------|
+| `401` | Missing or invalid (e.g. already-rotated) API key |
+
+See [Authentication](../authentication/README.md) for how keys are issued and used.
+
+
+---
+
+# Webhooks
+
+Receive signed HTTP callbacks when your swaps and other events change state, instead of polling. Set a `callback_url` on your agent, verify the signature on each delivery, and inspect delivery history through the API.
+
+## Setting your callback URL
+
+Configure where Suwappu posts events via [`PATCH /v1/agent/me`](agent-profile.md) (or at registration). The URL must be a public HTTPS host — private and cloud-metadata addresses are rejected.
+
+```bash
+curl -X PATCH https://api.suwappu.bot/v1/agent/me \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"callback_url": "https://my-bot.example.com/webhooks"}'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/me", {
+  method: "PATCH",
+  headers: {
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ callback_url: "https://my-bot.example.com/webhooks" }),
+});
+const profile = await res.json();
+```
+```python
+import os, requests
+
+res = requests.patch(
+    "https://api.suwappu.bot/v1/agent/me",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    json={"callback_url": "https://my-bot.example.com/webhooks"},
+)
+profile = res.json()
+```
+
+## Delivery format
+
+Suwappu POSTs a JSON body to your `callback_url` with these headers:
+
+| Header | Description |
+|--------|-------------|
+| `X-Suwappu-Event` | Event type (e.g. `webhook.test`) |
+| `X-Suwappu-Delivery` | Unique delivery UUID |
+| `X-Suwappu-Timestamp` | Unix timestamp (seconds) of the delivery |
+| `X-Suwappu-Signature` | HMAC-SHA256 signature of the raw body |
+
+Example payload:
+
+```json
+{
+  "event": "webhook.test",
+  "timestamp": "2026-06-18T12:00:00.000Z",
+  "data": { "message": "Test webhook from Suwappu", "agent_id": "a1b2c3d4-..." }
+}
+```
+
+## Verifying the signature
+
+The signature is `HMAC-SHA256(body, key)` where `key` is the **SHA-256 hash of your API key** (the raw `suwappu_sk_...` bytes). Compute the same HMAC over the raw request body and compare in constant time.
+
+```ts
+import crypto from 'crypto'
+
+function verify(rawBody: string, signature: string, apiKey: string): boolean {
+  const signingKey = crypto.createHash('sha256').update(apiKey).digest()
+  const expected = crypto.createHmac('sha256', signingKey).update(rawBody).digest('hex')
+  return crypto.timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expected, 'hex'))
+}
+```
+
+Reject any request whose signature does not match.
+
+## Testing delivery
+
+Send a test event to your configured `callback_url`:
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/webhooks/test \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/webhooks/test", {
+  method: "POST",
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const result = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/webhooks/test",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+result = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "callback_url": "https://my-bot.example.com/webhooks",
+  "status_code": 200,
+  "response_time_ms": 142
+}
+```
+
+Your endpoint must respond within 10 seconds. A non-2xx or timeout is reported in the response.
+
+## Listing delivery history
+
+Inspect past webhook deliveries and their outcomes.
+
+### GET /v1/agent/webhooks
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `status` | string | No | Filter by delivery status |
+| `event_type` | string | No | Filter by event type |
+| `limit` | number | No | Page size, 1–100. Defaults to 20 |
+| `offset` | number | No | Records to skip. Defaults to 0 |
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/webhooks?limit=20" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/webhooks?limit=20", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const history = await res.json();
+```
+```python
+import os, requests
+
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/webhooks",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    params={"limit": 20},
+)
+history = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "events": [
+    {
+      "id": 91,
+      "event_type": "swap.completed",
+      "status": "delivered",
+      "attempts": 1,
+      "last_error": null,
+      "response_status": 200,
+      "callback_url": "https://my-bot.example.com/webhooks",
+      "created_at": "2026-06-18T12:00:28.000Z",
+      "delivered_at": "2026-06-18T12:00:29.000Z"
+    }
+  ],
+  "pagination": { "total": 1, "limit": 20, "offset": 0, "has_more": false }
+}
+```
+
+### Errors
+
+| Status | Cause |
+|--------|-------|
+| `400` | No `callback_url` configured (for `/webhooks/test`), or invalid query parameters |
+| `401` | Missing or invalid API key |
+
+
+---
+
+# Execute (Natural Language)
+
+Send a plain-English command and let Suwappu parse it into an action. The endpoint understands swap, quote/price, and balance/portfolio commands, and returns a structured result you can act on.
+
+## POST /v1/agent/execute
+
+Requires authentication.
+
+### Request body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `command` | string | Yes | The natural-language instruction, up to 500 chars |
+| `wallet_address` | string | No | Your managed EVM wallet. When provided, swap commands return executable `transaction` data |
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/execute \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"command": "swap 0.5 ETH to USDC on base", "wallet_address": "0xAbC...123"}'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/execute", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ command: "swap 0.5 ETH to USDC on base", wallet_address: "0xAbC...123" }),
+});
+const result = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/execute",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    json={"command": "swap 0.5 ETH to USDC on base", "wallet_address": "0xAbC...123"},
+)
+result = res.json()
+```
+
+### Response (swap command)
+
+```json
+{
+  "success": true,
+  "action": "swap",
+  "status": "quoted",
+  "message": "Quote ready: 0.5 ETH -> 1620.591000 USDC on Base",
+  "quote_id": "0x9f3c...",
+  "from_token": "ETH",
+  "to_token": "USDC",
+  "amount_in": "0.5",
+  "amount_out": "1620.591000",
+  "chain": "Base",
+  "chain_id": 8453,
+  "exchange_rate": "3241.18",
+  "gas_usd": "0.04",
+  "route": "Li.Fi",
+  "has_transaction": true,
+  "transaction": {
+    "to": "0x1111...",
+    "value": "500000000000000000",
+    "data": "0x...",
+    "chain_id": 8453
+  },
+  "next_step": "Sign and submit the transaction to execute the swap"
+}
+```
+
+A swap command produces a quote (and a `transaction` when `wallet_address` is supplied). Sign and submit it yourself, or take the `quote_id` to [`POST /v1/agent/swap/execute`](swap-execute.md) for managed execution.
+
+### Supported commands
+
+| Pattern | Example | Result |
+|---------|---------|--------|
+| `swap <amount> <token> to <token> on <chain>` | `swap 0.5 ETH to USDC on base` | Returns a quote (and tx if `wallet_address` given) |
+| `quote <amount> <token> to <token>` | `quote 1 ETH to USDC` | Parses intent; points to `/v1/agent/quote` for full pricing |
+| `check balance` / mentions `portfolio` | `check my balance` | Points to `/v1/agent/portfolio` |
+
+An unrecognized command returns `action: "unknown"` with the list of supported commands and examples.
+
+### Notes
+
+- If `wallet_address` is provided it must be your agent's own managed wallet, or the request returns `403`.
+- The `chain` defaults to `ethereum` when not specified in the command.
+- For precise, structured swaps, prefer [`POST /v1/agent/quote`](quote.md) over natural language.
+
+### Errors
+
+| Status | Cause |
+|--------|-------|
+| `400` | Invalid JSON, empty/oversized command, or unparseable swap format |
+| `403` | `wallet_address` is not your managed wallet |
+| `401` | Missing or invalid API key |
+
+
+---
+
+# Perpetual Futures
+
+Trade perpetual futures on HyperLiquid through the Suwappu API. Supports 10 markets with up to 20x leverage.
+
+## GET /v1/agent/perps/markets
+
+List available perpetual futures markets.
+
+```bash
+curl https://api.suwappu.bot/v1/agent/perps/markets \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "markets": [
+    {
+      "symbol": "BTC-USD",
+      "markPrice": "67234.50",
+      "indexPrice": "67230.00",
+      "fundingRate": "0.0001",
+      "openInterest": "12500000",
+      "volume24h": "890000000",
+      "maxLeverage": 20
+    },
+    {
+      "symbol": "ETH-USD",
+      "markPrice": "3245.80",
+      "indexPrice": "3245.20",
+      "fundingRate": "0.00008",
+      "openInterest": "5600000",
+      "volume24h": "340000000",
+      "maxLeverage": 20
+    }
+  ]
+}
+```
+
+Available markets: `BTC-USD`, `ETH-USD`, `SOL-USD`, `ARB-USD`, `AVAX-USD`, `DOGE-USD`, `MATIC-USD`, `OP-USD`, `SUI-USD`, `APT-USD`.
+
+## POST /v1/agent/perps/quote
+
+Get a quote for opening a perpetual position.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `market` | string | Yes | Market symbol (e.g., `"ETH-USD"`) |
+| `side` | string | Yes | `"long"` or `"short"` |
+| `size` | string | Yes | Position size in base asset units |
+| `leverage` | number | Yes | Leverage multiplier (1-20) |
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/perps/quote \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "market": "ETH-USD",
+    "side": "long",
+    "size": "0.5",
+    "leverage": 10
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "quote": {
+    "market": "ETH-USD",
+    "side": "long",
+    "size": "0.5",
+    "leverage": 10,
+    "entryPrice": "3245.80",
+    "liquidationPrice": "2921.22",
+    "margin": "162.29",
+    "fee": "0.97",
+    "fundingRate": "0.00008"
+  }
+}
+```
+
+## GET /v1/agent/perps/positions
+
+List open perpetual positions.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `address` | string | No | Filter by wallet address |
+
+```bash
+curl https://api.suwappu.bot/v1/agent/perps/positions \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "positions": [
+    {
+      "market": "ETH-USD",
+      "side": "long",
+      "size": "0.5",
+      "entryPrice": "3245.80",
+      "markPrice": "3302.10",
+      "pnl": "28.15",
+      "pnlPercent": "17.33",
+      "leverage": 10,
+      "liquidationPrice": "2921.22",
+      "margin": "162.29"
+    }
+  ]
+}
+```
+
+
+---
+
+# Prediction Markets
+
+Trade prediction markets on Polymarket through the Suwappu API. Browse events, check prices, and place orders on binary outcome markets.
+
+## Public Endpoints
+
+### GET /v1/agent/predict/markets
+
+Search and browse active prediction markets.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | No | Search term |
+| `category` | string | No | Filter by category (e.g., `"crypto"`, `"politics"`) |
+| `limit` | number | No | Results per page (default 20) |
+| `offset` | number | No | Pagination offset |
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/predict/markets?category=crypto&limit=5" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "markets": [
+    {
+      "id": "0x1234abcd",
+      "question": "Will ETH reach $5,000 by June 2026?",
+      "category": "crypto",
+      "endDate": "2026-06-30T00:00:00Z",
+      "volume": "2450000",
+      "liquidity": "890000",
+      "outcomes": [
+        { "name": "Yes", "price": 0.42 },
+        { "name": "No", "price": 0.58 }
+      ]
+    }
+  ]
+}
+```
+
+### GET /v1/agent/predict/events
+
+Browse prediction events with filtering.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | No | Search term |
+| `limit` | number | No | Results per page |
+| `offset` | number | No | Pagination offset |
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/predict/events?query=bitcoin" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+### GET /v1/agent/predict/market/:id
+
+Get detailed information about a specific market.
+
+```bash
+curl https://api.suwappu.bot/v1/agent/predict/market/0x1234abcd \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+### GET /v1/agent/predict/market/:id/book
+
+Get the order book for a market.
+
+```bash
+curl https://api.suwappu.bot/v1/agent/predict/market/0x1234abcd/book \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+### GET /v1/agent/predict/market/:id/price
+
+Get the current midpoint price for a market.
+
+```bash
+curl https://api.suwappu.bot/v1/agent/predict/market/0x1234abcd/price \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+### GET /v1/agent/predict/market/:id/trades
+
+Get recent trades for a market.
+
+```bash
+curl https://api.suwappu.bot/v1/agent/predict/market/0x1234abcd/trades \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+## Authenticated Endpoints
+
+### POST /v1/agent/predict/order
+
+Place an order on a prediction market.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `tokenId` | string | Yes | Outcome token ID |
+| `price` | number | Yes | Price between 0 and 1 (e.g., `0.42` for 42 cents) |
+| `size` | number | Yes | Number of shares |
+| `side` | string | Yes | `"BUY"` or `"SELL"` |
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/predict/order \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tokenId": "71321044878958750425140208824424590210...",
+    "price": 0.42,
+    "size": 100,
+    "side": "BUY"
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "order": {
+    "id": "ord_abc123",
+    "tokenId": "71321044878958750425140208824424590210...",
+    "side": "BUY",
+    "price": 0.42,
+    "size": 100,
+    "status": "open",
+    "created_at": "2026-03-29T12:00:00Z"
+  }
+}
+```
+
+### DELETE /v1/agent/predict/order/:id
+
+Cancel an open order.
+
+```bash
+curl -X DELETE https://api.suwappu.bot/v1/agent/predict/order/ord_abc123 \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+### GET /v1/agent/predict/positions
+
+List your open prediction market positions.
+
+```bash
+curl https://api.suwappu.bot/v1/agent/predict/positions \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+### GET /v1/agent/predict/orders
+
+List your orders (open and filled).
+
+```bash
+curl https://api.suwappu.bot/v1/agent/predict/orders \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+
+---
+
+# Lending Markets
+
+Access DeFi lending markets through the Morpho protocol integration. Browse markets on Base and check rates.
+
+## GET /v1/agent/lend/markets
+
+List available lending markets.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `chainId` | number | No | Chain ID (default: `8453` for Base) |
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/lend/markets?chainId=8453" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "markets": [
+    {
+      "id": "0xabc123...",
+      "loanAsset": "USDC",
+      "collateralAsset": "ETH",
+      "lltv": "0.86",
+      "supplyApy": "4.2",
+      "borrowApy": "5.8",
+      "totalSupply": "12500000",
+      "totalBorrow": "8900000",
+      "utilization": "0.712"
+    },
+    {
+      "id": "0xdef456...",
+      "loanAsset": "USDC",
+      "collateralAsset": "cbBTC",
+      "lltv": "0.86",
+      "supplyApy": "3.8",
+      "borrowApy": "5.2",
+      "totalSupply": "8200000",
+      "totalBorrow": "5100000",
+      "utilization": "0.622"
+    }
+  ]
+}
+```
+
+## GET /v1/agent/lend/market/:id
+
+Get detailed information about a specific lending market.
+
+```bash
+curl https://api.suwappu.bot/v1/agent/lend/market/0xabc123 \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "market": {
+    "id": "0xabc123...",
+    "loanAsset": "USDC",
+    "collateralAsset": "ETH",
+    "lltv": "0.86",
+    "supplyApy": "4.2",
+    "borrowApy": "5.8",
+    "totalSupply": "12500000",
+    "totalBorrow": "8900000",
+    "utilization": "0.712",
+    "oracle": "0x...",
+    "irm": "0x..."
+  }
+}
+```
+
+
+---
+
+# Error Codes
+
+Suwappu returns conventional HTTP status codes and a JSON body describing what went wrong. Successful responses include `"success": true`; error responses include an `"error"` field and usually a human-readable `"message"`.
+
+## Error response shape
+
+```json
+{
+  "error": "Validation Error",
+  "message": "amount must be a positive number",
+  "fields": { "amount": "amount must be a positive number" }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `error` | string | Short error category |
+| `message` | string | Human-readable explanation (when available) |
+| `fields` | object | Per-field validation messages (on validation errors) |
+| `resource` | string | The missing resource (on some 404s) |
+| `service` | string | The upstream service (on some 502s) |
+
+Some endpoints also return `success: false` alongside `error`, plus a `hint` suggesting the fix.
+
+## Status codes
+
+| Status | `error` | Meaning |
+|--------|---------|---------|
+| `400` | Validation Error | Invalid JSON, a failed field validation, unknown chain/token, expired or missing quote, or an invalid amount |
+| `401` | Unauthorized | Missing or invalid API key, or invalid webhook signature |
+| `403` | Forbidden | `wallet_address` is not your agent's managed wallet, or you tried to act on another agent's resource |
+| `404` | Not Found | The requested resource does not exist |
+| `429` | — | Rate limit exceeded. See `Retry-After` and the `X-RateLimit-*` headers |
+| `500` | Internal Error / Database Error | An unexpected server-side failure |
+| `502` | External Service Error | An upstream provider (e.g. a swap aggregator or RPC) failed |
+
+## Validation errors
+
+Validation failures (`400`) return a `fields` map keyed by the offending field, so you can surface precise feedback:
+
+```json
+{
+  "error": "Validation Error",
+  "message": "Validation error",
+  "fields": {
+    "from_token": "from_token is required",
+    "amount": "amount must be a positive number"
+  }
+}
+```
+
+## Quote errors
+
+A swap or execute call with an expired, missing, or cross-agent `quote_id` returns:
+
+```json
+{
+  "success": false,
+  "error": "Quote expired or not found",
+  "hint": "Request a new quote using POST /v1/agent/quote"
+}
+```
+
+Quotes are valid for 60 seconds — request a fresh one and retry.
+
+## Rate-limit errors
+
+A `429` includes timing headers and a descriptive message:
+
+```json
+{
+  "message": "Rate limit exceeded. 30 requests per minute for free tier. Retry after 12s."
+}
+```
+
+Honor the `Retry-After` header before retrying. See [Rate Limits](../authentication/rate-limits.md).
+
+## Handling errors
+
+- Always check the HTTP status before parsing the body as success.
+- Retry `429`, `502`, and transient `500`s with exponential backoff; do not retry `400`/`401`/`403` without fixing the request.
+- Read `fields` to map validation errors back to user input.
+
+
+
+# Protocols
+
+
+---
+
+# Protocols
+
+Suwappu speaks three protocols over the same base URL (`https://api.suwappu.bot`) so your agent can integrate however it works best: a plain REST API, the Model Context Protocol (MCP) for LLM tool use, and the Agent-to-Agent (A2A) protocol for natural-language, agent-discoverable messaging. All three are backed by the same routing engine, managed wallets, and authentication.
+
+## The Three Protocols
+
+| Protocol | Endpoint | Transport | Best for |
+|----------|----------|-----------|----------|
+| REST API | `https://api.suwappu.bot/v1/agent/*` | HTTP + JSON | Custom backends, SDKs, full control over every endpoint |
+| MCP | `POST https://api.suwappu.bot/mcp` | JSON-RPC 2.0 | LLM clients (Claude Desktop, Cursor, Claude Code) that call tools |
+| A2A | `POST https://api.suwappu.bot/a2a` | JSON-RPC 2.0 | Agent-to-agent orchestration and natural-language messages |
+
+## When to Use Each
+
+### REST API
+
+Use the REST API when you control the client and want explicit, typed access to every capability — quotes, swaps, managed wallets, perps, prediction markets, lending, webhooks, and swap history. This is the lowest-level and most complete surface.
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"from_token": "ETH", "to_token": "USDC", "amount": "0.5", "chain": "base"}'
+```
+
+See the [API Reference](../api-reference/README.md) for the full endpoint list.
+
+### MCP (Model Context Protocol)
+
+Use MCP when an LLM client should discover and call Suwappu's capabilities as tools. The MCP endpoint exposes ten tools (get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory, predict_markets, predict_market_detail) over JSON-RPC 2.0. Claude Desktop, Cursor, and other MCP clients pick them up automatically.
+
+See [MCP](mcp.md) for the handshake, tool reference, and client configuration.
+
+### A2A (Agent-to-Agent)
+
+Use A2A when another agent should talk to Suwappu in natural language. You send a message like `"swap 0.5 ETH to USDC on base"` and receive a task with structured artifacts. Suwappu publishes an [A2A agent card](agent-card.md) at `/.well-known/agent.json` so other agents can discover it without prior knowledge.
+
+See [A2A Protocol](a2a.md) for the JSON-RPC methods and message format.
+
+## Authentication
+
+REST, MCP, and A2A all use the same Bearer token. Register once to get a key:
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/register \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-agent"}'
+# Response: { "success": true, "api_key": "suwappu_sk_..." }
+```
+
+Then send `Authorization: Bearer suwappu_sk_YOUR_KEY` on every request. The only public, unauthenticated endpoints are agent discovery (`/register`, `/v1/agent/chains`, `/v1/agent/openapi`, `/.well-known/agent.json`, `/llms.txt`).
+
+## Discovery
+
+Suwappu is built to be found by agents automatically. See [OpenAPI Spec](openapi.md) for the discovery files (`llms.txt`, `agent.json`, OpenAPI) and how agents bootstrap from them.
+
+
+---
+
+# A2A Protocol
+
+The A2A (Agent-to-Agent) protocol lets other agents talk to Suwappu in natural language over JSON-RPC 2.0. You send a message like `"swap 0.5 ETH to USDC on base"` and Suwappu returns a task containing structured artifacts — a human-readable summary plus a machine-readable data part. Together with the [agent card](agent-card.md) at `/.well-known/agent.json`, A2A makes Suwappu discoverable and callable inside multi-agent systems.
+
+## Endpoint
+
+```
+POST https://api.suwappu.bot/a2a
+```
+
+## Authentication
+
+A2A requires a Bearer token. Register at `POST /v1/agent/register` to get a key, then send it on every request:
+
+```
+Authorization: Bearer suwappu_sk_YOUR_KEY
+```
+
+## Protocol
+
+All requests and responses use JSON-RPC 2.0. Every response is returned with HTTP `200` — errors are carried in the JSON-RPC `error` object, not the HTTP status.
+
+## Methods
+
+| Method | Description |
+|--------|-------------|
+| `message/send` | Send a natural-language message; returns a completed task with artifacts |
+| `tasks/get` | Fetch a previously created task by `taskId` |
+| `tasks/cancel` | Cancel a task that is still in progress |
+
+Tasks are held in memory and expire one hour after creation.
+
+## message/send
+
+Send a user message. Each message has a `role` and an array of `parts`; at least one `text` part is required.
+
+**Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "message/send",
+  "params": {
+    "message": {
+      "role": "user",
+      "parts": [{ "type": "text", "text": "swap 0.5 ETH to USDC on base" }]
+    },
+    "contextId": "optional-conversation-id"
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "task": {
+      "id": "b2c3d4e5-...",
+      "status": { "state": "completed", "timestamp": "2026-06-18T12:00:01Z" },
+      "artifacts": [
+        {
+          "id": "a1b2c3d4-...",
+          "parts": [
+            { "type": "text", "text": "Quote: 0.5 ETH → 1247.50 USDC on Base (rate: 2495.0, gas: $0.42)" },
+            { "type": "data", "data": { "quote_id": "q_abc123", "from_token": "ETH", "to_token": "USDC", "amount_in": "0.5", "amount_out": "1247.500000", "chain": "Base", "exchange_rate": "2495.0", "expires_in_seconds": 60 } }
+          ],
+          "metadata": { "action": "quote", "chain": "Base", "quote_id": "q_abc123" }
+        }
+      ],
+      "messages": [],
+      "contextId": "optional-conversation-id",
+      "createdAt": "2026-06-18T12:00:00Z",
+      "updatedAt": "2026-06-18T12:00:01Z"
+    }
+  }
+}
+```
+
+The `text` part is a human-readable summary; the `data` part carries the structured fields. Task `status.state` is one of `submitted`, `working`, `completed`, `failed`, or `canceled`.
+
+## tasks/get
+
+Retrieve a task by ID.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tasks/get",
+  "params": { "taskId": "b2c3d4e5-..." }
+}
+```
+
+Returns the same `{ "task": ... }` result shape. If the task is unknown or expired, the response carries error code `-32001` (Task not found).
+
+## tasks/cancel
+
+Cancel a task that is still `submitted` or `working`. Completed or failed tasks cannot be canceled (error `-32002`, Unsupported operation).
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tasks/cancel",
+  "params": { "taskId": "b2c3d4e5-..." }
+}
+```
+
+## Supported Natural-Language Commands
+
+The A2A endpoint understands these intents:
+
+| Intent | Example message | Artifact action |
+|--------|-----------------|-----------------|
+| Swap / quote | `swap 0.5 ETH to USDC on base`, `quote 1 ETH to USDC` | `quote` |
+| Solana swap | `swap 100 USDC to SOL on solana` | `quote` (Jupiter-routed) |
+| Prices | `price ETH SOL BTC`, `price of ETH` | `prices` |
+| Portfolio | `balance 0x1234...` | `portfolio_hint` |
+| Chains | `what chains are supported` | `list_chains` |
+| Tokens | `tokens on solana`, `list tokens` | `list_tokens` |
+| Help | `help`, `hi` | `help` |
+
+A2A returns swap **quotes** (priced against the requesting agent's own managed wallet) rather than executing them. To execute, use the managed-swap REST flow (`POST /v1/agent/swap/execute`) or the natural-language `POST /v1/agent/execute` endpoint. Starknet messages are answered with a note that signing is handled by the bot backend.
+
+## JSON-RPC Error Codes
+
+| Code | Meaning |
+|------|---------|
+| `-32700` | Parse error (invalid JSON) |
+| `-32600` | Invalid request (missing/invalid JSON-RPC fields) |
+| `-32601` | Method not found |
+| `-32001` | Task not found |
+| `-32002` | Unsupported operation (e.g. cancelling a completed task) |
+
+## Full Example with curl
+
+```bash
+curl -X POST https://api.suwappu.bot/a2a \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "message/send",
+    "params": {
+      "message": {
+        "role": "user",
+        "parts": [{ "type": "text", "text": "price ETH SOL BTC" }]
+      }
+    }
+  }'
+```
+
+## Discovery
+
+Other agents discover Suwappu's A2A interface from the [agent card](agent-card.md). The card's `interfaces` array advertises the JSON-RPC base URL (`https://api.suwappu.bot/a2a`), and `securitySchemes` explains how to obtain a Bearer token.
+
+
+---
+
+# MCP (Model Context Protocol)
+
+The MCP protocol lets LLMs like Claude interact with Suwappu as a tool provider. Claude Desktop, Claude Code, Cursor, and other MCP-compatible clients can discover and call Suwappu's tools automatically.
+
+## Endpoint
+
+```
+POST https://api.suwappu.bot/mcp
+```
+
+## Authentication
+
+Include your Bearer token in the `Authorization` header:
+
+```
+Authorization: Bearer suwappu_sk_YOUR_KEY
+```
+
+Obtain a token by registering at `POST /v1/agent/register`.
+
+## Protocol
+
+All requests and responses follow JSON-RPC 2.0, using MCP protocol version `2024-11-05`.
+
+## Handshake: Initialize
+
+Before calling any tools, initialize the MCP session:
+
+**Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": {}
+}
+```
+
+**Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {
+      "tools": {}
+    },
+    "serverInfo": {
+      "name": "suwappu",
+      "version": "0.5.0"
+    }
+  }
+}
+```
+
+## Discover Tools: tools/list
+
+List all available tools and their input schemas:
+
+**Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/list",
+  "params": {}
+}
+```
+
+**Response:**
+
+Returns an array of tool definitions. See the tool reference below for all ten tools.
+
+## Available Tools
+
+### 1. get_quote
+
+Get a swap quote for a token pair.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `from_token` | string | Yes | Source token symbol (e.g., "ETH") |
+| `to_token` | string | Yes | Destination token symbol (e.g., "USDC") |
+| `amount` | string | Yes | Amount of source token to swap |
+| `chain` | string | No | Chain name for same-chain swaps (e.g., "base") |
+| `from_chain` | string | No | Source chain for cross-chain swaps |
+| `to_chain` | string | No | Destination chain for cross-chain swaps |
+| `wallet_address` | string | No | Wallet address for the quote |
+| `slippage` | string | No | Slippage tolerance (e.g., "0.5" for 0.5%) |
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "get_quote",
+    "arguments": {
+      "from_token": "ETH",
+      "to_token": "USDC",
+      "amount": "0.5",
+      "chain": "base"
+    }
+  }
+}
+```
+
+### 2. execute_swap
+
+Execute a previously obtained quote.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `quote_id` | string | Yes | Quote ID from a `get_quote` response |
+| `wallet_address` | string | Yes | Wallet address to execute the swap from |
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "method": "tools/call",
+  "params": {
+    "name": "execute_swap",
+    "arguments": {
+      "quote_id": "q_abc123",
+      "wallet_address": "0x1234567890abcdef1234567890abcdef12345678"
+    }
+  }
+}
+```
+
+### 3. get_portfolio
+
+Check token balances for a wallet.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `wallet_address` | string | Yes | Wallet address to check |
+| `chain` | string | No | Filter by specific chain |
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "method": "tools/call",
+  "params": {
+    "name": "get_portfolio",
+    "arguments": {
+      "wallet_address": "0x1234567890abcdef1234567890abcdef12345678",
+      "chain": "base"
+    }
+  }
+}
+```
+
+### 4. get_prices
+
+Get current prices for one or more tokens.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `symbols` | string | Yes | Comma-separated token symbols (e.g., "ETH,BTC,SOL") |
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 6,
+  "method": "tools/call",
+  "params": {
+    "name": "get_prices",
+    "arguments": {
+      "symbols": "ETH,BTC,SOL"
+    }
+  }
+}
+```
+
+### 5. list_chains
+
+List all supported blockchain networks. No parameters required.
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "method": "tools/call",
+  "params": {
+    "name": "list_chains",
+    "arguments": {}
+  }
+}
+```
+
+### 6. list_tokens
+
+Search and list available tokens.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `chain` | string | No | Filter tokens by chain |
+| `search` | string | No | Search by token name or symbol |
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 8,
+  "method": "tools/call",
+  "params": {
+    "name": "list_tokens",
+    "arguments": {
+      "chain": "base",
+      "search": "USDC"
+    }
+  }
+}
+```
+
+### 7. get_tempo_tokens
+
+Get the TIP-20 token list on Tempo mainnet (chain ID 4217). Includes USD-denominated stablecoins.
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 9,
+  "method": "tools/call",
+  "params": {
+    "name": "get_tempo_tokens",
+    "arguments": {}
+  }
+}
+```
+
+### 8. browse_mpp_directory
+
+Browse the Micropayment Protocol (MPP) service directory. Discover available services and their payment requirements.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `category` | string | No | Filter by service category |
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "method": "tools/call",
+  "params": {
+    "name": "browse_mpp_directory",
+    "arguments": {
+      "category": "ai"
+    }
+  }
+}
+```
+
+### 9. predict_markets
+
+Search and browse prediction markets on Polymarket with live prices and volumes.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | No | Search term |
+| `category` | string | No | Filter by category |
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "method": "tools/call",
+  "params": {
+    "name": "predict_markets",
+    "arguments": {
+      "category": "crypto"
+    }
+  }
+}
+```
+
+### 10. predict_market_detail
+
+Get detailed market information with live CLOB midpoint prices for each outcome.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `market_id` | string | Yes | Polymarket condition ID |
+
+**Example call:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 12,
+  "method": "tools/call",
+  "params": {
+    "name": "predict_market_detail",
+    "arguments": {
+      "market_id": "0x1234abcd..."
+    }
+  }
+}
+```
+
+## Response Format
+
+All `tools/call` responses return content as an array of parts:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"quote_id\":\"q_abc123\",\"from_token\":\"ETH\",\"to_token\":\"USDC\",\"from_amount\":\"0.5\",\"to_amount\":\"1247.50\",\"chain\":\"base\",\"expires_at\":\"2026-03-07T12:05:00Z\"}"
+      }
+    ]
+  }
+}
+```
+
+The `text` field contains a JSON string. Parse it to access the structured data.
+
+## npm Package (Local stdio Server)
+
+For local MCP setups, install the `@suwappu/mcp-server` npm package:
+
+```bash
+npm install -g @suwappu/mcp-server
+```
+
+Run directly:
+
+```bash
+SUWAPPU_API_KEY=suwappu_sk_YOUR_KEY npx @suwappu/mcp-server
+```
+
+The stdio server connects to the Suwappu API and exposes the same ten tools as the remote endpoint. Use this when your MCP client requires a local process (e.g., Claude Desktop with stdio transport).
+
+## Claude Desktop Configuration
+
+Add Suwappu as an MCP server in your Claude Desktop config file:
+
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "suwappu": {
+      "url": "https://api.suwappu.bot/mcp",
+      "headers": {
+        "Authorization": "Bearer suwappu_sk_YOUR_KEY"
+      }
+    }
+  }
+}
+```
+
+Alternatively, use the local stdio server:
+
+```json
+{
+  "mcpServers": {
+    "suwappu": {
+      "command": "npx",
+      "args": ["-y", "@suwappu/mcp-server"],
+      "env": {
+        "SUWAPPU_API_KEY": "suwappu_sk_YOUR_KEY"
+      }
+    }
+  }
+}
+```
+
+After saving the config and restarting Claude Desktop, you can ask Claude to interact with Suwappu directly:
+
+- "Get me a quote for swapping 1 ETH to USDC on Base"
+- "What's the price of ETH and BTC?"
+- "Show my portfolio on 0xabc..."
+- "What chains does Suwappu support?"
+
+Claude will automatically discover the available tools and call them on your behalf.
+
+## Full Example: Quote Flow with curl
+
+```bash
+# Step 1: Initialize
+curl -X POST https://api.suwappu.bot/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+
+# Step 2: List available tools
+curl -X POST https://api.suwappu.bot/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+
+# Step 3: Get a quote
+curl -X POST https://api.suwappu.bot/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -d '{
+    "jsonrpc":"2.0","id":3,"method":"tools/call",
+    "params":{
+      "name":"get_quote",
+      "arguments":{
+        "from_token":"ETH",
+        "to_token":"USDC",
+        "amount":"0.5",
+        "chain":"base"
+      }
+    }
+  }'
+```
+
+
+---
+
+# A2A Agent Card
+
+The agent card is a machine-readable JSON document that describes Suwappu's capabilities, endpoints, authentication requirements, and skills. It follows the A2A (Agent-to-Agent) protocol specification and enables automated agent discovery.
+
+## Endpoint
+
+```
+GET https://api.suwappu.bot/.well-known/agent.json
+```
+
+No authentication is required to fetch the agent card. It is publicly accessible so that other agents can discover Suwappu without prior credentials.
+
+## Fetching the Agent Card
+
+```bash
+curl https://api.suwappu.bot/.well-known/agent.json
+```
+
+## Full Agent Card
+
+```json
+{
+  "$schema": "https://specs.a2aprotocol.ai/agent-card.json",
+  "id": "suwappu-dex",
+  "name": "Suwappu",
+  "description": "Cross-chain DEX for AI agents. Swap tokens across 15 chains via natural language.",
+  "version": "0.4.0",
+  "url": "https://api.suwappu.bot",
+  "logo": "https://suwappu.bot/logo.png",
+  "openApiUrl": "https://api.suwappu.bot/v1/agent/openapi",
+  "protocolVersions": ["0.3"],
+  "interfaces": [
+    {
+      "type": "JSON-RPC",
+      "baseUrl": "https://api.suwappu.bot/a2a",
+      "version": "1.0"
+    }
+  ],
+  "securitySchemes": {
+    "bearer": {
+      "type": "http",
+      "scheme": "bearer",
+      "description": "Register at POST /v1/agent/register to get an API key (suwappu_sk_...)"
+    }
+  },
+  "authentication": {
+    "schemes": ["bearer"],
+    "credentials": null
+  },
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": true,
+    "stateTransitionHistory": false
+  },
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "skills": [
+    {
+      "id": "swap",
+      "name": "Token Swap",
+      "description": "Swap tokens across 15 chains (12 EVM + Solana + TRON + Starknet)",
+      "tags": ["defi", "swap", "trading", "cross-chain"],
+      "examples": ["swap 0.5 ETH to USDC on Base", "swap 100 USDC to SOL on Solana"],
+      "inputModes": ["text"],
+      "outputModes": ["text"]
+    },
+    {
+      "id": "quote",
+      "name": "Get Quote",
+      "description": "Get a swap quote without executing",
+      "tags": ["defi", "quote", "price"],
+      "examples": ["quote 1 ETH to USDC", "price of 100 USDC in ETH"],
+      "inputModes": ["text"],
+      "outputModes": ["text"]
+    },
+    {
+      "id": "portfolio",
+      "name": "Portfolio Check",
+      "description": "Check token balances across all chains",
+      "tags": ["balance", "portfolio", "wallet"],
+      "examples": ["check balance", "show portfolio"],
+      "inputModes": ["text"],
+      "outputModes": ["text"]
+    },
+    {
+      "id": "prices",
+      "name": "Token Prices",
+      "description": "Get real-time token prices with 24h change",
+      "tags": ["defi", "price", "market-data"],
+      "examples": ["get ETH price", "check SOL and USDC prices"],
+      "inputModes": ["text"],
+      "outputModes": ["text"]
+    },
+    {
+      "id": "tokens",
+      "name": "Token Discovery",
+      "description": "List available tokens per chain for quoting and swapping",
+      "tags": ["defi", "tokens", "discovery"],
+      "examples": ["list tokens on Base", "search for USD tokens"],
+      "inputModes": ["text"],
+      "outputModes": ["text"]
+    },
+    {
+      "id": "key-management",
+      "name": "API Key Management",
+      "description": "Rotate API keys for security",
+      "tags": ["security", "keys"],
+      "examples": ["rotate my API key"],
+      "inputModes": ["text"],
+      "outputModes": ["text"]
+    },
+    {
+      "id": "webhook-management",
+      "name": "Webhook Management",
+      "description": "List webhook delivery events and test webhook endpoints",
+      "tags": ["webhooks", "notifications"],
+      "examples": ["list webhook events", "test my webhook"],
+      "inputModes": ["text"],
+      "outputModes": ["text"]
+    }
+  ],
+  "provider": {
+    "organization": "Suwappu",
+    "url": "https://suwappu.bot"
+  },
+  "supportedChains": [
+    {"id": 1, "name": "Ethereum", "native": "ETH"},
+    {"id": 56, "name": "BSC", "native": "BNB"},
+    {"id": 137, "name": "Polygon", "native": "MATIC"},
+    {"id": 42161, "name": "Arbitrum", "native": "ETH"},
+    {"id": 10, "name": "Optimism", "native": "ETH"},
+    {"id": 8453, "name": "Base", "native": "ETH"},
+    {"id": 43114, "name": "Avalanche", "native": "AVAX"},
+    {"id": 250, "name": "Fantom", "native": "FTM"},
+    {"id": 59144, "name": "Linea", "native": "ETH"},
+    {"id": 5000, "name": "Mantle", "native": "MNT"},
+    {"id": 100, "name": "Gnosis", "native": "xDAI"},
+    {"id": 534352, "name": "Scroll", "native": "ETH"},
+    {"id": "solana", "name": "Solana", "native": "SOL"},
+    {"id": "tron", "name": "TRON", "native": "TRX"},
+    {"id": "SN_MAIN", "name": "Starknet", "native": "STRK"}
+  ]
+}
+```
+
+## Field Reference
+
+### Top-Level Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Unique identifier for this agent. Used by other agents to reference Suwappu in multi-agent systems. |
+| `name` | string | Human-readable display name. |
+| `description` | string | Brief description of what this agent does. Other agents use this to decide whether Suwappu can help with a given task. |
+| `version` | string | Semantic version of the agent. Clients can use this to detect capability changes. |
+| `url` | string | Base URL for the agent's API. All protocol endpoints are relative to this URL. |
+| `openApiUrl` | string | URL to the OpenAPI 3.1.0 specification. Enables REST API code generation and auto-discovery. |
+
+### interfaces
+
+Describes the communication protocols the agent supports.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | Protocol type. Suwappu uses `"JSON-RPC"` for the A2A protocol. |
+| `baseUrl` | string | Full URL for the protocol endpoint (`/a2a`). |
+| `version` | string | Protocol version. |
+
+### securitySchemes
+
+A dictionary of named security schemes. Each key is the scheme name (e.g., `"bearer"`).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | Authentication transport (`"http"`). |
+| `scheme` | string | Authentication scheme (`"bearer"`). |
+| `description` | string | Instructions for obtaining credentials. |
+
+### authentication
+
+Declares which security schemes the agent requires.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `schemes` | array | List of scheme names from `securitySchemes` that the agent accepts. |
+| `credentials` | null | No default credentials; agents must register to obtain a token. |
+
+### capabilities
+
+Declares what optional features the agent supports.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `streaming` | boolean | Whether the agent supports streaming responses. Suwappu does not currently stream. |
+| `pushNotifications` | boolean | Whether the agent can send push notifications (e.g., webhooks for task completion). Suwappu supports this. |
+| `stateTransitionHistory` | boolean | Whether full task state transition history is retained. Suwappu does not retain transition history. |
+
+### skills
+
+An array of capabilities the agent can perform. Each skill has:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Unique skill identifier. |
+| `name` | string | Human-readable skill name. |
+| `description` | string (optional) | What the skill does. |
+| `tags` | array (optional) | Categorization tags for discovery and filtering. |
+| `examples` | array (optional) | Example natural language messages that trigger this skill. |
+| `inputModes` | array | Accepted input types (e.g., `["text"]`). |
+| `outputModes` | array | Output types the skill produces (e.g., `["text"]`). |
+
+## How Agents Discover Suwappu
+
+The agent card lives at the well-known path `/.well-known/agent.json`, following the A2A discovery convention. An agent that wants to discover Suwappu follows these steps:
+
+1. **Fetch the agent card** from `https://api.suwappu.bot/.well-known/agent.json`.
+2. **Read the description and skills** to determine if Suwappu can handle the task at hand.
+3. **Check securitySchemes** to learn how to authenticate (register at `POST /v1/agent/register` to get a Bearer token).
+4. **Read interfaces** to find the A2A endpoint URL.
+5. **Send messages** to the A2A endpoint using the `message/send` method.
+
+Alternatively, an agent can use the `openApiUrl` to fetch the full OpenAPI spec and integrate via the REST API instead.
+
+## Using the Agent Card for Integration
+
+### Programmatic Discovery (Python)
+
+```python
+import requests
+
+# Step 1: Discover the agent
+card = requests.get("https://api.suwappu.bot/.well-known/agent.json").json()
+
+print(f"Agent: {card['name']}")
+print(f"Description: {card['description']}")
+print(f"Skills: {[s['name'] for s in card['skills']]}")
+
+# Step 2: Find the A2A endpoint
+a2a_url = card["interfaces"][0]["baseUrl"]
+
+# Step 3: Register for a token
+reg = requests.post(f"{card['url']}/v1/agent/register", json={
+    "name": "my-agent",
+    "description": "My trading agent"
+})
+token = reg.json()["api_key"]
+
+# Step 4: Send a message via A2A
+response = requests.post(a2a_url, json={
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "message/send",
+    "params": {
+        "message": {
+            "role": "user",
+            "parts": [{"type": "text", "text": "price of ETH"}]
+        }
+    }
+}, headers={"Authorization": f"Bearer {token}"})
+
+task = response.json()["result"]["task"]
+print(f"Task {task['id']}: {task['status']['state']}")
+```
+
+### Multi-Agent Systems
+
+In a multi-agent orchestration system, an orchestrator agent can:
+
+1. Discover multiple agents by fetching their agent cards.
+2. Match tasks to agents by reading skill descriptions.
+3. Route a "swap ETH to USDC" request to Suwappu based on its `swap` skill.
+4. Route other tasks to different agents based on their skills.
+
+The agent card makes this routing automatic --- no hardcoded knowledge of Suwappu is needed.
+
+
+---
+
+# OpenAPI Spec
+
+Suwappu publishes several machine-readable discovery files so agents can learn the API without reading docs: an OpenAPI 3.1 specification, an `llms.txt` summary, an A2A agent card, and an OpenAI-style plugin manifest. Point an LLM or agent at any of these and it can start swapping tokens immediately.
+
+## Discovery Endpoints
+
+All discovery files are public — no authentication required.
+
+| File | Endpoint | Purpose |
+|------|----------|---------|
+| OpenAPI 3.1 spec | `GET https://api.suwappu.bot/v1/agent/openapi` | Full endpoint schema for client/code generation |
+| llms.txt | `GET https://api.suwappu.bot/llms.txt` | Plain-text API summary LLMs can read directly |
+| Agent card | `GET https://api.suwappu.bot/.well-known/agent.json` | A2A-compatible agent descriptor |
+| Agent card (alt) | `GET https://api.suwappu.bot/.well-known/agent-card.json` | Same card, alternate well-known path |
+| Agent card (root) | `GET https://api.suwappu.bot/agent-card.json` | Same card at the root path |
+| Plugin manifest | `GET https://api.suwappu.bot/ai-plugin.json` | OpenAI-style plugin manifest |
+
+## OpenAPI Specification
+
+The full OpenAPI 3.1 document describes every REST endpoint, its parameters, request bodies, and response shapes. Fetch it at:
+
+```bash
+curl https://api.suwappu.bot/v1/agent/openapi
+```
+
+Use it to generate a typed client in any language, or to feed an agent a complete map of the REST surface. The spec is also referenced from the agent card's `openApiUrl` field.
+
+### Generating a Client
+
+Any OpenAPI-compatible generator works. For example, with `openapi-typescript`:
+
+```bash
+npx openapi-typescript https://api.suwappu.bot/v1/agent/openapi -o suwappu.d.ts
+```
+
+## llms.txt
+
+`llms.txt` is a concise, human- and LLM-readable summary of the API: base URL, auth, the quick-start flow, and a categorized endpoint list. It is the fastest way for an LLM to understand Suwappu.
+
+```bash
+curl https://api.suwappu.bot/llms.txt
+```
+
+It documents the public endpoints (`/register`, `/chains`, `/openapi`), the authenticated endpoints (`/quote`, `/swap`, `/swap/execute`, `/portfolio`, `/wallets`, `/execute`, `/webhooks`, ...), and the three protocols (REST, MCP, A2A) with their base URLs.
+
+## Agent Card
+
+The agent card is an A2A-compatible JSON descriptor served at three paths (`/.well-known/agent.json`, `/.well-known/agent-card.json`, and `/agent-card.json`). It advertises the agent's name, description, skills, supported chains, authentication scheme, and protocol interfaces.
+
+```bash
+curl https://api.suwappu.bot/.well-known/agent.json
+```
+
+See [A2A Agent Card](agent-card.md) for the full field reference.
+
+## Plugin Manifest
+
+`ai-plugin.json` is an OpenAI-style plugin manifest with a model-facing description, Bearer auth declaration, and a pointer to the OpenAPI spec:
+
+```bash
+curl https://api.suwappu.bot/ai-plugin.json
+```
+
+## Discovery Flow for Agents
+
+A well-behaved agent bootstraps from these files in order:
+
+1. **Fetch the agent card** at `/.well-known/agent.json` to learn the agent's identity, skills, and interfaces.
+2. **Read `securitySchemes`** to learn how to authenticate, then register at `POST /v1/agent/register` for a Bearer token.
+3. **Fetch the OpenAPI spec** (or `llms.txt`) from the card's `openApiUrl` to learn the REST surface.
+4. **Call the API** over REST, MCP, or A2A using the obtained token.
+
+No hardcoded knowledge of Suwappu is required — every integration point is self-describing.
+
+
+
+# Chains Reference
+
+
+---
+
+# All Chains
+
+Suwappu supports 40+ blockchain networks across four chain types: EVM, Solana, TRON, and Starknet. Every chain is accessible through the same unified API -- the `chain` parameter in your requests determines which network to use. This includes major L1s and L2s, Bitcoin L2s (Rootstock, Citrea, BOB, Hemi, GOAT), and emerging chains like Tempo, Plasma, Berachain, and HyperEVM.
+
+## Chain Types at a Glance
+
+| Type | Address format | Token standard | Routing | Count |
+|------|----------------|----------------|---------|-------|
+| EVM | `0x...` | ERC-20 | Aggregated (Li.Fi, CoW, OKX, 1inch, KyberSwap, Across, CCTP) + chain-specific venues | 40+ |
+| Solana | Base58 | SPL | Jupiter | 1 |
+| TRON | Base58Check (`T...`) | TRC-20 | Li.Fi | 1 |
+| Starknet | Felt252 | Cairo | AVNU (SNIP-29 paymaster) | 1 |
+
+## Core EVM Chains
+
+| Chain | Chain ID | Key | Native Token |
+|-------|----------|-----|-------------|
+| Ethereum | 1 | `ethereum` | ETH |
+| Optimism | 10 | `optimism` | ETH |
+| BNB Chain | 56 | `bsc` | BNB |
+| Polygon | 137 | `polygon` | MATIC |
+| Base | 8453 | `base` | ETH |
+| Arbitrum | 42161 | `arbitrum` | ETH |
+| Avalanche | 43114 | `avalanche` | AVAX |
+| Fantom | 250 | `fantom` | FTM |
+| Linea | 59144 | `linea` | ETH |
+| Mantle | 5000 | `mantle` | MNT |
+| Gnosis | 100 | `gnosis` | xDAI |
+| Scroll | 534352 | `scroll` | ETH |
+
+## Bitcoin L2s & BTC-Native Chains
+
+| Chain | Chain ID | Key | Native Token |
+|-------|----------|-----|-------------|
+| Rootstock | 30 | `rootstock` | RBTC |
+| Citrea | 4114 | `citrea` | cBTC |
+| GOAT | 2345 | `goat` | BTC |
+| BOB | 60808 | `bob` | ETH |
+| Hemi | 43111 | `hemi` | ETH |
+
+## Emerging & Specialized Chains
+
+| Chain | Chain ID | Key | Native Token |
+|-------|----------|-----|-------------|
+| Tempo | 4217 | `tempo` | USD |
+| Plasma | 9745 | `plasma` | XPL |
+| HyperEVM | 999 | `hyperevm` | HYPE |
+| Berachain | 80094 | `berachain` | BERA |
+| Sonic | 146 | `sonic` | S |
+| Sei | 1329 | `sei` | SEI |
+| zkSync Era | 324 | `zksync` | ETH |
+| Unichain | 130 | `unichain` | ETH |
+
+See [EVM Chains](evm-chains.md) for the complete list of all 40+ EVM networks with chain IDs and native tokens.
+
+## Non-EVM Chains
+
+| Chain | Chain ID | Key | Native Token | Type |
+|-------|----------|-----|--------------|------|
+| Solana | `solana` | `solana` | SOL | Solana |
+| TRON | `tron` | `tron` | TRX | TRON |
+| Starknet | `SN_MAIN` | `starknet` | STRK | Starknet |
+
+## Using Chain Keys
+
+Pass the **key** (or a known alias) as the `chain` parameter in API requests:
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer suwappu_sk_..." \
+  -H "Content-Type: application/json" \
+  -d '{"from_token": "ETH", "to_token": "USDC", "amount": "1", "chain": "base"}'
+```
+
+## Chain Types
+
+### EVM Chains
+
+All EVM chains share the same address format (`0x...`) and ERC-20 token standard. Most route through Li.Fi and the other aggregators for optimal pricing; a few Bitcoin L2s route through chain-specific venues only (e.g. GOAT via GOATSwap, Citrea via JuiceSwap). A single EVM managed wallet works across every EVM chain.
+
+See [EVM Chains](evm-chains.md) for the full table.
+
+### Solana
+
+Solana uses Base58 addresses, the SPL token standard, and routes swaps through the Jupiter aggregator. Solana wallets are separate from EVM wallets.
+
+See [Solana](solana.md) for token details.
+
+### TRON
+
+TRON uses Base58Check addresses (starting with `T`), the TRC-20 token standard, and routes swaps through Li.Fi. TRON wallets are separate from EVM and Solana wallets.
+
+### Starknet
+
+Starknet uses a Cairo-based account-abstraction model with Felt252 addresses. Swaps route through AVNU with integrator fees, and gasless transactions are supported via the SNIP-29 paymaster. In the TypeScript API, Starknet is read-only — signing and broadcast are handled by the Python bot backend.
+
+## Discovering Chains Programmatically
+
+Use `GET /v1/agent/chains` to fetch all supported chains at runtime:
+
+```bash
+curl https://api.suwappu.bot/v1/agent/chains
+```
+
+Use `GET /v1/agent/tokens?chain=<key>` to fetch available tokens on a specific chain:
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/tokens?chain=base" \
+  -H "Authorization: Bearer suwappu_sk_your_api_key"
+```
+
+
+---
+
+# EVM Chains
+
+Suwappu supports 40+ EVM-compatible networks, all sharing the `0x...` address format and the ERC-20 token standard. A single EVM managed wallet works across every EVM chain. Pass the chain **key** (e.g. `base`, `arbitrum`, `tempo`) as the `chain` parameter in your API requests. Most chains route through Li.Fi and the other aggregators; a few Bitcoin L2s route through chain-specific venues only.
+
+## Major L1s & L2s
+
+| Chain | Chain ID | Key | Native Token |
+|-------|----------|-----|-------------|
+| Ethereum | 1 | `ethereum` | ETH |
+| Optimism | 10 | `optimism` | ETH |
+| Flare | 14 | `flare` | FLR |
+| BNB Chain | 56 | `bsc` | BNB |
+| Unichain | 130 | `unichain` | ETH |
+| Polygon | 137 | `polygon` | MATIC |
+| Sonic | 146 | `sonic` | S |
+| opBNB | 204 | `opbnb` | BNB |
+| Fantom | 250 | `fantom` | FTM |
+| Fraxtal | 252 | `fraxtal` | FRAX |
+| zkSync Era | 324 | `zksync` | ETH |
+| World Chain | 480 | `worldchain` | ETH |
+| Flow EVM | 747 | `flow` | FLOW |
+| Gnosis | 100 | `gnosis` | xDAI |
+| Lisk | 1135 | `lisk` | ETH |
+| Sei | 1329 | `sei` | SEI |
+| Soneium | 1868 | `soneium` | ETH |
+| Swellchain | 1923 | `swellchain` | ETH |
+| Abstract | 2741 | `abstract` | ETH |
+| Mantle | 5000 | `mantle` | MNT |
+| Kaia | 8217 | `kaia` | KAIA |
+| Base | 8453 | `base` | ETH |
+| Apechain | 33139 | `apechain` | APE |
+| Mode | 34443 | `mode` | ETH |
+| Arbitrum | 42161 | `arbitrum` | ETH |
+| Avalanche | 43114 | `avalanche` | AVAX |
+| Linea | 59144 | `linea` | ETH |
+| Berachain | 80094 | `berachain` | BERA |
+| Unichain | 130 | `unichain` | ETH |
+| Taiko | 167000 | `taiko` | ETH |
+| Scroll | 534352 | `scroll` | ETH |
+
+## Bitcoin L2s & BTC-Native Chains
+
+These chains settle to or are secured by Bitcoin. Note that GOAT and Citrea use 18-decimal native BTC (ETH-style), not 8.
+
+| Chain | Chain ID | Key | Native Token | Routing notes |
+|-------|----------|-----|-------------|---------------|
+| Rootstock | 30 | `rootstock` | RBTC | Li.Fi only; legacy gas, 0.06 gwei minimum |
+| GOAT | 2345 | `goat` | BTC | GOATSwap only (not on aggregators) |
+| Citrea | 4114 | `citrea` | cBTC | JuiceSwap only (UniV3 fork) |
+| Hemi | 43111 | `hemi` | ETH | Aggregator-routed |
+| BOB | 60808 | `bob` | ETH | Aggregator-routed |
+
+## Emerging & Specialized Chains
+
+| Chain | Chain ID | Key | Native Token | Notes |
+|-------|----------|-----|-------------|-------|
+| Tempo | 4217 | `tempo` | USD | USD-denominated, 6 decimals; TIP-20 stablecoins; gasless sponsorship |
+| Plasma | 9745 | `plasma` | XPL | |
+| HyperEVM | 999 | `hyperevm` | HYPE | EVM layer of HyperLiquid |
+
+## Routing
+
+EVM swaps race up to nine aggregators and bridges for the best execution price:
+
+- **Li.Fi** — same-chain and cross-chain routing across most EVM chains
+- **CoW Protocol** — batch-auction, MEV-protected settlement
+- **OKX** — DEX aggregation
+- **1inch** — DEX aggregation
+- **KyberSwap** — DEX aggregation
+- **Across** — fast cross-chain bridging
+- **CCTP** — native USDC bridging
+- **GOATSwap / JuiceSwap** — chain-specific venues for GOAT and Citrea, which aggregators do not cover
+
+The API returns the best available route automatically — you do not choose the aggregator.
+
+## Native vs. Wrapped Tokens
+
+For native-token swaps (ETH, BNB, MATIC, AVAX, etc.), pass the token symbol (e.g. `ETH`) as `from_token` or `to_token`. Chains with non-ETH native tokens (BNB, MATIC, AVAX, FTM, MNT, xDAI, SEI, BERA, S, FLR, KAIA, APE, RBTC, cBTC, BTC, HYPE, XPL, FRAX, FLOW) use that symbol as the native unit.
+
+## Discovering Tokens
+
+Use `GET /v1/agent/tokens?chain=<key>` to list available tokens on any EVM chain:
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/tokens?chain=base" \
+  -H "Authorization: Bearer suwappu_sk_your_api_key"
+```
+
+## Example: Same-Chain Swap on Base
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"from_token": "ETH", "to_token": "USDC", "amount": "0.5", "chain": "base"}'
+```
+
+## Example: Cross-Chain Swap (Arbitrum → Base)
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "from_token": "USDC",
+    "to_token": "USDC",
+    "amount": "100",
+    "from_chain": "arbitrum",
+    "to_chain": "base"
+  }'
+```
+
+See [Cross-Chain Swaps](../guides/cross-chain-swaps.md) for the full walkthrough.
+
+
+---
+
+# Solana
+
+Suwappu supports Solana swaps through the Jupiter aggregator, with SPL-token routing and Base58 addresses. Solana wallets are separate from EVM wallets — a Solana swap signs with a Solana keypair, not an EVM `0x` address. Pass `chain: "solana"` (or `"sol"`) in your requests.
+
+## Overview
+
+| Property | Value |
+|----------|-------|
+| Chain key | `solana` (alias `sol`) |
+| Address format | Base58 (e.g. `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`) |
+| Token standard | SPL |
+| Native token | SOL (9 decimals) |
+| Routing | Jupiter aggregator |
+| Default slippage | 3% (300 bps) for agent/A2A quotes |
+
+## Built-in Tokens
+
+The API resolves these well-known SPL tokens by symbol. For any other mint, pass the SPL mint address directly.
+
+| Symbol | Mint Address | Decimals | Name |
+|--------|-------------|----------|------|
+| SOL | `So11111111111111111111111111111111111111112` | 9 | Solana |
+| WSOL | `So11111111111111111111111111111111111111112` | 9 | Wrapped SOL |
+| USDC | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` | 6 | USD Coin |
+| USDT | `Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB` | 6 | Tether USD |
+| BONK | `DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263` | 5 | Bonk |
+| WIF | `EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm` | 6 | dogwifhat |
+| JUP | `JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN` | 6 | Jupiter |
+| RAY | `4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R` | 6 | Raydium |
+| PYTH | `HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3` | 6 | Pyth Network |
+| JTO | `jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL` | 9 | Jito |
+| ORCA | `orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE` | 6 | Orca |
+| MNDE | `MNDEFzGvMt87ueuHvVU9VcTqsAP5b3fTGPsHuuPA5ey` | 9 | Marinade |
+| MSOL | `mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So` | 9 | Marinade Staked SOL |
+| JITOSOL | `J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn` | 9 | Jito Staked SOL |
+
+## Jupiter Routing
+
+Solana swaps are priced by the Jupiter aggregator, which routes across Solana DEXs (Raydium, Orca, and others) for the best execution. The quote response includes:
+
+- `priceImpactPct` — estimated price impact of the swap
+- `routePlan` — the venues the swap is routed through (e.g. `Orca -> Raydium`)
+- `inAmount` / `outAmount` — amounts in base units (lamports / token decimals)
+
+## Quote Example
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"from_token": "SOL", "to_token": "USDC", "amount": "1.5", "chain": "solana"}'
+```
+
+## Natural Language (A2A / execute)
+
+The A2A endpoint and the `/v1/agent/execute` endpoint both understand Solana commands:
+
+```bash
+curl -X POST https://api.suwappu.bot/a2a \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "message/send",
+    "params": {
+      "message": { "role": "user", "parts": [{ "type": "text", "text": "swap 100 USDC to SOL on solana" }] }
+    }
+  }'
+```
+
+## Notes
+
+- Solana managed wallets are distinct from EVM managed wallets. Fund the Solana wallet with SOL for transaction fees.
+- Quotes expire quickly (about 60 seconds) — execute promptly after quoting.
+- For tokens not in the built-in list, pass the SPL mint address as the token field.
+
+
+
+# Guides
+
+
+---
+
+# Guides
+
+Hands-on walkthroughs and tutorials for building with the Suwappu API. Each guide is self-contained and uses real endpoints against the production base URL `https://api.suwappu.bot`. Start with cross-chain swaps and managed wallets, then move on to full bot and automation tutorials.
+
+## Core Walkthroughs
+
+| Guide | What you'll learn |
+|-------|-------------------|
+| [Cross-Chain Swaps](cross-chain-swaps.md) | Quote, execute, and track a swap that bridges between chains |
+| [Managed Wallets](managed-wallets.md) | Server-side wallets with no private-key handling in your agent |
+| [Webhook Setup](webhook-setup.md) | Receive signed swap-status callbacks and verify them |
+
+## Trading Features
+
+| Guide | What you'll learn |
+|-------|-------------------|
+| [Perpetual Futures](perps-trading.md) | Open leveraged long/short positions via HyperLiquid |
+| [Prediction Markets](prediction-markets.md) | Browse and trade Polymarket binary-outcome markets |
+| [Limit Orders & DCA](limit-orders-dca.md) | Price-triggered swaps (Telegram Mini App) |
+
+## Tutorials
+
+| Guide | What you'll build |
+|-------|-------------------|
+| [Building a Trading Bot](building-a-trading-bot.md) | A simple price-triggered trading bot on the API |
+| [Portfolio Rebalancer](portfolio-rebalancer.md) | A periodic rebalancer using quote + swap + portfolio |
+| [Trading CLI](trading-cli.md) | A small command-line tool for quotes and swaps |
+| [Natural-Language CLI](natural-language-cli.md) | A CLI built on the `/execute` endpoint |
+| [MCP Portfolio Advisor](mcp-portfolio-advisor.md) | Use the MCP server in Claude or Cursor as a portfolio advisor |
+
+## Prerequisites
+
+Every guide assumes you have registered an agent and have a Bearer token:
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/register \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-agent"}'
+# Response: { "success": true, "api_key": "suwappu_sk_..." }
+```
+
+Send `Authorization: Bearer suwappu_sk_YOUR_KEY` on every authenticated request.
+
+
+---
+
+# Cross-Chain Swaps
+
+Walk through a complete cross-chain swap with the Suwappu API: get a quote that bridges between two chains, execute it with a managed wallet, and poll for the final status. Suwappu races up to nine aggregators and bridges (Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, CCTP) to find the best route, so you never pick a bridge yourself.
+
+## How Cross-Chain Works
+
+A same-chain swap passes a single `chain`. A cross-chain swap passes `from_chain` and `to_chain` instead — the routing engine handles bridging and settlement under the hood and returns a single quote with the expected output on the destination chain.
+
+## Step 1: Get a Cross-Chain Quote
+
+Move 100 USDC on Arbitrum into ETH on Base:
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "from_token": "USDC",
+    "to_token": "ETH",
+    "amount": "100",
+    "from_chain": "arbitrum",
+    "to_chain": "base"
+  }'
+```
+
+The response includes a `quote_id`, the `expected_output`, the route, and estimated gas. Quotes are short-lived (roughly 60 seconds), so execute promptly.
+
+```json
+{
+  "success": true,
+  "quote_id": "q_abc123",
+  "expected_output": "0.0392",
+  "from_chain": "arbitrum",
+  "to_chain": "base",
+  "route": "...",
+  "gas_usd": "0.41"
+}
+```
+
+## Step 2: Execute the Swap
+
+With a managed wallet provisioned (see [Managed Wallets](managed-wallets.md)), execute the quote server-side. Suwappu signs and broadcasts on both legs.
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"quote_id": "q_abc123"}'
+```
+
+```json
+{
+  "success": true,
+  "swap_id": "sw_xyz789",
+  "status": "pending"
+}
+```
+
+## Step 3: Track the Swap
+
+Cross-chain swaps settle over multiple blocks. Poll the status endpoint until it reaches a terminal state:
+
+```bash
+curl https://api.suwappu.bot/v1/agent/swap/status/sw_xyz789 \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+```json
+{
+  "success": true,
+  "status": "completed",
+  "tx_hash": "0x..."
+}
+```
+
+Instead of polling, you can set a `callback_url` on your agent and receive a signed webhook when the swap completes — see [Webhook Setup](webhook-setup.md).
+
+## Client-Signed Alternative
+
+If you manage your own keys, use `POST /v1/agent/swap` instead of `/swap/execute`. It returns an unsigned transaction request (`to`, `value`, `data`, `chain_id`) that you sign and broadcast yourself. Pass your own `wallet_address` so the quote is priced and the transaction is built against your address.
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/swap \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"quote_id": "q_abc123", "wallet_address": "0xYOUR_ADDRESS"}'
+```
+
+## Tips
+
+- For stablecoin-to-stablecoin moves (e.g. USDC → USDC across chains), routing often uses CCTP or Across for fast, low-slippage bridging.
+- Always check `expected_output` before executing — cross-chain rates include bridge fees.
+- Re-quote if a `quote_id` has expired; executing a stale quote will fail.
+
+See [EVM Chains](../chains-reference/evm-chains.md) for the full list of supported source and destination chains.
+
+
+---
+
+# Managed Wallets
+
+Managed wallets let your agent swap without ever touching a private key. Suwappu provisions a server-side wallet (secured by Turnkey) tied to your agent, signs transactions on your behalf, and broadcasts them. Your code only ever sees a public address and a Bearer token.
+
+## Why Managed Wallets
+
+- **No key handling** — your agent never generates, stores, or signs with a private key.
+- **One EVM wallet, every EVM chain** — a single managed EVM address works across all 40+ EVM networks.
+- **Server-side execution** — call `POST /v1/agent/swap/execute` and Suwappu does the signing and broadcasting.
+
+## Step 1: Create a Wallet
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/wallets \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+```json
+{
+  "success": true,
+  "wallet": {
+    "address": "0xYOUR_MANAGED_ADDRESS",
+    "chain_type": "evm",
+    "supported_chains": ["ethereum", "polygon", "arbitrum", "optimism", "base", "bsc"]
+  },
+  "message": "Wallet created. Fund it to start swapping."
+}
+```
+
+The returned `address` is your agent's managed EVM wallet. It is recorded against your agent, so quotes and swaps are automatically priced and executed against it. Although `supported_chains` lists a sample, the same EVM address works across every supported EVM chain.
+
+## Step 2: List Your Wallets
+
+```bash
+curl https://api.suwappu.bot/v1/agent/wallets \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+If you have not created a wallet yet, the response hints you to create one with `POST /v1/agent/wallets`.
+
+## Step 3: Fund the Wallet
+
+Send the native gas token (and any tokens you want to swap) to the managed address. The wallet needs gas on whichever chain you intend to swap on (ETH on Base/Arbitrum/Optimism, BNB on BSC, MATIC on Polygon, etc.).
+
+## Step 4: Quote and Execute
+
+Because the wallet is recorded against your agent, you do not pass an address — just quote and execute:
+
+```bash
+# Quote
+curl -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"from_token": "ETH", "to_token": "USDC", "amount": "0.1", "chain": "base"}'
+
+# Execute server-side (managed signing)
+curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"quote_id": "q_abc123"}'
+```
+
+## Ownership & Security
+
+- A managed wallet belongs to the agent that created it. Quotes are cached per agent and can only be executed by that agent.
+- Natural-language commands (`/v1/agent/execute`) that include a `wallet_address` are rejected unless the address is your own managed wallet — you cannot swap from a wallet you don't own.
+- Rotate your API key any time with `POST /v1/agent/keys/rotate`; this does not change your wallet address.
+
+## Client-Signed Wallets (Opt-Out)
+
+If you prefer to hold your own keys, skip managed wallets entirely. Use `POST /v1/agent/swap` with your own `wallet_address` to receive an unsigned transaction (`to`, `value`, `data`, `chain_id`) that you sign and broadcast yourself. See [Cross-Chain Swaps](cross-chain-swaps.md#client-signed-alternative).
+
+
+---
+
+# Webhook Setup
+
+Instead of polling for swap status, register a `callback_url` and Suwappu will POST signed events to your server as swaps progress. Every delivery is signed with HMAC-SHA256 so you can verify it came from Suwappu, and you can inspect delivery history or fire a test event at any time.
+
+## Step 1: Set Your Callback URL
+
+Set your webhook endpoint on your agent profile:
+
+```bash
+curl -X PATCH https://api.suwappu.bot/v1/agent/me \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"callback_url": "https://your-server.com/webhooks/suwappu"}'
+```
+
+Once a `callback_url` is set, swap-execution responses note that you will receive webhook notifications there.
+
+## Step 2: Receive Events
+
+Suwappu POSTs a JSON body to your URL. The payload shape is:
+
+```json
+{
+  "event": "webhook.test",
+  "timestamp": "2026-06-18T12:00:00Z",
+  "data": {
+    "message": "Test webhook from Suwappu",
+    "agent_id": "your-agent-uuid"
+  }
+}
+```
+
+Each delivery carries these headers:
+
+| Header | Description |
+|--------|-------------|
+| `X-Suwappu-Event` | The event type (e.g. `webhook.test`) |
+| `X-Suwappu-Delivery` | A unique delivery UUID |
+| `X-Suwappu-Timestamp` | Unix timestamp (seconds) when the delivery was signed |
+| `X-Suwappu-Signature` | HMAC-SHA256 signature of the raw JSON body (hex) |
+
+## Step 3: Verify the Signature
+
+The signing key is the **SHA-256 hash of your API key** (the raw `suwappu_sk_...` string, hashed to 32 bytes). The signature is the hex HMAC-SHA256 of the exact raw request body using that key.
+
+```javascript
+import crypto from 'crypto'
+
+function verifySuwappuWebhook(rawBody, signatureHeader, apiKey) {
+  // Signing key = sha256(apiKey) as raw bytes
+  const signingKey = crypto.createHash('sha256').update(apiKey).digest()
+  const expected = crypto
+    .createHmac('sha256', signingKey)
+    .update(rawBody)
+    .digest('hex')
+  return crypto.timingSafeEqual(
+    Buffer.from(expected),
+    Buffer.from(signatureHeader),
+  )
+}
+
+// Express example
+app.post('/webhooks/suwappu', express.raw({ type: '*/*' }), (req, res) => {
+  const sig = req.header('X-Suwappu-Signature')
+  if (!verifySuwappuWebhook(req.body, sig, process.env.SUWAPPU_API_KEY)) {
+    return res.status(401).send('invalid signature')
+  }
+  const event = JSON.parse(req.body.toString())
+  console.log('Received', event.event, event.data)
+  res.sendStatus(200)
+})
+```
+
+```python
+import hashlib, hmac
+
+def verify_suwappu_webhook(raw_body: bytes, signature_header: str, api_key: str) -> bool:
+    signing_key = hashlib.sha256(api_key.encode()).digest()
+    expected = hmac.new(signing_key, raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature_header)
+```
+
+Always verify against the **raw** request body, before any JSON parsing or re-serialization.
+
+## Step 4: Send a Test Event
+
+Fire a test delivery to confirm your endpoint is reachable and your verification works:
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/webhooks/test \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+```json
+{
+  "success": true,
+  "callback_url": "https://your-server.com/webhooks/suwappu",
+  "status_code": 200,
+  "response_time_ms": 142
+}
+```
+
+If no `callback_url` is configured, the test returns an error hinting you to set one via `PATCH /v1/agent/me`. Deliveries time out after 10 seconds, so respond quickly with a `2xx`.
+
+## Step 5: Inspect Delivery History
+
+List recent webhook events, optionally filtered by status or event type:
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/webhooks?status=delivered" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+## Best Practices
+
+- **Respond fast.** Acknowledge with `2xx` immediately and do heavy work asynchronously — deliveries time out at 10 seconds.
+- **Verify every delivery.** Reject any request whose signature does not match.
+- **Treat deliveries as at-least-once.** Use the `X-Suwappu-Delivery` ID to deduplicate.
+- **Keep your endpoint public and HTTPS.** Suwappu only POSTs to the URL you configured.
+
+
+---
+
+# Building a Trading Bot
+
+Build a simple automated trading bot on the Suwappu API. This tutorial wires together the core endpoints — register, create a managed wallet, watch prices, quote, and execute — into a small price-triggered bot that buys when a token dips below a threshold.
+
+## What You'll Build
+
+A bot that:
+
+1. Polls the price of a token.
+2. When the price drops below your target, quotes a swap into it.
+3. Executes the swap from a managed wallet.
+4. Logs the resulting swap ID and waits for completion.
+
+## Prerequisites
+
+Register an agent and store the API key:
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/register \
+  -H "Content-Type: application/json" \
+  -d '{"name": "dip-buyer"}'
+# Response: { "success": true, "api_key": "suwappu_sk_..." }
+```
+
+Create and fund a managed wallet (see [Managed Wallets](managed-wallets.md)):
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/wallets \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+## The Bot
+
+```typescript
+const BASE = 'https://api.suwappu.bot/v1/agent'
+const API_KEY = process.env.SUWAPPU_API_KEY!
+const headers = {
+  Authorization: `Bearer ${API_KEY}`,
+  'Content-Type': 'application/json',
+}
+
+async function getPrice(symbol: string): Promise<number> {
+  const res = await fetch(`${BASE}/prices?symbols=${symbol}`, { headers })
+  const json = await res.json()
+  return json.prices[symbol].usd
+}
+
+async function quote(fromToken: string, toToken: string, amount: string, chain: string) {
+  const res = await fetch(`${BASE}/quote`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ from_token: fromToken, to_token: toToken, amount, chain }),
+  })
+  return res.json()
+}
+
+async function execute(quoteId: string) {
+  const res = await fetch(`${BASE}/swap/execute`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ quote_id: quoteId }),
+  })
+  return res.json()
+}
+
+async function status(swapId: string) {
+  const res = await fetch(`${BASE}/swap/status/${swapId}`, { headers })
+  return res.json()
+}
+
+// Strategy: buy ETH on Base with 200 USDC when ETH drops below target.
+async function run(targetPrice: number) {
+  while (true) {
+    const price = await getPrice('ETH')
+    console.log(`ETH price: $${price.toFixed(2)}`)
+
+    if (price <= targetPrice) {
+      console.log(`Target hit ($${targetPrice}). Buying ETH...`)
+      const q = await quote('USDC', 'ETH', '200', 'base')
+      if (!q.success) {
+        console.error('Quote failed:', q.error)
+        return
+      }
+
+      const swap = await execute(q.quote_id)
+      console.log('Swap submitted:', swap.swap_id)
+
+      // Poll until terminal
+      let s = await status(swap.swap_id)
+      while (s.status === 'pending') {
+        await new Promise((r) => setTimeout(r, 5000))
+        s = await status(swap.swap_id)
+      }
+      console.log('Final status:', s.status, s.tx_hash)
+      return
+    }
+
+    await new Promise((r) => setTimeout(r, 30_000)) // check every 30s
+  }
+}
+
+run(2800)
+```
+
+## Going Further
+
+- **Use webhooks instead of polling** for swap status — see [Webhook Setup](webhook-setup.md).
+- **Add cross-chain entries** by quoting with `from_chain` / `to_chain` — see [Cross-Chain Swaps](cross-chain-swaps.md).
+- **Track history** with `GET /v1/agent/swaps` to record fills.
+- **Diversify** by extending the strategy to multiple tokens and chains.
+
+> This is an educational example, not financial advice. Test with small amounts on a funded wallet first, and handle errors (insufficient balance, expired quotes, slippage) before running unattended.
+
+
+---
+
+# Portfolio Rebalancer
+
+Build a periodic portfolio rebalancer that reads your wallet's holdings, compares them to target allocations, and issues swaps to bring the portfolio back in line. It combines three endpoints: portfolio (read balances), prices (value them), and quote + swap/execute (rebalance).
+
+## How Rebalancing Works
+
+1. Read current balances for the wallet.
+2. Price each holding to compute USD values and current weights.
+3. Compare to target weights; find positions that are over- or under-weight.
+4. Swap from over-weight assets into under-weight assets until each is within a tolerance band.
+
+## Step 1: Read the Portfolio
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/portfolio?wallet_address=0xYOUR_MANAGED_ADDRESS" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+This returns the token balances held by the wallet. Use your managed wallet address (see [Managed Wallets](managed-wallets.md)).
+
+## Step 2: Price the Holdings
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/prices?symbols=ETH,USDC,WBTC" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+## The Rebalancer
+
+```typescript
+const BASE = 'https://api.suwappu.bot/v1/agent'
+const API_KEY = process.env.SUWAPPU_API_KEY!
+const WALLET = process.env.SUWAPPU_WALLET! // managed EVM address
+const CHAIN = 'base'
+
+const headers = {
+  Authorization: `Bearer ${API_KEY}`,
+  'Content-Type': 'application/json',
+}
+
+// Target allocation (weights must sum to 1.0)
+const TARGETS: Record<string, number> = { ETH: 0.5, WBTC: 0.3, USDC: 0.2 }
+const TOLERANCE = 0.05 // rebalance only if a weight drifts > 5%
+
+async function get(path: string) {
+  return (await fetch(`${BASE}${path}`, { headers })).json()
+}
+async function post(path: string, body: unknown) {
+  return (await fetch(`${BASE}${path}`, { method: 'POST', headers, body: JSON.stringify(body) })).json()
+}
+
+async function rebalance() {
+  const portfolio = await get(`/portfolio?wallet_address=${WALLET}`)
+  const symbols = Object.keys(TARGETS)
+  const priceData = await get(`/prices?symbols=${symbols.join(',')}`)
+
+  // Compute USD value of each holding
+  const values: Record<string, number> = {}
+  let total = 0
+  for (const sym of symbols) {
+    const bal = balanceOf(portfolio, sym) // your helper over the portfolio response
+    const price = priceData.prices[sym]?.usd ?? 0
+    values[sym] = bal * price
+    total += values[sym]
+  }
+  if (total === 0) return
+
+  // Find the most over-weight and most under-weight assets
+  let over = '', under = '', overDrift = 0, underDrift = 0
+  for (const sym of symbols) {
+    const weight = values[sym] / total
+    const drift = weight - TARGETS[sym]
+    if (drift > overDrift) { overDrift = drift; over = sym }
+    if (-drift > underDrift) { underDrift = -drift; under = sym }
+  }
+
+  if (overDrift < TOLERANCE || !over || !under) {
+    console.log('Portfolio within tolerance. Nothing to do.')
+    return
+  }
+
+  // Swap the over-weight USD excess into the under-weight asset
+  const excessUsd = (overDrift * total) / 2
+  const overPrice = priceData.prices[over].usd
+  const amount = (excessUsd / overPrice).toFixed(6)
+
+  console.log(`Rebalancing: swap ${amount} ${over} -> ${under}`)
+  const quote = await post('/quote', {
+    from_token: over, to_token: under, amount, chain: CHAIN,
+  })
+  if (!quote.success) { console.error('Quote failed:', quote.error); return }
+
+  const swap = await post('/swap/execute', { quote_id: quote.quote_id })
+  console.log('Rebalance swap submitted:', swap.swap_id)
+}
+
+// Run every 6 hours
+rebalance()
+setInterval(rebalance, 6 * 60 * 60 * 1000)
+```
+
+`balanceOf(portfolio, sym)` is a small helper you write over the shape returned by `/portfolio` — extract the human-readable balance for each symbol.
+
+## Notes
+
+- Rebalancing one over/under pair per run keeps each cycle simple; loop the logic if you want to converge in a single pass.
+- Use a tolerance band so you don't churn fees on small drifts.
+- All swaps execute server-side from your managed wallet — no key handling needed.
+- For multi-chain portfolios, fetch the portfolio per chain and rebalance within each chain, or use cross-chain quotes (`from_chain` / `to_chain`).
+
+> Educational example, not financial advice. Test with small amounts first.
+
+
+---
+
+# Trading CLI
+
+Build a small command-line tool that quotes and executes swaps against the Suwappu API. It's a thin wrapper over the REST endpoints — useful for manual trading, scripting, and as a starting point for richer tooling.
+
+## What You'll Build
+
+A `suwappu` CLI with three commands:
+
+- `suwappu quote <amount> <from> <to> [chain]` — get a quote
+- `suwappu swap <quote_id>` — execute a quote from your managed wallet
+- `suwappu status <swap_id>` — check a swap's status
+
+## Setup
+
+Export your key (register via `POST /v1/agent/register` if you don't have one):
+
+```bash
+export SUWAPPU_API_KEY=suwappu_sk_YOUR_KEY
+```
+
+## The Script
+
+```typescript
+#!/usr/bin/env bun
+const BASE = 'https://api.suwappu.bot/v1/agent'
+const API_KEY = process.env.SUWAPPU_API_KEY
+if (!API_KEY) { console.error('Set SUWAPPU_API_KEY'); process.exit(1) }
+
+const headers = { Authorization: `Bearer ${API_KEY}`, 'Content-Type': 'application/json' }
+
+async function get(path: string) {
+  return (await fetch(`${BASE}${path}`, { headers })).json()
+}
+async function post(path: string, body: unknown) {
+  return (await fetch(`${BASE}${path}`, { method: 'POST', headers, body: JSON.stringify(body) })).json()
+}
+
+const [cmd, ...args] = process.argv.slice(2)
+
+switch (cmd) {
+  case 'quote': {
+    const [amount, from, to, chain = 'base'] = args
+    const q = await post('/quote', { from_token: from, to_token: to, amount, chain })
+    if (!q.success) { console.error('Error:', q.error); process.exit(1) }
+    console.log(`Quote ${q.quote_id}`)
+    console.log(`  ${amount} ${from} -> ${q.expected_output} ${to} on ${chain}`)
+    console.log(`  Run: suwappu swap ${q.quote_id}`)
+    break
+  }
+  case 'swap': {
+    const [quoteId] = args
+    const s = await post('/swap/execute', { quote_id: quoteId })
+    if (!s.success) { console.error('Error:', s.error); process.exit(1) }
+    console.log(`Submitted swap ${s.swap_id} (${s.status})`)
+    console.log(`  Run: suwappu status ${s.swap_id}`)
+    break
+  }
+  case 'status': {
+    const [swapId] = args
+    const s = await get(`/swap/status/${swapId}`)
+    console.log(`Status: ${s.status}${s.tx_hash ? ` (${s.tx_hash})` : ''}`)
+    break
+  }
+  case 'prices': {
+    const p = await get(`/prices?symbols=${args.join(',') || 'ETH,BTC,SOL'}`)
+    for (const [sym, data] of Object.entries<any>(p.prices)) {
+      console.log(`${sym}: $${data.usd.toFixed(2)}`)
+    }
+    break
+  }
+  default:
+    console.log('Usage: suwappu <quote|swap|status|prices> ...')
+}
+```
+
+## Usage
+
+```bash
+# Get a quote
+bun suwappu.ts quote 0.5 ETH USDC base
+# Quote q_abc123
+#   0.5 ETH -> 1247.50 USDC on base
+#   Run: suwappu swap q_abc123
+
+# Execute it (requires a funded managed wallet)
+bun suwappu.ts swap q_abc123
+# Submitted swap sw_xyz789 (pending)
+
+# Check status
+bun suwappu.ts status sw_xyz789
+# Status: completed (0x...)
+
+# Check prices
+bun suwappu.ts prices ETH BTC SOL
+```
+
+## Next Steps
+
+- Add a `wallet` command that calls `POST /v1/agent/wallets` to provision a managed wallet.
+- Prefer natural-language input? See [Natural-Language CLI](natural-language-cli.md), which uses the `/execute` endpoint.
+- Wrap quote → swap → status into a single command with automatic status polling.
+
+Requires a funded [managed wallet](managed-wallets.md) for the `swap` command to execute server-side.
+
+
+---
+
+# Natural-Language CLI
+
+Build a CLI that takes plain-English commands and routes them through the Suwappu `/execute` endpoint. Instead of constructing JSON for each swap, you type `swap 0.5 ETH to USDC on base` and the API parses the intent, resolves tokens and chains, and returns a ready quote.
+
+## The /execute Endpoint
+
+`POST /v1/agent/execute` accepts a natural-language `command` and an optional `wallet_address`. It parses swap and quote/price commands, fetches a quote, and returns a structured response. If you include `wallet_address` (which must be your own managed wallet), it also returns executable transaction data.
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/execute \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"command": "swap 0.5 ETH to USDC on base"}'
+```
+
+A successful swap command returns:
+
+```json
+{
+  "success": true,
+  "action": "swap",
+  "status": "quoted",
+  "message": "Quote ready: 0.5 ETH -> 1247.500000 USDC on base",
+  "quote_id": "q_abc123",
+  "from_token": "ETH",
+  "to_token": "USDC",
+  "amount_in": "0.5",
+  "amount_out": "1247.500000",
+  "chain": "base",
+  "chain_id": 8453,
+  "exchange_rate": "2495.0",
+  "gas_usd": "0.42",
+  "has_transaction": false,
+  "next_step": "Add wallet_address to get executable transaction data"
+}
+```
+
+When you pass your own managed `wallet_address`, `has_transaction` becomes `true` and a `transaction` object (`to`, `value`, `data`, `chain_id`) is included for client-side signing.
+
+> Note: `wallet_address` must be your agent's own managed wallet — passing another address returns `403`.
+
+## The Script
+
+```typescript
+#!/usr/bin/env bun
+const BASE = 'https://api.suwappu.bot/v1/agent'
+const API_KEY = process.env.SUWAPPU_API_KEY
+if (!API_KEY) { console.error('Set SUWAPPU_API_KEY'); process.exit(1) }
+
+const headers = { Authorization: `Bearer ${API_KEY}`, 'Content-Type': 'application/json' }
+
+async function execute(command: string, walletAddress?: string) {
+  const body: Record<string, unknown> = { command }
+  if (walletAddress) body.wallet_address = walletAddress
+  const res = await fetch(`${BASE}/execute`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+  return res.json()
+}
+
+// Everything after the script name is the command.
+const command = process.argv.slice(2).join(' ')
+if (!command) {
+  console.log('Usage: suwappu-nl "swap 0.5 ETH to USDC on base"')
+  process.exit(1)
+}
+
+const result = await execute(command, process.env.SUWAPPU_WALLET)
+
+if (!result.success) {
+  console.error('Error:', result.error)
+  if (result.fields) console.error(result.fields)
+  process.exit(1)
+}
+
+console.log(result.message)
+if (result.quote_id) console.log(`  quote_id: ${result.quote_id}`)
+if (result.next_step) console.log(`  next: ${result.next_step}`)
+```
+
+## Usage
+
+```bash
+# Quote a swap
+bun suwappu-nl.ts "swap 0.5 ETH to USDC on base"
+# Quote ready: 0.5 ETH -> 1247.500000 USDC on base
+#   quote_id: q_abc123
+#   next: Add wallet_address to get executable transaction data
+
+# Price/quote queries also work
+bun suwappu-nl.ts "quote 1 ETH to USDC on arbitrum"
+```
+
+## Supported Phrasings
+
+The endpoint understands forms like:
+
+- `swap <amount> <from> to|for <to> [on <chain>]`
+- `quote|price [of] <amount> <from> to|in|for <to> [on <chain>]`
+
+If the chain is omitted, it defaults to Ethereum. For Solana, include `on solana`.
+
+## Executing the Quote
+
+`/execute` returns a quote (and optionally unsigned transaction data). To run it server-side with a managed wallet, take the `quote_id` and call `POST /v1/agent/swap/execute`:
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"quote_id": "q_abc123"}'
+```
+
+## Related
+
+- The A2A endpoint (`POST /a2a`) accepts the same natural-language phrasing over JSON-RPC — see [A2A Protocol](../protocols/a2a.md).
+- For typed, explicit commands, see the [Trading CLI](trading-cli.md).
+
+
+---
+
+# MCP Portfolio Advisor
+
+Turn Suwappu's MCP server into a hands-on portfolio advisor inside Claude, Cursor, or any MCP client. Once connected, your agent can read live balances and prices, reason about allocation, and propose (or execute) rebalancing swaps — all through natural conversation.
+
+## 1. Connect the MCP server
+
+Add Suwappu to your MCP client's server config. In Claude Desktop, that's `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "suwappu": {
+      "command": "npx",
+      "args": ["-y", "@suwappu/mcp"],
+      "env": { "SUWAPPU_API_KEY": "suwappu_sk_YOUR_KEY" }
+    }
+  }
+}
+```
+
+Get your API key from the [registration endpoint](../api-reference/registration.md). See the [MCP Protocol](../protocols/mcp.md) page for the full tool list and transport details.
+
+## 2. Tools the advisor uses
+
+The advisor flow leans on a few read tools plus the swap tools:
+
+| Tool | Role in the advisor |
+|------|---------------------|
+| `get_portfolio` | Current holdings and USD values across every chain |
+| `get_prices` | Live token prices for valuation and drift checks |
+| `list_chains` / `list_tokens` | Resolve symbols and supported routes |
+| `get_quote` | Price a proposed rebalancing swap before acting |
+| `execute_swap` | Execute an approved quote (managed-wallet only) |
+
+## 3. Example conversation
+
+Once connected, you can simply ask:
+
+> "Show my portfolio and tell me if I'm over-weight any single asset."
+
+The agent calls `get_portfolio` + `get_prices`, then reasons over the result:
+
+> Your portfolio is **$12,480**. ETH is **63%** of it — above a typical 40% target.
+> To rebalance toward 40/30/30 ETH/USDC/SOL, I'd swap **~1.1 ETH → USDC**.
+> Want me to quote it?
+
+On approval, it calls `get_quote`, shows the route and gas, and — if you've enabled a managed wallet — `execute_swap` to settle it.
+
+## 4. Keep it safe
+
+Because the same MCP connection can execute swaps, scope it like any other agent credential:
+
+- Use a dedicated API key with **wallet policy limits** (per-swap and daily caps) — see [Managed Wallets](./managed-wallets.md).
+- Keep `execute_swap` behind an explicit human "yes" in the conversation; have the agent **quote first, execute second**.
+- Review the [Authentication](../authentication/README.md) guardrails before pointing an autonomous advisor at a funded wallet.
+
+## Next steps
+
+- [Portfolio Rebalancer](./portfolio-rebalancer.md) — the same logic as a scheduled script instead of a chat.
+- [MCP Protocol](../protocols/mcp.md) — full tool reference and client setup.
+
+
+---
+
+# Perpetual Futures Trading
+
+Trade perpetual futures through Suwappu's HyperLiquid integration. Open leveraged long and short positions on 10 major crypto assets.
+
+## Available Markets
+
+| Market | Max Leverage |
+|--------|-------------|
+| BTC-USD | 20x |
+| ETH-USD | 20x |
+| SOL-USD | 20x |
+| ARB-USD | 20x |
+| AVAX-USD | 20x |
+| DOGE-USD | 20x |
+| MATIC-USD | 20x |
+| OP-USD | 20x |
+| SUI-USD | 20x |
+| APT-USD | 20x |
+
+## Step 1: Browse Markets
+
+Check current prices, funding rates, and open interest:
+
+```bash
+curl https://api.suwappu.bot/v1/agent/perps/markets \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+## Step 2: Get a Quote
+
+Before opening a position, get a quote to see entry price, liquidation price, and required margin:
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/perps/quote \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "market": "ETH-USD",
+    "side": "long",
+    "size": "0.5",
+    "leverage": 10
+  }'
+```
+
+Key fields in the response:
+- `entryPrice` — the price at entry
+- `liquidationPrice` — price at which the position gets liquidated
+- `margin` — required collateral
+- `fee` — trading fee
+
+## Step 3: Check Positions
+
+Monitor your open positions:
+
+```bash
+curl https://api.suwappu.bot/v1/agent/perps/positions \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+## TypeScript Example
+
+```typescript
+const client = new Suwappu({ apiKey: process.env.SUWAPPU_KEY })
+
+// Browse markets
+const markets = await fetch('https://api.suwappu.bot/v1/agent/perps/markets', {
+  headers: { Authorization: `Bearer ${apiKey}` }
+}).then(r => r.json())
+
+console.log(markets.markets.map(m => `${m.symbol}: $${m.markPrice}`))
+
+// Get a quote for 0.5 ETH long at 10x
+const quote = await fetch('https://api.suwappu.bot/v1/agent/perps/quote', {
+  method: 'POST',
+  headers: {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    market: 'ETH-USD',
+    side: 'long',
+    size: '0.5',
+    leverage: 10
+  })
+}).then(r => r.json())
+
+console.log(`Entry: $${quote.quote.entryPrice}`)
+console.log(`Liquidation: $${quote.quote.liquidationPrice}`)
+console.log(`Margin required: $${quote.quote.margin}`)
+```
+
+## Telegram Bot
+
+Use `/perps` in the Telegram bot for an interactive trading interface with market selection, side, amount, leverage, and confirmation steps.
+
+
+---
+
+# Prediction Markets
+
+Trade binary outcome markets on Polymarket through the Suwappu API. Browse events, check live prices, and place orders.
+
+## How It Works
+
+Prediction markets let you buy shares in outcomes. Each outcome trades between $0 and $1:
+- **$0.42** means the market gives a 42% probability
+- If the outcome resolves **Yes**, shares pay out $1
+- If the outcome resolves **No**, shares pay out $0
+
+## Step 1: Browse Markets
+
+Search for active markets by keyword or category:
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/predict/markets?category=crypto&limit=5" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+Or browse prediction events:
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/predict/events?query=bitcoin" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+## Step 2: Check Prices
+
+Get the current midpoint price for a specific market:
+
+```bash
+curl https://api.suwappu.bot/v1/agent/predict/market/0x1234abcd/price \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+View the full order book:
+
+```bash
+curl https://api.suwappu.bot/v1/agent/predict/market/0x1234abcd/book \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+## Step 3: Place an Order
+
+Buy shares in an outcome at a specific price:
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/predict/order \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tokenId": "71321044878958750425...",
+    "price": 0.42,
+    "size": 100,
+    "side": "BUY"
+  }'
+```
+
+The `tokenId` identifies which outcome token you're trading. Get it from the market detail endpoint.
+
+## Step 4: Manage Positions
+
+Check your open positions:
+
+```bash
+curl https://api.suwappu.bot/v1/agent/predict/positions \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+List your orders:
+
+```bash
+curl https://api.suwappu.bot/v1/agent/predict/orders \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+Cancel an open order:
+
+```bash
+curl -X DELETE https://api.suwappu.bot/v1/agent/predict/order/ord_abc123 \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+
+## MCP Tool
+
+If you're using Claude or another MCP client, two tools are available:
+- `predict_markets` — search and browse markets
+- `predict_market_detail` — get detailed info with live CLOB prices
+
+## Telegram Bot
+
+Use the Telegram bot's prediction market interface for interactive market browsing, price checking, and order placement.
+
+
+---
+
+# Limit Orders
+
+Set price-triggered swap orders that execute automatically when your target price is reached.
+
+> **Authentication note:** The `/webapp/me/limit-orders` endpoints are protected by Telegram Mini App authentication (`X-Telegram-Init-Data`). They are accessible only from inside the Suwappu Telegram Mini App, not via agent API keys. Agent/API-key access to limit orders is not yet available.
+
+## How It Works
+
+1. You set a token pair, target price, and trigger condition (price goes above or below)
+2. Suwappu monitors the price continuously
+3. When the target is hit, the swap executes automatically
+
+## Authentication (Mini App only)
+
+These routes require the Telegram Web App `initData` string passed as the `X-Telegram-Init-Data` header:
+
+```typescript
+// Inside the Telegram Mini App
+const initData = window.Telegram.WebApp.initData;
+
+const res = await fetch('https://api.suwappu.bot/webapp/me/limit-orders', {
+  method: 'POST',
+  headers: {
+    'X-Telegram-Init-Data': initData,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    fromChain: 'base',
+    fromToken: 'USDC',
+    toToken: 'ETH',
+    amount: '500',
+    targetPrice: '2800',
+    triggerType: 'lte',
+  }),
+});
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `fromChain` | string | Yes | Chain to swap on |
+| `fromToken` | string | Yes | Token to sell |
+| `toToken` | string | Yes | Token to buy |
+| `amount` | string | Yes | Amount of `fromToken` to swap |
+| `targetPrice` | string | Yes | Price that triggers the swap |
+| `triggerType` | string | Yes | `"lte"` (price drops to) or `"gte"` (price rises to) |
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "order": {
+    "id": "lo_abc123",
+    "fromChain": "base",
+    "fromToken": "USDC",
+    "toToken": "ETH",
+    "amount": "500",
+    "targetPrice": "2800",
+    "triggerType": "lte",
+    "status": "active",
+    "created_at": "2026-03-29T12:00:00Z"
+  }
+}
+```
+
+## Use Cases
+
+**Buy the dip:** Set `triggerType: "lte"` to buy ETH when the price drops below $2,800.
+
+**Take profit:** Set `triggerType: "gte"` to sell ETH when the price rises above $4,000.
+
+**Accumulate:** Create multiple limit orders at different price levels to dollar-cost average into a position.
+
+## Telegram Bot
+
+Use the Telegram bot's `/o` command for an interactive limit order interface with step-by-step token selection, price setting, and order management.
+
+
+
+# Changelog
+
+
+---
+
+# Changelog
+
+Notable changes to the Suwappu agent API, SDK, and docs. Dates are in UTC. Breaking changes are called out explicitly; the API is versioned under `/v1/agent`.
+
+## 2026-06-18
+
+- **Docs rebuilt for agents.** Every documentation page is now available as clean Markdown (append `.md` to any URL, or send `Accept: text/markdown`), with `llms.txt` and `llms-full.txt` indexes advertised via response headers.
+- **OpenAPI 3.1 spec enriched.** Every operation now documents request/response examples, error responses (`401`/`402`/`422`/`429`/`500`), and reusable component schemas. Fetch it at `GET /v1/agent/openapi`.
+- **Language examples** added across the API reference — cURL, TypeScript, and Python for every request.
+
+## 2026-06-10
+
+- **Tempo gasless swaps.** New users get their first swaps sponsored via Tempo fee-payer (type `0x76`) transactions — effectively gasless onboarding on TIP-20 stablecoins. Falls back to a normal user-paid swap when sponsorship is unavailable.
+- **Machine Payments Protocol (MPP)** endpoints for browsing and paying micropayment services on Tempo.
+
+## 2026-05-22
+
+- **HyperLiquid, first-class.** Added perpetuals (`/perps`, up to 20x), one-click cross-chain funding to HyperCore (`/fund`), HYPE staking (`/stake`), vaults (`/vault`), TWAP orders (`/twap`), and spot trading (`/spot`).
+- **HyperUnit** native BTC/ETH/SOL deposit routing for funding (region-gated).
+
+## 2026-04-30
+
+- **40+ chains.** Expanded best-price routing to 40+ networks, including Starknet, TRON, Tempo, and Bitcoin L2s, raced across LiFi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, and CCTP.
+- **MCP server + A2A agent card** published for agent discovery (`/.well-known/agent-card.json`).
+
+## 2026-03-15
+
+- **Agent API v1.** Public launch of the REST agent API: register, quote, swap, swap status, portfolio, and managed wallets with KMS-backed server-side signing.
+

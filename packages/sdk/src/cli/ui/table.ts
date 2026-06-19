@@ -7,7 +7,7 @@ import type {
   PerpMarket,
   PerpPosition,
   Quote,
-} from "@suwappu/openclaw";
+} from "../../types.js";
 import { theme, changeColor } from "./colors.js";
 import {
   formatUsd,

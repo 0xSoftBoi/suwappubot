@@ -100,6 +100,7 @@ async def perps_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("\U0001f4c9 Open Short", callback_data="perps_short"),
         ],
         [InlineKeyboardButton("\U0001f4cb My Positions", callback_data="perps_positions")],
+        [InlineKeyboardButton("\U0001f4b0 Deposit / Fund", callback_data="fund_menu")],
         [InlineKeyboardButton("\U0001f4dc Order History", callback_data="perps_history")],
         [InlineKeyboardButton("\u2699\ufe0f Account Settings", callback_data="perps_settings")],
         [InlineKeyboardButton("\U0001f519 Back", callback_data="main_menu")],

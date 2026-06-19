@@ -15,7 +15,7 @@ export default function DocsReader({ html, title }: Props) {
   useEffect(() => {
     import('dompurify').then((mod) => {
       const DOMPurify = mod.default || mod;
-      setSafeHtml(DOMPurify.sanitize(html, { ADD_TAGS: ['code'], ADD_ATTR: ['class'] }));
+      setSafeHtml(DOMPurify.sanitize(html, { ADD_TAGS: ['code', 'span'], ADD_ATTR: ['class', 'id'] }));
     });
   }, [html]);
 
@@ -43,6 +43,29 @@ export default function DocsReader({ html, title }: Props) {
       });
       pre.appendChild(btn);
     });
+  }, [safeHtml]);
+
+  // Wire language-tab switching (cURL / TypeScript / Python widgets)
+  useEffect(() => {
+    const el = readerRef.current;
+    if (!el) return;
+
+    const groups = el.querySelectorAll<HTMLElement>('.code-tabs');
+    const cleanups: Array<() => void> = [];
+
+    groups.forEach((group) => {
+      const tabs = Array.from(group.querySelectorAll<HTMLButtonElement>('.code-tabs__tab'));
+      const panels = Array.from(group.querySelectorAll<HTMLElement>('.code-tabs__panel'));
+      const onClick = (e: Event) => {
+        const idx = (e.currentTarget as HTMLElement).dataset.tab;
+        tabs.forEach((t) => t.classList.toggle('is-active', t.dataset.tab === idx));
+        panels.forEach((p) => p.classList.toggle('is-active', p.dataset.tab === idx));
+      };
+      tabs.forEach((t) => t.addEventListener('click', onClick));
+      cleanups.push(() => tabs.forEach((t) => t.removeEventListener('click', onClick)));
+    });
+
+    return () => cleanups.forEach((fn) => fn());
   }, [safeHtml]);
 
   return (

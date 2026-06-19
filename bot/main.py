@@ -31,6 +31,9 @@ from bot.handlers.wallet import (
     wallet_import_handler,
 )
 from bot.handlers.swap import swap_conversation_handler, check_swap_status, swap_share_ref_handler
+from bot.handlers.twofa import twofa_conversation
+from bot.handlers.smart_account import smart_account_handler, smart_account_chain_handler
+from bot.handlers.recovery import recover_handler, recover_cancel_handler
 from bot.handlers.history import (
     history_handler,
     history_callback,
@@ -71,7 +74,15 @@ from bot.handlers.settings import (
     chain_menu_handler,
     chain_set_handler,
 )
-from bot.handlers.admin import status_handler, clear_cache_handler, broadcast_handler
+from bot.handlers.admin import (
+    status_handler,
+    clear_cache_handler,
+    broadcast_handler,
+    hl_builder_handler,
+    hl_claim_handler,
+    cctp_relay_handler,
+    set_region_handler,
+)
 from bot.handlers.digest import digest_handler
 from bot.handlers.quickswap import (
     quickswap_handler,
@@ -201,6 +212,23 @@ from bot.handlers.savings import savings_conversation_handler
 from bot.handlers.borrow import borrow_conversation_handler
 from bot.handlers.btc import btc_conversation_handler
 from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
+from bot.handlers.fund import fund_command_handler, fund_callback_handler
+from bot.handlers.hl_ecosystem import (
+    twap_handler,
+    stake_handler,
+    unstake_handler,
+    stakemove_handler,
+    vault_handler,
+    spot_handler,
+    hlmove_handler,
+    hl_hub_handler,
+    hl_ref_handler,
+    hl_cancel_handler,
+    hl_twap_cancel_handler,
+    hl_twap_refresh_handler,
+    hl_hub_cb_handler,
+    hl_ecosystem_conversation,
+)
 from bot.handlers.dashboard import dashboard_handler, dashboard_menu_callback
 from bot.handlers.token import (
     token_conv_handler,
@@ -210,6 +238,8 @@ from bot.handlers.token import (
     bond_menu_callback_handler,
     bond_list_callback_handler,
 )
+from bot.handlers.mpp_handler import get_mpp_handlers
+from bot.handlers.tempo import get_tempo_handlers
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
@@ -314,6 +344,24 @@ def add_handlers(application: Application) -> None:
     application.add_handler(status_handler)  # /status
     application.add_handler(clear_cache_handler)  # /clearcache
     application.add_handler(broadcast_handler)  # /broadcast
+    application.add_handler(hl_builder_handler)  # /hlbuilder
+    application.add_handler(hl_claim_handler)  # /hlclaim
+    application.add_handler(cctp_relay_handler)  # /cctprelay
+    application.add_handler(set_region_handler)  # /setregion (admin: set user region)
+    application.add_handler(hl_ref_handler)  # /hlref (admin)
+    application.add_handler(twap_handler)  # /twap
+    application.add_handler(stake_handler)  # /stake
+    application.add_handler(unstake_handler)  # /unstake
+    application.add_handler(stakemove_handler)  # /stakemove
+    application.add_handler(vault_handler)  # /vault
+    application.add_handler(spot_handler)  # /spot
+    application.add_handler(hlmove_handler)  # /hlmove (spot<->perp USDC)
+    application.add_handler(hl_hub_handler)  # /hl hub
+    application.add_handler(hl_ecosystem_conversation)  # stake/vault amount-entry flow
+    application.add_handler(hl_cancel_handler)  # dashboard close button
+    application.add_handler(hl_twap_cancel_handler)  # TWAP cancel button
+    application.add_handler(hl_twap_refresh_handler)  # TWAP refresh button
+    application.add_handler(hl_hub_cb_handler)  # /hl hub buttons
     application.add_handler(admin_hot_wallets_handler)  # /hotwallets
     application.add_handler(fees_handler)  # /fees
     application.add_handler(metrics_handler)  # /metrics
@@ -341,8 +389,16 @@ def add_handlers(application: Application) -> None:
     application.add_handler(borrow_conversation_handler)  # Borrow USDC vs cbBTC /borrow (Morpho)
     application.add_handler(btc_conversation_handler)  # BTC bridge /btc (Atomiq, Starknet)
     application.add_handler(token_conv_handler)  # SUWP token /token /suwp
+    application.add_handler(twofa_conversation)  # TOTP 2FA enrollment /2fa
+    application.add_handler(smart_account_handler)  # ERC-4337 smart account /sa
+    application.add_handler(recover_handler)  # DKIM-email social recovery /recover
 
     # ============ CALLBACK QUERY HANDLERS ============
+
+    # Smart accounts (ERC-4337) — chain switcher
+    application.add_handler(smart_account_chain_handler)
+    # Social recovery — cancel button
+    application.add_handler(recover_cancel_handler)
 
     # Navigation
     application.add_handler(CallbackQueryHandler(help_callback, pattern="^help$"))
@@ -469,6 +525,10 @@ def add_handlers(application: Application) -> None:
     # Perps Trading callbacks
     application.add_handler(perps_menu_callback_handler)
 
+    # HyperLiquid funding (one-click cross-chain deposits)
+    application.add_handler(fund_command_handler)
+    application.add_handler(fund_callback_handler)
+
     # SUWP token staking callbacks
     application.add_handler(token_menu_callback_handler)
     application.add_handler(token_unstake_callback_handler)
@@ -491,6 +551,14 @@ def add_handlers(application: Application) -> None:
     application.add_handler(mystats_callback_handler)
     application.add_handler(copy_now_callback_handler)
     application.add_handler(skip_copy_callback_handler)
+
+    # Tempo MPP (Machine Payments Protocol) — /mpp
+    for mpp_handler in get_mpp_handlers():
+        application.add_handler(mpp_handler)
+
+    # Tempo session keys (access keys) — /tempo
+    for tempo_handler in get_tempo_handlers():
+        application.add_handler(tempo_handler)
 
     # Error handler
     application.add_error_handler(error_handler)
@@ -524,6 +592,8 @@ async def post_init(application) -> None:
             BotCommand("o", "Limit orders"),
             BotCommand("dca", "Dollar-cost averaging"),
             BotCommand("snipe", "Token sniping"),
+            BotCommand("mpp", "Tempo machine payments (pay services/agents)"),
+            BotCommand("tempo", "Tempo session key for automated swaps"),
             BotCommand("hx", "Transaction history"),
             BotCommand("g", "Gas tracker"),
             BotCommand("f", "Favorite tokens"),
@@ -533,6 +603,12 @@ async def post_init(application) -> None:
             BotCommand("checkin", "Daily check-in"),
             BotCommand("traders", "Copy trading"),
             BotCommand("perps", "Perpetual trading"),
+            BotCommand("twap", "TWAP order (slice over time)"),
+            BotCommand("stake", "Stake HYPE / view staking"),
+            BotCommand("vault", "HyperLiquid vaults"),
+            BotCommand("spot", "HyperCore spot trading"),
+            BotCommand("hlmove", "Move USDC spot<->perp"),
+            BotCommand("hl", "HyperLiquid hub & holdings"),
             BotCommand("predict", "Prediction markets"),
             BotCommand("token", "SUWP token & staking"),
             BotCommand("suwp", "SUWP token & staking"),

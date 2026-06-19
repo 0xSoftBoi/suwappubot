@@ -151,6 +151,24 @@ async def _build_positions(user_id: int) -> tuple[str, list[tuple[str, str]]]:
             pct = (pnl / cost * 100.0) if cost > 0 else 0.0
             sign = "+" if pnl >= 0 else "−"
             pred_lines.append(f'{emoji} "{q}" {p.outcome} {shares:.0f}sh  {sign}{abs(pct):.1f}%')
+
+        # Resolved winners aren't auto-redeemed for EOAs — keep their claimable
+        # value (1:1 pUSD) in the portfolio instead of dropping them post-resolution.
+        claimable = (
+            session.query(PredictionPosition)
+            .filter(
+                PredictionPosition.user_id == user_id,
+                PredictionPosition.is_resolved == True,  # noqa: E712
+                PredictionPosition.resolved_payout > 0,
+            )
+            .all()
+        )
+        if claimable:
+            claimable_total = sum(float(p.resolved_payout or 0) for p in claimable)
+            total_value += claimable_total
+            pred_lines.append(
+                f"🏆 {len(claimable)} resolved · {_fmt_usd(claimable_total)} claimable"
+            )
     if pred_lines:
         sections.append("— 🔮 *Predictions* —\n" + "\n".join(pred_lines))
 
