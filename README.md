@@ -3,6 +3,7 @@
 Cross-chain DEX infrastructure for humans and AI agents — swap tokens across 14 chains via Telegram, WhatsApp, Discord, or programmatic API.
 
 [![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/features/agent_integration.md)
+[![ClawHub](https://img.shields.io/badge/ClawHub-suwappu--dex-ff4d4d)](https://clawhub.ai/0xsoftboi/suwappu-dex)
 [![A2A Protocol](https://img.shields.io/badge/A2A-Protocol-blue)](agent-card.json)
 [![Chains](https://img.shields.io/badge/Chains-14-green)]()
 [![Providers](https://img.shields.io/badge/Swap_Providers-10+-orange)]()
@@ -81,6 +82,16 @@ flowchart LR
 | **REST API** | `/v1/agent/*` | 50+ endpoints — swaps, wallets, portfolio, perps, predictions, lending, webhooks |
 | **MCP** | `/mcp` | 8 tools — get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory |
 | **A2A** | `/a2a` | Natural language — "swap 0.5 ETH to USDC on base", "price ETH SOL BTC" |
+
+**Framework toolkits:** [LangChain](https://github.com/0xSoftBoi/suwappu-langchain) · [CrewAI](https://github.com/0xSoftBoi/suwappu-crewai-crew) · **[OpenClaw](packages/openclaw/SKILL.md)** (zero-code, native MCP). Add Suwappu to any OpenClaw agent in one command:
+
+```bash
+openclaw mcp add suwappu --url https://api.suwappu.bot/mcp \
+  --transport streamable-http \
+  --header "Authorization=Bearer $SUWAPPU_API_KEY" --exclude execute_swap
+```
+
+See [docs/features/openclaw_integration.md](docs/features/openclaw_integration.md).
 
 ### Engagement
 - **Points/XP system** — Levels (Bronze → Platinum), daily check-ins, milestones, reward store
