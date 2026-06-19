@@ -341,6 +341,7 @@ def _ensure_schema(db_engine) -> None:
     if "swap_transactions" in tables:
         _add_swap_agent_columns(db_engine, inspector, is_sqlite)
         _add_swap_price_columns(db_engine, inspector, is_sqlite)
+        _add_swap_error_category_column(db_engine, inspector, is_sqlite)
 
     # --- user_settings: MEV protection column + quick trade presets ---
     if "user_settings" in tables:
@@ -1132,6 +1133,25 @@ def _add_swap_price_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 ddl = f"ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
+
+
+def _add_swap_error_category_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add the classified failure-cause column to swap_transactions.
+
+    Populated from error_guidance.classify_swap_failure for analytics on why
+    swaps fail (gas, balance, slippage, simulation revert, timeout, etc.).
+    """
+    cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
+
+    if "error_category" not in cols:
+        if is_sqlite:
+            ddl = "ALTER TABLE swap_transactions ADD COLUMN error_category VARCHAR(40)"
+        else:
+            ddl = (
+                "ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS error_category VARCHAR(40)"
+            )
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
 
 
 def _add_user_settings_mev_column(db_engine, inspector, is_sqlite: bool) -> None:

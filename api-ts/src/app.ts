@@ -164,9 +164,25 @@ Get key: POST /register (no auth needed)
 - GET /webhooks — Webhook events
 - POST /webhooks/test — Test webhook delivery
 
+### Perps (HyperLiquid)
+- GET /perps/markets — List perp markets
+- POST /perps/quote — Quote a perp position
+- GET /perps/positions?address= — Open positions
+
+### Predictions (Polymarket)
+- GET /predict/markets — Search prediction markets
+- GET /predict/market/{id} — Market detail + live prices
+- GET /predict/market/{id}/book — Order book
+- POST /predict/order — Place a CLOB order
+- GET /predict/positions — Positions with PnL
+
+### Lending (Morpho)
+- GET /lend/markets?chainId= — List lending markets
+- GET /lend/market/{id} — Market detail
+
 ## Protocols
 - REST: https://api.suwappu.bot/v1/agent/*
-- MCP: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0, tools: get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens)
+- MCP: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0; tools: get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory, predict_markets, predict_market_detail; resources + prompts supported)
 - A2A: POST https://api.suwappu.bot/a2a (JSON-RPC 2.0, methods: message/send, tasks/get, tasks/cancel)
 - Agent Card: GET https://api.suwappu.bot/.well-known/agent.json
 - OpenAPI: GET https://api.suwappu.bot/v1/agent/openapi
@@ -183,7 +199,7 @@ Headers: X-RateLimit-Limit, X-RateLimit-Remaining, Retry-After (on 429)
 
 ## SDK
 npm: @suwappu/sdk | PyPI: suwappu
-MCP Server: npx @suwappu/mcp-server
+MCP Server: hosted at POST https://api.suwappu.bot/mcp (no install — point your MCP client at the URL with a Bearer key)
 
 ## Docs
 https://docs.suwappu.bot

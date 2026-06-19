@@ -4,7 +4,8 @@
  * Usage:
  *   import { suwappu } from "@suwappu/openclaw";
  *   const quote = await suwappu.getQuote("ETH", "USDC", 1.0, "arbitrum");
- *   const tx = await suwappu.executeSwap(quote.id);
+ *   const tx = await suwappu.executeSwap(quote.id, "0xYourWallet");
+ *   // tx.transaction is unsigned — sign + broadcast with your own wallet
  */
 
 export interface SuwappuConfig {
@@ -29,10 +30,46 @@ export interface Quote {
   dex: string;
 }
 
+/**
+ * Result of `executeSwap`. The Suwappu agent API is non-custodial: it does not
+ * broadcast transactions. It returns an *unsigned* transaction (EVM) or a
+ * serialized transaction (Solana) for the caller to sign and submit, plus a
+ * `status` of `"ready"`. The caller signs with their own wallet and broadcasts.
+ */
 export interface SwapResult {
-  txHash: string;
-  status: "confirmed" | "pending" | "failed";
-  chain: string;
+  status: "ready";
+  quoteId: string;
+  chainType: "evm" | "solana";
+  swap: {
+    fromChain?: string;
+    toChain?: string;
+    fromToken: string;
+    toToken: string;
+    amountIn: string;
+    expectedAmountOut: string;
+    minimumAmountOut: string;
+  };
+  /**
+   * EVM: an unsigned transaction request to sign + broadcast.
+   * Solana: a base64 serialized transaction.
+   */
+  transaction:
+    | {
+        type: "evm";
+        to: string;
+        from: string;
+        value: string;
+        data: string;
+        chainId: number;
+        gasLimit?: string;
+        gasPrice?: string;
+      }
+    | {
+        type: "solana";
+        serializedTransaction: string;
+        lastValidBlockHeight?: number;
+      };
+  instructions: string[];
 }
 
 export interface TokenBalance {
@@ -205,11 +242,49 @@ export function createClient(config?: SuwappuConfig) {
       };
     },
 
-    async executeSwap(quoteId: string): Promise<SwapResult> {
-      return request<SwapResult>("/v1/agent/swap", config, {
+    async executeSwap(quoteId: string, walletAddress: string): Promise<SwapResult> {
+      const raw = await request<Record<string, unknown>>("/v1/agent/swap", config, {
         method: "POST",
-        body: JSON.stringify({ quote_id: quoteId }),
+        body: JSON.stringify({ quote_id: quoteId, wallet_address: walletAddress }),
       });
+      const swap = (raw.swap as Record<string, unknown>) ?? {};
+      const tx = (raw.transaction as Record<string, unknown>) ?? {};
+      const isSolana =
+        raw.chain_type === "solana" || raw.chain === "solana" || tx.type === "solana";
+      return {
+        status: "ready",
+        quoteId: String(raw.quote_id ?? quoteId),
+        chainType: isSolana ? "solana" : "evm",
+        swap: {
+          fromChain: swap.from_chain != null ? String(swap.from_chain) : undefined,
+          toChain: swap.to_chain != null ? String(swap.to_chain) : undefined,
+          fromToken: String(swap.from_token ?? ""),
+          toToken: String(swap.to_token ?? ""),
+          amountIn: String(swap.amount_in ?? ""),
+          expectedAmountOut: String(swap.expected_amount_out ?? ""),
+          minimumAmountOut: String(swap.minimum_amount_out ?? ""),
+        },
+        transaction: isSolana
+          ? {
+              type: "solana",
+              serializedTransaction: String(tx.serialized_transaction ?? ""),
+              lastValidBlockHeight:
+                tx.last_valid_block_height != null
+                  ? Number(tx.last_valid_block_height)
+                  : undefined,
+            }
+          : {
+              type: "evm",
+              to: String(tx.to ?? ""),
+              from: String(tx.from ?? walletAddress),
+              value: String(tx.value ?? "0"),
+              data: String(tx.data ?? ""),
+              chainId: Number(tx.chain_id ?? 0),
+              gasLimit: tx.gas_limit != null ? String(tx.gas_limit) : undefined,
+              gasPrice: tx.gas_price != null ? String(tx.gas_price) : undefined,
+            },
+        instructions: Array.isArray(raw.instructions) ? (raw.instructions as string[]) : [],
+      };
     },
 
     async getPortfolio(walletAddress: string, chain?: string): Promise<TokenBalance[]> {
