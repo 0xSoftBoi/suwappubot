@@ -253,10 +253,10 @@ html {
 .summer-nav__cta {
   justify-self: end;
   padding: 0 14px;
-  border: 1px solid #0d95bd;
-  color: white;
-  background: linear-gradient(180deg, #20b9de, #0b8bc7);
-  box-shadow: 0 8px 18px rgba(14, 118, 158, 0.22);
+  border: 1px solid #d17a1e;
+  color: #17324a;
+  background: linear-gradient(180deg, #f6a93c, #e58d2b);
+  box-shadow: 0 8px 18px rgba(229, 141, 43, 0.24);
 }
 
 /* Secondary header CTA (e.g. Open Terminal next to the solid Open Bot) */
@@ -483,10 +483,12 @@ html {
 }
 
 .summer-button--primary {
-  border: 1px solid #0d95bd;
-  color: white;
-  background: linear-gradient(180deg, #20b9de, #0b8bc7);
-  box-shadow: 0 9px 18px rgba(14, 118, 158, 0.24);
+  /* Persimmon is the single primary-CTA accent (brand). Dark ink keeps AA
+     contrast (~6:1) on the warm fill — white would only reach ~2.5:1. */
+  border: 1px solid #d17a1e;
+  color: #17324a;
+  background: linear-gradient(180deg, #f6a93c, #e58d2b);
+  box-shadow: 0 9px 18px rgba(229, 141, 43, 0.3);
 }
 
 .summer-button--secondary {
@@ -499,6 +501,7 @@ html {
   width: fit-content;
   max-width: 100%;
   display: flex;
+  align-items: center;
   gap: 8px;
   margin-top: 20px;
   padding: 10px 12px;
@@ -508,6 +511,27 @@ html {
   color: var(--summer-muted);
   font-family: var(--font-mono);
   font-size: 0.78rem;
+}
+.summer-install__prompt { color: var(--summer-persimmon); font-weight: 700; }
+.summer-install--copy {
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s var(--pp-ease, ease), box-shadow 0.2s var(--pp-ease, ease);
+}
+.summer-install--copy code { color: var(--summer-ink); }
+.summer-install--copy:hover {
+  border-color: var(--summer-persimmon);
+  box-shadow: 0 4px 12px rgba(229, 141, 43, 0.14);
+}
+.summer-install__hint {
+  margin-left: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(229, 141, 43, 0.12);
+  color: #b96a12;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .summer-install span {
@@ -1006,6 +1030,36 @@ html {
   font-size: 0.68rem;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+/* Live market proof: 24h change colors + source note + live pulse */
+.summer-proof__chg--up { color: var(--summer-green); }
+.summer-proof__chg--down { color: #d4483f; }
+.summer-proof__chg--flat { color: var(--summer-persimmon); font-weight: 700; }
+.summer-proof__note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 2px 0;
+  color: var(--summer-muted);
+  font-size: 0.74rem;
+  line-height: 1.55;
+}
+.summer-proof__live { display: inline-flex; flex: 0 0 auto; width: 8px; height: 8px; }
+.summer-proof__live i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--summer-green);
+  animation: proof-pulse 2s var(--pp-ease, ease) infinite;
+}
+@keyframes proof-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(47, 143, 91, 0.45); }
+  70% { box-shadow: 0 0 0 6px rgba(47, 143, 91, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(47, 143, 91, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .summer-proof__live i { animation: none; }
 }
 
 /* ── Live hero terminal ── */
@@ -2219,8 +2273,8 @@ button:focus:not(:focus-visible) {
   text-align: center;
   font-size: 1rem;
   font-weight: 600;
-  color: white;
-  background: var(--suwappu-summer-accent);
+  color: #17324a;
+  background: linear-gradient(180deg, #f6a93c, #e58d2b);
   padding: 0.875rem 1.25rem;
   border-radius: 50px;
   text-decoration: none;
@@ -2229,7 +2283,7 @@ button:focus:not(:focus-visible) {
 }
 
 .nav__drawer-cta:hover {
-  background: #ec4899;
+  background: linear-gradient(180deg, #f8b450, #d9821f);
 }
 
 .nav__drawer-cta--whatsapp {
@@ -4348,10 +4402,10 @@ button:focus:not(:focus-visible) {
 }
 .nav__link { color: #4f6f7f; }
 .nav__link:hover { color: #17324a; }
-.nav__cta { background: linear-gradient(180deg, #20b9de, #0b8bc7); }
+.nav__cta { background: linear-gradient(180deg, #f6a93c, #e58d2b); color: #17324a; }
 .nav__cta:hover {
-  background: linear-gradient(180deg, #3fc6e6, #0a7fb4);
-  box-shadow: 0 6px 18px rgba(14, 118, 158, 0.28);
+  background: linear-gradient(180deg, #f8b450, #d9821f);
+  box-shadow: 0 6px 18px rgba(229, 141, 43, 0.3);
 }
 
 /* ================================================================
@@ -4975,7 +5029,7 @@ button:focus:not(:focus-visible) {
 }
 .summer-page--cosmic .summer-button--primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 14px 30px -10px rgba(11, 139, 199, 0.6);
+  box-shadow: 0 14px 30px -10px rgba(229, 141, 43, 0.55);
 }
 
 /* ── Mobile: collapse the bento back to a single column ── */
@@ -5012,5 +5066,33 @@ button:focus:not(:focus-visible) {
   .summer-page--cosmic .summer-trust__chips b:hover,
   .summer-page--cosmic .summer-button--primary:hover {
     transform: none;
+  }
+}
+
+/* ── Scroll-entrance: sections rise + fade as they enter the viewport.
+   Pure CSS (scroll-driven animations) — no JS, no CLS. Progressive
+   enhancement: only runs where animation-timeline is supported (Chromium);
+   Safari/Firefox simply show static content. Disabled under reduced-motion. ── */
+@keyframes section-rise {
+  from { opacity: 0; transform: translateY(26px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .summer-page--cosmic .summer-shell > .summer-stats,
+    .summer-page--cosmic .summer-shell > .summer-trust,
+    .summer-page--cosmic .summer-shell > .summer-features,
+    .summer-page--cosmic .summer-shell > .summer-modules,
+    .summer-page--cosmic .summer-shell > .summer-hub,
+    .summer-page--cosmic .summer-shell > .summer-tempo,
+    .summer-page--cosmic .summer-shell > .summer-sdk,
+    .summer-page--cosmic .summer-shell > .summer-agents,
+    .summer-page--cosmic .summer-shell > .summer-proof,
+    .summer-page--cosmic .summer-shell > .summer-referral,
+    .summer-page--cosmic .summer-shell > .summer-cta {
+      animation: section-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 18%;
+    }
   }
 }
