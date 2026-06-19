@@ -13,7 +13,7 @@ const LIMIT = 50
 
 export function useRecentTrades() {
   const { selectedPair, selectedChain } = usePair()
-  const symbol = cexSymbol(selectedPair.base?.address, selectedChain)
+  const symbol = cexSymbol(selectedPair.base?.address, selectedChain, selectedPair.base?.symbol)
   const productId = coinbaseProductId(symbol)
 
   const feed = useCoinbaseFeed(productId)

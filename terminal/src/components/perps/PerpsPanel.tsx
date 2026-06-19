@@ -2,12 +2,16 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import type { HLMarket } from '../../types/api'
+import { usePerpsFunding, formatCountdown, formatFundingPct } from '../../hooks/usePerpsFunding'
+import { usePerpsMarginMode } from '../../hooks/usePerpsMarginMode'
+import { perpsRoutesAvailable } from '../../lib/perpsApi'
 
 export function PerpsPanel() {
   const [selectedMarket, setSelectedMarket] = useState('ETH-USD')
   const [side, setSide] = useState<'long' | 'short'>('long')
   const [size, setSize] = useState('')
   const [leverage, setLeverage] = useState(5)
+  const [marginMode, setMarginMode] = usePerpsMarginMode()
 
   const { data: markets } = useQuery({
     queryKey: ['perps-markets'],
@@ -17,8 +21,12 @@ export function PerpsPanel() {
 
   const market = markets?.find((m: HLMarket) => m.name === selectedMarket)
 
+  // Real hourly funding rate (HLMarket.fundingRate) + live next-funding countdown
+  // derived from HyperLiquid's fixed hourly cadence. Nothing fabricated here.
+  const funding = usePerpsFunding(market)
+
   return (
-    <div className="p-4 flex flex-col gap-3">
+    <div className="p-4 flex flex-col gap-3" data-testid="perps-panel">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">Perpetuals</h3>
         <span className="text-xs text-terminal-text-muted">via HyperLiquid</span>
@@ -31,6 +39,7 @@ export function PerpsPanel() {
           value={selectedMarket}
           onChange={e => setSelectedMarket(e.target.value)}
           className="terminal-input w-full text-sm"
+          data-testid="perps-market-select"
         >
           {markets?.map((m: HLMarket) => (
             <option key={m.name} value={m.name}>
@@ -39,6 +48,37 @@ export function PerpsPanel() {
           ))}
         </select>
       </div>
+
+      {/* Funding rate + next-funding countdown. Rate is the live HL hourly rate;
+          countdown ticks against the next top-of-hour (UTC), when HL funds. */}
+      {market && (
+        <div
+          className="bg-terminal-bg rounded-lg px-3 py-2 flex items-center justify-between text-xs"
+          data-testid="perps-funding"
+        >
+          <div className="flex flex-col">
+            <span className="text-terminal-text-muted text-[10px]">Funding / hr</span>
+            <span
+              className={`font-mono ${funding.hourlyRate >= 0 ? 'text-bull' : 'text-bear'}`}
+              data-testid="perps-funding-rate"
+            >
+              {formatFundingPct(funding.hourlyRate)}
+            </span>
+          </div>
+          <div className="flex flex-col text-right">
+            <span className="text-terminal-text-muted text-[10px]">APR (est.)</span>
+            <span className="font-mono text-terminal-text-secondary">
+              {formatFundingPct(funding.annualizedRate)}
+            </span>
+          </div>
+          <div className="flex flex-col text-right">
+            <span className="text-terminal-text-muted text-[10px]">Next funding</span>
+            <span className="font-mono" data-testid="perps-funding-countdown">
+              {formatCountdown(funding.msUntilNextFunding)}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Side toggle */}
       <div className="grid grid-cols-2 gap-1">
@@ -64,6 +104,28 @@ export function PerpsPanel() {
         </button>
       </div>
 
+      {/* Margin mode (cross/isolated). Persisted to localStorage; this is a UI
+          preference and is honored once execution lands. */}
+      <div>
+        <label className="text-xs text-terminal-text-secondary mb-1 block">Margin mode</label>
+        <div className="grid grid-cols-2 gap-1" data-testid="perps-margin-toggle">
+          {(['cross', 'isolated'] as const).map(mode => (
+            <button
+              key={mode}
+              onClick={() => setMarginMode(mode)}
+              data-testid={`perps-margin-${mode}`}
+              className={`py-1.5 rounded text-xs font-semibold capitalize transition-colors
+                ${marginMode === mode
+                  ? 'bg-sakura-500/20 border border-sakura-500 text-sakura-300'
+                  : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
+                }`}
+            >
+              {mode}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Size */}
       <div>
         <label className="text-xs text-terminal-text-secondary mb-1 block">Size ({market?.asset || '...'})</label>
@@ -73,6 +135,7 @@ export function PerpsPanel() {
           onChange={e => setSize(e.target.value)}
           placeholder="0.0"
           className="terminal-input w-full font-mono"
+          data-testid="perps-size-input"
         />
       </div>
 
@@ -104,7 +167,7 @@ export function PerpsPanel() {
             <span className="font-mono">${market.markPrice.toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-terminal-text-secondary">Margin</span>
+            <span className="text-terminal-text-secondary">Margin ({marginMode})</span>
             <span className="font-mono">
               ${((parseFloat(size) * market.markPrice) / leverage).toFixed(2)}
             </span>
@@ -120,10 +183,16 @@ export function PerpsPanel() {
 
       {/* Execute — no browser-callable perps execute endpoint exists yet.
           /v1/agent/perps/quote uses agentBearerAuth (agent API key only).
-          Gate with coming soon until a /webapp/me/perps/execute route is added. */}
+          Gate with coming soon until a /webapp/me/perps/execute route is added.
+          perpsRoutesAvailable() is the single switch that ungates the write path. */}
       <button
-        disabled
-        title="Order execution coming soon — not yet available"
+        disabled={!perpsRoutesAvailable()}
+        title={
+          perpsRoutesAvailable()
+            ? undefined
+            : 'Order execution coming soon — not yet available'
+        }
+        data-testid="perps-execute"
         className={`w-full py-3 rounded font-semibold text-sm transition-colors cursor-not-allowed opacity-50
           ${side === 'long'
             ? 'bg-bull/30 text-white'
