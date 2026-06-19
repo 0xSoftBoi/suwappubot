@@ -18,7 +18,6 @@ export function Header() {
     signOut,
     clearError,
     error,
-    isPasskeySupported,
     isTelegram,
   } = useAuth()
   const isMobile = useIsMobile()
