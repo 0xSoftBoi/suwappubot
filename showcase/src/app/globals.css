@@ -412,6 +412,12 @@ html {
   box-shadow: 0 20px 54px rgba(33, 88, 110, 0.1), 0 10px 28px rgba(176, 126, 64, 0.12);
 }
 
+/* On the cosmic homepage, open a band of sky above the hero so the ringed
+   planet, moon, and stars are fully visible before you descend into content. */
+.summer-page--cosmic .summer-hero {
+  margin-top: 150px;
+}
+
 .summer-hero::after {
   content: "";
   position: absolute;
@@ -4236,4 +4242,642 @@ button:focus:not(:focus-visible) {
 .nav__cta:hover {
   background: linear-gradient(180deg, #3fc6e6, #0a7fb4);
   box-shadow: 0 6px 18px rgba(14, 118, 158, 0.28);
+}
+
+/* ================================================================
+   Journey atmosphere — No Man's Sky cosmos (top) → Japanese ground
+   (Fuji · ocean · waves · sakura) at the bottom.
+   Rendered by components/CosmicAtmosphere.tsx, behind all content.
+   ================================================================ */
+
+/* Full vertical morph: dusk-space lavender → pink nebula → peach dawn →
+   teal haze → sea. Kept light enough that dark body text stays legible. */
+.summer-page--cosmic {
+  background:
+    radial-gradient(64% 46% at 16% 2%, rgba(196, 84, 224, 0.50), transparent 60%),
+    radial-gradient(58% 42% at 86% 4%, rgba(64, 116, 236, 0.46), transparent 60%),
+    radial-gradient(46% 26% at 62% 7%, rgba(245, 178, 92, 0.34), transparent 64%),
+    linear-gradient(
+      180deg,
+      #07061a 0%,
+      #0f0c2b 3%,
+      #1d1647 6%,
+      #34234f 9%,
+      #6f4a6c 12.5%,
+      #b9819b 15%,
+      #f0cfc0 16.8%,
+      #fdecdc 23%,
+      #ffe6d2 40%,
+      #f3eeef 54%,
+      #e6f2f2 72%,
+      #d7ebef 100%
+    );
+}
+
+/* Dark-glass nav over the deep-space top — light text, premium high-contrast. */
+.summer-page--cosmic .summer-nav {
+  background: rgba(12, 10, 30, 0.5);
+  border-bottom-color: rgba(168, 156, 224, 0.22);
+}
+.summer-page--cosmic .summer-brand { color: #f4f1ff; }
+.summer-page--cosmic .summer-nav nav {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(200, 195, 240, 0.16);
+}
+.summer-page--cosmic .summer-nav nav a { color: rgba(234, 231, 255, 0.82); }
+.summer-page--cosmic .summer-nav nav a:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
+.summer-page--cosmic .summer-nav__cta--ghost {
+  color: #f1efff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(180, 200, 255, 0.42);
+}
+
+.journey {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+/* ───────────────────────── SPACE (top) ───────────────────────── */
+.journey__space {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1300px;
+  -webkit-mask-image: linear-gradient(180deg, #000 64%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 64%, transparent 100%);
+}
+
+/* Starfields — tiled radial dots, masked to the top + corners so they frame
+   the hero rather than sit under its text. Two layers drift at parallax. */
+.journey__stars {
+  position: absolute;
+  inset: 0;
+  -webkit-mask-image: radial-gradient(130% 95% at 50% 0%, #000 0%, rgba(0,0,0,0.6) 48%, transparent 88%);
+  mask-image: radial-gradient(130% 95% at 50% 0%, #000 0%, rgba(0,0,0,0.6) 48%, transparent 88%);
+}
+
+.journey__stars--far {
+  background-image:
+    radial-gradient(2px 2px at 20% 18%, rgba(255,255,255,0.98), transparent),
+    radial-gradient(1.8px 1.8px at 70% 12%, rgba(255,255,255,0.9), transparent),
+    radial-gradient(2px 2px at 42% 30%, rgba(245,236,255,0.95), transparent),
+    radial-gradient(1.6px 1.6px at 88% 26%, rgba(255,255,255,0.88), transparent),
+    radial-gradient(1.8px 1.8px at 8% 40%, rgba(255,255,255,0.82), transparent),
+    radial-gradient(1.8px 1.8px at 58% 44%, rgba(255,245,255,0.85), transparent),
+    radial-gradient(1.5px 1.5px at 33% 52%, rgba(255,255,255,0.7), transparent),
+    radial-gradient(1.6px 1.6px at 78% 50%, rgba(245,236,255,0.7), transparent);
+  background-size: 100% 100%;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 2px rgba(255,255,255,0.5));
+  animation: journey-twinkle 7s ease-in-out infinite;
+}
+
+.journey__stars--near {
+  background-image:
+    radial-gradient(2.6px 2.6px at 32% 14%, #fff, transparent),
+    radial-gradient(2.8px 2.8px at 82% 20%, #fff, transparent),
+    radial-gradient(2.4px 2.4px at 14% 24%, rgba(255,231,212,0.98), transparent),
+    radial-gradient(2.6px 2.6px at 64% 34%, #fff, transparent),
+    radial-gradient(3px 3px at 48% 8%, rgba(247,213,223,0.98), transparent),
+    radial-gradient(2.4px 2.4px at 26% 40%, #fff, transparent),
+    radial-gradient(2.6px 2.6px at 90% 40%, rgba(255,231,212,0.95), transparent);
+  background-size: 100% 100%;
+  opacity: 1;
+  filter: drop-shadow(0 0 4px rgba(255,255,255,0.75));
+  animation: journey-twinkle 4.5s ease-in-out infinite reverse;
+}
+
+@keyframes journey-twinkle {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 0.95; }
+}
+
+/* Nebula colour clouds drifting in deep space */
+.journey__nebula {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(50px);
+  mix-blend-mode: screen;
+}
+
+.journey__nebula--a {
+  top: 0;
+  left: -8%;
+  width: 620px;
+  height: 420px;
+  background: radial-gradient(circle, rgba(196, 120, 230, 0.78), rgba(150, 96, 220, 0.32) 46%, transparent 70%);
+  animation: journey-float-a 38s ease-in-out infinite;
+}
+
+.journey__nebula--b {
+  top: 4%;
+  right: -10%;
+  width: 560px;
+  height: 380px;
+  background: radial-gradient(circle, rgba(72, 156, 232, 0.72), rgba(60, 120, 210, 0.30) 46%, transparent 70%);
+  animation: journey-float-b 46s ease-in-out infinite;
+}
+
+@keyframes journey-float-a {
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(40px, 24px); }
+}
+@keyframes journey-float-b {
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(-36px, 30px); }
+}
+
+/* Ringed planet — the NMS signature, parked high on the right */
+.journey__planet {
+  position: absolute;
+  top: 62px;
+  right: 9%;
+  width: 184px;
+  height: 184px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 30%,
+      rgba(255, 232, 206, 0.98) 0%,
+      rgba(245, 178, 92, 0.95) 30%,
+      rgba(214, 116, 70, 0.95) 62%,
+      rgba(120, 60, 80, 0.95) 100%);
+  box-shadow:
+    inset -30px -22px 60px rgba(40, 20, 50, 0.6),
+    0 0 90px rgba(245, 178, 92, 0.5);
+  opacity: 0.85;
+  animation: journey-float-a 50s ease-in-out infinite;
+}
+
+.journey__planet-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 320px;
+  height: 92px;
+  margin: -46px 0 0 -160px;
+  border-radius: 50%;
+  border: 8px solid;
+  border-color: rgba(247, 213, 223, 0.78) transparent rgba(229, 141, 43, 0.4) transparent;
+  transform: rotate(-22deg);
+}
+
+/* A small moon to the upper left */
+.journey__moon {
+  position: absolute;
+  top: 78px;
+  left: 5%;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 36% 32%, #fdfbff 0%, #cfd6ec 58%, #9aa6cd 100%);
+  box-shadow: inset -10px -8px 20px rgba(40, 40, 80, 0.45), 0 0 36px rgba(207, 214, 236, 0.6);
+  opacity: 0.8;
+  animation: journey-float-b 40s ease-in-out infinite;
+}
+
+/* ───────────────────────── GROUND (bottom) ───────────────────────── */
+.journey__ground {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 92vh;
+  min-height: 620px;
+}
+
+.journey__clouds {
+  position: absolute;
+  left: -20%;
+  width: 140%;
+  height: 200px;
+  background:
+    radial-gradient(60% 100% at 20% 50%, rgba(255, 255, 255, 0.5), transparent 70%),
+    radial-gradient(50% 90% at 52% 60%, rgba(255, 244, 230, 0.42), transparent 72%),
+    radial-gradient(55% 100% at 84% 45%, rgba(255, 255, 255, 0.38), transparent 70%);
+  filter: blur(14px);
+}
+
+.journey__clouds--far  { top: 8%;  opacity: 0.5; animation: journey-drift-r 90s linear infinite; }
+.journey__clouds--near { top: 22%; height: 150px; opacity: 0.65; animation: journey-drift-l 64s linear infinite; }
+
+@keyframes journey-drift-r { from { transform: translateX(-6%); } to { transform: translateX(6%); } }
+@keyframes journey-drift-l { from { transform: translateX(6%); } to { transform: translateX(-6%); } }
+
+/* Mount Fuji */
+.journey__fuji {
+  position: absolute;
+  bottom: 19%;
+  left: 50%;
+  width: 680px;
+  height: 340px;
+  margin-left: -340px;
+  background: linear-gradient(180deg, #6c6ea6 0%, #4f5d8f 42%, #34466f 100%);
+  clip-path: polygon(50% 0%, 57% 14%, 63% 30%, 100% 100%, 0% 100%, 37% 30%, 43% 14%);
+  opacity: 0.38;
+  filter: blur(0.5px);
+}
+
+/* Warm dawn light catching the eastern flank of the peak — golden-hour rim that
+   ties the cold mountain to the persimmon brand and reads as sunrise. */
+.journey__fuji::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(108deg, transparent 52%, rgba(245, 178, 120, 0.5) 78%, rgba(255, 209, 158, 0.62) 100%);
+  clip-path: inherit;
+  mix-blend-mode: screen;
+}
+
+.journey__fuji-snow {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 210px;
+  height: 100px;
+  margin-left: -105px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 250, 255, 0.62));
+  clip-path: polygon(50% 0%, 57% 44%, 63% 96%, 72% 70%, 84% 100%, 16% 100%, 28% 70%, 37% 96%, 43% 44%);
+}
+
+/* Horizon mist melting Fuji into the sea */
+.journey__mist {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 17%;
+  height: 150px;
+  background:
+    radial-gradient(120% 90% at 50% 100%, rgba(255, 211, 163, 0.55), transparent 62%),
+    linear-gradient(180deg, transparent, rgba(231, 243, 243, 0.8) 60%, rgba(231, 243, 243, 0.94));
+  filter: blur(6px);
+}
+
+/* Ocean + seigaiha (wave-scale) pattern */
+.journey__sea {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 22%;
+  background:
+    radial-gradient(70% 120% at 50% 120%, rgba(245, 178, 120, 0.20), transparent 55%),
+    radial-gradient(circle at 50% 120%, rgba(11, 139, 199, 0.30), transparent 62%),
+    linear-gradient(180deg, rgba(119, 191, 208, 0.22) 0%, rgba(11, 139, 199, 0.40) 100%);
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 28%);
+  mask-image: linear-gradient(180deg, transparent, #000 28%);
+}
+
+.journey__sea::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle at 50% 100%, transparent 38%, rgba(255, 255, 255, 0.42) 39% 42%, transparent 43%),
+    radial-gradient(circle at 0% 100%, transparent 38%, rgba(255, 255, 255, 0.42) 39% 42%, transparent 43%),
+    radial-gradient(circle at 100% 100%, transparent 38%, rgba(255, 255, 255, 0.42) 39% 42%, transparent 43%);
+  background-size: 56px 28px;
+  opacity: 0.62;
+  animation: journey-waves 18s linear infinite;
+}
+
+@keyframes journey-waves {
+  from { background-position: 0 0, 28px 0, -28px 0; }
+  to   { background-position: 56px 0, 84px 0, 28px 0; }
+}
+
+/* Reflection shimmer on the water */
+.journey__shimmer {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 280px;
+  height: 24%;
+  margin-left: -140px;
+  background: linear-gradient(180deg, rgba(248, 198, 122, 0.62), rgba(245, 178, 120, 0.28) 45%, transparent 82%);
+  filter: blur(9px);
+  opacity: 0.68;
+  animation: journey-shimmer 6s ease-in-out infinite;
+}
+
+@keyframes journey-shimmer {
+  0%, 100% { opacity: 0.4; transform: scaleX(0.9); }
+  50%      { opacity: 0.65; transform: scaleX(1.1); }
+}
+
+/* ───────────────────────── SAKURA (lower half) ───────────────────────── */
+.journey__petals {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 42%;
+  bottom: 0;
+}
+
+.journey__petal {
+  position: absolute;
+  top: 0;
+  width: 14px;
+  height: 11px;
+  border-radius: 100% 0 100% 100%;
+  background: var(--suwappu-summer-flower-soft);
+  opacity: 0;
+  transform: scale(var(--scale, 1));
+  filter: drop-shadow(0 2px 3px rgba(120, 70, 90, 0.12));
+  animation: journey-fall var(--dur, 16s) linear infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+.journey__petal--blush { background: var(--suwappu-summer-petal-blush); }
+.journey__petal--sun   { background: var(--suwappu-summer-flower-sun); }
+.journey__petal--pale  { background: #fbe9f0; }
+
+@keyframes journey-fall {
+  0%   { transform: translate(0, -10vh) rotate(0deg) scale(var(--scale, 1)); opacity: 0; }
+  10%  { opacity: 0.9; }
+  50%  { transform: translate(-44px, 26vh) rotate(220deg) scale(var(--scale, 1)); opacity: 0.85; }
+  90%  { opacity: 0.7; }
+  100% { transform: translate(40px, 60vh) rotate(460deg) scale(var(--scale, 1)); opacity: 0; }
+}
+
+@media (max-width: 760px) {
+  .journey__planet { width: 140px; height: 140px; top: 60px; }
+  .journey__planet-ring { width: 230px; height: 66px; margin: -33px 0 0 -115px; }
+  .journey__moon { width: 56px; height: 56px; }
+  .journey__fuji { width: 460px; margin-left: -230px; height: 250px; }
+  .journey__fuji-snow { width: 150px; margin-left: -75px; height: 72px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .journey__stars--far,
+  .journey__stars--near,
+  .journey__nebula--a,
+  .journey__nebula--b,
+  .journey__planet,
+  .journey__moon,
+  .journey__clouds--far,
+  .journey__clouds--near,
+  .journey__sea::before,
+  .journey__shimmer,
+  .journey__petal {
+    animation: none !important;
+  }
+  .journey__petal { opacity: 0.5; top: 12%; }
+}
+
+/* Film grain — SVG fractal-noise tile, blended over the whole journey backdrop.
+   The single biggest "premium" upgrade (Vercel/Stripe both do this): it kills
+   gradient banding and adds a cinematic, tactile texture. Static (no animation)
+   so it costs nothing. */
+.journey__grain {
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+  opacity: 0.16;
+  mix-blend-mode: overlay;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .journey__grain { opacity: 0.12; }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   PREMIUM POLISH LAYER  (homepage only — scoped to .summer-page--cosmic)
+   Lifts the body out of "flat template" territory: a real depth system with
+   hover micro-interactions, an asymmetric bento for the engine grid, refined
+   eyebrows, tighter display type, a market-grade table, and section rhythm.
+   Synthesized from how Stripe / Linear / Vercel handle light surfaces:
+   high contrast, one accent, hairline borders, layered shadows, deliberate
+   motion. All motion collapses under prefers-reduced-motion.
+   ════════════════════════════════════════════════════════════════════════ */
+.summer-page--cosmic {
+  /* layered depth: inset top sheen + tight key shadow + soft ambient throw */
+  --pp-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 2px rgba(16, 42, 62, 0.05),
+    0 10px 24px -10px rgba(16, 42, 62, 0.18),
+    0 22px 56px -28px rgba(16, 42, 62, 0.22);
+  --pp-shadow-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 2px 4px rgba(16, 42, 62, 0.07),
+    0 18px 38px -12px rgba(16, 42, 62, 0.24),
+    0 40px 84px -34px rgba(11, 139, 199, 0.34);
+  --pp-border: rgba(16, 42, 62, 0.08);
+  --pp-border-hover: rgba(11, 139, 199, 0.46);
+  --pp-ink: #102a3e;
+  --pp-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ── Section rhythm: give the page room to breathe (the no.1 "basic" tell) ── */
+.summer-page--cosmic #engine.summer-features,
+.summer-page--cosmic .summer-modules,
+.summer-page--cosmic #hyperliquid.summer-hub,
+.summer-page--cosmic #tempo.summer-tempo,
+.summer-page--cosmic #api.summer-sdk,
+.summer-page--cosmic #agents.summer-agents,
+.summer-page--cosmic #bot.summer-proof,
+.summer-page--cosmic .summer-referral,
+.summer-page--cosmic .summer-cta {
+  margin-top: clamp(60px, 8vw, 104px);
+}
+
+/* ── Refined eyebrow: "— LABEL" instead of shouty monospace ── */
+.summer-page--cosmic .summer-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--summer-persimmon);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+.summer-page--cosmic .summer-kicker::before {
+  content: '';
+  width: 20px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.7;
+}
+
+/* ── Display headings: tighter tracking, stronger size, higher contrast ── */
+.summer-page--cosmic .summer-features__head h2,
+.summer-page--cosmic .summer-hub__head h2,
+.summer-page--cosmic .summer-agents__head h2,
+.summer-page--cosmic .summer-tempo__copy h2,
+.summer-page--cosmic .summer-sdk h2,
+.summer-page--cosmic .summer-proof h2,
+.summer-page--cosmic .summer-referral h2,
+.summer-page--cosmic .summer-cta h2 {
+  font-weight: 700;
+  letter-spacing: -0.032em;
+  font-size: clamp(2.1rem, 1.1rem + 2.7vw, 3rem);
+  line-height: 1.04;
+  color: var(--pp-ink);
+}
+
+/* ── Unified card system: depth + hover lift across every card type ── */
+.summer-page--cosmic .summer-feature,
+.summer-page--cosmic .summer-module,
+.summer-page--cosmic .summer-hub__card,
+.summer-page--cosmic .summer-agents__card {
+  position: relative;
+  border: 1px solid var(--pp-border);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, rgba(238, 250, 254, 0.92) 100%);
+  box-shadow: var(--pp-shadow);
+  transition:
+    transform 0.28s var(--pp-ease),
+    box-shadow 0.28s var(--pp-ease),
+    border-color 0.28s var(--pp-ease);
+}
+.summer-page--cosmic .summer-feature:hover,
+.summer-page--cosmic .summer-module:hover,
+.summer-page--cosmic .summer-hub__card:hover,
+.summer-page--cosmic .summer-agents__card:hover {
+  transform: translateY(-6px);
+  border-color: var(--pp-border-hover);
+  box-shadow: var(--pp-shadow-hover);
+}
+
+/* slightly stronger body copy inside cards (contrast = less "washed out") */
+.summer-page--cosmic .summer-feature p,
+.summer-page--cosmic .summer-hub__card p,
+.summer-page--cosmic .summer-agents__card p,
+.summer-page--cosmic .summer-module div {
+  color: #3a566b;
+}
+
+/* ── Asymmetric BENTO for the engine grid (4 cards → 4+2 / 2+4) ── */
+.summer-page--cosmic .summer-features__grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 16px;
+}
+.summer-page--cosmic .summer-features__grid .summer-feature:nth-child(1),
+.summer-page--cosmic .summer-features__grid .summer-feature:nth-child(4) {
+  grid-column: span 4;
+}
+.summer-page--cosmic .summer-features__grid .summer-feature:nth-child(2),
+.summer-page--cosmic .summer-features__grid .summer-feature:nth-child(3) {
+  grid-column: span 2;
+}
+/* hero (wide) cells: richer wash, larger title, accent corner glow */
+.summer-page--cosmic .summer-features__grid .summer-feature:nth-child(1),
+.summer-page--cosmic .summer-features__grid .summer-feature:nth-child(4) {
+  padding: 28px;
+  background:
+    radial-gradient(120% 120% at 100% 0%, rgba(11, 139, 199, 0.08), transparent 46%),
+    linear-gradient(180deg, #ffffff 0%, rgba(232, 247, 253, 0.94) 100%);
+}
+.summer-page--cosmic .summer-features__grid .summer-feature:nth-child(1) h3,
+.summer-page--cosmic .summer-features__grid .summer-feature:nth-child(4) h3 {
+  font-size: 1.4rem;
+  letter-spacing: -0.02em;
+}
+
+/* ── Stats: tabular gradient numerals + hover lift ── */
+.summer-page--cosmic .summer-stat {
+  border: 1px solid var(--pp-border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, rgba(238, 250, 254, 0.9) 100%);
+  box-shadow: var(--pp-shadow);
+  transition: transform 0.26s var(--pp-ease), box-shadow 0.26s var(--pp-ease);
+}
+.summer-page--cosmic .summer-stat:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--pp-shadow-hover);
+}
+.summer-page--cosmic .summer-stat strong {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, var(--pp-ink) 0%, var(--summer-sky-deep) 120%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.summer-page--cosmic .summer-stat span {
+  color: var(--summer-persimmon);
+  letter-spacing: 0.1em;
+}
+
+/* ── Section panels (hub / tempo / agents / sdk): give the wash real depth ── */
+.summer-page--cosmic .summer-hub,
+.summer-page--cosmic .summer-tempo,
+.summer-page--cosmic .summer-agents,
+.summer-page--cosmic .summer-sdk {
+  border: 1px solid var(--pp-border);
+  border-radius: 22px;
+  box-shadow: var(--pp-shadow);
+}
+
+/* ── Market table → a real trading widget ── */
+.summer-page--cosmic .summer-table {
+  border: 1px solid var(--pp-border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, rgba(240, 251, 254, 0.9) 100%);
+  box-shadow: var(--pp-shadow);
+}
+.summer-page--cosmic .summer-table__row {
+  font-variant-numeric: tabular-nums;
+  transition: background 0.18s ease, box-shadow 0.18s ease;
+}
+.summer-page--cosmic .summer-table__row:not(.summer-table__row--head):hover {
+  background: linear-gradient(90deg, rgba(11, 139, 199, 0.07), rgba(11, 139, 199, 0) 70%);
+  box-shadow: inset 3px 0 0 var(--summer-persimmon);
+}
+.summer-page--cosmic .summer-table__row--head {
+  background: rgba(16, 42, 62, 0.035);
+  letter-spacing: 0.12em;
+}
+.summer-page--cosmic .summer-table__row span:first-child {
+  font-weight: 600;
+  color: var(--pp-ink);
+}
+
+/* ── Buttons: deliberate hover motion ── */
+.summer-page--cosmic .summer-button {
+  transition: transform 0.2s var(--pp-ease), box-shadow 0.2s var(--pp-ease), filter 0.2s ease;
+}
+.summer-page--cosmic .summer-button--primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px -10px rgba(11, 139, 199, 0.6);
+}
+
+/* ── Mobile: collapse the bento back to a single column ── */
+@media (max-width: 720px) {
+  .summer-page--cosmic .summer-features__grid {
+    grid-template-columns: 1fr;
+  }
+  .summer-page--cosmic .summer-features__grid .summer-feature:nth-child(1),
+  .summer-page--cosmic .summer-features__grid .summer-feature:nth-child(2),
+  .summer-page--cosmic .summer-features__grid .summer-feature:nth-child(3),
+  .summer-page--cosmic .summer-features__grid .summer-feature:nth-child(4) {
+    grid-column: auto;
+    padding: 20px;
+  }
+}
+
+/* ── Respect reduced-motion: no transforms, no transitions ── */
+@media (prefers-reduced-motion: reduce) {
+  .summer-page--cosmic .summer-feature,
+  .summer-page--cosmic .summer-module,
+  .summer-page--cosmic .summer-hub__card,
+  .summer-page--cosmic .summer-agents__card,
+  .summer-page--cosmic .summer-stat,
+  .summer-page--cosmic .summer-button,
+  .summer-page--cosmic .summer-table__row {
+    transition: none;
+  }
+  .summer-page--cosmic .summer-feature:hover,
+  .summer-page--cosmic .summer-module:hover,
+  .summer-page--cosmic .summer-hub__card:hover,
+  .summer-page--cosmic .summer-agents__card:hover,
+  .summer-page--cosmic .summer-stat:hover,
+  .summer-page--cosmic .summer-button--primary:hover {
+    transform: none;
+  }
 }

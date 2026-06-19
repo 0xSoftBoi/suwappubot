@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
 import DocsReader from '@/components/docs/DocsReader';
-import { markdownToHtml } from '../../docs/[section]/[slug]/page';
+import { markdownToHtml } from '../../docs/[section]/[slug]/markdown';
 import { publishedPosts, getPost } from '@/content/research';
 
 type Params = { slug: string };

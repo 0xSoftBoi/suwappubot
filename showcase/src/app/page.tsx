@@ -2,6 +2,7 @@ import Analytics from '@/components/Analytics';
 import StructuredData from '@/components/StructuredData';
 import LiveTerminal from '@/components/LiveTerminal';
 import SummerFooter from '@/components/SummerFooter';
+import CosmicAtmosphere from '@/components/CosmicAtmosphere';
 import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
 
 const TERMINAL_URL = 'https://terminal.suwappu.bot';
@@ -195,7 +196,8 @@ export default function Home() {
     <>
       <StructuredData />
       <Analytics />
-      <main id="main-content" className="summer-page">
+      <main id="main-content" className="summer-page summer-page--cosmic">
+        <CosmicAtmosphere />
         <div className="summer-bg summer-bg--stem" aria-hidden="true" />
         <div className="summer-bg summer-bg--bloom" aria-hidden="true" />
         <div className="summer-mobile-rail" aria-hidden="true">

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import toast from 'react-hot-toast'
+import toast from '@/lib/a11yToast'
 import { AppLayout, AppHeader } from '../components/layout'
 import { api, type ReferralStats, type ReferredUser } from '../lib/api'
 

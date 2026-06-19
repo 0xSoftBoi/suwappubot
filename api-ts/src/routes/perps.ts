@@ -1,11 +1,11 @@
 import { Effect, Either } from 'effect'
 import { Hono } from 'hono'
-import { z } from 'zod'
 import type { Agent } from '../db'
 import { mapErrorToResponse } from '../errors'
 import { agentBearerAuth, flexAuth } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { HyperliquidService } from '../services/HyperliquidService'
+import { PerpsQuoteSchema } from './validators'
 
 type AgentContext = {
 	Variables: {
@@ -14,13 +14,6 @@ type AgentContext = {
 }
 
 const perpsRoutes = new Hono<AgentContext>()
-
-const QuoteSchema = z.object({
-	market: z.string(),
-	side: z.enum(['long', 'short']),
-	size: z.number().positive(),
-	leverage: z.number().min(1).max(20),
-})
 
 // GET /v1/agent/perps/markets — list available perp markets (public)
 perpsRoutes.get('/markets', async (c) => {
@@ -42,7 +35,7 @@ perpsRoutes.get('/markets', async (c) => {
 // POST /v1/agent/perps/quote — get perp position quote
 perpsRoutes.post('/quote', agentBearerAuth(), async (c) => {
 	const body = await c.req.json()
-	const parsed = QuoteSchema.safeParse(body)
+	const parsed = PerpsQuoteSchema.safeParse(body)
 	if (!parsed.success) {
 		return c.json({ error: 'Invalid request', details: parsed.error.issues }, 400)
 	}

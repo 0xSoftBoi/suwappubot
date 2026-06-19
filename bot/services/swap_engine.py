@@ -2476,6 +2476,23 @@ class SwapEngine:
             except Exception as e:
                 logger.error(f"Swap execution failed: {e}", exc_info=True)
 
+                # Classify the failure cause for analytics (best-effort — never
+                # let diagnosis raise over the original error).
+                try:
+                    from bot.services.error_guidance import classify_swap_failure
+
+                    error_category = classify_swap_failure(
+                        e,
+                        {
+                            "from_chain": quote.from_chain,
+                            "to_chain": quote.to_chain,
+                            "from_token": quote.from_token,
+                            "is_cross_chain": quote.from_chain != quote.to_chain,
+                        },
+                    ).category
+                except Exception:  # pragma: no cover - defensive
+                    error_category = "unknown"
+
                 # Mark as failed
                 def _mark_failed():
                     with get_session() as session:
@@ -2487,6 +2504,7 @@ class SwapEngine:
                         if db_tx:
                             db_tx.status = SwapStatus.FAILED.value
                             db_tx.error_message = str(e)
+                            db_tx.error_category = error_category
 
                 await run_in_db(_mark_failed)
 

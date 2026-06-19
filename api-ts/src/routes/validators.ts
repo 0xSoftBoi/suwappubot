@@ -170,6 +170,24 @@ export const CancelOrderSchema = z.object({
 	orderId: z.string().min(1, 'orderId is required'),
 })
 
+/**
+ * Top-up credits from a verified on-chain USDC payment.
+ * `amount` accepts a string or number and is coerced to a number at runtime.
+ */
+export const TopupSchema = z.object({
+	txHash: z.string().min(10).max(128),
+	chain: z.string().min(1).max(32).default('base'),
+	amount: z.union([z.string(), z.number()]).transform((v) => Number(v)),
+})
+
+/** Perp position quote request (Hyperliquid). */
+export const PerpsQuoteSchema = z.object({
+	market: z.string(),
+	side: z.enum(['long', 'short']),
+	size: z.number().positive(),
+	leverage: z.number().min(1).max(20),
+})
+
 export function formatZodErrors(error: z.ZodError): Record<string, string> {
 	const fields: Record<string, string> = {}
 	for (const issue of error.issues) {

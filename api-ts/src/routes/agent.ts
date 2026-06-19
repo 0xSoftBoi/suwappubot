@@ -14,6 +14,7 @@ import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
 import { ipRateLimit } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
 import { COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment } from '../middleware/x402Payment'
+import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { runEffectEither } from '../runtime'
 import {
 	AgentService,
@@ -36,6 +37,7 @@ import {
 	RegisterAgentSchema,
 	SwapRequestSchema,
 	SwapStatusQuerySchema,
+	TopupSchema,
 	UpdateAgentSchema,
 	WebhookEventsQuerySchema,
 } from './validators'
@@ -49,35 +51,13 @@ type AgentContext = {
 
 const agentRoutes = new Hono<AgentContext>()
 
-// In-memory quote cache
-const quoteCache = new Map<
-	string,
-	{ quote: any; expiry: number; agentId: number; isSolana?: boolean }
->()
-const QUOTE_TTL = 60_000 // 60 seconds for agent quotes
-const QUOTE_CACHE_MAX = 10_000
+// Quote cache is shared with the MCP surface (lib/quoteCache) so a quote fetched
+// via POST /v1/agent/quote can be executed through mcp.ts's execute_swap tool and
+// vice versa. The shared TTLCache manages its own expiry + eviction timer.
 
-// Cache cleanup interval: every 5 minutes purge expired, cap at max
-const quoteCacheCleanup = setInterval(() => {
-	const now = Date.now()
-	for (const [key, entry] of quoteCache) {
-		if (now > entry.expiry) {
-			quoteCache.delete(key)
-		}
-	}
-	// Evict oldest if over cap
-	if (quoteCache.size > QUOTE_CACHE_MAX) {
-		const entries = [...quoteCache.entries()].sort((a, b) => a[1].expiry - b[1].expiry)
-		const toRemove = entries.slice(0, entries.length - QUOTE_CACHE_MAX)
-		for (const [key] of toRemove) {
-			quoteCache.delete(key)
-		}
-	}
-}, 5 * 60_000)
-
-export function stopAgentCleanup() {
-	clearInterval(quoteCacheCleanup)
-}
+// Retained for the shutdown hook and tests. The shared cache self-manages its
+// cleanup interval (TTLCache), so this is now a no-op.
+export function stopAgentCleanup() {}
 
 // --- Managed-wallet ownership (C16/C17) ---
 // Agents use managed (Turnkey) EVM wallets whose address is stored in
@@ -664,12 +644,7 @@ agentRoutes.post('/quote', async (c) => {
 				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
 				// Cache the quote
-				quoteCache.set(quoteId, {
-					quote,
-					expiry: Date.now() + QUOTE_TTL,
-					agentId: agent.id,
-					isSolana: true,
-				})
+				cacheAgentQuote(quoteId, quote, agent.id, true)
 
 				// Calculate human-readable amounts
 				const fromAmountHuman = parseFloat(quote.inAmount) / 10 ** fromTokenInfo.decimals
@@ -799,12 +774,7 @@ agentRoutes.post('/quote', async (c) => {
 			)
 
 			// Cache the quote
-			quoteCache.set(quote.quoteId, {
-				quote,
-				expiry: Date.now() + QUOTE_TTL,
-				agentId: agent.id,
-				isSolana: false,
-			})
+			cacheAgentQuote(quote.quoteId, quote, agent.id, false)
 
 			// Calculate human-readable amounts
 			const fromAmountHuman = parseFloat(quote.fromAmount) / 10 ** fromTokenInfo.decimals
@@ -900,28 +870,16 @@ agentRoutes.post('/swap', async (c) => {
 
 	// If quote_id provided, use cached quote
 	if (quote_id) {
-		const cached = quoteCache.get(quote_id)
-
-		// Reject a missing quote OR one created by a different agent — same generic
-		// message so an attacker can't tell "no quote" from "not your quote"
-		// (cross-agent quote hijacking).
+		// getCachedQuote returns null once the TTL has elapsed (expiry handled by the
+		// shared TTLCache). Reject a missing/expired quote OR one created by a different
+		// agent — same generic message so an attacker can't tell "no quote" from "not
+		// your quote" (cross-agent quote hijacking).
+		const cached = getCachedQuote(quote_id)
 		if (!cached || cached.agentId !== agent.id) {
 			return c.json(
 				{
 					success: false,
 					error: 'Quote expired or not found',
-					hint: 'Request a new quote using POST /v1/agent/quote',
-				},
-				400,
-			)
-		}
-
-		if (Date.now() > cached.expiry) {
-			quoteCache.delete(quote_id)
-			return c.json(
-				{
-					success: false,
-					error: 'Quote expired',
 					hint: 'Request a new quote using POST /v1/agent/quote',
 				},
 				400,
@@ -1164,11 +1122,7 @@ agentRoutes.post('/execute', async (c) => {
 					.pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 				// Cache quote
-				quoteCache.set(quote.quoteId, {
-					quote,
-					expiry: Date.now() + QUOTE_TTL,
-					agentId: agent.id,
-				})
+				cacheAgentQuote(quote.quoteId, quote, agent.id, false)
 
 				const toAmountHuman = parseFloat(quote.toAmount) / 10 ** toTokenInfo.decimals
 
@@ -1496,26 +1450,15 @@ agentRoutes.post('/swap/execute', async (c) => {
 		)
 	}
 
-	// Look up cached quote. Reject a missing quote OR one created by a different
-	// agent — same generic message so cross-agent quote hijacking can't be probed.
-	const cached = quoteCache.get(quote_id)
+	// Look up cached quote (getCachedQuote returns null once the TTL has elapsed).
+	// Reject a missing/expired quote OR one created by a different agent — same generic
+	// message so cross-agent quote hijacking can't be probed.
+	const cached = getCachedQuote(quote_id)
 	if (!cached || cached.agentId !== agent.id) {
 		return c.json(
 			{
 				success: false,
 				error: 'Quote expired or not found',
-				hint: 'Request a new quote using POST /v1/agent/quote',
-			},
-			400,
-		)
-	}
-
-	if (Date.now() > cached.expiry) {
-		quoteCache.delete(quote_id)
-		return c.json(
-			{
-				success: false,
-				error: 'Quote expired',
 				hint: 'Request a new quote using POST /v1/agent/quote',
 			},
 			400,
@@ -2384,11 +2327,6 @@ agentRoutes.post('/billing/topup', async (c) => {
 		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
 	}
 
-	const TopupSchema = z.object({
-		txHash: z.string().min(10).max(128),
-		chain: z.string().min(1).max(32).default('base'),
-		amount: z.union([z.string(), z.number()]).transform((v) => Number(v)),
-	})
 	const parsed = TopupSchema.safeParse(body)
 	if (!parsed.success) {
 		return c.json(
