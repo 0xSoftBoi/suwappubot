@@ -199,8 +199,9 @@ test.describe('Terminal Layout', () => {
   test('connect wallet button is present', async ({ page }) => {
     await page.goto('/')
 
-    // Turnkey passkey auth button (replaced the old RainbowKit connect button)
-    await expect(page.getByRole('button', { name: 'Turnkey' })).toBeVisible()
+    // Wallet-connect SIWE sign-in button (rendered in both the responsive
+    // desktop + mobile navs, so scope to the visible one).
+    await expect(page.getByTestId('connect-wallet').first()).toBeVisible()
   })
 
   test('bottom panel has feature tabs', async ({ page }) => {
