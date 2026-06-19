@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { createClient } from "./index";
+import {
+  createClient,
+  register,
+  SuwappuError,
+  SuwappuRateLimitError,
+  SuwappuServerError,
+  SuwappuValidationError,
+} from "./index";
 
 const originalFetch = globalThis.fetch;
 
@@ -7,14 +14,15 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-/** Stub global fetch to return `body` as JSON, capturing the last request. */
-function stubFetch(body: unknown, status = 200) {
+/** Stub global fetch to return `body` as JSON, capturing each request. */
+function stubFetch(body: unknown, status = 200, headersInit?: Record<string, string>) {
   const calls: { url: string; init?: RequestInit }[] = [];
   globalThis.fetch = mock(async (url: string, init?: RequestInit) => {
     calls.push({ url, init });
     return {
       ok: status >= 200 && status < 300,
       status,
+      headers: new Headers(headersInit),
       json: async () => body,
       text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
     } as Response;
@@ -22,7 +30,35 @@ function stubFetch(body: unknown, status = 200) {
   return calls;
 }
 
+/** Stub global fetch to return a sequence of responses, one per call. */
+function stubSequence(responses: { body: unknown; status?: number; headers?: Record<string, string> }[]) {
+  const calls: { url: string; init?: RequestInit }[] = [];
+  let i = 0;
+  globalThis.fetch = mock(async (url: string, init?: RequestInit) => {
+    calls.push({ url, init });
+    const r = responses[Math.min(i, responses.length - 1)];
+    i++;
+    const status = r.status ?? 200;
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      headers: new Headers(r.headers),
+      json: async () => r.body,
+      text: async () => (typeof r.body === "string" ? r.body : JSON.stringify(r.body)),
+    } as Response;
+  }) as unknown as typeof fetch;
+  return calls;
+}
+
 const client = createClient({ apiKey: "test-key", baseUrl: "https://api.test" });
+// Fast, deterministic client for retry/error tests (no real backoff waits).
+const fastClient = createClient({
+  apiKey: "test-key",
+  baseUrl: "https://api.test",
+  retryBaseMs: 1,
+  retryMaxMs: 1,
+});
+const noRetry = createClient({ apiKey: "test-key", baseUrl: "https://api.test", maxRetries: 0 });
 
 describe("getQuote", () => {
   test("normalizes snake_case API response to camelCase Quote", async () => {
@@ -248,16 +284,145 @@ describe("lend namespace", () => {
   });
 });
 
+describe("agent lifecycle", () => {
+  test("register maps api_key from the agent envelope", async () => {
+    const calls = stubFetch({
+      success: true,
+      agent: { id: "ag_1", name: "bot", api_key: "suwappu_sk_xyz", created_at: "2026-01-01" },
+    });
+    const creds = await register({ name: "bot" }, { baseUrl: "https://api.test" });
+    expect(creds.apiKey).toBe("suwappu_sk_xyz");
+    expect(creds.id).toBe("ag_1");
+    expect(calls[0].url).toBe("https://api.test/v1/agent/register");
+    expect(JSON.parse(String(calls[0].init?.body)).name).toBe("bot");
+  });
+
+  test("getProfile maps snake_case stats", async () => {
+    stubFetch({
+      success: true,
+      agent: {
+        id: "ag_1",
+        name: "bot",
+        rate_limit_tier: "agent",
+        stats: { total_requests: 12, total_swaps: 3 },
+        created_at: "2026-01-01",
+      },
+    });
+    const me = await client.getProfile();
+    expect(me.rateLimitTier).toBe("agent");
+    expect(me.stats.totalSwaps).toBe(3);
+  });
+
+  test("executeManagedSwap returns a receipt with pollUrl", async () => {
+    stubFetch({
+      success: true,
+      swap_id: 42,
+      status: "submitted",
+      tx_hash: "0xhash",
+      tracking: { poll_url: "/v1/agent/swap/status/42" },
+    });
+    const r = await client.executeManagedSwap("q_1", "0xWallet");
+    expect(r.swapId).toBe(42);
+    expect(r.pollUrl).toBe("/v1/agent/swap/status/42");
+  });
+
+  test("getSwapStatus maps fields and forwards id", async () => {
+    const calls = stubFetch({
+      success: true,
+      swap_id: 42,
+      status: "completed",
+      tx_hash: "0xhash",
+      from_token: "ETH",
+      to_token: "USDC",
+    });
+    const s = await client.getSwapStatus(42);
+    expect(s.status).toBe("completed");
+    expect(s.txHash).toBe("0xhash");
+    expect(calls[0].url).toContain("/swap/status/42");
+  });
+});
+
 describe("auth + errors", () => {
-  test("sends Authorization bearer header when apiKey is set", async () => {
+  test("sends Authorization bearer + client identifier headers", async () => {
     const calls = stubFetch({ chains: [] });
     await client.listChains();
     const headers = calls[0].init?.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer test-key");
+    expect(headers["X-Suwappu-Client"]).toContain("@suwappu/openclaw/");
   });
 
-  test("throws on non-ok response with status + body", async () => {
+  test("throws a typed SuwappuRateLimitError on 429", async () => {
     stubFetch("rate limited", 429);
-    await expect(client.listChains()).rejects.toThrow("Suwappu API error 429: rate limited");
+    const err = await noRetry.listChains().catch((e) => e);
+    expect(err).toBeInstanceOf(SuwappuRateLimitError);
+    expect(err).toBeInstanceOf(SuwappuError);
+    expect(err.status).toBe(429);
+    expect(err.isRetryable).toBe(true);
+  });
+
+  test("parses the handler validation envelope into .fields", async () => {
+    stubFetch({ success: false, error: "Validation error", fields: { amount: "required" } }, 400);
+    const err = await noRetry.getQuote("ETH", "USDC", 1, "base").catch((e) => e);
+    expect(err).toBeInstanceOf(SuwappuValidationError);
+    expect(err.fields?.amount).toBe("required");
+  });
+
+  test("surfaces the gateway requestId envelope", async () => {
+    stubFetch({ error: "Internal error", requestId: "req_abc" }, 500);
+    const err = await noRetry.listChains().catch((e) => e);
+    expect(err).toBeInstanceOf(SuwappuServerError);
+    expect(err.requestId).toBe("req_abc");
+  });
+});
+
+describe("resilience", () => {
+  test("retries a GET on 429 then succeeds", async () => {
+    const calls = stubSequence([
+      { body: "slow down", status: 429 },
+      { body: { chains: [{ id: 1, key: "eth", name: "Ethereum", native_token: "ETH", type: "evm" }] }, status: 200 },
+    ]);
+    const chains = await fastClient.listChains();
+    expect(chains[0].name).toBe("Ethereum");
+    expect(calls.length).toBe(2);
+  });
+
+  test("retries a GET on 503 up to maxRetries then throws", async () => {
+    const calls = stubFetch("unavailable", 503);
+    const err = await fastClient.listChains().catch((e) => e);
+    expect(err).toBeInstanceOf(SuwappuServerError);
+    expect(calls.length).toBe(3); // initial + 2 retries (default maxRetries=2)
+  });
+
+  test("does NOT retry a non-idempotent POST on 500 (no double-execute)", async () => {
+    const calls = stubFetch({ error: "boom" }, 500);
+    const err = await fastClient.executeSwap("q_1", "0xWallet").catch((e) => e);
+    expect(err).toBeInstanceOf(SuwappuServerError);
+    expect(calls.length).toBe(1);
+  });
+
+  test("retries a POST on 429 (rejected before side effects)", async () => {
+    const calls = stubSequence([
+      { body: "slow down", status: 429 },
+      { body: { quote_id: "q_1" }, status: 200 },
+    ]);
+    const q = await fastClient.getQuote("ETH", "USDC", 1, "base");
+    expect(q.id).toBe("q_1");
+    expect(calls.length).toBe(2);
+  });
+
+  test("fires retry hook with the delay", async () => {
+    const seen: number[] = [];
+    const hooked = createClient({
+      baseUrl: "https://api.test",
+      retryBaseMs: 1,
+      retryMaxMs: 1,
+      hooks: { onRetry: ({ delayMs }) => seen.push(delayMs) },
+    });
+    stubSequence([
+      { body: "x", status: 429 },
+      { body: { chains: [] }, status: 200 },
+    ]);
+    await hooked.listChains();
+    expect(seen.length).toBe(1);
   });
 });

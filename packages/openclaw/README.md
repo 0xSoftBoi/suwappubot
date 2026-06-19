@@ -1,11 +1,25 @@
 # @suwappu/openclaw
 
 OpenClaw — the agent/MCP skill client for the [Suwappu](https://suwappu.bot)
-cross-chain DeFi API. A pure-HTTP TypeScript client (no runtime dependencies)
-covering swaps, Hyperliquid perps, Polymarket predictions, and Morpho lending.
+cross-chain DeFi API. A zero-dependency TypeScript client built for autonomous
+agents, covering swaps, Hyperliquid perps, Polymarket predictions, and Morpho
+lending.
+
+Built for unattended operation:
+
+- **Typed errors** you can branch on — `SuwappuRateLimitError`, `SuwappuValidationError`,
+  `SuwappuAuthError`, `SuwappuPaymentRequiredError`, … each carrying `status`,
+  server `requestId`, and validation `fields`.
+- **Automatic retries** with exponential backoff + jitter, honoring `Retry-After`.
+  Safe by design: only idempotent (GET) requests retry on 5xx/network; a 429
+  retries on any method (it was rejected before side effects).
+- **Per-request timeouts** (default 30s) so an agent never hangs forever.
+- **Observability hooks** (`onRequest`/`onResponse`/`onRetry`) and an
+  `X-Suwappu-Client` identifier header.
+- **Self-onboarding** — `register()` mints an API key with no prior auth.
 
 The package also ships a [`SKILL.md`](./SKILL.md) for MCP / agent runtimes that
-load skills by manifest.
+load skills by manifest, and a [`server.json`](./server.json) MCP-registry manifest.
 
 ## Install
 
@@ -29,12 +43,56 @@ const result = await suwappu.executeSwap(quote.id, "0xYourWallet");
 // result.status === "ready"; sign result.transaction with your own wallet.
 ```
 
-The API key falls back to the `SUWAPPU_API_KEY` environment variable, and the
-base URL defaults to `https://api.suwappu.bot`. A ready-made default client is
-also exported:
+The API key falls back to the `SUWAPPU_API_KEY` environment variable (and the
+base URL to `SUWAPPU_BASE_URL`, defaulting to `https://api.suwappu.bot`). A
+ready-made default client is also exported:
 
 ```ts
 import { suwappu } from "@suwappu/openclaw"; // uses env vars
+```
+
+## Onboarding (no key yet)
+
+```ts
+import { register, createClient } from "@suwappu/openclaw";
+
+const { apiKey } = await register({ name: "my-trading-agent" });
+const suwappu = createClient({ apiKey }); // persist apiKey — it's shown once
+```
+
+## Handling failures
+
+```ts
+import { SuwappuRateLimitError, SuwappuValidationError } from "@suwappu/openclaw";
+
+try {
+  await suwappu.getQuote("ETH", "USDC", 1.0, "base");
+} catch (err) {
+  if (err instanceof SuwappuValidationError) console.error(err.fields);
+  else if (err instanceof SuwappuRateLimitError) console.error("retry after", err.retryAfterMs);
+  else throw err;
+}
+```
+
+Retries and timeouts are configurable:
+
+```ts
+const suwappu = createClient({
+  apiKey,
+  timeoutMs: 15_000,
+  maxRetries: 4,
+  hooks: { onRetry: ({ status, delayMs }) => console.warn(`retrying after ${status} in ${delayMs}ms`) },
+});
+```
+
+## Managed swaps (server-signed)
+
+Beyond the non-custodial `executeSwap`, an agent with a managed wallet can have
+the server sign and broadcast, then poll for the result:
+
+```ts
+const receipt = await suwappu.executeManagedSwap(quote.id, myManagedWallet);
+const status = await suwappu.getSwapStatus(receipt.swapId);
 ```
 
 ## Non-custodial swaps
@@ -49,8 +107,13 @@ both require a `wallet_address`; for EVM swaps it must be your managed wallet
 
 | Method | Endpoint |
 | --- | --- |
+| `register(params)` | `POST /v1/agent/register` |
+| `getProfile()` | `GET /v1/agent/me` |
+| `rotateKey()` | `POST /v1/agent/keys/rotate` |
 | `getQuote(from, to, amount, chain)` | `POST /v1/agent/quote` |
 | `executeSwap(quoteId, walletAddress)` | `POST /v1/agent/swap` |
+| `executeManagedSwap(quoteId, walletAddress)` | `POST /v1/agent/swap/execute` |
+| `getSwapStatus(swapId)` | `GET /v1/agent/swap/status/:id` |
 | `getPortfolio(walletAddress, chain?)` | `GET /v1/agent/portfolio` |
 | `getPrices(symbols, chain?)` | `GET /v1/agent/prices` |
 | `listChains()` | `GET /v1/agent/chains` |
