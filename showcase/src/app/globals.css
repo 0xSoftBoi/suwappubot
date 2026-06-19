@@ -253,10 +253,10 @@ html {
 .summer-nav__cta {
   justify-self: end;
   padding: 0 14px;
-  border: 1px solid #0d95bd;
-  color: white;
-  background: linear-gradient(180deg, #20b9de, #0b8bc7);
-  box-shadow: 0 8px 18px rgba(14, 118, 158, 0.22);
+  border: 1px solid #d17a1e;
+  color: #17324a;
+  background: linear-gradient(180deg, #f6a93c, #e58d2b);
+  box-shadow: 0 8px 18px rgba(229, 141, 43, 0.24);
 }
 
 /* Secondary header CTA (e.g. Open Terminal next to the solid Open Bot) */
@@ -483,10 +483,12 @@ html {
 }
 
 .summer-button--primary {
-  border: 1px solid #0d95bd;
-  color: white;
-  background: linear-gradient(180deg, #20b9de, #0b8bc7);
-  box-shadow: 0 9px 18px rgba(14, 118, 158, 0.24);
+  /* Persimmon is the single primary-CTA accent (brand). Dark ink keeps AA
+     contrast (~6:1) on the warm fill — white would only reach ~2.5:1. */
+  border: 1px solid #d17a1e;
+  color: #17324a;
+  background: linear-gradient(180deg, #f6a93c, #e58d2b);
+  box-shadow: 0 9px 18px rgba(229, 141, 43, 0.3);
 }
 
 .summer-button--secondary {
@@ -499,6 +501,7 @@ html {
   width: fit-content;
   max-width: 100%;
   display: flex;
+  align-items: center;
   gap: 8px;
   margin-top: 20px;
   padding: 10px 12px;
@@ -508,6 +511,27 @@ html {
   color: var(--summer-muted);
   font-family: var(--font-mono);
   font-size: 0.78rem;
+}
+.summer-install__prompt { color: var(--summer-persimmon); font-weight: 700; }
+.summer-install--copy {
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s var(--pp-ease, ease), box-shadow 0.2s var(--pp-ease, ease);
+}
+.summer-install--copy code { color: var(--summer-ink); }
+.summer-install--copy:hover {
+  border-color: var(--summer-persimmon);
+  box-shadow: 0 4px 12px rgba(229, 141, 43, 0.14);
+}
+.summer-install__hint {
+  margin-left: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(229, 141, 43, 0.12);
+  color: #b96a12;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .summer-install span {
@@ -1006,6 +1030,36 @@ html {
   font-size: 0.68rem;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+/* Live market proof: 24h change colors + source note + live pulse */
+.summer-proof__chg--up { color: var(--summer-green); }
+.summer-proof__chg--down { color: #d4483f; }
+.summer-proof__chg--flat { color: var(--summer-persimmon); font-weight: 700; }
+.summer-proof__note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 2px 0;
+  color: var(--summer-muted);
+  font-size: 0.74rem;
+  line-height: 1.55;
+}
+.summer-proof__live { display: inline-flex; flex: 0 0 auto; width: 8px; height: 8px; }
+.summer-proof__live i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--summer-green);
+  animation: proof-pulse 2s var(--pp-ease, ease) infinite;
+}
+@keyframes proof-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(47, 143, 91, 0.45); }
+  70% { box-shadow: 0 0 0 6px rgba(47, 143, 91, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(47, 143, 91, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .summer-proof__live i { animation: none; }
 }
 
 /* ── Live hero terminal ── */
@@ -2219,8 +2273,8 @@ button:focus:not(:focus-visible) {
   text-align: center;
   font-size: 1rem;
   font-weight: 600;
-  color: white;
-  background: var(--suwappu-summer-accent);
+  color: #17324a;
+  background: linear-gradient(180deg, #f6a93c, #e58d2b);
   padding: 0.875rem 1.25rem;
   border-radius: 50px;
   text-decoration: none;
@@ -2229,7 +2283,7 @@ button:focus:not(:focus-visible) {
 }
 
 .nav__drawer-cta:hover {
-  background: #ec4899;
+  background: linear-gradient(180deg, #f8b450, #d9821f);
 }
 
 .nav__drawer-cta--whatsapp {
@@ -3873,6 +3927,174 @@ button:focus:not(:focus-visible) {
 .mkt-faq__item h3 { margin: 0; color: var(--summer-ink); font-size: 1.02rem; }
 .mkt-faq__item p { margin: 8px 0 0; color: var(--summer-muted); line-height: 1.6; }
 
+/* Screen-reader-only utility (used by the compare table for accessible cell/legend text) */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ===== Compare page (capability matrix vs bots / terminals / infra) ===== */
+.compare { margin-top: 1rem; }
+.compare__title {
+  margin: 0 0 1.25rem;
+  color: var(--summer-ink);
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  line-height: 1.1;
+  text-align: center;
+}
+.compare__scroll {
+  overflow-x: auto;
+  border: 1px solid var(--summer-line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 12px 28px rgba(33, 88, 110, 0.07);
+}
+.compare__scroll:focus-visible {
+  outline: 2px solid var(--summer-accent);
+  outline-offset: 2px;
+}
+.compare-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.compare-table__colhead,
+.compare-table__rowhead {
+  text-align: left;
+  font-weight: 700;
+}
+.compare-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 14px 16px;
+  vertical-align: bottom;
+  background: rgba(244, 251, 253, 0.96);
+  border-bottom: 2px solid var(--summer-line);
+}
+.compare-table__colhead {
+  text-align: center;
+}
+.compare-table__colhead--us {
+  background: linear-gradient(180deg, rgba(14, 165, 233, 0.12), rgba(14, 165, 233, 0.04));
+  border-bottom-color: var(--summer-accent);
+}
+.compare-table__colname {
+  display: block;
+  color: var(--summer-ink);
+  font-size: 0.96rem;
+}
+.compare-table__colhead--us .compare-table__colname { color: var(--suwappu-summer-accent-deep); }
+.compare-table__colsub {
+  display: block;
+  margin-top: 3px;
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.compare-table__cat th {
+  padding: 16px 16px 7px;
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: transparent;
+}
+.compare-table tbody tr:not(.compare-table__cat) {
+  border-top: 1px solid rgba(207, 227, 234, 0.7);
+}
+.compare-table__rowhead {
+  padding: 13px 16px;
+  color: var(--summer-ink);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.compare-cell {
+  width: 1%;
+  padding: 13px 16px;
+  text-align: center;
+  vertical-align: middle;
+}
+.compare-cell--us {
+  background: rgba(14, 165, 233, 0.05);
+}
+.compare-cell__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.compare-cell--yes .compare-cell__glyph {
+  color: var(--summer-green);
+  background: rgba(47, 143, 91, 0.12);
+}
+.compare-cell--partial .compare-cell__glyph {
+  color: var(--summer-persimmon);
+  background: rgba(229, 141, 43, 0.14);
+}
+.compare-cell--no .compare-cell__glyph {
+  color: #9bb0bd;
+  background: rgba(155, 176, 189, 0.16);
+}
+.compare__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  justify-content: center;
+  margin: 18px 2px 0;
+  color: var(--summer-muted);
+  font-size: 0.8rem;
+}
+.compare-legend__item { display: inline-flex; align-items: center; gap: 7px; }
+.compare-legend__item .compare-cell__glyph { width: 22px; height: 22px; font-size: 0.78rem; }
+.compare__note {
+  max-width: 720px;
+  margin: 14px auto 0;
+  color: var(--summer-muted);
+  font-size: 0.76rem;
+  line-height: 1.6;
+  text-align: center;
+}
+.compare-why {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 3rem;
+}
+.compare-why__card {
+  padding: 22px;
+  border: 1px solid var(--summer-line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 12px 24px rgba(33, 88, 110, 0.06);
+}
+.compare-why__card h3 { margin: 10px 0 0; color: var(--summer-ink); font-size: 1.14rem; line-height: 1.2; }
+.compare-why__card p { margin: 10px 0 0; color: #345069; font-size: 0.92rem; line-height: 1.62; }
+
+@media (max-width: 720px) {
+  .compare__title { font-size: 1.4rem; }
+  .compare-why { grid-template-columns: 1fr; }
+}
+
 /* Pricing */
 .pricing-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 1rem; }
 .pricing-card {
@@ -4238,10 +4460,10 @@ button:focus:not(:focus-visible) {
 }
 .nav__link { color: #4f6f7f; }
 .nav__link:hover { color: #17324a; }
-.nav__cta { background: linear-gradient(180deg, #20b9de, #0b8bc7); }
+.nav__cta { background: linear-gradient(180deg, #f6a93c, #e58d2b); color: #17324a; }
 .nav__cta:hover {
-  background: linear-gradient(180deg, #3fc6e6, #0a7fb4);
-  box-shadow: 0 6px 18px rgba(14, 118, 158, 0.28);
+  background: linear-gradient(180deg, #f8b450, #d9821f);
+  box-shadow: 0 6px 18px rgba(229, 141, 43, 0.3);
 }
 
 /* ================================================================
@@ -4844,7 +5066,7 @@ button:focus:not(:focus-visible) {
 }
 .summer-page--cosmic .summer-button--primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 14px 30px -10px rgba(11, 139, 199, 0.6);
+  box-shadow: 0 14px 30px -10px rgba(229, 141, 43, 0.55);
 }
 
 /* ── Mobile: collapse the bento back to a single column ── */
@@ -4879,5 +5101,33 @@ button:focus:not(:focus-visible) {
   .summer-page--cosmic .summer-stat:hover,
   .summer-page--cosmic .summer-button--primary:hover {
     transform: none;
+  }
+}
+
+/* ── Scroll-entrance: sections rise + fade as they enter the viewport.
+   Pure CSS (scroll-driven animations) — no JS, no CLS. Progressive
+   enhancement: only runs where animation-timeline is supported (Chromium);
+   Safari/Firefox simply show static content. Disabled under reduced-motion. ── */
+@keyframes section-rise {
+  from { opacity: 0; transform: translateY(26px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .summer-page--cosmic .summer-shell > .summer-stats,
+    .summer-page--cosmic .summer-shell > .summer-trust,
+    .summer-page--cosmic .summer-shell > .summer-features,
+    .summer-page--cosmic .summer-shell > .summer-modules,
+    .summer-page--cosmic .summer-shell > .summer-hub,
+    .summer-page--cosmic .summer-shell > .summer-tempo,
+    .summer-page--cosmic .summer-shell > .summer-sdk,
+    .summer-page--cosmic .summer-shell > .summer-agents,
+    .summer-page--cosmic .summer-shell > .summer-proof,
+    .summer-page--cosmic .summer-shell > .summer-referral,
+    .summer-page--cosmic .summer-shell > .summer-cta {
+      animation: section-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 18%;
+    }
   }
 }
