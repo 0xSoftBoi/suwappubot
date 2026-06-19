@@ -3,7 +3,12 @@ import StructuredData from '@/components/StructuredData';
 import LiveTerminal from '@/components/LiveTerminal';
 import SummerFooter from '@/components/SummerFooter';
 import CosmicAtmosphere from '@/components/CosmicAtmosphere';
+import CopyInstall from '@/components/CopyInstall';
+import MarketProof from '@/components/MarketProof';
 import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
+
+// Revalidate the homepage every 60s so MarketProof's live prices stay fresh (ISR).
+export const revalidate = 60;
 
 const TERMINAL_URL = 'https://terminal.suwappu.bot';
 
@@ -136,13 +141,6 @@ const sdkLines = [
   'status: filled',
 ];
 
-const rows = [
-  ['ETH/USDC', '$3,483.28', '+6.94%', 'Uniswap V3'],
-  ['BTC-PERP', '$64,180', '+1.42%', 'HyperLiquid'],
-  ['SOL/USDC', '$182.34', '+2.14%', 'Jupiter'],
-  ['pathUSD', '$1.00', 'gasless', 'Tempo'],
-];
-
 function Hero() {
   return (
     <section className="summer-hero">
@@ -155,15 +153,16 @@ function Hero() {
       </div>
       <img className="summer-hero__fruit" src="/logo.svg" alt="" aria-hidden="true" />
       <div className="summer-hero__copy">
-        <p className="summer-kicker">suwappu · cross-chain execution</p>
+        <p className="summer-kicker">The only bot that does all three</p>
         <h1 className="summer-hero__h1">
           Cross-chain swaps,<br />
           HyperLiquid perps,<br />
           and <span className="summer-hero__accent">gasless</span> trades.
         </h1>
         <p className="summer-hero__lead">
-          One bot does all of it — best-price routing across 40+ chains, perps up to
-          20x, and sponsored-gas swaps. From Telegram, a terminal, or one SDK call.
+          Other tools make you pick one — a bridge, a perp desk, or a gas wallet. Suwappu
+          unifies all three: best-price routing across 40+ chains, perps up to 20x, and
+          sponsored-gas swaps. Trade from Telegram, the terminal, or one SDK call.
         </p>
         <div className="summer-actions">
           <a
@@ -177,14 +176,8 @@ function Hero() {
           <a className="summer-button summer-button--secondary" href={TERMINAL_URL}>
             Open Terminal
           </a>
-          <a className="summer-button summer-button--secondary" href="/docs">
-            Docs/API
-          </a>
         </div>
-        <div className="summer-install">
-          <span>$</span>
-          <code>bun add @suwappu/sdk</code>
-        </div>
+        <CopyInstall text="bun add @suwappu/sdk" />
       </div>
       <LiveTerminal />
     </section>
@@ -442,36 +435,8 @@ export default function Home() {
             </div>
           </section>
 
-          {/* ── MARKET PROOF ── */}
-          <section id="bot" className="summer-proof">
-            <div className="summer-flower summer-flower--soft summer-proof__flower" aria-hidden="true" />
-            <div className="summer-proof__head">
-              <div>
-                <p className="summer-kicker">Market proof</p>
-                <h2>Spot, perps, and gasless — side by side.</h2>
-              </div>
-              <p>
-                Market rows, route health, perps, and gasless Tempo pairs stay visible
-                without making the page feel crowded.
-              </p>
-            </div>
-            <div className="summer-table">
-              <div className="summer-table__row summer-table__row--head">
-                <span>Pair</span>
-                <span>Price</span>
-                <span>24h</span>
-                <span>Route</span>
-              </div>
-              {rows.map((row) => (
-                <div className="summer-table__row" key={row[0]}>
-                  <span>{row[0]}</span>
-                  <span>{row[1]}</span>
-                  <span>{row[2]}</span>
-                  <span>{row[3]}</span>
-                </div>
-              ))}
-            </div>
-          </section>
+          {/* ── MARKET PROOF (live) ── */}
+          <MarketProof />
 
           {/* ── REFERRAL ── */}
           <section className="summer-referral" aria-label="Referral program">
