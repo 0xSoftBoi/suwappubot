@@ -27,6 +27,10 @@ export interface Trade {
 
 export interface PredictionMarket {
 	id: string
+	// On-chain Gnosis CTF condition id (0x… bytes32). This — NOT the numeric `id`
+	// — is what the CLOB resolution + on-chain redemption are keyed by, so it must
+	// be carried through to anything that places or settles an order.
+	conditionId: string
 	question: string
 	outcomes: string[]
 	outcomePrices: number[]
@@ -186,6 +190,7 @@ function parsePrices(raw: string): number[] {
 function mapGammaMarket(m: GammaMarketRaw): PredictionMarket {
 	return {
 		id: m.id ?? '',
+		conditionId: m.conditionId ?? '',
 		question: m.question,
 		outcomes: parseOutcomes(m.outcomes),
 		outcomePrices: parsePrices(m.outcomePrices),

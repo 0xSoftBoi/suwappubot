@@ -1,24 +1,66 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { api } from '../../lib/api'
+import toast from 'react-hot-toast'
 import type { HLMarket } from '../../types/api'
+import { useAuth } from '../../contexts/AuthContext'
+import { usePerpsFunding, formatCountdown, formatFundingPct } from '../../hooks/usePerpsFunding'
+import { usePerpsMarginMode } from '../../hooks/usePerpsMarginMode'
+import { usePerpsAccount, useExecutePerps } from '../../hooks/useTerminalPerps'
+import { ConnectHyperliquid } from './ConnectHyperliquid'
+import type { MarginMode } from '../../types/perps'
 
-export function PerpsPanel() {
-  const [selectedMarket, setSelectedMarket] = useState('ETH-USD')
+interface Props {
+  markets?: HLMarket[]
+  selectedMarket: string
+  onSelectMarket: (market: string) => void
+}
+
+// Perps order ticket. Market is controlled by the workspace (so the markets
+// board + ticket stay in sync). Execution is real: it posts to
+// /terminal/perps/execute, which routes to the same perps_service the Telegram
+// bot trades through. Gated behind a one-time HyperLiquid connect.
+export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
+  const { isAuthenticated } = useAuth()
   const [side, setSide] = useState<'long' | 'short'>('long')
   const [size, setSize] = useState('')
   const [leverage, setLeverage] = useState(5)
+  const [marginMode, setMarginMode] = usePerpsMarginMode()
 
-  const { data: markets } = useQuery({
-    queryKey: ['perps-markets'],
-    queryFn: () => api.getPerpsMarkets(),
-    staleTime: 30_000,
-  })
+  const { data: account } = usePerpsAccount()
+  const execute = useExecutePerps()
 
   const market = markets?.find((m: HLMarket) => m.name === selectedMarket)
+  const funding = usePerpsFunding(market)
+
+  const marginModes: { value: MarginMode; label: string }[] = [
+    { value: 'cross', label: 'Cross' },
+    { value: 'isolated', label: 'Isolated' },
+  ]
+
+  const connected = !!account?.connected
+  const sizeNum = parseFloat(size)
+  const canSubmit =
+    isAuthenticated && connected && market && sizeNum > 0 && !execute.isPending
+
+  async function submit() {
+    if (!market || !(sizeNum > 0)) return
+    try {
+      const res = await execute.mutateAsync({
+        market: selectedMarket,
+        side,
+        size: sizeNum,
+        leverage,
+      })
+      toast.success(
+        `${side === 'long' ? 'Long' : 'Short'} ${res.position.size} ${market.asset} @ $${res.position.entryPrice.toFixed(2)}`,
+      )
+      setSize('')
+    } catch (e) {
+      toast.error((e as { detail?: string })?.detail || 'Order failed. Try again.')
+    }
+  }
 
   return (
-    <div className="p-4 flex flex-col gap-3">
+    <div className="flex flex-col gap-3 p-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">Perpetuals</h3>
         <span className="text-xs text-terminal-text-muted">via HyperLiquid</span>
@@ -29,7 +71,7 @@ export function PerpsPanel() {
         <label className="text-xs text-terminal-text-secondary mb-1 block">Market</label>
         <select
           value={selectedMarket}
-          onChange={e => setSelectedMarket(e.target.value)}
+          onChange={(e) => onSelectMarket(e.target.value)}
           className="terminal-input w-full text-sm"
         >
           {markets?.map((m: HLMarket) => (
@@ -40,14 +82,55 @@ export function PerpsPanel() {
         </select>
       </div>
 
+      {/* Live funding — real rate + next-funding countdown */}
+      {market && (
+        <div className="flex items-center justify-between bg-terminal-bg rounded px-3 py-2 text-xs">
+          <span className="text-terminal-text-secondary">Funding / 1h</span>
+          <span className="flex items-center gap-2 font-mono">
+            <span className={funding.hourlyRate >= 0 ? 'text-bull' : 'text-bear'}>
+              {formatFundingPct(funding.hourlyRate)}
+            </span>
+            <span className="text-terminal-text-muted">·</span>
+            <span
+              className="text-terminal-text-muted"
+              title="Time until the next hourly funding payment"
+            >
+              in {formatCountdown(funding.msUntilNextFunding)}
+            </span>
+          </span>
+        </div>
+      )}
+
+      {/* Margin mode (saved locally as a preference; applies at order time) */}
+      <div>
+        <label className="text-xs text-terminal-text-secondary mb-1 block">Margin mode</label>
+        <div className="grid grid-cols-2 gap-1">
+          {marginModes.map((m) => (
+            <button
+              key={m.value}
+              onClick={() => setMarginMode(m.value)}
+              className={`py-1.5 rounded text-xs font-semibold transition-colors
+                ${
+                  marginMode === m.value
+                    ? 'bg-terminal-bg-tertiary border border-sakura-500 text-terminal-text'
+                    : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
+                }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Side toggle */}
       <div className="grid grid-cols-2 gap-1">
         <button
           onClick={() => setSide('long')}
           className={`py-2 rounded text-sm font-semibold transition-colors
-            ${side === 'long'
-              ? 'bg-bull text-white'
-              : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
+            ${
+              side === 'long'
+                ? 'bg-bull text-white'
+                : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
             }`}
         >
           Long
@@ -55,9 +138,10 @@ export function PerpsPanel() {
         <button
           onClick={() => setSide('short')}
           className={`py-2 rounded text-sm font-semibold transition-colors
-            ${side === 'short'
-              ? 'bg-bear text-white'
-              : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
+            ${
+              side === 'short'
+                ? 'bg-bear text-white'
+                : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
             }`}
         >
           Short
@@ -66,11 +150,14 @@ export function PerpsPanel() {
 
       {/* Size */}
       <div>
-        <label className="text-xs text-terminal-text-secondary mb-1 block">Size ({market?.asset || '...'})</label>
+        <label className="text-xs text-terminal-text-secondary mb-1 block">
+          Size ({market?.asset || '...'})
+        </label>
         <input
           type="text"
+          inputMode="decimal"
           value={size}
-          onChange={e => setSize(e.target.value)}
+          onChange={(e) => setSize(e.target.value)}
           placeholder="0.0"
           className="terminal-input w-full font-mono"
         />
@@ -87,7 +174,7 @@ export function PerpsPanel() {
           min="1"
           max={market?.maxLeverage || 20}
           value={leverage}
-          onChange={e => setLeverage(parseInt(e.target.value))}
+          onChange={(e) => setLeverage(parseInt(e.target.value))}
           className="w-full accent-sakura-500"
         />
         <div className="flex justify-between text-[10px] text-terminal-text-muted">
@@ -97,44 +184,46 @@ export function PerpsPanel() {
       </div>
 
       {/* Summary */}
-      {size && market && (
+      {sizeNum > 0 && market && (
         <div className="bg-terminal-bg rounded-lg p-3 space-y-1.5 text-xs">
           <div className="flex justify-between">
             <span className="text-terminal-text-secondary">Entry Price</span>
             <span className="font-mono">${market.markPrice.toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-terminal-text-secondary">Margin</span>
+            <span className="text-terminal-text-secondary">Margin ({marginMode})</span>
             <span className="font-mono">
-              ${((parseFloat(size) * market.markPrice) / leverage).toFixed(2)}
+              ${((sizeNum * market.markPrice) / leverage).toFixed(2)}
             </span>
           </div>
           <div className="flex justify-between">
             <span className="text-terminal-text-secondary">Notional</span>
-            <span className="font-mono">
-              ${(parseFloat(size) * market.markPrice).toFixed(2)}
-            </span>
+            <span className="font-mono">${(sizeNum * market.markPrice).toFixed(2)}</span>
           </div>
         </div>
       )}
 
-      {/* Execute — no browser-callable perps execute endpoint exists yet.
-          /v1/agent/perps/quote uses agentBearerAuth (agent API key only).
-          Gate with coming soon until a /webapp/me/perps/execute route is added. */}
-      <button
-        disabled
-        title="Order execution coming soon — not yet available"
-        className={`w-full py-3 rounded font-semibold text-sm transition-colors cursor-not-allowed opacity-50
-          ${side === 'long'
-            ? 'bg-bull/30 text-white'
-            : 'bg-bear/30 text-white'
-          }`}
-      >
-        Coming soon — execution not yet available
-      </button>
-      <p className="text-[11px] text-terminal-text-muted text-center -mt-1">
-        Market data is live. Order placement is under development.
-      </p>
+      {/* Execute — gated behind sign-in + HyperLiquid connect */}
+      {!isAuthenticated ? (
+        <p className="text-center text-xs text-terminal-text-muted py-2">
+          Sign in to trade perpetuals.
+        </p>
+      ) : !connected ? (
+        <div className="rounded-lg border border-terminal-border bg-terminal-bg">
+          <ConnectHyperliquid />
+        </div>
+      ) : (
+        <button
+          onClick={submit}
+          disabled={!canSubmit}
+          className={`w-full py-3 rounded font-semibold text-sm text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50
+            ${side === 'long' ? 'bg-bull' : 'bg-bear'}`}
+        >
+          {execute.isPending
+            ? 'Placing…'
+            : `${side === 'long' ? 'Long' : 'Short'} ${market?.asset || ''}`}
+        </button>
+      )}
     </div>
   )
 }

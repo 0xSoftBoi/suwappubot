@@ -18,6 +18,14 @@ import type {
   HLMarket,
   HLPosition,
   PredictionMarket,
+  PerpsAccountStatus,
+  TerminalPerpsPosition,
+  PerpsExecuteParams,
+  PerpsExecuteResult,
+  PredictionPositionRow,
+  PredictOrderParams,
+  PredictOrderResult,
+  PredictRedeemResult,
   TopTrader,
   TraderProfile,
   FollowedTrader,
@@ -292,6 +300,61 @@ export const api = {
     return request<{ markets: PredictionMarket[] }>(
       `/v1/agent/predict/markets${params}`
     ).then((r) => r.markets ?? [])
+  },
+
+  // === Terminal trading execution (Python /terminal/* routes, session-JWT auth) ===
+  // These are the browser-callable write paths that reuse the same proven
+  // perps_service + Polymarket client the Telegram bot trades through.
+
+  getPerpsAccount() {
+    return request<PerpsAccountStatus>('/terminal/perps/account')
+  },
+
+  connectPerps(apiKey: string, apiSecret: string) {
+    return request<PerpsAccountStatus>('/terminal/perps/connect', {
+      method: 'POST',
+      body: JSON.stringify({ apiKey, apiSecret }),
+    })
+  },
+
+  getTerminalPerpsPositions() {
+    return request<{ positions: TerminalPerpsPosition[] }>(
+      '/terminal/perps/positions'
+    ).then((r) => r.positions ?? [])
+  },
+
+  executePerps(params: PerpsExecuteParams) {
+    return request<PerpsExecuteResult>('/terminal/perps/execute', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  },
+
+  closePerps(positionId: number, percent = 100) {
+    return request<{ ok: boolean; result: unknown }>('/terminal/perps/close', {
+      method: 'POST',
+      body: JSON.stringify({ positionId, percent }),
+    })
+  },
+
+  getPredictionPositions() {
+    return request<{ positions: PredictionPositionRow[] }>(
+      '/terminal/predict/positions'
+    ).then((r) => r.positions ?? [])
+  },
+
+  placePredictionOrder(params: PredictOrderParams) {
+    return request<PredictOrderResult>('/terminal/predict/order', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  },
+
+  redeemPrediction(positionId: number) {
+    return request<PredictRedeemResult>('/terminal/predict/redeem', {
+      method: 'POST',
+      body: JSON.stringify({ positionId }),
+    })
   },
 
   // Copy Trading — real routes live under /webapp/me/copy/* and /webapp/copy/* (telegramAuth)

@@ -2,14 +2,25 @@ import type { PredictionMarket } from '../../types/api'
 
 interface Props {
   market: PredictionMarket
+  selected?: boolean
+  onSelect?: (market: PredictionMarket) => void
 }
 
-export function MarketCard({ market }: Props) {
+export function MarketCard({ market, selected, onSelect }: Props) {
   const yesPrice = market.outcomePrices[0] || 0
   const noPrice = market.outcomePrices[1] || 0
 
   return (
-    <div className="bg-terminal-bg rounded-lg p-3 border border-terminal-border hover:border-terminal-border-active transition-colors">
+    <div
+      onClick={() => onSelect?.(market)}
+      className={`rounded-lg p-3 border transition-colors
+        ${onSelect ? 'cursor-pointer' : ''}
+        ${
+          selected
+            ? 'bg-sakura-500/10 border-sakura-500'
+            : 'bg-terminal-bg border-terminal-border hover:border-terminal-border-active'
+        }`}
+    >
       <p className="text-sm text-terminal-text font-medium mb-2 leading-snug">
         {market.question}
       </p>

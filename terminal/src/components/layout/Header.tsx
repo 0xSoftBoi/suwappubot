@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import { ChainSelector } from './ChainSelector'
 import { PairSelector } from './PairSelector'
+import { ModeSwitch } from './ModeSwitch'
+import { useTrading } from '../../contexts/TradingContext'
 import { usePair } from '../../contexts/PairContext'
 import { useAuth } from '../../contexts/AuthContext'
 import { useIsMobile } from '../../hooks/useIsMobile'
@@ -9,6 +11,7 @@ import { PersimmonMark } from '../brand/PersimmonLogo'
 
 export function Header() {
   const { selectedChain, setSelectedChain, selectedPair, setSelectedPair } = usePair()
+  const { tradingMode } = useTrading()
   const {
     isAuthenticated,
     walletAddress,
@@ -18,7 +21,6 @@ export function Header() {
     signOut,
     clearError,
     error,
-    isPasskeySupported,
     isTelegram,
   } = useAuth()
   const isMobile = useIsMobile()
@@ -134,6 +136,7 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-1.5">
+          <ModeSwitch />
           {googleButton}
           {authButton}
         </div>
@@ -165,13 +168,19 @@ export function Header() {
 
         <div className="h-7 w-px bg-white/80 shadow-[1px_0_0_rgba(100,150,170,0.16)]" />
 
-        <ChainSelector selected={selectedChain} onSelect={setSelectedChain} />
+        <ModeSwitch />
 
-        <PairSelector
-          chain={selectedChain}
-          selected={selectedPair}
-          onSelect={setSelectedPair}
-        />
+        {tradingMode === 'spot' && (
+          <>
+            <ChainSelector selected={selectedChain} onSelect={setSelectedChain} />
+
+            <PairSelector
+              chain={selectedChain}
+              selected={selectedPair}
+              onSelect={setSelectedPair}
+            />
+          </>
+        )}
       </div>
 
       <div className="flex items-center gap-2">
