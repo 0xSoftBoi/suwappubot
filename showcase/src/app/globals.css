@@ -463,6 +463,27 @@ html {
   line-height: 1.65;
 }
 
+/* Founder credibility byline — published book + verified upstream contributions. */
+.summer-hero__byline {
+  max-width: 570px;
+  margin: 18px 0 0;
+  color: #5a7184;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+.summer-hero__byline a {
+  color: var(--summer-persimmon);
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--summer-persimmon) 35%, transparent);
+}
+.summer-hero__byline a:hover {
+  border-bottom-color: var(--summer-persimmon);
+}
+.summer-hero__byline em {
+  font-style: italic;
+}
+
 .summer-actions {
   display: flex;
   flex-wrap: wrap;

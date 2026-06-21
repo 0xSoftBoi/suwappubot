@@ -178,6 +178,33 @@ function Hero() {
           </a>
         </div>
         <CopyInstall text="bun add @suwappu/sdk" />
+        <p className="summer-hero__byline">
+          Built by the author of{' '}
+          <a
+            href="https://tsoma2.gumroad.com/l/printingmoney"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <em>Printing Money</em>
+          </a>{' '}
+          — a hands-on DeFi-security book — and an open-source contributor to{' '}
+          <a
+            href="https://github.com/alloy-rs/core/pull/1105"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            alloy-rs
+          </a>{' '}
+          &amp;{' '}
+          <a
+            href="https://github.com/uutils/coreutils/pull/12327"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            coreutils
+          </a>
+          .
+        </p>
       </div>
       <LiveTerminal />
     </section>
