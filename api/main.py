@@ -771,6 +771,10 @@ class AuthMeResponse(BaseModel):
     address: Optional[str] = None
     userId: Optional[int] = None
     createdAt: Optional[datetime] = None
+    # "external" => non-custodial (connected wallet signs client-side);
+    # "turnkey"/"local" => custodial (server signs). Lets the client pick the
+    # right swap path on session resume, before any wallet re-connects.
+    walletProvider: Optional[str] = None
 
 
 # --- JWT Configuration ---
@@ -998,14 +1002,19 @@ async def auth_verify(
         db.commit()
         db.refresh(user)
 
-        # Create wallet linked to user
+        # Create wallet linked to user. This is a NON-CUSTODIAL connection: the
+        # user proved ownership by signing the SIWE challenge with their external
+        # wallet (MetaMask / WalletConnect / etc.), so we store NO private key and
+        # mark the provider "external" — the server can never sign for it; the
+        # connected wallet signs swaps client-side via /webapp/swap/build.
         wallet = Wallet(
             user_id=user.id,
             address=address,
             chain_type="evm",
             is_active=True,
             is_default=True,
-            name="Web Wallet",
+            wallet_provider="external",
+            name="Connected Wallet",
             created_at=datetime.utcnow(),
         )
         db.add(wallet)
@@ -1051,11 +1060,21 @@ async def auth_me(
     if not user:
         return AuthMeResponse(authenticated=False)
 
+    # Resolve the wallet's provider so the client knows whether this session is
+    # custodial (server signs) or external/non-custodial (wallet signs).
+    address = current_user.get("address")
+    wallet_provider = None
+    if address:
+        wallet = db.query(Wallet).filter(Wallet.address.ilike(address)).first()
+        if wallet:
+            wallet_provider = wallet.wallet_provider
+
     return AuthMeResponse(
         authenticated=True,
-        address=current_user.get("address"),
+        address=address,
         userId=user.id,
         createdAt=user.created_at,
+        walletProvider=wallet_provider,
     )
 
 

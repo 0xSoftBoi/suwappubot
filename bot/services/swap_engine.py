@@ -931,6 +931,134 @@ class SwapEngine:
             raw_quote=quote.raw_response,
         )
 
+    async def build_external_evm_swap(
+        self,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        from_address: str,
+        slippage: float,
+    ):
+        """Build the unsigned EVM transaction(s) for a NON-CUSTODIAL swap.
+
+        The connected external wallet (MetaMask / WalletConnect / etc.) signs and
+        broadcasts the transaction client-side — the server never holds a private
+        key for it. We fetch a Li.Fi quote (the one same-chain EVM provider that
+        returns ready-to-sign ``transactionRequest`` calldata at quote time) and
+        surface it plus an ERC-20 approval tx when the sell token needs one.
+
+        Returns ``(quote, payload)`` where ``payload`` is a JSON-serialisable dict
+        with ``chainId``, the unsigned ``tx``, an optional ``approval`` tx, and the
+        ``spender`` the approval targets. Numeric tx fields are hex quantity
+        strings so they feed straight into ``wallet_sendTransaction``.
+        """
+        if not from_address or not from_address.startswith("0x") or len(from_address) != 42:
+            raise SwapError("A connected EVM wallet address is required.")
+
+        if from_chain.lower() != to_chain.lower():
+            # Cross-chain needs the bridge step-runner (multiple txs across chains),
+            # which can't be expressed as a single client-signed tx yet.
+            raise SwapError("External wallets support same-chain EVM swaps for now.")
+
+        chain = get_chain_by_name(from_chain)
+        if not chain or chain.chain_type != ChainType.EVM:
+            raise SwapError("External-wallet swaps are only supported on EVM chains.")
+
+        amount_raw = self._get_token_amount_raw(amount, from_token, from_chain)
+
+        quote = await self._get_lifi_quote(
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=from_token,
+            to_token=to_token,
+            amount=amount,
+            amount_raw=amount_raw,
+            from_address=from_address,
+            to_address=from_address,
+            slippage=slippage,
+        )
+
+        tx_request = quote.raw_quote.get("transactionRequest") or {}
+        to_target = tx_request.get("to")
+        call_data = tx_request.get("data")
+        if not to_target or not call_data:
+            raise SwapError("This route can't be signed by an external wallet yet.")
+
+        web3 = self.wallet_service._get_web3(from_chain)
+        sender = Web3.to_checksum_address(from_address)
+        spender = Web3.to_checksum_address(to_target)
+
+        swap_tx = {
+            "to": spender,
+            "data": call_data,
+            "value": hex(_parse_int(tx_request.get("value"), 0)),
+            "gas": hex(_parse_int(tx_request.get("gasLimit"), 500_000)),
+            "chainId": chain.chain_id,
+        }
+
+        # ERC-20 approval: skip for native sells (ETH/BNB/etc.). We read the live
+        # allowance with the user's address as owner — a pure view call, no key
+        # needed — and only return an approval tx when it's short. NOTE: 'exact'
+        # approval_mode on a reset-required token (e.g. USDT) would need a zero-out
+        # approval first; the default 'unlimited' mode approves max once and is safe.
+        approval = None
+        from_token_address = get_token_address(from_token, from_chain)
+        if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
+            token_addr = Web3.to_checksum_address(from_token_address)
+            erc20_abi = [
+                {
+                    "inputs": [
+                        {"name": "owner", "type": "address"},
+                        {"name": "spender", "type": "address"},
+                    ],
+                    "name": "allowance",
+                    "outputs": [{"name": "", "type": "uint256"}],
+                    "type": "function",
+                    "stateMutability": "view",
+                },
+                {
+                    "inputs": [
+                        {"name": "spender", "type": "address"},
+                        {"name": "amount", "type": "uint256"},
+                    ],
+                    "name": "approve",
+                    "outputs": [{"name": "", "type": "bool"}],
+                    "type": "function",
+                    "stateMutability": "nonpayable",
+                },
+            ]
+            token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
+            amount_needed = int(amount_raw)
+            try:
+                current_allowance = await asyncio.to_thread(
+                    lambda: token_contract.functions.allowance(sender, spender).call()
+                )
+            except Exception as exc:  # RPC hiccup — fail safe by requesting approval
+                logger.warning(f"external swap allowance read failed ({exc}); requesting approval")
+                current_allowance = 0
+
+            if current_allowance < amount_needed:
+                approve_amount = self._approval_amount(amount_needed)
+                approve_data = token_contract.encode_abi(
+                    fn_name="approve", args=[spender, approve_amount]
+                )
+                approval = {
+                    "to": token_addr,
+                    "data": approve_data,
+                    "value": "0x0",
+                    "chainId": chain.chain_id,
+                }
+
+        payload = {
+            "chainId": chain.chain_id,
+            "tx": swap_tx,
+            "approval": approval,
+            "spender": spender,
+        }
+        return quote, payload
+
     @staticmethod
     def _jupiter_referral_accounts() -> dict:
         """Map of mint -> Jupiter referral token account.
