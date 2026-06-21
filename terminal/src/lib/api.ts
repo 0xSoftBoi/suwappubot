@@ -4,6 +4,10 @@ import type {
   SwapQuote,
   SwapExecuteRequest,
   SwapExecuteResult,
+  SwapBuildRequest,
+  SwapBuildResult,
+  SwapRecordRequest,
+  SwapRecordResult,
   CopilotResponse,
   PasskeyAuthInitResponse,
   PasskeyAuthCompleteResponse,
@@ -116,11 +120,16 @@ export const api = {
       authenticated: boolean
       userId?: number
       address?: string
+      walletProvider?: string
     }>('/auth/me')
     if (!result.authenticated || !result.userId || !result.address) {
       throw { detail: 'Not authenticated', status: 401 }
     }
-    return { userId: result.userId, walletAddress: result.address }
+    return {
+      userId: result.userId,
+      walletAddress: result.address,
+      walletProvider: result.walletProvider ?? null,
+    }
   },
 
   // Telegram Mini App login: validate the WebApp initData server-side (HMAC over
@@ -227,6 +236,22 @@ export const api = {
 
   executeSwap(req: SwapExecuteRequest) {
     return request<SwapExecuteResult>('/webapp/swap/execute', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  },
+
+  // Non-custodial swap: build unsigned tx(s) for the connected external wallet to
+  // sign client-side (server holds no key), then record the broadcast tx hash.
+  buildSwap(req: SwapBuildRequest) {
+    return request<SwapBuildResult>('/webapp/swap/build', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  },
+
+  recordSwap(req: SwapRecordRequest) {
+    return request<SwapRecordResult>('/webapp/swap/record', {
       method: 'POST',
       body: JSON.stringify(req),
     })

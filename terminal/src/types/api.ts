@@ -79,6 +79,56 @@ export interface SwapExecuteResult {
   }
 }
 
+// --- Non-custodial (external wallet) swaps ---
+
+export interface UnsignedTx {
+  to: string
+  data: string
+  value: string // hex quantity, e.g. "0x0"
+  chainId: number
+  gas?: string // hex quantity; absent => wallet estimates
+}
+
+export interface SwapBuildRequest {
+  fromToken: string
+  toToken: string
+  fromChain: string
+  toChain: string
+  amount: string
+  slippage?: number
+  fromAddress: string
+}
+
+export interface SwapBuildResult {
+  quoteId: string
+  chainId: number
+  tx: UnsignedTx
+  approval: UnsignedTx | null
+  spender: string
+  fromToken: SwapToken
+  toToken: SwapToken
+  fromAmount: string
+  toAmount: string
+  minReceived: string
+  priceImpact: number
+  gasUsd: number
+  route: string
+  expiresAt: string
+}
+
+export interface SwapRecordRequest {
+  quoteId: string
+  txHash: string
+}
+
+export interface SwapRecordResult {
+  success: boolean
+  swapId: number
+  status: string
+  txHash: string
+  explorerUrl?: string
+}
+
 export interface CopilotResponse {
   type: 'text' | 'quote' | 'portfolio' | 'error'
   content: string

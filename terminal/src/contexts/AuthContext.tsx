@@ -7,6 +7,8 @@ import {
   type ReactNode,
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { useAccount, useSignMessage, useDisconnect } from 'wagmi'
+import { useConnectModal } from '@rainbow-me/rainbowkit'
 import { setAuthToken, getAuthToken, clearAuthToken } from '../lib/auth'
 import { api } from '../lib/api'
 
@@ -18,10 +20,18 @@ interface AuthContextType {
   error: string | null
   signIn: () => Promise<void>
   signInWithGoogle: () => void
+  // Non-custodial: connect an external wallet (MetaMask / WalletConnect) and
+  // prove ownership by signing a SIWE challenge. Opens the connect modal first
+  // if no wallet is connected yet.
+  signInWithWallet: () => Promise<void>
   signOut: () => void
   clearError: () => void
   isPasskeySupported: boolean
   isTelegram: boolean
+  // The connected external wallet address (wagmi), or null. Distinct from
+  // walletAddress, which is the authenticated session's wallet.
+  connectedAddress: string | null
+  isExternalWallet: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -33,10 +43,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const [userId, setUserId] = useState<number | null>(null)
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
+  const [walletProvider, setWalletProvider] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPasskeySupported, setIsPasskeySupported] = useState(false)
   const [isTelegram, setIsTelegram] = useState(false)
   const queryClient = useQueryClient()
+  const { address: connectedAddress, isConnected } = useAccount()
+  const { signMessageAsync } = useSignMessage()
+  const { disconnect } = useDisconnect()
+  const { openConnectModal } = useConnectModal()
 
   // Data hooks (portfolio, wallet tracker, etc.) fire on mount — before the user
   // signs in — and 401, landing in React Query's error state. Nothing refetches
@@ -132,6 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const me = await api.getMe()
         setUserId(me.userId)
         setWalletAddress(me.walletAddress)
+        setWalletProvider(me.walletProvider)
         setIsAuthenticated(true)
       } catch {
         if (token) clearAuthToken()
@@ -346,12 +362,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.assign(api.oauthStartUrl('google', returnUrl))
   }, [])
 
+  // Connect an external wallet and authenticate by signing the SIWE challenge.
+  // The backend recovers the signer address from the signature and mints the same
+  // session JWT the passkey/OAuth flows use — no private key ever leaves the
+  // wallet. If nothing is connected yet, open the RainbowKit modal and bail; the
+  // user taps "Sign in" again once connected.
+  const signInWithWallet = useCallback(async () => {
+    if (!isConnected || !connectedAddress) {
+      openConnectModal?.()
+      return
+    }
+    try {
+      setIsLoading(true)
+      setError(null)
+      const { nonce, message } = await api.walletChallenge(connectedAddress)
+      const signature = await signMessageAsync({ message })
+      const result = await api.walletVerify(connectedAddress, signature, nonce)
+      setAuthToken(result.token, result.expiresAt)
+      setUserId(result.userId)
+      setWalletAddress(connectedAddress)
+      setWalletProvider('external')
+      setIsAuthenticated(true)
+    } catch (err: unknown) {
+      setError(errorDetail(err))
+    } finally {
+      setIsLoading(false)
+    }
+  }, [isConnected, connectedAddress, signMessageAsync, openConnectModal])
+
   const signOut = useCallback(() => {
     clearAuthToken()
     setIsAuthenticated(false)
     setUserId(null)
     setWalletAddress(null)
-  }, [])
+    setWalletProvider(null)
+    // Drop the external wallet connection too, so "sign out" fully resets state.
+    try {
+      disconnect()
+    } catch {
+      // best-effort; non-wallet sessions have nothing to disconnect
+    }
+  }, [disconnect])
 
   const clearError = useCallback(() => setError(null), [])
 
@@ -365,10 +416,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         error,
         signIn,
         signInWithGoogle,
+        signInWithWallet,
         signOut,
         clearError,
         isPasskeySupported,
         isTelegram,
+        connectedAddress: connectedAddress ?? null,
+        // Session-based: a non-custodial session always routes through the
+        // client-signing swap path. If the wallet isn't currently connected, that
+        // path prompts a reconnect rather than falling back to custodial signing.
+        isExternalWallet: walletProvider === 'external',
       }}
     >
       {children}

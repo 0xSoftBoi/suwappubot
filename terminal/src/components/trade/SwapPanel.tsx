@@ -7,6 +7,8 @@ import { LimitOrderPanel } from './LimitOrderPanel'
 import { DCAPanel } from './DCAPanel'
 import { useSwapQuote } from '../../hooks/useSwapQuote'
 import { useSwapExecute } from '../../hooks/useSwapExecute'
+import { useExternalSwap } from '../../hooks/useExternalSwap'
+import { WalletConnect } from '../auth/WalletConnect'
 import { useAuth } from '../../contexts/AuthContext'
 import { useTrading } from '../../contexts/TradingContext'
 import { usePair } from '../../contexts/PairContext'
@@ -16,7 +18,7 @@ import toast from 'react-hot-toast'
 type OrderTab = 'swap' | 'limit' | 'dca'
 
 export function SwapPanel() {
-  const { isAuthenticated, signInWithGoogle } = useAuth()
+  const { isAuthenticated, isExternalWallet } = useAuth()
   const { side, setSide, pendingSwapAmount, setPendingSwapAmount } = useTrading()
   const { selectedPair, setSelectedPair } = usePair()
   const [activeTab, setActiveTab] = useState<OrderTab>('swap')
@@ -60,6 +62,8 @@ export function SwapPanel() {
 
   const { data: quote, isLoading: quoteLoading, error: quoteError, refetch: refetchQuote } = useSwapQuote(quoteRequest)
   const { mutate: executeSwap, isPending: executing } = useSwapExecute()
+  const { mutate: executeExternalSwap, isPending: externalExecuting } = useExternalSwap()
+  const executingAny = executing || externalExecuting
 
   // FIX 5: Ticking staleness check — flips to true without user interaction
   const [isQuoteStale, setIsQuoteStale] = useState(false)
@@ -76,7 +80,40 @@ export function SwapPanel() {
     return () => { if (staleTimerRef.current) clearInterval(staleTimerRef.current) }
   }, [quote?.expiresAt, quote?.id])
 
+  const errMessage = (err: unknown, fallback = 'Swap failed') =>
+    err && typeof err === 'object' && 'detail' in err
+      ? (err as { detail: string }).detail
+      : err instanceof Error
+        ? err.message
+        : fallback
+
   const handleSwap = () => {
+    // Non-custodial: the connected external wallet signs + broadcasts client-side.
+    // We re-build a fresh unsigned tx (server holds no key) rather than reusing the
+    // custodial quoteId path.
+    if (isExternalWallet) {
+      if (!fromToken || !toToken || !amount) return
+      executeExternalSwap(
+        {
+          fromToken: fromToken.address,
+          toToken: toToken.address,
+          fromChain: fromToken.chain,
+          toChain: toToken.chain,
+          amount,
+          slippage,
+        },
+        {
+          onSuccess: (result) => {
+            toast.success(`Swap submitted — ${result.txHash.slice(0, 10)}…`)
+            setAmount('')
+          },
+          onError: (err: unknown) =>
+            toast.error(errMessage(err, 'Wallet rejected or swap failed')),
+        }
+      )
+      return
+    }
+
     if (!quote) return
     executeSwap(
       { quoteId: quote.id },
@@ -85,12 +122,7 @@ export function SwapPanel() {
           toast.success(`Swap ${result.status}: ${result.swap.fromAmount} ${result.swap.fromToken} → ${result.swap.expectedToAmount} ${result.swap.toToken}`)
           setAmount('')
         },
-        onError: (err: unknown) => {
-          const message = err && typeof err === 'object' && 'detail' in err
-            ? (err as { detail: string }).detail
-            : 'Swap failed'
-          toast.error(message)
-        },
+        onError: (err: unknown) => toast.error(errMessage(err)),
       }
     )
   }
@@ -266,41 +298,35 @@ export function SwapPanel() {
         </div>
       )}
 
-      {/* Execute button */}
-      <button
-        onClick={
-          !isAuthenticated
-            ? // Google OAuth, not signIn(): the passkey endpoints are server-gated
-              // (503) until real WebAuthn verification ships.
-              () => signInWithGoogle()
-            : isQuoteStale
-              ? () => void refetchQuote()
-              : handleSwap
-        }
-        disabled={isAuthenticated && !isQuoteStale && (!quote || executing)}
-        className={`w-full py-3 text-base font-semibold rounded transition-colors disabled:opacity-50 ${
-          !isAuthenticated
-            ? 'bg-terminal-bg-tertiary text-terminal-text hover:bg-terminal-bg-secondary border border-terminal-border'
-            : isQuoteStale
+      {/* Execute button (or connect/sign-in when not authenticated) */}
+      {!isAuthenticated ? (
+        <WalletConnect />
+      ) : (
+        <button
+          onClick={isQuoteStale ? () => void refetchQuote() : handleSwap}
+          disabled={!isQuoteStale && (!quote || executingAny)}
+          className={`w-full py-3 text-base font-semibold rounded transition-colors disabled:opacity-50 ${
+            isQuoteStale
               ? 'bg-yellow-600/20 text-yellow-400 border border-yellow-600/40 hover:bg-yellow-600/30'
               : side === 'buy'
                 ? 'bg-bull hover:bg-bull/80 text-white disabled:bg-bull/30'
                 : 'bg-bear hover:bg-bear/80 text-white disabled:bg-bear/30'
-        }`}
-      >
-        {!isAuthenticated
-          ? 'Connect wallet to trade'
-          : isQuoteStale
+          }`}
+        >
+          {isQuoteStale
             ? 'Quote expired — refresh'
-            : executing
-              ? 'Executing...'
-              : quoteLoading
-                ? 'Getting Quote...'
-                : quote
-                  ? `${side === 'buy' ? 'Buy' : 'Sell'} ${toToken?.symbol || ''}`
-                  : 'Enter Amount'
-        }
-      </button>
+            : externalExecuting
+              ? 'Confirm in your wallet…'
+              : executing
+                ? 'Executing...'
+                : quoteLoading
+                  ? 'Getting Quote...'
+                  : quote
+                    ? `${side === 'buy' ? 'Buy' : 'Sell'} ${toToken?.symbol || ''}${isExternalWallet ? ' (self-custody)' : ''}`
+                    : 'Enter Amount'
+          }
+        </button>
+      )}
 
       {/* Fee estimate */}
       <div className="text-xs text-terminal-text-muted text-center">

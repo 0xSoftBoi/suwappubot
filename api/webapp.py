@@ -301,6 +301,57 @@ class WebAppSwapExecuteResponse(BaseModel):
     swap: Dict[str, str]
 
 
+# --- Non-custodial (external wallet) swap models ---
+
+
+class WebAppSwapBuildRequest(BaseModel):
+    fromToken: str
+    toToken: str
+    fromChain: str
+    toChain: str
+    amount: str
+    slippage: Optional[float] = 0.5
+    fromAddress: str  # the connected external wallet (MetaMask / WalletConnect)
+
+
+class WebAppUnsignedTx(BaseModel):
+    to: str
+    data: str
+    value: str  # hex quantity, e.g. "0x0"
+    chainId: int
+    gas: Optional[str] = None  # hex quantity; absent => wallet estimates
+
+
+class WebAppSwapBuildResponse(BaseModel):
+    quoteId: str
+    chainId: int
+    tx: WebAppUnsignedTx
+    approval: Optional[WebAppUnsignedTx] = None
+    spender: str
+    fromToken: WebAppSwapToken
+    toToken: WebAppSwapToken
+    fromAmount: str
+    toAmount: str
+    minReceived: str
+    priceImpact: float
+    gasUsd: float
+    route: str
+    expiresAt: str
+
+
+class WebAppSwapRecordRequest(BaseModel):
+    quoteId: str
+    txHash: str
+
+
+class WebAppSwapRecordResponse(BaseModel):
+    success: bool
+    swapId: int
+    status: str
+    txHash: str
+    explorerUrl: Optional[str] = None
+
+
 class WebAppFollowSettings(BaseModel):
     copyMode: str = "notify"
     fixedAmount: Optional[float] = None
@@ -2409,6 +2460,161 @@ async def execute_terminal_swap(
             "fromAmount": swap.from_amount,
             "expectedToAmount": swap.to_amount or str(quote.to_amount_human),
         },
+    )
+
+
+@router.post("/swap/build", response_model=WebAppSwapBuildResponse)
+async def build_terminal_swap(
+    body: WebAppSwapBuildRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """
+    Build the unsigned transaction(s) for a NON-CUSTODIAL (external wallet) swap.
+
+    The connected wallet (MetaMask / WalletConnect / etc.) signs and broadcasts
+    client-side; the server never holds the key. Returns the unsigned swap tx plus
+    an optional ERC-20 approval tx. Pair with POST /swap/record after broadcast.
+    """
+    from bot.services.swap_engine import SwapEngine, SwapError
+
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    try:
+        amount = float(body.amount)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid amount")
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than zero")
+
+    address = body.fromAddress.strip()
+    if not (address.startswith("0x") and len(address) == 42):
+        raise HTTPException(status_code=400, detail="Invalid wallet address")
+
+    from_symbol = _token_symbol_for_address(body.fromChain, body.fromToken)
+    to_symbol = _token_symbol_for_address(body.toChain, body.toToken)
+
+    try:
+        quote, payload = await SwapEngine().build_external_evm_swap(
+            from_chain=body.fromChain,
+            to_chain=body.toChain,
+            from_token=from_symbol,
+            to_token=to_symbol,
+            amount=amount,
+            from_address=address,
+            slippage=body.slippage or 0.5,
+        )
+    except SwapError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Quote provider failed: {exc}")
+
+    quote_id = str(uuid.uuid4())
+    _cleanup_terminal_quote_cache()
+    _terminal_quote_cache[quote_id] = {
+        "created_at": time.time(),
+        "quote": quote,
+        "user_id": auth_payload.get("user_id"),
+        "external": True,
+        "from_address": address,
+        "from_chain": body.fromChain,
+        "to_chain": body.toChain,
+        "from_symbol": from_symbol,
+        "to_symbol": to_symbol,
+    }
+
+    expires_at = datetime.utcnow() + timedelta(
+        seconds=getattr(quote, "expires_in", _QUOTE_TTL_SECONDS)
+    )
+    approval_model = WebAppUnsignedTx(**payload["approval"]) if payload.get("approval") else None
+
+    return WebAppSwapBuildResponse(
+        quoteId=quote_id,
+        chainId=payload["chainId"],
+        tx=WebAppUnsignedTx(**payload["tx"]),
+        approval=approval_model,
+        spender=payload["spender"],
+        fromToken=_webapp_swap_token(from_symbol, body.fromChain),
+        toToken=_webapp_swap_token(to_symbol, body.toChain),
+        fromAmount=str(quote.from_amount_human),
+        toAmount=str(quote.to_amount_human),
+        minReceived=str(quote.to_amount_min),
+        priceImpact=float(quote.price_impact),
+        gasUsd=float(quote.gas_cost_usd),
+        route=quote.provider,
+        expiresAt=expires_at.isoformat(),
+    )
+
+
+@router.post("/swap/record", response_model=WebAppSwapRecordResponse)
+async def record_terminal_swap(
+    body: WebAppSwapRecordRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """
+    Record a client-broadcast (non-custodial) swap so it shows in history/portfolio.
+
+    The external wallet already signed + broadcast the tx; we only log the result
+    against the user. The cached quote is consumed so it can't be replayed.
+    """
+    from bot.config.chains import get_chain_by_name
+    from bot.models.swap import SwapTransaction, SwapStatus
+
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    tx_hash = body.txHash.strip()
+    if not (tx_hash.startswith("0x") and len(tx_hash) == 66):
+        raise HTTPException(status_code=400, detail="Invalid transaction hash")
+
+    _cleanup_terminal_quote_cache()
+    cached = _terminal_quote_cache.get(body.quoteId)
+    if not cached:
+        raise HTTPException(status_code=404, detail="Quote expired or not found")
+
+    user_id = int(auth_payload["user_id"])
+    quote_user_id = cached.get("user_id")
+    if quote_user_id and int(quote_user_id) != user_id:
+        raise HTTPException(status_code=403, detail="Quote does not belong to this user")
+
+    quote = cached["quote"]
+    from_chain = cached.get("from_chain", quote.from_chain)
+
+    swap = SwapTransaction(
+        user_id=user_id,
+        from_chain=from_chain,
+        from_token=cached.get("from_symbol", quote.from_token),
+        from_amount=str(quote.from_amount_human),
+        to_chain=cached.get("to_chain", quote.to_chain),
+        to_token=cached.get("to_symbol", quote.to_token),
+        to_amount=str(quote.to_amount_human),
+        status=SwapStatus.PENDING.value,
+        tx_hash=tx_hash,
+        idempotency_key=f"ext:{tx_hash}",
+        route_provider=quote.provider,
+        slippage=50,
+    )
+    db.add(swap)
+    db.commit()
+    db.refresh(swap)
+
+    # One-shot: drop the quote so the same broadcast can't be recorded twice.
+    _terminal_quote_cache.pop(body.quoteId, None)
+
+    explorer = None
+    chain = get_chain_by_name(from_chain)
+    base = getattr(chain, "explorer_url", None) or getattr(chain, "explorer", None)
+    if base:
+        explorer = f"{str(base).rstrip('/')}/tx/{tx_hash}"
+
+    return WebAppSwapRecordResponse(
+        success=True,
+        swapId=swap.id,
+        status=swap.status,
+        txHash=tx_hash,
+        explorerUrl=explorer,
     )
 
 
