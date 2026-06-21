@@ -469,6 +469,78 @@ html {
   max-width: 560px;
 }
 
+/* /for-agents page — "three ways to connect" + discovery row. */
+.agents-connect {
+  display: grid;
+  gap: 16px;
+  margin-top: 1rem;
+}
+.agents-connect__item {
+  padding: 20px;
+  border: 1px solid var(--summer-line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 12px 24px rgba(33, 88, 110, 0.06);
+}
+.agents-connect__item > h2 {
+  margin: 0 0 4px;
+  color: var(--summer-ink);
+  font-size: 1.05rem;
+}
+.agents-connect__item > p {
+  margin: 0 0 14px;
+  color: var(--summer-muted);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+.agents-connect .summer-code {
+  border: 1px solid var(--summer-line);
+  border-radius: 10px;
+}
+.agents-connect .summer-code code {
+  white-space: pre;
+}
+.agents-connect .summer-code pre {
+  overflow-x: auto;
+}
+.agents-verify {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 1rem;
+}
+.agents-verify a {
+  display: block;
+  padding: 16px;
+  border: 1px solid var(--summer-line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 12px 24px rgba(33, 88, 110, 0.06);
+  text-decoration: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.agents-verify a:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 30px rgba(33, 88, 110, 0.12);
+}
+.agents-verify b {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--summer-ink);
+  font-size: 0.95rem;
+  font-family: var(--font-mono);
+}
+.agents-verify span {
+  color: var(--summer-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+@media (max-width: 720px) {
+  .agents-verify {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 /* Founder credibility byline — published book + verified upstream contributions. */
 .summer-hero__byline {
   max-width: 570px;
