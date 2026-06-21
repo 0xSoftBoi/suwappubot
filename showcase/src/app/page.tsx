@@ -460,6 +460,25 @@ export default function Home() {
                 </article>
               ))}
             </div>
+            <div className="summer-code summer-agents__code" aria-label="MCP server configuration">
+              <div className="summer-code__bar">
+                <span />
+                <span />
+                <span />
+                <b>claude_desktop_config.json</b>
+              </div>
+              <pre>
+                <code>{`{
+  "mcpServers": {
+    "suwappu": {
+      "command": "npx",
+      "args": ["@suwappu/mcp-server"],
+      "env": { "SUWAPPU_API_KEY": "sk_..." }
+    }
+  }
+}`}</code>
+              </pre>
+            </div>
           </section>
 
           {/* ── MARKET PROOF (live) ── */}
