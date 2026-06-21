@@ -101,10 +101,14 @@ export interface SwapBuildRequest {
 
 export interface SwapBuildResult {
   quoteId: string
-  chainId: number
-  tx: UnsignedTx
-  approval: UnsignedTx | null
-  spender: string
+  chain: 'evm' | 'solana'
+  // EVM (MetaMask / WalletConnect)
+  chainId?: number
+  tx?: UnsignedTx
+  approval?: UnsignedTx | null
+  spender?: string
+  // Solana (Phantom): base64 VersionedTransaction
+  swapTransaction?: string
   fromToken: SwapToken
   toToken: SwapToken
   fromAmount: string
@@ -127,6 +131,25 @@ export interface SwapRecordResult {
   status: string
   txHash: string
   explorerUrl?: string
+}
+
+export interface TerminalSwap {
+  id: string
+  fromChain: string
+  toChain: string
+  fromToken: string
+  toToken: string
+  fromAmount: string
+  toAmount?: string
+  fromAmountUsd?: number
+  toAmountUsd?: number
+  status: string
+  txHash?: string
+  bridgeTxHash?: string
+  destinationTxHash?: string
+  createdAt: string
+  completedAt?: string
+  errorMessage?: string
 }
 
 export interface CopilotResponse {

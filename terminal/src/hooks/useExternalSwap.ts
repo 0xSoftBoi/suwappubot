@@ -51,6 +51,9 @@ export function useExternalSwap() {
         slippage: params.slippage,
         fromAddress: address,
       })
+      if (!build.tx || build.chainId == null) {
+        throw { detail: 'This route can’t be signed by an external wallet.', status: 0 }
+      }
 
       // Make sure the wallet is on the chain the tx targets before signing.
       if (account.chainId !== build.chainId) {

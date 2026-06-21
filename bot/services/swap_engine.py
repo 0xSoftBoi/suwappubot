@@ -1059,6 +1059,64 @@ class SwapEngine:
         }
         return quote, payload
 
+    async def build_external_solana_swap(
+        self,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        from_address: str,
+        slippage: float,
+    ):
+        """Build the unsigned Solana transaction for a NON-CUSTODIAL swap.
+
+        Phantom (or any Solana wallet) signs + sends the returned base64
+        ``VersionedTransaction`` client-side — the server never holds the key.
+        Jupiter builds the serialized swap tx for the connected pubkey at build
+        time; there's no ERC-20-style approval step on Solana. Returns
+        ``(quote, payload)`` with ``swapTransaction`` (base64) + ``chain``.
+        """
+        try:
+            import base58
+
+            if len(base58.b58decode(from_address)) != 32:
+                raise ValueError
+        except Exception:
+            raise SwapError("A connected Solana wallet address is required.")
+
+        amount_raw = self._get_token_amount_raw(amount, from_token, "solana")
+        slippage_bps = int(slippage * 100)
+
+        quote = await self._get_jupiter_quote(
+            from_token=from_token,
+            to_token=to_token,
+            amount=amount,
+            amount_raw=amount_raw,
+            from_address=from_address,
+            slippage_bps=slippage_bps,
+        )
+
+        # Mirror _execute_jupiter_swap: only attach a feeAccount when the quote
+        # itself reserved a platformFee, else Jupiter /swap rejects it.
+        jup_fee_account = (
+            self._jupiter_fee_account(quote.from_token, quote.to_token)
+            if isinstance(quote.raw_quote, dict) and quote.raw_quote.get("platformFee")
+            else None
+        )
+        swap_tx = await self.jupiter.get_swap_transaction(
+            quote_response=quote.raw_quote,
+            user_public_key=from_address,
+            fee_account=jup_fee_account,
+        )
+        if not swap_tx.swap_transaction:
+            raise SwapError("Jupiter did not return a swap transaction.")
+
+        payload = {
+            "chain": "solana",
+            "swapTransaction": swap_tx.swap_transaction,
+            "lastValidBlockHeight": swap_tx.last_valid_block_height,
+        }
+        return quote, payload
+
     @staticmethod
     def _jupiter_referral_accounts() -> dict:
         """Map of mint -> Jupiter referral token account.

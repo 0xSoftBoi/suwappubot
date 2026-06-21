@@ -1070,6 +1070,98 @@ def verify_auth_signature(address: str, signature: str, nonce: str) -> bool:
         return False
 
 
+def generate_solana_auth_challenge(address: str, domain: str = "app.suwappu.com") -> Dict[str, str]:
+    """
+    Generate a Sign-In-With-Solana style message for Phantom/Solana wallets.
+
+    Mirrors generate_auth_challenge but for ed25519 wallets: the address is a
+    base58 pubkey (CASE-SENSITIVE — never lowercase it) and there is no EVM chain
+    id. The wallet signs the returned ``challenge`` text with signMessage.
+    """
+    nonce = secrets.token_urlsafe(32)
+    issued_at = datetime.now(timezone.utc)
+    expires_at = issued_at + timedelta(minutes=10)
+
+    challenge = f"""{domain} wants you to sign in with your Solana account:
+{address}
+
+Sign in to Suwappu
+
+URI: https://{domain}
+Version: 1
+Nonce: {nonce}
+Issued At: {issued_at.isoformat()}Z
+Expiration Time: {expires_at.isoformat()}Z"""
+
+    # Store with the EXACT-case address + a chain marker so verify uses the right path.
+    _auth_challenges[nonce] = {
+        "address": address,
+        "challenge": challenge,
+        "expires_at": expires_at,
+        "chain": "solana",
+    }
+
+    return {
+        "challenge": challenge,
+        "nonce": nonce,
+        "expiresAt": expires_at.isoformat() + "Z",
+    }
+
+
+def verify_solana_auth_signature(address: str, signature: str, nonce: str) -> bool:
+    """
+    Verify a Solana (ed25519) wallet signature against a stored challenge.
+
+    ``signature`` is base58-encoded (Phantom's signMessage output, base58'd by the
+    client). ``address`` is the base58 pubkey. Uses PyNaCl (a dep of `solana`) for
+    the ed25519 check. Never lowercases the address (base58 is case-sensitive).
+    """
+    challenge_data = _auth_challenges.get(nonce)
+    if not challenge_data:
+        logger.warning("Solana auth verification failed: nonce not found")
+        return False
+
+    if datetime.now(timezone.utc) > challenge_data["expires_at"]:
+        del _auth_challenges[nonce]
+        logger.warning("Solana auth verification failed: challenge expired")
+        return False
+
+    if challenge_data.get("chain") != "solana" or challenge_data["address"] != address:
+        logger.warning("Solana auth verification failed: address/chain mismatch")
+        return False
+
+    try:
+        import base58
+        from nacl.signing import VerifyKey
+        from nacl.exceptions import BadSignatureError
+
+        pubkey_bytes = base58.b58decode(address)
+        if len(pubkey_bytes) != 32:
+            logger.warning("Solana auth verification failed: bad pubkey length")
+            return False
+
+        sig_bytes = base58.b58decode(signature)
+        message = challenge_data["challenge"].encode("utf-8")
+
+        try:
+            VerifyKey(pubkey_bytes).verify(message, sig_bytes)
+        except BadSignatureError:
+            logger.warning("Solana auth verification failed: signature mismatch")
+            return False
+
+        # Clean up used challenge
+        del _auth_challenges[nonce]
+        logger.info(f"Solana auth verification successful for {address[:8]}...")
+        return True
+
+    except ImportError:
+        logger.error("base58 + pynacl required for Solana signature verification")
+        return False
+    except Exception as e:
+        logger.error(f"Solana auth verification error: {e}")
+        return False
+
+
 def cleanup_expired_challenges() -> int:
     """
     Remove expired auth challenges from storage.

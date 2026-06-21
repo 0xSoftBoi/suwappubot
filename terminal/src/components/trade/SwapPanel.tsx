@@ -8,6 +8,7 @@ import { DCAPanel } from './DCAPanel'
 import { useSwapQuote } from '../../hooks/useSwapQuote'
 import { useSwapExecute } from '../../hooks/useSwapExecute'
 import { useExternalSwap } from '../../hooks/useExternalSwap'
+import { useSolanaSwap } from '../../hooks/useSolanaSwap'
 import { WalletConnect } from '../auth/WalletConnect'
 import { useAuth } from '../../contexts/AuthContext'
 import { useTrading } from '../../contexts/TradingContext'
@@ -18,7 +19,7 @@ import toast from 'react-hot-toast'
 type OrderTab = 'swap' | 'limit' | 'dca'
 
 export function SwapPanel() {
-  const { isAuthenticated, isExternalWallet } = useAuth()
+  const { isAuthenticated, isExternalWallet, externalChain } = useAuth()
   const { side, setSide, pendingSwapAmount, setPendingSwapAmount } = useTrading()
   const { selectedPair, setSelectedPair } = usePair()
   const [activeTab, setActiveTab] = useState<OrderTab>('swap')
@@ -63,7 +64,8 @@ export function SwapPanel() {
   const { data: quote, isLoading: quoteLoading, error: quoteError, refetch: refetchQuote } = useSwapQuote(quoteRequest)
   const { mutate: executeSwap, isPending: executing } = useSwapExecute()
   const { mutate: executeExternalSwap, isPending: externalExecuting } = useExternalSwap()
-  const executingAny = executing || externalExecuting
+  const { mutate: executeSolanaSwap, isPending: solanaExecuting } = useSolanaSwap()
+  const executingAny = executing || externalExecuting || solanaExecuting
 
   // FIX 5: Ticking staleness check — flips to true without user interaction
   const [isQuoteStale, setIsQuoteStale] = useState(false)
@@ -90,9 +92,35 @@ export function SwapPanel() {
   const handleSwap = () => {
     // Non-custodial: the connected external wallet signs + broadcasts client-side.
     // We re-build a fresh unsigned tx (server holds no key) rather than reusing the
-    // custodial quoteId path.
+    // custodial quoteId path. Route by token chain, and guard wallet/chain mismatch.
     if (isExternalWallet) {
       if (!fromToken || !toToken || !amount) return
+      const tokenIsSolana = fromToken.chain === 'solana'
+
+      if (tokenIsSolana && externalChain !== 'solana') {
+        toast.error('Connect a Solana wallet (Phantom) to trade Solana tokens.')
+        return
+      }
+      if (!tokenIsSolana && externalChain !== 'evm') {
+        toast.error('Connect an EVM wallet (MetaMask) to trade this token.')
+        return
+      }
+
+      const onSuccess = (result: { txHash: string }) => {
+        toast.success(`Swap submitted — ${result.txHash.slice(0, 10)}…`)
+        setAmount('')
+      }
+      const onError = (err: unknown) =>
+        toast.error(errMessage(err, 'Wallet rejected or swap failed'))
+
+      if (tokenIsSolana) {
+        executeSolanaSwap(
+          { fromToken: fromToken.address, toToken: toToken.address, amount, slippage },
+          { onSuccess, onError }
+        )
+        return
+      }
+
       executeExternalSwap(
         {
           fromToken: fromToken.address,
@@ -102,14 +130,7 @@ export function SwapPanel() {
           amount,
           slippage,
         },
-        {
-          onSuccess: (result) => {
-            toast.success(`Swap submitted — ${result.txHash.slice(0, 10)}…`)
-            setAmount('')
-          },
-          onError: (err: unknown) =>
-            toast.error(errMessage(err, 'Wallet rejected or swap failed')),
-        }
+        { onSuccess, onError }
       )
       return
     }
@@ -315,7 +336,7 @@ export function SwapPanel() {
         >
           {isQuoteStale
             ? 'Quote expired — refresh'
-            : externalExecuting
+            : externalExecuting || solanaExecuting
               ? 'Confirm in your wallet…'
               : executing
                 ? 'Executing...'
