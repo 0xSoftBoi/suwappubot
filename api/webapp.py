@@ -2647,6 +2647,57 @@ async def record_terminal_swap(
     )
 
 
+@router.get("/swaps", response_model=List[WebAppSwap])
+async def get_terminal_swaps(
+    limit: int = 20,
+    offset: int = 0,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """
+    Swap history for the authenticated terminal/web user (session-JWT auth).
+
+    The Telegram webapp's /users/me/swaps requires Telegram initData, which a
+    terminal or external-wallet (SIWE/Phantom) session never has. This is the
+    JWT-native parallel so those users can see their swaps — including the status
+    the tx_poller reconciles (pending -> completed/failed) for client-broadcast
+    (non-custodial) swaps.
+    """
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    swaps = (
+        db.query(SwapTransaction)
+        .filter(SwapTransaction.user_id == int(auth_payload["user_id"]))
+        .order_by(SwapTransaction.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        WebAppSwap(
+            id=str(swap.id),
+            fromChain=swap.from_chain,
+            toChain=swap.to_chain,
+            fromToken=swap.from_token,
+            toToken=swap.to_token,
+            fromAmount=swap.from_amount,
+            toAmount=swap.to_amount,
+            fromAmountUsd=swap.from_amount_usd,
+            toAmountUsd=swap.to_amount_usd,
+            status=swap.status,
+            txHash=swap.tx_hash,
+            bridgeTxHash=swap.bridge_tx_hash,
+            destinationTxHash=swap.destination_tx_hash,
+            createdAt=swap.created_at.isoformat() if swap.created_at else "",
+            completedAt=swap.completed_at.isoformat() if swap.completed_at else None,
+            errorMessage=swap.error_message,
+        )
+        for swap in swaps
+    ]
+
+
 @router.get("/users/me/swaps", response_model=List[WebAppSwap])
 async def get_my_swaps(
     limit: int = 20,

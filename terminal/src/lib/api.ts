@@ -8,6 +8,7 @@ import type {
   SwapBuildResult,
   SwapRecordRequest,
   SwapRecordResult,
+  TerminalSwap,
   CopilotResponse,
   PasskeyAuthInitResponse,
   PasskeyAuthCompleteResponse,
@@ -276,6 +277,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(req),
     })
+  },
+
+  // Swap history for the current session (JWT auth) — terminal/external-wallet
+  // users can't reach the Telegram-only /users/me/swaps, so this is the parallel.
+  getSwaps(limit = 25) {
+    return request<TerminalSwap[]>(`/webapp/swaps?limit=${limit}`)
   },
 
   // Tokens
