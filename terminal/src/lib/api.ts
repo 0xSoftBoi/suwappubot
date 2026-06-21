@@ -115,6 +115,27 @@ export const api = {
     return { token: result.token, expiresAt: result.expiresAt, userId: result.user?.id ?? 0 }
   },
 
+  // Solana (Phantom) SIWS auth — mirrors the EVM challenge/verify but ed25519.
+  async solanaChallenge(address: string) {
+    const result = await request<{ nonce: string; challenge: string }>('/auth/solana/challenge', {
+      method: 'POST',
+      body: JSON.stringify({ address }),
+    })
+    return { nonce: result.nonce, message: result.challenge }
+  },
+
+  async solanaVerify(address: string, signature: string, nonce: string) {
+    const result = await request<{
+      token: string
+      expiresAt: string
+      user?: { id?: number }
+    }>('/auth/solana/verify', {
+      method: 'POST',
+      body: JSON.stringify({ address, signature, nonce }),
+    })
+    return { token: result.token, expiresAt: result.expiresAt, userId: result.user?.id ?? 0 }
+  },
+
   async getMe() {
     const result = await request<{
       authenticated: boolean

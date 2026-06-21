@@ -9,7 +9,9 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import { useAccount, useSignMessage, useDisconnect } from 'wagmi'
 import { useConnectModal } from '@rainbow-me/rainbowkit'
+import bs58 from 'bs58'
 import { setAuthToken, getAuthToken, clearAuthToken } from '../lib/auth'
+import { getPhantom, isPhantomAvailable } from '../lib/phantom'
 import { api } from '../lib/api'
 
 interface AuthContextType {
@@ -24,6 +26,9 @@ interface AuthContextType {
   // prove ownership by signing a SIWE challenge. Opens the connect modal first
   // if no wallet is connected yet.
   signInWithWallet: () => Promise<void>
+  // Non-custodial Solana: connect Phantom and prove ownership via SIWS (ed25519).
+  signInWithPhantom: () => Promise<void>
+  isPhantomAvailable: boolean
   signOut: () => void
   clearError: () => void
   isPasskeySupported: boolean
@@ -32,6 +37,8 @@ interface AuthContextType {
   // walletAddress, which is the authenticated session's wallet.
   connectedAddress: string | null
   isExternalWallet: boolean
+  // 'evm' | 'solana' | null — which chain the external session's wallet signs on.
+  externalChain: 'evm' | 'solana' | null
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -390,6 +397,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [isConnected, connectedAddress, signMessageAsync, openConnectModal])
 
+  // Connect Phantom and authenticate via Sign-In-With-Solana (ed25519). Same
+  // keyless model as the EVM path: the backend recovers nothing — it verifies the
+  // signature against the provided pubkey and mints the session JWT.
+  const signInWithPhantom = useCallback(async () => {
+    const provider = getPhantom()
+    if (!provider) {
+      setError('Phantom wallet not found. Install the Phantom extension.')
+      return
+    }
+    try {
+      setIsLoading(true)
+      setError(null)
+      const { publicKey } = await provider.connect()
+      const address = publicKey.toString()
+      const { nonce, message } = await api.solanaChallenge(address)
+      const { signature } = await provider.signMessage(new TextEncoder().encode(message), 'utf8')
+      const result = await api.solanaVerify(address, bs58.encode(signature), nonce)
+      setAuthToken(result.token, result.expiresAt)
+      setUserId(result.userId)
+      setWalletAddress(address)
+      setWalletProvider('external')
+      setIsAuthenticated(true)
+    } catch (err: unknown) {
+      setError(errorDetail(err))
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
   const signOut = useCallback(() => {
     clearAuthToken()
     setIsAuthenticated(false)
@@ -401,6 +437,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       disconnect()
     } catch {
       // best-effort; non-wallet sessions have nothing to disconnect
+    }
+    try {
+      void getPhantom()?.disconnect()
+    } catch {
+      // best-effort; Phantom may not be connected
     }
   }, [disconnect])
 
@@ -417,6 +458,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signInWithGoogle,
         signInWithWallet,
+        signInWithPhantom,
+        isPhantomAvailable: isPhantomAvailable(),
         signOut,
         clearError,
         isPasskeySupported,
@@ -426,6 +469,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // client-signing swap path. If the wallet isn't currently connected, that
         // path prompts a reconnect rather than falling back to custodial signing.
         isExternalWallet: walletProvider === 'external',
+        // Derive the external session's chain from its address shape: EVM is
+        // 0x-hex, Solana is base58. Drives which signing hook the swap panel uses.
+        externalChain:
+          walletProvider === 'external' && walletAddress
+            ? walletAddress.startsWith('0x')
+              ? 'evm'
+              : 'solana'
+            : null,
       }}
     >
       {children}

@@ -101,10 +101,14 @@ export interface SwapBuildRequest {
 
 export interface SwapBuildResult {
   quoteId: string
-  chainId: number
-  tx: UnsignedTx
-  approval: UnsignedTx | null
-  spender: string
+  chain: 'evm' | 'solana'
+  // EVM (MetaMask / WalletConnect)
+  chainId?: number
+  tx?: UnsignedTx
+  approval?: UnsignedTx | null
+  spender?: string
+  // Solana (Phantom): base64 VersionedTransaction
+  swapTransaction?: string
   fromToken: SwapToken
   toToken: SwapToken
   fromAmount: string

@@ -6,7 +6,8 @@ import { useAuth } from '../../contexts/AuthContext'
 // signing a SIWE challenge (signInWithWallet). Google OAuth stays as a fallback
 // for users without a browser wallet.
 export function WalletConnect() {
-  const { signInWithWallet, signInWithGoogle, isLoading } = useAuth()
+  const { signInWithWallet, signInWithPhantom, isPhantomAvailable, signInWithGoogle, isLoading } =
+    useAuth()
 
   return (
     <div className="flex flex-col gap-2">
@@ -38,6 +39,16 @@ export function WalletConnect() {
           )
         }}
       </ConnectButton.Custom>
+
+      <button
+        onClick={() => void signInWithPhantom()}
+        disabled={isLoading}
+        type="button"
+        className="w-full py-3 text-base font-semibold rounded transition-colors
+                   bg-[#ab9ff2] hover:bg-[#9a8ce8] text-black disabled:opacity-50"
+      >
+        {isPhantomAvailable ? 'Connect Phantom (Solana)' : 'Get Phantom for Solana'}
+      </button>
 
       <button
         onClick={signInWithGoogle}

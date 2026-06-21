@@ -324,10 +324,14 @@ class WebAppUnsignedTx(BaseModel):
 
 class WebAppSwapBuildResponse(BaseModel):
     quoteId: str
-    chainId: int
-    tx: WebAppUnsignedTx
+    chain: str = "evm"  # "evm" | "solana"
+    # EVM (MetaMask / WalletConnect): unsigned tx + optional ERC-20 approval.
+    chainId: Optional[int] = None
+    tx: Optional[WebAppUnsignedTx] = None
     approval: Optional[WebAppUnsignedTx] = None
-    spender: str
+    spender: Optional[str] = None
+    # Solana (Phantom): base64 VersionedTransaction the wallet signs + sends.
+    swapTransaction: Optional[str] = None
     fromToken: WebAppSwapToken
     toToken: WebAppSwapToken
     fromAmount: str
@@ -2489,22 +2493,32 @@ async def build_terminal_swap(
         raise HTTPException(status_code=400, detail="Amount must be greater than zero")
 
     address = body.fromAddress.strip()
-    if not (address.startswith("0x") and len(address) == 42):
+    is_solana = body.fromChain.lower() == "solana"
+    if not is_solana and not (address.startswith("0x") and len(address) == 42):
         raise HTTPException(status_code=400, detail="Invalid wallet address")
 
     from_symbol = _token_symbol_for_address(body.fromChain, body.fromToken)
     to_symbol = _token_symbol_for_address(body.toChain, body.toToken)
 
     try:
-        quote, payload = await SwapEngine().build_external_evm_swap(
-            from_chain=body.fromChain,
-            to_chain=body.toChain,
-            from_token=from_symbol,
-            to_token=to_symbol,
-            amount=amount,
-            from_address=address,
-            slippage=body.slippage or 0.5,
-        )
+        if is_solana:
+            quote, payload = await SwapEngine().build_external_solana_swap(
+                from_token=from_symbol,
+                to_token=to_symbol,
+                amount=amount,
+                from_address=address,
+                slippage=body.slippage or 0.5,
+            )
+        else:
+            quote, payload = await SwapEngine().build_external_evm_swap(
+                from_chain=body.fromChain,
+                to_chain=body.toChain,
+                from_token=from_symbol,
+                to_token=to_symbol,
+                amount=amount,
+                from_address=address,
+                slippage=body.slippage or 0.5,
+            )
     except SwapError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
@@ -2527,14 +2541,9 @@ async def build_terminal_swap(
     expires_at = datetime.utcnow() + timedelta(
         seconds=getattr(quote, "expires_in", _QUOTE_TTL_SECONDS)
     )
-    approval_model = WebAppUnsignedTx(**payload["approval"]) if payload.get("approval") else None
 
-    return WebAppSwapBuildResponse(
+    common = dict(
         quoteId=quote_id,
-        chainId=payload["chainId"],
-        tx=WebAppUnsignedTx(**payload["tx"]),
-        approval=approval_model,
-        spender=payload["spender"],
         fromToken=_webapp_swap_token(from_symbol, body.fromChain),
         toToken=_webapp_swap_token(to_symbol, body.toChain),
         fromAmount=str(quote.from_amount_human),
@@ -2544,6 +2553,23 @@ async def build_terminal_swap(
         gasUsd=float(quote.gas_cost_usd),
         route=quote.provider,
         expiresAt=expires_at.isoformat(),
+    )
+
+    if is_solana:
+        return WebAppSwapBuildResponse(
+            chain="solana",
+            swapTransaction=payload["swapTransaction"],
+            **common,
+        )
+
+    approval_model = WebAppUnsignedTx(**payload["approval"]) if payload.get("approval") else None
+    return WebAppSwapBuildResponse(
+        chain="evm",
+        chainId=payload["chainId"],
+        tx=WebAppUnsignedTx(**payload["tx"]),
+        approval=approval_model,
+        spender=payload["spender"],
+        **common,
     )
 
 
@@ -2566,7 +2592,10 @@ async def record_terminal_swap(
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     tx_hash = body.txHash.strip()
-    if not (tx_hash.startswith("0x") and len(tx_hash) == 66):
+    # EVM tx hash: 0x + 64 hex. Solana signature: base58, ~64–90 chars (no 0x).
+    is_evm_hash = tx_hash.startswith("0x") and len(tx_hash) == 66
+    is_solana_sig = not tx_hash.startswith("0x") and 43 <= len(tx_hash) <= 100
+    if not (is_evm_hash or is_solana_sig):
         raise HTTPException(status_code=400, detail="Invalid transaction hash")
 
     _cleanup_terminal_quote_cache()
