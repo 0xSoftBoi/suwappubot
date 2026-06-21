@@ -1,9 +1,18 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
+import type { PredictionMarket } from '../../types/api'
 import { MarketCard } from './MarketCard'
 
-export function PredictionPanel() {
+interface Props {
+  selectedId?: string
+  onSelect?: (market: PredictionMarket) => void
+}
+
+// Polymarket market browser. Search + scrollable list of markets. When given
+// onSelect/selectedId it behaves as the selectable browse column of the
+// predictions desk; standalone it's a read-only list.
+export function PredictionPanel({ selectedId, onSelect }: Props) {
   const [search, setSearch] = useState('')
 
   const { data: markets, isLoading } = useQuery({
@@ -13,7 +22,7 @@ export function PredictionPanel() {
   })
 
   return (
-    <div className="p-4 flex flex-col gap-3 h-full">
+    <div className="flex h-full flex-col gap-3 p-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">Predictions</h3>
         <span className="text-xs text-terminal-text-muted">via Polymarket</span>
@@ -22,23 +31,26 @@ export function PredictionPanel() {
       <input
         type="text"
         value={search}
-        onChange={e => setSearch(e.target.value)}
+        onChange={(e) => setSearch(e.target.value)}
         placeholder="Search markets..."
         className="terminal-input text-sm"
       />
 
-      <div className="flex-1 overflow-y-auto space-y-2">
+      <div className="flex-1 space-y-2 overflow-y-auto">
         {isLoading ? (
-          <div className="text-center text-terminal-text-muted text-sm animate-pulse py-8">
+          <div className="animate-pulse py-8 text-center text-sm text-terminal-text-muted">
             Loading markets...
           </div>
         ) : markets?.length === 0 ? (
-          <div className="text-center text-terminal-text-muted text-sm py-8">
-            No markets found
-          </div>
+          <div className="py-8 text-center text-sm text-terminal-text-muted">No markets found</div>
         ) : (
-          markets?.map(market => (
-            <MarketCard key={market.id} market={market} />
+          markets?.map((market) => (
+            <MarketCard
+              key={market.id}
+              market={market}
+              selected={selectedId === market.id}
+              onSelect={onSelect}
+            />
           ))
         )}
       </div>

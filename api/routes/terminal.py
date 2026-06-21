@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from datetime import datetime
+from decimal import Decimal
+from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/terminal", tags=["terminal"])
 
@@ -46,23 +53,41 @@ def _is_eth_usdc_chart(pair: str, chain: str) -> bool:
 
 # Suwappu chain name -> GeckoTerminal/DexScreener network ids.
 GECKO_NETWORK = {
-    "ethereum": "eth", "eth": "eth",
+    "ethereum": "eth",
+    "eth": "eth",
     "base": "base",
-    "arbitrum": "arbitrum", "arbitrum_one": "arbitrum",
-    "optimism": "optimism", "op": "optimism",
-    "polygon": "polygon_pos", "polygon_pos": "polygon_pos",
-    "bsc": "bsc", "bnb": "bsc",
-    "avalanche": "avax", "avax": "avax",
-    "solana": "solana", "sol": "solana",
+    "arbitrum": "arbitrum",
+    "arbitrum_one": "arbitrum",
+    "optimism": "optimism",
+    "op": "optimism",
+    "polygon": "polygon_pos",
+    "polygon_pos": "polygon_pos",
+    "bsc": "bsc",
+    "bnb": "bsc",
+    "avalanche": "avax",
+    "avax": "avax",
+    "solana": "solana",
+    "sol": "solana",
 }
 DEXSCREENER_CHAIN = {  # GeckoTerminal network -> DexScreener chainId
-    "eth": "ethereum", "base": "base", "arbitrum": "arbitrum", "optimism": "optimism",
-    "polygon_pos": "polygon", "bsc": "bsc", "avax": "avalanche", "solana": "solana",
+    "eth": "ethereum",
+    "base": "base",
+    "arbitrum": "arbitrum",
+    "optimism": "optimism",
+    "polygon_pos": "polygon",
+    "bsc": "bsc",
+    "avax": "avalanche",
+    "solana": "solana",
 }
 # interval -> (GeckoTerminal timeframe, aggregate)
 GECKO_TIMEFRAME = {
-    "1m": ("minute", 1), "5m": ("minute", 5), "15m": ("minute", 15),
-    "1h": ("hour", 1), "4h": ("hour", 4), "1D": ("day", 1), "1d": ("day", 1),
+    "1m": ("minute", 1),
+    "5m": ("minute", 5),
+    "15m": ("minute", 15),
+    "1h": ("hour", 1),
+    "4h": ("hour", 4),
+    "1D": ("day", 1),
+    "1d": ("day", 1),
 }
 
 
@@ -103,9 +128,16 @@ async def _gecko_ohlcv(network: str, pool: str, interval: str, limit: int) -> li
         return []
     # GeckoTerminal returns newest-first [ts, o, h, l, c, v]; chart wants oldest-first.
     candles = [
-        {"time": int(c[0]), "open": float(c[1]), "high": float(c[2]),
-         "low": float(c[3]), "close": float(c[4]), "volume": float(c[5])}
-        for c in ohlcv if c and len(c) >= 6
+        {
+            "time": int(c[0]),
+            "open": float(c[1]),
+            "high": float(c[2]),
+            "low": float(c[3]),
+            "close": float(c[4]),
+            "volume": float(c[5]),
+        }
+        for c in ohlcv
+        if c and len(c) >= 6
     ]
     candles.sort(key=lambda c: c["time"])
     return candles[-limit:]
@@ -119,11 +151,13 @@ def _levels_with_totals(levels: list[list[str]], depth: int) -> list[dict]:
         price = float(price_raw)
         size = float(size_raw)
         total += size
-        parsed.append({
-            "price": price,
-            "size": size,
-            "total": total,
-        })
+        parsed.append(
+            {
+                "price": price,
+                "size": size,
+                "total": total,
+            }
+        )
     return parsed
 
 
@@ -219,7 +253,564 @@ async def get_terminal_trades(
             "price": float(trade["price"]),
             "size": float(trade["size"]),
             "side": trade["side"],
-            "time": int(datetime.fromisoformat(trade["time"].replace("Z", "+00:00")).timestamp() * 1000),
+            "time": int(
+                datetime.fromisoformat(trade["time"].replace("Z", "+00:00")).timestamp() * 1000
+            ),
         }
         for trade in trades
     ]
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Authenticated trading-execution routes (HyperLiquid perps + Polymarket
+# predictions). These delegate ALL signing/crypto to the existing proven
+# services — this layer is auth + validate + delegate only.
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _terminal_user(request: Request) -> dict:
+    """Extract and validate the JWT payload. Raises 401 on failure.
+
+    The user id used everywhere below is ``int(payload["user_id"])`` — the
+    DB ``users.id``. Perps tables (HyperLiquidAccount.user_id, PerpPosition.
+    user_id) and prediction tables (PredictionPosition.user_id) are all keyed
+    by this id.
+    """
+    # Deferred import: api.main imports this router, so a module-level import
+    # would create a circular import at startup.
+    from api.main import decode_jwt_token
+
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else request.cookies.get("suwappu_auth")
+    if token:
+        payload = decode_jwt_token(token)
+        if payload and payload.get("user_id"):
+            return payload
+    raise HTTPException(status_code=401, detail="Sign in to trade")
+
+
+def _to_float(value) -> Optional[float]:
+    """Coerce Decimal/None/str to float for JSON serialization."""
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return float(value)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _jsonify(obj):
+    """Recursively convert Decimals to floats inside dicts/lists for JSON."""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, dict):
+        return {k: _jsonify(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_jsonify(v) for v in obj]
+    return obj
+
+
+_CONDITION_ID_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
+
+
+async def _resolve_condition_id(market_id: str) -> str:
+    """Return the on-chain CTF condition id for a prediction market.
+
+    A position's ``market_id`` MUST be the condition id (0x… bytes32): that's
+    what ``predict_monitor`` settles by (CLOB ``get_clob_market(condition_id)``)
+    and what on-chain redemption uses. The terminal sends the condition id when
+    the browse payload carries it; this falls back to resolving it from the
+    Gamma numeric id so the stored value is always correct. If neither works the
+    order still places (placement only needs the token id) but we log loudly,
+    since auto-settlement won't fire for a non-condition market_id.
+    """
+    mid = (market_id or "").strip()
+    if _CONDITION_ID_RE.match(mid):
+        return mid
+    if mid.isdigit():
+        try:
+            from bot.services.polymarket_api import polymarket_client
+
+            info = await polymarket_client.get_market(mid)
+            if info and info.condition_id:
+                return info.condition_id
+        except Exception as e:
+            logger.warning("could not resolve condition_id from gamma id %s: %s", mid, e)
+    logger.warning(
+        "predict order market_id %r is not a condition id; auto-settlement may not fire", mid
+    )
+    return mid
+
+
+# --- Perps request models ---
+
+
+class PerpsConnectBody(BaseModel):
+    apiKey: str
+    apiSecret: str
+
+
+class PerpsExecuteBody(BaseModel):
+    market: str
+    side: str  # "long" | "short"
+    size: float
+    leverage: int = 1
+    tpPrice: Optional[float] = None
+    slPrice: Optional[float] = None
+
+
+class PerpsCloseBody(BaseModel):
+    positionId: int
+    percent: float = 100.0
+
+
+# --- Predict request models ---
+
+
+class PredictOrderBody(BaseModel):
+    tokenId: str
+    marketId: str
+    question: str
+    outcome: str
+    side: str  # "BUY" | "SELL"
+    amount: float
+    price: float
+
+
+# ── Perps (HyperLiquid) ───────────────────────────────────────────────
+
+
+@router.get("/perps/account")
+async def terminal_perps_account(request: Request):
+    """Report whether the user has a connected HyperLiquid account."""
+    uid = int(_terminal_user(request)["user_id"])
+    from bot.services.perps_service import perps_service
+
+    acct = perps_service.get_account(uid)
+    return {"connected": bool(acct), "address": acct.hl_address if acct else None}
+
+
+@router.post("/perps/connect")
+async def terminal_perps_connect(request: Request, body: PerpsConnectBody):
+    """Encrypt + store the user's HyperLiquid API credentials.
+
+    Mirrors bot/handlers/perps.py:perps_setup_secret — encrypts both the API
+    wallet key and secret with the app encryption key and derives the HL
+    address from the secret. All encryption lives in the existing service.
+    """
+    uid = int(_terminal_user(request)["user_id"])
+    from bot.services.perps_service import perps_service
+    from bot.utils.encryption import encrypt_private_key
+    from bot.config.settings import settings
+    from eth_account import Account
+
+    try:
+        key = settings.encryption_key
+        encrypted_key = encrypt_private_key(body.apiKey, key)
+        encrypted_secret = encrypt_private_key(body.apiSecret, key)
+
+        hl_address = ""
+        try:
+            hl_address = Account.from_key(body.apiSecret).address
+        except Exception as e:
+            logger.warning("Could not derive HL address from key: %s", e)
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid API secret — could not derive your HyperLiquid address.",
+            )
+
+        perps_service.setup_account(
+            user_id=uid,
+            hl_address=hl_address,
+            api_key_encrypted=encrypted_key,
+            api_secret_encrypted=encrypted_secret,
+        )
+        return {"connected": True, "address": hl_address}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("terminal perps connect failed: %s", e)
+        raise HTTPException(status_code=400, detail="Could not connect your HyperLiquid account.")
+
+
+@router.get("/perps/positions")
+async def terminal_perps_positions(request: Request):
+    """Return the user's live open HyperLiquid positions.
+
+    Live state is fetched from HyperLiquid keyed by the account address, then
+    matched against local PerpPosition rows so the frontend gets the local
+    id (needed to close). If a live position has no local row, id is null.
+    """
+    uid = int(_terminal_user(request)["user_id"])
+    from bot.services.perps_service import perps_service
+
+    acct = perps_service.get_account(uid)
+    if not acct or not acct.hl_address:
+        return {"positions": []}
+
+    try:
+        live = await perps_service._client.get_open_positions(acct.hl_address)
+    except Exception as e:
+        logger.error("terminal perps live positions failed: %s", e)
+        live = []
+
+    # Local rows give us the stable PerpPosition.id for closing.
+    local = perps_service.get_positions(uid, status="open")
+    local_by_key = {(p.market, p.side): p for p in local}
+
+    positions = []
+    for p in live:
+        key = (p.get("market"), p.get("side"))
+        local_pos = local_by_key.get(key)
+        positions.append(
+            {
+                "id": local_pos.id if local_pos else None,
+                "market": p.get("market"),
+                "side": p.get("side"),
+                "size": _to_float(p.get("size")),
+                "leverage": _to_float(p.get("leverage")),
+                "entryPrice": _to_float(p.get("entry_price")),
+                "markPrice": _to_float(p.get("entry_price")),
+                "unrealizedPnl": _to_float(p.get("unrealized_pnl")),
+                "liquidationPrice": _to_float(p.get("liquidation_price")),
+            }
+        )
+    return {"positions": positions}
+
+
+@router.post("/perps/execute")
+async def terminal_perps_execute(request: Request, body: PerpsExecuteBody):
+    """Open a HyperLiquid perp position. Delegates signing to perps_service."""
+    uid = int(_terminal_user(request)["user_id"])
+    from bot.services.perps_service import perps_service
+
+    try:
+        pos = await perps_service.open_position(
+            user_id=uid,
+            market=body.market,
+            side=body.side,
+            size=body.size,
+            leverage=body.leverage,
+            tp_price=body.tpPrice,
+            sl_price=body.slPrice,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("terminal perps execute failed: %s", e)
+        raise HTTPException(status_code=502, detail="Order failed on HyperLiquid. Try again.")
+
+    if not pos:
+        raise HTTPException(status_code=502, detail="Order failed on HyperLiquid. Try again.")
+
+    return {
+        "ok": True,
+        "position": {
+            "id": pos.id,
+            "market": pos.market,
+            "side": pos.side,
+            "size": _to_float(pos.size),
+            "entryPrice": _to_float(pos.entry_price),
+            "leverage": _to_float(pos.leverage),
+        },
+    }
+
+
+@router.post("/perps/close")
+async def terminal_perps_close(request: Request, body: PerpsCloseBody):
+    """Close (fully or partially) a HyperLiquid perp position."""
+    uid = int(_terminal_user(request)["user_id"])
+    from bot.services.perps_service import perps_service
+
+    try:
+        result = await perps_service.close_position(
+            user_id=uid,
+            position_id=body.positionId,
+            percent=body.percent,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("terminal perps close failed: %s", e)
+        raise HTTPException(status_code=502, detail="Order failed on HyperLiquid. Try again.")
+
+    return {"ok": True, "result": _jsonify(result)}
+
+
+# ── Predict (Polymarket) ──────────────────────────────────────────────
+
+
+@router.get("/predict/positions")
+async def terminal_predict_positions(request: Request):
+    """Return the user's Polymarket prediction positions from the DB."""
+    uid = int(_terminal_user(request)["user_id"])
+    from database.db import get_session
+    from bot.models.predict import PredictionPosition
+
+    out = []
+    with get_session() as session:
+        rows = (
+            session.query(PredictionPosition)
+            .filter(PredictionPosition.user_id == uid)
+            .order_by(PredictionPosition.id.desc())
+            .all()
+        )
+        for p in rows:
+            payout = _to_float(p.resolved_payout) or 0.0
+            out.append(
+                {
+                    "id": p.id,
+                    "marketId": p.market_id,
+                    "question": p.market_question,
+                    "outcome": p.outcome,
+                    "tokenId": p.token_id,
+                    "shares": _to_float(p.total_shares) or 0.0,
+                    "avgPrice": _to_float(p.avg_entry_price) or 0.0,
+                    "currentPrice": _to_float(p.current_price) or 0.0,
+                    "unrealizedPnl": _to_float(p.unrealized_pnl) or 0.0,
+                    "isResolved": bool(p.is_resolved),
+                    "claimable": bool(p.is_resolved) and payout > 0 and not bool(p.claimed),
+                }
+            )
+    return {"positions": out}
+
+
+@router.post("/predict/order")
+async def terminal_predict_order(request: Request, body: PredictOrderBody):
+    """Place a Polymarket prediction order using the user's default EVM wallet.
+
+    Wallet/private-key resolution mirrors bot/handlers/predict.py: load the
+    user's default active EVM Wallet, pull the private key via wallet_service
+    (backup key for Turnkey wallets), then delegate signing/placement to
+    polymarket_client.place_order. On success, upsert the local
+    PredictionOrder + PredictionPosition rows like the handler does.
+    """
+    uid = int(_terminal_user(request)["user_id"])
+    from database.db import get_session
+    from bot.models.user import Wallet
+    from bot.models.predict import PredictionOrder, PredictionPosition
+    from bot.services.wallet import WalletService
+    from bot.services.polymarket_api import polymarket_client
+
+    wallet_service = WalletService()
+
+    # Resolve the user's default EVM wallet + private key.
+    with get_session() as session:
+        wallet = (
+            session.query(Wallet)
+            .filter(
+                Wallet.user_id == uid,
+                Wallet.chain_type == "evm",
+                Wallet.is_default == True,  # noqa: E712
+            )
+            .first()
+        )
+        if not wallet:
+            raise HTTPException(
+                status_code=400,
+                detail="You need a default EVM wallet to trade prediction markets.",
+            )
+        wallet_id = wallet.id
+        try:
+            if wallet.is_turnkey_wallet:
+                private_key = wallet_service.get_backup_private_key(wallet)
+            else:
+                private_key = wallet_service.get_private_key(wallet)
+        except Exception as e:
+            logger.error("terminal predict wallet key resolution failed: %s", e)
+            raise HTTPException(status_code=400, detail="Could not access your wallet key.")
+
+    if not private_key:
+        raise HTTPException(status_code=400, detail="Could not access your wallet key.")
+
+    # Store the on-chain condition id (not the Gamma numeric id) so predict_monitor
+    # can settle/redeem this position on resolution.
+    condition_id = await _resolve_condition_id(body.marketId)
+
+    # Record a pending order row first (mirrors the handler).
+    with get_session() as session:
+        order = PredictionOrder(
+            user_id=uid,
+            wallet_id=wallet_id,
+            market_id=condition_id,
+            market_question=body.question,
+            token_id=body.tokenId,
+            outcome=body.outcome,
+            side=body.side,
+            amount_usdc=Decimal(str(body.amount)),
+            price=Decimal(str(body.price)),
+            status="pending",
+        )
+        session.add(order)
+        session.flush()
+        order_id = order.id
+
+    # Delegate signing + placement to the existing service.
+    try:
+        result = await polymarket_client.place_order(
+            private_key=private_key,
+            token_id=body.tokenId,
+            side=body.side,
+            amount=body.amount,
+            price=body.price,
+        )
+    except Exception as e:
+        logger.error("terminal predict place_order failed: %s", e)
+        with get_session() as session:
+            db_order = session.query(PredictionOrder).filter(PredictionOrder.id == order_id).first()
+            if db_order:
+                db_order.status = "failed"
+                db_order.error_message = str(e)
+        raise HTTPException(status_code=502, detail="Order failed on Polymarket. Try again.")
+
+    # Persist outcome + upsert position (mirrors handler).
+    with get_session() as session:
+        db_order = session.query(PredictionOrder).filter(PredictionOrder.id == order_id).first()
+        if db_order:
+            if result.success:
+                db_order.status = "placed"
+                db_order.clob_order_id = result.order_id
+                shares = body.amount / body.price if body.price > 0 else 0
+                db_order.shares = Decimal(str(shares))
+
+                position = (
+                    session.query(PredictionPosition)
+                    .filter(
+                        PredictionPosition.user_id == uid,
+                        PredictionPosition.market_id == condition_id,
+                        PredictionPosition.token_id == body.tokenId,
+                    )
+                    .first()
+                )
+                if position:
+                    old_total = float(position.total_cost_usdc or 0)
+                    old_shares = float(position.total_shares or 0)
+                    new_total = old_total + body.amount
+                    new_shares = old_shares + shares
+                    position.total_shares = Decimal(str(new_shares))
+                    position.total_cost_usdc = Decimal(str(new_total))
+                    position.avg_entry_price = (
+                        Decimal(str(new_total / new_shares)) if new_shares > 0 else Decimal("0")
+                    )
+                    position.current_price = Decimal(str(body.price))
+                else:
+                    session.add(
+                        PredictionPosition(
+                            user_id=uid,
+                            market_id=condition_id,
+                            market_question=body.question,
+                            token_id=body.tokenId,
+                            outcome=body.outcome,
+                            total_shares=Decimal(str(shares)),
+                            avg_entry_price=Decimal(str(body.price)),
+                            total_cost_usdc=Decimal(str(body.amount)),
+                            current_price=Decimal(str(body.price)),
+                        )
+                    )
+            else:
+                db_order.status = "failed"
+                db_order.error_message = result.error
+
+    return {
+        "ok": result.success,
+        "orderId": result.order_id,
+        "error": getattr(result, "error", None) or None,
+    }
+
+
+class PredictRedeemBody(BaseModel):
+    positionId: int
+
+
+@router.post("/predict/redeem")
+async def terminal_predict_redeem(request: Request, body: PredictRedeemBody):
+    """Redeem a resolved, claimable winning Polymarket position on-chain for pUSD.
+
+    Mirrors bot/handlers/predict.py:confirm_redeem_callback — validate the
+    position is claimable, load the user's default EVM wallet (the Polymarket
+    trading wallet that pays MATIC gas), then delegate the on-chain redeem to
+    polymarket_client.redeem_position. On success mark the position claimed +
+    store the tx hash. All signing reuses the existing service.
+    """
+    uid = int(_terminal_user(request)["user_id"])
+    from database.db import get_session
+    from bot.models.user import Wallet
+    from bot.models.predict import PredictionPosition
+    from bot.services.polymarket_api import polymarket_client
+
+    # Load + validate the position is actually claimable.
+    with get_session() as session:
+        pos = (
+            session.query(PredictionPosition)
+            .filter(
+                PredictionPosition.id == body.positionId,
+                PredictionPosition.user_id == uid,
+            )
+            .first()
+        )
+        if not pos:
+            raise HTTPException(status_code=404, detail="Position not found.")
+        payout = _to_float(pos.resolved_payout) or 0.0
+        if not (bool(pos.is_resolved) and payout > 0 and not bool(pos.claimed)):
+            raise HTTPException(
+                status_code=400,
+                detail="This position isn't claimable (already redeemed or not resolved).",
+            )
+        stored_market_id = pos.market_id
+
+    # Defensive: legacy rows may hold a Gamma numeric id instead of the condition
+    # id; redemption needs the on-chain condition id.
+    condition_id = await _resolve_condition_id(stored_market_id)
+
+    # Resolve the user's default EVM wallet (Polymarket trading wallet, pays gas).
+    with get_session() as session:
+        wallet = (
+            session.query(Wallet)
+            .filter(
+                Wallet.user_id == uid,
+                Wallet.chain_type == "evm",
+                Wallet.is_default == True,  # noqa: E712
+            )
+            .first()
+        )
+        if not wallet:
+            raise HTTPException(
+                status_code=400,
+                detail="You need a default EVM wallet to redeem.",
+            )
+        session.expunge(wallet)
+
+    try:
+        result = await polymarket_client.redeem_position(
+            wallet=wallet,
+            condition_id=condition_id,
+        )
+    except Exception as e:
+        logger.error("terminal predict redeem failed: %s", e)
+        raise HTTPException(status_code=502, detail="Redeem failed. Your position is unchanged.")
+
+    if result.success:
+        with get_session() as session:
+            pos = (
+                session.query(PredictionPosition)
+                .filter(
+                    PredictionPosition.id == body.positionId,
+                    PredictionPosition.user_id == uid,
+                )
+                .first()
+            )
+            if pos:
+                pos.claimed = True
+                pos.redeem_tx_hash = result.tx_hash
+        return {"ok": True, "txHash": result.tx_hash, "message": "Redeemed to pUSD on Polygon."}
+
+    # Informational failure — funds are safe. `pending` = broadcast but unconfirmed.
+    return {
+        "ok": False,
+        "pending": result.error_category == "pending",
+        "txHash": result.tx_hash or None,
+        "message": result.error or "Redeem could not be completed.",
+        "category": result.error_category or None,
+    }
