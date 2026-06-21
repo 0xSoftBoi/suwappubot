@@ -225,16 +225,111 @@ export interface TokenSecurity {
   devHoldingsPercent?: number
 }
 
+// One tradeable outcome of a prediction market — the CLOB tokenId is what an
+// order is placed against.
+export interface MarketToken {
+  tokenId: string
+  outcome: string
+}
+
 export interface PredictionMarket {
   id: string
+  // On-chain CTF condition id (0x… hash). Required for resolution/settlement —
+  // sent as the order's marketId so predict_monitor can settle the position.
+  conditionId?: string
   question: string
   description?: string
   outcomes: string[]
   outcomePrices: number[]
+  tokens?: MarketToken[]
   volume: number
   liquidity: number
   endDate?: string
   active: boolean
+}
+
+// === Terminal trading (Python /terminal/* execution routes) ===
+
+// HyperLiquid connection status for the signed-in user.
+export interface PerpsAccountStatus {
+  connected: boolean
+  address: string | null
+}
+
+// A live open perp position as returned by /terminal/perps/positions. `id` is
+// the local PerpPosition row id used to close; it's null when a live HL position
+// has no matching local row (e.g. opened outside Suwappu).
+export interface TerminalPerpsPosition {
+  id: number | null
+  market: string
+  side: 'long' | 'short'
+  size: number
+  leverage: number
+  entryPrice: number
+  markPrice: number
+  unrealizedPnl: number
+  liquidationPrice: number
+}
+
+export interface PerpsExecuteParams {
+  market: string
+  side: 'long' | 'short'
+  size: number
+  leverage: number
+  tpPrice?: number
+  slPrice?: number
+}
+
+export interface PerpsExecuteResult {
+  ok: boolean
+  position: {
+    id: number
+    market: string
+    side: 'long' | 'short'
+    size: number
+    entryPrice: number
+    leverage: number
+  }
+}
+
+// A held prediction-market position as returned by /terminal/predict/positions.
+export interface PredictionPositionRow {
+  id: string
+  marketId: string
+  question: string
+  outcome: string
+  tokenId: string
+  shares: number
+  avgPrice: number
+  currentPrice: number
+  unrealizedPnl: number
+  isResolved: boolean
+  claimable: boolean
+}
+
+export interface PredictOrderParams {
+  tokenId: string
+  marketId: string
+  question: string
+  outcome: string
+  side: 'BUY' | 'SELL'
+  amount: number
+  price: number
+}
+
+export interface PredictOrderResult {
+  ok: boolean
+  orderId?: string
+  error?: string
+}
+
+export interface PredictRedeemResult {
+  ok: boolean
+  // True when the redeem tx was broadcast but hasn't confirmed yet.
+  pending?: boolean
+  txHash?: string | null
+  message?: string
+  category?: string | null
 }
 
 // === Copy Trading ===
