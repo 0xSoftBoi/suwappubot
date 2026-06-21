@@ -463,6 +463,12 @@ html {
   line-height: 1.65;
 }
 
+/* Agent "show the code" — MCP config snippet in the agents section. */
+.summer-agents__code {
+  margin-top: 24px;
+  max-width: 560px;
+}
+
 /* Founder credibility byline — published book + verified upstream contributions. */
 .summer-hero__byline {
   max-width: 570px;
