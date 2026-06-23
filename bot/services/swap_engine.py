@@ -1066,6 +1066,10 @@ class SwapEngine:
         amount: float,
         from_address: str,
         slippage: float,
+        priority_level: str = "medium",
+        max_lamports: int = 1_000_000,
+        jito_tip_lamports: Optional[int] = None,
+        compute_unit_price_micro_lamports: Optional[int] = None,
     ):
         """Build the unsigned Solana transaction for a NON-CUSTODIAL swap.
 
@@ -1074,6 +1078,17 @@ class SwapEngine:
         Jupiter builds the serialized swap tx for the connected pubkey at build
         time; there's no ERC-20-style approval step on Solana. Returns
         ``(quote, payload)`` with ``swapTransaction`` (base64) + ``chain``.
+
+        ``priority_level``/``max_lamports`` set the Solana priority fee baked into
+        the tx (landing speed under congestion). They flow from the caller's
+        speed tier; the server holds the policy so caps can be tuned without a
+        client deploy. When ``jito_tip_lamports`` is set, Jupiter bakes a Jito tip
+        instead — the returned ``payload["jito"]`` is True and the client must
+        submit the signed tx to the Jito block engine (POST /swap/submit-jito) for
+        MEV-protected bundle landing rather than broadcasting via a normal RPC.
+        ``compute_unit_price_micro_lamports`` (the client's live network estimate,
+        e.g. from Helius) sets the exact per-CU priority price for the non-Jito
+        path; it takes precedence over ``priority_level``/``max_lamports``.
         """
         try:
             import base58
@@ -1106,6 +1121,10 @@ class SwapEngine:
             quote_response=quote.raw_quote,
             user_public_key=from_address,
             fee_account=jup_fee_account,
+            priority_level=priority_level,
+            max_lamports=max_lamports,
+            jito_tip_lamports=jito_tip_lamports,
+            compute_unit_price_micro_lamports=compute_unit_price_micro_lamports,
         )
         if not swap_tx.swap_transaction:
             raise SwapError("Jupiter did not return a swap transaction.")
@@ -1114,6 +1133,7 @@ class SwapEngine:
             "chain": "solana",
             "swapTransaction": swap_tx.swap_transaction,
             "lastValidBlockHeight": swap_tx.last_valid_block_height,
+            "jito": bool(jito_tip_lamports),
         }
         return quote, payload
 

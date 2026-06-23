@@ -57,6 +57,7 @@ export function SlippageControl({ value, onChange }: Props) {
             }}
             onFocus={() => setCustom(true)}
             inputMode="decimal"
+            aria-label="Custom slippage percentage"
             placeholder="Custom"
             className="w-full bg-transparent pr-4 text-center font-mono text-[11px] outline-none placeholder-terminal-text-muted"
           />

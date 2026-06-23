@@ -2,13 +2,15 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { VersionedTransaction } from '@solana/web3.js'
 import { getPhantom } from '../lib/phantom'
 import { api } from '../lib/api'
-import type { SwapBuildResult, SwapRecordResult } from '../types/api'
+import type { SwapBuildResult, SwapRecordResult, SolanaPriorityTier } from '../types/api'
 
 export interface SolanaSwapParams {
   fromToken: string
   toToken: string
   amount: string
   slippage?: number
+  priority?: SolanaPriorityTier
+  computeUnitPriceMicroLamports?: number
 }
 
 export interface SolanaSwapResult extends SwapRecordResult {
@@ -20,6 +22,12 @@ function base64ToBytes(b64: string): Uint8Array {
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
   return bytes
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i])
+  return btoa(binary)
 }
 
 // Non-custodial Solana swap: the server BUILDS a Jupiter swap tx for the connected
@@ -50,13 +58,26 @@ export function useSolanaSwap() {
         amount: params.amount,
         slippage: params.slippage,
         fromAddress: address,
+        priority: params.priority,
+        computeUnitPriceMicroLamports: params.computeUnitPriceMicroLamports,
       })
       if (!build.swapTransaction) {
         throw { detail: 'No transaction to sign.', status: 0 }
       }
 
       const tx = VersionedTransaction.deserialize(base64ToBytes(build.swapTransaction))
-      const { signature } = await provider.signAndSendTransaction(tx)
+
+      // Jito (turbo): sign locally, then submit to the Jito block engine via the
+      // server so it lands as an MEV-protected bundle (the baked-in tip only pays
+      // off through Jito, not a normal RPC). Otherwise let Phantom broadcast.
+      let signature: string
+      if (build.jito) {
+        const signed = await provider.signTransaction(tx)
+        const res = await api.submitJitoSwap(bytesToBase64(signed.serialize()))
+        signature = res.signature
+      } else {
+        ;({ signature } = await provider.signAndSendTransaction(tx))
+      }
 
       // Record for history; never lose the signature on a record failure.
       try {

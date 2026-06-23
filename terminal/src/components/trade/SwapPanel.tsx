@@ -13,7 +13,9 @@ import { WalletConnect } from '../auth/WalletConnect'
 import { useAuth } from '../../contexts/AuthContext'
 import { useTrading } from '../../contexts/TradingContext'
 import { usePair } from '../../contexts/PairContext'
-import type { SwapToken, SwapQuoteRequest } from '../../types/api'
+import { useQuery } from '@tanstack/react-query'
+import type { SwapToken, SwapQuoteRequest, SolanaPriorityTier } from '../../types/api'
+import { getSolanaPriorityFees } from '../../lib/helius'
 import toast from 'react-hot-toast'
 
 type OrderTab = 'swap' | 'limit' | 'dca'
@@ -25,6 +27,9 @@ export function SwapPanel() {
   const [activeTab, setActiveTab] = useState<OrderTab>('swap')
   const [amount, setAmount] = useState('')
   const [slippage, setSlippage] = useState(0.5)
+  // Solana priority-fee tier — only affects the non-custodial Phantom path,
+  // so it's surfaced (below) only for Solana tokens.
+  const [priorityTier, setPriorityTier] = useState<SolanaPriorityTier>('normal')
   const [showTpSl, setShowTpSl] = useState(false)
   const [tpPrice, setTpPrice] = useState('')
   const [slPrice, setSlPrice] = useState('')
@@ -66,6 +71,20 @@ export function SwapPanel() {
   const { mutate: executeExternalSwap, isPending: externalExecuting } = useExternalSwap()
   const { mutate: executeSolanaSwap, isPending: solanaExecuting } = useSolanaSwap()
   const executingAny = executing || externalExecuting || solanaExecuting
+
+  // Live Solana network priority fee (Helius), used to calibrate the Speed tiers.
+  const isSolana = fromToken?.chain === 'solana'
+  const priorityFees = useQuery({
+    queryKey: ['sol-priority-fees'],
+    queryFn: getSolanaPriorityFees,
+    enabled: isSolana,
+    staleTime: 15_000,
+    refetchInterval: 20_000,
+  })
+  const LEVEL_BY_TIER = { normal: 'medium', fast: 'high', turbo: 'veryHigh' } as const
+  const liveMicroPerCu = priorityFees.data ? priorityFees.data[LEVEL_BY_TIER[priorityTier]] : null
+  // ~200k compute units is typical for a Jupiter swap — this is an estimate.
+  const liveFeeSol = liveMicroPerCu != null ? (liveMicroPerCu * 200_000) / 1e15 : null
 
   // FIX 5: Ticking staleness check — flips to true without user interaction
   const [isQuoteStale, setIsQuoteStale] = useState(false)
@@ -115,7 +134,19 @@ export function SwapPanel() {
 
       if (tokenIsSolana) {
         executeSolanaSwap(
-          { fromToken: fromToken.address, toToken: toToken.address, amount, slippage },
+          {
+            fromToken: fromToken.address,
+            toToken: toToken.address,
+            amount,
+            slippage,
+            priority: priorityTier,
+            // Apply the live network per-CU price on the non-Jito tiers; turbo
+            // uses a Jito tip instead.
+            computeUnitPriceMicroLamports:
+              priorityTier !== 'turbo' && liveMicroPerCu != null
+                ? Math.round(liveMicroPerCu)
+                : undefined,
+          },
           { onSuccess, onError }
         )
         return
@@ -192,7 +223,9 @@ export function SwapPanel() {
       <div className="grid grid-cols-2 gap-1">
         <button
           onClick={() => changeSide('buy')}
-          className={`py-2 rounded text-sm font-semibold transition-colors
+          aria-pressed={side === 'buy'}
+          disabled={executingAny}
+          className={`py-2 rounded text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed
             ${side === 'buy'
               ? 'bg-bull/20 text-bull'
               : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
@@ -202,7 +235,9 @@ export function SwapPanel() {
         </button>
         <button
           onClick={() => changeSide('sell')}
-          className={`py-2 rounded text-sm font-semibold transition-colors
+          aria-pressed={side === 'sell'}
+          disabled={executingAny}
+          className={`py-2 rounded text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed
             ${side === 'sell'
               ? 'bg-bear/20 text-bear'
               : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
@@ -228,11 +263,14 @@ export function SwapPanel() {
       <div className="flex justify-center -my-1">
         <button
           onClick={flipTokens}
+          disabled={executingAny}
+          aria-label="Flip swap direction"
           className="w-8 h-8 rounded-full bg-terminal-bg-tertiary border border-terminal-border
                      flex items-center justify-center text-terminal-text-secondary
-                     hover:text-sakura-400 hover:border-sakura-600 transition-colors"
+                     hover:text-sakura-400 hover:border-sakura-600 transition-colors
+                     disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
           </svg>
         </button>
@@ -249,6 +287,52 @@ export function SwapPanel() {
 
       {/* Slippage */}
       <SlippageControl value={slippage} onChange={setSlippage} />
+
+      {/* Solana priority fee — controls landing speed under congestion. Only the
+          non-custodial Phantom path consumes it, so show it only for SOL tokens. */}
+      {fromToken?.chain === 'solana' && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="terminal-theme-caption shrink-0 px-1 text-[10px] uppercase text-terminal-text-muted">
+            Speed
+          </span>
+          <div
+            role="radiogroup"
+            aria-label="Solana transaction priority"
+            className="flex min-w-0 flex-1 gap-1"
+          >
+            {([
+              ['normal', 'Normal', '~0.001 SOL priority fee'],
+              ['fast', 'Fast', '~0.005 SOL priority fee — lands faster under congestion'],
+              ['turbo', 'Turbo', 'MEV-protected Jito bundle (~0.005 SOL tip)'],
+            ] as const).map(([val, label, hint]) => (
+              <button
+                key={val}
+                type="button"
+                role="radio"
+                aria-checked={priorityTier === val}
+                title={hint}
+                onClick={() => setPriorityTier(val)}
+                className={`terminal-theme-control min-h-[32px] flex-1 px-2.5 py-1 text-[11px] font-medium transition-colors hover:translate-y-0 focus:translate-y-0 active:scale-[0.98] ${
+                  priorityTier === val
+                    ? 'terminal-theme-control-active text-terminal-text'
+                    : 'text-terminal-text-secondary hover:text-terminal-text'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="w-full pl-1 text-[10px] text-terminal-text-muted">
+            {priorityTier === 'turbo'
+              ? 'Turbo routes via Jito for MEV protection (~0.005 SOL tip)'
+              : liveFeeSol != null
+                ? `Live network priority (${priorityTier}): ~${
+                    liveFeeSol < 0.000001 ? '<0.000001' : liveFeeSol.toFixed(6)
+                  } SOL`
+                : 'Fetching live network priority fee…'}
+          </p>
+        </div>
+      )}
 
       {/* TP/SL — Coming soon: backend execute endpoint only accepts quoteId */}
       <div>
@@ -314,7 +398,7 @@ export function SwapPanel() {
 
       {/* Quote error */}
       {quoteError && (
-        <div className="text-sm text-red-400 bg-bear-dim rounded px-3 py-2">
+        <div role="alert" aria-live="assertive" className="text-sm text-red-400 bg-bear-dim rounded px-3 py-2">
           {(quoteError as { detail?: string }).detail || 'Failed to get quote'}
         </div>
       )}

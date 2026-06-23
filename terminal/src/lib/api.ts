@@ -285,6 +285,15 @@ export const api = {
     return request<TerminalSwap[]>(`/webapp/swaps?limit=${limit}`)
   },
 
+  // Submit a Phantom-signed Solana tx to the Jito block engine (MEV-protected
+  // bundle landing) via the server proxy. Returns the on-chain signature.
+  submitJitoSwap(signedTransaction: string) {
+    return request<{ signature: string }>('/webapp/swap/submit-jito', {
+      method: 'POST',
+      body: JSON.stringify({ signedTransaction }),
+    })
+  },
+
   // Tokens
   getPopularTokens(chain?: string) {
     const params = chain ? `?chain=${chain}` : ''
