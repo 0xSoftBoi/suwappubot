@@ -10,6 +10,9 @@ export interface PhantomProvider {
   disconnect(): Promise<void>
   signMessage(message: Uint8Array, display?: string): Promise<{ signature: Uint8Array }>
   signAndSendTransaction(tx: VersionedTransaction): Promise<{ signature: string }>
+  // Sign WITHOUT broadcasting — used for the Jito path, where we submit the
+  // signed tx to the Jito block engine (via our server) instead of an RPC.
+  signTransaction(tx: VersionedTransaction): Promise<VersionedTransaction>
 }
 
 declare global {

@@ -12,6 +12,18 @@ interface Props {
   showBalance?: boolean
 }
 
+// Keep only a well-formed positive decimal: digits + at most one dot. This stops
+// negatives, scientific notation, letters and stray symbols from ever reaching the
+// quote request (and the swap), where they'd become NaN or a malformed amount.
+function sanitizeAmount(raw: string): string {
+  let v = raw.replace(/[^\d.]/g, '')
+  const firstDot = v.indexOf('.')
+  if (firstDot !== -1) {
+    v = v.slice(0, firstDot + 1) + v.slice(firstDot + 1).replace(/\./g, '')
+  }
+  return v
+}
+
 export function TokenInput({
   label,
   token,
@@ -52,10 +64,12 @@ export function TokenInput({
       <div className="flex items-center gap-2">
         <input
           type="text"
+          inputMode="decimal"
           value={amount}
-          onChange={e => onAmountChange?.(e.target.value)}
+          onChange={e => onAmountChange?.(sanitizeAmount(e.target.value))}
           placeholder="0.0"
           readOnly={readOnly}
+          aria-label={`${label} amount`}
           className="flex-1 bg-transparent text-xl font-mono text-terminal-text
                      placeholder-terminal-text-muted outline-none"
         />
@@ -63,6 +77,9 @@ export function TokenInput({
         <div ref={ref} className="relative">
           <button
             onClick={() => { setSelectorOpen(!selectorOpen); setSearch('') }}
+            aria-haspopup="listbox"
+            aria-expanded={selectorOpen}
+            aria-label={token ? `Change token, currently ${token.symbol}` : 'Select a token'}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full
                        bg-terminal-bg-tertiary border border-terminal-border
                        hover:border-terminal-border-active transition-colors"
@@ -90,18 +107,21 @@ export function TokenInput({
             <div className="absolute right-0 top-full mt-1 w-64 bg-terminal-bg-secondary border border-terminal-border rounded shadow-lg z-50">
               <div className="p-2 border-b border-terminal-border">
                 <input
-                  type="text"
+                  type="search"
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   placeholder="Search tokens..."
+                  aria-label="Search tokens"
                   className="terminal-input w-full text-sm"
                   autoFocus
                 />
               </div>
-              <div className="max-h-48 overflow-y-auto">
+              <div className="max-h-48 overflow-y-auto" role="listbox" aria-label="Token results">
                 {tokens?.length ? tokens.map(t => (
                   <button
                     key={`${t.chain}-${t.address}`}
+                    role="option"
+                    aria-selected={t.address === token?.address && t.chain === token?.chain}
                     onClick={() => { onTokenSelect(t); setSelectorOpen(false) }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm
                                hover:bg-terminal-bg-tertiary transition-colors"

@@ -19,6 +19,7 @@ export function PulseTab({ onSelectToken, onBuy }: PulseTabProps) {
   const {
     activeStage, setActiveStage,
     tokens, filters, setFilters, resetFilters,
+    isLoading, isError, stageUnavailable,
     lastUpdated,
   } = usePulse()
 
@@ -127,7 +128,7 @@ export function PulseTab({ onSelectToken, onBuy }: PulseTabProps) {
               <th className="text-right py-1 px-2 font-medium text-[10px]">1h</th>
               <th className="text-right py-1 px-2 font-medium text-[10px]">24h</th>
               <th className="text-right py-1 px-2 font-medium text-[10px]">Holders</th>
-              <th className="text-left py-1 px-2 font-medium text-[10px]">Insiders</th>
+              <th className="text-right py-1 px-2 font-medium text-[10px]">Txns</th>
               <th className="text-center py-1 px-2 font-medium text-[10px]">Safety</th>
               {hasBondingCol && (
                 <th className="text-left py-1 px-2 font-medium text-[10px]">Bond%</th>
@@ -139,7 +140,13 @@ export function PulseTab({ onSelectToken, onBuy }: PulseTabProps) {
             {tokens.length === 0 ? (
               <tr>
                 <td colSpan={hasBondingCol ? 14 : 13} className="text-center text-terminal-text-muted text-sm py-8">
-                  No tokens match your filters
+                  {stageUnavailable
+                    ? 'Final Stretch needs a pump.fun bonding feed — coming soon.'
+                    : isLoading
+                      ? 'Loading live tokens…'
+                      : isError
+                        ? 'Could not reach the live feed. Retrying…'
+                        : 'No tokens match your filters'}
                 </td>
               </tr>
             ) : (

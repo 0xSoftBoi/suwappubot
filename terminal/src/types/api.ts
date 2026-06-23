@@ -89,6 +89,8 @@ export interface UnsignedTx {
   gas?: string // hex quantity; absent => wallet estimates
 }
 
+export type SolanaPriorityTier = 'normal' | 'fast' | 'turbo'
+
 export interface SwapBuildRequest {
   fromToken: string
   toToken: string
@@ -97,6 +99,11 @@ export interface SwapBuildRequest {
   amount: string
   slippage?: number
   fromAddress: string
+  // Solana priority-fee tier (landing speed). EVM swaps ignore it.
+  priority?: SolanaPriorityTier
+  // Live per-CU priority price (micro-lamports) from the client; overrides the
+  // tier's cap on the non-Jito path. EVM swaps ignore it.
+  computeUnitPriceMicroLamports?: number
 }
 
 export interface SwapBuildResult {
@@ -109,6 +116,9 @@ export interface SwapBuildResult {
   spender?: string
   // Solana (Phantom): base64 VersionedTransaction
   swapTransaction?: string
+  // When true (turbo tier), submit the signed tx to the Jito block engine via
+  // /swap/submit-jito instead of broadcasting through Phantom's RPC.
+  jito?: boolean
   fromToken: SwapToken
   toToken: SwapToken
   fromAmount: string
@@ -323,10 +333,15 @@ export interface PredictionMarket {
 
 // === Terminal trading (Python /terminal/* execution routes) ===
 
-// HyperLiquid connection status for the signed-in user.
+// HyperLiquid connection status + live account health for the signed-in user.
+// Financial fields are best-effort (null when the live HL fetch fails).
 export interface PerpsAccountStatus {
   connected: boolean
   address: string | null
+  accountValue?: number | null // equity
+  maintenanceMarginUsed?: number | null // cross maintenance margin in use now
+  totalMarginUsed?: number | null // initial margin in use now
+  withdrawable?: number | null
 }
 
 // A live open perp position as returned by /terminal/perps/positions. `id` is
@@ -710,6 +725,10 @@ export interface PulseToken {
   bondingProgress?: number // 0-100 for final_stretch
   liquidityUsd: number
   priceUsd: number
+  // 24h transaction activity (real, from DexScreener).
+  txns24h?: number
+  buys24h?: number
+  sells24h?: number
   priceChange5m: number
   trustScore?: number
   riskLevel?: 'safe' | 'caution' | 'danger'
@@ -724,8 +743,12 @@ export interface PulseFilters {
   minMarketCap: number | null
   maxMarketCap: number | null
   minLiquidity: number | null
+  minVolume: number | null
+  minTxns: number | null
+  maxAgeMinutes: number | null
   maxTopHolderPercent: number | null
   maxDevPercent: number | null
   maxSniperPercent: number | null
+  maxBundleCount: number | null
   minHolders: number | null
 }

@@ -312,6 +312,29 @@ class WebAppSwapBuildRequest(BaseModel):
     amount: str
     slippage: Optional[float] = 0.5
     fromAddress: str  # the connected external wallet (MetaMask / WalletConnect)
+    # Solana priority-fee tier (landing speed under congestion). Maps to a
+    # Jupiter priorityLevel + lamports cap server-side. EVM swaps ignore it.
+    priority: Optional[str] = "normal"
+    # Optional live per-CU priority price (micro-lamports), e.g. a Helius network
+    # estimate from the client. When set (non-turbo), it sets the exact priority
+    # price instead of the tier's priorityLevel cap. EVM swaps ignore it.
+    computeUnitPriceMicroLamports: Optional[int] = None
+
+
+# Solana speed tiers. normal/fast use a Jupiter priority fee (priorityLevel +
+# lamports cap). turbo uses a Jito tip → the tx is submitted to the Jito block
+# engine for MEV-protected bundle landing. 1_000_000 lamports = 0.001 SOL.
+# Tune here without a client deploy.
+_SOLANA_PRIORITY_TIERS: Dict[str, dict] = {
+    "normal": {"priority_level": "medium", "max_lamports": 1_000_000, "jito_tip_lamports": None},
+    "fast": {"priority_level": "high", "max_lamports": 5_000_000, "jito_tip_lamports": None},
+    # turbo: MEV-protected Jito bundle, ~0.005 SOL tip.
+    "turbo": {
+        "priority_level": "veryHigh",
+        "max_lamports": 10_000_000,
+        "jito_tip_lamports": 5_000_000,
+    },
+}
 
 
 class WebAppUnsignedTx(BaseModel):
@@ -332,6 +355,9 @@ class WebAppSwapBuildResponse(BaseModel):
     spender: Optional[str] = None
     # Solana (Phantom): base64 VersionedTransaction the wallet signs + sends.
     swapTransaction: Optional[str] = None
+    # When true (turbo tier), the signed tx must go to /swap/submit-jito for
+    # MEV-protected bundle landing rather than being broadcast via a normal RPC.
+    jito: bool = False
     fromToken: WebAppSwapToken
     toToken: WebAppSwapToken
     fromAmount: str
@@ -2502,12 +2528,22 @@ async def build_terminal_swap(
 
     try:
         if is_solana:
+            tier = _SOLANA_PRIORITY_TIERS.get(
+                (body.priority or "normal").lower(), _SOLANA_PRIORITY_TIERS["normal"]
+            )
             quote, payload = await SwapEngine().build_external_solana_swap(
                 from_token=from_symbol,
                 to_token=to_symbol,
                 amount=amount,
                 from_address=address,
                 slippage=body.slippage or 0.5,
+                priority_level=tier["priority_level"],
+                max_lamports=tier["max_lamports"],
+                jito_tip_lamports=tier["jito_tip_lamports"],
+                # Jito (turbo) ignores a per-CU price; only forward it otherwise.
+                compute_unit_price_micro_lamports=(
+                    body.computeUnitPriceMicroLamports if not tier["jito_tip_lamports"] else None
+                ),
             )
         else:
             quote, payload = await SwapEngine().build_external_evm_swap(
@@ -2559,6 +2595,7 @@ async def build_terminal_swap(
         return WebAppSwapBuildResponse(
             chain="solana",
             swapTransaction=payload["swapTransaction"],
+            jito=bool(payload.get("jito")),
             **common,
         )
 
@@ -2571,6 +2608,39 @@ async def build_terminal_swap(
         spender=payload["spender"],
         **common,
     )
+
+
+class WebAppJitoSubmitRequest(BaseModel):
+    signedTransaction: str  # base64-encoded, Phantom-signed VersionedTransaction
+
+
+@router.post("/swap/submit-jito")
+async def submit_jito_swap(
+    body: WebAppJitoSubmitRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    """Submit a Phantom-signed Solana tx to the Jito block engine (MEV-protected).
+
+    For a non-custodial swap built with a Jito tip (turbo tier), the client signs
+    WITHOUT broadcasting and posts the signed tx here. We forward it to Jito's
+    block engine so it lands as a bundle (the server never holds the key). Returns
+    the transaction signature for /swap/record.
+    """
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    from bot.services.jito_api import jito_api, JitoError
+
+    try:
+        signature = await jito_api.send_transaction(body.signedTransaction)
+    except JitoError as exc:
+        raise HTTPException(status_code=502, detail=f"Jito submission failed: {exc}")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Jito submission failed: {exc}")
+
+    if not signature:
+        raise HTTPException(status_code=502, detail="Jito did not return a signature.")
+    return {"signature": signature}
 
 
 @router.post("/swap/record", response_model=WebAppSwapRecordResponse)
