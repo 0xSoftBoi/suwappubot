@@ -7,13 +7,14 @@ import openApiSpec from '../../openapi-agent.json'
 import { isStarknet } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import type { Agent } from '../db'
-import { agentCredits, agentCreditTopups, requireDb, swapTransactions, webhookEvents } from '../db'
+import { agents, agentCredits, agentCreditTopups, agentSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
+import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { agentBearerAuth, agentBearerAuthAllowInactive } from '../middleware'
 import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
 import { ipRateLimit } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
-import { COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment } from '../middleware/x402Payment'
+import { BYPASS_TIERS, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment } from '../middleware/x402Payment'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { runEffectEither } from '../runtime'
 import {
@@ -2265,7 +2266,7 @@ agentRoutes.delete('/me', async (c) => {
 // BILLING / PAY-PER-CALL METERING
 // ===========================================
 
-const BYPASS_TIERS_DOC = ['agent', 'pro']
+const BYPASS_TIERS_DOC = Array.from(BYPASS_TIERS)
 
 // GET /v1/agent/billing - Current credit balance, usage, tier, cost weights
 agentRoutes.get('/billing', async (c) => {
@@ -2311,6 +2312,16 @@ agentRoutes.get('/billing', async (c) => {
 			endpoint: 'POST /v1/agent/billing/topup',
 			body: { txHash: '0x...', chain: 'base', amount: '<USDC amount paid>' },
 			note: '1 credit ≈ $0.001 USD. Pay USDC to the collector address, then submit the txHash here.',
+		},
+		subscribe: {
+			endpoint: 'POST /v1/agent/billing/subscribe',
+			body: { txHash: '0x...', chain: 'base', amount: '<USDC paid>', tier: 'pro' },
+			tier_prices_usd: TIER_PRICES_USD,
+			period_days: SUBSCRIPTION_PERIOD_DAYS,
+			note: 'Pay the tier price in USDC to the collector, then submit the txHash. Grants unmetered API + MCP access (metering bypass) for the period.',
+			active: agent.subscriptionTier && agent.subscriptionExpiresAt && new Date(agent.subscriptionExpiresAt).getTime() > Date.now()
+				? { tier: agent.subscriptionTier, expires_at: agent.subscriptionExpiresAt }
+				: null,
 		},
 	})
 })
@@ -2479,6 +2490,170 @@ agentRoutes.post('/billing/topup', async (c) => {
 		message: r.alreadyProcessed
 			? 'This transaction was already credited (idempotent — no double-credit).'
 			: `Credited ${r.creditsAdded} credits.`,
+	})
+})
+
+// POST /v1/agent/billing/subscribe - Crypto-native subscription.
+// Verifies an on-chain USDC payment >= the tier price and grants the agent a
+// metering-bypass tier for SUBSCRIPTION_PERIOD_DAYS. Idempotent on txHash.
+// Body: { txHash, chain, amount (USDC paid), tier }.
+const SubscribeSchema = z.object({
+	txHash: z.string().min(4).max(128),
+	chain: z.string().min(2).max(32).default('base'),
+	amount: z.number().positive(),
+	tier: z.enum(['pro', 'premium', 'enterprise']),
+})
+
+agentRoutes.post('/billing/subscribe', async (c) => {
+	const agent = c.get('agent')
+
+	let body: unknown
+	try {
+		body = await c.req.json()
+	} catch {
+		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+	}
+
+	const parsed = SubscribeSchema.safeParse(body)
+	if (!parsed.success) {
+		return c.json(
+			{ success: false, error: 'Validation error', fields: formatZodErrors(parsed.error) },
+			400,
+		)
+	}
+
+	const { txHash, chain, amount, tier } = parsed.data
+	const price = TIER_PRICES_USD[tier]
+	if (price === undefined) {
+		return c.json({ success: false, error: `Unknown tier: ${tier}`, purchasable: PURCHASABLE_TIERS }, 400)
+	}
+	if (amount + 1e-9 < price) {
+		return c.json(
+			{ success: false, error: `Insufficient payment: ${tier} costs $${price}/30d, paid $${amount}` },
+			400,
+		)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const db = yield* requireDb
+
+			// 1) Fast idempotency pre-check on the funding tx.
+			const existing = yield* Effect.tryPromise({
+				try: () =>
+					db.select().from(agentSubscriptions).where(eq(agentSubscriptions.txHash, txHash)).limit(1),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+			if (existing[0]) {
+				return {
+					alreadyProcessed: true as const,
+					tier: existing[0].tier,
+					expiresAt: existing[0].expiresAt,
+				}
+			}
+
+			// 2) Verify the on-chain payment via the internal Python verifier.
+			//    Fail closed if not configured — never grant an unverified sub.
+			if (!env.INTERNAL_API_KEY || !env.INTERNAL_API_URL) {
+				return yield* Effect.fail(
+					new ValidationError({ message: 'Payment verification is not configured' }),
+				)
+			}
+			const collector = env.AGENT_METERING_COLLECTOR_ADDRESS || env.FEE_WALLET_EVM
+			const internalUrl = env.INTERNAL_API_URL
+			const internalKey = env.INTERNAL_API_KEY
+
+			yield* Effect.tryPromise({
+				try: async () => {
+					const res = await fetch(`${internalUrl}/internal/x402/verify`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json', 'X-Internal-Key': internalKey },
+						body: JSON.stringify({
+							tx_hash: txHash,
+							chain,
+							expected_amount: String(price),
+							expected_token: 'USDC',
+							expected_recipient: collector,
+						}),
+						signal: AbortSignal.timeout(15_000),
+					})
+					if (!res.ok) {
+						const errText = await res.text().catch(() => res.statusText)
+						throw new Error(`Payment verification failed: ${errText}`)
+					}
+					const verification = (await res.json()) as { verified?: boolean; error?: string }
+					if (!verification.verified) {
+						throw new Error(verification.error || 'Payment not verified on-chain')
+					}
+					return verification
+				},
+				catch: (e) => new ValidationError({ message: e instanceof Error ? e.message : String(e) }),
+			})
+
+			// 3) Grant atomically + idempotently. The ledger row's UNIQUE txHash is the
+			//    idempotency guard; we also denormalize the active window onto the agent
+			//    row so auth-time tier resolution needs no join.
+			const now = new Date()
+			const expiresAt = new Date(now.getTime() + SUBSCRIPTION_PERIOD_DAYS * 24 * 60 * 60 * 1000)
+
+			const txResult = yield* Effect.tryPromise({
+				try: () =>
+					db.transaction(async (tx) => {
+						const inserted = await tx
+							.insert(agentSubscriptions)
+							.values({ agentId: agent.id, tier, txHash, chain, amountUsd: amount, startedAt: now, expiresAt })
+							.onConflictDoUpdate({
+								// Renew/upgrade: one active row per agent.
+								target: agentSubscriptions.agentId,
+								set: { tier, txHash, chain, amountUsd: amount, startedAt: now, expiresAt },
+							})
+							.returning({ id: agentSubscriptions.id })
+
+						if (inserted.length === 0) {
+							return { granted: false as const }
+						}
+
+						await tx
+							.update(agents)
+							.set({ subscriptionTier: tier, subscriptionExpiresAt: expiresAt, updatedAt: now })
+							.where(eq(agents.id, agent.id))
+
+						return { granted: true as const }
+					}),
+				catch: (e) => {
+					// A unique-violation on txHash means a concurrent request won the race.
+					const msg = String(e)
+					if (msg.includes('unique') || msg.includes('duplicate')) {
+						return new ValidationError({ message: 'duplicate_tx' })
+					}
+					return new Error(`Database error during subscribe: ${e}`)
+				},
+			})
+
+			return { alreadyProcessed: !txResult.granted, tier, expiresAt }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		// Treat a lost idempotency race as success (already granted).
+		if (result.left instanceof ValidationError && result.left.message === 'duplicate_tx') {
+			return c.json({ success: true, already_processed: true, tier, message: 'Already subscribed (idempotent).' })
+		}
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
+	}
+
+	const r = result.right
+	return c.json({
+		success: true,
+		already_processed: r.alreadyProcessed,
+		tx_hash: txHash,
+		tier: r.tier,
+		expires_at: r.expiresAt,
+		message: r.alreadyProcessed
+			? 'This transaction was already credited (idempotent — no double-grant).'
+			: `Subscribed to ${r.tier} until ${new Date(r.expiresAt).toISOString()}. Metered API + MCP calls are now free for the window.`,
 	})
 })
 

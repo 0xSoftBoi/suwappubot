@@ -68,3 +68,24 @@ export const DEFAULT_FEE_WALLET_SOLANA = '4Xxbeusi6NL46AtZQHJrPREtYFCByKE48oxrpL
  * Default EVM fee-collection wallet. Overridable via FEE_WALLET_EVM env.
  */
 export const DEFAULT_FEE_WALLET_EVM = '0x6456f69215C470e1545Ed6eea4621C136B30D85d'
+
+/**
+ * Subscription tiers and their price in USD for ONE 30-day window, payable in
+ * USDC (crypto-native) or via Stripe (fiat). Single source of truth for both
+ * the agent crypto-subscribe route and the human /billing/crypto route.
+ *
+ * A subscription places the buyer in a metering-bypass tier (see BYPASS_TIERS in
+ * middleware/x402Payment.ts) — i.e. unmetered API/MCP access for the window —
+ * and, for human users, lowers the swap fee multiplier (see FEE_RATES in
+ * routes/billing.ts). 'free' has no price (cannot be purchased).
+ */
+export const SUBSCRIPTION_PERIOD_DAYS = 30
+
+export const TIER_PRICES_USD: Record<string, number> = {
+	pro: 9.99,
+	premium: 29.99,
+	enterprise: 99.99,
+}
+
+/** Tiers that can be purchased (excludes 'free'). */
+export const PURCHASABLE_TIERS = Object.keys(TIER_PRICES_USD)
