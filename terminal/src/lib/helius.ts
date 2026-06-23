@@ -1,10 +1,15 @@
 import type { PulseToken } from '../types/api'
-import { api } from './api'
 
 // Live Solana token-safety enrichment + wallet inspection. All calls go through
 // the SERVER-SIDE proxy (/webapp/solana/*) so the Helius key is never shipped to
 // the client bundle — the browser only ever talks to our own backend. The
 // mapping/scoring below is unchanged; only the transport is a backend hop.
+//
+// We call the proxy with a direct fetch (not the `api` client) to avoid a
+// circular import — `lib/api.ts` is the app's hub module and importing it here
+// created a chunk-level cycle that crashed startup with a TDZ.
+
+const API_BASE = (import.meta.env.VITE_API_URL as string) || ''
 
 export interface TokenSafety {
   topHolderPercent: number
@@ -27,7 +32,14 @@ export function heliusEnabled(): boolean {
 const cache = new Map<string, TokenSafety>()
 
 async function rpc(method: string, params: unknown): Promise<any> {
-  const json = await api.solanaRpc<{ result?: any; error?: { message?: string } }>(method, params)
+  const res = await fetch(`${API_BASE}/webapp/solana/rpc`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ method, params }),
+  })
+  if (!res.ok) throw new Error(`Solana proxy ${res.status}`)
+  const json = await res.json()
   if (json.error) throw new Error(json.error.message || 'Helius RPC error')
   return json.result
 }
@@ -238,7 +250,12 @@ export async function getSolanaPriorityFees(): Promise<PriorityFees | null> {
 export async function getWalletActivity(address: string, limit = 15): Promise<WalletTxn[]> {
   let j: any
   try {
-    j = await api.solanaTxHistory<any[]>(address, limit)
+    const res = await fetch(
+      `${API_BASE}/webapp/solana/tx-history?address=${address}&limit=${limit}`,
+      { credentials: 'include' },
+    )
+    if (!res.ok) return []
+    j = await res.json()
   } catch {
     return []
   }
