@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AppLayout, AppHeader } from '../components/layout'
+import { api } from '../lib/api'
+import { openExternalLink } from '../lib/telegram'
+import { a11yToast } from '../lib/a11yToast'
 
 interface Plan {
   id: string
@@ -42,7 +45,7 @@ const plans: Plan[] = [
     popular: true,
   },
   {
-    id: 'whale',
+    id: 'premium',
     name: 'Whale',
     price: 29.99,
     period: 'month',
@@ -110,6 +113,7 @@ export function Subscriptions() {
   const navigate = useNavigate()
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [payingCard, setPayingCard] = useState(false)
 
   const handleSelect = (planId: string) => {
     if (planId === 'free') return
@@ -118,6 +122,20 @@ export function Subscriptions() {
   }
 
   const plan = plans.find(p => p.id === selectedPlan)
+
+  const handlePayWithCard = async () => {
+    if (!plan || (plan.id !== 'pro' && plan.id !== 'premium')) return
+    setPayingCard(true)
+    try {
+      const { url } = await api.createStripeCheckout(plan.id)
+      setShowConfirm(false)
+      openExternalLink(url)
+    } catch {
+      a11yToast.error("Couldn't start card checkout. Please try again or pay with crypto.")
+    } finally {
+      setPayingCard(false)
+    }
+  }
 
   return (
     <AppLayout 
@@ -174,12 +192,6 @@ export function Subscriptions() {
           </div>
         </div>
 
-        {/* Coming Soon */}
-        <div className="text-center">
-          <span className="inline-flex items-center gap-1 px-3 py-1 bg-yellow-100 text-yellow-700 text-xs font-medium rounded-full">
-            🚧 Payment integration coming soon
-          </span>
-        </div>
       </div>
 
       {/* Confirm Modal */}
@@ -210,8 +222,12 @@ export function Subscriptions() {
                 <span>Pay with USDC</span>
                 <span className="text-white/70">$</span>
               </button>
-              <button className="w-full py-3 bg-gray-800 text-white rounded-suwappu-lg font-medium text-sm">
-                Pay with Card
+              <button
+                onClick={handlePayWithCard}
+                disabled={payingCard}
+                className="w-full py-3 bg-gray-800 text-white rounded-suwappu-lg font-medium text-sm disabled:opacity-60"
+              >
+                {payingCard ? 'Opening checkout…' : 'Pay with Card'}
               </button>
             </div>
 
