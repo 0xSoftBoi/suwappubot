@@ -20,7 +20,6 @@ from bot.models.subscription import SubscriptionTier
 from bot.config.settings import settings as global_settings
 from database.db import get_session
 
-
 # Conversation states
 SET_SLIPPAGE, SET_LIMIT, SET_RECOVERY_EMAIL, SET_OUTPUT_TOKEN = range(4)
 
@@ -96,6 +95,7 @@ def _build_settings_keyboard(user_settings: UserSettings) -> InlineKeyboardMarku
     panic_sell = user_settings.panic_sell_enabled
     notify_complete = user_settings.notify_on_complete
     mev = getattr(user_settings, "mev_protection_enabled", True)
+    proactive = getattr(user_settings, "proactive_alerts_enabled", False)
     speed = getattr(user_settings, "tx_speed_preset", "normal") or "normal"
 
     keyboard = [
@@ -129,6 +129,12 @@ def _build_settings_keyboard(user_settings: UserSettings) -> InlineKeyboardMarku
             InlineKeyboardButton(
                 f"{'Mute' if notify_complete else 'Unmute'} Notifications",
                 callback_data="settings_toggle_notify",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                f"{'Disable' if proactive else 'Enable'} Proactive Alerts",
+                callback_data="settings_toggle_proactive",
             )
         ],
         [InlineKeyboardButton("Manage Alerts", callback_data="alerts_menu")],
@@ -257,6 +263,32 @@ async def toggle_mev_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             user_settings.mev_protection_enabled = not current
             status = "enabled" if user_settings.mev_protection_enabled else "disabled"
             await query.answer(f"MEV Protection {status}!")
+
+    await settings_callback(update, context)
+
+
+async def toggle_proactive_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Toggle the opt-in consent flag for proactive/anticipatory push.
+
+    Scaffold only — no push logic reads this yet. It records user consent so
+    future proactive delivery (trending launches, claimables, alert triggers)
+    is gated behind an explicit, default-off opt-in. Discovery today stays
+    pull-only (the /trending view and the home hub).
+    """
+    query = update.callback_query
+    await query.answer()
+
+    user = update.effective_user
+
+    with get_session() as session:
+        db_user, user_settings = _get_or_create_settings(session, user.id)
+        if not db_user:
+            return
+        if user_settings:
+            current = getattr(user_settings, "proactive_alerts_enabled", False)
+            user_settings.proactive_alerts_enabled = not current
+            status = "enabled" if user_settings.proactive_alerts_enabled else "disabled"
+            await query.answer(f"Proactive Alerts {status}!")
 
     await settings_callback(update, context)
 
@@ -1019,6 +1051,9 @@ toggle_panic_handler = CallbackQueryHandler(
     toggle_panic_sell_callback, pattern="^settings_toggle_panic$"
 )
 toggle_mev_handler = CallbackQueryHandler(toggle_mev_callback, pattern="^settings_toggle_mev$")
+toggle_proactive_handler = CallbackQueryHandler(
+    toggle_proactive_callback, pattern="^settings_toggle_proactive$"
+)
 settings_menu_callback = CallbackQueryHandler(settings_callback, pattern="^settings_menu$")
 recovery_menu_callback = CallbackQueryHandler(recovery_callback, pattern="^settings_recovery$")
 speed_menu_handler = CallbackQueryHandler(speed_menu_callback, pattern="^settings_speed_menu$")

@@ -348,6 +348,7 @@ def _ensure_schema(db_engine) -> None:
         _add_user_settings_mev_column(db_engine, inspector, is_sqlite)
         _add_quicktrade_columns(db_engine, inspector, is_sqlite)
         _add_user_settings_trading_prefs(db_engine, inspector, is_sqlite)
+        _add_user_settings_proactive_column(db_engine, inspector, is_sqlite)
 
     # --- referral_rewards: multi-tier column ---
     _add_referral_tier_column(db_engine, inspector, is_sqlite)
@@ -1174,6 +1175,19 @@ def _add_user_settings_mev_column(db_engine, inspector, is_sqlite: bool) -> None
             ddl = "ALTER TABLE user_settings ADD COLUMN mev_protection_enabled BOOLEAN DEFAULT TRUE"
         else:
             ddl = "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS mev_protection_enabled BOOLEAN DEFAULT TRUE"
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
+
+
+def _add_user_settings_proactive_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add proactive-alerts opt-in flag to user_settings (DEFAULT OFF)."""
+    cols = {c["name"] for c in inspector.get_columns("user_settings")}
+
+    if "proactive_alerts_enabled" not in cols:
+        if is_sqlite:
+            ddl = "ALTER TABLE user_settings ADD COLUMN proactive_alerts_enabled BOOLEAN DEFAULT FALSE"
+        else:
+            ddl = "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS proactive_alerts_enabled BOOLEAN DEFAULT FALSE"
         with db_engine.begin() as conn:
             conn.execute(text(ddl))
 
