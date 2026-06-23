@@ -757,6 +757,10 @@ class AuthVerifyRequest(BaseModel):
     address: str
     signature: str
     nonce: str
+    # Optional client tag for the connecting wallet. "ledger" marks a hardware
+    # wallet; anything else (or absent) is treated as a plain "external" wallet.
+    # Both are keyless/non-custodial — this only affects how we label the wallet.
+    provider: Optional[str] = None
 
 
 class AuthVerifyResponse(BaseModel):
@@ -990,11 +994,24 @@ async def auth_verify(
     if not is_valid:
         raise HTTPException(status_code=401, detail="Invalid signature or expired challenge")
 
+    # Normalize the client-supplied provider tag. Only "ledger" is special-cased;
+    # everything else collapses to the keyless "external" default so a bogus value
+    # can never select a custodial code path. (See bot.utils.wallet_provider.)
+    from bot.utils.wallet_provider import normalize_wallet_provider
+
+    provider_tag = normalize_wallet_provider(request.provider)
+
     # Find or create user by wallet address
     wallet = db.query(Wallet).filter(Wallet.address.ilike(address)).first()
 
     if wallet:
         user = db.query(User).filter(User.id == wallet.user_id).first()
+        # Upgrade the label if a returning keyless wallet now connects via Ledger
+        # (e.g. first connected with MetaMask, later re-pairs the hardware device).
+        # Never touch a custodial wallet ("turnkey"/"local") — those hold/sign keys.
+        if provider_tag == "ledger" and wallet.wallet_provider in ("external", None):
+            wallet.wallet_provider = "ledger"
+            db.commit()
     else:
         # Create new user and wallet for first-time login
         user = User(telegram_id=None, username=f"web_{address[:8]}", created_at=datetime.utcnow())
@@ -1013,8 +1030,8 @@ async def auth_verify(
             chain_type="evm",
             is_active=True,
             is_default=True,
-            wallet_provider="external",
-            name="Connected Wallet",
+            wallet_provider=provider_tag,
+            name="Ledger" if provider_tag == "ledger" else "Connected Wallet",
             created_at=datetime.utcnow(),
         )
         db.add(wallet)

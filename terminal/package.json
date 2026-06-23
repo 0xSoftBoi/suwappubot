@@ -11,9 +11,11 @@
     "qa:browserbase:limit": "node scripts/browserbase-limit-order-functional.mjs",
     "qa:browserbase:features": "node scripts/browserbase-terminal-feature-sweep.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "bun test src/lib"
   },
   "dependencies": {
+    "@ledgerhq/connect-kit-loader": "^1.1.8",
     "@rainbow-me/rainbowkit": "^2.2.3",
     "@solana/web3.js": "^1.98.4",
     "@suwappu/design-tokens": "file:../packages/design-tokens",
