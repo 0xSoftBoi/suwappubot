@@ -12,11 +12,22 @@ interface Props {
 // Funding cell uses the shared funding hook so the rate matches the order ticket.
 function FundingCell({ market }: { market: HLMarket }) {
   const funding = usePerpsFunding(market)
+  const positive = funding.hourlyRate >= 0
   return (
-    <span className={`font-mono ${funding.hourlyRate >= 0 ? 'text-bull' : 'text-bear'}`}>
+    <span
+      className={`inline-block rounded px-1.5 py-0.5 font-mono text-[11px] tabular-nums ${
+        positive ? 'bg-bull-dim text-bull' : 'bg-bear-dim text-bear'
+      }`}
+    >
       {formatFundingPct(funding.hourlyRate)}
     </span>
   )
+}
+
+function formatMark(n: number) {
+  if (n >= 1000) return n.toLocaleString('en-US', { maximumFractionDigits: 2 })
+  if (n >= 1) return n.toFixed(2)
+  return n.toPrecision(4)
 }
 
 // The full HyperLiquid markets board — every perp with live mark, funding and max
@@ -75,22 +86,34 @@ export function PerpsMarketsBoard({ selectedMarket, onSelectMarket }: Props) {
                   <tr
                     key={m.name}
                     onClick={() => onSelectMarket(m.name)}
-                    className={`cursor-pointer border-b border-terminal-border/40 transition-colors
+                    className={`group cursor-pointer border-b border-terminal-border/40 transition-colors
                       ${active ? 'bg-sakura-500/10' : 'hover:bg-terminal-bg-tertiary/50'}`}
                   >
-                    <td className="py-1.5 px-3">
-                      <span
-                        className={`font-medium ${active ? 'text-sakura-400' : 'text-terminal-text'}`}
-                      >
-                        {m.name}
+                    <td className="py-2 px-3">
+                      <span className="flex items-center gap-2">
+                        <span
+                          className={`h-3.5 w-0.5 rounded-full transition-colors ${
+                            active ? 'bg-sakura-500' : 'bg-transparent group-hover:bg-terminal-border-active'
+                          }`}
+                        />
+                        <span
+                          className={`font-semibold ${active ? 'text-sakura-600' : 'text-terminal-text'}`}
+                        >
+                          {m.name.replace('-USD', '')}
+                        </span>
+                        <span className="text-[10px] text-terminal-text-muted">USD</span>
                       </span>
                     </td>
-                    <td className="py-1.5 px-3 text-right font-mono">${m.markPrice.toFixed(2)}</td>
-                    <td className="py-1.5 px-3 text-right">
+                    <td className="py-2 px-3 text-right font-mono tabular-nums text-terminal-text">
+                      ${formatMark(m.markPrice)}
+                    </td>
+                    <td className="py-2 px-3 text-right">
                       <FundingCell market={m} />
                     </td>
-                    <td className="py-1.5 px-3 text-right font-mono text-terminal-text-secondary">
-                      {m.maxLeverage}x
+                    <td className="py-2 px-3 text-right">
+                      <span className="rounded bg-terminal-bg-tertiary/70 px-1.5 py-0.5 font-mono text-[10px] text-terminal-text-secondary">
+                        {m.maxLeverage}×
+                      </span>
                     </td>
                   </tr>
                 )

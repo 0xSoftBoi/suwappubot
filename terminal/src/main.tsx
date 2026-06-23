@@ -14,6 +14,12 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { App } from './App'
 import './index.css'
 
+// Dev-only API fixtures for screenshots / design work (VITE_MOCK=1). No-op in prod.
+if (import.meta.env.DEV && import.meta.env.VITE_MOCK) {
+  const { installDevMock } = await import('./lib/devMock')
+  installDevMock()
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
