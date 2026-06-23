@@ -1222,6 +1222,79 @@ async def get_terminal_trending_pools(
     return await _fetch_dex_pools(chain, limit, "trending")
 
 
+# ── Solana data proxy ─────────────────────────────────────────────────────────
+# Keeps the Helius key SERVER-SIDE (never shipped to the client bundle). Only a
+# fixed set of read-only methods may be proxied — this is NOT an open RPC
+# passthrough — and responses are briefly cached so repeated mints/addresses
+# don't burn Helius credits.
+
+_HELIUS_RPC_METHODS = {
+    "getTokenSupply",
+    "getTokenLargestAccounts",
+    "getAccountInfo",
+    "getTokenAccounts",
+    "getAssetsByOwner",
+    "getPriorityFeeEstimate",
+}
+_SOLANA_ADDR_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+_helius_cache: Dict[str, tuple] = {}  # cache_key -> (expires_at, payload)
+_HELIUS_CACHE_TTL = 30.0
+
+
+class SolanaRpcRequest(BaseModel):
+    method: str
+    params: Any = None
+
+
+@router.post("/solana/rpc")
+async def solana_rpc_proxy(body: SolanaRpcRequest):
+    """Method-allowlisted Solana RPC/DAS proxy — the Helius key stays server-side."""
+    if not settings.helius_api_key:
+        raise HTTPException(status_code=503, detail="Solana data provider is not configured.")
+    if body.method not in _HELIUS_RPC_METHODS:
+        raise HTTPException(status_code=400, detail=f"Method not allowed: {body.method}")
+
+    cache_key = body.method + ":" + json.dumps(body.params, sort_keys=True, default=str)
+    now = time.time()
+    cached = _helius_cache.get(cache_key)
+    if cached and cached[0] > now:
+        return cached[1]
+
+    url = f"https://mainnet.helius-rpc.com/?api-key={settings.helius_api_key}"
+    payload = {"jsonrpc": "2.0", "id": 1, "method": body.method, "params": body.params}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Solana data provider failed: {exc}")
+
+    if len(_helius_cache) > 500:
+        _helius_cache.clear()
+    _helius_cache[cache_key] = (now + _HELIUS_CACHE_TTL, data)
+    return data
+
+
+@router.get("/solana/tx-history")
+async def solana_tx_history(address: str, limit: int = Query(default=15, ge=1, le=50)):
+    """Proxy the Helius Enhanced Transactions API (parsed activity) for an address."""
+    if not settings.helius_api_key:
+        raise HTTPException(status_code=503, detail="Solana data provider is not configured.")
+    if not _SOLANA_ADDR_RE.match(address):
+        raise HTTPException(status_code=400, detail="Invalid Solana address.")
+    url = f"https://api.helius.xyz/v0/addresses/{address}/transactions"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                url, params={"api-key": settings.helius_api_key, "limit": limit}
+            )
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Solana data provider failed: {exc}")
+
+
 def _windowed_trader_pnl(db, trader_user_ids):
     """Real realized 7d/30d PnL per trader, summed from TraderTrade.pnl_usd (now
     populated by the copy-trade settlement pipeline). One grouped query, no N+1."""
@@ -2715,6 +2788,57 @@ async def record_terminal_swap(
         txHash=tx_hash,
         explorerUrl=explorer,
     )
+
+
+@router.get("/swaps", response_model=List[WebAppSwap])
+async def get_terminal_swaps(
+    limit: int = 20,
+    offset: int = 0,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """
+    Swap history for the authenticated terminal/web user (session-JWT auth).
+
+    The Telegram webapp's /users/me/swaps requires Telegram initData, which a
+    terminal or external-wallet (SIWE/Phantom) session never has. This is the
+    JWT-native parallel so those users can see their swaps — including the status
+    the tx_poller reconciles (pending -> completed/failed) for client-broadcast
+    (non-custodial) swaps.
+    """
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    swaps = (
+        db.query(SwapTransaction)
+        .filter(SwapTransaction.user_id == int(auth_payload["user_id"]))
+        .order_by(SwapTransaction.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        WebAppSwap(
+            id=str(swap.id),
+            fromChain=swap.from_chain,
+            toChain=swap.to_chain,
+            fromToken=swap.from_token,
+            toToken=swap.to_token,
+            fromAmount=swap.from_amount,
+            toAmount=swap.to_amount,
+            fromAmountUsd=swap.from_amount_usd,
+            toAmountUsd=swap.to_amount_usd,
+            status=swap.status,
+            txHash=swap.tx_hash,
+            bridgeTxHash=swap.bridge_tx_hash,
+            destinationTxHash=swap.destination_tx_hash,
+            createdAt=swap.created_at.isoformat() if swap.created_at else "",
+            completedAt=swap.completed_at.isoformat() if swap.completed_at else None,
+            errorMessage=swap.error_message,
+        )
+        for swap in swaps
+    ]
 
 
 @router.get("/users/me/swaps", response_model=List[WebAppSwap])

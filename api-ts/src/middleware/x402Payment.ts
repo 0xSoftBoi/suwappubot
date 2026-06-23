@@ -257,7 +257,7 @@ export function meteredPayment(endpoint: string) {
 			cost,
 			resource: c.req.path,
 			description: `Suwappu agent API call: ${endpoint} (${cost} credit${cost === 1 ? '' : 's'})`,
-			paymentHeader: c.req.header('X-PAYMENT'),
+			paymentHeader: c.req.header('X-PAYMENT') ?? c.req.header('PAYMENT-SIGNATURE'),
 		})
 
 		if (result.kind === 'skip') {

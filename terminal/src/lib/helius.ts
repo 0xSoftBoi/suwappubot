@@ -1,16 +1,15 @@
 import type { PulseToken } from '../types/api'
 
-// Live Solana token-safety enrichment via the Helius RPC (keyed). Provides the
-// real rug-check signals DexScreener can't: top-holder concentration and
-// mint/freeze authority status. The key is read from the env (gitignored
-// .env.local) — when absent, enrichment is skipped and tokens keep their
-// neutral defaults (no fake signals).
+// Live Solana token-safety enrichment + wallet inspection. All calls go through
+// the SERVER-SIDE proxy (/webapp/solana/*) so the Helius key is never shipped to
+// the client bundle — the browser only ever talks to our own backend. The
+// mapping/scoring below is unchanged; only the transport is a backend hop.
 //
-// Production note: a client-side RPC key is visible in the bundle. For prod this
-// should be proxied server-side or domain-locked in the Helius dashboard.
+// We call the proxy with a direct fetch (not the `api` client) to avoid a
+// circular import — `lib/api.ts` is the app's hub module and importing it here
+// created a chunk-level cycle that crashed startup with a TDZ.
 
-const KEY = import.meta.env.VITE_HELIUS_API_KEY as string | undefined
-const RPC = KEY ? `https://mainnet.helius-rpc.com/?api-key=${KEY}` : null
+const API_BASE = (import.meta.env.VITE_API_URL as string) || ''
 
 export interface TokenSafety {
   topHolderPercent: number
@@ -23,20 +22,23 @@ export interface TokenSafety {
   trustScore: number // 0-100
 }
 
+// The proxy is always available; if the server has no key it returns 503 and the
+// callers degrade gracefully (caught → neutral defaults).
 export function heliusEnabled(): boolean {
-  return RPC != null
+  return true
 }
 
-// Cache by mint so the 30s feed refresh doesn't re-hit the RPC for known tokens.
+// Cache by mint so the 30s feed refresh doesn't re-hit the proxy for known tokens.
 const cache = new Map<string, TokenSafety>()
 
 async function rpc(method: string, params: unknown): Promise<any> {
-  const res = await fetch(RPC as string, {
+  const res = await fetch(`${API_BASE}/webapp/solana/rpc`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    body: JSON.stringify({ method, params }),
   })
-  if (!res.ok) throw new Error(`Helius ${res.status}`)
+  if (!res.ok) throw new Error(`Solana proxy ${res.status}`)
   const json = await res.json()
   if (json.error) throw new Error(json.error.message || 'Helius RPC error')
   return json.result
@@ -131,7 +133,7 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 // Merge live safety signals onto a batch of tokens. Cached mints are free;
 // uncached are fetched with bounded concurrency. No-ops without a key.
 export async function enrichWithSafety(tokens: PulseToken[]): Promise<PulseToken[]> {
-  if (!RPC || tokens.length === 0) return tokens
+  if (tokens.length === 0) return tokens
 
   const uncached = [...new Set(tokens.map((t) => t.address))].filter((m) => !cache.has(m))
   if (uncached.length) {
@@ -181,7 +183,6 @@ export interface WalletPortfolio {
 // (with USD) + fungible holdings. Per-token USD is shown only where Helius
 // supplies a price, so the total is honest (native + priced tokens).
 export async function getWalletPortfolio(address: string): Promise<WalletPortfolio | null> {
-  if (!RPC) return null
   const res = await rpc('getAssetsByOwner', {
     ownerAddress: address,
     page: 1,
@@ -233,7 +234,6 @@ export interface PriorityFees {
 }
 
 export async function getSolanaPriorityFees(): Promise<PriorityFees | null> {
-  if (!RPC) return null
   try {
     const res = await rpc('getPriorityFeeEstimate', [
       { options: { includeAllPriorityFeeLevels: true } },
@@ -245,14 +245,20 @@ export async function getSolanaPriorityFees(): Promise<PriorityFees | null> {
   }
 }
 
-// Recent human-readable transactions via the Helius Enhanced Transactions API.
+// Recent human-readable transactions via the server-side Enhanced Transactions
+// proxy (/webapp/solana/tx-history). The Helius key stays on the server.
 export async function getWalletActivity(address: string, limit = 15): Promise<WalletTxn[]> {
-  if (!KEY) return []
-  const r = await fetch(
-    `https://api.helius.xyz/v0/addresses/${address}/transactions?api-key=${KEY}&limit=${limit}`,
-  )
-  if (!r.ok) return []
-  const j = await r.json()
+  let j: any
+  try {
+    const res = await fetch(
+      `${API_BASE}/webapp/solana/tx-history?address=${address}&limit=${limit}`,
+      { credentials: 'include' },
+    )
+    if (!res.ok) return []
+    j = await res.json()
+  } catch {
+    return []
+  }
   if (!Array.isArray(j)) return []
   return j.map((t: any) => ({
     signature: t.signature ?? '',

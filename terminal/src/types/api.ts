@@ -143,6 +143,25 @@ export interface SwapRecordResult {
   explorerUrl?: string
 }
 
+export interface TerminalSwap {
+  id: string
+  fromChain: string
+  toChain: string
+  fromToken: string
+  toToken: string
+  fromAmount: string
+  toAmount?: string
+  fromAmountUsd?: number
+  toAmountUsd?: number
+  status: string
+  txHash?: string
+  bridgeTxHash?: string
+  destinationTxHash?: string
+  createdAt: string
+  completedAt?: string
+  errorMessage?: string
+}
+
 export interface CopilotResponse {
   type: 'text' | 'quote' | 'portfolio' | 'error'
   content: string

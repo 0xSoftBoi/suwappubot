@@ -118,3 +118,43 @@ export const agentSubscriptions = pgTable(
 
 export type AgentSubscription = typeof agentSubscriptions.$inferSelect
 export type NewAgentSubscription = typeof agentSubscriptions.$inferInsert
+
+/**
+ * Recurring crypto subscriptions via Base Spend Permissions (true auto-renew).
+ *
+ * Stores the user-signed SpendPermission + signature so the operator can call
+ * spend() each period. Created by python-api _ensure_schema (authoritative for
+ * shared tables); api-ts only queries it. uint160/uint256 fields (allowance,
+ * salt) are stored as decimal strings to avoid int overflow.
+ */
+export const recurringSubscriptions = pgTable(
+	'recurring_subscriptions',
+	{
+		id: serial('id').primaryKey(),
+		userId: integer('user_id'),
+		agentId: integer('agent_id'),
+		account: varchar('account', { length: 64 }).notNull(),
+		spender: varchar('spender', { length: 64 }).notNull(),
+		token: varchar('token', { length: 64 }).notNull(),
+		allowance: varchar('allowance', { length: 80 }).notNull(),
+		periodSeconds: integer('period_seconds').notNull(),
+		startTs: integer('start_ts').notNull(),
+		endTs: integer('end_ts').notNull(),
+		salt: varchar('salt', { length: 80 }).notNull(),
+		signature: text('signature').notNull(),
+		tier: varchar('tier', { length: 20 }),
+		status: varchar('status', { length: 20 }).default('active').notNull(),
+		approvedTx: varchar('approved_tx', { length: 128 }),
+		nextChargeAt: timestamp('next_charge_at'),
+		lastChargeAt: timestamp('last_charge_at'),
+		lastChargeTx: varchar('last_charge_tx', { length: 128 }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at').defaultNow().notNull(),
+	},
+	(table) => ({
+		dueIdx: index('ix_recurring_subscriptions_due').on(table.status, table.nextChargeAt),
+	}),
+)
+
+export type RecurringSubscription = typeof recurringSubscriptions.$inferSelect
+export type NewRecurringSubscription = typeof recurringSubscriptions.$inferInsert

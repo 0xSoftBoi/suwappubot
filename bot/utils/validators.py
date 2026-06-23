@@ -128,6 +128,36 @@ def validate_address(address: str, chain_type: str = "evm") -> bool:
     return validate_evm_address(address)
 
 
+def detect_address_chain(address: str) -> tuple[bool, Optional[str]]:
+    """Detect whether a string is a contract/token address and which chain family.
+
+    Used by paste-to-trade: a user pastes a raw token address with no command.
+    Returns (is_valid, chain_type) where chain_type is one of
+    "evm" | "starknet" | "tron" | "solana", or (False, None) if not an address.
+
+    Order matters: EVM addresses are exactly 42 chars (0x + 40 hex); Starknet
+    felts share the 0x prefix but run longer, so EVM is tested first. TRON and
+    Solana are base58 and unambiguous by prefix/length.
+    """
+    if not address:
+        return False, None
+    s = address.strip()
+    if s.startswith("0x") or s.startswith("0X"):
+        if validate_evm_address(s):
+            return True, "evm"
+        # Real Starknet contract addresses are long felts (~64 hex chars); the
+        # >=50 floor rejects short 0x junk like "0x123" that is technically a
+        # valid felt but never a token address.
+        if len(s) >= 50 and validate_starknet_address(s):
+            return True, "starknet"
+        return False, None
+    if s.startswith("T") and len(s) == 34:
+        return (True, "tron") if validate_tron_address(s) else (False, None)
+    if validate_solana_address(s):
+        return True, "solana"
+    return False, None
+
+
 def validate_evm_private_key(private_key: str) -> bool:
     """Validate an EVM private key (64 hex characters, optionally with 0x prefix)."""
     key = private_key.lower()
