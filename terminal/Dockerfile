@@ -17,11 +17,15 @@ RUN bun install --no-frozen-lockfile
 # Copy source files
 COPY terminal/ .
 
-# Set production API URL
+# Set production API URL + build-time client env. VITE_* must be declared as
+# ARG here so Railway's service variables reach `vite build` (they're baked into
+# the static bundle); a bare service var is NOT visible to the Docker build.
 ARG VITE_API_URL=https://api.suwappu.bot
 ARG VITE_WC_PROJECT_ID
+ARG VITE_HELIUS_API_KEY
 ENV VITE_API_URL=$VITE_API_URL
 ENV VITE_WC_PROJECT_ID=$VITE_WC_PROJECT_ID
+ENV VITE_HELIUS_API_KEY=$VITE_HELIUS_API_KEY
 
 # Build the app
 RUN bun run build
