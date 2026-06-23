@@ -157,6 +157,20 @@ class InternalAPIClient:
         """Sync user data to api-ts (create or update)."""
         return await self._request("POST", "/internal/user/sync", json_data=user_data)
 
+    # ─── Billing ─────────────────────────────────────────────
+
+    async def create_stripe_checkout(self, telegram_id: int, tier: str) -> dict:
+        """Create a Stripe checkout session for a Telegram user via api-ts.
+
+        Returns the session object, e.g. {"url": "https://checkout.stripe.com/..."}.
+        Raises APIClientError if Stripe is not configured or the user is unknown.
+        """
+        return await self._request(
+            "POST",
+            "/internal/billing/stripe/checkout",
+            json_data={"telegram_id": telegram_id, "tier": tier},
+        )
+
     # ─── Token Endpoints ─────────────────────────────────────
 
     async def get_token_price(self, chain: str, token_address: str) -> dict:

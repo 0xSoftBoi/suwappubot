@@ -1,7 +1,9 @@
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
+import { EnvService } from '../config/EnvService'
 import { runEffectEither } from '../runtime'
 import { SwapService, UserService, EventBus } from '../services'
+import { StripeService } from '../services/StripeService'
 import type { QuoteParams } from '../services/SwapService'
 
 /**
@@ -252,6 +254,66 @@ internalRoutes.post('/verify-payment', async (c) => {
 	} catch (e: any) {
 		return c.json({ verified: false, error: `Verification failed: ${e.message}` }, 500)
 	}
+})
+
+// ─── Billing ────────────────────────────────────────────────
+
+/**
+ * POST /internal/billing/stripe/checkout
+ * Create a Stripe checkout session on behalf of a Telegram user and return its
+ * URL. Used by the Python bot, which can't attach Telegram init-data to a
+ * clickable inline-button link — it calls this server-to-server (X-Internal-Key)
+ * and puts the returned checkout.stripe.com URL straight on the button.
+ * Body: { telegram_id, tier: 'pro' | 'premium' } -> { url }
+ */
+internalRoutes.post('/billing/stripe/checkout', async (c) => {
+	let body: { telegram_id?: number | string; tier?: string }
+	try {
+		body = await c.req.json()
+	} catch {
+		return c.json({ error: 'Invalid JSON body' }, 400)
+	}
+
+	const telegramId = Number(body.telegram_id)
+	const tier = body.tier as 'pro' | 'premium'
+	if (!Number.isFinite(telegramId)) {
+		return c.json({ error: 'telegram_id is required' }, 400)
+	}
+	if (!['pro', 'premium'].includes(tier)) {
+		return c.json({ error: 'Invalid tier. Must be pro or premium.' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const stripeService = yield* StripeService
+			const userService = yield* UserService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramId)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+			const dbUserId = userOption.value.id
+
+			const baseUrl =
+				env.ALLOWED_ORIGINS?.split(',')[0]?.trim() || 'https://app.suwappu.bot'
+
+			const url = yield* stripeService.createCheckoutSession({
+				tier,
+				telegramId: String(telegramId),
+				userId: dbUserId,
+				successUrl: `${baseUrl}/premium?upgrade=success&tier=${tier}`,
+				cancelUrl: `${baseUrl}/premium`,
+			})
+
+			return { url }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: String(result.left) }, 502)
+	}
+	return c.json(result.right)
 })
 
 // ─── Token Routes ───────────────────────────────────────────
