@@ -64,6 +64,36 @@ export function isFacilitatorEnabled(env: FacilitatorEnv): boolean {
 }
 
 /**
+ * SECURITY: validate the client-signed requirements (payload.accepted) against
+ * what we advertised before settling. An x402 client controls the requirements
+ * it signs, so without this a client could redirect funds (payTo), pay the wrong
+ * token (asset), or underpay (amount). payTo/asset are compared case-insensitively
+ * (EVM address + token symbol/address casing varies); amount is compared as
+ * atomic-unit BigInts (paid >= advertised passes; overpayment is allowed).
+ *
+ * Exported as a pure function so it is unit-testable without a live facilitator.
+ */
+export function crossCheckSignedRequirements(
+	accepted: { payTo: string; asset: string; amount: string },
+	requirements: Pick<PaymentRequirements, 'payTo' | 'asset' | 'maxAmountRequired'>,
+): { ok: true } | { ok: false; error: string } {
+	if (String(accepted.payTo).toLowerCase() !== requirements.payTo.toLowerCase()) {
+		return { ok: false, error: 'payTo_mismatch' }
+	}
+	if (String(accepted.asset).toLowerCase() !== requirements.asset.toLowerCase()) {
+		return { ok: false, error: 'asset_mismatch' }
+	}
+	try {
+		if (BigInt(accepted.amount) < BigInt(requirements.maxAmountRequired)) {
+			return { ok: false, error: 'amount_too_low' }
+		}
+	} catch {
+		return { ok: false, error: 'amount_unparseable' }
+	}
+	return { ok: true }
+}
+
+/**
  * Verify + settle a single call's payment via the configured facilitator.
  * Returns { ok: false } on any failure (never throws) so callers can fall
  * through to a 402 challenge.
@@ -89,19 +119,8 @@ export async function facilitatorVerifyAndSettle(
 
 	// SECURITY cross-check: the client-signed requirements must match what we
 	// advertised, or settling would send money somewhere we didn't intend.
-	if (String(accepted.payTo).toLowerCase() !== requirements.payTo.toLowerCase()) {
-		return { ok: false, error: 'payTo_mismatch' }
-	}
-	if (String(accepted.asset).toLowerCase() !== requirements.asset.toLowerCase()) {
-		return { ok: false, error: 'asset_mismatch' }
-	}
-	try {
-		if (BigInt(accepted.amount) < BigInt(requirements.maxAmountRequired)) {
-			return { ok: false, error: 'amount_too_low' }
-		}
-	} catch {
-		return { ok: false, error: 'amount_unparseable' }
-	}
+	const check = crossCheckSignedRequirements(accepted, requirements)
+	if (!check.ok) return check
 
 	const createAuthHeaders = env.X402_FACILITATOR_API_KEY
 		? async () => {
