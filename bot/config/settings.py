@@ -161,6 +161,12 @@ class Settings(BaseSettings):
         default=None, description="Infura API key — used as primary RPC for supported chains"
     )
 
+    # Helius (Solana RPC/DAS/Enhanced Transactions). SERVER-ONLY — proxied via
+    # /webapp/solana/* so the key never reaches the client bundle.
+    helius_api_key: str = Field(
+        default="", description="Helius API key for the server-side Solana data proxy"
+    )
+
     # Alchemy Configuration (Full Suite)
     alchemy_api_key: Optional[str] = Field(
         default=None, description="Alchemy API key for enhanced RPC, Token API, NFT API"
