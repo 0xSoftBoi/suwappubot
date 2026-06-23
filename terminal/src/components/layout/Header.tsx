@@ -18,19 +18,20 @@ export function Header() {
     isLoading,
     signIn,
     signInWithGoogle,
+    signInWithWallet,
     signOut,
     clearError,
     error,
     isTelegram,
+    isWalletConnecting,
+    isWalletAuthAvailable,
   } = useAuth()
   const isMobile = useIsMobile()
   const [menuOpen, setMenuOpen] = useState(false)
 
-  const authLabel = isAuthenticated && walletAddress
+  const shortAddress = walletAddress
     ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
-    : isLoading
-      ? 'Connecting'
-      : 'Turnkey'
+    : ''
 
   const handleAuthClick = () => {
     if (isAuthenticated) {
@@ -68,25 +69,59 @@ export function Header() {
     </button>
   ) : null
 
+  // Wallet-connect (SIWE) is the primary signed-out path now that the
+  // /auth/turnkey/challenge + /verify pair is wired through wagmi. Honest about
+  // server state: if those endpoints answer 404/501/503, isWalletAuthAvailable
+  // flips false and the button disables with an explanatory tooltip rather than
+  // opening a wallet picker that can't complete sign-in.
+  const walletButton = !isAuthenticated && !isTelegram ? (
+    <button
+      type="button"
+      data-testid="connect-wallet"
+      onClick={() => void signInWithWallet()}
+      disabled={isLoading || isWalletConnecting || !isWalletAuthAvailable}
+      className="terminal-theme-control flex h-8 items-center gap-1.5 rounded-[7px] px-3 text-xs font-semibold text-terminal-text transition-colors hover:text-sakura-700 disabled:cursor-not-allowed disabled:opacity-60"
+      title={
+        !isWalletAuthAvailable
+          ? 'Wallet sign-in is not available on this server yet'
+          : 'Connect a wallet and sign in (SIWE)'
+      }
+    >
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h18v10H3z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M16 12h2M3 7l3-3h11l1 3" />
+      </svg>
+      <span className="hidden sm:inline">
+        {isWalletConnecting ? 'Signing…' : 'Connect wallet'}
+      </span>
+    </button>
+  ) : null
+
   // Passkey sign-in is server-gated (503) until real WebAuthn assertion
   // verification ships — the old endpoints accepted unverified assertions, so
-  // they were disabled rather than left exploitable. Keep the button visible
-  // but disabled when signed out; Google sign-in is the working path.
-  const authButton = (
+  // they were disabled rather than left exploitable. When signed out, the
+  // primary paths (wallet, Google) carry sign-in, so the only button rendered
+  // here is the signed-in identity chip (shows the address, click to sign out).
+  // signIn() stays wired for the day the passkey backend re-enables.
+  const authButton = isAuthenticated ? (
     <button
       type="button"
       onClick={handleAuthClick}
-      disabled={isLoading || !isAuthenticated}
+      disabled={isLoading}
       className="terminal-theme-control h-8 rounded-[7px] px-3 text-xs font-semibold text-terminal-text transition-colors hover:text-sakura-700 disabled:cursor-not-allowed disabled:opacity-60"
-      title={
-        isAuthenticated
-          ? isTelegram
-            ? 'Signed in via Telegram'
-            : 'Sign out'
-          : 'Passkey sign-in is temporarily unavailable — use Google'
-      }
+      title={isTelegram ? 'Signed in via Telegram' : 'Sign out'}
     >
-      {authLabel}
+      {shortAddress || 'Signed in'}
+    </button>
+  ) : (
+    <button
+      type="button"
+      onClick={() => void signIn()}
+      disabled
+      className="terminal-theme-control h-8 rounded-[7px] px-3 text-xs font-semibold text-terminal-text transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+      title="Passkey sign-in is temporarily unavailable — use a wallet or Google"
+    >
+      {isLoading ? 'Connecting' : 'Passkey'}
     </button>
   )
 
@@ -137,6 +172,7 @@ export function Header() {
 
         <div className="flex items-center gap-1.5">
           <ModeSwitch />
+          {walletButton}
           {googleButton}
           {authButton}
         </div>
@@ -184,6 +220,7 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2">
+        {walletButton}
         {googleButton}
         {authButton}
       </div>

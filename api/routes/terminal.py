@@ -201,6 +201,113 @@ async def get_terminal_ohlcv(
     return await _gecko_ohlcv(network, pool, interval, limit)
 
 
+# --- Perps candles via the public HyperLiquid candleSnapshot API ---
+
+HL_INFO_URL = "https://api.hyperliquid.xyz/info"
+# Frontend chart-toolbar interval id -> (HyperLiquid interval, step in ms).
+HL_INTERVALS = {
+    "1m": ("1m", 60_000),
+    "5m": ("5m", 300_000),
+    "15m": ("15m", 900_000),
+    "1h": ("1h", 3_600_000),
+    "4h": ("4h", 14_400_000),
+    "1D": ("1d", 86_400_000),
+    "1d": ("1d", 86_400_000),
+}
+
+
+@router.get("/perps/candles")
+async def get_terminal_perps_candles(
+    coin: str = Query(...),
+    interval: str = Query(default="1h"),
+    limit: int = Query(default=300, ge=1, le=500),
+):
+    """OHLCV candles for a HyperLiquid perp via the public candleSnapshot API.
+    `coin` is the HL asset symbol (ETH, BTC, …); ``ETH-USD`` / ``ETH/USD`` are
+    accepted and reduced to the bare asset."""
+    asset = coin.upper().split("-")[0].split("/")[0].strip()
+    if not asset:
+        return []
+    hl_interval, step_ms = HL_INTERVALS.get(interval, ("1h", 3_600_000))
+    end_ms = int(datetime.now().timestamp() * 1000)
+    start_ms = end_ms - step_ms * min(limit, 500)
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post(
+                HL_INFO_URL,
+                json={
+                    "type": "candleSnapshot",
+                    "req": {
+                        "coin": asset,
+                        "interval": hl_interval,
+                        "startTime": start_ms,
+                        "endTime": end_ms,
+                    },
+                },
+                headers={"User-Agent": "suwappu-terminal/1.0", "Accept": "application/json"},
+            )
+            resp.raise_for_status()
+            raw = resp.json() or []
+    except Exception:
+        return []
+    candles = [
+        {
+            "time": int(c["t"]) // 1000,  # HL open time is ms epoch; chart wants seconds
+            "open": float(c["o"]),
+            "high": float(c["h"]),
+            "low": float(c["l"]),
+            "close": float(c["c"]),
+            "volume": float(c.get("v") or 0),
+        }
+        for c in raw
+        if isinstance(c, dict) and c.get("t") is not None
+    ]
+    candles.sort(key=lambda c: c["time"])
+    return candles[-limit:]
+
+
+# --- Prediction probability history via the public Polymarket CLOB API ---
+
+POLYMARKET_CLOB_URL = "https://clob.polymarket.com"
+# Range button id -> (Polymarket interval window, fidelity in minutes).
+POLY_HISTORY_RANGES = {
+    "1H": ("1h", 1),
+    "6H": ("6h", 5),
+    "1D": ("1d", 15),
+    "1W": ("1w", 60),
+    "1M": ("1m", 180),
+    "ALL": ("max", 720),
+}
+
+
+@router.get("/predict/history")
+async def get_terminal_predict_history(
+    tokenId: str = Query(...),
+    range: str = Query(default="1W"),
+):
+    """Probability history for a single Polymarket outcome (CLOB token id).
+    Returns line points ``{time, value}`` where value is the % probability."""
+    poly_interval, fidelity = POLY_HISTORY_RANGES.get(range.upper(), ("1w", 60))
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(
+                f"{POLYMARKET_CLOB_URL}/prices-history",
+                params={"market": tokenId, "interval": poly_interval, "fidelity": fidelity},
+                headers={"User-Agent": "suwappu-terminal/1.0", "Accept": "application/json"},
+            )
+            resp.raise_for_status()
+            history = (resp.json() or {}).get("history") or []
+    except Exception:
+        return []
+    points = [
+        {"time": int(p["t"]), "value": round(float(p["p"]) * 100, 2)}
+        for p in history
+        if isinstance(p, dict) and p.get("t") is not None and p.get("p") is not None
+    ]
+    points.sort(key=lambda p: p["time"])
+    return points
+
+
 @router.get("/orderbook")
 async def get_terminal_orderbook(
     symbol: str = Query(default="ETHUSDC"),

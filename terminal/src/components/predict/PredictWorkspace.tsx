@@ -5,6 +5,7 @@ import type { PredictionMarket } from '../../types/api'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { PredictionPanel } from './PredictionPanel'
 import { PredictTradeTicket } from './PredictTradeTicket'
+import { ProbabilityChart } from './ProbabilityChart'
 import { PredictPositions } from './PredictPositions'
 
 // The Polymarket prediction desk. Browse (left) + trade ticket for the selected
@@ -21,9 +22,14 @@ export function PredictWorkspace() {
           <PredictionPanel selectedId={selected?.id} onSelect={setSelected} />
         </div>
         {selected && (
-          <div className="shrink-0">
-            <PredictTradeTicket market={selected} />
-          </div>
+          <>
+            <div className="h-[300px] shrink-0">
+              <ProbabilityChart market={selected} />
+            </div>
+            <div className="shrink-0">
+              <PredictTradeTicket market={selected} />
+            </div>
+          </>
         )}
         <div className="min-h-[200px] shrink-0 overflow-x-auto">
           <PredictPositions />
@@ -36,12 +42,17 @@ export function PredictWorkspace() {
     <Allotment vertical>
       <Allotment.Pane preferredSize="64%" minSize={260}>
         <Allotment>
-          <Allotment.Pane preferredSize="60%" minSize={320}>
+          <Allotment.Pane preferredSize="34%" minSize={260}>
             <div className="h-full terminal-panel">
               <PredictionPanel selectedId={selected?.id} onSelect={setSelected} />
             </div>
           </Allotment.Pane>
-          <Allotment.Pane preferredSize="40%" minSize={300} maxSize={460}>
+          <Allotment.Pane preferredSize="38%" minSize={300}>
+            <div className="h-full terminal-panel">
+              <ProbabilityChart market={selected} />
+            </div>
+          </Allotment.Pane>
+          <Allotment.Pane preferredSize="28%" minSize={300} maxSize={460}>
             <div className="h-full terminal-panel overflow-y-auto">
               <PredictTradeTicket market={selected} />
             </div>

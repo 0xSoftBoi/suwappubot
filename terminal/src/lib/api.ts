@@ -16,6 +16,7 @@ import type {
   ChainInfo,
   SwapToken,
   OHLCVCandle,
+  PredictHistoryPoint,
   OrderBookData,
   TerminalTrade,
   Pool,
@@ -317,6 +318,20 @@ export const api = {
   getOHLCV(pair: string, chain: string, interval: string, limit: number) {
     const params = new URLSearchParams({ pair, chain, interval, limit: String(limit) })
     return request<OHLCVCandle[]>(`/terminal/chart/ohlcv?${params}`)
+  },
+
+  // Perps candles — HyperLiquid candleSnapshot (public). `coin` is the HL asset
+  // symbol; "ETH-USD" is accepted and reduced server-side.
+  getPerpsCandles(coin: string, interval: string, limit = 300) {
+    const params = new URLSearchParams({ coin, interval, limit: String(limit) })
+    return request<OHLCVCandle[]>(`/terminal/perps/candles?${params}`)
+  },
+
+  // Prediction probability history — Polymarket prices-history (public) for a
+  // single outcome's CLOB token id. `range` is a window: 1H/6H/1D/1W/1M/ALL.
+  getPredictHistory(tokenId: string, range = '1W') {
+    const params = new URLSearchParams({ tokenId, range })
+    return request<PredictHistoryPoint[]>(`/terminal/predict/history?${params}`)
   },
 
   getOrderBook(symbol = 'ETHUSDC', depth = 15) {

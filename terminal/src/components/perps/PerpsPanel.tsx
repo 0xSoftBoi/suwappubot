@@ -111,7 +111,7 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
   }
 
   return (
-    <div className="flex flex-col gap-3 p-4">
+    <div className="flex flex-col gap-3 p-4" data-testid="perps-panel">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">Perpetuals</h3>
         <span className="text-xs text-terminal-text-muted">via HyperLiquid</span>
