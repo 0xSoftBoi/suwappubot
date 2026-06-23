@@ -201,6 +201,13 @@ export interface OHLCVCandle {
   volume: number
 }
 
+// A single point of a prediction-market probability line: unix seconds + the
+// outcome's implied probability as a percentage (0–100).
+export interface PredictHistoryPoint {
+  time: number
+  value: number
+}
+
 export interface OrderBookLevel {
   price: number
   size: number

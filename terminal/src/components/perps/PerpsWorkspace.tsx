@@ -6,6 +6,7 @@ import { api } from '../../lib/api'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { PerpsMarketsBoard } from './PerpsMarketsBoard'
 import { PerpsPanel } from './PerpsPanel'
+import { PerpsChart } from './PerpsChart'
 import { PerpsPositions } from './PositionsTable'
 import { PerpsOpenOrders } from './OpenOrdersTable'
 
@@ -52,6 +53,9 @@ export function PerpsWorkspace() {
         <div className="min-h-[220px] shrink-0">
           <PerpsMarketsBoard selectedMarket={selectedMarket} onSelectMarket={setSelectedMarket} />
         </div>
+        <div className="h-[320px] shrink-0">
+          <PerpsChart market={selectedMarket} />
+        </div>
         <div className="shrink-0">
           <PerpsPanel
             markets={markets}
@@ -71,7 +75,7 @@ export function PerpsWorkspace() {
     <Allotment vertical>
       <Allotment.Pane preferredSize="62%" minSize={240}>
         <Allotment>
-          <Allotment.Pane preferredSize="58%" minSize={320}>
+          <Allotment.Pane preferredSize="30%" minSize={240}>
             <div className="h-full terminal-panel">
               <PerpsMarketsBoard
                 selectedMarket={selectedMarket}
@@ -79,7 +83,12 @@ export function PerpsWorkspace() {
               />
             </div>
           </Allotment.Pane>
-          <Allotment.Pane preferredSize="42%" minSize={320} maxSize={460}>
+          <Allotment.Pane preferredSize="42%" minSize={320}>
+            <div className="h-full terminal-panel">
+              <PerpsChart market={selectedMarket} />
+            </div>
+          </Allotment.Pane>
+          <Allotment.Pane preferredSize="28%" minSize={300} maxSize={460}>
             <div className="h-full terminal-panel overflow-y-auto">
               <PerpsPanel
                 markets={markets}
