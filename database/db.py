@@ -387,6 +387,9 @@ def _ensure_schema(db_engine) -> None:
     # --- agent billing: agent_credits, agent_credit_topups, agent_subscriptions ---
     _create_agent_billing_tables(db_engine, inspector, is_sqlite)
 
+    # --- recurring crypto subscriptions (Base Spend Permissions) ---
+    _create_recurring_subscriptions_table(db_engine, inspector, is_sqlite)
+
     # --- copy_follows: enhanced copy trading columns ---
     if "copy_follows" in tables:
         _add_copy_trading_columns(db_engine, inspector, is_sqlite)
@@ -1667,6 +1670,89 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
             text(
                 "CREATE INDEX IF NOT EXISTS ix_agent_subscriptions_agent_id "
                 "ON agent_subscriptions(agent_id)"
+            )
+        )
+
+
+def _create_recurring_subscriptions_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the recurring_subscriptions table idempotently.
+
+    Backs true crypto auto-renew via Base Spend Permissions (api-ts
+    lib/spendPermission.ts + RecurringBillingService). Stores the user-signed
+    SpendPermission + signature so the operator can periodically call spend().
+    Amounts/timestamps that exceed JS/SQL int range (uint160/uint256) are stored
+    as decimal strings. Additive + idempotent (authoritative shared-DB path).
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "recurring_subscriptions" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS recurring_subscriptions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER,
+                        agent_id INTEGER,
+                        account VARCHAR(64) NOT NULL,
+                        spender VARCHAR(64) NOT NULL,
+                        token VARCHAR(64) NOT NULL,
+                        allowance VARCHAR(80) NOT NULL,
+                        period_seconds INTEGER NOT NULL,
+                        start_ts INTEGER NOT NULL,
+                        end_ts INTEGER NOT NULL,
+                        salt VARCHAR(80) NOT NULL,
+                        signature TEXT NOT NULL,
+                        tier VARCHAR(20),
+                        status VARCHAR(20) NOT NULL DEFAULT 'active',
+                        approved_tx VARCHAR(128),
+                        next_charge_at DATETIME,
+                        last_charge_at DATETIME,
+                        last_charge_tx VARCHAR(128),
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS recurring_subscriptions (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER,
+                        agent_id INTEGER,
+                        account VARCHAR(64) NOT NULL,
+                        spender VARCHAR(64) NOT NULL,
+                        token VARCHAR(64) NOT NULL,
+                        allowance VARCHAR(80) NOT NULL,
+                        period_seconds BIGINT NOT NULL,
+                        start_ts BIGINT NOT NULL,
+                        end_ts BIGINT NOT NULL,
+                        salt VARCHAR(80) NOT NULL,
+                        signature TEXT NOT NULL,
+                        tier VARCHAR(20),
+                        status VARCHAR(20) NOT NULL DEFAULT 'active',
+                        approved_tx VARCHAR(128),
+                        next_charge_at TIMESTAMP,
+                        last_charge_at TIMESTAMP,
+                        last_charge_tx VARCHAR(128),
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                    )
+                """))
+
+        # Idempotency: one row per (account, spender, token, salt) permission.
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_recurring_subscriptions_permission "
+                "ON recurring_subscriptions(account, spender, token, salt)"
+            )
+        )
+        # Scheduler query: due active charges.
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_recurring_subscriptions_due "
+                "ON recurring_subscriptions(status, next_charge_at)"
             )
         )
 
