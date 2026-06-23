@@ -4,13 +4,16 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   type ReactNode,
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useAccount, useSignMessage, useDisconnect } from 'wagmi'
-import { useConnectModal } from '@rainbow-me/rainbowkit'
+import { WagmiProvider, useAccount, useSignMessage, useDisconnect } from 'wagmi'
+import { RainbowKitProvider, useConnectModal } from '@rainbow-me/rainbowkit'
+import '@rainbow-me/rainbowkit/styles.css'
 import bs58 from 'bs58'
-import { setAuthToken, getAuthToken, clearAuthToken } from '../lib/auth'
+import { config as wagmiConfig } from '../lib/wagmi'
+import { setAuthToken, getAuthToken, clearAuthToken, setAuthMethod } from '../lib/auth'
 import { getPhantom, isPhantomAvailable } from '../lib/phantom'
 import { api } from '../lib/api'
 import {
@@ -46,13 +49,34 @@ interface AuthContextType {
   isHardwareWallet: boolean
   // 'evm' | 'solana' | null — which chain the external session's wallet signs on.
   externalChain: 'evm' | 'solana' | null
+  // True while a wallet-connect SIWE round-trip (connect → sign → verify) is in
+  // flight, so the Header can show a dedicated "Signing…" state on that button.
+  isWalletConnecting: boolean
+  // Whether the wallet-connect SIWE backend is reachable. Flips to false the
+  // first time /auth/turnkey/* answers 404/501/503 so the Header can honestly
+  // disable the button with a tooltip instead of letting it silently fail.
+  isWalletAuthAvailable: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 const PASSKEY_CREDENTIAL_KEY = 'suwappu_passkey_credential_id'
 const PASSKEY_USER_HANDLE_KEY = 'suwappu_passkey_user_handle'
 
+// Public provider. wagmi + RainbowKit are mounted HERE (rather than in
+// main.tsx) to keep the wallet-connect feature self-contained inside the auth
+// module: AuthInner can then call wagmi hooks. The QueryClient that wagmi needs
+// is already supplied by the QueryClientProvider above us in main.tsx.
 export function AuthProvider({ children }: { children: ReactNode }) {
+  return (
+    <WagmiProvider config={wagmiConfig}>
+      <RainbowKitProvider>
+        <AuthInner>{children}</AuthInner>
+      </RainbowKitProvider>
+    </WagmiProvider>
+  )
+}
+
+function AuthInner({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [userId, setUserId] = useState<number | null>(null)
@@ -61,10 +85,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [isPasskeySupported, setIsPasskeySupported] = useState(false)
   const [isTelegram, setIsTelegram] = useState(false)
+  const [isWalletConnecting, setIsWalletConnecting] = useState(false)
+  const [isWalletAuthAvailable, setIsWalletAuthAvailable] = useState(true)
   const queryClient = useQueryClient()
   const { address: connectedAddress, isConnected, connector } = useAccount()
   const { signMessageAsync } = useSignMessage()
-  const { disconnect } = useDisconnect()
+  const { disconnectAsync } = useDisconnect()
   const { openConnectModal } = useConnectModal()
 
   // Data hooks (portfolio, wallet tracker, etc.) fire on mount — before the user
@@ -376,36 +402,88 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.assign(api.oauthStartUrl('google', returnUrl))
   }, [])
 
-  // Connect an external wallet and authenticate by signing the SIWE challenge.
-  // The backend recovers the signer address from the signature and mints the same
-  // session JWT the passkey/OAuth flows use — no private key ever leaves the
-  // wallet. If nothing is connected yet, open the RainbowKit modal and bail; the
-  // user taps "Sign in" again once connected.
+  // Sign-In With Ethereum (SIWE) round-trip against the existing
+  // /auth/turnkey/challenge + /auth/turnkey/verify pair: fetch a nonce-bound
+  // message, sign it with the connected wallet, exchange the signature for a
+  // session JWT. Returns true on success. Honest about backend availability:
+  // a 404/501/503 from either endpoint flips isWalletAuthAvailable off so the
+  // UI stops offering a path the server can't honour.
+  const runWalletSiwe = useCallback(
+    async (address: string): Promise<boolean> => {
+      try {
+        const { message, nonce } = await api.walletChallenge(address)
+        // The wallet prompt is the one step that can legitimately be cancelled
+        // by the user; everything else is server I/O.
+        const signature = await signMessageAsync({ message })
+        // Tag hardware-wallet sessions so the backend records "ledger" and the UI
+        // can badge it. Still an external (client-signing) provider — see
+        // isExternalProvider.
+        const providerTag = resolveWalletProviderTag(connector?.id)
+        const result = await api.walletVerify(address, signature, nonce, providerTag)
+        setAuthToken(result.token, result.expiresAt)
+        setAuthMethod('wallet')
+        setUserId(result.userId)
+        setWalletAddress(address)
+        setWalletProvider(providerTag)
+        setIsAuthenticated(true)
+        return true
+      } catch (err: unknown) {
+        const status = errorStatus(err)
+        if (status === 404 || status === 501 || status === 503) {
+          setIsWalletAuthAvailable(false)
+          setError('Wallet sign-in is not available on this server yet.')
+        } else if (/reject|denied|cancel|user rejected/i.test(errorDetail(err))) {
+          setError('Signature request was cancelled.')
+        } else {
+          setError(errorDetail(err))
+        }
+        return false
+      }
+    },
+    [signMessageAsync, connector],
+  )
+
+  // Set when the user clicks "Connect wallet" while no wallet is connected: we
+  // open RainbowKit's modal and let the effect below resume the SIWE step once
+  // wagmi reports a connected account (the modal itself returns no address).
+  const pendingWalletSignIn = useRef(false)
+
   const signInWithWallet = useCallback(async () => {
-    if (!isConnected || !connectedAddress) {
-      openConnectModal?.()
+    if (!isWalletAuthAvailable) {
+      setError('Wallet sign-in is not available on this server yet.')
       return
     }
-    try {
-      setIsLoading(true)
-      setError(null)
-      const { nonce, message } = await api.walletChallenge(connectedAddress)
-      const signature = await signMessageAsync({ message })
-      // Tag hardware-wallet sessions so the backend records "ledger" and the UI can
-      // badge it. Still an external (client-signing) provider — see isExternalProvider.
-      const providerTag = resolveWalletProviderTag(connector?.id)
-      const result = await api.walletVerify(connectedAddress, signature, nonce, providerTag)
-      setAuthToken(result.token, result.expiresAt)
-      setUserId(result.userId)
-      setWalletAddress(connectedAddress)
-      setWalletProvider(providerTag)
-      setIsAuthenticated(true)
-    } catch (err: unknown) {
-      setError(errorDetail(err))
-    } finally {
-      setIsLoading(false)
+    setError(null)
+    // Already connected (e.g. session expired but wallet still linked): go
+    // straight to the SIWE signature. Otherwise open the connect modal and
+    // defer signing to the post-connect effect.
+    if (isConnected && connectedAddress) {
+      setIsWalletConnecting(true)
+      await runWalletSiwe(connectedAddress)
+      setIsWalletConnecting(false)
+      return
     }
-  }, [isConnected, connectedAddress, connector, signMessageAsync, openConnectModal])
+    if (!openConnectModal) {
+      setError("Couldn't open the wallet picker — refresh and try again.")
+      return
+    }
+    pendingWalletSignIn.current = true
+    setIsWalletConnecting(true)
+    openConnectModal()
+  }, [isWalletAuthAvailable, isConnected, connectedAddress, openConnectModal, runWalletSiwe])
+
+  // Resume SIWE after the user picks a wallet in the RainbowKit modal. Guarded
+  // by the pending ref so a wallet connected for other reasons never triggers a
+  // surprise signature prompt.
+  useEffect(() => {
+    if (!pendingWalletSignIn.current) return
+    if (!isConnected || !connectedAddress) return
+    pendingWalletSignIn.current = false
+    void (async () => {
+      await runWalletSiwe(connectedAddress)
+      setIsWalletConnecting(false)
+    })()
+  }, [isConnected, connectedAddress, runWalletSiwe])
 
   // Connect Phantom and authenticate via Sign-In-With-Solana (ed25519). Same
   // keyless model as the EVM path: the backend recovers nothing — it verifies the
@@ -425,6 +503,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { signature } = await provider.signMessage(new TextEncoder().encode(message), 'utf8')
       const result = await api.solanaVerify(address, bs58.encode(signature), nonce)
       setAuthToken(result.token, result.expiresAt)
+      setAuthMethod('wallet')
       setUserId(result.userId)
       setWalletAddress(address)
       setWalletProvider('external')
@@ -442,18 +521,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserId(null)
     setWalletAddress(null)
     setWalletProvider(null)
-    // Drop the external wallet connection too, so "sign out" fully resets state.
-    try {
-      disconnect()
-    } catch {
-      // best-effort; non-wallet sessions have nothing to disconnect
-    }
+    pendingWalletSignIn.current = false
+    setIsWalletConnecting(false)
+    // Tear down the live wagmi connection so a fresh sign-in re-prompts the
+    // wallet picker rather than silently reusing the previous account.
+    if (isConnected) void disconnectAsync().catch(() => {})
+    // Drop the Phantom (Solana) connection too, so "sign out" fully resets state.
     try {
       void getPhantom()?.disconnect()
     } catch {
       // best-effort; Phantom may not be connected
     }
-  }, [disconnect])
+  }, [isConnected, disconnectAsync])
 
   const clearError = useCallback(() => setError(null), [])
 
@@ -492,6 +571,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               ? 'evm'
               : 'solana'
             : null,
+        isWalletConnecting,
+        isWalletAuthAvailable,
       }}
     >
       {children}

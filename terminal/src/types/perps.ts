@@ -15,3 +15,15 @@ export interface FundingInfo {
   // Derived from the clock, not the API — HyperLiquid funds hourly on the hour.
   msUntilNextFunding: number
 }
+
+// A pending TP/SL intent captured from the UI. Not sent anywhere yet — there is
+// no /webapp/me/perps/tpsl route, so this is staged for when one exists.
+export interface TpSlIntent {
+  positionId: string
+  // Trigger price in quote (USD). Empty string => not set.
+  takeProfitPrice: string
+  stopLossPrice: string
+  // Optional fraction of the position to close at the trigger (1-100). Empty => 100%.
+  takeProfitPct: string
+  stopLossPct: string
+}
