@@ -19,6 +19,8 @@ import { PerpsQuoteSchema } from './validators'
 import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
 import { agentBearerAuth } from '../middleware'
+import { chargeAgentForCall, costForTool, setX402Headers } from '../middleware/x402Payment'
+import { EnvService } from '../config/EnvService'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import openApiSpec from '../../openapi-agent.json'
@@ -874,6 +876,30 @@ mcpRoutes.post('/', async (c) => {
 		case 'tools/call': {
 			const { name, arguments: args } = (req.params || {}) as { name?: string; arguments?: Record<string, unknown> }
 			if (!name) return c.json(rpcErr(req.id, -32602, 'Missing tool name'), 200)
+
+			// Pay-per-call metering. Charges prepaid credits (or bypasses for
+			// subscription tiers). On insufficient balance, return an HTTP 402
+			// x402 challenge so x402-enabled MCP clients can settle and retry.
+			const charge = await chargeAgentForCall({
+				agent: { id: agent.id, rateLimitTier: agent.rateLimitTier },
+				cost: costForTool(name),
+				resource: `mcp://tools/${name}`,
+				description: `Suwappu MCP tool: ${name} (${costForTool(name)} credit${costForTool(name) === 1 ? '' : 's'})`,
+				paymentHeader: c.req.header('X-PAYMENT'),
+			})
+			if (charge.kind === 'insufficient') {
+				const cenv = await runEffectEither(Effect.gen(function* () { return yield* EnvService }))
+				if (Either.isRight(cenv)) setX402Headers(c, cenv.right, charge.challenge)
+				return c.json(charge.challenge, 402)
+			}
+			if (charge.kind === 'ok') {
+				c.header('X-Metering-Cost', String(charge.cost))
+				c.header('X-Metering-Balance', String(charge.balance))
+			}
+			if (charge.kind === 'settled') {
+				c.header('X-Metering-Cost', String(charge.cost))
+				if (charge.txHash) c.header('X-Payment-Response', charge.txHash)
+			}
 
 			let result: { content: Array<{ type: string; text: string }>; isError?: boolean }
 			switch (name) {

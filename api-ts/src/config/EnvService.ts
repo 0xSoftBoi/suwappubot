@@ -67,6 +67,16 @@ export const EnvSchema = Schema.Struct({
 		default: () => '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
 	}),
 
+	// x402 facilitator (direct on-chain settlement of a single call via the
+	// X-PAYMENT header, as an alternative to prepaid credits). OFF by default —
+	// when off, the only paid paths are prepaid credits + subscriptions.
+	// CDP's hosted facilitator covers Base/Polygon/Arbitrum/World/Solana; our own
+	// chains (e.g. Tempo) fall back to the internal Python verifier.
+	X402_FACILITATOR_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	X402_FACILITATOR_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://x402.org/facilitator',
+	}),
+
 	// Fee Collection (defaults centralized in ./constants — single source of truth)
 	FEE_WALLET_EVM: Schema.optionalWith(Schema.String, {
 		default: () => DEFAULT_FEE_WALLET_EVM,

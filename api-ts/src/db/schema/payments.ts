@@ -88,3 +88,33 @@ export type AgentCredit = typeof agentCredits.$inferSelect
 export type NewAgentCredit = typeof agentCredits.$inferInsert
 export type AgentCreditTopup = typeof agentCreditTopups.$inferSelect
 export type NewAgentCreditTopup = typeof agentCreditTopups.$inferInsert
+
+/**
+ * Crypto-native agent subscriptions (USDC → time-bound tier).
+ *
+ * One active row per agent (agentId UNIQUE, upserted on renew). `txHash` is
+ * UNIQUE → idempotent on the funding transaction (no double-grant under
+ * concurrent requests). The active window is also denormalized onto
+ * agents.subscriptionTier / subscriptionExpiresAt for zero-query tier
+ * resolution at auth time.
+ */
+export const agentSubscriptions = pgTable(
+	'agent_subscriptions',
+	{
+		id: serial('id').primaryKey(),
+		agentId: integer('agent_id').notNull().unique(),
+		tier: varchar('tier', { length: 20 }).notNull(),
+		txHash: varchar('tx_hash', { length: 128 }).notNull().unique(),
+		chain: varchar('chain', { length: 32 }).default('base').notNull(),
+		amountUsd: real('amount_usd').notNull(),
+		startedAt: timestamp('started_at').defaultNow().notNull(),
+		expiresAt: timestamp('expires_at').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(table) => ({
+		agentIdx: index('ix_agent_subscriptions_agent_id').on(table.agentId),
+	}),
+)
+
+export type AgentSubscription = typeof agentSubscriptions.$inferSelect
+export type NewAgentSubscription = typeof agentSubscriptions.$inferInsert

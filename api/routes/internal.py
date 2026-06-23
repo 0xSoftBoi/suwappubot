@@ -206,7 +206,7 @@ async def verify_x402_payment(
         )
 
     try:
-        success, message = x402_service._verify_transaction_on_chain(
+        success, message = await x402_service._verify_transaction_on_chain(
             tx_hash=request.tx_hash,
             chain=request.chain,
             expected_recipient=request.expected_recipient,

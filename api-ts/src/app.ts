@@ -197,6 +197,15 @@ Ethereum (1), Optimism (10), BSC (56), Polygon (137), Arbitrum (42161), Base (84
 free: 30/min, agent: 100/min, pro: 500/min
 Headers: X-RateLimit-Limit, X-RateLimit-Remaining, Retry-After (on 429)
 
+## Pricing & Payments (x402)
+Paid endpoints and MCP tools are metered in prepaid credits (1 credit ≈ $0.001 USD). Subscription tiers (agent/pro/premium/enterprise) bypass metering.
+- On insufficient balance the API returns HTTP 402 with an x402 challenge: header X-Payment-Required (base64 JSON) + Accept-Payment, and an \`accepts[]\` body (scheme=exact, USDC on Base). Standard x402 clients (x402-axios / x402-fetch) handle this automatically.
+- Pay-per-call cost weights: reads/quotes 1 credit, swap/execute 5 credits. MCP discovery tools (list_chains/list_tokens/get_tempo_tokens) are free.
+- Top up credits: POST /v1/agent/billing/topup {txHash, chain, amount} (pay USDC to the collector, submit the txHash; idempotent).
+- Subscribe (crypto, 30d, unmetered access): POST /v1/agent/billing/subscribe {txHash, chain, amount, tier} — pro $9.99, premium $29.99, enterprise $99.99.
+- Check balance/subscription/pricing: GET /v1/agent/billing
+- Human users: Stripe checkout (GET /billing/stripe/checkout?tier=) or crypto (POST /billing/crypto).
+
 ## SDK
 npm: @suwappu/sdk | PyPI: suwappu
 MCP Server: hosted at POST https://api.suwappu.bot/mcp (no install — point your MCP client at the URL with a Bearer key)
