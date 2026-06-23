@@ -331,6 +331,18 @@ export const api = {
     return request<Portfolio>('/webapp/me/portfolio')
   },
 
+  // Solana data proxy — the Helius key stays server-side; the client never sees it.
+  solanaRpc<T = unknown>(method: string, params: unknown) {
+    return request<T>('/webapp/solana/rpc', {
+      method: 'POST',
+      body: JSON.stringify({ method, params }),
+    })
+  },
+
+  solanaTxHistory<T = unknown>(address: string, limit = 15) {
+    return request<T>(`/webapp/solana/tx-history?address=${address}&limit=${limit}`)
+  },
+
   // Discovery
   getNewPools(chain: string, limit: number) {
     return request<Pool[]>(`/webapp/discovery/new?chain=${chain}&limit=${limit}`)
