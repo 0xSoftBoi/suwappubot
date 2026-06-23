@@ -2318,7 +2318,8 @@ agentRoutes.get('/billing', async (c) => {
 			body: { txHash: '0x...', chain: 'base', amount: '<USDC paid>', tier: 'pro' },
 			tier_prices_usd: TIER_PRICES_USD,
 			period_days: SUBSCRIPTION_PERIOD_DAYS,
-			note: 'Pay the tier price in USDC to the collector, then submit the txHash. Grants unmetered API + MCP access (metering bypass) for the period.',
+			note: 'Pay the tier price in USDC to the collector, then submit the txHash. Grants a PREPAID access window (no auto-renew) of unmetered API + MCP access; re-POST before expiry to extend (time stacks).',
+			auto_renew: false,
 			active: agent.subscriptionTier && agent.subscriptionExpiresAt && new Date(agent.subscriptionExpiresAt).getTime() > Date.now()
 				? { tier: agent.subscriptionTier, expires_at: agent.subscriptionExpiresAt }
 				: null,
@@ -2595,7 +2596,23 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 			//    idempotency guard; we also denormalize the active window onto the agent
 			//    row so auth-time tier resolution needs no join.
 			const now = new Date()
-			const expiresAt = new Date(now.getTime() + SUBSCRIPTION_PERIOD_DAYS * 24 * 60 * 60 * 1000)
+			// Prepaid access WINDOW (no auto-renew): if a paid window is still active,
+			// extend from its current expiry so early renewal never burns paid time.
+			const currentRows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ expiresAt: agentSubscriptions.expiresAt })
+						.from(agentSubscriptions)
+						.where(eq(agentSubscriptions.agentId, agent.id))
+						.limit(1),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+			const currentExpiry = currentRows[0]?.expiresAt
+			const base =
+				currentExpiry && new Date(currentExpiry).getTime() > now.getTime()
+					? new Date(currentExpiry)
+					: now
+			const expiresAt = new Date(base.getTime() + SUBSCRIPTION_PERIOD_DAYS * 24 * 60 * 60 * 1000)
 
 			const txResult = yield* Effect.tryPromise({
 				try: () =>
@@ -2651,9 +2668,11 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 		tx_hash: txHash,
 		tier: r.tier,
 		expires_at: r.expiresAt,
+		auto_renew: false,
+		renew: 'Prepaid window — re-POST before expiry to extend; time stacks.',
 		message: r.alreadyProcessed
 			? 'This transaction was already credited (idempotent — no double-grant).'
-			: `Subscribed to ${r.tier} until ${new Date(r.expiresAt).toISOString()}. Metered API + MCP calls are now free for the window.`,
+			: `Prepaid ${r.tier} access window active until ${new Date(r.expiresAt).toISOString()} (no auto-renew). Metered API + MCP calls are free for the window.`,
 	})
 })
 
