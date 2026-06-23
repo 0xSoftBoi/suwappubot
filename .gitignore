@@ -20,6 +20,10 @@ terminal/qa-screenshots/
 terminal/storybook-static/
 webapp/dist/
 
+# extension
+extension/dist/
+extension/node_modules/
+
 # local dev venv
 .venv/
 

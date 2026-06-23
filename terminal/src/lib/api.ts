@@ -25,6 +25,7 @@ import type {
   PredictionMarket,
   PerpsAccountStatus,
   TerminalPerpsPosition,
+  TerminalPerpsOrder,
   PerpsExecuteParams,
   PerpsExecuteResult,
   PredictionPositionRow,
@@ -104,14 +105,16 @@ export const api = {
     return { nonce: result.nonce, message: result.challenge }
   },
 
-  async walletVerify(address: string, signature: string, nonce: string) {
+  async walletVerify(address: string, signature: string, nonce: string, provider?: string) {
     const result = await request<{
       token: string
       expiresAt: string
       user?: { id?: number }
     }>('/auth/turnkey/verify', {
       method: 'POST',
-      body: JSON.stringify({ address, signature, nonce }),
+      // `provider` lets the client tag a hardware wallet ("ledger"); the backend
+      // defaults to "external" when it's absent. Either way the wallet is keyless.
+      body: JSON.stringify({ address, signature, nonce, ...(provider ? { provider } : {}) }),
     })
     return { token: result.token, expiresAt: result.expiresAt, userId: result.user?.id ?? 0 }
   },
@@ -408,6 +411,19 @@ export const api = {
     return request<{ ok: boolean; result: unknown }>('/terminal/perps/close', {
       method: 'POST',
       body: JSON.stringify({ positionId, percent }),
+    })
+  },
+
+  getTerminalPerpsOrders() {
+    return request<{ orders: TerminalPerpsOrder[] }>('/terminal/perps/orders').then(
+      (r) => r.orders ?? []
+    )
+  },
+
+  cancelPerpsOrder(market: string, orderId: string) {
+    return request<{ ok: boolean }>('/terminal/perps/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ market, orderId }),
     })
   },
 

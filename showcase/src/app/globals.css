@@ -4026,6 +4026,174 @@ button:focus:not(:focus-visible) {
 .mkt-faq__item h3 { margin: 0; color: var(--summer-ink); font-size: 1.02rem; }
 .mkt-faq__item p { margin: 8px 0 0; color: var(--summer-muted); line-height: 1.6; }
 
+/* Screen-reader-only utility (used by the compare table for accessible cell/legend text) */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ===== Compare page (capability matrix vs bots / terminals / infra) ===== */
+.compare { margin-top: 1rem; }
+.compare__title {
+  margin: 0 0 1.25rem;
+  color: var(--summer-ink);
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  line-height: 1.1;
+  text-align: center;
+}
+.compare__scroll {
+  overflow-x: auto;
+  border: 1px solid var(--summer-line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 12px 28px rgba(33, 88, 110, 0.07);
+}
+.compare__scroll:focus-visible {
+  outline: 2px solid var(--summer-accent);
+  outline-offset: 2px;
+}
+.compare-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.compare-table__colhead,
+.compare-table__rowhead {
+  text-align: left;
+  font-weight: 700;
+}
+.compare-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 14px 16px;
+  vertical-align: bottom;
+  background: rgba(244, 251, 253, 0.96);
+  border-bottom: 2px solid var(--summer-line);
+}
+.compare-table__colhead {
+  text-align: center;
+}
+.compare-table__colhead--us {
+  background: linear-gradient(180deg, rgba(14, 165, 233, 0.12), rgba(14, 165, 233, 0.04));
+  border-bottom-color: var(--summer-accent);
+}
+.compare-table__colname {
+  display: block;
+  color: var(--summer-ink);
+  font-size: 0.96rem;
+}
+.compare-table__colhead--us .compare-table__colname { color: var(--suwappu-summer-accent-deep); }
+.compare-table__colsub {
+  display: block;
+  margin-top: 3px;
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.compare-table__cat th {
+  padding: 16px 16px 7px;
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: transparent;
+}
+.compare-table tbody tr:not(.compare-table__cat) {
+  border-top: 1px solid rgba(207, 227, 234, 0.7);
+}
+.compare-table__rowhead {
+  padding: 13px 16px;
+  color: var(--summer-ink);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.compare-cell {
+  width: 1%;
+  padding: 13px 16px;
+  text-align: center;
+  vertical-align: middle;
+}
+.compare-cell--us {
+  background: rgba(14, 165, 233, 0.05);
+}
+.compare-cell__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.compare-cell--yes .compare-cell__glyph {
+  color: var(--summer-green);
+  background: rgba(47, 143, 91, 0.12);
+}
+.compare-cell--partial .compare-cell__glyph {
+  color: var(--summer-persimmon);
+  background: rgba(229, 141, 43, 0.14);
+}
+.compare-cell--no .compare-cell__glyph {
+  color: #9bb0bd;
+  background: rgba(155, 176, 189, 0.16);
+}
+.compare__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  justify-content: center;
+  margin: 18px 2px 0;
+  color: var(--summer-muted);
+  font-size: 0.8rem;
+}
+.compare-legend__item { display: inline-flex; align-items: center; gap: 7px; }
+.compare-legend__item .compare-cell__glyph { width: 22px; height: 22px; font-size: 0.78rem; }
+.compare__note {
+  max-width: 720px;
+  margin: 14px auto 0;
+  color: var(--summer-muted);
+  font-size: 0.76rem;
+  line-height: 1.6;
+  text-align: center;
+}
+.compare-why {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 3rem;
+}
+.compare-why__card {
+  padding: 22px;
+  border: 1px solid var(--summer-line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 12px 24px rgba(33, 88, 110, 0.06);
+}
+.compare-why__card h3 { margin: 10px 0 0; color: var(--summer-ink); font-size: 1.14rem; line-height: 1.2; }
+.compare-why__card p { margin: 10px 0 0; color: #345069; font-size: 0.92rem; line-height: 1.62; }
+
+@media (max-width: 720px) {
+  .compare__title { font-size: 1.4rem; }
+  .compare-why { grid-template-columns: 1fr; }
+}
+
 /* Pricing */
 .pricing-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 1rem; }
 .pricing-card {

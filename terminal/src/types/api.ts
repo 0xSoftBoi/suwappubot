@@ -344,6 +344,20 @@ export interface PerpsAccountStatus {
   withdrawable?: number | null
 }
 
+// A resting (open) HyperLiquid order as returned by /terminal/perps/orders —
+// e.g. a limit entry or a TP/SL trigger. Cancelled by (market, orderId).
+export interface TerminalPerpsOrder {
+  orderId: string
+  market: string
+  side: 'buy' | 'sell'
+  size: number
+  price: number
+  orderType: string // "Limit", "Stop Market", "Take Profit Market", …
+  reduceOnly: boolean
+  isTrigger: boolean
+  triggerPrice: number | null
+}
+
 // A live open perp position as returned by /terminal/perps/positions. `id` is
 // the local PerpPosition row id used to close; it's null when a live HL position
 // has no matching local row (e.g. opened outside Suwappu).
@@ -359,24 +373,39 @@ export interface TerminalPerpsPosition {
   liquidationPrice: number
 }
 
+export type PerpsOrderType = 'market' | 'limit'
+
 export interface PerpsExecuteParams {
   market: string
   side: 'long' | 'short'
   size: number
   leverage: number
-  tpPrice?: number
-  slPrice?: number
+  orderType?: PerpsOrderType
+  limitPrice?: number // required when orderType === 'limit'
+  tpPrice?: number // market only
+  slPrice?: number // market only
 }
 
 export interface PerpsExecuteResult {
   ok: boolean
-  position: {
+  kind?: 'position' | 'order'
+  // Present for a filled market order.
+  position?: {
     id: number
     market: string
     side: 'long' | 'short'
     size: number
     entryPrice: number
     leverage: number
+  }
+  // Present for a resting limit order.
+  order?: {
+    id: number
+    market: string
+    side: 'long' | 'short'
+    size: number
+    price: number
+    status: string
   }
 }
 

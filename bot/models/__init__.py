@@ -36,6 +36,14 @@ from .subscription import (
     APICredit,
 )
 from .predict import PredictionOrder, PredictionPosition
+from .p2p import (
+    P2POffer,
+    P2PTrade,
+    P2PSource,
+    P2POfferType,
+    P2POfferStatus,
+    P2PTradeStatus,
+)
 from .tracking import TrackedTwitterAccount, TrackedWallet
 from .btc_swap import BtcSwap
 from .tempo import TempoSponsorship
@@ -89,6 +97,13 @@ __all__ = [
     # Prediction markets
     "PredictionOrder",
     "PredictionPosition",
+    # P2P marketplace
+    "P2POffer",
+    "P2PTrade",
+    "P2PSource",
+    "P2POfferType",
+    "P2POfferStatus",
+    "P2PTradeStatus",
     "TrackedTwitterAccount",
     "TrackedWallet",
     # BTC bridge (Atomiq)

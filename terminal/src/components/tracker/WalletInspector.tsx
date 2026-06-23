@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getWalletPortfolio, getWalletActivity } from '../../lib/helius'
+import { getWalletPortfolio, getWalletActivity, heliusEnabled } from '../../lib/helius'
 
 const SOL_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
 
@@ -51,6 +51,18 @@ export function WalletInspector() {
     e.preventDefault()
     const a = input.trim()
     if (SOL_ADDRESS.test(a)) setAddress(a)
+  }
+
+  if (!heliusEnabled()) {
+    return (
+      <div className="h-full flex flex-col p-4 gap-3" data-testid="wallet-tracker">
+        <h3 className="text-sm font-semibold">Wallet Inspector</h3>
+        <div className="rounded-lg border border-terminal-border bg-terminal-bg px-3 py-3 text-sm text-terminal-text-muted">
+          Set <span className="font-mono text-terminal-text">VITE_HELIUS_API_KEY</span> to enable
+          live Solana wallet inspection.
+        </div>
+      </div>
+    )
   }
 
   const p = portfolio.data

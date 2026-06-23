@@ -15,6 +15,7 @@ import {
 	internalRoutes,
 	lendRoutes,
 	mcpRoutes,
+	p2pRoutes,
 	perpsRoutes,
 	predictRoutes,
 	publicSwapRoutes,
@@ -84,6 +85,9 @@ export function createApp(config: AppConfig) {
 
 	// Swap routes - mounted first so public endpoints (tokens, chains) are accessible
 	app.route('/webapp/swap', swapRoutes)
+
+	// P2P marketplace (native offer book + trades; external aggregation via bot)
+	app.route('/webapp/p2p', p2pRoutes)
 
 	// Webapp routes - Telegram auth
 	app.route('/webapp', webappRoutes)

@@ -212,6 +212,114 @@ class PerpsService:
         logger.info(f"Opened {side} {market} position for user {user_id}: {size} @ {entry_price}")
         return position
 
+    async def place_limit_order(
+        self,
+        user_id: int,
+        market: str,
+        side: str,
+        size: float,
+        limit_price: float,
+        leverage: int = 1,
+    ) -> Optional[PerpOrder]:
+        """Place a resting GTC limit entry order on HyperLiquid.
+
+        Unlike :meth:`open_position` (a market order that fills immediately and
+        creates a position), a limit order RESTS until the market reaches
+        ``limit_price``. No ``PerpPosition`` is created here — once HyperLiquid
+        fills the order the position surfaces in the live positions poll
+        (``get_open_positions``). We record a ``PerpOrder`` for history. TP/SL is
+        intentionally NOT auto-placed for a limit entry: a reduce-only trigger
+        before a position exists is an HL edge case, so TP/SL is set after fill.
+        """
+        if leverage > self.MAX_LEVERAGE:
+            raise ValueError(f"Maximum leverage is {self.MAX_LEVERAGE}x")
+        if leverage < 1:
+            raise ValueError("Minimum leverage is 1x")
+        if side not in ("long", "short"):
+            raise ValueError("Side must be 'long' or 'short'")
+        if not size or size <= 0:
+            raise ValueError("Size must be greater than zero")
+        if not limit_price or limit_price <= 0:
+            raise ValueError("Limit price must be greater than zero")
+
+        account = self.get_account(user_id)
+        if not account:
+            raise ValueError("HyperLiquid account not set up. Use /perps setup first.")
+
+        api_key, api_secret = self._decrypt_credentials(account)
+
+        # Builder fee + referral, same as the market path, so Suwappu earns on
+        # the order when it fills.
+        builder_address = await self.ensure_builder_approved(account)
+        _, builder_fee = self._builder_config()
+        await self.ensure_referrer(account)
+
+        result = await self._client.place_order(
+            address=account.hl_address,
+            api_key=api_key,
+            api_secret=api_secret,
+            market=market,
+            side=side,
+            size=size,
+            price=limit_price,
+            leverage=leverage,
+            order_type="limit",
+            builder_address=builder_address,
+            builder_fee_tenths_bps=builder_fee if builder_address else None,
+        )
+
+        if not result:
+            raise Exception("Failed to place limit order on HyperLiquid")
+
+        # A GTC limit usually rests ("open"); it may fill instantly if it crosses
+        # the book (then the position shows up in the live poll).
+        filled = result.status == "filled"
+        with get_session() as session:
+            order = PerpOrder(
+                user_id=user_id,
+                exchange="hyperliquid",
+                market=market,
+                side=side,
+                order_type="limit",
+                size=Decimal(str(size)),
+                price=Decimal(str(limit_price)),
+                leverage=leverage,
+                status="filled" if filled else "open",
+                hl_order_id=result.order_id,
+                fill_price=Decimal(str(result.fill_price)) if result.fill_price else None,
+                filled_at=datetime.now(timezone.utc) if filled else None,
+            )
+            session.add(order)
+            session.flush()
+            session.expunge(order)
+
+        logger.info(
+            f"Placed limit {side} {market} for user {user_id}: {size} @ {limit_price} "
+            f"({'filled' if filled else 'resting'})"
+        )
+        return order
+
+    async def get_open_orders(self, user_id: int) -> list[dict]:
+        """Return the user's resting HyperLiquid orders (live, keyed by address)."""
+        account = self.get_account(user_id)
+        if not account or not account.hl_address:
+            return []
+        return await self._client.get_open_orders(account.hl_address)
+
+    async def cancel_order(self, user_id: int, market: str, order_id: str) -> bool:
+        """Cancel a resting HyperLiquid order for the user."""
+        account = self.get_account(user_id)
+        if not account:
+            raise ValueError("HyperLiquid account not found")
+        api_key, api_secret = self._decrypt_credentials(account)
+        return await self._client.cancel_order(
+            address=account.hl_address,
+            api_key=api_key,
+            api_secret=api_secret,
+            market=market,
+            order_id=order_id,
+        )
+
     async def close_position(
         self,
         user_id: int,

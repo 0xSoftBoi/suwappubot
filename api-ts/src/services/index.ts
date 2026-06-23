@@ -130,6 +130,13 @@ export {
 	PolymarketCredentialServiceLive,
 } from './PolymarketCredentialService'
 export {
+	type CreateOfferParams,
+	type ListOffersParams,
+	P2PService,
+	P2PServiceLive,
+	type P2PServiceInterface,
+} from './P2PService'
+export {
 	type LendingMarket,
 	type LendingMarketDetail,
 	MorphoService,

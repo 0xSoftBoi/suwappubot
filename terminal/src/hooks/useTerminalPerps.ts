@@ -47,6 +47,33 @@ export function useExecutePerps() {
     mutationFn: (params: PerpsExecuteParams) => api.executePerps(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['terminal-perps-positions'] })
+      // A limit order rests as an open order; refresh that list too.
+      queryClient.invalidateQueries({ queryKey: ['terminal-perps-orders'] })
+    },
+  })
+}
+
+// Resting (open) HyperLiquid orders for the signed-in user — limit entries and
+// TP/SL triggers. Polls so a freshly-placed or filled order updates.
+export function useTerminalPerpsOrders() {
+  const { isAuthenticated } = useAuth()
+  return useQuery({
+    queryKey: ['terminal-perps-orders'],
+    queryFn: () => api.getTerminalPerpsOrders(),
+    enabled: isAuthenticated,
+    staleTime: 8_000,
+    refetchInterval: 12_000,
+  })
+}
+
+export function useCancelPerpsOrder() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ market, orderId }: { market: string; orderId: string }) =>
+      api.cancelPerpsOrder(market, orderId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['terminal-perps-orders'] })
+      queryClient.invalidateQueries({ queryKey: ['terminal-perps-positions'] })
     },
   })
 }
