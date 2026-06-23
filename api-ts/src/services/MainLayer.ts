@@ -22,6 +22,7 @@ import { HyperliquidServiceLive } from './HyperliquidService'
 import { MorphoServiceLive } from './MorphoService'
 import { PolymarketServiceLive } from './PolymarketService'
 import { PolymarketCredentialServiceLive } from './PolymarketCredentialService'
+import { P2PServiceLive } from './P2PService'
 import { WalletServiceLive } from './WalletService'
 import { StripeServiceLive } from './StripeService'
 import { SmartAccountServiceLive } from './SmartAccountService'
@@ -75,6 +76,7 @@ export const ServicesLayer = Layer.mergeAll(
 	HyperliquidServiceLive,
 	PolymarketServiceLive,
 	MorphoServiceLive,
+	P2PServiceLive,
 )
 
 // Full application layer with all services

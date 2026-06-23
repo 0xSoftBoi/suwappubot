@@ -13,6 +13,11 @@ import bs58 from 'bs58'
 import { setAuthToken, getAuthToken, clearAuthToken } from '../lib/auth'
 import { getPhantom, isPhantomAvailable } from '../lib/phantom'
 import { api } from '../lib/api'
+import {
+  isExternalProvider,
+  isLedgerConnectorId,
+  resolveWalletProviderTag,
+} from '../lib/walletProvider'
 
 interface AuthContextType {
   isAuthenticated: boolean
@@ -37,6 +42,8 @@ interface AuthContextType {
   // walletAddress, which is the authenticated session's wallet.
   connectedAddress: string | null
   isExternalWallet: boolean
+  // True when the external session is a Ledger hardware wallet (subset of external).
+  isHardwareWallet: boolean
   // 'evm' | 'solana' | null — which chain the external session's wallet signs on.
   externalChain: 'evm' | 'solana' | null
 }
@@ -55,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isPasskeySupported, setIsPasskeySupported] = useState(false)
   const [isTelegram, setIsTelegram] = useState(false)
   const queryClient = useQueryClient()
-  const { address: connectedAddress, isConnected } = useAccount()
+  const { address: connectedAddress, isConnected, connector } = useAccount()
   const { signMessageAsync } = useSignMessage()
   const { disconnect } = useDisconnect()
   const { openConnectModal } = useConnectModal()
@@ -384,18 +391,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError(null)
       const { nonce, message } = await api.walletChallenge(connectedAddress)
       const signature = await signMessageAsync({ message })
-      const result = await api.walletVerify(connectedAddress, signature, nonce)
+      // Tag hardware-wallet sessions so the backend records "ledger" and the UI can
+      // badge it. Still an external (client-signing) provider — see isExternalProvider.
+      const providerTag = resolveWalletProviderTag(connector?.id)
+      const result = await api.walletVerify(connectedAddress, signature, nonce, providerTag)
       setAuthToken(result.token, result.expiresAt)
       setUserId(result.userId)
       setWalletAddress(connectedAddress)
-      setWalletProvider('external')
+      setWalletProvider(providerTag)
       setIsAuthenticated(true)
     } catch (err: unknown) {
       setError(errorDetail(err))
     } finally {
       setIsLoading(false)
     }
-  }, [isConnected, connectedAddress, signMessageAsync, openConnectModal])
+  }, [isConnected, connectedAddress, connector, signMessageAsync, openConnectModal])
 
   // Connect Phantom and authenticate via Sign-In-With-Solana (ed25519). Same
   // keyless model as the EVM path: the backend recovers nothing — it verifies the
@@ -468,11 +478,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Session-based: a non-custodial session always routes through the
         // client-signing swap path. If the wallet isn't currently connected, that
         // path prompts a reconnect rather than falling back to custodial signing.
-        isExternalWallet: walletProvider === 'external',
+        isExternalWallet: isExternalProvider(walletProvider),
+        // True for Ledger (and future hardware-wallet) sessions — lets the UI badge
+        // the connection and show "confirm on device" copy. Reflects the live
+        // connector (so it's true while signing, before auth completes) and the
+        // authed provider (so it survives session resume). Subset of external.
+        isHardwareWallet: isLedgerConnectorId(connector?.id) || walletProvider === 'ledger',
         // Derive the external session's chain from its address shape: EVM is
         // 0x-hex, Solana is base58. Drives which signing hook the swap panel uses.
         externalChain:
-          walletProvider === 'external' && walletAddress
+          isExternalProvider(walletProvider) && walletAddress
             ? walletAddress.startsWith('0x')
               ? 'evm'
               : 'solana'

@@ -3,7 +3,10 @@
   "build": {
     "builder": "DOCKERFILE",
     "dockerfilePath": "terminal/Dockerfile",
-    "watchPatterns": ["terminal/**", "packages/design-tokens/**"]
+    "watchPatterns": ["terminal/**", "packages/design-tokens/**"],
+    "buildArgs": {
+      "VITE_WC_PROJECT_ID": "${{ secrets.VITE_WC_PROJECT_ID }}"
+    }
   },
   "deploy": {
     "healthcheckPath": "/health",

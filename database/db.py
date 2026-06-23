@@ -191,6 +191,9 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         # Prediction market models
         from bot.models.predict import PredictionOrder, PredictionPosition
 
+        # P2P marketplace models
+        from bot.models.p2p import P2POffer, P2PTrade
+
         # Token staking models
         from bot.models.token_staking import (
             TokenClaim,
@@ -444,6 +447,19 @@ def _ensure_schema(db_engine) -> None:
 
         TempoSponsorship.__table__.create(bind=db_engine)
         logger.info("Created tempo_sponsorships table")
+
+    # --- p2p_offers / p2p_trades tables (P2P marketplace escrow persistence) ---
+    if not inspector.has_table("p2p_offers"):
+        from bot.models.p2p import P2POffer
+
+        P2POffer.__table__.create(bind=db_engine)
+        logger.info("Created p2p_offers table")
+
+    if not inspector.has_table("p2p_trades"):
+        from bot.models.p2p import P2PTrade
+
+        P2PTrade.__table__.create(bind=db_engine)
+        logger.info("Created p2p_trades table")
 
     # --- prediction_positions: on-chain redemption columns ---
     if "prediction_positions" in tables:

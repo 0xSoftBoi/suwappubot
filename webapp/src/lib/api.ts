@@ -13,6 +13,7 @@ import type { SwapToken, SwapQuote, SwapQuoteRequest, SwapExecuteRequest, SwapEx
 import type { SimulationResult } from '../types/simulation'
 import type { SnipeRequest, SnipeResult, LaunchToken } from '../types/snipe'
 import type { PredictionMarket, PredictionMarketDetail, PredictionEvent, PredictionTrade, MarketPrice, PredictionPosition, PredictionOrderRequest, PredictionOrderResult } from '../types/prediction'
+import type { P2POffersQuery, P2POffersResponse, P2PTradesResponse, P2PMyOffersResponse, P2PStartTradeRequest, P2PStartTradeResult, P2PCreateOfferRequest, P2PCreateOfferResult } from '../types/p2p'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -632,6 +633,40 @@ class ApiClient {
 
   async getPerpsMarkets(): Promise<{ markets: Array<{ name: string; asset: string; szDecimals: number; maxLeverage: number; markPrice: number; fundingRate: number }> }> {
     return this.fetch('/v1/agent/perps/markets')
+  }
+
+  // === P2P Marketplace ===
+
+  async getP2POffers(query: P2POffersQuery): Promise<P2POffersResponse> {
+    const params = new URLSearchParams()
+    params.set('fiatCurrency', query.fiatCurrency)
+    params.set('cryptoAsset', query.cryptoAsset)
+    params.set('offerType', query.offerType)
+    if (query.fiatAmount != null) params.set('fiatAmount', String(query.fiatAmount))
+    if (query.region) params.set('region', query.region)
+    return this.fetch(`/webapp/p2p/offers?${params.toString()}`)
+  }
+
+  async getP2PTrades(): Promise<P2PTradesResponse> {
+    return this.fetch('/webapp/p2p/trades')
+  }
+
+  async getP2PMyOffers(): Promise<P2PMyOffersResponse> {
+    return this.fetch('/webapp/p2p/offers/mine')
+  }
+
+  async startP2PTrade(req: P2PStartTradeRequest): Promise<P2PStartTradeResult> {
+    return this.fetch<P2PStartTradeResult>('/webapp/p2p/trades', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  }
+
+  async createP2POffer(req: P2PCreateOfferRequest): Promise<P2PCreateOfferResult> {
+    return this.fetch<P2PCreateOfferResult>('/webapp/p2p/offers', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
   }
 
   /**

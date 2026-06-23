@@ -810,6 +810,41 @@ class Settings(BaseSettings):
         ),
     )
 
+    # ── P2P marketplace ──────────────────────────────────────────────────────
+    # Suwappu aggregates P2P fiat<>crypto liquidity across its own native
+    # on-chain escrow book plus external providers. Each provider is gated on its
+    # credentials being present; the native book always works.
+    p2p_enabled: bool = Field(default=True, description="Master switch for P2P features")
+    # NoOnes (dev.noones.com) — OAuth2 client-credentials API key/secret.
+    noones_api_key: Optional[str] = Field(
+        default=None, description="NoOnes API client id (dev.noones.com)"
+    )
+    noones_api_secret: Optional[str] = Field(default=None, description="NoOnes API client secret")
+    noones_api_base: str = Field(
+        default="https://api.noones.com", description="NoOnes API base URL"
+    )
+    # P2P.me — no public API yet; we deeplink/handoff and (later) call their API.
+    p2p_me_api_key: Optional[str] = Field(
+        default=None, description="P2P.me API key (when their API ships)"
+    )
+    p2p_me_api_base: str = Field(default="https://api.p2p.me", description="P2P.me API base URL")
+    # Native escrow: USDC token + chain used to lock the crypto leg.
+    p2p_escrow_chain: str = Field(default="base", description="Chain for native P2P USDC escrow")
+    p2p_escrow_token: str = Field(
+        default="USDC", description="Settlement asset for native P2P escrow"
+    )
+    p2p_escrow_hot_wallet_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "HotWallet id holding native P2P escrow funds (custodial-during-trade). "
+            "Falls back to the primary EVM deposit hot wallet when unset."
+        ),
+    )
+    # Comma-separated ISO2 regions blocked from P2P (regulatory).
+    p2p_restricted_regions: Optional[str] = Field(
+        default=None, description="Comma-separated ISO2 regions blocked from P2P"
+    )
+
     # Fee Configuration (competitive pricing)
     # NOTE: this is a LEGACY flat-fee setting. It is NOT used to charge swaps —
     # the charged fee is tier-based via fee_service.TIER_FEE_RATES (the single
