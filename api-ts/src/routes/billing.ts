@@ -241,7 +241,22 @@ billingRoutes.post('/crypto', ipRateLimit(10), telegramAuth(), async (c) => {
 
 			// 3) Record payment (idempotent) + grant the subscription atomically.
 			const now = new Date()
-			const expiresAt = new Date(now.getTime() + SUBSCRIPTION_PERIOD_DAYS * 24 * 60 * 60 * 1000)
+			// Prepaid window (no auto-renew): extend from current expiry if still active.
+			const currentRows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ expiresAt: subscriptions.expiresAt })
+						.from(subscriptions)
+						.where(eq(subscriptions.userId, dbUserId))
+						.limit(1),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+			const currentExpiry = currentRows[0]?.expiresAt
+			const base =
+				currentExpiry && new Date(currentExpiry).getTime() > now.getTime()
+					? new Date(currentExpiry)
+					: now
+			const expiresAt = new Date(base.getTime() + SUBSCRIPTION_PERIOD_DAYS * 24 * 60 * 60 * 1000)
 
 			const granted = yield* Effect.tryPromise({
 				try: () =>
@@ -291,10 +306,11 @@ billingRoutes.post('/crypto', ipRateLimit(10), telegramAuth(), async (c) => {
 		already_processed: r.alreadyProcessed,
 		tier: r.tier,
 		expires_at: r.expiresAt,
+		auto_renew: false,
 		fee_rate_percent: FEE_RATES[r.tier ?? 'free'] ?? 1.0,
 		message: r.alreadyProcessed
 			? 'This payment was already processed (idempotent).'
-			: `Subscribed to ${r.tier}.`,
+			: `Prepaid ${r.tier} access window active (no auto-renew — pay again to extend).`,
 	})
 })
 
