@@ -182,6 +182,11 @@ class HyperLiquidClient:
                     "margin_summary": data.get("marginSummary", {}),
                     "positions": data.get("assetPositions", []),
                     "cross_margin_summary": data.get("crossMarginSummary", {}),
+                    # Top-level clearinghouseState fields needed for account health.
+                    "maintenance_margin_used": float(
+                        data.get("crossMaintenanceMarginUsed", 0) or 0
+                    ),
+                    "withdrawable": float(data.get("withdrawable", 0) or 0),
                 }
             return None
         except Exception as e:
@@ -383,6 +388,44 @@ class HyperLiquidClient:
         except Exception as e:
             logger.error(f"Failed to cancel order: {e}")
             return False
+
+    async def get_open_orders(self, address: str) -> list[dict]:
+        """Return the user's resting (open) orders via ``frontendOpenOrders``.
+
+        ``frontendOpenOrders`` is richer than ``openOrders`` — it includes the
+        order type and trigger info, so resting limits and TP/SL triggers are
+        distinguishable in the UI. ``side`` is HL's "B"/"A" (buy/sell).
+        """
+        try:
+            client = await self._get_client()
+            response = await client.post(
+                self.INFO_URL,
+                json={"type": "frontendOpenOrders", "user": address},
+            )
+            if response.status_code != 200:
+                return []
+
+            orders = []
+            for o in response.json() or []:
+                trigger_px = o.get("triggerPx")
+                orders.append(
+                    {
+                        "order_id": str(o.get("oid", "")),
+                        "market": o.get("coin", "") + "-USD",
+                        "side": "buy" if o.get("side") == "B" else "sell",
+                        "size": float(o.get("sz", 0) or 0),
+                        "price": float(o.get("limitPx", 0) or 0),
+                        "order_type": o.get("orderType", "Limit"),
+                        "reduce_only": bool(o.get("reduceOnly", False)),
+                        "is_trigger": bool(o.get("isTrigger", False)),
+                        "trigger_price": float(trigger_px) if trigger_px else None,
+                        "timestamp": o.get("timestamp"),
+                    }
+                )
+            return orders
+        except Exception as e:
+            logger.error(f"Failed to get open orders: {e}")
+            return []
 
     async def approve_builder_fee(
         self,

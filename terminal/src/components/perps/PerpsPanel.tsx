@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import toast from 'react-hot-toast'
-import type { HLMarket } from '../../types/api'
+import type { HLMarket, PerpsOrderType } from '../../types/api'
 import { useAuth } from '../../contexts/AuthContext'
 import { usePerpsFunding, formatCountdown, formatFundingPct } from '../../hooks/usePerpsFunding'
 import { usePerpsMarginMode } from '../../hooks/usePerpsMarginMode'
@@ -21,9 +21,15 @@ interface Props {
 export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
   const { isAuthenticated } = useAuth()
   const [side, setSide] = useState<'long' | 'short'>('long')
+  const [orderType, setOrderType] = useState<PerpsOrderType>('market')
   const [size, setSize] = useState('')
+  const [limitPrice, setLimitPrice] = useState('')
+  const [tpPrice, setTpPrice] = useState('')
+  const [slPrice, setSlPrice] = useState('')
   const [leverage, setLeverage] = useState(5)
   const [marginMode, setMarginMode] = usePerpsMarginMode()
+
+  const numeric = (raw: string) => raw.replace(/[^\d.]/g, '')
 
   const { data: account } = usePerpsAccount()
   const execute = useExecutePerps()
@@ -38,22 +44,67 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
 
   const connected = !!account?.connected
   const sizeNum = parseFloat(size)
+  const limitNum = parseFloat(limitPrice)
+  const tpNum = parseFloat(tpPrice)
+  const slNum = parseFloat(slPrice)
+  const isLimit = orderType === 'limit'
+  const limitValid = !isLimit || limitNum > 0
+  // Reference price for the order summary — the limit price for a limit order,
+  // otherwise the live mark.
+  const refPrice = isLimit && limitNum > 0 ? limitNum : market?.markPrice ?? 0
+
+  // Estimated liquidation for a FRESH ISOLATED position, excluding fees &
+  // funding. HyperLiquid's maintenance margin is half the initial margin at max
+  // leverage → maintenance-margin fraction = 1/(2·maxLeverage). Cross margin and
+  // existing positions move the real level, so this is labelled an estimate.
+  const mmf = market?.maxLeverage ? 1 / (2 * market.maxLeverage) : 0
+  const liqPrice =
+    refPrice > 0 && leverage > 0 && mmf > 0 && mmf < 1
+      ? side === 'long'
+        ? (refPrice * (1 - 1 / leverage)) / (1 - mmf)
+        : (refPrice * (1 + 1 / leverage)) / (1 + mmf)
+      : 0
+  const liqDistancePct = liqPrice > 0 ? (Math.abs(liqPrice - refPrice) / refPrice) * 100 : 0
+  const maintMargin = mmf * sizeNum * refPrice
+
+  // Live account health: maintenance margin ÷ equity, PROJECTED to include this
+  // order. At 100% the account is liquidated. Null when equity is unavailable
+  // (HL fetch failed or no funds) — the UI just omits the bar then.
+  const equity = account?.accountValue ?? null
+  const projectedMaint = (account?.maintenanceMarginUsed ?? 0) + (maintMargin > 0 ? maintMargin : 0)
+  const marginRatioPct =
+    equity && equity > 0 ? Math.min((projectedMaint / equity) * 100, 100) : null
+
   const canSubmit =
-    isAuthenticated && connected && market && sizeNum > 0 && !execute.isPending
+    isAuthenticated && connected && market && sizeNum > 0 && limitValid && !execute.isPending
 
   async function submit() {
     if (!market || !(sizeNum > 0)) return
+    if (isLimit && !(limitNum > 0)) return
     try {
       const res = await execute.mutateAsync({
         market: selectedMarket,
         side,
         size: sizeNum,
         leverage,
+        orderType,
+        limitPrice: isLimit ? limitNum : undefined,
+        tpPrice: !isLimit && tpNum > 0 ? tpNum : undefined,
+        slPrice: !isLimit && slNum > 0 ? slNum : undefined,
       })
-      toast.success(
-        `${side === 'long' ? 'Long' : 'Short'} ${res.position.size} ${market.asset} @ $${res.position.entryPrice.toFixed(2)}`,
-      )
+      if (res.kind === 'order' && res.order) {
+        toast.success(
+          `Limit ${side} ${res.order.size} ${market.asset} resting @ $${res.order.price.toFixed(2)}`,
+        )
+      } else if (res.position) {
+        toast.success(
+          `${side === 'long' ? 'Long' : 'Short'} ${res.position.size} ${market.asset} @ $${res.position.entryPrice.toFixed(2)}`,
+        )
+      }
       setSize('')
+      setLimitPrice('')
+      setTpPrice('')
+      setSlPrice('')
     } catch (e) {
       toast.error((e as { detail?: string })?.detail || 'Order failed. Try again.')
     }
@@ -64,6 +115,27 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">Perpetuals</h3>
         <span className="text-xs text-terminal-text-muted">via HyperLiquid</span>
+      </div>
+
+      {/* Order type — market fills now; limit rests until price is reached */}
+      <div role="radiogroup" aria-label="Order type" className="grid grid-cols-2 gap-1">
+        {(['market', 'limit'] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            role="radio"
+            aria-checked={orderType === t}
+            onClick={() => setOrderType(t)}
+            className={`py-1.5 rounded text-xs font-semibold capitalize transition-colors
+              ${
+                orderType === t
+                  ? 'bg-terminal-bg-tertiary border border-sakura-500 text-terminal-text'
+                  : 'bg-terminal-bg border border-terminal-border text-terminal-text-secondary'
+              }`}
+          >
+            {t}
+          </button>
+        ))}
       </div>
 
       {/* Market selector */}
@@ -157,11 +229,28 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
           type="text"
           inputMode="decimal"
           value={size}
-          onChange={(e) => setSize(e.target.value)}
+          onChange={(e) => setSize(numeric(e.target.value))}
           placeholder="0.0"
           className="terminal-input w-full font-mono"
         />
       </div>
+
+      {/* Limit price — only for a limit order */}
+      {isLimit && (
+        <div>
+          <label className="text-xs text-terminal-text-secondary mb-1 block">
+            Limit price (USD)
+          </label>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={limitPrice}
+            onChange={(e) => setLimitPrice(numeric(e.target.value))}
+            placeholder={market ? market.markPrice.toFixed(2) : '0.00'}
+            className="terminal-input w-full font-mono"
+          />
+        </div>
+      )}
 
       {/* Leverage slider */}
       <div>
@@ -183,22 +272,109 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
         </div>
       </div>
 
+      {/* Take profit / stop loss — market orders only (a limit entry has no
+          position yet to attach reduce-only triggers to). Both optional. */}
+      {!isLimit && (
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-xs text-terminal-text-secondary mb-1 block">Take profit</label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={tpPrice}
+              onChange={(e) => setTpPrice(numeric(e.target.value))}
+              placeholder="Optional"
+              aria-label="Take profit price"
+              className="terminal-input w-full font-mono"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-terminal-text-secondary mb-1 block">Stop loss</label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={slPrice}
+              onChange={(e) => setSlPrice(numeric(e.target.value))}
+              placeholder="Optional"
+              aria-label="Stop loss price"
+              className="terminal-input w-full font-mono"
+            />
+          </div>
+        </div>
+      )}
+
       {/* Summary */}
-      {sizeNum > 0 && market && (
+      {sizeNum > 0 && market && refPrice > 0 && (
         <div className="bg-terminal-bg rounded-lg p-3 space-y-1.5 text-xs">
           <div className="flex justify-between">
-            <span className="text-terminal-text-secondary">Entry Price</span>
-            <span className="font-mono">${market.markPrice.toFixed(2)}</span>
+            <span className="text-terminal-text-secondary">
+              {isLimit ? 'Limit Price' : 'Entry Price'}
+            </span>
+            <span className="font-mono">${refPrice.toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-terminal-text-secondary">Margin ({marginMode})</span>
-            <span className="font-mono">
-              ${((sizeNum * market.markPrice) / leverage).toFixed(2)}
-            </span>
+            <span className="font-mono">${((sizeNum * refPrice) / leverage).toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-terminal-text-secondary">Notional</span>
-            <span className="font-mono">${(sizeNum * market.markPrice).toFixed(2)}</span>
+            <span className="font-mono">${(sizeNum * refPrice).toFixed(2)}</span>
+          </div>
+          {maintMargin > 0 && (
+            <div className="flex justify-between">
+              <span className="text-terminal-text-secondary">Maint. margin</span>
+              <span className="font-mono">${maintMargin.toFixed(2)}</span>
+            </div>
+          )}
+          {liqPrice > 0 && (
+            <div className="flex justify-between">
+              <span
+                className="text-terminal-text-secondary"
+                title="Estimated for an isolated position; excludes fees & funding. Cross margin and existing positions shift the real level."
+              >
+                Est. liq. price
+              </span>
+              <span className="font-mono text-bear">
+                ${liqPrice.toFixed(2)}
+                <span className="ml-1 text-terminal-text-muted">
+                  ({liqDistancePct.toFixed(1)}% away)
+                </span>
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Live account health — maintenance margin ÷ equity, after this order */}
+      {connected && marginRatioPct != null && (
+        <div className="bg-terminal-bg rounded-lg p-3 space-y-1.5 text-xs">
+          <div className="flex justify-between">
+            <span className="text-terminal-text-secondary">Account equity</span>
+            <span className="font-mono">${(equity ?? 0).toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span
+              className="text-terminal-text-secondary"
+              title="Maintenance margin ÷ account equity, including this order. At 100% the account is liquidated."
+            >
+              Margin ratio{maintMargin > 0 ? ' (after)' : ''}
+            </span>
+            <span className="font-mono">{marginRatioPct.toFixed(1)}%</span>
+          </div>
+          <div
+            className="h-1.5 w-full overflow-hidden rounded-full bg-terminal-bg-tertiary"
+            role="progressbar"
+            aria-label="Account margin ratio"
+            aria-valuenow={Math.round(marginRatioPct)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <div
+              className={`h-full transition-all ${
+                marginRatioPct < 50 ? 'bg-bull' : marginRatioPct < 80 ? 'bg-yellow-500' : 'bg-bear'
+              }`}
+              style={{ width: `${Math.max(marginRatioPct, 2)}%` }}
+            />
           </div>
         </div>
       )}
@@ -221,7 +397,9 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
         >
           {execute.isPending
             ? 'Placing…'
-            : `${side === 'long' ? 'Long' : 'Short'} ${market?.asset || ''}`}
+            : isLimit
+              ? `Place limit ${side}`
+              : `${side === 'long' ? 'Long' : 'Short'} ${market?.asset || ''}`}
         </button>
       )}
     </div>

@@ -771,6 +771,10 @@ class AuthMeResponse(BaseModel):
     address: Optional[str] = None
     userId: Optional[int] = None
     createdAt: Optional[datetime] = None
+    # "external" => non-custodial (connected wallet signs client-side);
+    # "turnkey"/"local" => custodial (server signs). Lets the client pick the
+    # right swap path on session resume, before any wallet re-connects.
+    walletProvider: Optional[str] = None
 
 
 # --- JWT Configuration ---
@@ -998,14 +1002,19 @@ async def auth_verify(
         db.commit()
         db.refresh(user)
 
-        # Create wallet linked to user
+        # Create wallet linked to user. This is a NON-CUSTODIAL connection: the
+        # user proved ownership by signing the SIWE challenge with their external
+        # wallet (MetaMask / WalletConnect / etc.), so we store NO private key and
+        # mark the provider "external" — the server can never sign for it; the
+        # connected wallet signs swaps client-side via /webapp/swap/build.
         wallet = Wallet(
             user_id=user.id,
             address=address,
             chain_type="evm",
             is_active=True,
             is_default=True,
-            name="Web Wallet",
+            wallet_provider="external",
+            name="Connected Wallet",
             created_at=datetime.utcnow(),
         )
         db.add(wallet)
@@ -1016,6 +1025,106 @@ async def auth_verify(
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 
     # Set secure HTTP-only cookie
+    response.set_cookie(
+        key="suwappu_auth",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=JWT_EXPIRY_HOURS * 3600,
+        path="/",
+    )
+
+    return AuthVerifyResponse(
+        success=True,
+        token=token,
+        user={"id": user.id, "address": address, "username": user.username},
+        expiresAt=expires_at,
+    )
+
+
+# ============ Solana (Phantom) Web Authentication ============
+
+
+def _is_valid_solana_address(address: str) -> bool:
+    """A Solana pubkey is base58 and decodes to exactly 32 bytes."""
+    try:
+        import base58
+
+        return len(base58.b58decode(address)) == 32
+    except Exception:
+        return False
+
+
+@app.post("/auth/solana/challenge", response_model=AuthChallengeResponse, tags=["Auth"])
+async def auth_solana_challenge(request: AuthChallengeRequest):
+    """
+    Generate a Sign-In-With-Solana challenge for a Phantom/Solana wallet to sign.
+    """
+    from bot.services.turnkey_client import generate_solana_auth_challenge
+
+    address = request.address.strip()
+    if not _is_valid_solana_address(address):
+        raise HTTPException(status_code=400, detail="Invalid Solana address format")
+
+    result = generate_solana_auth_challenge(address)
+
+    return AuthChallengeResponse(
+        challenge=result["challenge"],
+        nonce=result["nonce"],
+        expiresAt=datetime.utcnow() + timedelta(minutes=5),
+    )
+
+
+@app.post("/auth/solana/verify", response_model=AuthVerifyResponse, tags=["Auth"])
+async def auth_solana_verify(
+    request: AuthVerifyRequest, response: Response, db: Session = Depends(get_db)
+):
+    """
+    Verify a Solana (ed25519) signed challenge and create a session.
+
+    Non-custodial: the user proved ownership by signing with Phantom, so the
+    wallet is stored keyless (wallet_provider="external", chain_type="solana").
+    NOTE: the base58 address is CASE-SENSITIVE — do not lowercase it.
+    """
+    from bot.services.turnkey_client import verify_solana_auth_signature
+
+    address = request.address.strip()
+    if not _is_valid_solana_address(address):
+        raise HTTPException(status_code=400, detail="Invalid Solana address format")
+
+    is_valid = verify_solana_auth_signature(
+        address=address, signature=request.signature, nonce=request.nonce
+    )
+    if not is_valid:
+        raise HTTPException(status_code=401, detail="Invalid signature or expired challenge")
+
+    # Find or create the user by this exact (case-sensitive) Solana address.
+    wallet = db.query(Wallet).filter(Wallet.address == address).first()
+    if wallet:
+        user = db.query(User).filter(User.id == wallet.user_id).first()
+    else:
+        user = User(telegram_id=None, username=f"sol_{address[:8]}", created_at=datetime.utcnow())
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+        wallet = Wallet(
+            user_id=user.id,
+            address=address,
+            chain_type="solana",
+            is_active=True,
+            is_default=True,
+            wallet_provider="external",
+            name="Connected Wallet",
+            created_at=datetime.utcnow(),
+        )
+        db.add(wallet)
+        db.commit()
+
+    token = create_jwt_token(address, user.id)
+    expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
+
     response.set_cookie(
         key="suwappu_auth",
         value=token,
@@ -1051,11 +1160,21 @@ async def auth_me(
     if not user:
         return AuthMeResponse(authenticated=False)
 
+    # Resolve the wallet's provider so the client knows whether this session is
+    # custodial (server signs) or external/non-custodial (wallet signs).
+    address = current_user.get("address")
+    wallet_provider = None
+    if address:
+        wallet = db.query(Wallet).filter(Wallet.address.ilike(address)).first()
+        if wallet:
+            wallet_provider = wallet.wallet_provider
+
     return AuthMeResponse(
         authenticated=True,
-        address=current_user.get("address"),
+        address=address,
         userId=user.id,
         createdAt=user.created_at,
+        walletProvider=wallet_provider,
     )
 
 

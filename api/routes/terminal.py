@@ -357,13 +357,20 @@ class PerpsExecuteBody(BaseModel):
     side: str  # "long" | "short"
     size: float
     leverage: int = 1
-    tpPrice: Optional[float] = None
-    slPrice: Optional[float] = None
+    orderType: str = "market"  # "market" | "limit"
+    limitPrice: Optional[float] = None  # required when orderType == "limit"
+    tpPrice: Optional[float] = None  # market only
+    slPrice: Optional[float] = None  # market only
 
 
 class PerpsCloseBody(BaseModel):
     positionId: int
     percent: float = 100.0
+
+
+class PerpsCancelBody(BaseModel):
+    market: str
+    orderId: str
 
 
 # --- Predict request models ---
@@ -384,12 +391,41 @@ class PredictOrderBody(BaseModel):
 
 @router.get("/perps/account")
 async def terminal_perps_account(request: Request):
-    """Report whether the user has a connected HyperLiquid account."""
+    """Report the user's HyperLiquid connection + live account health.
+
+    ``accountValue`` (equity), ``maintenanceMarginUsed`` and ``totalMarginUsed``
+    let the order ticket show a real margin ratio / health bar. The live fetch is
+    best-effort — if HyperLiquid is unreachable the financial fields come back
+    null and the UI falls back to its estimate.
+    """
     uid = int(_terminal_user(request)["user_id"])
     from bot.services.perps_service import perps_service
 
     acct = perps_service.get_account(uid)
-    return {"connected": bool(acct), "address": acct.hl_address if acct else None}
+    if not acct:
+        return {"connected": False, "address": None}
+
+    out = {
+        "connected": True,
+        "address": acct.hl_address,
+        "accountValue": None,
+        "maintenanceMarginUsed": None,
+        "totalMarginUsed": None,
+        "withdrawable": None,
+    }
+
+    try:
+        state = await perps_service._client.get_account_state(acct.hl_address)
+        if state:
+            summary = state.get("margin_summary", {})
+            out["accountValue"] = _to_float(summary.get("accountValue"))
+            out["totalMarginUsed"] = _to_float(summary.get("totalMarginUsed"))
+            out["maintenanceMarginUsed"] = _to_float(state.get("maintenance_margin_used"))
+            out["withdrawable"] = _to_float(state.get("withdrawable"))
+    except Exception as e:
+        logger.warning("terminal perps account state fetch failed: %s", e)
+
+    return out
 
 
 @router.post("/perps/connect")
@@ -480,13 +516,100 @@ async def terminal_perps_positions(request: Request):
     return {"positions": positions}
 
 
-@router.post("/perps/execute")
-async def terminal_perps_execute(request: Request, body: PerpsExecuteBody):
-    """Open a HyperLiquid perp position. Delegates signing to perps_service."""
+@router.get("/perps/orders")
+async def terminal_perps_orders(request: Request):
+    """Return the user's resting (open) HyperLiquid orders, e.g. limit entries."""
     uid = int(_terminal_user(request)["user_id"])
     from bot.services.perps_service import perps_service
 
     try:
+        orders = await perps_service.get_open_orders(uid)
+    except Exception as e:
+        logger.error("terminal perps open orders failed: %s", e)
+        orders = []
+
+    return {
+        "orders": [
+            {
+                "orderId": o.get("order_id"),
+                "market": o.get("market"),
+                "side": o.get("side"),
+                "size": _to_float(o.get("size")),
+                "price": _to_float(o.get("price")),
+                "orderType": o.get("order_type"),
+                "reduceOnly": bool(o.get("reduce_only")),
+                "isTrigger": bool(o.get("is_trigger")),
+                "triggerPrice": _to_float(o.get("trigger_price")),
+            }
+            for o in orders
+        ]
+    }
+
+
+@router.post("/perps/cancel")
+async def terminal_perps_cancel(request: Request, body: PerpsCancelBody):
+    """Cancel a resting HyperLiquid order for the signed-in user."""
+    uid = int(_terminal_user(request)["user_id"])
+    from bot.services.perps_service import perps_service
+
+    try:
+        ok = await perps_service.cancel_order(
+            user_id=uid, market=body.market, order_id=body.orderId
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("terminal perps cancel failed: %s", e)
+        raise HTTPException(status_code=502, detail="Could not cancel the order. Try again.")
+
+    if not ok:
+        raise HTTPException(status_code=502, detail="Could not cancel the order. Try again.")
+    return {"ok": True}
+
+
+@router.post("/perps/execute")
+async def terminal_perps_execute(request: Request, body: PerpsExecuteBody):
+    """Open a HyperLiquid perp position (market) or rest a limit entry.
+
+    Market orders fill immediately and create a position (with optional TP/SL).
+    Limit orders rest until the market reaches the price — no position exists
+    until the fill surfaces in the live positions poll. Signing is delegated to
+    perps_service.
+    """
+    uid = int(_terminal_user(request)["user_id"])
+    from bot.services.perps_service import perps_service
+
+    is_limit = (body.orderType or "market").lower() == "limit"
+
+    try:
+        if is_limit:
+            if body.limitPrice is None:
+                raise ValueError("Limit price is required for a limit order.")
+            order = await perps_service.place_limit_order(
+                user_id=uid,
+                market=body.market,
+                side=body.side,
+                size=body.size,
+                limit_price=body.limitPrice,
+                leverage=body.leverage,
+            )
+            if not order:
+                raise HTTPException(
+                    status_code=502, detail="Order failed on HyperLiquid. Try again."
+                )
+            return {
+                "ok": True,
+                "kind": "order",
+                "order": {
+                    "id": order.id,
+                    "market": order.market,
+                    "side": order.side,
+                    "size": _to_float(order.size),
+                    "price": _to_float(order.price),
+                    "status": order.status,
+                },
+            }
+
         pos = await perps_service.open_position(
             user_id=uid,
             market=body.market,
@@ -498,6 +621,8 @@ async def terminal_perps_execute(request: Request, body: PerpsExecuteBody):
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("terminal perps execute failed: %s", e)
         raise HTTPException(status_code=502, detail="Order failed on HyperLiquid. Try again.")
@@ -507,6 +632,7 @@ async def terminal_perps_execute(request: Request, body: PerpsExecuteBody):
 
     return {
         "ok": True,
+        "kind": "position",
         "position": {
             "id": pos.id,
             "market": pos.market,

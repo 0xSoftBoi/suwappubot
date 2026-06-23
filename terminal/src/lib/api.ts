@@ -4,6 +4,10 @@ import type {
   SwapQuote,
   SwapExecuteRequest,
   SwapExecuteResult,
+  SwapBuildRequest,
+  SwapBuildResult,
+  SwapRecordRequest,
+  SwapRecordResult,
   CopilotResponse,
   PasskeyAuthInitResponse,
   PasskeyAuthCompleteResponse,
@@ -20,6 +24,7 @@ import type {
   PredictionMarket,
   PerpsAccountStatus,
   TerminalPerpsPosition,
+  TerminalPerpsOrder,
   PerpsExecuteParams,
   PerpsExecuteResult,
   PredictionPositionRow,
@@ -111,16 +116,42 @@ export const api = {
     return { token: result.token, expiresAt: result.expiresAt, userId: result.user?.id ?? 0 }
   },
 
+  // Solana (Phantom) SIWS auth — mirrors the EVM challenge/verify but ed25519.
+  async solanaChallenge(address: string) {
+    const result = await request<{ nonce: string; challenge: string }>('/auth/solana/challenge', {
+      method: 'POST',
+      body: JSON.stringify({ address }),
+    })
+    return { nonce: result.nonce, message: result.challenge }
+  },
+
+  async solanaVerify(address: string, signature: string, nonce: string) {
+    const result = await request<{
+      token: string
+      expiresAt: string
+      user?: { id?: number }
+    }>('/auth/solana/verify', {
+      method: 'POST',
+      body: JSON.stringify({ address, signature, nonce }),
+    })
+    return { token: result.token, expiresAt: result.expiresAt, userId: result.user?.id ?? 0 }
+  },
+
   async getMe() {
     const result = await request<{
       authenticated: boolean
       userId?: number
       address?: string
+      walletProvider?: string
     }>('/auth/me')
     if (!result.authenticated || !result.userId || !result.address) {
       throw { detail: 'Not authenticated', status: 401 }
     }
-    return { userId: result.userId, walletAddress: result.address }
+    return {
+      userId: result.userId,
+      walletAddress: result.address,
+      walletProvider: result.walletProvider ?? null,
+    }
   },
 
   // Telegram Mini App login: validate the WebApp initData server-side (HMAC over
@@ -232,6 +263,31 @@ export const api = {
     })
   },
 
+  // Non-custodial swap: build unsigned tx(s) for the connected external wallet to
+  // sign client-side (server holds no key), then record the broadcast tx hash.
+  buildSwap(req: SwapBuildRequest) {
+    return request<SwapBuildResult>('/webapp/swap/build', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  },
+
+  recordSwap(req: SwapRecordRequest) {
+    return request<SwapRecordResult>('/webapp/swap/record', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  },
+
+  // Submit a Phantom-signed Solana tx to the Jito block engine (MEV-protected
+  // bundle landing) via the server proxy. Returns the on-chain signature.
+  submitJitoSwap(signedTransaction: string) {
+    return request<{ signature: string }>('/webapp/swap/submit-jito', {
+      method: 'POST',
+      body: JSON.stringify({ signedTransaction }),
+    })
+  },
+
   // Tokens
   getPopularTokens(chain?: string) {
     const params = chain ? `?chain=${chain}` : ''
@@ -334,6 +390,19 @@ export const api = {
     return request<{ ok: boolean; result: unknown }>('/terminal/perps/close', {
       method: 'POST',
       body: JSON.stringify({ positionId, percent }),
+    })
+  },
+
+  getTerminalPerpsOrders() {
+    return request<{ orders: TerminalPerpsOrder[] }>('/terminal/perps/orders').then(
+      (r) => r.orders ?? []
+    )
+  },
+
+  cancelPerpsOrder(market: string, orderId: string) {
+    return request<{ ok: boolean }>('/terminal/perps/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ market, orderId }),
     })
   },
 

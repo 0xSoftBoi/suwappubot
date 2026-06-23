@@ -17,7 +17,11 @@ export function QuoteComparison({ quote }: Props) {
             : "text-impact-severe";
 
   return (
-    <div className="space-y-1.5 rounded-[var(--terminal-radius-card)] bg-terminal-bg px-3 py-2.5 text-[11px]">
+    <div
+      aria-live="polite"
+      aria-label="Swap quote details"
+      className="space-y-1.5 rounded-[var(--terminal-radius-card)] bg-terminal-bg px-3 py-2.5 text-[11px]"
+    >
       <div className="flex justify-between">
         <span className="text-terminal-text-secondary">Rate</span>
         <span className="font-mono">
@@ -47,7 +51,7 @@ export function QuoteComparison({ quote }: Props) {
 
       <div className="flex justify-between">
         <span className="text-terminal-text-secondary">Route</span>
-        <span className="ml-2 truncate text-[#8e6635]">{quote.route}</span>
+        <span className="ml-2 truncate font-mono text-terminal-text">{quote.route}</span>
       </div>
 
       {quote.estimatedDuration && (

@@ -301,6 +301,87 @@ class WebAppSwapExecuteResponse(BaseModel):
     swap: Dict[str, str]
 
 
+# --- Non-custodial (external wallet) swap models ---
+
+
+class WebAppSwapBuildRequest(BaseModel):
+    fromToken: str
+    toToken: str
+    fromChain: str
+    toChain: str
+    amount: str
+    slippage: Optional[float] = 0.5
+    fromAddress: str  # the connected external wallet (MetaMask / WalletConnect)
+    # Solana priority-fee tier (landing speed under congestion). Maps to a
+    # Jupiter priorityLevel + lamports cap server-side. EVM swaps ignore it.
+    priority: Optional[str] = "normal"
+    # Optional live per-CU priority price (micro-lamports), e.g. a Helius network
+    # estimate from the client. When set (non-turbo), it sets the exact priority
+    # price instead of the tier's priorityLevel cap. EVM swaps ignore it.
+    computeUnitPriceMicroLamports: Optional[int] = None
+
+
+# Solana speed tiers. normal/fast use a Jupiter priority fee (priorityLevel +
+# lamports cap). turbo uses a Jito tip → the tx is submitted to the Jito block
+# engine for MEV-protected bundle landing. 1_000_000 lamports = 0.001 SOL.
+# Tune here without a client deploy.
+_SOLANA_PRIORITY_TIERS: Dict[str, dict] = {
+    "normal": {"priority_level": "medium", "max_lamports": 1_000_000, "jito_tip_lamports": None},
+    "fast": {"priority_level": "high", "max_lamports": 5_000_000, "jito_tip_lamports": None},
+    # turbo: MEV-protected Jito bundle, ~0.005 SOL tip.
+    "turbo": {
+        "priority_level": "veryHigh",
+        "max_lamports": 10_000_000,
+        "jito_tip_lamports": 5_000_000,
+    },
+}
+
+
+class WebAppUnsignedTx(BaseModel):
+    to: str
+    data: str
+    value: str  # hex quantity, e.g. "0x0"
+    chainId: int
+    gas: Optional[str] = None  # hex quantity; absent => wallet estimates
+
+
+class WebAppSwapBuildResponse(BaseModel):
+    quoteId: str
+    chain: str = "evm"  # "evm" | "solana"
+    # EVM (MetaMask / WalletConnect): unsigned tx + optional ERC-20 approval.
+    chainId: Optional[int] = None
+    tx: Optional[WebAppUnsignedTx] = None
+    approval: Optional[WebAppUnsignedTx] = None
+    spender: Optional[str] = None
+    # Solana (Phantom): base64 VersionedTransaction the wallet signs + sends.
+    swapTransaction: Optional[str] = None
+    # When true (turbo tier), the signed tx must go to /swap/submit-jito for
+    # MEV-protected bundle landing rather than being broadcast via a normal RPC.
+    jito: bool = False
+    fromToken: WebAppSwapToken
+    toToken: WebAppSwapToken
+    fromAmount: str
+    toAmount: str
+    minReceived: str
+    priceImpact: float
+    gasUsd: float
+    route: str
+    expiresAt: str
+
+
+class WebAppSwapRecordRequest(BaseModel):
+    quoteId: str
+    txHash: str
+
+
+class WebAppSwapRecordResponse(BaseModel):
+    success: bool
+    swapId: int
+    status: str
+    txHash: str
+    explorerUrl: Optional[str] = None
+
+
 class WebAppFollowSettings(BaseModel):
     copyMode: str = "notify"
     fixedAmount: Optional[float] = None
@@ -2409,6 +2490,230 @@ async def execute_terminal_swap(
             "fromAmount": swap.from_amount,
             "expectedToAmount": swap.to_amount or str(quote.to_amount_human),
         },
+    )
+
+
+@router.post("/swap/build", response_model=WebAppSwapBuildResponse)
+async def build_terminal_swap(
+    body: WebAppSwapBuildRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """
+    Build the unsigned transaction(s) for a NON-CUSTODIAL (external wallet) swap.
+
+    The connected wallet (MetaMask / WalletConnect / etc.) signs and broadcasts
+    client-side; the server never holds the key. Returns the unsigned swap tx plus
+    an optional ERC-20 approval tx. Pair with POST /swap/record after broadcast.
+    """
+    from bot.services.swap_engine import SwapEngine, SwapError
+
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    try:
+        amount = float(body.amount)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid amount")
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than zero")
+
+    address = body.fromAddress.strip()
+    is_solana = body.fromChain.lower() == "solana"
+    if not is_solana and not (address.startswith("0x") and len(address) == 42):
+        raise HTTPException(status_code=400, detail="Invalid wallet address")
+
+    from_symbol = _token_symbol_for_address(body.fromChain, body.fromToken)
+    to_symbol = _token_symbol_for_address(body.toChain, body.toToken)
+
+    try:
+        if is_solana:
+            tier = _SOLANA_PRIORITY_TIERS.get(
+                (body.priority or "normal").lower(), _SOLANA_PRIORITY_TIERS["normal"]
+            )
+            quote, payload = await SwapEngine().build_external_solana_swap(
+                from_token=from_symbol,
+                to_token=to_symbol,
+                amount=amount,
+                from_address=address,
+                slippage=body.slippage or 0.5,
+                priority_level=tier["priority_level"],
+                max_lamports=tier["max_lamports"],
+                jito_tip_lamports=tier["jito_tip_lamports"],
+                # Jito (turbo) ignores a per-CU price; only forward it otherwise.
+                compute_unit_price_micro_lamports=(
+                    body.computeUnitPriceMicroLamports if not tier["jito_tip_lamports"] else None
+                ),
+            )
+        else:
+            quote, payload = await SwapEngine().build_external_evm_swap(
+                from_chain=body.fromChain,
+                to_chain=body.toChain,
+                from_token=from_symbol,
+                to_token=to_symbol,
+                amount=amount,
+                from_address=address,
+                slippage=body.slippage or 0.5,
+            )
+    except SwapError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Quote provider failed: {exc}")
+
+    quote_id = str(uuid.uuid4())
+    _cleanup_terminal_quote_cache()
+    _terminal_quote_cache[quote_id] = {
+        "created_at": time.time(),
+        "quote": quote,
+        "user_id": auth_payload.get("user_id"),
+        "external": True,
+        "from_address": address,
+        "from_chain": body.fromChain,
+        "to_chain": body.toChain,
+        "from_symbol": from_symbol,
+        "to_symbol": to_symbol,
+    }
+
+    expires_at = datetime.utcnow() + timedelta(
+        seconds=getattr(quote, "expires_in", _QUOTE_TTL_SECONDS)
+    )
+
+    common = dict(
+        quoteId=quote_id,
+        fromToken=_webapp_swap_token(from_symbol, body.fromChain),
+        toToken=_webapp_swap_token(to_symbol, body.toChain),
+        fromAmount=str(quote.from_amount_human),
+        toAmount=str(quote.to_amount_human),
+        minReceived=str(quote.to_amount_min),
+        priceImpact=float(quote.price_impact),
+        gasUsd=float(quote.gas_cost_usd),
+        route=quote.provider,
+        expiresAt=expires_at.isoformat(),
+    )
+
+    if is_solana:
+        return WebAppSwapBuildResponse(
+            chain="solana",
+            swapTransaction=payload["swapTransaction"],
+            jito=bool(payload.get("jito")),
+            **common,
+        )
+
+    approval_model = WebAppUnsignedTx(**payload["approval"]) if payload.get("approval") else None
+    return WebAppSwapBuildResponse(
+        chain="evm",
+        chainId=payload["chainId"],
+        tx=WebAppUnsignedTx(**payload["tx"]),
+        approval=approval_model,
+        spender=payload["spender"],
+        **common,
+    )
+
+
+class WebAppJitoSubmitRequest(BaseModel):
+    signedTransaction: str  # base64-encoded, Phantom-signed VersionedTransaction
+
+
+@router.post("/swap/submit-jito")
+async def submit_jito_swap(
+    body: WebAppJitoSubmitRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    """Submit a Phantom-signed Solana tx to the Jito block engine (MEV-protected).
+
+    For a non-custodial swap built with a Jito tip (turbo tier), the client signs
+    WITHOUT broadcasting and posts the signed tx here. We forward it to Jito's
+    block engine so it lands as a bundle (the server never holds the key). Returns
+    the transaction signature for /swap/record.
+    """
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    from bot.services.jito_api import jito_api, JitoError
+
+    try:
+        signature = await jito_api.send_transaction(body.signedTransaction)
+    except JitoError as exc:
+        raise HTTPException(status_code=502, detail=f"Jito submission failed: {exc}")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Jito submission failed: {exc}")
+
+    if not signature:
+        raise HTTPException(status_code=502, detail="Jito did not return a signature.")
+    return {"signature": signature}
+
+
+@router.post("/swap/record", response_model=WebAppSwapRecordResponse)
+async def record_terminal_swap(
+    body: WebAppSwapRecordRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """
+    Record a client-broadcast (non-custodial) swap so it shows in history/portfolio.
+
+    The external wallet already signed + broadcast the tx; we only log the result
+    against the user. The cached quote is consumed so it can't be replayed.
+    """
+    from bot.config.chains import get_chain_by_name
+    from bot.models.swap import SwapTransaction, SwapStatus
+
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    tx_hash = body.txHash.strip()
+    # EVM tx hash: 0x + 64 hex. Solana signature: base58, ~64–90 chars (no 0x).
+    is_evm_hash = tx_hash.startswith("0x") and len(tx_hash) == 66
+    is_solana_sig = not tx_hash.startswith("0x") and 43 <= len(tx_hash) <= 100
+    if not (is_evm_hash or is_solana_sig):
+        raise HTTPException(status_code=400, detail="Invalid transaction hash")
+
+    _cleanup_terminal_quote_cache()
+    cached = _terminal_quote_cache.get(body.quoteId)
+    if not cached:
+        raise HTTPException(status_code=404, detail="Quote expired or not found")
+
+    user_id = int(auth_payload["user_id"])
+    quote_user_id = cached.get("user_id")
+    if quote_user_id and int(quote_user_id) != user_id:
+        raise HTTPException(status_code=403, detail="Quote does not belong to this user")
+
+    quote = cached["quote"]
+    from_chain = cached.get("from_chain", quote.from_chain)
+
+    swap = SwapTransaction(
+        user_id=user_id,
+        from_chain=from_chain,
+        from_token=cached.get("from_symbol", quote.from_token),
+        from_amount=str(quote.from_amount_human),
+        to_chain=cached.get("to_chain", quote.to_chain),
+        to_token=cached.get("to_symbol", quote.to_token),
+        to_amount=str(quote.to_amount_human),
+        status=SwapStatus.PENDING.value,
+        tx_hash=tx_hash,
+        idempotency_key=f"ext:{tx_hash}",
+        route_provider=quote.provider,
+        slippage=50,
+    )
+    db.add(swap)
+    db.commit()
+    db.refresh(swap)
+
+    # One-shot: drop the quote so the same broadcast can't be recorded twice.
+    _terminal_quote_cache.pop(body.quoteId, None)
+
+    explorer = None
+    chain = get_chain_by_name(from_chain)
+    base = getattr(chain, "explorer_url", None) or getattr(chain, "explorer", None)
+    if base:
+        explorer = f"{str(base).rstrip('/')}/tx/{tx_hash}"
+
+    return WebAppSwapRecordResponse(
+        success=True,
+        swapId=swap.id,
+        status=swap.status,
+        txHash=tx_hash,
+        explorerUrl=explorer,
     )
 
 
