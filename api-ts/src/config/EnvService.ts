@@ -76,6 +76,9 @@ export const EnvSchema = Schema.Struct({
 	X402_FACILITATOR_URL: Schema.optionalWith(Schema.String, {
 		default: () => 'https://x402.org/facilitator',
 	}),
+	// Optional bearer token for facilitators that accept one. CDP mainnet needs
+	// JWT auth via @coinbase/x402 instead (follow-up).
+	X402_FACILITATOR_API_KEY: Schema.optional(Schema.String),
 
 	// Fee Collection (defaults centralized in ./constants — single source of truth)
 	FEE_WALLET_EVM: Schema.optionalWith(Schema.String, {
