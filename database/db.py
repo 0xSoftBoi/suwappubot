@@ -383,6 +383,9 @@ def _ensure_schema(db_engine) -> None:
     # --- gamification tables: daily_quests, user_quests, jackpot_pools ---
     _create_gamification_tables(db_engine, inspector, is_sqlite)
 
+    # --- agent billing: agent_credits, agent_credit_topups, agent_subscriptions ---
+    _create_agent_billing_tables(db_engine, inspector, is_sqlite)
+
     # --- copy_follows: enhanced copy trading columns ---
     if "copy_follows" in tables:
         _add_copy_trading_columns(db_engine, inspector, is_sqlite)
@@ -486,6 +489,9 @@ def _add_agent_drizzle_columns(db_engine, inspector, table_name: str, is_sqlite:
         ("total_requests", "INTEGER", "0"),
         ("total_swaps", "INTEGER", "0"),
         ("updated_at", "TIMESTAMP", "NULL"),
+        # Crypto-native subscription overlay (api-ts resolves effective tier from these).
+        ("subscription_tier", "VARCHAR(20)", "NULL"),
+        ("subscription_expires_at", "TIMESTAMP", "NULL"),
     ]
 
     for col_name, col_type, default in new_columns:
@@ -1533,6 +1539,121 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
 
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_jackpot_pools_date ON jackpot_pools(date)")
+        )
+
+
+def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create agent pay-per-call billing tables idempotently.
+
+    Backs the x402 prepaid-credit metering + crypto-native subscription surface
+    (api-ts middleware/x402Payment.ts and routes/agent.ts). These are defined in
+    api-ts's Drizzle schema, but drizzle-kit is tablesFilter-scoped away from
+    shared/python-owned tables, so python-api (the authority for the shared DB)
+    must create them here. Additive + idempotent.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        # --- agent_credits (prepaid balance; 1 credit ~= $0.001 USD) ---
+        if "agent_credits" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS agent_credits (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        agent_id INTEGER NOT NULL UNIQUE,
+                        balance REAL NOT NULL DEFAULT 0,
+                        lifetime_purchased REAL NOT NULL DEFAULT 0,
+                        lifetime_used REAL NOT NULL DEFAULT 0,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS agent_credits (
+                        id SERIAL PRIMARY KEY,
+                        agent_id INTEGER NOT NULL UNIQUE,
+                        balance REAL NOT NULL DEFAULT 0,
+                        lifetime_purchased REAL NOT NULL DEFAULT 0,
+                        lifetime_used REAL NOT NULL DEFAULT 0,
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                    )
+                """))
+
+        # --- agent_credit_topups (on-chain USDC topup ledger; idempotent on tx_hash) ---
+        if "agent_credit_topups" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS agent_credit_topups (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        agent_id INTEGER NOT NULL,
+                        tx_hash VARCHAR(128) NOT NULL UNIQUE,
+                        chain VARCHAR(32) NOT NULL DEFAULT 'base',
+                        amount_usd REAL NOT NULL,
+                        credits_added REAL NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS agent_credit_topups (
+                        id SERIAL PRIMARY KEY,
+                        agent_id INTEGER NOT NULL,
+                        tx_hash VARCHAR(128) NOT NULL UNIQUE,
+                        chain VARCHAR(32) NOT NULL DEFAULT 'base',
+                        amount_usd REAL NOT NULL,
+                        credits_added REAL NOT NULL,
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                    )
+                """))
+
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_agent_credit_topups_agent_id "
+                "ON agent_credit_topups(agent_id)"
+            )
+        )
+
+        # --- agent_subscriptions (USDC -> time-bound tier; idempotent on tx_hash) ---
+        if "agent_subscriptions" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS agent_subscriptions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        agent_id INTEGER NOT NULL UNIQUE,
+                        tier VARCHAR(20) NOT NULL,
+                        tx_hash VARCHAR(128) NOT NULL UNIQUE,
+                        chain VARCHAR(32) NOT NULL DEFAULT 'base',
+                        amount_usd REAL NOT NULL,
+                        started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        expires_at DATETIME NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS agent_subscriptions (
+                        id SERIAL PRIMARY KEY,
+                        agent_id INTEGER NOT NULL UNIQUE,
+                        tier VARCHAR(20) NOT NULL,
+                        tx_hash VARCHAR(128) NOT NULL UNIQUE,
+                        chain VARCHAR(32) NOT NULL DEFAULT 'base',
+                        amount_usd REAL NOT NULL,
+                        started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        expires_at TIMESTAMP NOT NULL,
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                    )
+                """))
+
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_agent_subscriptions_agent_id "
+                "ON agent_subscriptions(agent_id)"
+            )
         )
 
 
