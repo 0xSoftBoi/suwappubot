@@ -113,19 +113,29 @@ export {
 	HyperliquidServiceLive,
 } from './HyperliquidService'
 export {
+	buildClobOrderBody,
 	type ClobApiCredentials,
 	type ClobOrder,
+	type ClobOrderType,
 	type ClobPosition,
 	type PlaceOrderParams,
 	type PredictionMarket,
 	type PredictionMarketDetail,
 	PolymarketService,
 	PolymarketServiceLive,
+	type SignedClobOrder,
 } from './PolymarketService'
 export {
 	PolymarketCredentialService,
 	PolymarketCredentialServiceLive,
 } from './PolymarketCredentialService'
+export {
+	type CreateOfferParams,
+	type ListOffersParams,
+	P2PService,
+	P2PServiceLive,
+	type P2PServiceInterface,
+} from './P2PService'
 export {
 	type LendingMarket,
 	type LendingMarketDetail,

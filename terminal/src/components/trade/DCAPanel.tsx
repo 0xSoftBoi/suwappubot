@@ -62,9 +62,16 @@ export function DCAPanel() {
         </div>
       )}
 
-      <button className="terminal-button w-full py-3 mt-2 font-semibold" disabled>
+      <button
+        className="terminal-button w-full py-3 mt-2 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+        disabled
+        title="Dollar-cost averaging schedules are coming soon"
+      >
         Schedule DCA
       </button>
+      <p className="text-center text-[11px] text-terminal-text-muted">
+        Automated DCA schedules are coming soon.
+      </p>
     </div>
   )
 }

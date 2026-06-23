@@ -38,6 +38,14 @@ export const agents = pgTable('agents', {
 	// Rate limiting
 	rateLimitTier: varchar('rate_limit_tier', { length: 20 }).default('free').notNull(),
 
+	// Crypto-native subscription overlay (set by POST /v1/agent/billing/subscribe).
+	// When subscriptionExpiresAt is in the future, the agent's *effective* tier is
+	// subscriptionTier (resolved at auth time — see middleware/auth.ts). This is a
+	// denormalized cache of the active row in agent_subscriptions so auth needs no
+	// extra query. Both are additive/nullable.
+	subscriptionTier: varchar('subscription_tier', { length: 20 }),
+	subscriptionExpiresAt: timestamp('subscription_expires_at'),
+
 	// Usage tracking
 	totalRequests: integer('total_requests').default(0),
 	totalSwaps: integer('total_swaps').default(0),

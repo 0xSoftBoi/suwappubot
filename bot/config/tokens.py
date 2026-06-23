@@ -795,10 +795,27 @@ def addresses_equal(a: Optional[str], b: Optional[str]) -> bool:
 
 
 def get_token_address(symbol: str, chain_name: str) -> Optional[str]:
-    """Get token address for a specific chain."""
+    """Get token address for a specific chain.
+
+    Passthrough: if a raw on-chain address is supplied instead of a registry
+    symbol (paste-to-trade buys an arbitrary token by address), return it
+    directly. This is additive — every branch below only fires for inputs that
+    are NOT valid registry symbols (which would otherwise return None and fail
+    the quote), so it cannot change behaviour for existing symbol-based swaps.
+    No registry symbol is a 0x-hex address or >=32 chars long.
+    """
+    if not symbol:
+        return None
+    # EVM / Starknet hex address (0x + >=40 hex chars)
+    if (symbol.startswith("0x") or symbol.startswith("0X")) and len(symbol) >= 42:
+        return symbol
     token = TOKENS.get(symbol.upper())
     if token:
         return token.addresses.get(chain_name.lower())
+    # Raw base58 mint (Solana/Tron) not in the registry — 32-44 chars, far
+    # longer than any real symbol — pass through so the provider can quote it.
+    if len(symbol) >= 32:
+        return symbol
     return None
 
 

@@ -1337,6 +1337,15 @@ async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
 
         keyboard = [
             [InlineKeyboardButton("🔄 New Swap", callback_data="swap_start")],
+            # Post-swap action chips: surface adjacent features in-flow at the
+            # highest-intent moment (display only — these are existing, live
+            # callbacks; no execution logic changes).
+            [
+                InlineKeyboardButton("🔔 Alert", callback_data="alerts_menu"),
+                InlineKeyboardButton("🔁 DCA", callback_data="dca_menu"),
+                InlineKeyboardButton("🛡️ Check", callback_data="paste_check_hint"),
+                InlineKeyboardButton("🎁 Refer", callback_data="ref_menu"),
+            ],
             # Share moment: a freshly-completed swap is the highest-intent point
             # to ask the user to invite friends. Routed to a top-level handler
             # (swap_share_ref_callback) because the conversation has just ended.
@@ -1653,12 +1662,109 @@ async def swap_share_ref_callback(update: Update, context: ContextTypes.DEFAULT_
 swap_share_ref_handler = CallbackQueryHandler(swap_share_ref_callback, pattern="^swap_share_ref$")
 
 
+@enforce_tos
+async def paste_buy_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Entry point for paste-to-trade Buy buttons.
+
+    The paste-to-trade card (bot/handlers/paste_trade.py) stashes the pending
+    token in context.user_data["paste_token"] and renders Buy buttons with
+    callback_data "pbuy_<amount>" / "pbuy_custom". This seeds the SAME swap
+    context the normal flow builds and hands off to show_wallet_selection, so
+    the buy inherits quote → wallet selection → CONFIRM_SWAP → 2FA and spending
+    limits. It NEVER calls execute_swap directly — the guardrail.
+    """
+    query = update.callback_query
+    await query.answer()
+    user = update.effective_user
+
+    allowed = await enforce_rate_limit_for_update(update, swap_limiter)
+    if not allowed:
+        return ConversationHandler.END
+
+    token = context.user_data.get("paste_token")
+    if not token:
+        await query.edit_message_text("❌ Session expired. Paste the token address again.")
+        return ConversationHandler.END
+
+    chain = token["chain"]
+    address = token["address"]
+    chain_config = get_chain_by_name(chain)
+    if not chain_config:
+        await query.edit_message_text("❌ Unsupported chain for this token.")
+        return ConversationHandler.END
+    native_symbol = chain_config.native_token
+    chain_type = chain_config.chain_type.value
+
+    # Resolve amount (preset from the button, or hand off to manual entry)
+    data = query.data
+    if data == "pbuy_custom":
+        context.user_data["swap"] = {
+            "from_chain": chain,
+            "from_token": native_symbol,
+            "to_chain": chain,
+            "to_token": address,
+        }
+        with get_session() as session:
+            db_user = session.query(User).filter(User.telegram_id == user.id).first()
+            if not db_user:
+                await query.edit_message_text("❌ Use /start first to set up your account.")
+                return ConversationHandler.END
+            context.user_data["user_id"] = db_user.id
+        await query.edit_message_text(
+            f"💱 Buying *{token.get('symbol', 'token')}* with {native_symbol}\n\n"
+            f"Enter the amount of {native_symbol} to spend:",
+            parse_mode="Markdown",
+        )
+        return ENTER_AMOUNT
+
+    try:
+        amount = float(data.replace("pbuy_", ""))
+    except (ValueError, TypeError):
+        await query.edit_message_text("❌ Invalid amount.")
+        return ConversationHandler.END
+
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.edit_message_text("❌ Use /start first to set up your account.")
+            return ConversationHandler.END
+        context.user_data["user_id"] = db_user.id
+
+    default_wallet = wallet_service.get_default_wallet(db_user.id, chain_type)
+    if not default_wallet:
+        await query.edit_message_text(
+            f"❌ No {chain_config.display_name} wallet found. Use /wallet to create one."
+        )
+        return ConversationHandler.END
+
+    context.user_data["swap"] = {
+        "from_chain": chain,
+        "from_token": native_symbol,
+        "to_chain": chain,
+        "to_token": address,
+        "amount": amount,
+        "wallet_id": default_wallet.id,
+    }
+
+    _schedule_quote_prewarm(
+        context, context.user_data["swap"], default_wallet.id, default_wallet.address
+    )
+
+    await query.edit_message_text(
+        f"💱 Buying *{token.get('symbol', 'token')}* with "
+        f"*{format_amount(amount, symbol=native_symbol)}*\n\nFetching quote...",
+        parse_mode="Markdown",
+    )
+    return await show_wallet_selection(update, context)
+
+
 swap_conversation_handler = ConversationHandler(
     name="swap",
     persistent=True,
     entry_points=[
         CommandHandler("s", swap_command),
         CallbackQueryHandler(swap_start_callback, pattern="^swap_start$"),
+        CallbackQueryHandler(paste_buy_entry, pattern="^pbuy_"),
     ],
     states={
         SELECT_FROM_CHAIN: [

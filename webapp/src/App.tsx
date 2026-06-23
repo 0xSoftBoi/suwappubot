@@ -29,6 +29,7 @@ const PredictionMarkets = lazy(() => import('./pages/PredictionMarkets').then(m 
 const PredictionMarketDetail = lazy(() => import('./pages/PredictionMarketDetail').then(m => ({ default: m.PredictionMarketDetail })))
 const PerpsMarkets = lazy(() => import('./pages/PerpsMarkets').then(m => ({ default: m.PerpsMarkets })))
 const PerpsMarketDetail = lazy(() => import('./pages/PerpsMarketDetail').then(m => ({ default: m.PerpsMarketDetail })))
+const P2P = lazy(() => import('./pages/P2P').then(m => ({ default: m.P2P })))
 import { DesktopLayout } from './components/layout'
 import { HotkeyOverlay } from './components/desktop/HotkeyOverlay'
 import './theme/suwappu.css'
@@ -345,6 +346,16 @@ function AppContent() {
             <ProtectedRoute>
               <PageTransition>
                 <PerpsMarketDetail />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/p2p"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <P2P />
               </PageTransition>
             </ProtectedRoute>
           }

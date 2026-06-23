@@ -1,0 +1,42 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "bot.suwappu/mcp-server",
+  "description": "Cross-chain DEX for AI agents — swap, quote, portfolio and prices across 14 chains (12 EVM + Solana + TRON) via 10+ providers.",
+  "version": "0.2.0",
+  "repository": {
+    "url": "https://github.com/0xSoftBoi/suwappubot",
+    "source": "github"
+  },
+  "websiteUrl": "https://suwappu.bot",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://api.suwappu.bot/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer <SUWAPPU_API_KEY>. Get one at POST https://api.suwappu.bot/v1/agent/register",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@suwappu/mcp-server",
+      "version": "0.1.1",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "SUWAPPU_API_KEY",
+          "description": "Suwappu agent API key (suwappu_sk_...). Register at POST /v1/agent/register.",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

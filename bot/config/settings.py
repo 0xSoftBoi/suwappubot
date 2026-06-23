@@ -161,6 +161,12 @@ class Settings(BaseSettings):
         default=None, description="Infura API key — used as primary RPC for supported chains"
     )
 
+    # Helius (Solana RPC/DAS/Enhanced Transactions). SERVER-ONLY — proxied via
+    # /webapp/solana/* so the key never reaches the client bundle.
+    helius_api_key: str = Field(
+        default="", description="Helius API key for the server-side Solana data proxy"
+    )
+
     # Alchemy Configuration (Full Suite)
     alchemy_api_key: Optional[str] = Field(
         default=None, description="Alchemy API key for enhanced RPC, Token API, NFT API"
@@ -497,6 +503,25 @@ class Settings(BaseSettings):
         description="Default MetaMorpho USDC earn vault on Base (Steakhouse USDC)",
     )
 
+    # HyperLiquid real-time WebSocket alert feed (fills / liquidations / funding / whales).
+    # Connects to wss://api.hyperliquid.xyz/ws and pushes Telegram alerts. OFF by default.
+    hl_ws_alerts_enabled: bool = Field(
+        default=False,
+        description="Enable the HyperLiquid WebSocket alert feed (per-user fills/liquidations/funding).",
+    )
+    hl_whale_alerts_enabled: bool = Field(
+        default=False,
+        description="Enable HyperLiquid whale-trade alerts (large single trades on major coins).",
+    )
+    hl_whale_alert_threshold_usd: float = Field(
+        default=1_000_000.0,
+        description="Minimum single-trade notional (USD) to emit a HyperLiquid whale alert.",
+    )
+    hl_whale_alert_coins: str = Field(
+        default="BTC,ETH,SOL,HYPE",
+        description="Comma-separated coins to watch for HyperLiquid whale trades.",
+    )
+
     # Infura network name mappings
     INFURA_NETWORKS: ClassVar[Dict[str, str]] = {
         "ethereum": "mainnet",
@@ -781,6 +806,49 @@ class Settings(BaseSettings):
     )
     polymarket_clob_passphrase: Optional[str] = Field(
         default=None, description="Polymarket CLOB API passphrase (optional)"
+    )
+    polymarket_restricted_regions: Optional[str] = Field(
+        default=None,
+        description=(
+            "Comma-separated ISO2 regions where Polymarket on-chain redemption is "
+            "geo-blocked. Falls back to hyperunit_restricted_regions (default 'US') "
+            "when unset."
+        ),
+    )
+
+    # ── P2P marketplace ──────────────────────────────────────────────────────
+    # Suwappu aggregates P2P fiat<>crypto liquidity across its own native
+    # on-chain escrow book plus external providers. Each provider is gated on its
+    # credentials being present; the native book always works.
+    p2p_enabled: bool = Field(default=True, description="Master switch for P2P features")
+    # NoOnes (dev.noones.com) — OAuth2 client-credentials API key/secret.
+    noones_api_key: Optional[str] = Field(
+        default=None, description="NoOnes API client id (dev.noones.com)"
+    )
+    noones_api_secret: Optional[str] = Field(default=None, description="NoOnes API client secret")
+    noones_api_base: str = Field(
+        default="https://api.noones.com", description="NoOnes API base URL"
+    )
+    # P2P.me — no public API yet; we deeplink/handoff and (later) call their API.
+    p2p_me_api_key: Optional[str] = Field(
+        default=None, description="P2P.me API key (when their API ships)"
+    )
+    p2p_me_api_base: str = Field(default="https://api.p2p.me", description="P2P.me API base URL")
+    # Native escrow: USDC token + chain used to lock the crypto leg.
+    p2p_escrow_chain: str = Field(default="base", description="Chain for native P2P USDC escrow")
+    p2p_escrow_token: str = Field(
+        default="USDC", description="Settlement asset for native P2P escrow"
+    )
+    p2p_escrow_hot_wallet_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "HotWallet id holding native P2P escrow funds (custodial-during-trade). "
+            "Falls back to the primary EVM deposit hot wallet when unset."
+        ),
+    )
+    # Comma-separated ISO2 regions blocked from P2P (regulatory).
+    p2p_restricted_regions: Optional[str] = Field(
+        default=None, description="Comma-separated ISO2 regions blocked from P2P"
     )
 
     # Fee Configuration (competitive pricing)

@@ -15,6 +15,8 @@ import { LendingPanel } from '../lending/LendingPanel'
 import { WalletTrackerPanel } from '../tracker/WalletTrackerPanel'
 import { TweetMonitorPanel } from '../tweets/TweetMonitorPanel'
 import { WatchlistPanel } from '../watchlist/WatchlistPanel'
+import { PerpsWorkspace } from '../perps/PerpsWorkspace'
+import { PredictWorkspace } from '../predict/PredictWorkspace'
 import { useLayoutSizes } from '../../hooks/useLayoutSizes'
 import { useBottomTab, type BottomTab } from '../../contexts/BottomTabContext'
 import { useTrading } from '../../contexts/TradingContext'
@@ -249,5 +251,24 @@ function DesktopLayout() {
 
 export function TradingLayout() {
   const isMobile = useIsMobile()
+  const { tradingMode } = useTrading()
+
+  // Perps + Predict are first-class top-level workspaces, swapped in via the
+  // Header ModeSwitch. Each handles its own mobile/desktop layout internally.
+  if (tradingMode === 'perps') {
+    return (
+      <div className="h-full">
+        <PerpsWorkspace />
+      </div>
+    )
+  }
+  if (tradingMode === 'predict') {
+    return (
+      <div className="h-full">
+        <PredictWorkspace />
+      </div>
+    )
+  }
+
   return isMobile ? <MobileLayout /> : <DesktopLayout />
 }

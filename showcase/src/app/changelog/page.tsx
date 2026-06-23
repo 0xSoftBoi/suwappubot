@@ -76,7 +76,7 @@ function withCode(s: string) {
 
 export default function ChangelogPage() {
   return (
-    <main className="summer-page docs-shell">
+    <main id="main-content" className="summer-page docs-shell">
       <Navigation />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero">

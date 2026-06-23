@@ -3,11 +3,13 @@ import { useWalletTracker } from '../../hooks/useWalletTracker'
 import { AddWalletForm } from './AddWalletForm'
 import { WalletActivityFeed } from './WalletActivityFeed'
 import { WalletProfileCard } from './WalletProfileCard'
+import { WalletInspector } from './WalletInspector'
 
-// NOTE: /webapp/wallet-tracker/* endpoints do not exist in api-ts. All add/remove/
-// activity calls 404. Gate panel as coming soon until backend routes are built.
-// Remove COMING_SOON when that work is done.
-const COMING_SOON = true
+// The backend /webapp/wallet-tracker/* (persisted tracking list) doesn't exist
+// yet. Until it does, the panel runs the live, client-side Helius-powered Wallet
+// Inspector — paste any Solana address for real holdings + activity. Flip to
+// false to restore the backend tracked-wallet UI once those routes land.
+const USE_INSPECTOR = true
 
 function truncateAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`
@@ -54,16 +56,8 @@ export function WalletTrackerPanel() {
     )
   }
 
-  if (COMING_SOON) {
-    return (
-      <div className="h-full flex flex-col p-4 gap-3" data-testid="wallet-tracker">
-        <h3 className="text-sm font-semibold">Wallet Tracker</h3>
-        <div className="rounded-lg border border-terminal-border bg-terminal-bg px-3 py-3 text-sm text-terminal-text-muted">
-          <span className="font-semibold text-terminal-text">Coming soon</span> — Wallet tracking is not yet available.
-          The backend endpoint is under development.
-        </div>
-      </div>
-    )
+  if (USE_INSPECTOR) {
+    return <WalletInspector />
   }
 
   return (

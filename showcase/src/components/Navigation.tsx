@@ -37,8 +37,9 @@ export default function Navigation() {
       <div className="nav__links">
         <a href="/#hyperliquid" className="nav__link">HyperLiquid</a>
         <a href="/#tempo" className="nav__link">Tempo</a>
-        <a href="/#agents" className="nav__link">Agents</a>
+        <a href="/for-agents" className="nav__link">For Agents</a>
         <a href="/solutions" className="nav__link">Solutions</a>
+        <a href="/compare" className="nav__link">Compare</a>
         <a href="/pricing" className="nav__link">Pricing</a>
         <a href="/docs" className="nav__link">Docs</a>
         <a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer" className="nav__link">GitHub</a>
@@ -76,8 +77,9 @@ export default function Navigation() {
       >
         <a href="/#hyperliquid" className="nav__drawer-link" onClick={closeMenu}>HyperLiquid</a>
         <a href="/#tempo" className="nav__drawer-link" onClick={closeMenu}>Tempo</a>
-        <a href="/#agents" className="nav__drawer-link" onClick={closeMenu}>Agents</a>
+        <a href="/for-agents" className="nav__drawer-link" onClick={closeMenu}>For Agents</a>
         <a href="/solutions" className="nav__drawer-link" onClick={closeMenu}>Solutions</a>
+        <a href="/compare" className="nav__drawer-link" onClick={closeMenu}>Compare</a>
         <a href="/pricing" className="nav__drawer-link" onClick={closeMenu}>Pricing</a>
         <a href="/docs" className="nav__drawer-link" onClick={closeMenu}>Docs</a>
         <a href="/status" className="nav__drawer-link" onClick={closeMenu}>Status</a>

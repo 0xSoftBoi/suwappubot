@@ -11,7 +11,16 @@ import {
 type Interval = '1m' | '5m' | '15m' | '1h' | '4h' | '1D'
 type Side = 'buy' | 'sell'
 
+// Top-level workspace mode. 'spot' is the classic swap terminal; 'perps' is the
+// HyperLiquid perps desk; 'predict' is the Polymarket prediction desk. Switched
+// from the Header and read by TradingLayout to swap the whole workspace.
+export type TradingMode = 'spot' | 'perps' | 'predict'
+
 interface TradingContextType {
+  // Top-level workspace mode (spot / perps / predict)
+  tradingMode: TradingMode
+  setTradingMode: (mode: TradingMode) => void
+
   // Order book click-to-fill: sets limit price
   limitPrice: string
   setLimitPrice: (price: string) => void
@@ -40,6 +49,7 @@ interface TradingContextType {
 const TradingContext = createContext<TradingContextType | undefined>(undefined)
 
 export function TradingProvider({ children }: { children: ReactNode }) {
+  const [tradingMode, setTradingModeState] = useState<TradingMode>('spot')
   const [limitPrice, setLimitPriceState] = useState('')
   const [chartInterval, setChartIntervalState] = useState<Interval>('1h')
   const [chartFullscreen, setChartFullscreen] = useState(false)
@@ -69,9 +79,15 @@ export function TradingProvider({ children }: { children: ReactNode }) {
     setPendingSwapAmountState(amount)
   }, [])
 
+  const setTradingMode = useCallback((mode: TradingMode) => {
+    setTradingModeState(mode)
+  }, [])
+
   return (
     <TradingContext.Provider
       value={{
+        tradingMode,
+        setTradingMode,
         limitPrice,
         setLimitPrice,
         chartInterval,

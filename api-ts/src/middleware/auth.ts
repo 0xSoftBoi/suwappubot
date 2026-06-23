@@ -162,10 +162,33 @@ export function agentBearerAuth() {
 			throw new HTTPException(401, { message: 'Invalid or inactive API key' })
 		}
 
+		// Apply the crypto-native subscription overlay: while the window is active,
+		// the agent's effective tier is its purchased subscriptionTier. Resolved
+		// here (no extra query — the window is denormalized onto the agent row) so
+		// downstream metering/rate-limit logic only reads rateLimitTier.
+		applyEffectiveTier(agent)
+
 		// Store agent in context for route handlers
 		c.set('agent', agent)
 
 		await next()
+	}
+}
+
+/**
+ * Mutates `agent.rateLimitTier` to its effective value given any active
+ * crypto-native subscription. If subscriptionExpiresAt is in the future, the
+ * purchased subscriptionTier wins; otherwise the baseline rateLimitTier stands.
+ * Safe no-op when the columns are unset.
+ */
+export function applyEffectiveTier(agent: {
+	rateLimitTier?: string
+	subscriptionTier?: string | null
+	subscriptionExpiresAt?: Date | null
+}): void {
+	const exp = agent.subscriptionExpiresAt
+	if (agent.subscriptionTier && exp && new Date(exp).getTime() > Date.now()) {
+		agent.rateLimitTier = agent.subscriptionTier
 	}
 }
 

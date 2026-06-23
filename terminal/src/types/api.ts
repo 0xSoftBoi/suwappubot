@@ -79,6 +79,89 @@ export interface SwapExecuteResult {
   }
 }
 
+// --- Non-custodial (external wallet) swaps ---
+
+export interface UnsignedTx {
+  to: string
+  data: string
+  value: string // hex quantity, e.g. "0x0"
+  chainId: number
+  gas?: string // hex quantity; absent => wallet estimates
+}
+
+export type SolanaPriorityTier = 'normal' | 'fast' | 'turbo'
+
+export interface SwapBuildRequest {
+  fromToken: string
+  toToken: string
+  fromChain: string
+  toChain: string
+  amount: string
+  slippage?: number
+  fromAddress: string
+  // Solana priority-fee tier (landing speed). EVM swaps ignore it.
+  priority?: SolanaPriorityTier
+  // Live per-CU priority price (micro-lamports) from the client; overrides the
+  // tier's cap on the non-Jito path. EVM swaps ignore it.
+  computeUnitPriceMicroLamports?: number
+}
+
+export interface SwapBuildResult {
+  quoteId: string
+  chain: 'evm' | 'solana'
+  // EVM (MetaMask / WalletConnect)
+  chainId?: number
+  tx?: UnsignedTx
+  approval?: UnsignedTx | null
+  spender?: string
+  // Solana (Phantom): base64 VersionedTransaction
+  swapTransaction?: string
+  // When true (turbo tier), submit the signed tx to the Jito block engine via
+  // /swap/submit-jito instead of broadcasting through Phantom's RPC.
+  jito?: boolean
+  fromToken: SwapToken
+  toToken: SwapToken
+  fromAmount: string
+  toAmount: string
+  minReceived: string
+  priceImpact: number
+  gasUsd: number
+  route: string
+  expiresAt: string
+}
+
+export interface SwapRecordRequest {
+  quoteId: string
+  txHash: string
+}
+
+export interface SwapRecordResult {
+  success: boolean
+  swapId: number
+  status: string
+  txHash: string
+  explorerUrl?: string
+}
+
+export interface TerminalSwap {
+  id: string
+  fromChain: string
+  toChain: string
+  fromToken: string
+  toToken: string
+  fromAmount: string
+  toAmount?: string
+  fromAmountUsd?: number
+  toAmountUsd?: number
+  status: string
+  txHash?: string
+  bridgeTxHash?: string
+  destinationTxHash?: string
+  createdAt: string
+  completedAt?: string
+  errorMessage?: string
+}
+
 export interface CopilotResponse {
   type: 'text' | 'quote' | 'portfolio' | 'error'
   content: string
@@ -135,6 +218,13 @@ export interface OHLCVCandle {
   low: number
   close: number
   volume: number
+}
+
+// A single point of a prediction-market probability line: unix seconds + the
+// outcome's implied probability as a percentage (0–100).
+export interface PredictHistoryPoint {
+  time: number
+  value: number
 }
 
 export interface OrderBookLevel {
@@ -225,16 +315,145 @@ export interface TokenSecurity {
   devHoldingsPercent?: number
 }
 
+// One tradeable outcome of a prediction market — the CLOB tokenId is what an
+// order is placed against.
+export interface MarketToken {
+  tokenId: string
+  outcome: string
+}
+
 export interface PredictionMarket {
   id: string
+  // On-chain CTF condition id (0x… hash). Required for resolution/settlement —
+  // sent as the order's marketId so predict_monitor can settle the position.
+  conditionId?: string
   question: string
   description?: string
   outcomes: string[]
   outcomePrices: number[]
+  tokens?: MarketToken[]
   volume: number
   liquidity: number
   endDate?: string
   active: boolean
+}
+
+// === Terminal trading (Python /terminal/* execution routes) ===
+
+// HyperLiquid connection status + live account health for the signed-in user.
+// Financial fields are best-effort (null when the live HL fetch fails).
+export interface PerpsAccountStatus {
+  connected: boolean
+  address: string | null
+  accountValue?: number | null // equity
+  maintenanceMarginUsed?: number | null // cross maintenance margin in use now
+  totalMarginUsed?: number | null // initial margin in use now
+  withdrawable?: number | null
+}
+
+// A resting (open) HyperLiquid order as returned by /terminal/perps/orders —
+// e.g. a limit entry or a TP/SL trigger. Cancelled by (market, orderId).
+export interface TerminalPerpsOrder {
+  orderId: string
+  market: string
+  side: 'buy' | 'sell'
+  size: number
+  price: number
+  orderType: string // "Limit", "Stop Market", "Take Profit Market", …
+  reduceOnly: boolean
+  isTrigger: boolean
+  triggerPrice: number | null
+}
+
+// A live open perp position as returned by /terminal/perps/positions. `id` is
+// the local PerpPosition row id used to close; it's null when a live HL position
+// has no matching local row (e.g. opened outside Suwappu).
+export interface TerminalPerpsPosition {
+  id: number | null
+  market: string
+  side: 'long' | 'short'
+  size: number
+  leverage: number
+  entryPrice: number
+  markPrice: number
+  unrealizedPnl: number
+  liquidationPrice: number
+}
+
+export type PerpsOrderType = 'market' | 'limit'
+
+export interface PerpsExecuteParams {
+  market: string
+  side: 'long' | 'short'
+  size: number
+  leverage: number
+  orderType?: PerpsOrderType
+  limitPrice?: number // required when orderType === 'limit'
+  tpPrice?: number // market only
+  slPrice?: number // market only
+}
+
+export interface PerpsExecuteResult {
+  ok: boolean
+  kind?: 'position' | 'order'
+  // Present for a filled market order.
+  position?: {
+    id: number
+    market: string
+    side: 'long' | 'short'
+    size: number
+    entryPrice: number
+    leverage: number
+  }
+  // Present for a resting limit order.
+  order?: {
+    id: number
+    market: string
+    side: 'long' | 'short'
+    size: number
+    price: number
+    status: string
+  }
+}
+
+// A held prediction-market position as returned by /terminal/predict/positions.
+export interface PredictionPositionRow {
+  id: string
+  marketId: string
+  question: string
+  outcome: string
+  tokenId: string
+  shares: number
+  avgPrice: number
+  currentPrice: number
+  unrealizedPnl: number
+  isResolved: boolean
+  claimable: boolean
+}
+
+export interface PredictOrderParams {
+  tokenId: string
+  marketId: string
+  question: string
+  outcome: string
+  side: 'BUY' | 'SELL'
+  amount: number
+  price: number
+}
+
+export interface PredictOrderResult {
+  ok: boolean
+  orderId?: string
+  error?: string
+}
+
+export interface PredictRedeemResult {
+  ok: boolean
+  // True when the redeem tx was broadcast but hasn't confirmed yet.
+  pending?: boolean
+  txHash?: string | null
+  message?: string
+  category?: string | null
 }
 
 // === Copy Trading ===
@@ -542,6 +761,10 @@ export interface PulseToken {
   bondingProgress?: number // 0-100 for final_stretch
   liquidityUsd: number
   priceUsd: number
+  // 24h transaction activity (real, from DexScreener).
+  txns24h?: number
+  buys24h?: number
+  sells24h?: number
   priceChange5m: number
   trustScore?: number
   riskLevel?: 'safe' | 'caution' | 'danger'
@@ -556,8 +779,12 @@ export interface PulseFilters {
   minMarketCap: number | null
   maxMarketCap: number | null
   minLiquidity: number | null
+  minVolume: number | null
+  minTxns: number | null
+  maxAgeMinutes: number | null
   maxTopHolderPercent: number | null
   maxDevPercent: number | null
   maxSniperPercent: number | null
+  maxBundleCount: number | null
   minHolders: number | null
 }
