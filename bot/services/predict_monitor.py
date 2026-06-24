@@ -182,6 +182,22 @@ class PredictMonitor:
                         )
 
                 for user_id, won, payout, profit, question, outcome in notes:
+                    # Whole-product points: flat bonus on a winning settlement.
+                    # Idempotent — positions are settled once (the query filters
+                    # is_resolved == False), so each win fires a single award.
+                    # Never let a points error break the settlement notify loop.
+                    if won:
+                        try:
+                            from bot.services.points_service import points_service
+
+                            points_service.award_points(
+                                user_id=user_id,
+                                action="predict_win",
+                                description=f"Won prediction (${payout:,.2f} payout)",
+                                metadata={"amount_usd": float(payout)},
+                            )
+                        except Exception as e:
+                            logger.debug("predict_win award skipped: %s", e)
                     if won:
                         msg = (
                             f"\U0001f3af *Market resolved — you won!*\n\n"

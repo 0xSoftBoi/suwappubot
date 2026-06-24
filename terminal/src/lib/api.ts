@@ -8,6 +8,7 @@ import type {
   SwapBuildResult,
   SwapRecordRequest,
   SwapRecordResult,
+  TerminalSwap,
   CopilotResponse,
   PasskeyAuthInitResponse,
   PasskeyAuthCompleteResponse,
@@ -282,6 +283,12 @@ export const api = {
     })
   },
 
+  // Swap history for the current session (JWT auth) — terminal/external-wallet
+  // users can't reach the Telegram-only /users/me/swaps, so this is the parallel.
+  getSwaps(limit = 25) {
+    return request<TerminalSwap[]>(`/webapp/swaps?limit=${limit}`)
+  },
+
   // Submit a Phantom-signed Solana tx to the Jito block engine (MEV-protected
   // bundle landing) via the server proxy. Returns the on-chain signature.
   submitJitoSwap(signedTransaction: string) {
@@ -340,6 +347,18 @@ export const api = {
   // Portfolio — real route: GET /webapp/me/portfolio
   getPortfolio() {
     return request<Portfolio>('/webapp/me/portfolio')
+  },
+
+  // Solana data proxy — the Helius key stays server-side; the client never sees it.
+  solanaRpc<T = unknown>(method: string, params: unknown) {
+    return request<T>('/webapp/solana/rpc', {
+      method: 'POST',
+      body: JSON.stringify({ method, params }),
+    })
+  },
+
+  solanaTxHistory<T = unknown>(address: string, limit = 15) {
+    return request<T>(`/webapp/solana/tx-history?address=${address}&limit=${limit}`)
   },
 
   // Discovery

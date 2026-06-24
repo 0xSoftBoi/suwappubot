@@ -76,6 +76,19 @@ export const EnvSchema = Schema.Struct({
 	X402_FACILITATOR_URL: Schema.optionalWith(Schema.String, {
 		default: () => 'https://x402.org/facilitator',
 	}),
+	// Optional bearer token for facilitators that accept one. CDP mainnet needs
+	// JWT auth via @coinbase/x402 instead (follow-up).
+	X402_FACILITATOR_API_KEY: Schema.optional(Schema.String),
+
+	// Recurring crypto billing via Base Spend Permissions (true auto-renew). OFF by
+	// default — needs a funded operator (spender) key on Base. SPEND_OPERATOR_PK is
+	// the server key that submits approveWithSignature + spend() txs.
+	RECURRING_BILLING_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	SPEND_OPERATOR_PK: Schema.optional(Schema.String),
+	// SpendPermissionManager deployment (defaults to Base mainnet).
+	SPEND_PERMISSION_MANAGER_ADDRESS: Schema.optionalWith(Schema.String, {
+		default: () => '0xf85210B21cC50302F477BA56686d2019dC9b67Ad',
+	}),
 
 	// Fee Collection (defaults centralized in ./constants — single source of truth)
 	FEE_WALLET_EVM: Schema.optionalWith(Schema.String, {

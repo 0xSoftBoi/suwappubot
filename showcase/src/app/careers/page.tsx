@@ -33,7 +33,7 @@ const benefits = [
 
 export default function CareersPage() {
   return (
-    <main className="summer-page docs-shell">
+    <main id="main-content" className="summer-page docs-shell">
       <Navigation />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero mkt-hero--center">

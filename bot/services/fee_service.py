@@ -32,12 +32,19 @@ SWAP_FEE_DECIMAL = SWAP_FEE_PERCENTAGE / Decimal("100")  # 0.008 (legacy)
 
 # Tier-based fee rates (as plain decimals, e.g. 0.01 = 1%)
 TIER_FEE_RATES = {
-    SubscriptionTier.FREE: 0.01,        # 1%
-    SubscriptionTier.PRO: 0.005,        # 0.5%
-    SubscriptionTier.PREMIUM: 0.003,    # 0.3%
-    SubscriptionTier.ENTERPRISE: 0.001, # 0.1%
+    SubscriptionTier.FREE: 0.01,  # 1%
+    SubscriptionTier.PRO: 0.005,  # 0.5%
+    SubscriptionTier.PREMIUM: 0.003,  # 0.3%
+    SubscriptionTier.ENTERPRISE: 0.001,  # 0.1%
 }
 DEFAULT_FEE_RATE = 0.01  # fallback if tier lookup fails
+
+# Floor for the EFFECTIVE fee after a points-based fee_discount is applied.
+# Stacking rule: effective_fee = max(MIN_EFFECTIVE_FEE_RATE, tier_fee − points_discount).
+# We floor at the ENTERPRISE rate (0.1%) rather than 0% so a points discount can
+# match — but never beat — our best paid tier, and the fee can NEVER go negative
+# or to zero (which would also zero the referral fee-share and treasury split).
+MIN_EFFECTIVE_FEE_RATE = TIER_FEE_RATES[SubscriptionTier.ENTERPRISE]  # 0.001 = 0.1%
 
 # Referral rewards: 30% of fees (aggressive growth)
 REFERRAL_REWARD_PERCENTAGE = Decimal("30")  # 30%
@@ -48,25 +55,26 @@ MIN_SWAP_USD = Decimal("1")  # No barriers to entry
 MAX_SWAP_USD = Decimal("100000")  # Risk management
 
 # Fee collector address (from settings or default)
-FEE_COLLECTOR_EVM = getattr(settings, 'fee_collector_address', None)
-FEE_COLLECTOR_SOLANA = getattr(settings, 'fee_collector_solana', None)
+FEE_COLLECTOR_EVM = getattr(settings, "fee_collector_address", None)
+FEE_COLLECTOR_SOLANA = getattr(settings, "fee_collector_solana", None)
 
 
 @dataclass
 class FeeCalculation:
     """Result of fee calculation."""
+
     swap_amount_usd: Decimal
     fee_amount_usd: Decimal
     fee_percentage: Decimal
     referral_reward_usd: Decimal
     net_fee_usd: Decimal  # Fee after referral payout
-    
+
     # Token amounts (if provided)
     fee_amount_token: Optional[Decimal] = None
     token_symbol: Optional[str] = None
-    
+
     # Staking pool split (40/60 of the net fee, i.e. after the referral payout)
-    staking_allocation_usd: float = 0.0   # 40% of net_fee_usd
+    staking_allocation_usd: float = 0.0  # 40% of net_fee_usd
     protocol_allocation_usd: float = 0.0  # 60% of net_fee_usd
 
     # Referral info
@@ -82,7 +90,7 @@ class FeeService:
     - 30% of the gross fee goes to the referrer (viral growth)
     - The remaining net fee is split 40/60 between the staking pool and protocol treasury
     """
-    
+
     def __init__(self):
         self.fee_percentage = SWAP_FEE_DECIMAL
         self.referral_percentage = REFERRAL_REWARD_DECIMAL
@@ -93,24 +101,74 @@ class FeeService:
     # amount we RECORD/pay referrers on — must derive from these, so the
     # collected fee can never drift from the recorded one.
 
-    def get_fee_decimal(self, tier: "Optional[SubscriptionTier]" = None) -> float:
-        """Fee rate as a plain decimal (e.g. 0.01 = 1%) for the given tier."""
-        if tier is not None:
-            return TIER_FEE_RATES.get(tier, DEFAULT_FEE_RATE)
-        return DEFAULT_FEE_RATE
+    def _active_fee_discount_decimal(self, user_id: "Optional[int]") -> float:
+        """Active points fee-discount for a user, as a plain DECIMAL (0.005 = 0.5%).
 
-    def get_fee_bps(self, tier: "Optional[SubscriptionTier]" = None) -> int:
-        """Fee rate in basis points (e.g. 100 = 1%) for the given tier.
-
-        This is the exact value passed to Jupiter as ``platformFeeBps``.
+        ``points_service.get_active_fee_discount`` returns PERCENTAGE POINTS
+        (e.g. 0.5 == 0.5%), so we divide by 100 to match the decimal fee rate.
+        Read-only + time-bound (never consumed here). GUARDRAIL: a points lookup
+        failure must NEVER break fee calculation, so this swallows all errors and
+        returns 0.0 (no discount). Returns 0.0 when ``user_id`` is None.
         """
-        return int(round(self.get_fee_decimal(tier) * 10_000))
+        if user_id is None:
+            return 0.0
+        try:
+            from bot.services.points_service import points_service
+
+            pct = points_service.get_active_fee_discount(user_id)
+            return max(0.0, float(pct) / 100.0)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning(f"fee discount lookup failed for user {user_id}: {e}")
+            return 0.0
+
+    def get_fee_decimal(
+        self,
+        tier: "Optional[SubscriptionTier]" = None,
+        user_id: "Optional[int]" = None,
+    ) -> float:
+        """EFFECTIVE fee rate as a plain decimal (e.g. 0.01 = 1%) for the user.
+
+        Stacking rule (single source of truth for the charged rate):
+
+            effective_fee = max(MIN_EFFECTIVE_FEE_RATE, tier_fee − points_discount)
+
+        - ``tier_fee`` comes from TIER_FEE_RATES (subscription tier).
+        - ``points_discount`` is the best ACTIVE points-redeemed fee_discount for
+          this user (read-only, time-bound) — only applied when ``user_id`` is
+          given. A points fee_discount STACKS ON TOP of the tier discount.
+        - The result is FLOORED at MIN_EFFECTIVE_FEE_RATE (ENTERPRISE rate, 0.1%)
+          so the fee can NEVER go negative or to zero.
+
+        Because the on-chain bps, the displayed quote, and the recorded fee all
+        derive from this method, the discount applies consistently everywhere and
+        the referral fee-share (a % of the reduced fee) scales down with it.
+        """
+        if tier is not None:
+            base = TIER_FEE_RATES.get(tier, DEFAULT_FEE_RATE)
+        else:
+            base = DEFAULT_FEE_RATE
+        discount = self._active_fee_discount_decimal(user_id)
+        return max(MIN_EFFECTIVE_FEE_RATE, base - discount)
+
+    def get_fee_bps(
+        self,
+        tier: "Optional[SubscriptionTier]" = None,
+        user_id: "Optional[int]" = None,
+    ) -> int:
+        """EFFECTIVE fee rate in basis points (e.g. 100 = 1%) for the user.
+
+        This is the exact value passed to Jupiter as ``platformFeeBps``. Applies
+        the same tier − points_discount stacking (floored) as get_fee_decimal, so
+        the on-chain fee can never diverge from the displayed/recorded fee.
+        """
+        return int(round(self.get_fee_decimal(tier, user_id=user_id) * 10_000))
 
     def calculate_fee(
         self,
         swap_amount_usd: float,
         referrer_id: Optional[int] = None,
         tier: "Optional[SubscriptionTier]" = None,
+        user_id: "Optional[int]" = None,
     ) -> FeeCalculation:
         """
         Calculate fee for a swap.
@@ -120,23 +178,24 @@ class FeeService:
             referrer_id: Optional referrer user ID for reward calculation
             tier: User's subscription tier; determines fee rate. Falls back
                   to DEFAULT_FEE_RATE (1%) when None.
+            user_id: When given, applies the user's active points fee_discount
+                  on top of the tier rate (floored) — see get_fee_decimal. The
+                  referral reward (a % of this fee) scales down with the discount.
 
         Returns:
             FeeCalculation with all fee details
         """
         amount = Decimal(str(swap_amount_usd))
 
-        # Resolve tier-specific fee rate (as Decimal to avoid float arithmetic).
-        # Routed through get_fee_decimal so the recorded fee uses the SAME rate
-        # we send to the aggregators on-chain.
-        fee_rate = Decimal(str(self.get_fee_decimal(tier)))
+        # Resolve EFFECTIVE fee rate (tier − points discount, floored) as Decimal
+        # to avoid float arithmetic. Routed through get_fee_decimal so the
+        # recorded fee uses the SAME rate we send to the aggregators on-chain.
+        fee_rate = Decimal(str(self.get_fee_decimal(tier, user_id=user_id)))
         # fee_percentage_display is e.g. Decimal("1.0") meaning "1%"
         fee_percentage_display = fee_rate * Decimal("100")
 
         # Calculate base fee
-        fee_amount = (amount * fee_rate).quantize(
-            Decimal("0.01"), rounding=ROUND_DOWN
-        )
+        fee_amount = (amount * fee_rate).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
 
         # Calculate referral reward if applicable
         has_referrer = referrer_id is not None
@@ -168,7 +227,7 @@ class FeeService:
             referrer_id=referrer_id,
             has_referrer=has_referrer,
         )
-    
+
     def calculate_fee_in_token(
         self,
         swap_amount: float,
@@ -192,22 +251,23 @@ class FeeService:
         """
         swap_amount_usd = float(swap_amount) * token_price_usd
         calc = self.calculate_fee(swap_amount_usd, referrer_id, tier=tier)
-        
+
         # Calculate fee in token terms
         if token_price_usd > 0:
             fee_in_token = float(calc.fee_amount_usd) / token_price_usd
             calc.fee_amount_token = Decimal(str(fee_in_token)).quantize(
                 Decimal("0.000001"), rounding=ROUND_DOWN
             )
-        
+
         calc.token_symbol = token_symbol
         return calc
-    
+
     async def calculate_fee_with_price(
         self,
         amount: float,
         token_symbol: str,
         tier: "Optional[SubscriptionTier]" = None,
+        user_id: "Optional[int]" = None,
     ) -> Tuple[float, float, float]:
         """
         Calculate fee with automatic price lookup.
@@ -217,6 +277,9 @@ class FeeService:
             token_symbol: Token symbol
             tier: User's subscription tier; determines fee rate. Falls back
                   to DEFAULT_FEE_RATE (1%) when None.
+            user_id: When given, applies the user's active points fee_discount on
+                  top of the tier rate (floored) — see get_fee_decimal. Pass it so
+                  the DISPLAYED fee matches the on-chain bps and the recorded fee.
 
         Returns:
             Tuple of (fee_amount_token, fee_percentage, fee_amount_usd)
@@ -231,8 +294,8 @@ class FeeService:
         # Calculate USD value
         amount_usd = amount * token_price
 
-        # Calculate fee with tier-specific rate
-        calc = self.calculate_fee(amount_usd, tier=tier)
+        # Calculate fee with the EFFECTIVE rate (tier − points discount, floored)
+        calc = self.calculate_fee(amount_usd, tier=tier, user_id=user_id)
 
         # Convert fee back to token amount
         fee_amount_token = float(calc.fee_amount_usd) / token_price if token_price > 0 else 0
@@ -240,29 +303,29 @@ class FeeService:
         return (
             fee_amount_token,
             float(calc.fee_percentage),  # already a percent-number (e.g. 1.0 = 1%)
-            float(calc.fee_amount_usd)
+            float(calc.fee_amount_usd),
         )
-    
+
     def validate_swap_amount(self, amount_usd: float) -> Tuple[bool, str]:
         """
         Validate swap amount against limits.
-        
+
         Args:
             amount_usd: Swap amount in USD
-            
+
         Returns:
             Tuple of (is_valid, error_message)
         """
         amount = Decimal(str(amount_usd))
-        
+
         if amount < MIN_SWAP_USD:
             return False, f"Minimum swap amount is ${MIN_SWAP_USD}"
-        
+
         if amount > MAX_SWAP_USD:
             return False, f"Maximum swap amount is ${MAX_SWAP_USD:,}"
-        
+
         return True, ""
-    
+
     def record_fee(
         self,
         swap_id: int,
@@ -280,7 +343,7 @@ class FeeService:
     ) -> FeeTransaction:
         """
         Record a fee transaction in the database.
-        
+
         Args:
             swap_id: Associated swap transaction ID
             user_id: User who paid the fee
@@ -290,7 +353,7 @@ class FeeService:
             chain: Blockchain chain
             referrer_id: Optional referrer for reward
             referral_reward_usd: Referral reward amount
-            
+
         Returns:
             Created FeeTransaction
         """
@@ -325,26 +388,28 @@ class FeeService:
             f"Recorded fee: ${fee_amount_usd:.2f} ({resolved_fee_amount} {resolved_token}) "
             f"for swap {swap_id}, user {user_id}"
         )
-        
+
         return fee_tx
-    
+
     def get_fee_summary(self, user_id: int) -> Dict[str, float]:
         """Get fee summary for a user."""
         with get_session() as session:
             from sqlalchemy import func
-            
-            fees = session.query(
-                func.sum(FeeTransaction.fee_amount).label('total_fees'),
-                func.count(FeeTransaction.id).label('total_swaps')
-            ).filter(
-                FeeTransaction.user_id == user_id
-            ).first()
-            
+
+            fees = (
+                session.query(
+                    func.sum(FeeTransaction.fee_amount).label("total_fees"),
+                    func.count(FeeTransaction.id).label("total_swaps"),
+                )
+                .filter(FeeTransaction.user_id == user_id)
+                .first()
+            )
+
             return {
                 "total_fees_paid_usd": float(fees.total_fees or 0),
                 "total_swaps": fees.total_swaps or 0,
             }
-    
+
     def format_fee_info(self) -> str:
         """Format fee information for display."""
         return (
@@ -375,18 +440,18 @@ class FeeService:
 
         with get_session() as session:
             # Group uncollected fees by chain and token
-            results = session.query(
-                FeeTransaction.chain,
-                FeeTransaction.token_symbol,
-                func.sum(FeeTransaction.fee_amount).label('total_amount'),
-                func.sum(FeeTransaction.fee_amount_usd).label('total_usd'),
-                func.count(FeeTransaction.id).label('tx_count')
-            ).filter(
-                FeeTransaction.collected == False
-            ).group_by(
-                FeeTransaction.chain,
-                FeeTransaction.token_symbol
-            ).all()
+            results = (
+                session.query(
+                    FeeTransaction.chain,
+                    FeeTransaction.token_symbol,
+                    func.sum(FeeTransaction.fee_amount).label("total_amount"),
+                    func.sum(FeeTransaction.fee_amount_usd).label("total_usd"),
+                    func.count(FeeTransaction.id).label("tx_count"),
+                )
+                .filter(FeeTransaction.collected == False)
+                .group_by(FeeTransaction.chain, FeeTransaction.token_symbol)
+                .all()
+            )
 
             return [
                 {
@@ -394,7 +459,7 @@ class FeeService:
                     "token": r.token_symbol,
                     "amount": float(r.total_amount or 0),
                     "amount_usd": float(r.total_usd or 0),
-                    "tx_count": r.tx_count
+                    "tx_count": r.tx_count,
                 }
                 for r in results
             ]
@@ -418,13 +483,15 @@ class FeeService:
             collector = FEE_COLLECTOR_SOLANA if chain == "solana" else FEE_COLLECTOR_EVM
 
             if not collector:
-                results.append({
-                    "chain": chain,
-                    "token": token,
-                    "amount": amount,
-                    "success": False,
-                    "message": f"No collector address configured for {chain}"
-                })
+                results.append(
+                    {
+                        "chain": chain,
+                        "token": token,
+                        "amount": amount,
+                        "success": False,
+                        "message": f"No collector address configured for {chain}",
+                    }
+                )
                 continue
 
             try:
@@ -441,16 +508,18 @@ class FeeService:
                     session.query(FeeTransaction).filter(
                         FeeTransaction.chain == chain,
                         FeeTransaction.token_symbol == token,
-                        FeeTransaction.collected == False
+                        FeeTransaction.collected == False,
                     ).update({"collected": True})
 
-                results.append({
-                    "chain": chain,
-                    "token": token,
-                    "amount": amount,
-                    "success": True,
-                    "message": f"Reconciled {batch['tx_count']} fee records (on-chain collection via aggregator)"
-                })
+                results.append(
+                    {
+                        "chain": chain,
+                        "token": token,
+                        "amount": amount,
+                        "success": True,
+                        "message": f"Reconciled {batch['tx_count']} fee records (on-chain collection via aggregator)",
+                    }
+                )
 
                 logger.info(
                     f"Reconciled {amount} {token} on {chain} (collector={collector}); "
@@ -458,13 +527,15 @@ class FeeService:
                 )
 
             except Exception as e:
-                results.append({
-                    "chain": chain,
-                    "token": token,
-                    "amount": amount,
-                    "success": False,
-                    "message": str(e)
-                })
+                results.append(
+                    {
+                        "chain": chain,
+                        "token": token,
+                        "amount": amount,
+                        "success": False,
+                        "message": str(e),
+                    }
+                )
                 logger.error(f"Failed to sweep {token} on {chain}: {e}")
 
         return results

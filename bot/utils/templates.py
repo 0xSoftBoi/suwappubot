@@ -97,54 +97,41 @@ Powered by Li\.Fi, Jupiter & LayerZero
 HELP_MESSAGE = r"""
 🌸 *suwappu help*
 
-📖 *Help Guide*
+💡 *Fastest way to trade:* just *paste a token contract address* \(no command\) — I'll show a safety check \+ Buy buttons\. Or use /start for your live home screen\.
 
-━━ 🔐 *SELF\-CUSTODY MODE* ━━
-_You hold your private keys_
+━━ 💱 *TRADE* ━━
+• /s \- Swap any token \(7\+ chains\)
+• /check \<address\> \- Token safety check 🛡️
+• /perps \- Perpetual futures \(HyperLiquid\)
+• /predict \- Prediction markets \(Polymarket\)
+• /o \- Limit orders   • /dca \- Auto\-buy
+• /snipe \- Snipe new launches
+• /pos \- Positions \& PnL   • /hx \- History
 
-• /w \- Create/import your wallet
-• /b \- Check your balances
-• /s \- Swap with your wallet
-• /hx \- View transactions
+━━ 🏦 *EARN* ━━
+• /save \- Yield on idle USDC \(Aave V3\)
+• /borrow \- Borrow USDC against collateral
+• /stake \- Stake HYPE   • /token \- SUWP staking
+• /traders \- Copy top traders
 
-⚠️ You pay gas fees from your wallet
+━━ 👛 *WALLET* ━━
+• /w \- Create / import wallets
+• /b \- Balances   • /p \- Portfolio \+ USD
+• /c \- Custodial \(zero\-gas\) account
+• /btc \- BTC bridge \(Lightning ⇄ Starknet\)
+• /2fa \- Enable 2FA   • /recover \- Social recovery
 
-━━ 🏦 *CUSTODIAL MODE* ━━
-_We manage funds for you_
+━━ 🔔 *TOOLS* ━━
+• /a \- Price alerts   • /g \- Gas tracker
+• /f \- Favorites   • /tax \- Tax export
+• /set \- Settings   • /digest \- Weekly summary
 
-• /c \- View custodial account
-  ↳ Deposit \- Send tokens to us
-  ↳ Withdraw \- Get tokens back
-  ↳ Swap \- Trade with zero gas
-
-✅ We pay all gas fees for you\!
-
-━━━━━━━━━━━━━━━━━━━━
-
-*Other Commands:*
-• /p \- All holdings \+ USD value
-• /save \- Earn yield on idle USDC \(Aave V3\)
-• /digest \- Weekly portfolio summary on/off
-• /g \- Live gas prices
-• /f \- Saved swap pairs
-• /set \- Preferences
-
-━━ 🎮 *GROWTH & SOCIAL* ━━
-
-• /xp \- Your points \+ level
-• /checkin \- Daily check\-in
-• /lb \- XP leaderboard
+━━ 🎮 *GROWTH* ━━
+• /ref \- Referral code \(earn 30% of fees\)
+• /xp \- Points   • /checkin \- Daily   • /lb \- Leaderboard
 • /rewards \- Redeem points
 
-• /traders \- Top traders to follow
-• /following \- Who you follow
-• /profile \- Your trader profile
+_Tip: tap_ *📂 More\.\.\.* _on /start to see everything as buttons\._
 
-• /ref \- Your referral code
-• /rewards \- Referral earnings
-
-*Fees:*
-• 0\.8% swap fee on all trades
-• Gas sponsored in custodial mode
-• Earn 30% from referral fees
+*Fees:* 0\.8% per swap • gas sponsored in custodial mode
 """

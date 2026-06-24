@@ -38,14 +38,16 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       output: {
-        // Split heavy vendors into separately-cacheable chunks instead of one giant
-        // bundle, so first paint isn't blocked on charts + the whole web3 stack.
+        // Only split true "sink" libraries — ones that import nothing from other
+        // chunks — into separate cacheable bundles. The web3/query/anim stacks
+        // cross-import vendor deps (and vice-versa), so giving them their own
+        // chunks created a circular chunk (vendor <-> web3) that crashed startup
+        // with a TDZ ("Cannot access … before initialization"). Keeping them in
+        // the single `vendor` chunk eliminates the cycle. react + charts are
+        // leaves, so they stay split safely.
         manualChunks(id: string) {
           if (!id.includes('node_modules')) return undefined
           if (id.includes('lightweight-charts')) return 'charts'
-          if (/wagmi|@rainbow-me|viem|@walletconnect|@reown|@coinbase\/wallet/.test(id)) return 'web3'
-          if (id.includes('@tanstack')) return 'query'
-          if (id.includes('gsap')) return 'anim'
           if (/[\\/]react(-dom)?[\\/]|[\\/]scheduler[\\/]/.test(id)) return 'react'
           return 'vendor'
         },

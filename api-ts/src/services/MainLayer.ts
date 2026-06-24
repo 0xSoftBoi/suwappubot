@@ -12,6 +12,7 @@ import { LimitOrderServiceLive } from './LimitOrderService'
 import { OrderServiceLive } from './OrderService'
 import { PointsServiceLive } from './PointsService'
 import { RedisServiceLive } from './RedisService'
+import { SeasonsServiceLive } from './SeasonsService'
 import { ReferralServiceLive } from './ReferralService'
 import { SwapServiceLive } from './SwapService'
 import { TelegramAuthServiceLive } from './TelegramAuthService'
@@ -63,6 +64,7 @@ export const ServicesLayer = Layer.mergeAll(
 	SwapServiceLive,
 	UserServiceLive,
 	PointsServiceLive,
+	SeasonsServiceLive,
 	BalanceServiceLive,
 	AgentServiceLive,
 	TokenServiceLive,

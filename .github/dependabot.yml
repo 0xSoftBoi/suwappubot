@@ -1,0 +1,49 @@
+# Dependabot — free dependency-update PRs across the monorepo's ecosystems.
+# Weekly cadence + grouped minor/patch to keep PR noise low. (See OSS-RESOURCES free-trust-stack.)
+version: 2
+updates:
+  # Python (bot + api) — root requirements.txt / pyproject.toml
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      python-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # JavaScript/TypeScript — all workspace packages + frontends
+  - package-ecosystem: "npm"
+    directories:
+      - "/webapp"
+      - "/terminal"
+      - "/showcase"
+      - "/api-ts"
+      - "/packages/sdk"
+      - "/packages/openclaw"
+      - "/packages/design-tokens"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      js-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # CI workflow actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Container base images for the deployed services
+  - package-ecosystem: "docker"
+    directories:
+      - "/api"
+      - "/api-ts"
+      - "/showcase"
+      - "/terminal"
+      - "/webapp"
+    schedule:
+      interval: "weekly"
