@@ -680,6 +680,12 @@ async def post_init(application) -> None:
     points_service.seed_milestones_and_rewards()
     logger.info("✓ Points milestones and rewards seeded")
 
+    # Seed the first convertible-points season (idempotent)
+    from bot.services.seasons_service import seasons_service
+
+    seasons_service.ensure_seed()
+    logger.info("✓ Season seeded")
+
     # Get admin IDs from settings
     admin_ids = getattr(settings, "admin_ids", [])
 

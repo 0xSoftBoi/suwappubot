@@ -821,6 +821,15 @@ class Settings(BaseSettings):
     # on-chain escrow book plus external providers. Each provider is gated on its
     # credentials being present; the native book always works.
     p2p_enabled: bool = Field(default=True, description="Master switch for P2P features")
+
+    # Rewards marketplace (async gift-card/travel/merch/donation/experience fulfillment).
+    # Ships DISABLED: with no provider configured, async redemptions are recorded and
+    # immediately refunded (points never lost). Flip to True only once a real provider
+    # (Tremendous/Bitrefill/Duffel) + compliance sign-off is wired. See
+    # bot/services/reward_providers.py and docs/economics/REWARDS_MARKETPLACE.md.
+    rewards_marketplace_enabled: bool = Field(
+        default=False, description="Master switch for async rewards-marketplace fulfillment"
+    )
     # NoOnes (dev.noones.com) — OAuth2 client-credentials API key/secret.
     noones_api_key: Optional[str] = Field(
         default=None, description="NoOnes API client id (dev.noones.com)"
