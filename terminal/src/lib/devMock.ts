@@ -142,6 +142,26 @@ function route(path: string, search: URLSearchParams): Response | null {
   if (path.endsWith('/auth/me')) return json(MOCK_USER)
   if (path.endsWith('/webapp/me/portfolio')) return json(PORTFOLIO)
   if (path.endsWith('/v1/agent/perps/markets')) return json({ markets: PERPS_MARKETS })
+  if (path.endsWith('/terminal/perps/context')) {
+    const ctx = PERPS_MARKETS.map((m, i) => {
+      const rng = makeRng(m.asset.length * 13 + i + 1)
+      // Realistic descending open interest ($2.5B down to ~$30M).
+      const oiNotional = (2_600_000_000 / (i + 1)) * (0.55 + rng() * 0.6)
+      return {
+        asset: m.asset,
+        name: m.name,
+        markPrice: m.markPrice,
+        oraclePrice: m.markPrice * (1 - m.fundingRate * 2),
+        basisPct: (rng() - 0.5) * 0.12,
+        funding: m.fundingRate,
+        oiNotional,
+        dayVolume: oiNotional * (0.8 + rng() * 2.5),
+        dayChangePct: (rng() - 0.45) * 9,
+        maxLeverage: m.maxLeverage,
+      }
+    }).sort((a, b) => b.oiNotional - a.oiNotional)
+    return json(ctx)
+  }
   if (path.endsWith('/v1/agent/predict/markets')) return json({ markets: PREDICT_MARKETS })
   if (path.endsWith('/terminal/perps/account'))
     return json({ connected: true, address: '0x71C…9a2F', accountValue: 24817.43, maintenanceMarginUsed: 612.4, totalMarginUsed: 2480.9, withdrawable: 21100.2 })

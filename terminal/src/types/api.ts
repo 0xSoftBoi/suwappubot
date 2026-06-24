@@ -259,6 +259,21 @@ export interface HLMarket {
   fundingRate: number
 }
 
+// Per-market intelligence from HyperLiquid's public metaAndAssetCtxs feed —
+// the data behind a pro perps desk (open interest, basis, 24h stats, funding).
+export interface PerpsMarketContext {
+  asset: string // bare HL symbol, e.g. "ETH"
+  name: string // "ETH-USD"
+  markPrice: number
+  oraclePrice: number
+  basisPct: number // spot-perp premium, % (mark vs oracle)
+  funding: number // hourly funding rate, decimal
+  oiNotional: number // open interest in USD
+  dayVolume: number // 24h notional volume, USD
+  dayChangePct: number // 24h price change, %
+  maxLeverage: number
+}
+
 export interface HLPositionQuote {
   market: string
   side: 'long' | 'short'
