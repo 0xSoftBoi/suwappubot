@@ -176,6 +176,39 @@ billingRoutes.post('/stripe/webhook', async (c) => {
 				}
 			}
 
+			if (event.type === 'invoice.payment_failed') {
+				const invoice = event.data.object as {
+					subscription_details?: { metadata?: { user_id?: string } }
+					metadata?: { user_id?: string }
+					next_payment_attempt?: number | null
+				}
+				const userId =
+					invoice.subscription_details?.metadata?.user_id ?? invoice.metadata?.user_id
+				// next_payment_attempt is null once Stripe stops retrying (final failure).
+				const isTerminal = !invoice.next_payment_attempt
+
+				// Always audit the failure (dunning visibility + SOC2 trail).
+				yield* auditLog({
+					userId: userId ? parseInt(userId, 10) : 0,
+					eventType: 'subscription.payment_failed',
+					details: { terminal: isTerminal, source: 'stripe', eventId: event.id },
+				})
+
+				// Downgrade ONLY on the final failed attempt, and only with a resolved
+				// user — never downgrade a paying user mid-retry. Idempotent with the
+				// customer.subscription.deleted handler above.
+				if (isTerminal && userId) {
+					yield* Effect.tryPromise({
+						try: () =>
+							db
+								.update(subscriptions)
+								.set({ tier: 'free', expiresAt: new Date(), updatedAt: new Date() })
+								.where(eq(subscriptions.userId, parseInt(userId, 10))),
+						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+					})
+				}
+			}
+
 			return { received: true }
 		}),
 	)
