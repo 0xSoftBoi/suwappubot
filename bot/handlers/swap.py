@@ -938,9 +938,13 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
 
         # Resolve tier first so the SAME rate drives the on-chain fee we send to
         # the aggregator (platform_fee_bps), the quote we display, and the fee we
-        # record — single source of truth, no drift.
-        user_tier = await x402_service.get_tier(context.user_data["user_id"])
-        platform_fee_bps = fee_service.get_fee_bps(user_tier)
+        # record — single source of truth, no drift. Passing user_id also folds in
+        # the user's active points fee_discount (tier − discount, floored), so the
+        # discount applies identically to the on-chain bps, the displayed quote,
+        # and the recorded fee (and the referral share scales with it).
+        fee_user_id = context.user_data["user_id"]
+        user_tier = await x402_service.get_tier(fee_user_id)
+        platform_fee_bps = fee_service.get_fee_bps(user_tier, user_id=fee_user_id)
 
         # Try the pre-warmed quote first (keyed on the reference wallet — the
         # first selected wallet — so it only hits when it matches the wallet
@@ -971,6 +975,7 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
             amount=quote.from_amount_human,
             token_symbol=swap_data["from_token"],
             tier=user_tier,
+            user_id=fee_user_id,
         )
         # Persist fee values so post-execution can record them
         context.user_data["swap"]["fee_amount"] = fee_amount
@@ -1321,17 +1326,38 @@ async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
                     user_id=user_id,
                     swap_amount_usd=swap_amount_usd,
                     swap_id=swap_tx.id,
+                    fee_usd=fee_usd,
                 )
                 total_points += points_earned
 
         num_fail = len(selected_wallet_ids) - num_success
+
+        # Gas rebate (one-shot points redemption): consume EXACTLY ONCE, and only
+        # if a swap actually went through (don't burn the rebate on a fully-failed
+        # batch). consume_gas_rebate atomically flips the redemption to 'applied',
+        # so it can rebate a single swap and never re-applies. Floor the displayed
+        # net gas at 0 — a rebate can offset the gas shown but never go negative.
+        gas_rebate_usd = 0.0
+        if num_success > 0:
+            gas_rebate_usd = points_service.consume_gas_rebate(user_id)
+
+        total_gas_usd = (quote.gas_cost_usd or 0.0) * num_success
+        net_gas_usd = max(0.0, total_gas_usd - gas_rebate_usd)
+        rebate_line = ""
+        if gas_rebate_usd > 0:
+            applied = min(gas_rebate_usd, total_gas_usd)
+            rebate_line = (
+                f"⛽ Gas rebate applied: −{format_usd(applied)} "
+                f"(gas now {format_usd(net_gas_usd)})\n"
+            )
 
         text = (
             f"✅ *Multi-Swap Submitted!*\n\n"
             f"• Success: *{num_success}* wallets\n"
             f"• Failed: *{num_fail}* wallets\n\n"
             f"💰 *+{total_points} XP earned!*\n"
-            f"Total platform fee: {format_usd(total_fee_usd)} ({swap_data.get('fee_percentage', 0.8)}%)\n\n"
+            f"Total platform fee: {format_usd(total_fee_usd)} ({swap_data.get('fee_percentage', 0.8)}%)\n"
+            f"{rebate_line}\n"
             f"Check individual status in /hx."
         )
 

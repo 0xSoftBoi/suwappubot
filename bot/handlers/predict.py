@@ -878,6 +878,24 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
             shares = amount / price if price > 0 else 0
             potential_payout = shares * 1.0
 
+            # Whole-product points: reward the prediction entry on USDC spent.
+            # Polymarket orders carry no Suwappu platform fee, so there is no
+            # fee_usd to pass — season accrual falls back to the volume-derived
+            # base (int(amount/10)), the documented non-fee path. Points failures
+            # must never affect the placed order.
+            try:
+                from bot.services.points_service import points_service
+
+                points_service.award_points(
+                    user_id=user_id,
+                    action="predict_trade",
+                    amount=max(1, int(amount / 10)),
+                    description=f"Prediction BUY {outcome.upper()} (${amount:,.2f})",
+                    metadata={"amount_usd": float(amount), "fee_usd": None},
+                )
+            except Exception as e:
+                logger.debug(f"predict_trade award skipped: {e}")
+
             await query.edit_message_text(
                 f"*Order Placed!*\n\n"
                 f"*Market:* {truncate(market.question)}\n"

@@ -385,30 +385,91 @@ async def redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reward_cost = reward.points_cost
         reward_type = reward.reward_type
         reward_value = reward.reward_value
+        reward_category = getattr(reward, "reward_category", None) or "own_product"
 
-    # Attempt to redeem
-    success, message = points_service.spend_points(
-        user_id=user_id,
-        amount=reward_cost,
-        reward_type=reward_type,
-        reward_value=reward_value,
-    )
+    from bot.services.reward_providers import ASYNC_CATEGORIES
+
+    # Async marketplace categories (gift_card/travel/merch/donation/experience) go
+    # through the marketplace path, which debits + creates a fulfillment order and
+    # REFUNDS while the marketplace is disabled (points never lost). gift_card now
+    # routes here instead of the old hard reject.
+    if reward_category in ASYNC_CATEGORIES:
+        success, message, order_id = points_service.redeem_marketplace_reward(
+            user_id=user_id, reward_id=reward_id
+        )
+        if success:
+            await query.answer(f"🎉 Redeemed {reward_name}!", show_alert=True)
+            msg = (
+                f"🎉 *Reward Redeemed!*\n\n"
+                f"You got: *{reward_name}*\n"
+                f"Cost: {reward_cost:,} points\n\n"
+                f"_{message}_"
+            )
+            keyboard = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton("🎁 More Rewards", callback_data="xp_rewards"),
+                        InlineKeyboardButton("📊 My Stats", callback_data="xp_stats"),
+                    ]
+                ]
+            )
+            await query.edit_message_text(
+                msg,
+                parse_mode="Markdown",
+                reply_markup=keyboard,
+            )
+        else:
+            await query.answer(message, show_alert=True)
+        return
+
+    # Cash-equivalent redemptions (airline miles, stablecoin cash-out) remain NOT
+    # enabled: they cross the cash-equivalent line and require a partner integration +
+    # compliance sign-off (see docs/economics/REDEMPTION_AND_PARTNERS.md). Reject rather
+    # than silently deduct points for something we cannot fulfill.
+    if reward_type in ("partner_transfer", "miles", "cashout", "stablecoin"):
+        await query.answer(
+            "That reward is coming soon — partner redemptions aren't live yet.",
+            show_alert=True,
+        )
+        return
+
+    # Subscription rewards grant a REAL tier via an atomic deduct+grant path; all
+    # other reward types use the generic spend path (recorded; effect applied later).
+    if reward_type == "subscription":
+        success, message, _expiry = points_service.redeem_subscription_reward(
+            user_id=user_id, reward_id=reward_id
+        )
+        effect_note = (
+            "\n\n✅ _Your subscription is active now — the lower fee applies on your next swap._"
+            if success
+            else ""
+        )
+    else:
+        success, message = points_service.spend_points(
+            user_id=user_id,
+            amount=reward_cost,
+            reward_type=reward_type,
+            reward_value=reward_value,
+        )
+        # fee-discount / gas-rebate EFFECTS now auto-apply at swap time:
+        #  • fee_discount — subtracted from your tier fee on every swap until it
+        #    expires (floored at our best paid-tier rate; never below).
+        #  • gas_rebate — applied once, to your very next successful swap.
+        if reward_type == "fee_discount":
+            effect_note = (
+                "\n\n✅ _Active now — this discount comes off your swap fee "
+                "automatically on every swap until it expires._"
+            )
+        elif reward_type == "gas_rebate":
+            effect_note = (
+                "\n\n✅ _Active now — this rebate is applied automatically to "
+                "your next successful swap._"
+            )
+        else:
+            effect_note = ""
 
     if success:
         await query.answer(f"🎉 Redeemed {reward_name}!", show_alert=True)
-
-        # NOTE: fee-discount / gas-rebate reward EFFECTS are not yet wired into
-        # the swap/fee flow (the redemption is recorded but not auto-applied at
-        # swap time). Until that integration lands, tell the user it's pending so
-        # we never imply a discount is already active on their next swap.
-        fee_or_gas = reward_type in ("fee_discount", "gas_rebate")
-        effect_note = (
-            "\n\n⏳ _This perk is recorded to your account. Automatic application "
-            "to swaps is rolling out soon — contact support to apply it manually._"
-            if fee_or_gas
-            else ""
-        )
-
         msg = (
             f"🎉 *Reward Redeemed!*\n\n"
             f"You got: *{reward_name}*\n"
