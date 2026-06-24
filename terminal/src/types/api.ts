@@ -311,6 +311,17 @@ export interface MarketRegime {
   stablecoinMcap: number | null // USD — "dry powder"
 }
 
+// A single plain-language card in the cross-market Signals feed.
+export interface MarketSignal {
+  id: string
+  category: 'regime' | 'mover' | 'funding' | 'squeeze'
+  severity: 'alert' | 'warn' | 'info'
+  emoji: string
+  title: string
+  detail: string
+  market: string // "ETH-USD" or "" for market-wide
+}
+
 export interface HLPositionQuote {
   market: string
   side: 'long' | 'short'

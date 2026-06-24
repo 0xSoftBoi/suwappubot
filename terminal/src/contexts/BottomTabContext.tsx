@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 
-export type BottomTab = 'portfolio' | 'discovery' | 'watchlist' | 'copy-trading' | 'wallet-tracker' | 'tweets' | 'defi' | 'copilot'
+export type BottomTab = 'portfolio' | 'signals' | 'discovery' | 'watchlist' | 'copy-trading' | 'wallet-tracker' | 'tweets' | 'defi' | 'copilot'
 
 interface BottomTabContextType {
   activeTab: BottomTab
