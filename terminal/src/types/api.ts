@@ -340,6 +340,34 @@ export interface TokenSecurity {
   devHoldingsPercent?: number
 }
 
+// A single human-readable safety flag from the aggregated report.
+export interface SafetyFlag {
+  label: string
+  level: 'danger' | 'warn' | 'ok'
+}
+
+// Aggregated token-safety report — GoPlus + Honeypot.is (EVM) or RugCheck
+// (Solana). Every field is nullable; riskLevel is 'unknown' when no provider
+// answered. Powers the pre-trade safety strip.
+export interface TokenSafetyReport {
+  chain: string
+  address: string
+  isHoneypot: boolean | null
+  canSell: boolean | null
+  buyTaxPct: number | null
+  sellTaxPct: number | null
+  mintable: boolean | null
+  freezable: boolean | null
+  ownerRenounced: boolean | null
+  lpLockedPct: number | null
+  topHolderPct: number | null
+  holderCount: number | null
+  score: number | null // 0–100 trust
+  riskLevel: 'safe' | 'caution' | 'danger' | 'unknown'
+  flags: SafetyFlag[]
+  sources: string[]
+}
+
 // One tradeable outcome of a prediction market — the CLOB tokenId is what an
 // order is placed against.
 export interface MarketToken {

@@ -443,6 +443,224 @@ def _to_int(value) -> Optional[int]:
         return None
 
 
+# --- Token safety: GoPlus + Honeypot.is (EVM) / RugCheck (Solana), all free ---
+
+# Suwappu chain id -> GoPlus numeric chain id (EVM only).
+GOPLUS_CHAIN_IDS = {
+    "ethereum": "1",
+    "eth": "1",
+    "bsc": "56",
+    "bnb": "56",
+    "base": "8453",
+    "arbitrum": "42161",
+    "arbitrum_one": "42161",
+    "optimism": "10",
+    "op": "10",
+    "polygon": "137",
+    "polygon_pos": "137",
+    "avalanche": "43114",
+    "avax": "43114",
+}
+
+
+def _pct(value) -> Optional[float]:
+    """Parse a GoPlus/Honeypot tax-or-percent field (often a 0–1 ratio string or
+    a 0–100 number) into a percent."""
+    f = _to_float(value)
+    if f is None:
+        return None
+    return round(f * 100, 2) if f <= 1 else round(f, 2)
+
+
+def _flag(label: str, level: str) -> dict:
+    return {"label": label, "level": level}  # level: danger | warn | ok
+
+
+def _empty_report(chain: str, address: str) -> dict:
+    return {
+        "chain": chain,
+        "address": address,
+        "isHoneypot": None,
+        "canSell": None,
+        "buyTaxPct": None,
+        "sellTaxPct": None,
+        "mintable": None,
+        "freezable": None,
+        "ownerRenounced": None,
+        "lpLockedPct": None,
+        "topHolderPct": None,
+        "holderCount": None,
+        "score": None,
+        "riskLevel": "unknown",
+        "flags": [],
+        "sources": [],
+    }
+
+
+async def _evm_safety(chain: str, address: str) -> dict:
+    """GoPlus token_security + Honeypot.is sell-simulation for an EVM token."""
+    report = _empty_report(chain, address)
+    gp_id = GOPLUS_CHAIN_IDS[chain.lower()]
+    addr = address.lower()
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        gp_raw, hp_raw = await asyncio.gather(
+            _get_json(
+                client,
+                f"https://api.gopluslabs.io/api/v1/token_security/{gp_id}",
+                {"contract_addresses": addr},
+            ),
+            _get_json(
+                client,
+                "https://api.honeypot.is/v2/IsHoneypot",
+                {"address": addr, "chainID": gp_id},
+            ),
+            return_exceptions=True,
+        )
+
+    flags: list[dict] = []
+    if isinstance(gp_raw, dict):
+        report["sources"].append("goplus")
+        t = (gp_raw.get("result") or {}).get(addr) or {}
+        if t:
+            report["isHoneypot"] = t.get("is_honeypot") == "1"
+            report["buyTaxPct"] = _pct(t.get("buy_tax"))
+            report["sellTaxPct"] = _pct(t.get("sell_tax"))
+            report["mintable"] = t.get("is_mintable") == "1"
+            report["ownerRenounced"] = t.get("can_take_back_ownership") == "0" and not (
+                t.get("hidden_owner") == "1"
+            )
+            report["holderCount"] = _to_int(t.get("holder_count"))
+            lp = t.get("lp_holders") or []
+            locked = sum(
+                _to_float(h.get("percent"), 0.0) or 0.0 for h in lp if h.get("is_locked") == 1
+            )
+            report["lpLockedPct"] = round(locked * 100, 1) if lp else None
+            holders = t.get("holders") or []
+            if holders:
+                report["topHolderPct"] = round(
+                    sum(_to_float(h.get("percent"), 0.0) or 0.0 for h in holders[:10]) * 100, 1
+                )
+            if t.get("cannot_sell_all") == "1":
+                flags.append(_flag("Can't sell entire balance", "danger"))
+            if t.get("transfer_pausable") == "1":
+                flags.append(_flag("Transfers can be paused", "warn"))
+            if t.get("slippage_modifiable") == "1":
+                flags.append(_flag("Tax can be changed by owner", "warn"))
+            if t.get("is_open_source") == "0":
+                flags.append(_flag("Source not verified", "warn"))
+
+    # Honeypot.is runs a real buy+sell simulation — authoritative on can-sell.
+    if isinstance(hp_raw, dict):
+        report["sources"].append("honeypot.is")
+        hr = hp_raw.get("honeypotResult") or {}
+        sim = hp_raw.get("simulationResult") or {}
+        if hr.get("isHoneypot") is not None:
+            report["isHoneypot"] = bool(hr.get("isHoneypot"))
+        if sim.get("buyTax") is not None:
+            report["buyTaxPct"] = _pct(sim.get("buyTax"))
+        if sim.get("sellTax") is not None:
+            report["sellTaxPct"] = _pct(sim.get("sellTax"))
+
+    report["canSell"] = (not report["isHoneypot"]) if report["isHoneypot"] is not None else None
+    report["flags"] = _derive_flags(report, flags)
+    report["score"], report["riskLevel"] = _derive_risk(report)
+    return report
+
+
+async def _solana_safety(chain: str, address: str) -> dict:
+    """RugCheck report summary for a Solana mint."""
+    report = _empty_report(chain, address)
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        try:
+            rc = await _get_json(
+                client, f"https://api.rugcheck.xyz/v1/tokens/{address}/report/summary"
+            )
+        except Exception:
+            rc = None
+    flags: list[dict] = []
+    if isinstance(rc, dict):
+        report["sources"].append("rugcheck")
+        for r in rc.get("risks") or []:
+            raw = (r.get("level") or "").lower()
+            level = "danger" if raw in ("danger", "high") else "warn"
+            label = r.get("name") or "Risk"
+            flags.append(_flag(label, level))
+            name = label.lower()
+            if "mint" in name:
+                report["mintable"] = True
+            if "freeze" in name:
+                report["freezable"] = True
+            if "honeypot" in name:
+                report["isHoneypot"] = True
+        # RugCheck score is a RISK score (higher = riskier); map to a 0–100 trust.
+        risk_score = _to_float(rc.get("score"))
+        if risk_score is not None:
+            report["score"] = max(0, min(100, round(100 - risk_score / 10)))
+    report["canSell"] = (not report["isHoneypot"]) if report["isHoneypot"] is not None else None
+    report["flags"] = _derive_flags(report, flags)
+    score, level = _derive_risk(report)
+    if report["score"] is None:
+        report["score"] = score
+    report["riskLevel"] = level
+    return report
+
+
+def _derive_flags(report: dict, base: list[dict]) -> list[dict]:
+    flags = list(base)
+    if report.get("isHoneypot"):
+        flags.insert(0, _flag("Honeypot — cannot sell", "danger"))
+    if report.get("mintable"):
+        flags.append(_flag("Mint authority active", "warn"))
+    if report.get("freezable"):
+        flags.append(_flag("Freeze authority active", "warn"))
+    for tax_key, side in (("buyTaxPct", "Buy"), ("sellTaxPct", "Sell")):
+        tax = report.get(tax_key)
+        if tax is not None and tax >= 10:
+            flags.append(_flag(f"High {side.lower()} tax {tax:.0f}%", "warn"))
+    top = report.get("topHolderPct")
+    if top is not None and top >= 50:
+        flags.append(_flag(f"Top 10 hold {top:.0f}%", "warn" if top < 70 else "danger"))
+    # De-dup by label, preserve order.
+    seen, out = set(), []
+    for f in flags:
+        if f["label"] not in seen:
+            seen.add(f["label"])
+            out.append(f)
+    return out
+
+
+def _derive_risk(report: dict) -> tuple[Optional[int], str]:
+    flags = report.get("flags") or []
+    if report.get("isHoneypot") or any(f["level"] == "danger" for f in flags):
+        return (report.get("score") if report.get("score") is not None else 10), "danger"
+    if any(f["level"] == "warn" for f in flags):
+        return (report.get("score") if report.get("score") is not None else 55), "caution"
+    if not report.get("sources"):
+        return None, "unknown"
+    return (report.get("score") if report.get("score") is not None else 90), "safe"
+
+
+@router.get("/token/safety")
+async def get_terminal_token_safety(
+    chain: str = Query(...),
+    address: str = Query(...),
+):
+    """Aggregated token-safety report from free providers — GoPlus + Honeypot.is
+    (EVM) or RugCheck (Solana): honeypot/can-sell, buy/sell tax, mint/freeze
+    authority, LP-locked, top-holder concentration, plus human-readable risk
+    flags and a 0–100 trust score. Degrades to ``riskLevel: unknown`` rather
+    than failing if upstreams are down."""
+    chain_l = chain.lower()
+    try:
+        if chain_l in ("solana", "sol"):
+            return await _solana_safety(chain, address)
+        if chain_l in GOPLUS_CHAIN_IDS:
+            return await _evm_safety(chain, address)
+    except Exception:
+        return _empty_report(chain, address)
+    return _empty_report(chain, address)
+
+
 @router.get("/orderbook")
 async def get_terminal_orderbook(
     symbol: str = Query(default="ETHUSDC"),
