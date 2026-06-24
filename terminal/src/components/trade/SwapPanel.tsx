@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { OrderTabs } from './OrderTabs'
+import { TokenSafetyStrip } from './TokenSafetyStrip'
 import { TokenInput } from '../swap/TokenInput'
 import { QuoteComparison } from '../swap/QuoteComparison'
 import { SlippageControl } from '../swap/SlippageControl'
@@ -284,6 +285,12 @@ export function SwapPanel() {
         onTokenSelect={setToToken}
         readOnly
       />
+
+      {/* Pre-trade safety check on the token being acquired (honeypot, tax,
+          authorities, LP, concentration) — loud + red when it's a honeypot. */}
+      {toToken && (
+        <TokenSafetyStrip chain={toToken.chain} address={toToken.address} symbol={toToken.symbol} />
+      )}
 
       {/* Slippage */}
       <SlippageControl value={slippage} onChange={setSlippage} />

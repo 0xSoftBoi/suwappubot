@@ -21,6 +21,7 @@ import type {
   TerminalTrade,
   Pool,
   TokenSecurity,
+  TokenSafetyReport,
   HLMarket,
   PerpsMarketContext,
   MarketRegime,
@@ -385,6 +386,12 @@ export const api = {
 
   getTokenSecurity(chain: string, address: string) {
     return request<TokenSecurity>(`/webapp/discovery/security?chain=${chain}&address=${address}`)
+  },
+
+  // Aggregated token safety — GoPlus + Honeypot.is (EVM) / RugCheck (Solana).
+  getTokenSafety(chain: string, address: string) {
+    const params = new URLSearchParams({ chain, address })
+    return request<TokenSafetyReport>(`/terminal/token/safety?${params}`)
   },
 
   // Perps (HyperLiquid). api-ts wraps these in { markets } / { positions };

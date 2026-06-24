@@ -162,6 +162,27 @@ function route(path: string, search: URLSearchParams): Response | null {
     }).sort((a, b) => b.oiNotional - a.oiNotional)
     return json(ctx)
   }
+  if (path.endsWith('/terminal/token/safety')) {
+    const chain = search.get('chain') || 'ethereum'
+    return json({
+      chain,
+      address: search.get('address') || '',
+      isHoneypot: false,
+      canSell: true,
+      buyTaxPct: 0,
+      sellTaxPct: 0,
+      mintable: false,
+      freezable: false,
+      ownerRenounced: true,
+      lpLockedPct: 100,
+      topHolderPct: 18,
+      holderCount: 482000,
+      score: 92,
+      riskLevel: 'safe',
+      flags: [],
+      sources: chain === 'solana' ? ['rugcheck'] : ['goplus', 'honeypot.is'],
+    })
+  }
   if (path.endsWith('/terminal/market/regime'))
     return json({
       fearGreed: { value: 17, label: 'Extreme Fear' },
