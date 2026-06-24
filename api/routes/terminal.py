@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import datetime
@@ -368,6 +369,78 @@ async def get_terminal_predict_history(
     ]
     points.sort(key=lambda p: p["time"])
     return points
+
+
+# --- Market regime strip: Fear&Greed + dominance/mcap + stablecoin supply ---
+
+FNG_URL = "https://api.alternative.me/fng/"
+COINGECKO_GLOBAL_URL = "https://api.coingecko.com/api/v3/global"
+DEFILLAMA_STABLES_URL = "https://stablecoins.llama.fi/stablecoins"
+
+
+async def _get_json(client: httpx.AsyncClient, url: str, params: dict | None = None):
+    resp = await client.get(
+        url,
+        params=params,
+        headers={"User-Agent": "suwappu-terminal/1.0", "Accept": "application/json"},
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+@router.get("/market/regime")
+async def get_terminal_market_regime():
+    """Always-on macro context for the terminal header: crypto Fear & Greed
+    (alternative.me), BTC dominance + total market cap + 24h change
+    (CoinGecko), and total stablecoin supply / "dry powder" (DefiLlama). All
+    public + free; any source that fails is returned null so the UI degrades
+    gracefully tile-by-tile."""
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        fng_raw, global_raw, stables_raw = await asyncio.gather(
+            _get_json(client, FNG_URL),
+            _get_json(client, COINGECKO_GLOBAL_URL),
+            _get_json(client, DEFILLAMA_STABLES_URL, {"includePrices": "false"}),
+            return_exceptions=True,
+        )
+
+    fear_greed = None
+    if isinstance(fng_raw, dict):
+        entry = (fng_raw.get("data") or [{}])[0]
+        if entry.get("value") is not None:
+            fear_greed = {
+                "value": _to_int(entry.get("value")),
+                "label": entry.get("value_classification") or "",
+            }
+
+    btc_dominance = total_mcap = mcap_change_24h = None
+    if isinstance(global_raw, dict):
+        g = global_raw.get("data") or {}
+        btc_dominance = _to_float((g.get("market_cap_percentage") or {}).get("btc"))
+        total_mcap = _to_float((g.get("total_market_cap") or {}).get("usd"))
+        mcap_change_24h = _to_float(g.get("market_cap_change_percentage_24h_usd"))
+
+    stablecoin_mcap = None
+    if isinstance(stables_raw, dict):
+        assets = stables_raw.get("peggedAssets") or []
+        total = 0.0
+        for a in assets:
+            total += _to_float((a.get("circulating") or {}).get("peggedUSD"), 0.0) or 0.0
+        stablecoin_mcap = total or None
+
+    return {
+        "fearGreed": fear_greed,
+        "btcDominance": btc_dominance,
+        "totalMcap": total_mcap,
+        "mcapChange24h": mcap_change_24h,
+        "stablecoinMcap": stablecoin_mcap,
+    }
+
+
+def _to_int(value) -> Optional[int]:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 @router.get("/orderbook")

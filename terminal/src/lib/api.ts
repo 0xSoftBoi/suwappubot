@@ -23,6 +23,7 @@ import type {
   TokenSecurity,
   HLMarket,
   PerpsMarketContext,
+  MarketRegime,
   HLPosition,
   PredictionMarket,
   PerpsAccountStatus,
@@ -332,6 +333,11 @@ export const api = {
   // oracle, basis, funding, open interest, 24h volume + change per market.
   getPerpsContext() {
     return request<PerpsMarketContext[]>('/terminal/perps/context')
+  },
+
+  // Macro regime — Fear&Greed + BTC dominance/mcap + stablecoin supply (public).
+  getMarketRegime() {
+    return request<MarketRegime>('/terminal/market/regime')
   },
 
   // Prediction probability history — Polymarket prices-history (public) for a
