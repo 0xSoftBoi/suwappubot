@@ -26,6 +26,7 @@ import type {
   PerpsMarketContext,
   WhaleSnapshot,
   MarketRegime,
+  MarketSignal,
   HLPosition,
   PredictionMarket,
   PerpsAccountStatus,
@@ -346,6 +347,11 @@ export const api = {
   // Macro regime — Fear&Greed + BTC dominance/mcap + stablecoin supply (public).
   getMarketRegime() {
     return request<MarketRegime>('/terminal/market/regime')
+  },
+
+  // Cross-market Signals feed — movers, funding extremes, squeezes, regime.
+  getSignals() {
+    return request<MarketSignal[]>('/terminal/signals')
   },
 
   // Prediction probability history — Polymarket prices-history (public) for a

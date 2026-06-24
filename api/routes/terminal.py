@@ -612,6 +612,207 @@ def _to_int(value) -> Optional[int]:
         return None
 
 
+# --- Cross-market Signals scanner: "what matters right now" across HL perps ---
+
+# Ignore illiquid markets so signals come from real, tradeable size.
+SIGNAL_MIN_OI = 5_000_000  # $5M open interest
+
+
+def _signal(
+    category: str, severity: str, emoji: str, title: str, detail: str, market: str = ""
+) -> dict:
+    # severity: alert | warn | info
+    return {
+        "id": f"{category}:{market or title}",
+        "category": category,
+        "severity": severity,
+        "emoji": emoji,
+        "title": title,
+        "detail": detail,
+        "market": market,
+    }
+
+
+@router.get("/signals")
+async def get_terminal_signals():
+    """A live cross-market signal feed derived from HyperLiquid's all-markets
+    feed + macro regime — top movers, funding extremes, squeeze setups, and the
+    Fear & Greed regime. One scan, plain-language cards, ranked by urgency."""
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            meta_ctx, fng_raw = await asyncio.gather(
+                _hl_post(client, {"type": "metaAndAssetCtxs"}),
+                _get_json(client, FNG_URL),
+                return_exceptions=True,
+            )
+    except Exception:
+        return []
+
+    signals: list[dict] = []
+
+    # Regime card from Fear & Greed.
+    if isinstance(fng_raw, dict):
+        entry = (fng_raw.get("data") or [{}])[0]
+        val = _to_int(entry.get("value"))
+        if val is not None:
+            label = entry.get("value_classification") or ""
+            if val <= 24:
+                signals.append(
+                    _signal(
+                        "regime",
+                        "alert",
+                        "😱",
+                        f"Extreme Fear ({val})",
+                        "Market sentiment is capitulating — historically a contrarian buy zone.",
+                    )
+                )
+            elif val >= 76:
+                signals.append(
+                    _signal(
+                        "regime",
+                        "alert",
+                        "🤑",
+                        f"Extreme Greed ({val})",
+                        "Sentiment is euphoric — historically a zone to de-risk.",
+                    )
+                )
+            else:
+                signals.append(
+                    _signal(
+                        "regime",
+                        "info",
+                        "🌡️",
+                        f"Fear & Greed: {label} ({val})",
+                        "Overall crypto risk appetite right now.",
+                    )
+                )
+
+    # Per-market signals from metaAndAssetCtxs.
+    markets = []
+    if isinstance(meta_ctx, list) and len(meta_ctx) >= 2:
+        universe = (meta_ctx[0] or {}).get("universe") or []
+        ctxs = meta_ctx[1] or []
+        for u, c in zip(universe, ctxs):
+            if not isinstance(u, dict) or not isinstance(c, dict):
+                continue
+            asset = u.get("name")
+            mark = _hl_float(c.get("markPx"))
+            prev = _hl_float(c.get("prevDayPx"))
+            oi = _hl_float(c.get("openInterest")) * mark
+            if not asset or mark <= 0 or oi < SIGNAL_MIN_OI:
+                continue
+            markets.append(
+                {
+                    "asset": asset,
+                    "market": f"{asset}-USD",
+                    "change": ((mark - prev) / prev * 100) if prev else 0.0,
+                    "funding": _hl_float(c.get("funding")),
+                    "oi": oi,
+                }
+            )
+
+    if markets:
+        # Top movers (24h).
+        by_change = sorted(markets, key=lambda m: m["change"], reverse=True)
+        for m in by_change[:2]:
+            if m["change"] > 2:
+                signals.append(
+                    _signal(
+                        "mover",
+                        "info",
+                        "🚀",
+                        f"{m['asset']} +{m['change']:.1f}% (24h)",
+                        f"Leading the board · {_fmt_usd(m['oi'])} open interest.",
+                        m["market"],
+                    )
+                )
+        for m in by_change[-2:]:
+            if m["change"] < -2:
+                signals.append(
+                    _signal(
+                        "mover",
+                        "info",
+                        "🔻",
+                        f"{m['asset']} {m['change']:.1f}% (24h)",
+                        f"Worst performer · {_fmt_usd(m['oi'])} open interest.",
+                        m["market"],
+                    )
+                )
+
+        # Funding extremes = crowded positioning.
+        by_funding = sorted(markets, key=lambda m: m["funding"], reverse=True)
+        hi = by_funding[0]
+        if hi["funding"] * 100 >= 0.005:  # >= 0.005%/h
+            signals.append(
+                _signal(
+                    "funding",
+                    "warn",
+                    "💸",
+                    f"{hi['asset']} funding {hi['funding']*100:+.4f}%/h",
+                    "Longs are paying heavily — crowded long, squeeze risk.",
+                    hi["market"],
+                )
+            )
+        lo = by_funding[-1]
+        if lo["funding"] * 100 <= -0.005:
+            signals.append(
+                _signal(
+                    "funding",
+                    "warn",
+                    "🧲",
+                    f"{lo['asset']} funding {lo['funding']*100:+.4f}%/h",
+                    "Shorts are paying — crowded short, fuel for a squeeze.",
+                    lo["market"],
+                )
+            )
+
+        # Squeeze setups: funding fights the price move.
+        for m in markets:
+            fpct = m["funding"] * 100
+            if fpct <= -0.002 and m["change"] >= 2:
+                signals.append(
+                    _signal(
+                        "squeeze",
+                        "alert",
+                        "⚡",
+                        f"{m['asset']} short squeeze building",
+                        f"Up {m['change']:.1f}% while shorts pay funding — trapped shorts.",
+                        m["market"],
+                    )
+                )
+            elif fpct >= 0.002 and m["change"] <= -2:
+                signals.append(
+                    _signal(
+                        "squeeze",
+                        "alert",
+                        "⚡",
+                        f"{m['asset']} long flush risk",
+                        f"Down {m['change']:.1f}% while longs pay funding — trapped longs.",
+                        m["market"],
+                    )
+                )
+
+    # Rank: alert > warn > info, de-duplicated by id.
+    order = {"alert": 0, "warn": 1, "info": 2}
+    seen, ranked = set(), []
+    for s in sorted(signals, key=lambda x: order.get(x["severity"], 3)):
+        if s["id"] in seen:
+            continue
+        seen.add(s["id"])
+        ranked.append(s)
+    return ranked[:14]
+
+
+def _fmt_usd(n: float) -> str:
+    if n >= 1e9:
+        return f"${n/1e9:.1f}B"
+    if n >= 1e6:
+        return f"${n/1e6:.0f}M"
+    if n >= 1e3:
+        return f"${n/1e3:.0f}K"
+    return f"${n:.0f}"
+
+
 # --- Token safety: GoPlus + Honeypot.is (EVM) / RugCheck (Solana), all free ---
 
 # Suwappu chain id -> GoPlus numeric chain id (EVM only).

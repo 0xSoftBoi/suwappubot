@@ -217,6 +217,15 @@ function route(path: string, search: URLSearchParams): Response | null {
       mcapChange24h: -2.35,
       stablecoinMcap: 313_600_000_000,
     })
+  if (path.endsWith('/terminal/signals'))
+    return json([
+      { id: 'squeeze:SOL-USD', category: 'squeeze', severity: 'alert', emoji: '⚡', title: 'SOL short squeeze building', detail: 'Up 3.1% while shorts pay funding — trapped shorts.', market: 'SOL-USD' },
+      { id: 'regime:fng', category: 'regime', severity: 'alert', emoji: '😱', title: 'Extreme Fear (17)', detail: 'Market sentiment is capitulating — historically a contrarian buy zone.', market: '' },
+      { id: 'funding:HYPE-USD', category: 'funding', severity: 'warn', emoji: '💸', title: 'HYPE funding +0.0044%/h', detail: 'Longs are paying heavily — crowded long, squeeze risk.', market: 'HYPE-USD' },
+      { id: 'funding:TRUMP-USD', category: 'funding', severity: 'warn', emoji: '🧲', title: 'TRUMP funding -0.0053%/h', detail: 'Shorts are paying — crowded short, fuel for a squeeze.', market: 'TRUMP-USD' },
+      { id: 'mover:DYDX-USD', category: 'mover', severity: 'info', emoji: '🚀', title: 'DYDX +8.8% (24h)', detail: 'Leading the board · $42M open interest.', market: 'DYDX-USD' },
+      { id: 'mover:WLD-USD', category: 'mover', severity: 'info', emoji: '🔻', title: 'WLD -15.6% (24h)', detail: 'Worst performer · $88M open interest.', market: 'WLD-USD' },
+    ])
   if (path.endsWith('/v1/agent/predict/markets')) return json({ markets: PREDICT_MARKETS })
   if (path.endsWith('/terminal/perps/account'))
     return json({ connected: true, address: '0x71C…9a2F', accountValue: 24817.43, maintenanceMarginUsed: 612.4, totalMarginUsed: 2480.9, withdrawable: 21100.2 })
