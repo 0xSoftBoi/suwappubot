@@ -12,6 +12,7 @@ import { ipRateLimit } from '../middleware/ipRateLimit'
 import { runEffectEither } from '../runtime'
 import { StripeService } from '../services/StripeService'
 import { UserService } from '../services'
+import { auditLog } from '../services/audit'
 
 export const billingRoutes = new Hono()
 
@@ -145,6 +146,12 @@ billingRoutes.post('/stripe/webhook', async (c) => {
 								}),
 						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 					})
+
+					yield* auditLog({
+						userId: parseInt(user_id, 10),
+						eventType: 'subscription.activated',
+						details: { tier, source: 'stripe', eventId: event.id },
+					})
 				}
 			}
 
@@ -159,6 +166,12 @@ billingRoutes.post('/stripe/webhook', async (c) => {
 								.set({ tier: 'free', expiresAt: new Date(), updatedAt: new Date() })
 								.where(eq(subscriptions.userId, parseInt(userId, 10))),
 						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+					})
+
+					yield* auditLog({
+						userId: parseInt(userId, 10),
+						eventType: 'subscription.canceled',
+						details: { source: 'stripe', eventId: event.id },
 					})
 				}
 			}
