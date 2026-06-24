@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import { ChainSelector } from './ChainSelector'
-import { PairSelector } from './PairSelector'
 import { ModeSwitch } from './ModeSwitch'
+import { MarketSearchButton } from '../command/MarketSearchButton'
+import { openCommandPalette } from '../command/CommandPalette'
 import { useTrading } from '../../contexts/TradingContext'
 import { usePair } from '../../contexts/PairContext'
 import { useAuth } from '../../contexts/AuthContext'
@@ -10,7 +11,7 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 import { PersimmonMark } from '../brand/PersimmonLogo'
 
 export function Header() {
-  const { selectedChain, setSelectedChain, selectedPair, setSelectedPair } = usePair()
+  const { selectedChain, setSelectedChain } = usePair()
   const { tradingMode } = useTrading()
   const {
     isAuthenticated,
@@ -179,17 +180,19 @@ export function Header() {
 
         {menuOpen && (
           <div className="terminal-theme-panel absolute left-0 right-0 top-[calc(100%+6px)] z-50 flex flex-col gap-3 rounded-[10px] p-3">
+            <button
+              onClick={() => {
+                setMenuOpen(false)
+                openCommandPalette()
+              }}
+              className="terminal-theme-control flex h-9 items-center gap-2 rounded-[8px] px-3 text-sm text-terminal-text-secondary"
+            >
+              <span className="text-terminal-text-muted">⌕</span>
+              Search markets & tokens
+            </button>
             <div className="flex items-center gap-3">
               <span className="text-xs text-terminal-text-muted w-12 shrink-0">Chain</span>
               <ChainSelector selected={selectedChain} onSelect={(chain) => { setSelectedChain(chain); }} />
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-terminal-text-muted w-12 shrink-0">Pair</span>
-              <PairSelector
-                chain={selectedChain}
-                selected={selectedPair}
-                onSelect={(pair) => { setSelectedPair(pair); setMenuOpen(false); }}
-              />
             </div>
           </div>
         )}
@@ -206,16 +209,12 @@ export function Header() {
 
         <ModeSwitch />
 
-        {tradingMode === 'spot' && (
-          <>
-            <ChainSelector selected={selectedChain} onSelect={setSelectedChain} />
+        {/* Universal search/switcher — opens the command palette (⌘K). Always
+            available so you can jump to any token, mode, or panel from anywhere. */}
+        <MarketSearchButton />
 
-            <PairSelector
-              chain={selectedChain}
-              selected={selectedPair}
-              onSelect={setSelectedPair}
-            />
-          </>
+        {tradingMode === 'spot' && (
+          <ChainSelector selected={selectedChain} onSelect={setSelectedChain} />
         )}
       </div>
 
