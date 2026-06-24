@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken'
 import { EnvService } from '../config/EnvService'
 import { logger } from '../lib/logger'
 import { mapErrorToResponse } from '../errors'
-import { telegramAuth } from '../middleware'
+import { requireTier, telegramAuth } from '../middleware'
 import { runEffect, runEffectEither } from '../runtime'
 import {
 	BalanceService,
@@ -712,8 +712,8 @@ protectedWebapp.get('/limit-orders', async (c) => {
 	return c.json(result.right)
 })
 
-// POST /webapp/me/limit-orders - Create a limit order
-protectedWebapp.post('/limit-orders', async (c) => {
+// POST /webapp/me/limit-orders - Create a limit order (PRO+)
+protectedWebapp.post('/limit-orders', requireTier('pro'), async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
 
 	let body: {
@@ -913,8 +913,8 @@ protectedWebapp.get('/copy/trades', async (c) => {
 	return c.json(result.right)
 })
 
-// POST /webapp/me/copy/follow/:traderId - Follow a trader
-protectedWebapp.post('/copy/follow/:traderId', async (c) => {
+// POST /webapp/me/copy/follow/:traderId - Follow a trader (PRO+, decision D1a: copy_trading = Pro)
+protectedWebapp.post('/copy/follow/:traderId', requireTier('pro'), async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
 	const traderId = Number(c.req.param('traderId'))
 

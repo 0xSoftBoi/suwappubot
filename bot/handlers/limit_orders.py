@@ -36,8 +36,9 @@ LO_TYPE, LO_FROM_CHAIN, LO_FROM_TOKEN, LO_TO_CHAIN, LO_TO_TOKEN, LO_AMOUNT, LO_P
 DCA_TOKEN, DCA_AMOUNT, DCA_INTERVAL, DCA_CONFIRM = range(100, 104)
 
 
+@require_tier(SubscriptionTier.PRO)
 async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /orders command."""
+    """Handle /orders command. PRO+ feature."""
     user = update.effective_user
 
     with get_session() as session:
@@ -72,6 +73,7 @@ async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 
+@require_tier(SubscriptionTier.PRO)
 async def dca_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /dca command or the 'dca_menu' menu button.
 
@@ -113,6 +115,7 @@ async def dca_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(text, parse_mode="Markdown", reply_markup=markup)
 
 
+@require_tier(SubscriptionTier.PRO)
 async def dca_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start DCA creation."""
     query = update.callback_query
@@ -343,6 +346,7 @@ async def dca_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await dca_command(update, context)
 
 
+@require_tier(SubscriptionTier.PRO)
 async def lo_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start limit order creation."""
     query = update.callback_query

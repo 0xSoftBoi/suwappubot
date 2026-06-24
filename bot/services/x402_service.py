@@ -74,6 +74,7 @@ TIER_LIMITS = {
             "limit_orders",
             "dca",
             "portfolio",
+            "copy_trading",
         ],
         "price_usd": 9.99,
     },
