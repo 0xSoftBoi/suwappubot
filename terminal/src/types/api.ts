@@ -274,6 +274,33 @@ export interface PerpsMarketContext {
   maxLeverage: number
 }
 
+// One whale's live position in a market, reconstructed from public HL data.
+export interface WhalePosition {
+  address: string // shortened 0x…
+  side: 'long' | 'short'
+  size: number
+  notional: number // USD
+  leverage: number
+  entryPrice: number
+  liquidationPrice: number | null // exchange-computed
+  unrealizedPnl: number
+}
+
+// Smart-money positioning snapshot for a perp from public on-chain positions.
+export interface WhaleSnapshot {
+  coin: string // "ETH-USD"
+  markPrice: number
+  sampled: number // number of top accounts inspected
+  longNotional: number
+  shortNotional: number
+  longCount: number
+  shortCount: number
+  longPct: number // long share of notional, 0–100
+  shortLiqAboveNotional: number // "squeeze fuel" above mark
+  longLiqBelowNotional: number // downside liquidation exposure
+  positions: WhalePosition[] // biggest, by notional
+}
+
 // Always-on macro context for the terminal header. Any field may be null when
 // its upstream (alternative.me / CoinGecko / DefiLlama) is unreachable.
 export interface MarketRegime {
