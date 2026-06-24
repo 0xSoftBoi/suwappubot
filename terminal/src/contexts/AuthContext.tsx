@@ -9,7 +9,7 @@ import {
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { WagmiProvider, useAccount, useSignMessage, useDisconnect } from 'wagmi'
-import { RainbowKitProvider, useConnectModal } from '@rainbow-me/rainbowkit'
+import { RainbowKitProvider, darkTheme, useConnectModal } from '@rainbow-me/rainbowkit'
 import '@rainbow-me/rainbowkit/styles.css'
 import bs58 from 'bs58'
 import { config as wagmiConfig } from '../lib/wagmi'
@@ -69,7 +69,7 @@ const PASSKEY_USER_HANDLE_KEY = 'suwappu_passkey_user_handle'
 export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <WagmiProvider config={wagmiConfig}>
-      <RainbowKitProvider>
+      <RainbowKitProvider theme={darkTheme({ accentColor: '#ec4899', borderRadius: 'small' })}>
         <AuthInner>{children}</AuthInner>
       </RainbowKitProvider>
     </WagmiProvider>
