@@ -329,6 +329,175 @@ async def get_terminal_perps_context():
     return out
 
 
+# --- Smart-money / whale positioning, reconstructed from public HL positions ---
+# Only possible because HyperLiquid is on-chain: every trader's open positions
+# (with the exchange-computed liquidation price) are public. We take the top
+# accounts off the leaderboard, read their live positions for a coin, and
+# aggregate long-vs-short — the contrarian/confirmation signal Coinglass-style
+# tools charge for, here free and exchange-native.
+
+HL_LEADERBOARD_URL = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard"
+_leaderboard_cache: dict = {"at": None, "addresses": []}
+
+
+async def _hl_post(client: httpx.AsyncClient, body: dict):
+    resp = await client.post(
+        HL_INFO_URL,
+        json=body,
+        headers={"User-Agent": "suwappu-terminal/1.0", "Accept": "application/json"},
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+async def _top_leaderboard_addresses(limit: int) -> list[str]:
+    """Top accounts by equity from the HL leaderboard, cached ~10 min (the feed
+    is multi-MB and slow-moving)."""
+    cached_at = _leaderboard_cache["at"]
+    if cached_at and (datetime.now() - cached_at).total_seconds() < 600:
+        return _leaderboard_cache["addresses"][:limit]
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                HL_LEADERBOARD_URL, headers={"User-Agent": "suwappu-terminal/1.0"}
+            )
+            resp.raise_for_status()
+            rows = (resp.json() or {}).get("leaderboardRows") or []
+    except Exception:
+        return _leaderboard_cache["addresses"][:limit]
+    ranked = sorted(
+        ((r.get("ethAddress"), _to_float(r.get("accountValue"), 0.0) or 0.0) for r in rows),
+        key=lambda x: x[1],
+        reverse=True,
+    )
+    addresses = [a for a, _ in ranked if a][:200]
+    _leaderboard_cache["at"] = datetime.now()
+    _leaderboard_cache["addresses"] = addresses
+    return addresses[:limit]
+
+
+@router.get("/perps/whales")
+async def get_terminal_perps_whales(
+    coin: str = Query(...),
+    sample: int = Query(default=60, ge=10, le=120),
+):
+    """Smart-money positioning for a HyperLiquid perp: sample the top accounts'
+    live positions in `coin`, aggregate long-vs-short notional, and surface the
+    biggest individual whale positions (size, leverage, entry, exchange-computed
+    liquidation price, unrealized PnL). Public on-chain data only."""
+    asset = coin.upper().split("-")[0].split("/")[0].strip()
+    if not asset:
+        return _empty_whales(coin)
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            meta_ctx = await _hl_post(client, {"type": "metaAndAssetCtxs"})
+            universe = (meta_ctx[0] or {}).get("universe") or []
+            ctxs = meta_ctx[1] or []
+            mark = 0.0
+            for u, c in zip(universe, ctxs):
+                if u.get("name") == asset:
+                    mark = _hl_float(c.get("markPx"))
+                    break
+
+            addresses = await _top_leaderboard_addresses(sample)
+            if not addresses:
+                return _empty_whales(coin, mark)
+
+            sem = asyncio.Semaphore(16)
+
+            async def fetch_state(addr: str):
+                async with sem:
+                    try:
+                        return addr, await _hl_post(
+                            client, {"type": "clearinghouseState", "user": addr}
+                        )
+                    except Exception:
+                        return addr, None
+
+            states = await asyncio.gather(*(fetch_state(a) for a in addresses))
+    except Exception:
+        return _empty_whales(coin)
+
+    long_notional = short_notional = 0.0
+    long_count = short_count = 0
+    positions: list[dict] = []
+    for addr, state in states:
+        if not isinstance(state, dict):
+            continue
+        for ap in state.get("assetPositions") or []:
+            p = ap.get("position") or {}
+            if p.get("coin") != asset:
+                continue
+            szi = _hl_float(p.get("szi"))
+            if szi == 0:
+                continue
+            size = abs(szi)
+            notional = size * mark
+            side = "long" if szi > 0 else "short"
+            if side == "long":
+                long_notional += notional
+                long_count += 1
+            else:
+                short_notional += notional
+                short_count += 1
+            lev = p.get("leverage") or {}
+            positions.append(
+                {
+                    "address": f"{addr[:6]}…{addr[-4:]}",
+                    "side": side,
+                    "size": size,
+                    "notional": notional,
+                    "leverage": _to_float(lev.get("value")) or 0,
+                    "entryPrice": _hl_float(p.get("entryPx")),
+                    "liquidationPrice": _hl_float(p.get("liquidationPx")) or None,
+                    "unrealizedPnl": _hl_float(p.get("unrealizedPnl")),
+                }
+            )
+
+    positions.sort(key=lambda x: x["notional"], reverse=True)
+    total = long_notional + short_notional
+    return {
+        "coin": f"{asset}-USD",
+        "markPrice": mark,
+        "sampled": len(addresses),
+        "longNotional": long_notional,
+        "shortNotional": short_notional,
+        "longCount": long_count,
+        "shortCount": short_count,
+        "longPct": round(long_notional / total * 100, 1) if total else 50.0,
+        # "Squeeze fuel": short notional whose liq price sits above mark (gets
+        # squeezed on a rip); downside = long notional liquidating below mark.
+        "shortLiqAboveNotional": sum(
+            p["notional"]
+            for p in positions
+            if p["side"] == "short" and p["liquidationPrice"] and p["liquidationPrice"] > mark
+        ),
+        "longLiqBelowNotional": sum(
+            p["notional"]
+            for p in positions
+            if p["side"] == "long" and p["liquidationPrice"] and p["liquidationPrice"] < mark
+        ),
+        "positions": positions[:14],
+    }
+
+
+def _empty_whales(coin: str, mark: float = 0.0) -> dict:
+    asset = coin.upper().split("-")[0].split("/")[0].strip()
+    return {
+        "coin": f"{asset}-USD",
+        "markPrice": mark,
+        "sampled": 0,
+        "longNotional": 0.0,
+        "shortNotional": 0.0,
+        "longCount": 0,
+        "shortCount": 0,
+        "longPct": 50.0,
+        "shortLiqAboveNotional": 0.0,
+        "longLiqBelowNotional": 0.0,
+        "positions": [],
+    }
+
+
 # --- Prediction probability history via the public Polymarket CLOB API ---
 
 POLYMARKET_CLOB_URL = "https://clob.polymarket.com"

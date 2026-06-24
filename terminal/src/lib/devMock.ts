@@ -162,6 +162,32 @@ function route(path: string, search: URLSearchParams): Response | null {
     }).sort((a, b) => b.oiNotional - a.oiNotional)
     return json(ctx)
   }
+  if (path.endsWith('/terminal/perps/whales')) {
+    const coin = (search.get('coin') || 'ETH-USD').split('-')[0].toUpperCase()
+    const mark = PERPS_MARKETS.find((m) => m.asset === coin)?.markPrice ?? 3284.7
+    const positions = [
+      { address: '0xecb6…a287', side: 'short', notional: 14_090_000, leverage: 15, entryPrice: mark * 1.04, liquidationPrice: mark * 1.36, unrealizedPnl: 421_300 },
+      { address: '0xfc66…1b0f', side: 'short', notional: 8_190_000, leverage: 20, entryPrice: mark * 1.02, liquidationPrice: mark * 1.18, unrealizedPnl: 255_181 },
+      { address: '0x71c7…976f', side: 'short', notional: 4_320_000, leverage: 10, entryPrice: mark * 1.01, liquidationPrice: mark * 1.42, unrealizedPnl: -37_968 },
+      { address: '0x9a3d…02ee', side: 'long', notional: 2_110_000, leverage: 8, entryPrice: mark * 0.98, liquidationPrice: mark * 0.84, unrealizedPnl: 64_200 },
+      { address: '0x856c…f250', side: 'long', notional: 980_000, leverage: 25, entryPrice: mark * 0.995, liquidationPrice: mark * 0.96, unrealizedPnl: 1_150 },
+    ]
+    const longNotional = positions.filter((p) => p.side === 'long').reduce((s, p) => s + p.notional, 0)
+    const shortNotional = positions.filter((p) => p.side === 'short').reduce((s, p) => s + p.notional, 0)
+    return json({
+      coin: `${coin}-USD`,
+      markPrice: mark,
+      sampled: 60,
+      longNotional,
+      shortNotional,
+      longCount: 2,
+      shortCount: 3,
+      longPct: Math.round((longNotional / (longNotional + shortNotional)) * 1000) / 10,
+      shortLiqAboveNotional: shortNotional,
+      longLiqBelowNotional: longNotional,
+      positions,
+    })
+  }
   if (path.endsWith('/terminal/token/safety')) {
     const chain = search.get('chain') || 'ethereum'
     return json({

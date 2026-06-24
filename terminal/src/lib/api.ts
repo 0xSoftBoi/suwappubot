@@ -24,6 +24,7 @@ import type {
   TokenSafetyReport,
   HLMarket,
   PerpsMarketContext,
+  WhaleSnapshot,
   MarketRegime,
   HLPosition,
   PredictionMarket,
@@ -334,6 +335,12 @@ export const api = {
   // oracle, basis, funding, open interest, 24h volume + change per market.
   getPerpsContext() {
     return request<PerpsMarketContext[]>('/terminal/perps/context')
+  },
+
+  // Smart-money positioning — top accounts' live positions in a coin,
+  // aggregated long-vs-short, from public HyperLiquid on-chain data.
+  getPerpsWhales(coin: string) {
+    return request<WhaleSnapshot>(`/terminal/perps/whales?coin=${encodeURIComponent(coin)}`)
   },
 
   // Macro regime — Fear&Greed + BTC dominance/mcap + stablecoin supply (public).
