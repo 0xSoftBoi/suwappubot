@@ -593,7 +593,7 @@ async def get_terminal_market_regime():
         assets = stables_raw.get("peggedAssets") or []
         total = 0.0
         for a in assets:
-            total += _to_float((a.get("circulating") or {}).get("peggedUSD"), 0.0) or 0.0
+            total += _to_float((a.get("circulating") or {}).get("peggedUSD")) or 0.0
         stablecoin_mcap = total or None
 
     return {
@@ -1119,16 +1119,18 @@ def _terminal_user(request: Request) -> dict:
     raise HTTPException(status_code=401, detail="Sign in to trade")
 
 
-def _to_float(value) -> Optional[float]:
-    """Coerce Decimal/None/str to float for JSON serialization."""
+def _to_float(value, default: Optional[float] = None) -> Optional[float]:
+    """Coerce Decimal/None/str to float for JSON serialization. Returns
+    `default` (None unless given) when the value can't be parsed — callers may
+    pass a numeric default to use it directly in sums."""
     if value is None:
-        return None
+        return default
     if isinstance(value, Decimal):
         return float(value)
     try:
         return float(value)
     except (TypeError, ValueError):
-        return None
+        return default
 
 
 def _jsonify(obj):
