@@ -121,6 +121,21 @@ export function createApp(config: AppConfig) {
 	app.get('/.well-known/agent.json', (c) => c.json(agentCard))
 	app.get('/agent-card.json', (c) => c.json(agentCard))
 
+	// security.txt — RFC 9116 responsible-disclosure contact (procurement/security
+	// teams check for this during vendor evaluation). Refresh `Expires` annually.
+	app.get('/.well-known/security.txt', (c) => {
+		c.header('Content-Type', 'text/plain; charset=utf-8')
+		return c.body(
+			[
+				'Contact: mailto:security@suwappu.bot',
+				'Expires: 2027-06-24T00:00:00.000Z',
+				'Preferred-Languages: en',
+				'Canonical: https://api.suwappu.bot/.well-known/security.txt',
+				'',
+			].join('\n'),
+		)
+	})
+
 	// llms.txt — machine-readable API summary for LLM/agent discovery
 	app.get('/llms.txt', (c) => {
 		return c.text(`# Suwappu API
