@@ -138,7 +138,22 @@ function json(body: unknown): Response {
   })
 }
 
+const POPULAR_TOKENS = [
+  { symbol: 'ETH', name: 'Ethereum', address: '0xeee', chain: 'ethereum', decimals: 18 },
+  { symbol: 'WBTC', name: 'Wrapped Bitcoin', address: '0x2260', chain: 'ethereum', decimals: 8 },
+  { symbol: 'PEPE', name: 'Pepe', address: '0x6982', chain: 'ethereum', decimals: 18 },
+  { symbol: 'USDC', name: 'USD Coin', address: '0xa0b8', chain: 'ethereum', decimals: 6 },
+  { symbol: 'LINK', name: 'Chainlink', address: '0x5149', chain: 'ethereum', decimals: 18 },
+  { symbol: 'AERO', name: 'Aerodrome', address: '0x9401', chain: 'base', decimals: 18 },
+  { symbol: 'WIF', name: 'dogwifhat', address: 'Wif11', chain: 'solana', decimals: 6 },
+]
+
 function route(path: string, search: URLSearchParams): Response | null {
+  if (path.includes('/webapp/tokens/popular')) return json(POPULAR_TOKENS)
+  if (path.includes('/webapp/tokens/search')) {
+    const q = (search.get('q') || '').toLowerCase()
+    return json(POPULAR_TOKENS.filter((t) => t.symbol.toLowerCase().includes(q) || t.name.toLowerCase().includes(q)))
+  }
   if (path.endsWith('/auth/me')) return json(MOCK_USER)
   if (path.endsWith('/webapp/me/portfolio')) return json(PORTFOLIO)
   if (path.endsWith('/v1/agent/perps/markets')) return json({ markets: PERPS_MARKETS })
