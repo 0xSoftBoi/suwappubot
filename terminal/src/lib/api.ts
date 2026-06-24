@@ -22,6 +22,7 @@ import type {
   Pool,
   TokenSecurity,
   HLMarket,
+  PerpsMarketContext,
   HLPosition,
   PredictionMarket,
   PerpsAccountStatus,
@@ -325,6 +326,12 @@ export const api = {
   getPerpsCandles(coin: string, interval: string, limit = 300) {
     const params = new URLSearchParams({ coin, interval, limit: String(limit) })
     return request<OHLCVCandle[]>(`/terminal/perps/candles?${params}`)
+  },
+
+  // Perps market intelligence — HyperLiquid metaAndAssetCtxs (public): mark/
+  // oracle, basis, funding, open interest, 24h volume + change per market.
+  getPerpsContext() {
+    return request<PerpsMarketContext[]>('/terminal/perps/context')
   },
 
   // Prediction probability history — Polymarket prices-history (public) for a

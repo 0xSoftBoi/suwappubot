@@ -266,6 +266,68 @@ async def get_terminal_perps_candles(
     return candles[-limit:]
 
 
+def _hl_float(value, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+@router.get("/perps/context")
+async def get_terminal_perps_context():
+    """Per-market intelligence for the HyperLiquid perps desk via the public
+    ``metaAndAssetCtxs`` endpoint — mark/oracle price, spot-perp basis, hourly
+    funding, open interest (notional), 24h volume and 24h change. All free, no
+    key. Returned newest-data-first by open interest so the heaviest markets lead."""
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post(
+                HL_INFO_URL,
+                json={"type": "metaAndAssetCtxs"},
+                headers={"User-Agent": "suwappu-terminal/1.0", "Accept": "application/json"},
+            )
+            resp.raise_for_status()
+            payload = resp.json() or []
+    except Exception:
+        return []
+    if not isinstance(payload, list) or len(payload) < 2:
+        return []
+    universe = (payload[0] or {}).get("universe") or []
+    ctxs = payload[1] or []
+    out = []
+    for meta, ctx in zip(universe, ctxs):
+        if not isinstance(meta, dict) or not isinstance(ctx, dict):
+            continue
+        asset = meta.get("name")
+        if not asset:
+            continue
+        mark = _hl_float(ctx.get("markPx"))
+        oracle = _hl_float(ctx.get("oraclePx"))
+        prev = _hl_float(ctx.get("prevDayPx"))
+        oi_coin = _hl_float(ctx.get("openInterest"))
+        out.append(
+            {
+                "asset": asset,
+                "name": f"{asset}-USD",
+                "markPrice": mark,
+                "oraclePrice": oracle,
+                # premium is the spot-perp basis as a decimal; expose as a percent.
+                "basisPct": _hl_float(ctx.get("premium")) * 100,
+                # hourly funding rate as a decimal (e.g. 0.0000125 == 0.00125%/hr).
+                "funding": _hl_float(ctx.get("funding")),
+                # open interest in USD notional (HL reports it in coin units).
+                "oiNotional": oi_coin * mark,
+                # 24h notional (USD) traded volume.
+                "dayVolume": _hl_float(ctx.get("dayNtlVlm")),
+                # 24h price change vs the prior-day reference price, in percent.
+                "dayChangePct": ((mark - prev) / prev * 100) if prev else 0.0,
+                "maxLeverage": meta.get("maxLeverage") or 0,
+            }
+        )
+    out.sort(key=lambda m: m["oiNotional"], reverse=True)
+    return out
+
+
 # --- Prediction probability history via the public Polymarket CLOB API ---
 
 POLYMARKET_CLOB_URL = "https://clob.polymarket.com"
