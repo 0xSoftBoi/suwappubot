@@ -162,6 +162,14 @@ function route(path: string, search: URLSearchParams): Response | null {
     }).sort((a, b) => b.oiNotional - a.oiNotional)
     return json(ctx)
   }
+  if (path.endsWith('/terminal/market/regime'))
+    return json({
+      fearGreed: { value: 17, label: 'Extreme Fear' },
+      btcDominance: 56.2,
+      totalMcap: 2_230_000_000_000,
+      mcapChange24h: -2.35,
+      stablecoinMcap: 313_600_000_000,
+    })
   if (path.endsWith('/v1/agent/predict/markets')) return json({ markets: PREDICT_MARKETS })
   if (path.endsWith('/terminal/perps/account'))
     return json({ connected: true, address: '0x71C…9a2F', accountValue: 24817.43, maintenanceMarginUsed: 612.4, totalMarginUsed: 2480.9, withdrawable: 21100.2 })

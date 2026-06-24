@@ -274,6 +274,16 @@ export interface PerpsMarketContext {
   maxLeverage: number
 }
 
+// Always-on macro context for the terminal header. Any field may be null when
+// its upstream (alternative.me / CoinGecko / DefiLlama) is unreachable.
+export interface MarketRegime {
+  fearGreed: { value: number; label: string } | null
+  btcDominance: number | null // %
+  totalMcap: number | null // USD
+  mcapChange24h: number | null // %
+  stablecoinMcap: number | null // USD — "dry powder"
+}
+
 export interface HLPositionQuote {
   market: string
   side: 'long' | 'short'
