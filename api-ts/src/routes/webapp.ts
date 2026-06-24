@@ -9,6 +9,7 @@ import { runEffect, runEffectEither } from '../runtime'
 import {
 	BalanceService,
 	PointsService,
+	SeasonsService,
 	SwapService,
 	TelegramAuthService,
 	TurnkeyService,
@@ -656,6 +657,91 @@ protectedWebapp.post('/points/redeem/:rewardId', async (c) => {
 		return c.json({ error: result.left.message }, 400)
 	}
 	return c.json(result.right)
+})
+
+// === Season (Convertible Points) Routes ===
+
+// GET /webapp/users/me/points/season - Current season standing + estimated allocation
+protectedWebapp.get('/points/season', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const seasonsService = yield* SeasonsService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			return yield* seasonsService.getUserSeasonStanding(userOption.value.id)
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// GET /webapp/users/me/points/season/leaderboard - Top season-point earners
+protectedWebapp.get('/points/season/leaderboard', async (c) => {
+	const limit = Math.min(Number(c.req.query('limit') || 20), 100)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const seasonsService = yield* SeasonsService
+
+			const season = yield* seasonsService.getActiveSeason()
+			if (!season) {
+				return []
+			}
+			return yield* seasonsService.getSeasonLeaderboard(season.id, limit)
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// GET /webapp/users/me/seasons - Season history + my snapshots
+protectedWebapp.get('/seasons', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const seasonsService = yield* SeasonsService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			return yield* seasonsService.getUserSeasons(userOption.value.id)
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// POST /webapp/users/me/seasons/:seasonId/claim - Intentional STUB (pre-TGE).
+// Claim is NOT live before the public token launch. Returns 425 Too Early.
+// Do NOT touch chain.
+protectedWebapp.post('/seasons/:seasonId/claim', (c) => {
+	return c.json(
+		{
+			error: 'claim_not_open',
+			message: 'Token claims open after the public token launch.',
+		},
+		425,
+	)
 })
 
 // === Limit Order Routes ===

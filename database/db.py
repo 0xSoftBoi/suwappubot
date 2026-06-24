@@ -140,6 +140,9 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
             UserMilestone,
             Reward,
         )
+
+        # Rewards-marketplace async fulfillment orders
+        from bot.models.rewards_marketplace import RedemptionOrder
         from bot.models.copy_trading import (
             TraderProfile,
             CopyFollow,
@@ -148,6 +151,9 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
             TraderTrade,
             TraderPosition,
         )
+
+        # Season / convertible-points models
+        from bot.models.seasons import Season, SeasonPoints, SeasonSnapshot
 
         # User spot-position cost basis (unified Positions / PnL view)
         from bot.models.positions import UserPosition
@@ -471,6 +477,104 @@ def _ensure_schema(db_engine) -> None:
     # --- prediction_positions: on-chain redemption columns ---
     if "prediction_positions" in tables:
         _add_prediction_redeem_columns(db_engine, inspector, is_sqlite)
+
+    # --- point_transactions: season_id stamp (convertible-points audit) ---
+    if "point_transactions" in tables:
+        _add_point_transactions_season_column(db_engine, inspector, is_sqlite)
+
+    # --- seasons / season_points: emission-schedule + fee-revenue columns ---
+    if "seasons" in tables or "season_points" in tables:
+        _add_season_econ_columns(db_engine, inspector, is_sqlite, tables)
+
+    # --- rewards: marketplace category column (async fulfillment routing) ---
+    if "rewards" in tables:
+        _add_reward_category_column(db_engine, inspector, is_sqlite)
+
+
+def _add_reward_category_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add rewards.reward_category idempotently (default 'own_product').
+
+    Categorizes each catalog item for the rewards marketplace. Existing rewards stay
+    'own_product' (synchronous, our-product redemptions); async categories
+    (gift_card/travel/merch/donation/experience) route through reward_providers. The
+    redemption_orders table itself is created by create_all from the new model.
+    """
+    cols = {c["name"] for c in inspector.get_columns("rewards")}
+    if "reward_category" in cols:
+        return
+    if is_sqlite:
+        ddl = (
+            "ALTER TABLE rewards ADD COLUMN reward_category "
+            "VARCHAR(30) NOT NULL DEFAULT 'own_product'"
+        )
+    else:
+        ddl = (
+            "ALTER TABLE rewards ADD COLUMN IF NOT EXISTS reward_category "
+            "VARCHAR(30) NOT NULL DEFAULT 'own_product'"
+        )
+    with db_engine.begin() as conn:
+        conn.execute(text(ddl))
+    logger.info("Added rewards.reward_category")
+
+
+def _add_season_econ_columns(db_engine, inspector, is_sqlite: bool, tables: set) -> None:
+    """Add disinflationary-emission + fee-revenue columns to season tables.
+
+    Idempotent: each column is guarded on its table existing and the column not
+    already being present. (sqlite has no ADD COLUMN IF NOT EXISTS, so we guard
+    explicitly; postgres uses IF NOT EXISTS as a belt-and-suspenders.)
+    """
+    # seasons.season_index, seasons.realized_fee_revenue_usd
+    if "seasons" in tables:
+        cols = {c["name"] for c in inspector.get_columns("seasons")}
+        season_new = [
+            ("season_index", "INTEGER", "1"),
+            ("realized_fee_revenue_usd", "DOUBLE PRECISION", "NULL"),
+            ("quarter", "VARCHAR(16)", "NULL"),
+        ]
+        for col_name, col_type, default in season_new:
+            if col_name in cols:
+                continue
+            ddl_default = "" if default == "NULL" else f" DEFAULT {default}"
+            if is_sqlite:
+                ddl = f"ALTER TABLE seasons ADD COLUMN {col_name} {col_type}{ddl_default}"
+            else:
+                ddl = (
+                    f"ALTER TABLE seasons ADD COLUMN IF NOT EXISTS "
+                    f"{col_name} {col_type}{ddl_default}"
+                )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info(f"Added seasons.{col_name}")
+
+    # season_points.fee_paid_usd
+    if "season_points" in tables:
+        cols = {c["name"] for c in inspector.get_columns("season_points")}
+        if "fee_paid_usd" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE season_points ADD COLUMN fee_paid_usd DOUBLE PRECISION DEFAULT 0"
+            else:
+                ddl = (
+                    "ALTER TABLE season_points ADD COLUMN IF NOT EXISTS "
+                    "fee_paid_usd DOUBLE PRECISION DEFAULT 0"
+                )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info("Added season_points.fee_paid_usd")
+
+
+def _add_point_transactions_season_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add point_transactions.season_id idempotently (nullable, for season audit)."""
+    cols = {c["name"] for c in inspector.get_columns("point_transactions")}
+    if "season_id" in cols:
+        return
+    if is_sqlite:
+        ddl = "ALTER TABLE point_transactions ADD COLUMN season_id INTEGER"
+    else:
+        ddl = "ALTER TABLE point_transactions ADD COLUMN IF NOT EXISTS season_id INTEGER"
+    with db_engine.begin() as conn:
+        conn.execute(text(ddl))
+    logger.info("Added point_transactions.season_id")
 
 
 def _add_digest_columns(db_engine, inspector, is_sqlite: bool) -> None:

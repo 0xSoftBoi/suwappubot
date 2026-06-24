@@ -92,6 +92,17 @@ class PointsService:
         if points <= 0:
             return 0, None
 
+        # Resolve the active season id once to stamp on the transaction (audit).
+        # Lazy import avoids a circular import (seasons_service imports nothing
+        # from this module, but keep symmetry with the accrual hook below).
+        active_season_id = None
+        try:
+            from bot.services.seasons_service import seasons_service
+
+            active_season_id = seasons_service.get_active_season_id()
+        except Exception:
+            active_season_id = None
+
         with get_session() as session:
             # Get or create account
             account = session.query(UserPoints).filter(UserPoints.user_id == user_id).first()
@@ -118,6 +129,7 @@ class PointsService:
                 swap_id=swap_id,
                 referral_id=referral_id,
                 extra_data=metadata,
+                season_id=active_season_id,
             )
             session.add(tx)
 
@@ -126,6 +138,21 @@ class PointsService:
         if new_level:
             logger.info(f"User {user_id} leveled up to {new_level}!")
 
+        # Accrue convertible season points (never fails the award path — the
+        # service wraps its own body in try/except and returns 0 on error).
+        try:
+            from bot.services.seasons_service import seasons_service
+
+            seasons_service.accrue_season_points(
+                user_id,
+                action,
+                points,
+                swap_amount_usd=(metadata.get("amount_usd") if metadata else None),
+                fee_usd=(metadata.get("fee_usd") if metadata else None),
+            )
+        except Exception as e:
+            logger.warning(f"Season accrual hook failed for user {user_id} ({action}): {e}")
+
         return points, new_level
 
     def award_swap_points(
@@ -133,9 +160,15 @@ class PointsService:
         user_id: int,
         swap_amount_usd: float,
         swap_id: int,
+        fee_usd: Optional[float] = None,
     ) -> Tuple[int, bool, Optional[str]]:
         """
         Award points for completing a swap.
+
+        ``fee_usd`` (the platform fee paid on this swap, in USD) is forwarded
+        into the convertible-points season accrual so swap season points are
+        denominated in fees paid (wash-proof), not raw volume. Default None
+        keeps the legacy volume-based behavior.
 
         Returns:
             Tuple of (points_awarded, is_first_swap_today, new_level)
@@ -175,7 +208,11 @@ class PointsService:
             description=f"Swap ${swap_amount_usd:.2f}"
             + (" + daily bonus" if is_first_today else ""),
             swap_id=swap_id,
-            metadata={"amount_usd": swap_amount_usd, "first_today": is_first_today},
+            metadata={
+                "amount_usd": swap_amount_usd,
+                "first_today": is_first_today,
+                "fee_usd": fee_usd,
+            },
         )
 
         # Check milestones
@@ -311,6 +348,408 @@ class PointsService:
 
         logger.info(f"User {user_id} spent {amount} points on {reward_type}")
         return True, f"Successfully redeemed {reward_type}!"
+
+    # ------------------------------------------------------------------
+    # Redemption EFFECTS (money path) — applied at swap time.
+    #
+    # fee_discount: time-bound, READ-ONLY. We never consume it on read — it
+    #   stays valid until expires_at, and may apply to many swaps in its window.
+    # gas_rebate: one-shot. Consumed EXACTLY ONCE via an atomic status flip
+    #   (completed -> applied) so a single redemption can only ever rebate one
+    #   swap, even under concurrent confirms.
+    #
+    # GUARDRAIL: a lookup failure here must NEVER break a swap. Both methods
+    # swallow exceptions and fall back to "no discount / no rebate" (0.0).
+    # ------------------------------------------------------------------
+
+    def get_active_fee_discount(self, user_id: int) -> float:
+        """Best ACTIVE fee-discount for a user, as PERCENTAGE POINTS (read-only).
+
+        Returns e.g. ``0.5`` meaning "subtract 0.5 percentage points from the
+        tier fee" (reward_value "0.5" == 0.5%). Picks the LARGEST active discount
+        when several are live. Returns ``0.0`` when there is none.
+
+        Active == reward_type 'fee_discount', status 'completed', and not expired
+        (expires_at IS NULL OR expires_at > now). This does NOT consume the
+        redemption — fee discounts are time-bound and apply to every swap in
+        their window. Never raises: any DB/parse error falls back to 0.0 so a
+        swap is never blocked by the points lookup.
+        """
+        try:
+            now = datetime.now(timezone.utc)
+            with get_session() as session:
+                rows = (
+                    session.query(PointRedemption)
+                    .filter(
+                        PointRedemption.user_id == user_id,
+                        PointRedemption.reward_type == "fee_discount",
+                        PointRedemption.status == "completed",
+                    )
+                    .all()
+                )
+
+                best = 0.0
+                for r in rows:
+                    # Expiry check (treat naive timestamps as UTC).
+                    exp = r.expires_at
+                    if exp is not None:
+                        if exp.tzinfo is None:
+                            exp = exp.replace(tzinfo=timezone.utc)
+                        if exp <= now:
+                            continue  # expired
+                    try:
+                        pct = float(r.reward_value)
+                    except (TypeError, ValueError):
+                        continue
+                    if pct > best:
+                        best = pct
+                return best
+        except Exception as e:
+            logger.warning(f"get_active_fee_discount failed for user {user_id}: {e}")
+            return 0.0
+
+    def consume_gas_rebate(self, user_id: int) -> float:
+        """Consume ONE unused gas-rebate and return its $ value (one-shot).
+
+        Finds the oldest unused gas_rebate redemption (reward_type 'gas_rebate',
+        status 'completed') and atomically marks it 'applied' so it is used
+        EXACTLY once. Returns the rebate's USD value (e.g. ``5.0``), or ``0.0``
+        when the user has none.
+
+        The status flip is done with a single conditional UPDATE (WHERE id=? AND
+        status='completed'); we only honor the rebate if that UPDATE actually
+        flipped a row, so two concurrent swaps can never both claim the same
+        redemption. Never raises: any error falls back to 0.0 (no rebate) so a
+        swap is never blocked by the points lookup.
+        """
+        try:
+            now = datetime.now(timezone.utc)
+            with get_session() as session:
+                redemption = (
+                    session.query(PointRedemption)
+                    .filter(
+                        PointRedemption.user_id == user_id,
+                        PointRedemption.reward_type == "gas_rebate",
+                        PointRedemption.status == "completed",
+                    )
+                    .order_by(PointRedemption.id.asc())
+                    .first()
+                )
+                if not redemption:
+                    return 0.0
+
+                try:
+                    value = float(redemption.reward_value)
+                except (TypeError, ValueError):
+                    value = 0.0
+                if value <= 0:
+                    return 0.0
+
+                # Atomic claim: only flip if STILL 'completed'. rowcount tells us
+                # whether THIS call won the race (exactly-once guarantee).
+                rows_updated = (
+                    session.query(PointRedemption)
+                    .filter(
+                        PointRedemption.id == redemption.id,
+                        PointRedemption.status == "completed",
+                    )
+                    .update(
+                        {"status": "applied", "completed_at": now},
+                        synchronize_session=False,
+                    )
+                )
+                if rows_updated != 1:
+                    # Lost the race — another concurrent swap claimed it.
+                    return 0.0
+
+            logger.info(f"Consumed ${value:.2f} gas rebate for user {user_id}")
+            return value
+        except Exception as e:
+            logger.warning(f"consume_gas_rebate failed for user {user_id}: {e}")
+            return 0.0
+
+    def redeem_subscription_reward(
+        self, user_id: int, reward_id: int
+    ) -> Tuple[bool, str, Optional[str]]:
+        """Atomically redeem current_points for a subscription tier grant/extension.
+
+        MONEY PATH — all-or-nothing: the points deduction and the subscription grant
+        happen in ONE DB transaction, so any failure rolls back both (no lost points,
+        no free/partial subscription). EXTENDS an existing subscription
+        (expiry = max(now, current_expiry) + duration) and keeps the HIGHER of the
+        current vs redeemed tier. Spends ONLY current_points — never season points.
+
+        Returns (success, message, expiry_iso).
+        """
+        from bot.models.subscription import Subscription, SubscriptionTier
+        from bot.models.points import Reward
+
+        tier_order = [
+            SubscriptionTier.FREE,
+            SubscriptionTier.PRO,
+            SubscriptionTier.PREMIUM,
+            SubscriptionTier.ENTERPRISE,
+        ]
+
+        def _coerce_tier(value) -> Optional[SubscriptionTier]:
+            if isinstance(value, SubscriptionTier):
+                return value
+            try:
+                return SubscriptionTier(str(value).lower())
+            except ValueError:
+                return None
+
+        try:
+            with get_session() as session:
+                reward = (
+                    session.query(Reward)
+                    .filter(Reward.id == reward_id, Reward.is_active == True)  # noqa: E712
+                    .first()
+                )
+                if not reward or reward.reward_type != "subscription":
+                    return False, "That reward isn't available.", None
+
+                reward_name = reward.name
+                reward_cost = reward.points_cost
+                reward_value = reward.reward_value
+                duration = reward.duration_days or 30
+
+                target_tier = _coerce_tier(reward_value)
+                if target_tier is None or target_tier == SubscriptionTier.FREE:
+                    return False, "Unknown subscription tier.", None
+
+                account = session.query(UserPoints).filter(UserPoints.user_id == user_id).first()
+                if not account or account.current_points < reward_cost:
+                    have = account.current_points if account else 0
+                    return (
+                        False,
+                        f"Not enough points. You have {have:,}, need {reward_cost:,}.",
+                        None,
+                    )
+
+                now = datetime.now(timezone.utc)
+
+                # --- deduct points (same transaction as the grant below) ---
+                account.current_points -= reward_cost
+                account.points_spent += reward_cost
+
+                # --- grant / EXTEND subscription ---
+                sub = session.query(Subscription).filter(Subscription.user_id == user_id).first()
+                if not sub:
+                    sub = Subscription(user_id=user_id)
+                    session.add(sub)
+
+                base = now
+                if sub.expires_at is not None:
+                    current_exp = sub.expires_at
+                    if current_exp.tzinfo is None:
+                        current_exp = current_exp.replace(tzinfo=timezone.utc)
+                    if current_exp > now:
+                        base = current_exp
+                new_exp = base + timedelta(days=duration)
+
+                current_tier = _coerce_tier(sub.tier) or SubscriptionTier.FREE
+                if tier_order.index(target_tier) >= tier_order.index(current_tier):
+                    sub.tier = target_tier  # keep the higher tier
+                if sub.started_at is None:
+                    sub.started_at = now
+                sub.expires_at = new_exp
+
+                granted_tier = (
+                    sub.tier.value if isinstance(sub.tier, SubscriptionTier) else str(sub.tier)
+                ).upper()
+                expiry_iso = new_exp.date().isoformat()
+
+                # --- record redemption + ledger entry (same transaction) ---
+                session.add(
+                    PointRedemption(
+                        user_id=user_id,
+                        points_spent=reward_cost,
+                        reward_type="subscription",
+                        reward_value=reward_value,
+                        status="completed",
+                        completed_at=now,
+                    )
+                )
+                session.add(
+                    PointTransaction(
+                        user_id=user_id,
+                        amount=-reward_cost,
+                        action="redemption",
+                        description=f"Redeemed: {reward_name}",
+                        extra_data={"reward_type": "subscription", "tier": reward_value},
+                    )
+                )
+
+            logger.info(
+                f"User {user_id} redeemed {reward_cost} pts -> {granted_tier} until {expiry_iso}"
+            )
+            return True, f"{granted_tier} active until {expiry_iso}", expiry_iso
+        except Exception as e:
+            logger.error(f"redeem_subscription_reward failed for user {user_id}: {e}")
+            return False, "Redemption failed — your points were not spent.", None
+
+    def redeem_marketplace_reward(
+        self, user_id: int, reward_id: int
+    ) -> Tuple[bool, str, Optional[int]]:
+        """Atomically redeem points for an ASYNC marketplace reward (gift card, travel,
+        merch, donation, experience).
+
+        MONEY PATH — all-or-nothing in ONE DB transaction:
+          1. validate the reward is active and an async marketplace category,
+          2. debit current_points (+ PointRedemption + PointTransaction),
+          3. create a RedemptionOrder(status='pending'),
+          4. call the category's provider.fulfill(),
+          5a. fulfilled  → mark order 'fulfilled' + fulfilled_at, commit (points spent),
+          5b. failed/disabled → REFUND: re-credit current_points, mark the order
+              'refunded' and the PointRedemption 'refunded', commit (net spend 0).
+
+        Because the debit, the order, the provider call, and the refund all share the
+        SAME ``session`` transaction, a disabled or failing provider can NEVER lose a
+        user's points: either the whole thing commits as 'fulfilled', or the points are
+        re-credited and the order lands as 'refunded'. Any unexpected exception rolls the
+        whole transaction back (no debit persisted) via get_session()'s rollback.
+
+        Returns ``(success, message, order_id)``. order_id may be present even on
+        failure (the refunded order), so callers can surface a tracking id.
+        """
+        from bot.models.points import Reward
+        from bot.models.rewards_marketplace import RedemptionOrder
+        from bot.services.reward_providers import (
+            ASYNC_CATEGORIES,
+            get_provider_for_category,
+        )
+
+        refund_message = "That reward isn't available yet — your points were not spent."
+
+        try:
+            with get_session() as session:
+                reward = (
+                    session.query(Reward)
+                    .filter(Reward.id == reward_id, Reward.is_active == True)  # noqa: E712
+                    .first()
+                )
+                if not reward:
+                    return False, "That reward isn't available.", None
+
+                category = getattr(reward, "reward_category", None) or "own_product"
+                if category not in ASYNC_CATEGORIES:
+                    # Not a marketplace reward — caller should route own_product paths.
+                    return False, "That reward isn't a marketplace reward.", None
+
+                provider = get_provider_for_category(category)
+                if provider is None:
+                    return False, refund_message, None
+
+                reward_cost = reward.points_cost
+                reward_name = reward.name
+                reward_value = reward.reward_value
+
+                account = session.query(UserPoints).filter(UserPoints.user_id == user_id).first()
+                if not account or account.current_points < reward_cost:
+                    have = account.current_points if account else 0
+                    return (
+                        False,
+                        f"Not enough points. You have {have:,}, need {reward_cost:,}.",
+                        None,
+                    )
+
+                now = datetime.now(timezone.utc)
+
+                # --- (2) debit points (same transaction as everything below) ---
+                account.current_points -= reward_cost
+                account.points_spent += reward_cost
+
+                redemption = PointRedemption(
+                    user_id=user_id,
+                    points_spent=reward_cost,
+                    reward_type=category,
+                    reward_value=reward_value,
+                    status="completed",
+                    completed_at=now,
+                )
+                session.add(redemption)
+
+                session.add(
+                    PointTransaction(
+                        user_id=user_id,
+                        amount=-reward_cost,
+                        action="redemption",
+                        description=f"Redeemed: {reward_name}",
+                        extra_data={"reward_type": category, "reward_value": reward_value},
+                    )
+                )
+
+                # --- (3) create the fulfillment order (pending) ---
+                order = RedemptionOrder(
+                    user_id=user_id,
+                    reward_id=reward_id,
+                    category=category,
+                    points_spent=reward_cost,
+                    status="pending",
+                    provider=provider.name,
+                    payload={"reward_name": reward_name, "reward_value": reward_value},
+                )
+                session.add(order)
+                # Materialize order.id so the provider (and provider_ref) can use it,
+                # without ending the transaction.
+                session.flush()
+                order_id = order.id
+
+                # --- (4) call the provider ---
+                try:
+                    status, provider_ref, error = provider.fulfill(order, order.payload)
+                except Exception as pe:  # treat any provider crash as a failure -> refund
+                    logger.warning(
+                        f"provider.fulfill crashed for order {order_id} (user {user_id}): {pe}"
+                    )
+                    status, provider_ref, error = ("failed", None, "provider error")
+
+                if status == "fulfilled":
+                    # --- (5a) success: points stay spent, order fulfilled ---
+                    order.status = "fulfilled"
+                    order.provider_ref = provider_ref
+                    order.fulfilled_at = now
+                    order.error = None
+                    logger.info(
+                        f"User {user_id} redeemed {reward_cost} pts -> {category} "
+                        f"order {order_id} fulfilled ({provider_ref})"
+                    )
+                    return (
+                        True,
+                        f"{reward_name} is on its way — order #{order_id}.",
+                        order_id,
+                    )
+
+                # --- (5b) failed/disabled: REFUND inside the SAME transaction ---
+                account.current_points += reward_cost
+                account.points_spent -= reward_cost
+                redemption.status = "refunded"
+                order.status = "refunded"
+                order.provider_ref = provider_ref
+                order.error = (error or "provider not configured")[:255]
+                session.add(
+                    PointTransaction(
+                        user_id=user_id,
+                        amount=reward_cost,
+                        action="redemption_refund",
+                        description=f"Refund: {reward_name}",
+                        extra_data={
+                            "reward_type": category,
+                            "order_id": order_id,
+                            "reason": order.error,
+                        },
+                    )
+                )
+                logger.info(
+                    f"User {user_id} marketplace redemption refunded "
+                    f"(order {order_id}, {reward_cost} pts, reason={order.error})"
+                )
+                return False, refund_message, order_id
+        except Exception as e:
+            # Any unexpected error rolls the whole transaction back (no debit persisted).
+            logger.error(f"redeem_marketplace_reward failed for user {user_id}: {e}")
+            return False, refund_message, None
 
     def get_leaderboard(self, limit: int = 10) -> List[dict]:
         """Get top users by XP."""
@@ -516,7 +955,58 @@ class PointsService:
             f"• Level fee discounts: _coming soon_\n"
         )
 
+        msg += self._format_season_block(user_id)
+
         return msg
+
+    def _format_season_block(self, user_id: int) -> str:
+        """Render the active-season block for /xp stats. Returns "" on error/no season."""
+        try:
+            from bot.services.seasons_service import seasons_service
+
+            standing = seasons_service.get_user_season_standing(user_id)
+            season = standing.get("season")
+            if not season:
+                return ""
+
+            rank = standing.get("rank")
+            rank_text = f"#{rank}" if rank else "—"
+            days = standing.get("days_remaining")
+            days_text = f"{days}d left" if days is not None else "—"
+            mult = standing.get("multiplier", 1.0)
+
+            # Emission line — "Season 1/8 · 8.33% of supply · −25%/season"
+            emission = standing.get("emission") or {}
+            idx = emission.get("season_index", season.get("season_index", 1))
+            total_seasons = emission.get("total_seasons", 8)
+            pool_pct = emission.get("pool_pct_of_supply", 0.0) * 100
+            decay_pct = emission.get("decay_per_season", 0.25) * 100
+            emission_line = (
+                f"• Season {idx}/{total_seasons} · "
+                f"{pool_pct:.2f}% of supply · −{decay_pct:.0f}%/season\n"
+            )
+
+            # Weather emoji by season; header shows weather name + official quarter.
+            weather = season.get("weather", "")
+            weather_emoji = {"Summer": "☀️", "Fall": "🍂", "Winter": "❄️", "Spring": "🌱"}.get(
+                weather, "☀️"
+            )
+            quarter = season.get("quarter", "")
+            header = f"{weather_emoji} *{season['name']}*" + (f"  ·  {quarter}" if quarter else "")
+
+            return (
+                f"\n{header}\n"
+                f"{emission_line}"
+                f"• Season points: *{int(round(standing.get('points', 0))):,}*  (rank {rank_text})\n"
+                f"• Points = 100 × fees paid _(wash-proof)_\n"
+                f"• Est. {standing.get('token_symbol', 'SUWP')}: "
+                f"~{standing.get('estimated_tokens', 0):,.0f}\n"
+                f"• Multiplier: *x{mult:.2f}*\n"
+                f"• {days_text} · _estimate, final at season end_\n"
+            )
+        except Exception as e:
+            logger.debug(f"_format_season_block failed for user {user_id}: {e}")
+            return ""
 
     def format_leaderboard_message(self) -> str:
         """Format leaderboard for display."""

@@ -382,6 +382,30 @@ class ApiClient {
     return this.fetch<RedemptionResult>(`/webapp/users/me/points/redeem/${rewardId}`, { method: 'POST' })
   }
 
+  // === Seasons (convertible points) ===
+
+  /**
+   * Get the user's standing in the active season (points, rank, multipliers,
+   * estimated token allocation). `season` is null when no season is active.
+   */
+  async getSeasonStanding(): Promise<SeasonStanding> {
+    return this.fetch<SeasonStanding>('/webapp/users/me/points/season')
+  }
+
+  /**
+   * Get the season leaderboard (top N by season points, with estimated tokens).
+   */
+  async getSeasonLeaderboard(limit = 20): Promise<SeasonLeaderboardEntry[]> {
+    return this.fetch<SeasonLeaderboardEntry[]>(`/webapp/users/me/points/season/leaderboard?limit=${limit}`)
+  }
+
+  /**
+   * Get the user's season history with their settled snapshots (if any).
+   */
+  async getSeasons(): Promise<SeasonHistoryEntry[]> {
+    return this.fetch<SeasonHistoryEntry[]>('/webapp/users/me/seasons')
+  }
+
   // === DCA (Dollar Cost Averaging) ===
 
   async getDCAOrders(): Promise<DCAOrder[]> {
@@ -755,6 +779,84 @@ export interface RedemptionResult {
   rewardValue: string | null
   status: string
   expiresAt: string | null
+}
+
+// Season (convertible points) types
+export interface Season {
+  id: number
+  name: string
+  slug: string
+  status: string
+  seasonIndex?: number
+  // Weather season name (Summer/Fall/Winter/Spring) + official reporting quarter (e.g. "Q3 2026").
+  weather?: string
+  quarter?: string
+  startsAt: string
+  endsAt: string
+  tokenPool: number
+  tokenSymbol: string
+  description: string | null
+  daysRemaining: number | null
+}
+
+export interface SeasonEmission {
+  seasonIndex: number
+  totalSeasons: number
+  seasonPoolTokens: number
+  poolPctOfSupply: number // 0..1
+  decayPerSeason: number // e.g. 0.25
+  programAllocationPct: number // e.g. 0.30
+  inflationRate: number | null
+  committed: boolean
+}
+
+export interface SeasonStanding {
+  season: Season | null
+  standing: {
+    points: number
+    basePoints: number
+    rank: number | null
+    swapVolumeUsd: number
+    referralPoints: number
+    feePaidUsd: number
+  }
+  multiplier: {
+    level: number
+    streak: number
+    combined: number
+    levelName: string
+  }
+  estimatedAllocation: {
+    tokens: number
+    tokenSymbol: string
+    poolShare: number
+  }
+  totalSeasonPoints: number
+  // Optional so older API responses (pre-emission) still type-check.
+  emission?: SeasonEmission
+}
+
+export interface SeasonLeaderboardEntry {
+  rank: number
+  userId: number
+  username: string | null
+  points: number
+  estimatedTokens: number
+  poolShare: number
+}
+
+export interface SeasonSnapshot {
+  finalPoints: number
+  rank: number | null
+  tokenAllocation: number
+  tokenSymbol: string
+  claimed: boolean
+  claimable: boolean
+}
+
+export interface SeasonHistoryEntry {
+  season: Season
+  snapshot: SeasonSnapshot | null
 }
 
 

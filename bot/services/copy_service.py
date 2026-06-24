@@ -672,22 +672,42 @@ class CopyService:
                     follow.total_copied_trades += 1
                     follow.total_copied_volume += copy_amount
 
+                trader_id = copy_trade.trader_id
                 trader_profile = (
-                    session.query(TraderProfile)
-                    .filter(TraderProfile.user_id == copy_trade.trader_id)
-                    .first()
+                    session.query(TraderProfile).filter(TraderProfile.user_id == trader_id).first()
                 )
                 if trader_profile:
                     trader_profile.times_copied += 1
                     trader_profile.total_copy_volume_usd += copy_amount
 
-            # Award points to copier
-            points_service.award_points(
-                user_id=copier_id,
-                action="copy_trade",
-                description=f"Copied trade from trader",
-                swap_id=swap_tx.id,
-            )
+            # Whole-product points: reward BOTH legs of a successful copy trade —
+            # the copier (copy_trade) and the leader being copied (get_copied).
+            # Wrapped so a points failure never marks the (already-executed) copy
+            # swap as failed via the outer except. Volume proxy = copy_amount;
+            # neither side carries a separate Suwappu fee here (the underlying
+            # swap's own fee is rewarded on the swap path), so no fee_usd.
+            try:
+                points_service.award_points(
+                    user_id=copier_id,
+                    action="copy_trade",
+                    description="Copied trade from trader",
+                    swap_id=swap_tx.id,
+                    metadata={"amount_usd": float(copy_amount)},
+                )
+            except Exception as e:
+                logger.debug(f"copy_trade award skipped for copier {copier_id}: {e}")
+
+            try:
+                if trader_id:
+                    points_service.award_points(
+                        user_id=int(trader_id),
+                        action="get_copied",
+                        description="Your trade was copied",
+                        swap_id=swap_tx.id,
+                        metadata={"amount_usd": float(copy_amount)},
+                    )
+            except Exception as e:
+                logger.debug(f"get_copied award skipped for leader {trader_id}: {e}")
 
             return True, "Trade copied successfully!", swap_tx.id
 

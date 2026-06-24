@@ -210,6 +210,25 @@ class PerpsService:
             )
 
         logger.info(f"Opened {side} {market} position for user {user_id}: {size} @ {entry_price}")
+
+        # Whole-product points: reward the perps trade on notional (fee-denominated
+        # season accrual). Never let a points error break the on-chain position.
+        try:
+            notional_usd = float(size) * float(entry_price or 0)
+            if notional_usd > 0:
+                self._award_xp(
+                    user_id,
+                    "perps_trade",
+                    int(notional_usd / 10),
+                    f"Perps {side} {market} (${notional_usd:,.0f} notional)",
+                    metadata={
+                        "amount_usd": notional_usd,
+                        "fee_usd": self._perps_fee_usd(notional_usd),
+                    },
+                )
+        except Exception as e:
+            logger.debug("perps_trade award skipped (open): %s", e)
+
         return position
 
     async def place_limit_order(
@@ -406,6 +425,25 @@ class PerpsService:
 
         logger.info(f"Closed {percent}% of {side} {market} for user {user_id}. PnL: ${pnl:.2f}")
 
+        # Whole-product points: reward the closing trade on the closed notional
+        # (fee-denominated). Closing is a fee-bearing on-chain order too, so it
+        # earns like the open. Points failures never break the close.
+        try:
+            close_notional_usd = float(close_size) * float(close_price or 0)
+            if close_notional_usd > 0:
+                self._award_xp(
+                    user_id,
+                    "perps_trade",
+                    int(close_notional_usd / 10),
+                    f"Perps close {side} {market} (${close_notional_usd:,.0f})",
+                    metadata={
+                        "amount_usd": close_notional_usd,
+                        "fee_usd": self._perps_fee_usd(close_notional_usd),
+                    },
+                )
+        except Exception as e:
+            logger.debug("perps_trade award skipped (close): %s", e)
+
         return {
             "market": market,
             "side": side,
@@ -568,16 +606,45 @@ class PerpsService:
             logger.debug("ensure_referrer skipped for user %s: %s", account.user_id, e)
 
     @staticmethod
-    def _award_xp(user_id: int, action: str, amount: int, description: str) -> None:
-        """Best-effort XP award; never blocks the on-chain action."""
+    def _award_xp(
+        user_id: int,
+        action: str,
+        amount: int,
+        description: str,
+        metadata: Optional[dict] = None,
+    ) -> None:
+        """Best-effort XP award; never blocks the on-chain action.
+
+        ``metadata`` (e.g. ``{"amount_usd": notional, "fee_usd": fee}``) is
+        forwarded so the season accrual is fee-denominated for trading actions.
+        """
         try:
             from bot.services.points_service import points_service
 
             points_service.award_points(
-                user_id=user_id, action=action, amount=max(1, int(amount)), description=description
+                user_id=user_id,
+                action=action,
+                amount=max(1, int(amount)),
+                description=description,
+                metadata=metadata,
             )
         except Exception as e:
             logger.debug("XP award skipped (%s): %s", action, e)
+
+    def _perps_fee_usd(self, notional_usd: float) -> Optional[float]:
+        """Estimate the Suwappu builder fee (USD) on a perps order of ``notional_usd``.
+
+        HL builder fee is configured in tenths-of-a-bps; fee = notional * tenths/1e5.
+        Returns None when no builder fee is configured (no fee-denominated accrual).
+        """
+        try:
+            _, builder_fee_tenths_bps = self._builder_config()
+            tenths = float(builder_fee_tenths_bps or 0)
+            if tenths <= 0 or notional_usd <= 0:
+                return None
+            return float(notional_usd) * tenths / 100_000.0
+        except Exception:
+            return None
 
     async def place_twap(
         self,

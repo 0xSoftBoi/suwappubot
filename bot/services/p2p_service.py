@@ -416,12 +416,52 @@ class P2PService:
         if trade.source != P2PSource.NATIVE.value:
             raise P2PError("Escrow release only applies to native trades.")
         tx_hash = await self.escrow.release(buyer_address=buyer_address, amount=trade.crypto_amount)
-        return await self._update_trade(
+        completed = await self._update_trade(
             trade_id,
             status=P2PTradeStatus.COMPLETED.value,
             escrow_release_tx=tx_hash,
             completed_at=datetime.utcnow(),
         )
+
+        # Whole-product points: reward both legs of a completed native P2P trade.
+        # Idempotent — release_escrow runs once per trade (status transitions to
+        # COMPLETED). Trade value proxy = fiat_amount; this is exact when
+        # fiat_currency == USD and an approximation otherwise (no FX conversion
+        # here). No Suwappu platform fee is charged on native P2P, so fee_usd is
+        # None and season accrual uses the volume-derived base. Points failures
+        # must never break the on-chain escrow release.
+        try:
+            self._award_p2p_points(completed)
+        except Exception as e:
+            logger.debug("p2p_trade award skipped: %s", e)
+
+        return completed
+
+    @staticmethod
+    def _award_p2p_points(trade: "P2PTrade") -> None:
+        """Award p2p_trade points to both legs of a completed trade (best-effort)."""
+        from bot.services.points_service import points_service
+
+        try:
+            value_usd = float(trade.fiat_amount or 0)
+        except (TypeError, ValueError):
+            value_usd = 0.0
+        amount = max(1, int(value_usd / 10))
+        metadata = {"amount_usd": value_usd, "fee_usd": None}
+
+        for uid in {trade.taker_user_id, trade.maker_user_id}:
+            if not uid:
+                continue
+            try:
+                points_service.award_points(
+                    user_id=int(uid),
+                    action="p2p_trade",
+                    amount=amount,
+                    description=f"P2P trade completed (${value_usd:,.2f})",
+                    metadata=metadata,
+                )
+            except Exception as e:
+                logger.debug("p2p_trade award skipped for user %s: %s", uid, e)
 
     async def cancel_trade(
         self, *, trade_id: int, seller_address: Optional[str] = None

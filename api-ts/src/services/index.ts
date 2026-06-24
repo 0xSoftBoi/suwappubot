@@ -53,6 +53,13 @@ export {
 	type UserPointsStats,
 } from './PointsService'
 export {
+	type SeasonHistoryEntry,
+	type SeasonLeaderboardEntry,
+	type SeasonStanding,
+	SeasonsService,
+	SeasonsServiceLive,
+} from './SeasonsService'
+export {
 	cacheKeys,
 	QUOTE_TTL,
 	RedisService,
