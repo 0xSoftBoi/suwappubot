@@ -138,7 +138,13 @@ function DepositView({
 
 // Withdraw panel: pick a funded balance → amount (+max) → validated destination
 // → review → execute. Two-step confirm guards against fat-finger sends.
-function WithdrawView({ balances }: { balances: WalletBalance[] }) {
+function WithdrawView({
+  balances,
+  enabled,
+}: {
+  balances: WalletBalance[]
+  enabled: boolean
+}) {
   const withdraw = useWithdraw()
   const [selected, setSelected] = useState<WalletBalance | null>(balances[0] ?? null)
   const [amount, setAmount] = useState('')
@@ -196,6 +202,14 @@ function WithdrawView({ balances }: { balances: WalletBalance[] }) {
           </a>
           <CopyButton value={done.txHash} label="Copy tx" />
         </div>
+      </div>
+    )
+  }
+
+  if (!enabled) {
+    return (
+      <div className="rounded-lg border border-terminal-border bg-terminal-bg px-3 py-8 text-center text-sm text-terminal-text-muted">
+        Withdrawals are temporarily paused. Your funds are safe — please check back shortly.
       </div>
     )
   }
@@ -447,7 +461,7 @@ export function WalletModal({
               solanaAddress={summary?.solanaDepositAddress ?? null}
             />
           ) : (
-            <WithdrawView balances={balances} />
+            <WithdrawView balances={balances} enabled={summary?.withdrawEnabled !== false} />
           )}
         </div>
       </div>

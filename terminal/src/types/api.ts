@@ -313,6 +313,8 @@ export interface WalletSummary {
   evmDepositAddress: string | null
   solanaDepositAddress: string | null
   balances: WalletBalance[]
+  // Server-side kill-switch — when false the UI pauses the withdraw form.
+  withdrawEnabled?: boolean
 }
 
 export interface WalletWithdrawResult {

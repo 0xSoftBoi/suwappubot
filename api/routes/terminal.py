@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from datetime import datetime
 from decimal import Decimal
@@ -1805,6 +1806,18 @@ def _valid_withdraw_address(chain: str, address: str) -> bool:
         return False
 
 
+def _withdraw_enabled() -> bool:
+    """Server-side kill-switch for web withdrawals. Enabled by default; set
+    TERMINAL_WITHDRAW_ENABLED=false in the environment to pause withdrawals
+    instantly without a redeploy (deposits are unaffected)."""
+    return os.getenv("TERMINAL_WITHDRAW_ENABLED", "true").strip().lower() not in (
+        "false",
+        "0",
+        "no",
+        "off",
+    )
+
+
 @router.get("/wallet/summary")
 async def terminal_wallet_summary(request: Request):
     """Custodial wallet overview for the signed-in user: the omnibus deposit
@@ -1828,6 +1841,7 @@ async def terminal_wallet_summary(request: Request):
         "evmDepositAddress": evm.address if evm else None,
         "solanaDepositAddress": sol.address if sol else None,
         "balances": balances,
+        "withdrawEnabled": _withdraw_enabled(),
     }
 
 
@@ -1844,6 +1858,10 @@ async def terminal_wallet_withdraw(request: Request, body: WalletWithdrawBody):
     """Withdraw a custodial balance to an external address. Reuses the bot's
     proven path: validate → balance check → on-chain send → debit only after a
     successful send → record. Never debits on a failed/reverted send."""
+    if not _withdraw_enabled():
+        raise HTTPException(
+            status_code=503, detail="Withdrawals are temporarily paused. Please try again shortly."
+        )
     uid = int(_terminal_user(request)["user_id"])
     chain = (body.chain or "").strip()
     token = (body.token or "").strip().upper()

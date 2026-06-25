@@ -158,6 +158,7 @@ function route(path: string, search: URLSearchParams): Response | null {
         { chain: 'ethereum', token: 'ETH', amount: 0.82 },
         { chain: 'solana', token: 'SOL', amount: 14.3 },
       ],
+      withdrawEnabled: true,
     })
   if (path.endsWith('/terminal/wallet/withdraw'))
     return json({ ok: true, txHash: '0xabc123def4567890abc123def4567890abc123def4567890abc123def4567890', status: 'submitted' })
