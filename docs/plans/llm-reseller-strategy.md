@@ -1,6 +1,10 @@
 # LLM Reseller Strategy — Anthropic, OpenAI, DeepSeek & Chinese Models
 
 **Status:** Research / proposal · **Date:** 2026-06-25 · **Owner:** TBD
+**Companion:** [`own-agents-and-custom-models.md`](./own-agents-and-custom-models.md) —
+the build-the-moat angle (own agents + custom models). **Read it second**; it argues the
+model layer is commodity and the differentiated product is our tools + x402, with this
+reseller proxy as the plumbing underneath.
 
 Goal: let Suwappu resell access to frontier + cheap LLMs (Claude Opus/Fable, GPT‑5.5,
 DeepSeek, Qwen/Kimi/GLM/MiniMax) — users pay in our existing credits, we proxy to the
