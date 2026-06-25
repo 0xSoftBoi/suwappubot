@@ -29,6 +29,7 @@ from bot.config.tokens import TOKENS
 from bot.config.settings import settings
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction
+from bot.models.support import SupportTicket, TicketKind, TicketStatus
 from database.db import get_session
 from bot.services.turnkey_client import (
     generate_auth_challenge,
@@ -167,6 +168,30 @@ async def get_terminal_auth_payload(
 
 
 # --- Models ---
+
+
+class EnterpriseLeadRequest(BaseModel):
+    """Inbound enterprise/sales lead from the website "Talk to the team" form.
+
+    Public (no auth) — anyone on the marketing site can submit. Kept minimal and
+    qualification-oriented per high-converting B2B form practice (no phone field).
+    ``website`` is a hidden honeypot: real users leave it blank; bots fill it.
+    """
+
+    name: str
+    company: str
+    email: str
+    country: Optional[str] = None
+    monthly_volume: Optional[str] = None
+    use_case: Optional[str] = None
+    telegram: Optional[str] = None
+    website: Optional[str] = None  # honeypot — must stay empty
+
+
+class EnterpriseLeadResponse(BaseModel):
+    ok: bool
+    id: Optional[int] = None
+    error: Optional[str] = None
 
 
 class TelegramUser(BaseModel):
@@ -1015,6 +1040,90 @@ async def validate_webapp(
         return ValidateResponse(valid=False)
 
     return ValidateResponse(valid=True, user=TelegramUser(**user_data) if user_data else None)
+
+
+@router.post("/enterprise-lead", response_model=EnterpriseLeadResponse)
+async def submit_enterprise_lead(payload: EnterpriseLeadRequest):
+    """Capture an inbound enterprise/sales lead from the marketing site.
+
+    Public, no auth. Persists the lead as a ``SupportTicket`` of kind
+    ``enterprise_lead`` so the existing support_notifier fans it out to admins,
+    the support group, and Linear within its poll interval (instant routing =
+    the #1 conversion lever). Returns ``{ok: true, id}`` on success.
+    """
+    # Honeypot: bots fill the hidden "website" field; humans never see it.
+    if (payload.website or "").strip():
+        # Pretend success so the bot doesn't retry, but persist nothing.
+        return EnterpriseLeadResponse(ok=True)
+
+    name = (payload.name or "").strip()
+    company = (payload.company or "").strip()
+    email = (payload.email or "").strip()
+
+    if not name or not company or not email:
+        raise HTTPException(status_code=422, detail="Name, company, and work email are required.")
+    # Lightweight email sanity check (full validation happens on follow-up).
+    if "@" not in email or "." not in email.split("@")[-1] or len(email) > 254:
+        raise HTTPException(status_code=422, detail="Please enter a valid work email.")
+
+    # Trim every free-text field to keep one bad actor from filling the DB.
+    def _clip(v: Optional[str], n: int) -> Optional[str]:
+        v = (v or "").strip()
+        return v[:n] if v else None
+
+    country = _clip(payload.country, 80)
+    monthly_volume = _clip(payload.monthly_volume, 80)
+    use_case = _clip(payload.use_case, 2000)
+    telegram = _clip(payload.telegram, 120)
+
+    # Human-readable body for the Telegram/Linear alert.
+    lines = [
+        f"Name: {name[:200]}",
+        f"Company: {company[:200]}",
+        f"Email: {email}",
+    ]
+    if country:
+        lines.append(f"Country: {country}")
+    if monthly_volume:
+        lines.append(f"Monthly volume: {monthly_volume}")
+    if telegram:
+        lines.append(f"Telegram: {telegram}")
+    if use_case:
+        lines.append(f"\nUse case:\n{use_case}")
+    message = "\n".join(lines)
+
+    context = {
+        "name": name[:200],
+        "company": company[:200],
+        "email": email,
+        "country": country,
+        "monthly_volume": monthly_volume,
+        "telegram": telegram,
+        "use_case": use_case,
+    }
+
+    try:
+        with get_session() as session:
+            ticket = SupportTicket(
+                kind=TicketKind.ENTERPRISE_LEAD,
+                source="website",
+                category="enterprise",
+                priority="high",
+                username=None,
+                telegram_id=None,
+                message=message,
+                context_json=json.dumps(context),
+                status=TicketStatus.OPEN,
+            )
+            session.add(ticket)
+            session.commit()
+            lead_id = ticket.id
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to persist enterprise lead")
+        raise HTTPException(status_code=500, detail="Could not submit right now. Please try again.")
+
+    logger.info("Enterprise lead #%s captured from %s (%s)", lead_id, company[:80], email)
+    return EnterpriseLeadResponse(ok=True, id=lead_id)
 
 
 @router.get("/billing/stripe/checkout")

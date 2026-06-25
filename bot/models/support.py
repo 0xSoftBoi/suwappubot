@@ -40,8 +40,12 @@ class TicketKind:
 
     SUPPORT = "support"
     BUG = "bug"
+    # Inbound enterprise/sales lead filed from the website "Talk to the team"
+    # form. Rides the same notified_at fan-out (admin DM + group + Linear) so a
+    # lead reaches the team within the support_notifier poll interval.
+    ENTERPRISE_LEAD = "enterprise_lead"
 
-    ALL = (SUPPORT, BUG)
+    ALL = (SUPPORT, BUG, ENTERPRISE_LEAD)
 
 
 class SupportTicket(Base):
