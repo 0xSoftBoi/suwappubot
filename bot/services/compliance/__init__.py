@@ -13,6 +13,11 @@ from bot.services.compliance.compliance_service import (
     ScreeningPolicy,
     compliance_service,
 )
+from bot.services.compliance.flashbots_relay import (
+    FlashbotsRelay,
+    RelayResult,
+    flashbots_relay,
+)
 
 __all__ = [
     "AddressComplianceService",
@@ -22,4 +27,7 @@ __all__ = [
     "ComplianceResult",
     "ScreeningPolicy",
     "compliance_service",
+    "FlashbotsRelay",
+    "RelayResult",
+    "flashbots_relay",
 ]

@@ -535,6 +535,44 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Compliant transaction routing (UBS × Nethermind PoC, stage 2): route
+    # screened same-chain EVM swaps privately to block builders via the
+    # Flashbots relay instead of the public mempool. Falls back to public RPC
+    # on any error, so it can never break a swap. OFF by default.
+    compliance_routing_enabled: bool = Field(
+        default=False,
+        description=(
+            "Route screened same-chain EVM swap transactions privately via the "
+            "Flashbots relay (eth_sendPrivateTransaction) instead of the public "
+            "mempool. Falls back to public RPC on any relay error."
+        ),
+    )
+    flashbots_relay_url: str = Field(
+        default="https://relay.flashbots.net",
+        description="Flashbots-compatible relay endpoint for private tx submission.",
+    )
+    flashbots_signer_key: str = Field(
+        default="",
+        description=(
+            "Hex private key used ONLY to sign the Flashbots auth header "
+            "(identity/reputation; never holds funds). Ephemeral if empty."
+        ),
+    )
+    compliance_routing_chain_ids: str = Field(
+        default="1",
+        description=(
+            "Comma-separated EVM chain IDs whose swaps route through the relay "
+            "(default '1' = Ethereum mainnet)."
+        ),
+    )
+    flashbots_max_block_offset: int = Field(
+        default=25,
+        description=(
+            "How many future blocks a privately-routed tx stays valid for "
+            "(maxBlockNumber = current + offset)."
+        ),
+    )
+
     # Morpho Blue on Base (cbBTC-collateralized USDC borrowing + USDC earn vaults)
     morpho_enabled: bool = Field(
         default=True,

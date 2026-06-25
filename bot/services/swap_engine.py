@@ -29,7 +29,7 @@ import base64
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.services.spending_limits import spending_limit_service
-from bot.services.compliance import compliance_service
+from bot.services.compliance import compliance_service, flashbots_relay
 from bot.utils.cache import quote_cache
 from bot.utils.performance import track_time, MetricNames
 from bot.config.chains import CHAINS, ChainType, apply_min_gas_price, get_chain_by_name
@@ -3107,12 +3107,41 @@ class SwapEngine:
             "chainId": chain.chain_id,
         }
 
-        # Sign and send
+        # Sign and send (routes privately via Flashbots relay when configured;
+        # falls back to public RPC on any relay error).
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
-        )
+        return await self._broadcast_evm_tx(web3, signed_tx_hex, chain)
 
+    async def _broadcast_evm_tx(self, web3: Web3, signed_tx_hex: str, chain) -> str:
+        """Broadcast a signed EVM tx, routing privately when configured.
+
+        Compliant routing (UBS × Nethermind PoC, stage 2): when
+        ``compliance_routing_enabled`` and the chain has a Flashbots-compatible
+        relay, submit the tx privately to block builders via
+        ``eth_sendPrivateTransaction``. Any relay error falls back to the public
+        ``send_raw_transaction`` path, so routing can never break a swap.
+
+        Returns the 0x-prefixed transaction hash.
+        """
+        raw_bytes = bytes.fromhex(signed_tx_hex.replace("0x", ""))
+        chain_id = getattr(chain, "chain_id", None)
+
+        if isinstance(chain_id, int) and flashbots_relay.should_route(chain_id):
+            try:
+                current_block = await asyncio.to_thread(lambda: web3.eth.block_number)
+            except Exception:
+                current_block = None
+            result = await flashbots_relay.send_private_transaction(
+                signed_tx_hex, chain_id, current_block
+            )
+            if result.submitted and result.tx_hash:
+                return result.tx_hash
+            logger.warning(
+                "Private routing unavailable (%s); falling back to public RPC",
+                result.error,
+            )
+
+        tx_hash = await asyncio.to_thread(lambda: web3.eth.send_raw_transaction(raw_bytes))
         return tx_hash.hex()
 
     @staticmethod
