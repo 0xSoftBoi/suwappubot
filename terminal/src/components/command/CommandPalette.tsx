@@ -57,7 +57,7 @@ export function CommandPalette() {
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
-  const { selectedChain, setSelectedChain, selectedPair, setSelectedPair } = usePair()
+  const { selectedChain, setSelectedChain, selectedPair, setSelectedPair, recentPairs } = usePair()
   const { setTradingMode } = useTrading()
   const { setActiveTab } = useBottomTab()
 
@@ -248,6 +248,28 @@ export function CommandPalette() {
             </button>
           ))}
         </div>
+
+        {/* Recent pairs — quick re-access (click-only chips, shown when idle) */}
+        {!trimmed && recentPairs.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-terminal-border px-4 py-2">
+            <span className="mr-1 text-[10px] uppercase tracking-wide text-terminal-text-muted">Recent</span>
+            {recentPairs.slice(0, 6).map((p, i) =>
+              p.base && p.quote ? (
+                <button
+                  key={`${p.base.chain}-${p.base.address}-${i}`}
+                  onClick={() => {
+                    setSelectedPair({ base: p.base!, quote: p.quote! })
+                    setTradingMode('spot')
+                    close()
+                  }}
+                  className="rounded-full bg-terminal-bg-tertiary/70 px-2.5 py-0.5 font-mono text-[11px] text-terminal-text-secondary transition-colors hover:bg-sakura-500/15 hover:text-sakura-600"
+                >
+                  {p.base.symbol}/{p.quote.symbol}
+                </button>
+              ) : null
+            )}
+          </div>
+        )}
 
         {/* Results */}
         <div ref={listRef} className="max-h-[52vh] overflow-y-auto py-1.5">
