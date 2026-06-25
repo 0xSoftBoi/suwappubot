@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from datetime import datetime
 from decimal import Decimal
@@ -1772,3 +1773,169 @@ async def terminal_predict_redeem(request: Request, body: PredictRedeemBody):
         "message": result.error or "Redeem could not be completed.",
         "category": result.error_category or None,
     }
+
+
+# === Custodial wallet: deposit addresses, balances, withdrawals (web parity) ===
+# Mirrors the proven Telegram custodial flow (bot/handlers/custodial.py +
+# bot/services/hot_wallet.py): an omnibus hot-wallet deposit address per chain
+# type + a per-user CustodialBalance ledger. Read paths are safe; the withdraw
+# path reuses the bot's exact send → debit-after-success → record ordering.
+
+_BASE58_ALPHABET = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+
+
+def _is_base58_addr(s: str) -> bool:
+    return bool(s) and all(c in _BASE58_ALPHABET for c in s)
+
+
+def _valid_withdraw_address(chain: str, address: str) -> bool:
+    """Per-chain destination validation — same rules as the bot, so a wrong-
+    format address can't burn funds (e.g. an EVM 0x pasted as a Solana dest)."""
+    address = (address or "").strip()
+    chain_l = (chain or "").lower()
+    if chain_l in ("solana", "sol"):
+        return _is_base58_addr(address) and 32 <= len(address) <= 44
+    if chain_l in ("tron", "trx"):
+        return address.startswith("T") and _is_base58_addr(address) and len(address) == 34
+    if not address.startswith("0x") or len(address) != 42:
+        return False
+    try:
+        int(address[2:], 16)
+        return True
+    except ValueError:
+        return False
+
+
+def _withdraw_enabled() -> bool:
+    """Server-side kill-switch for web withdrawals. Enabled by default; set
+    TERMINAL_WITHDRAW_ENABLED=false in the environment to pause withdrawals
+    instantly without a redeploy (deposits are unaffected)."""
+    return os.getenv("TERMINAL_WITHDRAW_ENABLED", "true").strip().lower() not in (
+        "false",
+        "0",
+        "no",
+        "off",
+    )
+
+
+@router.get("/wallet/summary")
+async def terminal_wallet_summary(request: Request):
+    """Custodial wallet overview for the signed-in user: the omnibus deposit
+    addresses (EVM + Solana, same as the bot shows) and the per-user balances."""
+    uid = int(_terminal_user(request)["user_id"])
+    from bot.services.hot_wallet import hot_wallet_service
+
+    evm = hot_wallet_service.get_deposit_wallet("evm")
+    sol = hot_wallet_service.get_deposit_wallet("solana")
+    balances_raw = hot_wallet_service.get_all_custodial_balances(uid) or {}
+
+    balances = []
+    for chain, tokens in balances_raw.items():
+        for token_symbol, amt in (tokens or {}).items():
+            value = _to_float(amt) or 0.0
+            if value > 0:
+                balances.append({"chain": chain, "token": token_symbol, "amount": value})
+    balances.sort(key=lambda b: b["amount"], reverse=True)
+
+    return {
+        "evmDepositAddress": evm.address if evm else None,
+        "solanaDepositAddress": sol.address if sol else None,
+        "balances": balances,
+        "withdrawEnabled": _withdraw_enabled(),
+    }
+
+
+class WalletWithdrawBody(BaseModel):
+    chain: str
+    token: str
+    amount: float
+    toAddress: str
+    memo: Optional[str] = None
+
+
+@router.post("/wallet/withdraw")
+async def terminal_wallet_withdraw(request: Request, body: WalletWithdrawBody):
+    """Withdraw a custodial balance to an external address. Reuses the bot's
+    proven path: validate → balance check → on-chain send → debit only after a
+    successful send → record. Never debits on a failed/reverted send."""
+    if not _withdraw_enabled():
+        raise HTTPException(
+            status_code=503, detail="Withdrawals are temporarily paused. Please try again shortly."
+        )
+    uid = int(_terminal_user(request)["user_id"])
+    chain = (body.chain or "").strip()
+    token = (body.token or "").strip().upper()
+    to_address = (body.toAddress or "").strip()
+
+    if not _valid_withdraw_address(chain, to_address):
+        raise HTTPException(
+            status_code=400, detail="That destination address isn't valid for this network."
+        )
+    if not (body.amount and body.amount > 0):
+        raise HTTPException(status_code=400, detail="Enter an amount greater than zero.")
+
+    from decimal import Decimal as _D
+    from bot.services.hot_wallet import hot_wallet_service
+    from bot.models.custodial import TransactionType
+    from bot.config.tokens import TOKENS, get_token_address
+
+    amount = _D(str(body.amount))
+    balance = hot_wallet_service.get_custodial_balance(uid, chain, token)
+    if amount > balance:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient balance — you have {_to_float(balance)} {token} on {chain}.",
+        )
+
+    chain_type = "solana" if chain.lower() in ("solana", "sol") else "evm"
+    hot_wallet = hot_wallet_service.get_deposit_wallet(chain_type)
+    if not hot_wallet:
+        raise HTTPException(status_code=503, detail="Withdrawals are temporarily unavailable.")
+
+    token_address = get_token_address(token, chain)
+    memo = body.memo or ""
+    try:
+        if token_address and token_address != "0x0000000000000000000000000000000000000000":
+            token_cfg = TOKENS.get(token)
+            if not token_cfg:
+                raise HTTPException(status_code=400, detail=f"Unknown token {token}.")
+            tx_hash = await hot_wallet_service.send_token(
+                wallet=hot_wallet,
+                chain_name=chain,
+                token_address=token_address,
+                to_address=to_address,
+                amount=amount,
+                decimals=token_cfg.decimals,
+                memo=memo,
+            )
+        else:
+            tx_hash = await hot_wallet_service.send_native_token(
+                wallet=hot_wallet,
+                chain_name=chain,
+                to_address=to_address,
+                amount=amount,
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("terminal withdraw send failed for user %s", uid)
+        raise HTTPException(
+            status_code=502,
+            detail="The withdrawal couldn't be submitted on-chain. Your balance is unchanged.",
+        )
+
+    # Debit the ledger ONLY after a successful on-chain send (matches the bot).
+    hot_wallet_service.update_custodial_balance(
+        user_id=uid, chain=chain, token_symbol=token, amount=amount, operation="subtract"
+    )
+    hot_wallet_service.record_transaction(
+        user_id=uid,
+        tx_type=TransactionType.WITHDRAWAL,
+        chain=chain,
+        token_symbol=token,
+        amount=amount,
+        tx_hash=tx_hash,
+        from_address=hot_wallet.address,
+        to_address=to_address,
+    )
+    return {"ok": True, "txHash": tx_hash, "status": "submitted"}
