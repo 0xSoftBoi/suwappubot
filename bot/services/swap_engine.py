@@ -29,6 +29,7 @@ import base64
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.services.spending_limits import spending_limit_service
+from bot.services.compliance import compliance_service
 from bot.utils.cache import quote_cache
 from bot.utils.performance import track_time, MetricNames
 from bot.config.chains import CHAINS, ChainType, apply_min_gas_price, get_chain_by_name
@@ -2603,6 +2604,35 @@ class SwapEngine:
                     f"Skipping spending-limit check for user {user_id}: "
                     f"no USD price for {quote.from_token}"
                 )
+
+            # Compliance screening (UBS × Nethermind PoC model): screen the
+            # addresses this swap will touch — recipient, router/bridge contract
+            # and token contracts — against the allow/block lists before any
+            # funds move. No-op unless compliance_mode is monitor/enforce, and
+            # only EVM (0x…) addresses are screened. See
+            # docs/architecture/compliance-screening.md.
+            if compliance_service.enabled:
+                raw_q = quote.raw_quote or {}
+                recipient = (
+                    raw_q.get("recipient")
+                    or raw_q.get("receiver")
+                    or raw_q.get("toAddress")
+                    or wallet_address
+                )
+                router = (
+                    raw_q.get("router_address")
+                    or raw_q.get("router")
+                    or raw_q.get("to")
+                    or getattr(quote, "router_address", None)
+                )
+                compliance_result = compliance_service.screen(
+                    recipient=recipient,
+                    router=router,
+                    tokens=[quote.from_token, quote.to_token],
+                    chain=quote.from_chain,
+                )
+                if not compliance_result.allowed:
+                    raise SwapError(f"🚫 {compliance_result.reason}")
 
             # Validate balance
             await quote_validator.validate_balance(

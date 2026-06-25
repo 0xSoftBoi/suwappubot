@@ -493,6 +493,48 @@ class Settings(BaseSettings):
         description="Default Starknet token received from BTC/Lightning deposits",
     )
 
+    # Compliance screening for EVM swaps (UBS × Nethermind PoC model).
+    # Screens every swap's recipient / router / token addresses before signing
+    # at the SwapEngine.execute_swap choke point. OFF by default so existing
+    # flows are unchanged. See docs/architecture/compliance-screening.md.
+    compliance_mode: str = Field(
+        default="disabled",
+        description=(
+            "Compliance gate behaviour: 'disabled' (no screening), 'monitor' "
+            "(screen + log violations but allow), or 'enforce' (block "
+            "non-compliant swaps)."
+        ),
+    )
+    compliance_policy: str = Field(
+        default="blocklist_only",
+        description=(
+            "Which lists apply: 'blocklist_only' (deny sanctioned/blocked "
+            "addresses), 'allowlist_only' (deny anything not pre-approved), or "
+            "'allowlist_and_blocklist' (both; blocklist wins)."
+        ),
+    )
+    compliance_blocklist: str = Field(
+        default="",
+        description=(
+            "Comma-separated EVM addresses to block, in addition to the bundled "
+            "OFAC seed list (recipient/router/token interactions are refused)."
+        ),
+    )
+    compliance_allowlist: str = Field(
+        default="",
+        description=(
+            "Comma-separated EVM addresses that are pre-approved. Only consulted "
+            "when compliance_policy includes an allowlist."
+        ),
+    )
+    compliance_ofac_list_path: str = Field(
+        default="",
+        description=(
+            "Optional path to a newline-delimited file of OFAC-sanctioned "
+            "addresses, merged with the bundled seed list at load time."
+        ),
+    )
+
     # Morpho Blue on Base (cbBTC-collateralized USDC borrowing + USDC earn vaults)
     morpho_enabled: bool = Field(
         default=True,
