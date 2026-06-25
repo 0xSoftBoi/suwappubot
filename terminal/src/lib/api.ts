@@ -25,6 +25,8 @@ import type {
   HLMarket,
   PerpsMarketContext,
   WhaleSnapshot,
+  WalletSummary,
+  WalletWithdrawResult,
   MarketRegime,
   MarketSignal,
   HLPosition,
@@ -340,6 +342,19 @@ export const api = {
 
   // Smart-money positioning — top accounts' live positions in a coin,
   // aggregated long-vs-short, from public HyperLiquid on-chain data.
+  // Custodial wallet — deposit addresses + balances (authed).
+  getWalletSummary() {
+    return request<WalletSummary>('/terminal/wallet/summary')
+  },
+
+  // Withdraw a custodial balance to an external address (authed, money path).
+  withdrawFunds(params: { chain: string; token: string; amount: number; toAddress: string; memo?: string }) {
+    return request<WalletWithdrawResult>('/terminal/wallet/withdraw', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  },
+
   getPerpsWhales(coin: string) {
     return request<WhaleSnapshot>(`/terminal/perps/whales?coin=${encodeURIComponent(coin)}`)
   },

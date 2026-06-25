@@ -149,6 +149,18 @@ const POPULAR_TOKENS = [
 ]
 
 function route(path: string, search: URLSearchParams): Response | null {
+  if (path.endsWith('/terminal/wallet/summary'))
+    return json({
+      evmDepositAddress: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F',
+      solanaDepositAddress: '7Np41oeYqPefeNQEHSv1UDhYrehxin3NStpDBwxVqzz5',
+      balances: [
+        { chain: 'base', token: 'USDC', amount: 1240.5 },
+        { chain: 'ethereum', token: 'ETH', amount: 0.82 },
+        { chain: 'solana', token: 'SOL', amount: 14.3 },
+      ],
+    })
+  if (path.endsWith('/terminal/wallet/withdraw'))
+    return json({ ok: true, txHash: '0xabc123def4567890abc123def4567890abc123def4567890abc123def4567890', status: 'submitted' })
   if (path.includes('/webapp/tokens/popular')) return json(POPULAR_TOKENS)
   if (path.includes('/webapp/tokens/search')) {
     const q = (search.get('q') || '').toLowerCase()

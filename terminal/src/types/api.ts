@@ -301,6 +301,26 @@ export interface WhaleSnapshot {
   positions: WhalePosition[] // biggest, by notional
 }
 
+// One custodial balance row (per chain + token).
+export interface WalletBalance {
+  chain: string
+  token: string
+  amount: number
+}
+
+// Custodial wallet overview: omnibus deposit addresses + the user's balances.
+export interface WalletSummary {
+  evmDepositAddress: string | null
+  solanaDepositAddress: string | null
+  balances: WalletBalance[]
+}
+
+export interface WalletWithdrawResult {
+  ok: boolean
+  txHash: string
+  status: string
+}
+
 // Always-on macro context for the terminal header. Any field may be null when
 // its upstream (alternative.me / CoinGecko / DefiLlama) is unreachable.
 export interface MarketRegime {
