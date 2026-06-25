@@ -14,6 +14,7 @@ import { WalletConnect } from '../auth/WalletConnect'
 import { useAuth } from '../../contexts/AuthContext'
 import { useTrading } from '../../contexts/TradingContext'
 import { usePair } from '../../contexts/PairContext'
+import { usePersistentState } from '../../lib/persist'
 import { useQuery } from '@tanstack/react-query'
 import type { SwapToken, SwapQuoteRequest, SolanaPriorityTier } from '../../types/api'
 import { getSolanaPriorityFees } from '../../lib/helius'
@@ -27,7 +28,7 @@ export function SwapPanel() {
   const { selectedPair, setSelectedPair } = usePair()
   const [activeTab, setActiveTab] = useState<OrderTab>('swap')
   const [amount, setAmount] = useState('')
-  const [slippage, setSlippage] = useState(0.5)
+  const [slippage, setSlippage] = usePersistentState('slippage', 0.5)
   // Solana priority-fee tier — only affects the non-custodial Phantom path,
   // so it's surfaced (below) only for Solana tokens.
   const [priorityTier, setPriorityTier] = useState<SolanaPriorityTier>('normal')
