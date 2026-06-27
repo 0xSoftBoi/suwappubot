@@ -16,6 +16,7 @@ from bot.models.advanced import (
     SwapTemplate,
 )
 from bot.models.swap import SwapStatus
+from bot.models.favorites import UserSettings
 from bot.services.price_service import price_service
 from bot.services.swap_engine import SwapEngine
 from database.db import get_session, run_in_db
@@ -34,6 +35,50 @@ class OrderService:
         self._swap_engine = None
 
     # === Limit Orders ===
+
+    def create_trailing_stop_order(
+        self,
+        user_id: int,
+        wallet_id: int,
+        from_chain: str,
+        from_token: str,
+        to_chain: str,
+        to_token: str,
+        amount: str,
+        trailing_percent: float,
+        slippage: float = 0.5,
+        expires_in_hours: int = None,
+    ) -> LimitOrder:
+        """Create a trailing stop loss order.
+
+        trigger_price is set to 0 — it is unused for TRAILING_STOP; the dynamic
+        trigger is computed from highest_price_seen each poll cycle.
+
+        # MONEY-PATH: trailing stop triggers sell execution
+        """
+        with get_session() as session:
+            order = LimitOrder(
+                user_id=user_id,
+                wallet_id=wallet_id,
+                order_type=OrderType.TRAILING_STOP.value,
+                from_chain=from_chain,
+                from_token=from_token,
+                to_chain=to_chain,
+                to_token=to_token,
+                amount=amount,
+                trigger_price=0.0,
+                trailing_percent=trailing_percent,
+                highest_price_seen=None,
+                slippage=slippage,
+            )
+            if expires_in_hours:
+                order.expires_at = datetime.utcnow() + timedelta(hours=expires_in_hours)
+            session.add(order)
+            session.flush()
+            order_id = order.id
+
+        with get_session() as session:
+            return session.query(LimitOrder).filter(LimitOrder.id == order_id).first()
 
     def create_limit_order(
         self,
@@ -149,6 +194,8 @@ class OrderService:
                             "from_token": o.from_token,
                             "to_token": o.to_token,
                             "trigger_price": o.trigger_price,
+                            "trailing_percent": o.trailing_percent,
+                            "highest_price_seen": o.highest_price_seen,
                         }
                     )
                 # Mark expired in same session
@@ -168,6 +215,8 @@ class OrderService:
         for od in order_data:
             if od["order_type"] in [OrderType.LIMIT_BUY.value, OrderType.STOP_LOSS.value]:
                 tokens.add(od["to_token"])
+            elif od["order_type"] == OrderType.TRAILING_STOP.value:
+                tokens.add(od["from_token"])
             else:
                 tokens.add(od["from_token"])
 
@@ -179,6 +228,9 @@ class OrderService:
 
         # Phase 3: Evaluate triggers and write back (non-blocking)
         triggered_ids = []
+        # TRAILING_STOP: map of order_id -> new peak price (to be persisted even if not triggered)
+        trailing_peak_updates: dict = {}
+
         for od in order_data:
             otype = od["order_type"]
             if otype == OrderType.LIMIT_BUY.value:
@@ -193,21 +245,47 @@ class OrderService:
             elif otype == OrderType.TAKE_PROFIT.value:
                 price = prices.get(od["from_token"], 0)
                 should_trigger = price >= od["trigger_price"]
+            elif otype == OrderType.TRAILING_STOP.value:
+                # MONEY-PATH: trailing stop triggers sell execution
+                price = prices.get(od["from_token"], 0)
+                if price <= 0:
+                    continue
+                pct = od.get("trailing_percent") or 0.0
+                prev_peak = od.get("highest_price_seen")
+                new_peak = max(price, prev_peak) if prev_peak is not None else price
+                trailing_peak_updates[od["id"]] = new_peak
+                dynamic_trigger = new_peak * (1 - pct / 100)
+                should_trigger = price <= dynamic_trigger
             else:
                 continue
 
             if should_trigger and price > 0:
                 triggered_ids.append((od["id"], price))
 
-        if not triggered_ids:
+        if not triggered_ids and not trailing_peak_updates:
             return []
+
+        triggered_id_set = {oid for oid, _ in triggered_ids}
 
         def _mark_triggered():
             with get_session() as session:
+                # Persist highest_price_seen for all trailing stops seen this cycle
+                # (even those not yet triggered, so the ratchet survives across polls)
+                for oid, new_peak in trailing_peak_updates.items():
+                    if oid not in triggered_id_set:
+                        order = session.query(LimitOrder).filter(LimitOrder.id == oid).first()
+                        if order:
+                            order.highest_price_seen = new_peak
+                # Flush peak updates before processing triggers to avoid a race where
+                # the same order gets re-evaluated mid-session with stale peak data.
+                session.flush()
+
                 triggered = []
                 for oid, exec_price in triggered_ids:
                     order = session.query(LimitOrder).filter(LimitOrder.id == oid).first()
                     if order:
+                        if oid in trailing_peak_updates:
+                            order.highest_price_seen = trailing_peak_updates[oid]
                         order.status = OrderStatus.TRIGGERED.value
                         order.execution_price = exec_price
                         triggered.append(order)
@@ -652,6 +730,11 @@ class OrderService:
                 if user:
                     telegram_id = user.telegram_id
                     whatsapp_id = user.whatsapp_id
+                    user_settings = (
+                        session.query(UserSettings).filter(UserSettings.user_id == user.id).first()
+                    )
+                    if user_settings and not getattr(user_settings, "notify_order_triggered", True):
+                        return
 
             if telegram_id:
                 tx_info = ""

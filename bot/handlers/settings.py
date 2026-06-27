@@ -137,6 +137,7 @@ def _build_settings_keyboard(user_settings: UserSettings) -> InlineKeyboardMarku
                 callback_data="settings_toggle_proactive",
             )
         ],
+        [InlineKeyboardButton("Notification Preferences", callback_data="settings_notify_prefs")],
         [InlineKeyboardButton("Manage Alerts", callback_data="alerts_menu")],
         [InlineKeyboardButton("Recovery", callback_data="settings_recovery")],
         [InlineKeyboardButton("Back", callback_data="main_menu")],
@@ -949,6 +950,96 @@ async def limits_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 # ---------------------------------------------------------------------------
+# Notification preferences submenu
+# ---------------------------------------------------------------------------
+
+
+def _build_notify_prefs_keyboard(user_settings: UserSettings) -> InlineKeyboardMarkup:
+    """Build inline keyboard for granular notification preferences."""
+
+    def _btn(label: str, enabled: bool, callback: str) -> InlineKeyboardButton:
+        icon = "✅" if enabled else "🔕"
+        return InlineKeyboardButton(f"{icon} {label}", callback_data=callback)
+
+    copy_on = getattr(user_settings, "notify_copy_executed", True)
+    order_on = getattr(user_settings, "notify_order_triggered", True)
+    portfolio_on = getattr(user_settings, "notify_portfolio_milestone", False)
+    risk_on = getattr(user_settings, "notify_risk_event", True)
+
+    return InlineKeyboardMarkup(
+        [
+            [_btn("Copy trades executed", copy_on, "settings_ntoggle_copy")],
+            [_btn("Orders triggered", order_on, "settings_ntoggle_order")],
+            [_btn("Portfolio milestones", portfolio_on, "settings_ntoggle_portfolio")],
+            [_btn("Risk alerts", risk_on, "settings_ntoggle_risk")],
+            [InlineKeyboardButton("Back", callback_data="settings_menu")],
+        ]
+    )
+
+
+async def notify_prefs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show granular notification preferences screen."""
+    query = update.callback_query
+    await query.answer()
+    user = update.effective_user
+
+    with get_session() as session:
+        db_user, user_settings = _get_or_create_settings(session, user.id)
+        if not db_user:
+            await query.edit_message_text("Please use /start first.")
+            return
+        keyboard = _build_notify_prefs_keyboard(user_settings)
+
+    await send_md_safe(
+        update,
+        "*Notification Preferences*\n\nToggle which events send you a message.",
+        reply_markup=keyboard,
+    )
+
+
+async def _toggle_notify_pref(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, field: str
+) -> None:
+    """Generic toggle for a boolean notification preference field."""
+    query = update.callback_query
+    await query.answer()
+    user = update.effective_user
+
+    with get_session() as session:
+        db_user, user_settings = _get_or_create_settings(session, user.id)
+        if db_user and user_settings:
+            current = getattr(user_settings, field, True)
+            setattr(user_settings, field, not current)
+
+    # Re-render the prefs screen
+    with get_session() as session:
+        _, user_settings = _get_or_create_settings(session, user.id)
+        keyboard = _build_notify_prefs_keyboard(user_settings)
+
+    await send_md_safe(
+        update,
+        "*Notification Preferences*\n\nToggle which events send you a message.",
+        reply_markup=keyboard,
+    )
+
+
+async def ntoggle_copy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _toggle_notify_pref(update, context, "notify_copy_executed")
+
+
+async def ntoggle_order_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _toggle_notify_pref(update, context, "notify_order_triggered")
+
+
+async def ntoggle_portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _toggle_notify_pref(update, context, "notify_portfolio_milestone")
+
+
+async def ntoggle_risk_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _toggle_notify_pref(update, context, "notify_risk_event")
+
+
+# ---------------------------------------------------------------------------
 # Conversation handlers
 # ---------------------------------------------------------------------------
 
@@ -1064,4 +1155,19 @@ chain_menu_handler = CallbackQueryHandler(chain_menu_callback, pattern="^setting
 chain_set_handler = CallbackQueryHandler(
     chain_set_callback,
     pattern="^settings_chain_(ethereum|bsc|polygon|arbitrum|optimism|base|solana|avalanche|tron|any)$",
+)
+notify_prefs_handler = CallbackQueryHandler(
+    notify_prefs_callback, pattern="^settings_notify_prefs$"
+)
+ntoggle_copy_handler = CallbackQueryHandler(
+    ntoggle_copy_callback, pattern="^settings_ntoggle_copy$"
+)
+ntoggle_order_handler = CallbackQueryHandler(
+    ntoggle_order_callback, pattern="^settings_ntoggle_order$"
+)
+ntoggle_portfolio_handler = CallbackQueryHandler(
+    ntoggle_portfolio_callback, pattern="^settings_ntoggle_portfolio$"
+)
+ntoggle_risk_handler = CallbackQueryHandler(
+    ntoggle_risk_callback, pattern="^settings_ntoggle_risk$"
 )

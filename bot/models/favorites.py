@@ -87,6 +87,12 @@ class UserSettings(Base):
     # Scaffold only — no push logic reads this yet; it gates future delivery.
     proactive_alerts_enabled = Column(Boolean, default=False)
 
+    # Granular per-event notification preferences
+    notify_copy_executed = Column(Boolean, default=True, nullable=False)
+    notify_order_triggered = Column(Boolean, default=True, nullable=False)
+    notify_portfolio_milestone = Column(Boolean, default=False, nullable=False)
+    notify_risk_event = Column(Boolean, default=True, nullable=False)
+
     # Security settings
     per_swap_limit_usd = Column(Float, default=5000.0)
     daily_limit_usd = Column(Float, default=50000.0)

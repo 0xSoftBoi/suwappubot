@@ -88,6 +88,11 @@ from bot.handlers.settings import (
     speed_set_handler,
     chain_menu_handler,
     chain_set_handler,
+    notify_prefs_handler,
+    ntoggle_copy_handler,
+    ntoggle_order_handler,
+    ntoggle_portfolio_handler,
+    ntoggle_risk_handler,
 )
 from bot.handlers.admin import (
     status_handler,
@@ -148,6 +153,7 @@ from bot.handlers.limit_orders import (
     orders_handler,
     dca_handler,
     limit_order_conversation,
+    trailing_stop_conversation,
     dca_view_handler,
     dca_actions_handler,
     dca_menu_callback,
@@ -182,6 +188,7 @@ from bot.handlers.subscription import (
     sub_back_callback,
 )
 from bot.handlers.vip import vip_handler
+from bot.handlers.import_handler import import_conversation_handler
 
 # Points/XP system handlers
 from bot.handlers.points import (
@@ -407,6 +414,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(withdrawal_conversation)
     application.add_handler(alert_conversation)
     application.add_handler(limit_order_conversation)
+    application.add_handler(trailing_stop_conversation)  # MONEY-PATH: trailing stop triggers sell execution
     application.add_handler(subscription_conversation)  # x402 subscription flow
     application.add_handler(org_newkey_conversation)  # Enterprise /org new-key name entry
     application.add_handler(profile_edit_conversation)  # Copy trading profile editing
@@ -494,6 +502,11 @@ def add_handlers(application: Application) -> None:
     application.add_handler(chain_menu_handler)  # Settings → default chain menu
     application.add_handler(chain_set_handler)  # Settings → default chain set
     application.add_handler(recovery_menu_callback)  # settings_recovery button
+    application.add_handler(notify_prefs_handler)  # Settings → notification prefs submenu
+    application.add_handler(ntoggle_copy_handler)  # Notif prefs → copy executed toggle
+    application.add_handler(ntoggle_order_handler)  # Notif prefs → order triggered toggle
+    application.add_handler(ntoggle_portfolio_handler)  # Notif prefs → portfolio milestone toggle
+    application.add_handler(ntoggle_risk_handler)  # Notif prefs → risk event toggle
 
     # Custodial
     application.add_handler(CallbackQueryHandler(custodial_callback, pattern="^custodial_menu$"))
@@ -610,6 +623,9 @@ def add_handlers(application: Application) -> None:
     # Tempo session keys (access keys) — /tempo
     for tempo_handler in get_tempo_handlers():
         application.add_handler(tempo_handler)
+
+    # BullX Neo migration wizard — /import
+    application.add_handler(import_conversation_handler)
 
     # Freeform text catch-all — MUST be registered last in the default group so
     # it only fires when no ConversationHandler (or earlier handler) handles the
