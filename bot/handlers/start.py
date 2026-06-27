@@ -12,7 +12,8 @@ from database.db import get_session
 from bot.services.tos_service import tos_service, TOS_TEXT
 from bot.services.referral_service import referral_service
 from bot.services.wallet import WalletService
-from bot.utils.templates import WELCOME_MESSAGE, HELP_MESSAGE, TOS_KEYBOARD
+from bot.utils.templates import HELP_MESSAGE, TOS_KEYBOARD
+from bot.i18n import get_text, get_user_lang
 
 logger = logging.getLogger(__name__)
 wallet_service = WalletService()
@@ -178,6 +179,7 @@ async def _provision_wallets_and_update(
     message: Message,
     suffix: str,
     reply_markup: InlineKeyboardMarkup,
+    lang: str = "en",
 ) -> None:
     """Background task: create wallets, then edit the already-sent welcome message.
 
@@ -188,9 +190,9 @@ async def _provision_wallets_and_update(
         wallets = await _ensure_wallets(user_id)
         wallet_info = _build_wallet_info(wallets, show_deposit_hint=True)
         if not wallet_info:
-            wallet_info = "\n\n⚠️ _Wallet creation failed — use /w to retry._"
+            wallet_info = "\n\n" + get_text("wallet_failed", lang)
         await message.edit_text(
-            WELCOME_MESSAGE + wallet_info + suffix,
+            get_text("welcome", lang) + wallet_info + suffix,
             parse_mode="Markdown",
             reply_markup=reply_markup,
         )
@@ -198,7 +200,7 @@ async def _provision_wallets_and_update(
         logger.exception(f"Background wallet provisioning failed for user {user_id}")
         try:
             await message.edit_text(
-                WELCOME_MESSAGE + "\n\n⚠️ _Wallet creation failed — use /w to retry._" + suffix,
+                get_text("welcome", lang) + "\n\n" + get_text("wallet_failed", lang) + suffix,
                 parse_mode="Markdown",
                 reply_markup=reply_markup,
             )
@@ -278,15 +280,20 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     reply_markup = _build_main_keyboard()
 
+    lang = get_user_lang(user)
+
     # Fast path: no wallets yet → reply instantly, create wallets in the background
     if not wallet_service.get_user_wallets(user_id):
         sent = await update.message.reply_text(
-            WELCOME_MESSAGE + "\n\n👛 _Creating your wallets…_" + referral_message,
+            get_text("welcome", lang)
+            + "\n\n"
+            + get_text("wallet_creating", lang)
+            + referral_message,
             parse_mode="Markdown",
             reply_markup=reply_markup,
         )
         asyncio.create_task(
-            _provision_wallets_and_update(user_id, sent, referral_message, reply_markup)
+            _provision_wallets_and_update(user_id, sent, referral_message, reply_markup, lang=lang)
         )
         return
 
@@ -300,7 +307,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if referral_message:
         # Surface the one-time referral bonus once; the hub follows.
         await update.message.reply_text(
-            WELCOME_MESSAGE + referral_message,
+            get_text("welcome", lang) + referral_message,
             parse_mode="Markdown",
         )
 
@@ -328,15 +335,19 @@ async def tos_accept_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     reply_markup = _build_main_keyboard()
 
+    lang = get_user_lang(update.effective_user)
+
     # Fast path: no wallets yet → show the menu instantly, create wallets in background
     if not wallet_service.get_user_wallets(user_id):
         sent = await query.edit_message_text(
-            WELCOME_MESSAGE + "\n\n👛 _Creating your wallets…_",
+            get_text("welcome", lang) + "\n\n" + get_text("wallet_creating", lang),
             parse_mode="Markdown",
             reply_markup=reply_markup,
         )
         if isinstance(sent, Message):
-            asyncio.create_task(_provision_wallets_and_update(user_id, sent, "", reply_markup))
+            asyncio.create_task(
+                _provision_wallets_and_update(user_id, sent, "", reply_markup, lang=lang)
+            )
         return
 
     # Wallets already exist — keep the synchronous path
@@ -413,6 +424,8 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if db_user:
             user_id = db_user.id
 
+    lang = get_user_lang(user)
+
     # No DB user / no wallets yet → fall back to the static welcome menu.
     if user_id is None or not wallet_service.get_user_wallets(user_id):
         reply_markup = _build_main_keyboard()
@@ -420,13 +433,13 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await query.message.delete()
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
-                text=WELCOME_MESSAGE,
+                text=get_text("welcome", lang),
                 parse_mode="Markdown",
                 reply_markup=reply_markup,
             )
         else:
             await query.edit_message_text(
-                WELCOME_MESSAGE,
+                get_text("welcome", lang),
                 parse_mode="Markdown",
                 reply_markup=reply_markup,
             )

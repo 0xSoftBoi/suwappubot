@@ -1,0 +1,65 @@
+{
+  "nav": {
+    "home": "Inicio",
+    "swap": "Intercambio",
+    "wallet": "Billetera",
+    "portfolio": "Portafolio",
+    "history": "Historial",
+    "settings": "Ajustes"
+  },
+  "common": {
+    "back": "Volver",
+    "confirm": "Confirmar",
+    "cancel": "Cancelar",
+    "loading": "Cargando...",
+    "error": "Error",
+    "save": "Guardar",
+    "close": "Cerrar",
+    "retry": "Reintentar",
+    "continue": "Continuar",
+    "done": "Listo",
+    "search": "Buscar"
+  },
+  "settings": {
+    "title": "Ajustes",
+    "language": "Idioma",
+    "notifications": "Notificaciones",
+    "notificationsDesc": "Activar todas las notificaciones",
+    "linkedWallets": "Billeteras Vinculadas",
+    "slippage": "Deslizamiento",
+    "gas": "Configuración de Gas"
+  },
+  "swap": {
+    "title": "Intercambio",
+    "from": "De",
+    "to": "A",
+    "selectToken": "Seleccionar Token",
+    "enterAmount": "Ingrese monto",
+    "swapNow": "Intercambiar Ahora",
+    "confirmSwap": "Confirmar Intercambio",
+    "swapSuccess": "Intercambio Exitoso"
+  },
+  "wallet": {
+    "title": "Billetera",
+    "balance": "Saldo",
+    "send": "Enviar",
+    "receive": "Recibir",
+    "copyAddress": "Copiar Dirección"
+  },
+  "portfolio": {
+    "title": "Portafolio",
+    "totalValue": "Valor Total",
+    "noAssets": "No se encontraron activos"
+  },
+  "home": {
+    "title": "Inicio",
+    "quickSwap": "Intercambio Rápido"
+  },
+  "language": {
+    "title": "Idioma",
+    "en": "English",
+    "es": "Español",
+    "fr": "Français",
+    "zh": "中文"
+  }
+}

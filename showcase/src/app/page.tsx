@@ -5,6 +5,7 @@ import SummerFooter from '@/components/SummerFooter';
 import CosmicAtmosphere from '@/components/CosmicAtmosphere';
 import CopyInstall from '@/components/CopyInstall';
 import MarketProof from '@/components/MarketProof';
+import { getTranslations } from 'next-intl/server';
 import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
 
 // Revalidate the homepage every 60s so MarketProof's live prices stay fresh (ISR).
@@ -141,7 +142,9 @@ const sdkLines = [
   'status: filled',
 ];
 
-function Hero() {
+async function Hero() {
+  const t = await getTranslations('hero');
+  const tCta = await getTranslations('cta');
   return (
     <section className="summer-hero">
       <div className="summer-flower-field summer-flower-field--hero" aria-hidden="true">
@@ -153,17 +156,13 @@ function Hero() {
       </div>
       <img className="summer-hero__fruit" src="/logo.svg" alt="" aria-hidden="true" />
       <div className="summer-hero__copy">
-        <p className="summer-kicker">The only bot that does all three</p>
+        <p className="summer-kicker">{t('kicker')}</p>
         <h1 className="summer-hero__h1">
           Cross-chain swaps,<br />
           HyperLiquid perps,<br />
-          and <span className="summer-hero__accent">gasless</span> trades.
+          and <span className="summer-hero__accent">{t('h1_accent')}</span> trades.
         </h1>
-        <p className="summer-hero__lead">
-          Other tools make you pick one — a bridge, a perp desk, or a gas wallet. Suwappu
-          unifies all three: best-price routing across 40+ chains, perps up to 20x, and
-          sponsored-gas swaps. Trade from Telegram, the terminal, or one SDK call.
-        </p>
+        <p className="summer-hero__lead">{t('lead')}</p>
         <div className="summer-actions">
           <a
             className="summer-button summer-button--primary"
@@ -171,23 +170,23 @@ function Hero() {
             target="_blank"
             rel="noopener noreferrer"
           >
-            Open Telegram Bot
+            {t('cta_bot')}
           </a>
           <a className="summer-button summer-button--secondary" href={TERMINAL_URL}>
-            Open Terminal
+            {t('cta_terminal')}
           </a>
         </div>
         <CopyInstall text="bun add @suwappu/sdk" />
         <p className="summer-hero__byline">
-          Built by the author of{' '}
+          {t('byline_pre')}{' '}
           <a
             href="https://tsoma2.gumroad.com/l/printingmoney"
             target="_blank"
             rel="noopener noreferrer"
           >
-            <em>Printing Money</em>
+            <em>{t('byline_book')}</em>
           </a>{' '}
-          — a hands-on DeFi-security book — and an open-source contributor to{' '}
+          {t('byline_mid')}{' '}
           <a
             href="https://github.com/alloy-rs/core/pull/1105"
             target="_blank"
@@ -195,7 +194,7 @@ function Hero() {
           >
             alloy-rs
           </a>{' '}
-          &amp;{' '}
+          {t('byline_and')}{' '}
           <a
             href="https://github.com/uutils/coreutils/pull/12327"
             target="_blank"
@@ -211,7 +210,9 @@ function Hero() {
   );
 }
 
-export default function Home() {
+export default async function Home() {
+  const tRef = await getTranslations('referral');
+  const tCta = await getTranslations('cta');
   return (
     <>
       <StructuredData />
@@ -486,12 +487,12 @@ export default function Home() {
 
           {/* ── REFERRAL ── */}
           <section className="summer-referral" aria-label="Referral program">
-            <p className="summer-kicker">Earn with Suwappu</p>
-            <h2>30% of every trading fee. Forever.</h2>
+            <p className="summer-kicker">{tRef('kicker')}</p>
+            <h2>{tRef('heading')}</h2>
             <p className="summer-referral__body">
-              Refer a friend and earn 30% of the trading fees they generate — paid out automatically,
-              on every chain. Grab your personal link with{' '}
-              <code className="summer-referral__cmd">/ref</code> inside the bot.
+              {tRef.rich('body', {
+                cmd: () => <code className="summer-referral__cmd">/ref</code>,
+              })}
             </p>
             <a
               className="summer-button summer-button--primary"
@@ -499,18 +500,15 @@ export default function Home() {
               target="_blank"
               rel="noopener noreferrer"
             >
-              Get your referral link
+              {tRef('cta')}
             </a>
           </section>
 
           {/* ── CTA ── */}
           <section className="summer-cta" aria-label="Get started">
-            <p className="summer-kicker">Start now</p>
-            <h2>Your next swap is one line away.</h2>
-            <p className="summer-cta__lead">
-              Open the bot, or install the SDK and connect your agent — best-price
-              swaps, perps, and gasless trades across 40+ chains.
-            </p>
+            <p className="summer-kicker">{tCta('kicker')}</p>
+            <h2>{tCta('heading')}</h2>
+            <p className="summer-cta__lead">{tCta('lead')}</p>
             <code className="summer-cta__code">bun add @suwappu/sdk</code>
             <div className="summer-actions summer-cta__actions">
               <a
@@ -519,7 +517,7 @@ export default function Home() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Open Telegram Bot
+                {tCta('open_bot')}
               </a>
               {WHATSAPP_ENABLED && (
                 <a
@@ -528,11 +526,11 @@ export default function Home() {
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  Chat on WhatsApp
+                  {tCta('whatsapp')}
                 </a>
               )}
               <a className="summer-button summer-button--secondary" href="/docs">
-                Read the docs
+                {tCta('docs')}
               </a>
             </div>
           </section>

@@ -1017,6 +1017,34 @@ async def validate_webapp(
     return ValidateResponse(valid=True, user=TelegramUser(**user_data) if user_data else None)
 
 
+@router.get("/billing/stripe/checkout")
+async def webapp_stripe_checkout(
+    tier: str = Query(..., description="Subscription tier: pro or premium"),
+    user: TelegramUser = Depends(get_telegram_user),
+):
+    """Create a Stripe card-checkout session for the authenticated webapp user.
+
+    Stripe is owned by api-ts (checkout + webhook). We proxy there server-to-server
+    and return the checkout URL so the Mini App can open it via WebApp.openLink.
+    """
+    from bot.services.api_client import api_client, APIClientError
+
+    if tier not in ("pro", "premium"):
+        raise HTTPException(status_code=400, detail="Invalid tier. Must be pro or premium.")
+
+    try:
+        session = await api_client.create_stripe_checkout(user.id, tier)
+    except APIClientError as e:
+        logger.warning("[webapp] Stripe checkout unavailable: %s", e)
+        raise HTTPException(status_code=502, detail="Card payments are temporarily unavailable.")
+
+    url = session.get("url")
+    if not url:
+        raise HTTPException(status_code=502, detail="Card payments are temporarily unavailable.")
+
+    return {"url": url}
+
+
 def _token_response(symbol: str, token, chain: str) -> Optional[WebAppToken]:
     address = token.addresses.get(chain)
     if not address:

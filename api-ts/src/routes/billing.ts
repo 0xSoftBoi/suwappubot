@@ -1,5 +1,6 @@
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
+import type Stripe from 'stripe'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { EnvService } from '../config/EnvService'
@@ -21,13 +22,20 @@ const FEE_RATES: Record<string, number> = {
 	enterprise: 0.1,
 }
 
-// GET /billing/stripe/checkout?tier=pro
-// Creates a Stripe checkout session and redirects to it
+// GET /billing/stripe/checkout?tier=pro[&format=json]
+// Creates a Stripe checkout session. By default redirects to it (direct-link
+// flow); with ?format=json (or Accept: application/json) returns { url } so the
+// Telegram Mini App can open it via WebApp.openLink (a redirect can't be
+// followed cross-origin from a fetch).
 billingRoutes.get('/stripe/checkout', ipRateLimit(5), telegramAuth(), async (c) => {
 	const tier = c.req.query('tier') as 'pro' | 'premium'
 	if (!['pro', 'premium'].includes(tier)) {
 		return c.json({ error: 'Invalid tier. Must be pro or premium.' }, 400)
 	}
+
+	const wantsJson =
+		c.req.query('format') === 'json' ||
+		(c.req.header('accept') ?? '').includes('application/json')
 
 	const telegramUser = c.get('telegramUser')
 
@@ -51,8 +59,8 @@ billingRoutes.get('/stripe/checkout', ipRateLimit(5), telegramAuth(), async (c) 
 				tier,
 				telegramId: String(telegramUser.id),
 				userId: dbUserId,
-				successUrl: `${baseUrl}/subscription/success?tier=${tier}`,
-				cancelUrl: `${baseUrl}/subscription`,
+				successUrl: `${baseUrl}/premium?upgrade=success&tier=${tier}`,
+				cancelUrl: `${baseUrl}/premium`,
 			})
 
 			return { url: checkoutUrl }
@@ -64,6 +72,7 @@ billingRoutes.get('/stripe/checkout', ipRateLimit(5), telegramAuth(), async (c) 
 		return c.json(body, status as 200)
 	}
 
+	if (wantsJson) return c.json({ url: result.right.url })
 	return c.redirect(result.right.url)
 })
 
@@ -83,11 +92,27 @@ billingRoutes.post('/stripe/webhook', async (c) => {
 				return { received: true }
 			}
 
-			const event = yield* stripeService.constructWebhookEvent(
-				body,
-				signature,
-				env.STRIPE_WEBHOOK_SECRET,
-			)
+			// Support multiple signing secrets (comma-separated) so more than one
+			// Stripe webhook endpoint — or an in-flight key rotation — can target this
+			// URL. Stripe signs each delivery with its own endpoint's secret, so we try
+			// each configured secret until one verifies.
+			const secrets = env.STRIPE_WEBHOOK_SECRET.split(',')
+				.map((s) => s.trim())
+				.filter(Boolean)
+
+			let event: Stripe.Event | null = null
+			for (const secret of secrets) {
+				const verified = yield* Effect.either(
+					stripeService.constructWebhookEvent(body, signature, secret),
+				)
+				if (Either.isRight(verified)) {
+					event = verified.right
+					break
+				}
+			}
+			if (!event) {
+				return yield* Effect.fail(new Error('Webhook signature verification failed'))
+			}
 
 			if (event.type === 'checkout.session.completed') {
 				const session = event.data.object as {

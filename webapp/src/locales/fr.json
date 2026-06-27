@@ -1,0 +1,65 @@
+{
+  "nav": {
+    "home": "Accueil",
+    "swap": "Échange",
+    "wallet": "Wallet",
+    "portfolio": "Portefeuille",
+    "history": "Historique",
+    "settings": "Paramètres"
+  },
+  "common": {
+    "back": "Retour",
+    "confirm": "Confirmer",
+    "cancel": "Annuler",
+    "loading": "Chargement...",
+    "error": "Erreur",
+    "save": "Sauvegarder",
+    "close": "Fermer",
+    "retry": "Réessayer",
+    "continue": "Continuer",
+    "done": "Terminé",
+    "search": "Rechercher"
+  },
+  "settings": {
+    "title": "Paramètres",
+    "language": "Langue",
+    "notifications": "Notifications",
+    "notificationsDesc": "Activer toutes les notifications",
+    "linkedWallets": "Portefeuilles Liés",
+    "slippage": "Glissement",
+    "gas": "Paramètres de Gas"
+  },
+  "swap": {
+    "title": "Échange",
+    "from": "De",
+    "to": "Vers",
+    "selectToken": "Sélectionner un Token",
+    "enterAmount": "Entrez le montant",
+    "swapNow": "Échanger Maintenant",
+    "confirmSwap": "Confirmer l'Échange",
+    "swapSuccess": "Échange Réussi"
+  },
+  "wallet": {
+    "title": "Portefeuille",
+    "balance": "Solde",
+    "send": "Envoyer",
+    "receive": "Recevoir",
+    "copyAddress": "Copier l'Adresse"
+  },
+  "portfolio": {
+    "title": "Portefeuille",
+    "totalValue": "Valeur Totale",
+    "noAssets": "Aucun actif trouvé"
+  },
+  "home": {
+    "title": "Accueil",
+    "quickSwap": "Échange Rapide"
+  },
+  "language": {
+    "title": "Langue",
+    "en": "English",
+    "es": "Español",
+    "fr": "Français",
+    "zh": "中文"
+  }
+}

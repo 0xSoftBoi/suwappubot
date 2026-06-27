@@ -16,6 +16,7 @@ export interface UpdateUserPreferencesParams {
 	twoFaEnabled?: boolean
 	twoFaThreshold?: number
 	gasMode?: string
+	languagePreference?: string
 }
 
 export interface UserServiceInterface {
@@ -156,6 +157,9 @@ export const UserServiceLive = Layer.succeed(UserService, {
 			}
 			if (params.gasMode !== undefined) {
 				updateData.gasMode = params.gasMode
+			}
+			if (params.languagePreference !== undefined) {
+				updateData.languagePreference = params.languagePreference
 			}
 
 			const result = yield* Effect.tryPromise({

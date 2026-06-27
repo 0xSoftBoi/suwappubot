@@ -439,6 +439,7 @@ def _ensure_schema(db_engine) -> None:
     _add_hyperliquid_ecosystem_tables(db_engine, inspector, is_sqlite)
     _add_cctp_tables(db_engine, inspector, is_sqlite)
     _add_user_region_column(db_engine, inspector, is_sqlite)
+    _add_user_language_preference_column(db_engine, inspector, is_sqlite)
     _add_savings_tables(db_engine, inspector, is_sqlite)
     _add_auth_tables(db_engine, inspector, is_sqlite)
     _add_btc_swap_tables(db_engine, inspector, is_sqlite)
@@ -705,6 +706,22 @@ def _add_user_region_column(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info("Added users.region")
     except Exception as e:
         logger.warning(f"Failed to add users.region: {e}")
+
+
+def _add_user_language_preference_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add users.language_preference for persisting locale choice, idempotently."""
+    try:
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "language_preference" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE users ADD COLUMN language_preference VARCHAR(10) DEFAULT 'en'"
+            else:
+                ddl = "ALTER TABLE users ADD COLUMN IF NOT EXISTS language_preference VARCHAR(10) DEFAULT 'en'"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info("Added users.language_preference")
+    except Exception as e:
+        logger.warning(f"Failed to add users.language_preference: {e}")
 
 
 def _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite: bool) -> None:

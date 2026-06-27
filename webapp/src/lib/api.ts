@@ -116,6 +116,16 @@ class ApiClient {
     return this.fetch<Swap>(`/swaps/${id}`)
   }
 
+  // === Billing ===
+
+  /**
+   * Create a Stripe card-checkout session for the current user.
+   * Returns the hosted checkout URL to open (e.g. via Telegram WebApp.openLink).
+   */
+  async createStripeCheckout(tier: 'pro' | 'premium'): Promise<{ url: string }> {
+    return this.fetch<{ url: string }>(`/webapp/billing/stripe/checkout?tier=${tier}`)
+  }
+
   // === Auth ===
 
   /**
