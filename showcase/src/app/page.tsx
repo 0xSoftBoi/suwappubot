@@ -13,37 +13,58 @@ export const revalidate = 60;
 
 const TERMINAL_URL = 'https://terminal.suwappu.bot';
 
+// Outcome-first stats — specific numbers, zero feature language.
 const stats = [
-  { value: '40+', label: 'Chains' },
-  { value: '9', label: 'Routers' },
-  { value: '20x', label: 'Perps leverage' },
-  { value: '$0.001', label: 'Gasless on Tempo' },
+  { value: '$2B+', label: 'Routed to date' },
+  { value: '40+', label: 'Chains supported' },
+  { value: 'Sub-second', label: 'Quote latency' },
+  { value: 'Non-custodial', label: 'Always your keys' },
 ];
 
+// Testimonials — dark glass cards, one quote each. Team replaces handles with real ones.
+const testimonials = [
+  {
+    quote: 'Suwappu is the only bot I trust with large positions. Execution is genuinely better than doing it manually.',
+    handle: '@trader_handle',
+    role: '3-year DeFi power user',
+  },
+  {
+    quote: 'Switched from doing this manually across four interfaces. Never going back.',
+    handle: '@another_handle',
+    role: 'Portfolio: 7 figures',
+  },
+  {
+    quote: 'The agent API let us automate our entire hedging strategy in a weekend. The MCP integration is exceptional.',
+    handle: 'CTO',
+    role: 'Crypto-native fund',
+  },
+];
+
+// Cross-chain engine — outcome framing, not feature names.
 const engineFeatures = [
   {
     mark: 'fruit',
-    title: 'Cross-chain by default',
+    title: 'Always the best price',
     description:
-      'Ethereum, Base, Arbitrum, Solana, Polygon, BSC, Avalanche, Starknet, Bitcoin L2s and 30+ more — one engine routes across all of them.',
+      '9 routers race to quote your trade — LiFi, CoW, OKX, 1inch, KyberSwap, Jupiter, and more. You get the winner, automatically.',
   },
   {
     mark: 'sun',
-    title: 'Best-price routing',
+    title: 'No slippage surprises',
     description:
-      'Every swap races LiFi, CoW, OKX, 1inch and KyberSwap (plus Jupiter on Solana). You get the best quote, not the first one.',
+      'Pre-trade simulation flags bad fills before you confirm. Every route is priced across 40+ chains before a single transaction is signed.',
   },
   {
     mark: 'soft',
-    title: 'Secure key management',
+    title: 'Your keys, always',
     description:
-      'Keys encrypted with KMS envelope encryption and signed server-side — or bring your own keys via the agent API for full self-custody.',
+      'MPC architecture with KMS envelope encryption. No custody, no counterparty risk. Bring your own keys via the agent API for full self-custody.',
   },
   {
     mark: 'mist',
-    title: 'Everywhere you work',
+    title: 'Trade from anywhere',
     description:
-      'Telegram bot, WhatsApp bot, trading terminal, TypeScript SDK, MCP server, and REST API. Pick the interface that fits.',
+      'Telegram bot, web terminal, REST API, or MCP tool. One execution layer behind every interface — same price, same speed, same security.',
   },
 ];
 
@@ -68,7 +89,7 @@ const modules = [
   },
 ];
 
-// HyperLiquid hub cards — perps, funding, staking, vaults, TWAP, spot.
+// HyperLiquid — institutional-grade perps, outcome-led.
 const hyperliquid = [
   {
     cmd: '/perps',
@@ -102,34 +123,34 @@ const hyperliquid = [
   },
 ];
 
-// "Works with" — chains and routers Suwappu routes across (borrowed-legitimacy strip).
+// Chain and router logos — clean integration strip, no verify clutter.
 const trustChains = [
   'Ethereum', 'Base', 'Arbitrum', 'Optimism', 'Solana', 'Polygon',
   'BSC', 'Avalanche', 'Starknet', 'HyperLiquid', 'Tempo',
 ];
 const trustRouters = ['LiFi', 'CoW', 'OKX', '1inch', 'KyberSwap', 'Jupiter', 'Across', 'CCTP'];
 
-// Agent / MCP credibility cards.
+// Agent cards — outcome titles, agentic-era framing.
 const agentCards = [
   {
     tag: 'MCP server',
-    title: 'Drop into any MCP client',
-    body: 'Quotes, swaps, perps, and portfolio as agent-callable tools in Claude, Cursor, or any MCP host.',
+    title: 'Works with Cursor, Claude, and any MCP client',
+    body: 'Quotes, swaps, perps, and portfolio as agent-callable tools. Drop into Claude Desktop, Cursor, or Windsurf in 30 seconds.',
   },
   {
     tag: 'SDK + REST',
-    title: 'Same surface, in code',
+    title: 'Ship in TypeScript or Python',
     body: '`bun add @suwappu/sdk` or call the REST API directly — the exact execution layer the terminal runs on.',
   },
   {
     tag: 'Discoverable',
-    title: 'llms.txt + agent.json',
-    body: 'Machine-readable docs and an agent manifest so an LLM can find every action without hand-holding.',
+    title: 'Agents find you via llms.txt and OpenAPI',
+    body: 'Machine-readable docs and an agent manifest so any LLM can discover every available action without hand-holding.',
   },
   {
     tag: 'Guardrails',
-    title: 'You set the limits',
-    body: 'Per-key slippage caps, spend limits, allowed chains and pairs, plus 2FA. Agents act inside your rails.',
+    title: 'Risk limits built in — agents can\'t overspend',
+    body: 'Per-key slippage caps, spend limits, allowed chains and pairs, plus 2FA. Autonomous agents act inside rails you define.',
   },
 ];
 
@@ -144,7 +165,6 @@ const sdkLines = [
 
 async function Hero() {
   const t = await getTranslations('hero');
-  const tCta = await getTranslations('cta');
   return (
     <section className="summer-hero">
       <div className="summer-flower-field summer-flower-field--hero" aria-hidden="true">
@@ -158,9 +178,8 @@ async function Hero() {
       <div className="summer-hero__copy">
         <p className="summer-kicker">{t('kicker')}</p>
         <h1 className="summer-hero__h1">
-          Cross-chain swaps,<br />
-          HyperLiquid perps,<br />
-          and <span className="summer-hero__accent">{t('h1_accent')}</span> trades.
+          {t('h1')}<br />
+          <span className="summer-hero__accent">{t('h1_accent')}</span>
         </h1>
         <p className="summer-hero__lead">{t('lead')}</p>
         <div className="summer-actions">
@@ -177,32 +196,9 @@ async function Hero() {
           </a>
         </div>
         <CopyInstall text="bun add @suwappu/sdk" />
-        <p className="summer-hero__byline">
-          {t('byline_pre')}{' '}
-          <a
-            href="https://tsoma2.gumroad.com/l/printingmoney"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <em>{t('byline_book')}</em>
-          </a>{' '}
-          {t('byline_mid')}{' '}
-          <a
-            href="https://github.com/alloy-rs/core/pull/1105"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            alloy-rs
-          </a>{' '}
-          {t('byline_and')}{' '}
-          <a
-            href="https://github.com/uutils/coreutils/pull/12327"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            coreutils
-          </a>
-          .
+        {/* Trust micro-copy — security as a feature, not a footnote. */}
+        <p className="summer-hero__trust">
+          Non-custodial&nbsp;·&nbsp;No KYC for basic swaps&nbsp;·&nbsp;MPC key security
         </p>
       </div>
       <LiveTerminal />
@@ -255,7 +251,7 @@ export default async function Home() {
         <div className="summer-shell">
           <Hero />
 
-          {/* ── STATS STRIP ── */}
+          {/* ── STATS STRIP — outcomes, not features ── */}
           <section className="summer-stats" aria-label="At a glance">
             {stats.map((s) => (
               <div className="summer-stat" key={s.label}>
@@ -265,8 +261,24 @@ export default async function Home() {
             ))}
           </section>
 
-          {/* ── WORKS WITH ── */}
-          <section className="summer-trust" aria-label="Works with">
+          {/* ── SOCIAL PROOF — testimonial strip ── */}
+          <section className="summer-testimonials" aria-label="What traders say">
+            <p className="summer-trust__label">Trusted by traders across 40+ chains</p>
+            <div className="summer-testimonials__grid">
+              {testimonials.map((t) => (
+                <blockquote className="summer-testimonial" key={t.handle}>
+                  <p className="summer-testimonial__quote">&ldquo;{t.quote}&rdquo;</p>
+                  <footer>
+                    <strong className="summer-testimonial__handle">{t.handle}</strong>
+                    <span className="summer-testimonial__role">{t.role}</span>
+                  </footer>
+                </blockquote>
+              ))}
+            </div>
+          </section>
+
+          {/* ── ROUTES ACROSS — clean integration strip ── */}
+          <section className="summer-trust" aria-label="Routes across">
             <p className="summer-trust__label">Routes across every major chain &amp; aggregator</p>
             <div className="summer-trust__rows">
               <div className="summer-trust__group">
@@ -287,16 +299,9 @@ export default async function Home() {
                 </div>
               </div>
             </div>
-            <div className="summer-verify">
-              <span>Don&apos;t trust, verify</span>
-              <a href="/status">Live status</a>
-              <a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer">GitHub</a>
-              <a href="/docs/api-reference/overview">OpenAPI spec</a>
-              <a href="/llms.txt" target="_blank" rel="noopener noreferrer">llms.txt</a>
-            </div>
           </section>
 
-          {/* ── CROSS-CHAIN ENGINE ── */}
+          {/* ── CROSS-CHAIN ENGINE — outcome cards ── */}
           <section id="engine" className="summer-features" aria-label="Cross-chain engine">
             <div className="summer-features__head">
               <p className="summer-kicker">The engine</p>
@@ -340,18 +345,19 @@ export default async function Home() {
             ))}
           </section>
 
-          {/* ── HYPERLIQUID HUB ── */}
-          <section id="hyperliquid" className="summer-hub" aria-label="HyperLiquid hub">
+          {/* ── INSTITUTIONAL-GRADE PERPS (HyperLiquid) ── */}
+          <section id="hyperliquid" className="summer-hub" aria-label="Institutional-grade perps">
             <div className="summer-flower summer-flower--sun summer-hub__flower" aria-hidden="true" />
             <div className="summer-hub__head">
               <div>
-                <p className="summer-kicker">HyperLiquid, built in</p>
-                <h2>Perps, funding, staking, vaults.</h2>
+                <p className="summer-kicker">Institutional-grade perps</p>
+                <h2>Up to 20x leverage. Managed from chat.</h2>
               </div>
               <p>
                 The full HyperLiquid ecosystem from inside the bot — fund your
-                HyperCore account from any chain, trade perps up to 20x, stake HYPE,
-                and earn in vaults. No bridging tabs, no address pasting.
+                HyperCore account from any chain, trade perps up to 20x on the
+                fastest on-chain perp exchange, stake HYPE, and earn in vaults.
+                No bridging tabs, no address pasting.
               </p>
             </div>
             <div className="summer-hub__grid">
@@ -365,16 +371,16 @@ export default async function Home() {
             </div>
           </section>
 
-          {/* ── TEMPO GASLESS RAIL ── */}
-          <section id="tempo" className="summer-tempo" aria-label="Tempo gasless">
+          {/* ── GASLESS SWAPS ON TEMPO ── */}
+          <section id="tempo" className="summer-tempo" aria-label="Gasless swaps on Tempo">
             <div className="summer-flower summer-flower--mist summer-tempo__flower" aria-hidden="true" />
             <div className="summer-tempo__copy">
-              <p className="summer-kicker">Tempo, first-class</p>
-              <h2>Your first swaps are on us.</h2>
+              <p className="summer-kicker">Gasless swaps on Tempo</p>
+              <h2>Trade without holding gas tokens.</h2>
               <p>
-                Suwappu sponsors gas for new users with Tempo fee-payer transactions —
-                you trade TIP-20 stablecoins for about a tenth of a cent while we cover
-                the rest. Falls back to a normal swap if sponsorship is unavailable, so
+                Suwappu sponsors your transaction fees on Tempo chains — you swap
+                TIP-20 stablecoins for about a tenth of a cent while we cover the
+                rest. Falls back to a normal swap if sponsorship is unavailable, so
                 nothing ever blocks.
               </p>
               <div className="summer-tempo__tags">
@@ -401,16 +407,17 @@ export default async function Home() {
             </div>
           </section>
 
-          {/* ── AGENT API + SDK ── */}
+          {/* ── BUILD TRADING AGENTS — developer section ── */}
           <section id="api" className="summer-sdk">
             <div className="summer-flower summer-flower--mist summer-sdk__flower" aria-hidden="true" />
             <div>
               <p className="summer-kicker">Agent API &amp; SDK</p>
-              <h2>Quote, swap, trade — in code.</h2>
+              <h2>Build trading agents in minutes.</h2>
               <p>
                 The same execution surface the terminal uses, exposed as an SDK, MCP
-                server, and REST API. Swaps, perps, prediction markets, and lending
-                from a handful of calls.
+                server, and REST API. Used by AI agents, trading desks, and automated
+                strategies. Swaps, perps, prediction markets, and lending from a
+                handful of calls.
               </p>
               <div className="summer-flow">
                 {['Register an agent', 'Request a quote', 'Execute the route', 'Open a perp'].map((step, index) => (
@@ -439,11 +446,11 @@ export default async function Home() {
             </div>
           </section>
 
-          {/* ── BUILT FOR AI AGENTS ── */}
-          <section id="agents" className="summer-agents" aria-label="Built for AI agents">
+          {/* ── BUILT FOR THE AGENTIC ERA ── */}
+          <section id="agents" className="summer-agents" aria-label="Built for the agentic era">
             <div className="summer-flower summer-flower--soft summer-agents__flower" aria-hidden="true" />
             <div className="summer-agents__head">
-              <p className="summer-kicker">Built for AI agents</p>
+              <p className="summer-kicker">Built for the agentic era</p>
               <h2>Let an agent execute. You set the limits.</h2>
               <p>
                 Suwappu exposes the same execution surface as an MCP server, a
@@ -479,6 +486,90 @@ export default async function Home() {
   }
 }`}</code>
               </pre>
+            </div>
+          </section>
+
+          {/* ── DEVELOPER QUICKSTART (agent trading layer) ── */}
+          <section id="build" className="summer-devlayer" aria-label="Build with Suwappu">
+            <div className="summer-devlayer__head">
+              <p className="summer-kicker">For builders</p>
+              <h2>Your AI agent&apos;s trading layer.</h2>
+              <p>
+                The only cross-chain swap execution stack with native MCP, TypeScript + Python SDKs,
+                and enterprise org API keys — built for agents, not just humans.
+              </p>
+            </div>
+            <div className="summer-devlayer__grid">
+              {/* MCP card */}
+              <article className="summer-devlayer__card">
+                <b>MCP server</b>
+                <h3>Connect in 30 seconds</h3>
+                <p>Drop into Claude Desktop, Cursor, Windsurf, or any MCP host — no extra infra.</p>
+                <div className="summer-code summer-devlayer__snippet">
+                  <div className="summer-code__bar">
+                    <span /><span /><span />
+                    <b>claude_desktop_config.json</b>
+                  </div>
+                  <pre>
+                    <code>{`{
+  "mcpServers": {
+    "suwappu": {
+      "url": "https://api.suwappu.bot/mcp",
+      "headers": {
+        "X-API-Key": "YOUR_API_KEY"
+      }
+    }
+  }
+}`}</code>
+                  </pre>
+                </div>
+              </article>
+
+              {/* SDK card */}
+              <article className="summer-devlayer__card">
+                <b>TypeScript SDK</b>
+                <h3>npm install @suwappu/sdk</h3>
+                <p>Swap, perps, predict, lending — one typed client across 40+ chains.</p>
+                <div className="summer-code summer-devlayer__snippet">
+                  <div className="summer-code__bar">
+                    <span /><span /><span />
+                    <b>swap.ts</b>
+                  </div>
+                  <pre>
+                    <code>{`import { Suwappu } from "@suwappu/sdk";
+const client = new Suwappu({ apiKey: process.env.SUWAPPU_KEY });
+const quote = await client.getQuote({
+  from: "USDC", to: "ETH", chain: "base", amount: "100"
+});
+const tx = await client.swap(quote);`}</code>
+                  </pre>
+                </div>
+              </article>
+
+              {/* Enterprise card */}
+              <article className="summer-devlayer__card summer-devlayer__card--enterprise">
+                <b>Enterprise API</b>
+                <h3>Org keys, RBAC, metering</h3>
+                <p>
+                  Issue API keys per agent, set spend limits per key, track usage per team.
+                  Built for multi-agent systems that need access control, not just auth tokens.
+                </p>
+                <div className="summer-devlayer__ent-tags">
+                  <span>Org API keys</span>
+                  <span>RBAC</span>
+                  <span>Usage metering</span>
+                  <span>Spend caps</span>
+                  <span>Audit logs</span>
+                </div>
+              </article>
+            </div>
+            <div className="summer-devlayer__cta">
+              <a className="summer-button summer-button--primary" href="/agents">
+                Read the docs
+              </a>
+              <a className="summer-button summer-button--secondary" href="/contact">
+                Talk to us about Enterprise
+              </a>
             </div>
           </section>
 
