@@ -2,6 +2,8 @@
 
 **Status:** Research / proposal · **Date:** 2026-06-25 · **Owner:** TBD
 **Companion to:** [`llm-reseller-strategy.md`](./llm-reseller-strategy.md) (reselling base models)
+**Capstone:** [`flywheel-strategy.md`](./flywheel-strategy.md) — ties this together into the
+three-legged compounding loop (execution · float · agents) + TradFi↔DeFi arb. **Read it last.**
 
 This is the "build a moat instead of reselling commodity tokens" angle. Two questions:
 **(1) Can we have our own *custom/fine-tuned* model?** and **(2) Should we ship our own
