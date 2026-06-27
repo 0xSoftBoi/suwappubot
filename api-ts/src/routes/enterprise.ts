@@ -1,9 +1,9 @@
 import { randomBytes, createHash } from 'node:crypto'
-import { and, eq, isNull, ne, sql } from 'drizzle-orm'
+import { and, eq, gte, isNull, ne, sql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { requireDb, organizations, organizationMembers, apiKeys, subscriptions } from '../db'
+import { requireDb, organizations, organizationMembers, apiKeys, apiUsageEvents, subscriptions } from '../db'
 import { mapErrorToResponse } from '../errors'
 import { telegramAuth, requireTier } from '../middleware'
 import { apiKeyAuth } from '../middleware/apiKeyAuth'
@@ -622,39 +622,83 @@ enterpriseRoutes.get('/orgs/:orgId/usage', async (c) => {
 		Effect.gen(function* () {
 			const db = yield* requireDb
 
-			// Aggregate calls from all keys in the org via lastUsedAt recency
-			// (For full call tracking a separate usage_events table would be needed;
-			// here we report key-level activity which is what the schema supports.)
-			const keys = yield* Effect.tryPromise({
-				try: () =>
-					db
-						.select({
-							id: apiKeys.id,
-							name: apiKeys.name,
-							keyPrefix: apiKeys.keyPrefix,
-							lastUsedAt: apiKeys.lastUsedAt,
-							revokedAt: apiKeys.revokedAt,
-						})
-						.from(apiKeys)
-						.where(eq(apiKeys.organizationId, orgId)),
-				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-			})
+			const now = new Date()
+			const todayStart = new Date(
+				Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+			)
+			const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+			const sevenDaysAgo = new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000)
 
-			const todayStart = new Date()
-			todayStart.setHours(0, 0, 0, 0)
-			const monthStart = new Date()
-			monthStart.setDate(1)
-			monthStart.setHours(0, 0, 0, 0)
+			const [aggRow, topEndpointsRows, dailyRows] = yield* Effect.all([
+				// Core aggregates
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({
+								callsToday: sql<number>`count(*) filter (where ${apiUsageEvents.createdAt} >= ${todayStart})`,
+								callsThisMonth: sql<number>`count(*) filter (where ${apiUsageEvents.createdAt} >= ${monthStart})`,
+								rateLimitHits: sql<number>`count(*) filter (where ${apiUsageEvents.statusCode} = 429)`,
+								totalCalls: sql<number>`count(*)`,
+								errorCalls: sql<number>`count(*) filter (where ${apiUsageEvents.statusCode} >= 400)`,
+								avgDurationMs: sql<number>`round(avg(${apiUsageEvents.durationMs}) filter (where ${apiUsageEvents.durationMs} is not null))`,
+							})
+							.from(apiUsageEvents)
+							.where(eq(apiUsageEvents.orgId, orgId)),
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				}),
+				// Top endpoints
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({
+								endpoint: apiUsageEvents.endpoint,
+								count: sql<number>`count(*)`,
+							})
+							.from(apiUsageEvents)
+							.where(eq(apiUsageEvents.orgId, orgId))
+							.groupBy(apiUsageEvents.endpoint)
+							.orderBy(sql`count(*) desc`)
+							.limit(5),
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				}),
+				// Daily breakdown — last 7 days
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({
+								date: sql<string>`to_char(date_trunc('day', ${apiUsageEvents.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`,
+								count: sql<number>`count(*)`,
+							})
+							.from(apiUsageEvents)
+							.where(
+								and(
+									eq(apiUsageEvents.orgId, orgId),
+									gte(apiUsageEvents.createdAt, sevenDaysAgo),
+								),
+							)
+							.groupBy(sql`date_trunc('day', ${apiUsageEvents.createdAt} at time zone 'UTC')`)
+							.orderBy(sql`date_trunc('day', ${apiUsageEvents.createdAt} at time zone 'UTC')`),
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				}),
+			])
 
-			const activeKeys = keys.filter((k) => !k.revokedAt)
-			const callsToday = activeKeys.filter(
-				(k) => k.lastUsedAt && k.lastUsedAt >= todayStart,
-			).length
-			const callsThisMonth = activeKeys.filter(
-				(k) => k.lastUsedAt && k.lastUsedAt >= monthStart,
-			).length
+			const agg = aggRow[0]
+			const totalCalls = Number(agg?.totalCalls ?? 0)
+			const errorCalls = Number(agg?.errorCalls ?? 0)
+			const errorRate = totalCalls > 0 ? (errorCalls / totalCalls) * 100 : 0
 
-			return { callsToday, callsThisMonth, rateLimitHits: 0 }
+			return {
+				callsToday: Number(agg?.callsToday ?? 0),
+				callsThisMonth: Number(agg?.callsThisMonth ?? 0),
+				rateLimitHits: Number(agg?.rateLimitHits ?? 0),
+				avgDurationMs: agg?.avgDurationMs != null ? Number(agg.avgDurationMs) : null,
+				errorRate: Math.round(errorRate * 100) / 100,
+				topEndpoints: topEndpointsRows.map((r) => ({
+					endpoint: r.endpoint,
+					count: Number(r.count),
+				})),
+				daily: dailyRows.map((r) => ({ date: r.date, count: Number(r.count) })),
+			}
 		}),
 	)
 

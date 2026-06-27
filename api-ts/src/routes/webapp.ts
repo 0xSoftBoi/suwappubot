@@ -1,8 +1,10 @@
+import { and, eq, gte, sql as drizzleSql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import jwt from 'jsonwebtoken'
 import { EnvService } from '../config/EnvService'
 import { requireDb } from '../db'
+import { pointRedemptions, rewards, swapTransactions } from '../db/schema'
 import { logger } from '../lib/logger'
 import { mapErrorToResponse } from '../errors'
 import { requireTier, telegramAuth } from '../middleware'
@@ -291,6 +293,180 @@ protectedWebapp.get('/portfolio', async (c) => {
 		return c.json(emptyPortfolio)
 	}
 
+	return c.json(result.right)
+})
+
+// GET /webapp/me/portfolio/pnl - PnL analytics for the authenticated user
+protectedWebapp.get('/portfolio/pnl', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	// Parse query params
+	const periodParam = (c.req.query('period') ?? '30d') as '7d' | '30d' | '90d' | 'all'
+	const chainParam = c.req.query('chain') ?? 'all'
+
+	const periodDays: Record<string, number | null> = { '7d': 7, '30d': 30, '90d': 90, all: null }
+	const cutoffDays = periodDays[periodParam] ?? 30
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+			const userId = userOption.value.id
+			const db = yield* requireDb
+
+			const cutoffDate = cutoffDays !== null ? new Date(Date.now() - cutoffDays * 86400_000) : null
+
+			// Build where conditions
+			const conditions = [
+				eq(swapTransactions.userId, userId),
+				eq(swapTransactions.status, 'completed'),
+			]
+			if (cutoffDate) conditions.push(gte(swapTransactions.createdAt, cutoffDate))
+			if (chainParam !== 'all') conditions.push(eq(swapTransactions.fromChain, chainParam))
+
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(swapTransactions)
+						.where(and(...conditions))
+						.orderBy(swapTransactions.createdAt),
+				catch: (e) => new Error(`pnl query failed: ${e}`),
+			})
+
+			// Fee-credit redemptions saved (gas_rebate + fee_discount)
+			const feeRedemptions = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							rewardValue: rewards.rewardValue,
+							rewardType: rewards.rewardType,
+							count: drizzleSql<number>`count(*)`,
+						})
+						.from(pointRedemptions)
+						.leftJoin(rewards, eq(pointRedemptions.rewardId, rewards.id))
+						.where(
+							and(
+								eq(pointRedemptions.userId, userId),
+								eq(pointRedemptions.status, 'completed'),
+								cutoffDate ? gte(pointRedemptions.createdAt, cutoffDate) : drizzleSql`1=1`,
+							),
+						)
+						.groupBy(rewards.rewardValue, rewards.rewardType),
+				catch: (e) => new Error(`redemptions query failed: ${e}`),
+			})
+
+			// Compute KPIs
+			let totalRealizedPnlUsd = 0
+			let winCount = 0
+			let lossCount = 0
+			let totalGasPaidUsd = 0
+			let totalFeesPaidUsd = 0
+			let bestTrade: { fromToken: string; toToken: string; pnlUsd: number; date: string } | null =
+				null
+			let worstTrade: { fromToken: string; toToken: string; pnlUsd: number; date: string } | null =
+				null
+
+			// Daily buckets for equity curve and heatmap
+			const dailyPnl: Record<string, number> = {}
+			const chainPnl: Record<string, { pnlUsd: number; tradeCount: number }> = {}
+
+			for (const row of rows) {
+				const toUsd = row.toAmountUsd ?? 0
+				const fromUsd = row.fromAmountUsd ?? 0
+				const gas = row.gasCostUsd !== null ? parseFloat(row.gasCostUsd) : (row.gasFee ?? 0)
+				const fee = row.feeCostUsd !== null ? parseFloat(row.feeCostUsd) : (row.bridgeFee ?? 0)
+				const pnl = toUsd - fromUsd - gas - fee
+
+				totalRealizedPnlUsd += pnl
+				totalGasPaidUsd += gas
+				totalFeesPaidUsd += fee
+
+				if (pnl >= 0) winCount++
+				else lossCount++
+
+				if (bestTrade === null || pnl > bestTrade.pnlUsd) {
+					bestTrade = {
+						fromToken: row.fromToken,
+						toToken: row.toToken,
+						pnlUsd: pnl,
+						date: (row.completedAt ?? row.createdAt ?? new Date()).toISOString().slice(0, 10),
+					}
+				}
+				if (worstTrade === null || pnl < worstTrade.pnlUsd) {
+					worstTrade = {
+						fromToken: row.fromToken,
+						toToken: row.toToken,
+						pnlUsd: pnl,
+						date: (row.completedAt ?? row.createdAt ?? new Date()).toISOString().slice(0, 10),
+					}
+				}
+
+				const dayKey = (row.completedAt ?? row.createdAt ?? new Date())
+					.toISOString()
+					.slice(0, 10)
+				dailyPnl[dayKey] = (dailyPnl[dayKey] ?? 0) + pnl
+
+				const chain = row.fromChain
+				if (!chainPnl[chain]) chainPnl[chain] = { pnlUsd: 0, tradeCount: 0 }
+				chainPnl[chain].pnlUsd += pnl
+				chainPnl[chain].tradeCount += 1
+			}
+
+			const totalTrades = rows.length
+			const avgTradeUsd =
+				totalTrades > 0
+					? rows.reduce((s, r) => s + (r.fromAmountUsd ?? 0), 0) / totalTrades
+					: 0
+
+			// Build equity curve (sorted daily cumulative)
+			const sortedDays = Object.keys(dailyPnl).sort()
+			let running = 0
+			const equityCurve = sortedDays.map((date) => {
+				running += dailyPnl[date]
+				return { date, cumulativePnlUsd: running }
+			})
+			const pnlCalendar = sortedDays.map((date) => ({ date, pnlUsd: dailyPnl[date] }))
+
+			// totalPointsSavedUsd: sum gas_rebate rewardValues × count + fee_discount is usage-based
+			// We conservatively sum gas rebate redemptions (each rewardValue is in USD)
+			let totalPointsSavedUsd = 0
+			for (const r of feeRedemptions) {
+				if (r.rewardType === 'gas_rebate' && r.rewardValue) {
+					totalPointsSavedUsd += parseFloat(r.rewardValue) * Number(r.count)
+				}
+			}
+
+			return {
+				totalRealizedPnlUsd,
+				totalUnrealizedPnlUsd: 0, // best-effort: requires live prices per position, future work
+				winRate: totalTrades > 0 ? winCount / totalTrades : 0,
+				totalTrades,
+				winCount,
+				lossCount,
+				avgTradeUsd,
+				totalGasPaidUsd,
+				totalFeesPaidUsd,
+				totalPointsSavedUsd,
+				bestTrade,
+				worstTrade,
+				equityCurve,
+				pnlCalendar,
+				chainBreakdown: Object.entries(chainPnl).map(([chain, v]) => ({
+					chain,
+					pnlUsd: v.pnlUsd,
+					tradeCount: v.tradeCount,
+				})),
+			}
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
 	return c.json(result.right)
 })
 

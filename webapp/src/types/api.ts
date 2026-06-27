@@ -92,3 +92,33 @@ export interface UpdatePreferencesResponse {
   success: boolean
   preferences: UserPreferences
 }
+
+// Portfolio PnL analytics
+
+export interface PnlDataPoint {
+  date: string // YYYY-MM-DD
+  pnl: number // daily PnL USD
+  cumulativePnl: number
+  tradeCount: number
+}
+
+export interface ChainPnl {
+  chain: string
+  pnl: number
+  tradeCount: number
+}
+
+export interface PortfolioPnl {
+  period: '7d' | '30d' | '90d' | 'all'
+  totalPnl: number
+  realizedPnl: number
+  winRate: number
+  wins: number
+  losses: number
+  totalTrades: number
+  avgTradeSize: number
+  gasPaidUsd: number
+  feesSavedUsd: number
+  dataPoints: PnlDataPoint[]
+  chainBreakdown: ChainPnl[]
+}

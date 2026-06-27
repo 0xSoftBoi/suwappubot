@@ -7,7 +7,7 @@
  */
 import { getInitData } from './telegram'
 import { getAuthToken } from './auth'
-import type { Portfolio, Swap, ApiError, HealthStatus, UserPreferencesResponse, UpdatePreferencesResponse, UserPreferences } from '../types/api'
+import type { Portfolio, Swap, ApiError, HealthStatus, UserPreferencesResponse, UpdatePreferencesResponse, UserPreferences, PortfolioPnl } from '../types/api'
 import type { LinkedWallet, AuthChallenge, LinkWalletResponse } from '../types/auth'
 import type { SwapToken, SwapQuote, SwapQuoteRequest, SwapExecuteRequest, SwapExecuteResult, SwapStatusResponse } from '../types/swap'
 import type { SimulationResult } from '../types/simulation'
@@ -100,6 +100,13 @@ class ApiClient {
    */
   async getPortfolio(): Promise<Portfolio> {
     return this.fetch<Portfolio>('/webapp/users/me/portfolio')
+  }
+
+  /**
+   * Get portfolio PnL analytics for the given time period
+   */
+  async getPortfolioPnl(period: '7d' | '30d' | '90d' | 'all' = '30d'): Promise<PortfolioPnl> {
+    return this.fetch<PortfolioPnl>(`/webapp/portfolio/pnl?period=${period}`)
   }
 
   /**
