@@ -56,6 +56,9 @@ class OrderService:
 
         # MONEY-PATH: trailing stop triggers sell execution
         """
+        if not trailing_percent or trailing_percent <= 0:
+            raise ValueError("trailing_percent must be positive")
+
         with get_session() as session:
             order = LimitOrder(
                 user_id=user_id,
@@ -251,6 +254,8 @@ class OrderService:
                 if price <= 0:
                     continue
                 pct = od.get("trailing_percent") or 0.0
+                if pct <= 0:
+                    continue
                 prev_peak = od.get("highest_price_seen")
                 new_peak = max(price, prev_peak) if prev_peak is not None else price
                 trailing_peak_updates[od["id"]] = new_peak
@@ -743,11 +748,17 @@ class OrderService:
 
                     tx_info = f"\n🔗 {format_tx_link(swap_tx.tx_hash, order.from_chain)}"
 
+                if order.order_type == OrderType.TRAILING_STOP.value:
+                    peak = order.highest_price_seen or order.execution_price or 0
+                    pct = order.trailing_percent or 0
+                    trigger_line = f"Trailing stop: {pct}% below peak (${peak:.4f})"
+                else:
+                    trigger_line = f"Trigger price: ${order.trigger_price:.4f}"
                 text = (
                     f"✅ *Limit Order Executed!*\n\n"
                     f"Type: {order.order_type.upper()}\n"
                     f"Swap: {order.from_token} → {order.to_token}\n"
-                    f"Trigger price: ${order.trigger_price:.4f}"
+                    f"{trigger_line}"
                     f"{tx_info}"
                 )
                 await self._bot.send_message(

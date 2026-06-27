@@ -57,7 +57,11 @@ async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         lines = ["📋 *Your Orders*\n"]
         for order in orders[:10]:
             icon = {"pending": "⏳", "executed": "✅", "cancelled": "❌"}.get(order.status, "❓")
-            lines.append(f"{icon} {order.from_token}→{order.to_token} @${order.trigger_price:.2f}")
+            if order.order_type == OrderType.TRAILING_STOP.value:
+                price_str = f"trailing {order.trailing_percent or 0:.0f}%"
+            else:
+                price_str = f"@${order.trigger_price:.2f}"
+            lines.append(f"{icon} {order.from_token}→{order.to_token} {price_str}")
         text = "\n".join(lines)
 
     keyboard = [
@@ -674,7 +678,11 @@ async def limit_orders_menu_callback(update: Update, context: ContextTypes.DEFAU
         lines = ["📈 *Your Orders*\n"]
         for order in orders[:10]:
             icon = {"pending": "⏳", "executed": "✅", "cancelled": "❌"}.get(order.status, "❓")
-            lines.append(f"{icon} {order.from_token}→{order.to_token} @${order.trigger_price:.2f}")
+            if order.order_type == OrderType.TRAILING_STOP.value:
+                price_str = f"trailing {order.trailing_percent or 0:.0f}%"
+            else:
+                price_str = f"@${order.trigger_price:.2f}"
+            lines.append(f"{icon} {order.from_token}→{order.to_token} {price_str}")
         text = "\n".join(lines)
 
     keyboard = [
@@ -709,9 +717,18 @@ async def trailing_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     return TS_TOKEN
 
 
+def _normalise_token_input(raw: str) -> str:
+    """Uppercase if it looks like a symbol; preserve case if it looks like an address."""
+    stripped = raw.strip()
+    # EVM address: 0x + 40 hex chars; Solana base58: 32–44 chars with no "0x" prefix
+    if stripped.startswith("0x") or (32 <= len(stripped) <= 44 and not stripped.startswith("0x")):
+        return stripped  # preserve address case
+    return stripped.upper()
+
+
 async def ts_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receive the token for the trailing stop."""
-    token = update.message.text.strip().upper()
+    token = _normalise_token_input(update.message.text)
     context.user_data["ts"]["from_token"] = token
     await update.message.reply_text(
         f"Amount of *{token}* to sell when triggered (e.g. 1.5):",
@@ -795,6 +812,18 @@ async def ts_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     from_chain = "ethereum"  # Default chain; user can expand via full flow later
     to_chain = "ethereum"
     to_token = "USDC"
+
+    # Validate that we can price the token before creating the order
+    try:
+        token_prices = await price_service.get_prices([ts["from_token"]])
+        current_price = token_prices.get(ts["from_token"], 0) or 0
+    except Exception:
+        current_price = 0
+    if current_price <= 0:
+        await query.edit_message_text(
+            "❌ Couldn't price that token. Please use a symbol (ETH, SOL) or verified contract address."
+        )
+        return ConversationHandler.END
 
     chain_type = "evm"
     wallet = wallet_service.get_default_wallet(user_id, chain_type)
