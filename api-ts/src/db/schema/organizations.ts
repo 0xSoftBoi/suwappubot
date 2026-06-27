@@ -1,4 +1,6 @@
 import {
+	bigserial,
+	index,
 	integer,
 	pgTable,
 	text,
@@ -67,3 +69,28 @@ export type OrganizationMember = typeof organizationMembers.$inferSelect
 export type NewOrganizationMember = typeof organizationMembers.$inferInsert
 export type ApiKey = typeof apiKeys.$inferSelect
 export type NewApiKey = typeof apiKeys.$inferInsert
+
+export const apiUsageEvents = pgTable(
+	'api_usage_events',
+	{
+		id: bigserial('id', { mode: 'number' }).primaryKey(),
+		keyId: uuid('key_id')
+			.references(() => apiKeys.id, { onDelete: 'cascade' })
+			.notNull(),
+		orgId: uuid('org_id')
+			.references(() => organizations.id, { onDelete: 'cascade' })
+			.notNull(),
+		endpoint: varchar('endpoint', { length: 200 }).notNull(),
+		method: varchar('method', { length: 10 }).notNull(),
+		statusCode: integer('status_code'),
+		durationMs: integer('duration_ms'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => ({
+		keyIdx: index('api_usage_events_key_idx').on(t.keyId),
+		orgCreatedIdx: index('api_usage_events_org_created_idx').on(t.orgId, t.createdAt),
+	}),
+)
+
+export type ApiUsageEvent = typeof apiUsageEvents.$inferSelect
+export type NewApiUsageEvent = typeof apiUsageEvents.$inferInsert

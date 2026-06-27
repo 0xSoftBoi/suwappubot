@@ -4,6 +4,9 @@ import { AppLayout, AppHeader } from '../components/layout'
 import { api } from '../lib/api'
 import { a11yToast } from '../lib/a11yToast'
 import type { EnterpriseOrg, OrgMember, OrgApiKey, OrgApiKeyCreated, OrgUsage, OrgRole } from '../lib/api'
+import { useSubscriptionTier } from '../hooks/useSubscriptionTier'
+
+const SHOWCASE_PRICING_URL = 'https://suwappu.bot/pricing'
 
 type Tab = 'team' | 'apikeys' | 'usage'
 
@@ -25,6 +28,7 @@ const ALL_SCOPES = ['swap:execute', 'trade:read', 'portfolio:read']
 
 export function Enterprise() {
   const navigate = useNavigate()
+  const subscriptionTier = useSubscriptionTier()
   const [tab, setTab] = useState<Tab>('team')
 
   // Org resolution
@@ -379,6 +383,54 @@ export function Enterprise() {
           </div>
         ))}
       </div>
+    )
+  }
+
+  // ---- Tier gate ----
+
+  // While tier is loading show nothing (prevents flash of enterprise UI for free users)
+  if (subscriptionTier === null) {
+    return (
+      <AppLayout header={<AppHeader title="Enterprise" showBack onBack={() => navigate(-1)} />} activeNav="settings">
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-suwappu-magenta-mid" />
+        </div>
+      </AppLayout>
+    )
+  }
+
+  if (subscriptionTier !== 'enterprise') {
+    return (
+      <AppLayout header={<AppHeader title="Enterprise" showBack onBack={() => navigate(-1)} />} activeNav="settings">
+        <div className="p-6 flex flex-col items-center gap-5 text-center">
+          <div className="w-16 h-16 rounded-full bg-suwappu-sakura-light flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-suwappu-purple-deep">
+              <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+          </div>
+          <div className="space-y-1.5">
+            <h2 className="font-heading font-bold text-lg text-suwappu-purple-deep">Enterprise Plan Required</h2>
+            <p className="text-sm text-suwappu-text-secondary max-w-xs">
+              Team management and API key controls are available on the Enterprise plan.
+            </p>
+          </div>
+          <a
+            href={SHOWCASE_PRICING_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full max-w-xs py-3 bg-suwappu-gradient text-white rounded-suwappu-lg text-sm font-semibold text-center block"
+          >
+            View Enterprise Plans
+          </a>
+          <button
+            onClick={() => navigate(-1)}
+            className="text-sm text-suwappu-text-secondary underline-offset-2 underline"
+          >
+            Go back
+          </button>
+        </div>
+      </AppLayout>
     )
   }
 

@@ -703,6 +703,16 @@ class ApiClient {
     })
   }
 
+  // === Subscription Status ===
+
+  /**
+   * Get the current user's subscription tier.
+   * Returns { tier, fee_rate_percent, expires_at, active }
+   */
+  async getSubscriptionStatus(): Promise<{ tier: string; fee_rate_percent: number; expires_at: string | null; active: boolean }> {
+    return this.fetch<{ tier: string; fee_rate_percent: number; expires_at: string | null; active: boolean }>('/billing/status')
+  }
+
   // === Enterprise Org Management ===
 
   async getOrg(orgId: string): Promise<EnterpriseOrg> {

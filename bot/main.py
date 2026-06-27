@@ -181,6 +181,7 @@ from bot.handlers.subscription import (
     sub_compare_callback,
     sub_back_callback,
 )
+from bot.handlers.vip import vip_handler
 
 # Points/XP system handlers
 from bot.handlers.points import (
@@ -253,6 +254,14 @@ from bot.handlers.token import (
     token_claim_rewards_callback_handler,
     bond_menu_callback_handler,
     bond_list_callback_handler,
+)
+from bot.handlers.enterprise import (
+    org_handler,
+    org_newkey_conversation,
+    org_members_callback,
+    org_keys_callback,
+    org_cancel_callback,
+    org_back_callback,
 )
 from bot.handlers.mpp_handler import get_mpp_handlers
 from bot.handlers.tempo import get_tempo_handlers
@@ -338,6 +347,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(dca_handler)  # /dca
     application.add_handler(tax_handler)  # /tax
     application.add_handler(subscription_handler)  # /sub (x402)
+    application.add_handler(org_handler)  # /org (enterprise org management)
+    application.add_handler(vip_handler)  # /vip (cross-line VIP status)
     application.add_handler(dashboard_handler)  # /dashboard (Mini App)
     application.add_handler(digest_handler)  # /digest
 
@@ -397,6 +408,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(alert_conversation)
     application.add_handler(limit_order_conversation)
     application.add_handler(subscription_conversation)  # x402 subscription flow
+    application.add_handler(org_newkey_conversation)  # Enterprise /org new-key name entry
     application.add_handler(profile_edit_conversation)  # Copy trading profile editing
     application.add_handler(snipe_conversation_handler)  # Token sniping /snipe
     application.add_handler(perps_conversation_handler)  # Perps trading /perps
@@ -545,6 +557,12 @@ def add_handlers(application: Application) -> None:
     # x402 Subscription
     application.add_handler(sub_compare_callback)
     application.add_handler(sub_back_callback)
+
+    # Enterprise org management
+    application.add_handler(CallbackQueryHandler(org_members_callback, pattern="^org_members$"))
+    application.add_handler(CallbackQueryHandler(org_keys_callback, pattern="^org_keys$"))
+    application.add_handler(CallbackQueryHandler(org_cancel_callback, pattern="^org_cancel$"))
+    application.add_handler(CallbackQueryHandler(org_back_callback, pattern="^org_back$"))
 
     # Points/XP callbacks
     application.add_handler(points_menu_callback_handler)

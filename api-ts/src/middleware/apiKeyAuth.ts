@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
-import { eq, and, isNull } from 'drizzle-orm'
+import { eq, and, or, isNull, gt } from 'drizzle-orm'
 import { Effect } from 'effect'
 import type { Context, Next } from 'hono'
-import { requireDb, apiKeys, organizations } from '../db'
+import { requireDb, apiKeys, organizations, subscriptions } from '../db'
 import { runEffectEither } from '../runtime'
 import { Either } from 'effect'
 
@@ -55,6 +55,7 @@ export function apiKeyAuth() {
 								expiresAt: apiKeys.expiresAt,
 								orgRateLimit: organizations.apiRateLimitPerMin,
 								orgTier: organizations.tier,
+								orgOwnerId: organizations.ownerId,
 							})
 							.from(apiKeys)
 							.innerJoin(organizations, eq(apiKeys.organizationId, organizations.id))
@@ -63,7 +64,30 @@ export function apiKeyAuth() {
 					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 				})
 
-				return rows[0] ?? null
+				const row = rows[0] ?? null
+				if (!row) return { row: null, hasEnterpriseSub: false }
+
+				// Validate the org owner holds an active enterprise subscription.
+				// organizations.tier is self-declared and not Stripe-backed; we must
+				// check the subscriptions table instead.
+				const now = new Date()
+				const subRows = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.select({ id: subscriptions.id })
+							.from(subscriptions)
+							.where(
+								and(
+									eq(subscriptions.userId, row.orgOwnerId),
+									eq(subscriptions.tier, 'enterprise'),
+									or(isNull(subscriptions.expiresAt), gt(subscriptions.expiresAt, now)),
+								),
+							)
+							.limit(1),
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				})
+
+				return { row, hasEnterpriseSub: subRows.length > 0 }
 			}),
 		)
 
@@ -71,9 +95,13 @@ export function apiKeyAuth() {
 			return c.json({ error: 'Internal error validating API key' }, 500)
 		}
 
-		const row = result.right
+		const { row, hasEnterpriseSub } = result.right
 		if (!row) {
 			return c.json({ error: 'Invalid API key' }, 401)
+		}
+
+		if (!hasEnterpriseSub) {
+			return c.json({ error: 'Organization enterprise subscription is not active' }, 401)
 		}
 
 		if (row.revokedAt) {
@@ -87,21 +115,21 @@ export function apiKeyAuth() {
 		// Per-key (or per-org fallback) rate limit
 		const limit = row.rateLimitPerMin ?? row.orgRateLimit ?? 1000
 		const windowKey = `apikey:${row.id}`
-		const now = Date.now()
-		const cutoff = now - WINDOW_MS
+		const nowMs = Date.now()
+		const cutoff = nowMs - WINDOW_MS
 
 		let timestamps = rateLimitWindows.get(windowKey) ?? []
 		timestamps = timestamps.filter((t) => t > cutoff)
 
 		if (timestamps.length >= limit) {
-			const retryAfter = Math.ceil(((timestamps[0] ?? now) + WINDOW_MS - now) / 1000)
+			const retryAfter = Math.ceil(((timestamps[0] ?? nowMs) + WINDOW_MS - nowMs) / 1000)
 			c.header('Retry-After', String(retryAfter))
 			c.header('X-RateLimit-Limit', String(limit))
 			c.header('X-RateLimit-Remaining', '0')
 			return c.json({ error: `Rate limit exceeded. Retry after ${retryAfter}s.` }, 429)
 		}
 
-		timestamps.push(now)
+		timestamps.push(nowMs)
 		rateLimitWindows.set(windowKey, timestamps)
 
 		c.header('X-RateLimit-Limit', String(limit))
