@@ -6,13 +6,16 @@ from datetime import datetime
 import io
 
 from bot.models.user import User
+from bot.models.subscription import SubscriptionTier
 from bot.services.tax_export import tax_export_service
 from bot.utils.formatters import format_usd
+from bot.utils.gating import require_tier
 from database.db import get_session
 
 
+@require_tier(SubscriptionTier.PREMIUM)
 async def tax_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /tax command - show tax export options."""
+    """Handle /tax command - show tax export options. PREMIUM+ feature."""
     user = update.effective_user
     
     with get_session() as session:

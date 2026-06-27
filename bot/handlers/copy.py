@@ -19,7 +19,9 @@ from telegram.ext import (
 )
 
 from bot.services.copy_service import copy_service, MAX_FOLLOWS
+from bot.models.subscription import SubscriptionTier
 from bot.utils.tos_utils import enforce_tos
+from bot.utils.gating import require_tier
 
 logger = logging.getLogger(__name__)
 
@@ -186,9 +188,10 @@ async def view_trader_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # ============== Follow/Unfollow ==============
 
+@require_tier(SubscriptionTier.PRO)
 @enforce_tos
 async def follow_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Follow a trader."""
+    """Follow a trader. PRO+ feature (copy trading)."""
     query = update.callback_query
     
     # Parse trader ID and mode
@@ -719,9 +722,10 @@ async def mystats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ============== Copy Trade Notification Handlers ==============
 
+@require_tier(SubscriptionTier.PRO)
 @enforce_tos
 async def copy_now_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Execute a copy trade from notification."""
+    """Execute a copy trade from notification. PRO+ feature (copy trading)."""
     query = update.callback_query
     
     try:

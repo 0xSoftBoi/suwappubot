@@ -33,8 +33,16 @@ CHECK_INTERVAL_SECONDS = 15  # tickets should reach the team quickly
 LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql"
 HTTP_TIMEOUT = aiohttp.ClientTimeout(total=10)
 
-_KIND_EMOJI = {TicketKind.SUPPORT: "🆘", TicketKind.BUG: "🐞"}
-_KIND_NOUN = {TicketKind.SUPPORT: "support ticket", TicketKind.BUG: "bug report"}
+_KIND_EMOJI = {
+    TicketKind.SUPPORT: "🆘",
+    TicketKind.BUG: "🐞",
+    TicketKind.ENTERPRISE_LEAD: "💼",
+}
+_KIND_NOUN = {
+    TicketKind.SUPPORT: "support ticket",
+    TicketKind.BUG: "bug report",
+    TicketKind.ENTERPRISE_LEAD: "enterprise lead",
+}
 
 
 def _admin_ids() -> list[int]:
@@ -200,16 +208,30 @@ class SupportNotifier:
     async def _fan_out(self, row: dict) -> None:
         ticket_id = row["id"]
         kind = row["kind"]
-        handle = f"@{row['username']}" if row["username"] else f"id:{row['telegram_id']}"
+        if row["username"]:
+            handle = f"@{row['username']}"
+        elif row["telegram_id"]:
+            handle = f"id:{row['telegram_id']}"
+        else:
+            # Web-form leads have no Telegram identity; the body carries contact details.
+            handle = "web form"
         message = row["message"]
         preview = message if len(message) <= 600 else message[:600] + "…"
+
+        # The /treply path DMs the user via Telegram, so only offer it when we
+        # actually have a Telegram id to reply to (web leads are followed up by
+        # email/Telegram handle captured in the message body).
+        if row["telegram_id"]:
+            footer = f"Reply: `/treply {ticket_id} <message>`  •  Close: `/tclose {ticket_id}`"
+        else:
+            footer = f"Follow up via the contact details above  •  Close: `/tclose {ticket_id}`"
 
         # 1 + 2) Telegram admins + support group.
         text = (
             f"{_emoji(kind)} *New {_noun(kind)} #{ticket_id}* _(via {row['source']})_\n"
             f"From: {handle}\n\n"
             f"{preview}\n\n"
-            f"Reply: `/treply {ticket_id} <message>`  •  Close: `/tclose {ticket_id}`"
+            f"{footer}"
         )
         await post_admin_update(self._bot, text)
 

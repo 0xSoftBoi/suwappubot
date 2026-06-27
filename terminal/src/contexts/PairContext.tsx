@@ -1,16 +1,21 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useCallback, type ReactNode } from 'react'
 import type { SwapToken } from '../types/api'
+import { usePersistentState } from '../lib/persist'
 
 export interface SelectedPair {
   base: SwapToken | null
   quote: SwapToken | null
 }
 
+const MAX_RECENT = 8
+
 interface PairContextType {
   selectedChain: string
   setSelectedChain: (chain: string) => void
   selectedPair: SelectedPair
   setSelectedPair: (pair: { base: SwapToken; quote: SwapToken }) => void
+  // Recently-traded pairs (most-recent first) for quick re-access.
+  recentPairs: SelectedPair[]
 }
 
 const DEFAULT_CHAIN = 'ethereum'
@@ -33,20 +38,36 @@ const DEFAULT_QUOTE: SwapToken = {
 
 const PairContext = createContext<PairContextType | undefined>(undefined)
 
+function pairKey(p: SelectedPair): string {
+  return `${p.base?.chain}:${p.base?.address}:${p.quote?.symbol}`.toLowerCase()
+}
+
 export function PairProvider({ children }: { children: ReactNode }) {
-  const [selectedChain, setSelectedChain] = useState(DEFAULT_CHAIN)
-  const [selectedPair, setSelectedPairState] = useState<SelectedPair>({
+  // Persisted so the desk reopens on the pair/chain you left on (no amnesia).
+  const [selectedChain, setSelectedChain] = usePersistentState('chain', DEFAULT_CHAIN)
+  const [selectedPair, setSelectedPairState] = usePersistentState<SelectedPair>('pair', {
     base: DEFAULT_BASE,
     quote: DEFAULT_QUOTE,
   })
+  const [recentPairs, setRecentPairs] = usePersistentState<SelectedPair[]>('recentPairs', [])
 
-  const setSelectedPair = useCallback((pair: { base: SwapToken; quote: SwapToken }) => {
-    setSelectedPairState(pair)
-    if (pair.base.chain) setSelectedChain(pair.base.chain)
-  }, [])
+  const setSelectedPair = useCallback(
+    (pair: { base: SwapToken; quote: SwapToken }) => {
+      setSelectedPairState(pair)
+      if (pair.base.chain) setSelectedChain(pair.base.chain)
+      // Record into recents (most-recent first, de-duped, capped).
+      setRecentPairs((prev) => {
+        const key = pairKey(pair)
+        return [pair, ...prev.filter((p) => pairKey(p) !== key)].slice(0, MAX_RECENT)
+      })
+    },
+    [setSelectedPairState, setSelectedChain, setRecentPairs]
+  )
 
   return (
-    <PairContext.Provider value={{ selectedChain, setSelectedChain, selectedPair, setSelectedPair }}>
+    <PairContext.Provider
+      value={{ selectedChain, setSelectedChain, selectedPair, setSelectedPair, recentPairs }}
+    >
       {children}
     </PairContext.Provider>
   )

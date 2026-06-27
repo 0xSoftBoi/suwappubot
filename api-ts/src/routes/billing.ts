@@ -12,6 +12,7 @@ import { ipRateLimit } from '../middleware/ipRateLimit'
 import { runEffectEither } from '../runtime'
 import { StripeService } from '../services/StripeService'
 import { UserService } from '../services'
+import { auditLog } from '../services/audit'
 
 export const billingRoutes = new Hono()
 
@@ -145,6 +146,12 @@ billingRoutes.post('/stripe/webhook', async (c) => {
 								}),
 						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 					})
+
+					yield* auditLog({
+						userId: parseInt(user_id, 10),
+						eventType: 'subscription.activated',
+						details: { tier, source: 'stripe', eventId: event.id },
+					})
 				}
 			}
 
@@ -152,6 +159,45 @@ billingRoutes.post('/stripe/webhook', async (c) => {
 				const sub = event.data.object as { metadata?: { user_id?: string } }
 				const userId = sub.metadata?.user_id
 				if (userId) {
+					yield* Effect.tryPromise({
+						try: () =>
+							db
+								.update(subscriptions)
+								.set({ tier: 'free', expiresAt: new Date(), updatedAt: new Date() })
+								.where(eq(subscriptions.userId, parseInt(userId, 10))),
+						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+					})
+
+					yield* auditLog({
+						userId: parseInt(userId, 10),
+						eventType: 'subscription.canceled',
+						details: { source: 'stripe', eventId: event.id },
+					})
+				}
+			}
+
+			if (event.type === 'invoice.payment_failed') {
+				const invoice = event.data.object as {
+					subscription_details?: { metadata?: { user_id?: string } }
+					metadata?: { user_id?: string }
+					next_payment_attempt?: number | null
+				}
+				const userId =
+					invoice.subscription_details?.metadata?.user_id ?? invoice.metadata?.user_id
+				// next_payment_attempt is null once Stripe stops retrying (final failure).
+				const isTerminal = !invoice.next_payment_attempt
+
+				// Always audit the failure (dunning visibility + SOC2 trail).
+				yield* auditLog({
+					userId: userId ? parseInt(userId, 10) : 0,
+					eventType: 'subscription.payment_failed',
+					details: { terminal: isTerminal, source: 'stripe', eventId: event.id },
+				})
+
+				// Downgrade ONLY on the final failed attempt, and only with a resolved
+				// user — never downgrade a paying user mid-retry. Idempotent with the
+				// customer.subscription.deleted handler above.
+				if (isTerminal && userId) {
 					yield* Effect.tryPromise({
 						try: () =>
 							db

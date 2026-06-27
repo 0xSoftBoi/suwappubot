@@ -138,10 +138,122 @@ function json(body: unknown): Response {
   })
 }
 
+const POPULAR_TOKENS = [
+  { symbol: 'ETH', name: 'Ethereum', address: '0xeee', chain: 'ethereum', decimals: 18 },
+  { symbol: 'WBTC', name: 'Wrapped Bitcoin', address: '0x2260', chain: 'ethereum', decimals: 8 },
+  { symbol: 'PEPE', name: 'Pepe', address: '0x6982', chain: 'ethereum', decimals: 18 },
+  { symbol: 'USDC', name: 'USD Coin', address: '0xa0b8', chain: 'ethereum', decimals: 6 },
+  { symbol: 'LINK', name: 'Chainlink', address: '0x5149', chain: 'ethereum', decimals: 18 },
+  { symbol: 'AERO', name: 'Aerodrome', address: '0x9401', chain: 'base', decimals: 18 },
+  { symbol: 'WIF', name: 'dogwifhat', address: 'Wif11', chain: 'solana', decimals: 6 },
+]
+
 function route(path: string, search: URLSearchParams): Response | null {
+  if (path.endsWith('/terminal/wallet/summary'))
+    return json({
+      evmDepositAddress: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F',
+      solanaDepositAddress: '7Np41oeYqPefeNQEHSv1UDhYrehxin3NStpDBwxVqzz5',
+      balances: [
+        { chain: 'base', token: 'USDC', amount: 1240.5 },
+        { chain: 'ethereum', token: 'ETH', amount: 0.82 },
+        { chain: 'solana', token: 'SOL', amount: 14.3 },
+      ],
+      withdrawEnabled: true,
+    })
+  if (path.endsWith('/terminal/wallet/withdraw'))
+    return json({ ok: true, txHash: '0xabc123def4567890abc123def4567890abc123def4567890abc123def4567890', status: 'submitted' })
+  if (path.includes('/webapp/tokens/popular')) return json(POPULAR_TOKENS)
+  if (path.includes('/webapp/tokens/search')) {
+    const q = (search.get('q') || '').toLowerCase()
+    return json(POPULAR_TOKENS.filter((t) => t.symbol.toLowerCase().includes(q) || t.name.toLowerCase().includes(q)))
+  }
   if (path.endsWith('/auth/me')) return json(MOCK_USER)
   if (path.endsWith('/webapp/me/portfolio')) return json(PORTFOLIO)
   if (path.endsWith('/v1/agent/perps/markets')) return json({ markets: PERPS_MARKETS })
+  if (path.endsWith('/terminal/perps/context')) {
+    const ctx = PERPS_MARKETS.map((m, i) => {
+      const rng = makeRng(m.asset.length * 13 + i + 1)
+      // Realistic descending open interest ($2.5B down to ~$30M).
+      const oiNotional = (2_600_000_000 / (i + 1)) * (0.55 + rng() * 0.6)
+      return {
+        asset: m.asset,
+        name: m.name,
+        markPrice: m.markPrice,
+        oraclePrice: m.markPrice * (1 - m.fundingRate * 2),
+        basisPct: (rng() - 0.5) * 0.12,
+        funding: m.fundingRate,
+        oiNotional,
+        dayVolume: oiNotional * (0.8 + rng() * 2.5),
+        dayChangePct: (rng() - 0.45) * 9,
+        maxLeverage: m.maxLeverage,
+      }
+    }).sort((a, b) => b.oiNotional - a.oiNotional)
+    return json(ctx)
+  }
+  if (path.endsWith('/terminal/perps/whales')) {
+    const coin = (search.get('coin') || 'ETH-USD').split('-')[0].toUpperCase()
+    const mark = PERPS_MARKETS.find((m) => m.asset === coin)?.markPrice ?? 3284.7
+    const positions = [
+      { address: '0xecb6…a287', side: 'short', notional: 14_090_000, leverage: 15, entryPrice: mark * 1.04, liquidationPrice: mark * 1.36, unrealizedPnl: 421_300 },
+      { address: '0xfc66…1b0f', side: 'short', notional: 8_190_000, leverage: 20, entryPrice: mark * 1.02, liquidationPrice: mark * 1.18, unrealizedPnl: 255_181 },
+      { address: '0x71c7…976f', side: 'short', notional: 4_320_000, leverage: 10, entryPrice: mark * 1.01, liquidationPrice: mark * 1.42, unrealizedPnl: -37_968 },
+      { address: '0x9a3d…02ee', side: 'long', notional: 2_110_000, leverage: 8, entryPrice: mark * 0.98, liquidationPrice: mark * 0.84, unrealizedPnl: 64_200 },
+      { address: '0x856c…f250', side: 'long', notional: 980_000, leverage: 25, entryPrice: mark * 0.995, liquidationPrice: mark * 0.96, unrealizedPnl: 1_150 },
+    ]
+    const longNotional = positions.filter((p) => p.side === 'long').reduce((s, p) => s + p.notional, 0)
+    const shortNotional = positions.filter((p) => p.side === 'short').reduce((s, p) => s + p.notional, 0)
+    return json({
+      coin: `${coin}-USD`,
+      markPrice: mark,
+      sampled: 60,
+      longNotional,
+      shortNotional,
+      longCount: 2,
+      shortCount: 3,
+      longPct: Math.round((longNotional / (longNotional + shortNotional)) * 1000) / 10,
+      shortLiqAboveNotional: shortNotional,
+      longLiqBelowNotional: longNotional,
+      positions,
+    })
+  }
+  if (path.endsWith('/terminal/token/safety')) {
+    const chain = search.get('chain') || 'ethereum'
+    return json({
+      chain,
+      address: search.get('address') || '',
+      isHoneypot: false,
+      canSell: true,
+      buyTaxPct: 0,
+      sellTaxPct: 0,
+      mintable: false,
+      freezable: false,
+      ownerRenounced: true,
+      lpLockedPct: 100,
+      topHolderPct: 18,
+      holderCount: 482000,
+      score: 92,
+      riskLevel: 'safe',
+      flags: [],
+      sources: chain === 'solana' ? ['rugcheck'] : ['goplus', 'honeypot.is'],
+    })
+  }
+  if (path.endsWith('/terminal/market/regime'))
+    return json({
+      fearGreed: { value: 17, label: 'Extreme Fear' },
+      btcDominance: 56.2,
+      totalMcap: 2_230_000_000_000,
+      mcapChange24h: -2.35,
+      stablecoinMcap: 313_600_000_000,
+    })
+  if (path.endsWith('/terminal/signals'))
+    return json([
+      { id: 'squeeze:SOL-USD', category: 'squeeze', severity: 'alert', emoji: '⚡', title: 'SOL short squeeze building', detail: 'Up 3.1% while shorts pay funding — trapped shorts.', market: 'SOL-USD' },
+      { id: 'regime:fng', category: 'regime', severity: 'alert', emoji: '😱', title: 'Extreme Fear (17)', detail: 'Market sentiment is capitulating — historically a contrarian buy zone.', market: '' },
+      { id: 'funding:HYPE-USD', category: 'funding', severity: 'warn', emoji: '💸', title: 'HYPE funding +0.0044%/h', detail: 'Longs are paying heavily — crowded long, squeeze risk.', market: 'HYPE-USD' },
+      { id: 'funding:TRUMP-USD', category: 'funding', severity: 'warn', emoji: '🧲', title: 'TRUMP funding -0.0053%/h', detail: 'Shorts are paying — crowded short, fuel for a squeeze.', market: 'TRUMP-USD' },
+      { id: 'mover:DYDX-USD', category: 'mover', severity: 'info', emoji: '🚀', title: 'DYDX +8.8% (24h)', detail: 'Leading the board · $42M open interest.', market: 'DYDX-USD' },
+      { id: 'mover:WLD-USD', category: 'mover', severity: 'info', emoji: '🔻', title: 'WLD -15.6% (24h)', detail: 'Worst performer · $88M open interest.', market: 'WLD-USD' },
+    ])
   if (path.endsWith('/v1/agent/predict/markets')) return json({ markets: PREDICT_MARKETS })
   if (path.endsWith('/terminal/perps/account'))
     return json({ connected: true, address: '0x71C…9a2F', accountValue: 24817.43, maintenanceMarginUsed: 612.4, totalMarginUsed: 2480.9, withdrawable: 21100.2 })

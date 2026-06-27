@@ -6,6 +6,7 @@ import { OrderBookPanel } from '../orderbook/OrderBookPanel'
 import { RecentTradesPanel } from '../orderbook/RecentTradesPanel'
 import { SwapPanel } from '../trade/SwapPanel'
 import { PortfolioPanel } from '../portfolio/PortfolioPanel'
+import { SignalsFeed } from '../signals/SignalsFeed'
 import { DiscoveryPanel } from '../discover/DiscoveryPanel'
 import { CopyTradingDashboard } from '../copy/CopyTradingDashboard'
 import { CopilotPanel } from '../copilot/CopilotPanel'
@@ -25,6 +26,7 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 
 const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'portfolio', label: 'Portfolio' },
+  { id: 'signals', label: 'Signals' },
   { id: 'discovery', label: 'Discovery' },
   { id: 'watchlist', label: 'Watchlist' },
   { id: 'copy-trading', label: 'Copy Trading' },
@@ -105,6 +107,7 @@ function MobileLayout() {
             {/* Tab content */}
             <div className="flex-1 overflow-hidden">
               {bottomTab === 'portfolio' && <PortfolioPanel />}
+              {bottomTab === 'signals' && <SignalsFeed />}
               {bottomTab === 'discovery' && <DiscoveryPanel />}
               {bottomTab === 'watchlist' && <WatchlistPanel />}
               {bottomTab === 'copy-trading' && <CopyTradingDashboard />}
@@ -227,6 +230,7 @@ function DesktopLayout() {
           {/* Tab content */}
           <div className="flex-1 overflow-hidden">
             {bottomTab === 'portfolio' && <PortfolioPanel />}
+              {bottomTab === 'signals' && <SignalsFeed />}
             {bottomTab === 'discovery' && <DiscoveryPanel />}
             {bottomTab === 'watchlist' && <WatchlistPanel />}
             {bottomTab === 'copy-trading' && <CopyTradingDashboard />}

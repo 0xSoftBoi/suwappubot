@@ -21,7 +21,14 @@ import type {
   TerminalTrade,
   Pool,
   TokenSecurity,
+  TokenSafetyReport,
   HLMarket,
+  PerpsMarketContext,
+  WhaleSnapshot,
+  WalletSummary,
+  WalletWithdrawResult,
+  MarketRegime,
+  MarketSignal,
   HLPosition,
   PredictionMarket,
   PerpsAccountStatus,
@@ -327,6 +334,41 @@ export const api = {
     return request<OHLCVCandle[]>(`/terminal/perps/candles?${params}`)
   },
 
+  // Perps market intelligence — HyperLiquid metaAndAssetCtxs (public): mark/
+  // oracle, basis, funding, open interest, 24h volume + change per market.
+  getPerpsContext() {
+    return request<PerpsMarketContext[]>('/terminal/perps/context')
+  },
+
+  // Smart-money positioning — top accounts' live positions in a coin,
+  // aggregated long-vs-short, from public HyperLiquid on-chain data.
+  // Custodial wallet — deposit addresses + balances (authed).
+  getWalletSummary() {
+    return request<WalletSummary>('/terminal/wallet/summary')
+  },
+
+  // Withdraw a custodial balance to an external address (authed, money path).
+  withdrawFunds(params: { chain: string; token: string; amount: number; toAddress: string; memo?: string }) {
+    return request<WalletWithdrawResult>('/terminal/wallet/withdraw', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  },
+
+  getPerpsWhales(coin: string) {
+    return request<WhaleSnapshot>(`/terminal/perps/whales?coin=${encodeURIComponent(coin)}`)
+  },
+
+  // Macro regime — Fear&Greed + BTC dominance/mcap + stablecoin supply (public).
+  getMarketRegime() {
+    return request<MarketRegime>('/terminal/market/regime')
+  },
+
+  // Cross-market Signals feed — movers, funding extremes, squeezes, regime.
+  getSignals() {
+    return request<MarketSignal[]>('/terminal/signals')
+  },
+
   // Prediction probability history — Polymarket prices-history (public) for a
   // single outcome's CLOB token id. `range` is a window: 1H/6H/1D/1W/1M/ALL.
   getPredictHistory(tokenId: string, range = '1W') {
@@ -372,6 +414,12 @@ export const api = {
 
   getTokenSecurity(chain: string, address: string) {
     return request<TokenSecurity>(`/webapp/discovery/security?chain=${chain}&address=${address}`)
+  },
+
+  // Aggregated token safety — GoPlus + Honeypot.is (EVM) / RugCheck (Solana).
+  getTokenSafety(chain: string, address: string) {
+    const params = new URLSearchParams({ chain, address })
+    return request<TokenSafetyReport>(`/terminal/token/safety?${params}`)
   },
 
   // Perps (HyperLiquid). api-ts wraps these in { markets } / { positions };

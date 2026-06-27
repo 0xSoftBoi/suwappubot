@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
-import { TELEGRAM_URL } from '@/lib/links';
+import { TELEGRAM_URL, ENTERPRISE_CONTACT_PATH } from '@/lib/links';
 
 export const metadata: Metadata = {
   title: 'Pricing — Suwappu',
@@ -9,7 +9,18 @@ export const metadata: Metadata = {
     'Simple subscription tiers that lower your swap fee — Free, Pro, Premium, and Enterprise. No seat counts, no hidden fees. Refer a friend and earn 30% of their trading fees.',
 };
 
-const tiers = [
+const tiers: {
+  name: string;
+  price: string;
+  cadence: string;
+  fee: string;
+  blurb: string;
+  cta: string;
+  href?: string;
+  highlight: boolean;
+  badge?: string;
+  features: string[];
+}[] = [
   {
     name: 'Free',
     price: '$0',
@@ -47,7 +58,8 @@ const tiers = [
     cadence: '/mo',
     fee: '0.1%',
     blurb: 'Lowest fee, for desks and agent fleets.',
-    cta: 'Contact sales',
+    cta: 'Talk to the team',
+    href: ENTERPRISE_CONTACT_PATH,
     highlight: false,
     features: ['Everything in Premium', '0.1% swap fee', 'Dedicated rate limits', 'Priority support'],
   },
@@ -122,7 +134,10 @@ export default function PricingPage() {
         </header>
 
         <section className="pricing-grid" aria-label="Plans">
-          {tiers.map((t) => (
+          {tiers.map((t) => {
+            const ctaHref = t.href ?? TELEGRAM_URL;
+            const isInternal = ctaHref.startsWith('/');
+            return (
             <article className={`pricing-card${t.highlight ? ' pricing-card--featured' : ''}`} key={t.name}>
               {t.badge && <span className="pricing-card__badge">{t.badge}</span>}
               <h2>{t.name}</h2>
@@ -136,9 +151,8 @@ export default function PricingPage() {
               <p className="pricing-card__blurb">{t.blurb}</p>
               <a
                 className={`summer-button ${t.highlight ? 'summer-button--primary' : 'summer-button--secondary'} pricing-card__cta`}
-                href={TELEGRAM_URL}
-                target="_blank"
-                rel="noopener noreferrer"
+                href={ctaHref}
+                {...(isInternal ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
               >
                 {t.cta}
               </a>
@@ -148,7 +162,8 @@ export default function PricingPage() {
                 ))}
               </ul>
             </article>
-          ))}
+            );
+          })}
         </section>
 
         <section className="pricing-compare" aria-label="Plan comparison">

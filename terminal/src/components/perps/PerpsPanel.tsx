@@ -6,6 +6,7 @@ import { usePerpsFunding, formatCountdown, formatFundingPct } from '../../hooks/
 import { usePerpsMarginMode } from '../../hooks/usePerpsMarginMode'
 import { usePerpsAccount, useExecutePerps } from '../../hooks/useTerminalPerps'
 import { ConnectHyperliquid } from './ConnectHyperliquid'
+import { usePersistentState } from '../../lib/persist'
 import type { MarginMode } from '../../types/perps'
 
 interface Props {
@@ -26,7 +27,7 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
   const [limitPrice, setLimitPrice] = useState('')
   const [tpPrice, setTpPrice] = useState('')
   const [slPrice, setSlPrice] = useState('')
-  const [leverage, setLeverage] = useState(5)
+  const [leverage, setLeverage] = usePersistentState('leverage', 5)
   const [marginMode, setMarginMode] = usePerpsMarginMode()
 
   const numeric = (raw: string) => raw.replace(/[^\d.]/g, '')

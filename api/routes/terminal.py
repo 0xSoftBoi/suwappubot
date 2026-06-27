@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 import re
 from datetime import datetime
 from decimal import Decimal
@@ -266,6 +268,237 @@ async def get_terminal_perps_candles(
     return candles[-limit:]
 
 
+def _hl_float(value, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+@router.get("/perps/context")
+async def get_terminal_perps_context():
+    """Per-market intelligence for the HyperLiquid perps desk via the public
+    ``metaAndAssetCtxs`` endpoint — mark/oracle price, spot-perp basis, hourly
+    funding, open interest (notional), 24h volume and 24h change. All free, no
+    key. Returned newest-data-first by open interest so the heaviest markets lead."""
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post(
+                HL_INFO_URL,
+                json={"type": "metaAndAssetCtxs"},
+                headers={"User-Agent": "suwappu-terminal/1.0", "Accept": "application/json"},
+            )
+            resp.raise_for_status()
+            payload = resp.json() or []
+    except Exception:
+        return []
+    if not isinstance(payload, list) or len(payload) < 2:
+        return []
+    universe = (payload[0] or {}).get("universe") or []
+    ctxs = payload[1] or []
+    out = []
+    for meta, ctx in zip(universe, ctxs):
+        if not isinstance(meta, dict) or not isinstance(ctx, dict):
+            continue
+        asset = meta.get("name")
+        if not asset:
+            continue
+        mark = _hl_float(ctx.get("markPx"))
+        oracle = _hl_float(ctx.get("oraclePx"))
+        prev = _hl_float(ctx.get("prevDayPx"))
+        oi_coin = _hl_float(ctx.get("openInterest"))
+        out.append(
+            {
+                "asset": asset,
+                "name": f"{asset}-USD",
+                "markPrice": mark,
+                "oraclePrice": oracle,
+                # premium is the spot-perp basis as a decimal; expose as a percent.
+                "basisPct": _hl_float(ctx.get("premium")) * 100,
+                # hourly funding rate as a decimal (e.g. 0.0000125 == 0.00125%/hr).
+                "funding": _hl_float(ctx.get("funding")),
+                # open interest in USD notional (HL reports it in coin units).
+                "oiNotional": oi_coin * mark,
+                # 24h notional (USD) traded volume.
+                "dayVolume": _hl_float(ctx.get("dayNtlVlm")),
+                # 24h price change vs the prior-day reference price, in percent.
+                "dayChangePct": ((mark - prev) / prev * 100) if prev else 0.0,
+                "maxLeverage": meta.get("maxLeverage") or 0,
+            }
+        )
+    out.sort(key=lambda m: m["oiNotional"], reverse=True)
+    return out
+
+
+# --- Smart-money / whale positioning, reconstructed from public HL positions ---
+# Only possible because HyperLiquid is on-chain: every trader's open positions
+# (with the exchange-computed liquidation price) are public. We take the top
+# accounts off the leaderboard, read their live positions for a coin, and
+# aggregate long-vs-short — the contrarian/confirmation signal Coinglass-style
+# tools charge for, here free and exchange-native.
+
+HL_LEADERBOARD_URL = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard"
+_leaderboard_cache: dict = {"at": None, "addresses": []}
+
+
+async def _hl_post(client: httpx.AsyncClient, body: dict):
+    resp = await client.post(
+        HL_INFO_URL,
+        json=body,
+        headers={"User-Agent": "suwappu-terminal/1.0", "Accept": "application/json"},
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+async def _top_leaderboard_addresses(limit: int) -> list[str]:
+    """Top accounts by equity from the HL leaderboard, cached ~10 min (the feed
+    is multi-MB and slow-moving)."""
+    cached_at = _leaderboard_cache["at"]
+    if cached_at and (datetime.now() - cached_at).total_seconds() < 600:
+        return _leaderboard_cache["addresses"][:limit]
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                HL_LEADERBOARD_URL, headers={"User-Agent": "suwappu-terminal/1.0"}
+            )
+            resp.raise_for_status()
+            rows = (resp.json() or {}).get("leaderboardRows") or []
+    except Exception:
+        return _leaderboard_cache["addresses"][:limit]
+    ranked = sorted(
+        ((r.get("ethAddress"), _to_float(r.get("accountValue"), 0.0) or 0.0) for r in rows),
+        key=lambda x: x[1],
+        reverse=True,
+    )
+    addresses = [a for a, _ in ranked if a][:200]
+    _leaderboard_cache["at"] = datetime.now()
+    _leaderboard_cache["addresses"] = addresses
+    return addresses[:limit]
+
+
+@router.get("/perps/whales")
+async def get_terminal_perps_whales(
+    coin: str = Query(...),
+    sample: int = Query(default=60, ge=10, le=120),
+):
+    """Smart-money positioning for a HyperLiquid perp: sample the top accounts'
+    live positions in `coin`, aggregate long-vs-short notional, and surface the
+    biggest individual whale positions (size, leverage, entry, exchange-computed
+    liquidation price, unrealized PnL). Public on-chain data only."""
+    asset = coin.upper().split("-")[0].split("/")[0].strip()
+    if not asset:
+        return _empty_whales(coin)
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            meta_ctx = await _hl_post(client, {"type": "metaAndAssetCtxs"})
+            universe = (meta_ctx[0] or {}).get("universe") or []
+            ctxs = meta_ctx[1] or []
+            mark = 0.0
+            for u, c in zip(universe, ctxs):
+                if u.get("name") == asset:
+                    mark = _hl_float(c.get("markPx"))
+                    break
+
+            addresses = await _top_leaderboard_addresses(sample)
+            if not addresses:
+                return _empty_whales(coin, mark)
+
+            sem = asyncio.Semaphore(16)
+
+            async def fetch_state(addr: str):
+                async with sem:
+                    try:
+                        return addr, await _hl_post(
+                            client, {"type": "clearinghouseState", "user": addr}
+                        )
+                    except Exception:
+                        return addr, None
+
+            states = await asyncio.gather(*(fetch_state(a) for a in addresses))
+    except Exception:
+        return _empty_whales(coin)
+
+    long_notional = short_notional = 0.0
+    long_count = short_count = 0
+    positions: list[dict] = []
+    for addr, state in states:
+        if not isinstance(state, dict):
+            continue
+        for ap in state.get("assetPositions") or []:
+            p = ap.get("position") or {}
+            if p.get("coin") != asset:
+                continue
+            szi = _hl_float(p.get("szi"))
+            if szi == 0:
+                continue
+            size = abs(szi)
+            notional = size * mark
+            side = "long" if szi > 0 else "short"
+            if side == "long":
+                long_notional += notional
+                long_count += 1
+            else:
+                short_notional += notional
+                short_count += 1
+            lev = p.get("leverage") or {}
+            positions.append(
+                {
+                    "address": f"{addr[:6]}…{addr[-4:]}",
+                    "side": side,
+                    "size": size,
+                    "notional": notional,
+                    "leverage": _to_float(lev.get("value")) or 0,
+                    "entryPrice": _hl_float(p.get("entryPx")),
+                    "liquidationPrice": _hl_float(p.get("liquidationPx")) or None,
+                    "unrealizedPnl": _hl_float(p.get("unrealizedPnl")),
+                }
+            )
+
+    positions.sort(key=lambda x: x["notional"], reverse=True)
+    total = long_notional + short_notional
+    return {
+        "coin": f"{asset}-USD",
+        "markPrice": mark,
+        "sampled": len(addresses),
+        "longNotional": long_notional,
+        "shortNotional": short_notional,
+        "longCount": long_count,
+        "shortCount": short_count,
+        "longPct": round(long_notional / total * 100, 1) if total else 50.0,
+        # "Squeeze fuel": short notional whose liq price sits above mark (gets
+        # squeezed on a rip); downside = long notional liquidating below mark.
+        "shortLiqAboveNotional": sum(
+            p["notional"]
+            for p in positions
+            if p["side"] == "short" and p["liquidationPrice"] and p["liquidationPrice"] > mark
+        ),
+        "longLiqBelowNotional": sum(
+            p["notional"]
+            for p in positions
+            if p["side"] == "long" and p["liquidationPrice"] and p["liquidationPrice"] < mark
+        ),
+        "positions": positions[:14],
+    }
+
+
+def _empty_whales(coin: str, mark: float = 0.0) -> dict:
+    asset = coin.upper().split("-")[0].split("/")[0].strip()
+    return {
+        "coin": f"{asset}-USD",
+        "markPrice": mark,
+        "sampled": 0,
+        "longNotional": 0.0,
+        "shortNotional": 0.0,
+        "longCount": 0,
+        "shortCount": 0,
+        "longPct": 50.0,
+        "shortLiqAboveNotional": 0.0,
+        "longLiqBelowNotional": 0.0,
+        "positions": [],
+    }
+
+
 # --- Prediction probability history via the public Polymarket CLOB API ---
 
 POLYMARKET_CLOB_URL = "https://clob.polymarket.com"
@@ -306,6 +539,497 @@ async def get_terminal_predict_history(
     ]
     points.sort(key=lambda p: p["time"])
     return points
+
+
+# --- Market regime strip: Fear&Greed + dominance/mcap + stablecoin supply ---
+
+FNG_URL = "https://api.alternative.me/fng/"
+COINGECKO_GLOBAL_URL = "https://api.coingecko.com/api/v3/global"
+DEFILLAMA_STABLES_URL = "https://stablecoins.llama.fi/stablecoins"
+
+
+async def _get_json(client: httpx.AsyncClient, url: str, params: dict | None = None):
+    resp = await client.get(
+        url,
+        params=params,
+        headers={"User-Agent": "suwappu-terminal/1.0", "Accept": "application/json"},
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+@router.get("/market/regime")
+async def get_terminal_market_regime():
+    """Always-on macro context for the terminal header: crypto Fear & Greed
+    (alternative.me), BTC dominance + total market cap + 24h change
+    (CoinGecko), and total stablecoin supply / "dry powder" (DefiLlama). All
+    public + free; any source that fails is returned null so the UI degrades
+    gracefully tile-by-tile."""
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        fng_raw, global_raw, stables_raw = await asyncio.gather(
+            _get_json(client, FNG_URL),
+            _get_json(client, COINGECKO_GLOBAL_URL),
+            _get_json(client, DEFILLAMA_STABLES_URL, {"includePrices": "false"}),
+            return_exceptions=True,
+        )
+
+    fear_greed = None
+    if isinstance(fng_raw, dict):
+        entry = (fng_raw.get("data") or [{}])[0]
+        if entry.get("value") is not None:
+            fear_greed = {
+                "value": _to_int(entry.get("value")),
+                "label": entry.get("value_classification") or "",
+            }
+
+    btc_dominance = total_mcap = mcap_change_24h = None
+    if isinstance(global_raw, dict):
+        g = global_raw.get("data") or {}
+        btc_dominance = _to_float((g.get("market_cap_percentage") or {}).get("btc"))
+        total_mcap = _to_float((g.get("total_market_cap") or {}).get("usd"))
+        mcap_change_24h = _to_float(g.get("market_cap_change_percentage_24h_usd"))
+
+    stablecoin_mcap = None
+    if isinstance(stables_raw, dict):
+        assets = stables_raw.get("peggedAssets") or []
+        total = 0.0
+        for a in assets:
+            total += _to_float((a.get("circulating") or {}).get("peggedUSD")) or 0.0
+        stablecoin_mcap = total or None
+
+    return {
+        "fearGreed": fear_greed,
+        "btcDominance": btc_dominance,
+        "totalMcap": total_mcap,
+        "mcapChange24h": mcap_change_24h,
+        "stablecoinMcap": stablecoin_mcap,
+    }
+
+
+def _to_int(value) -> Optional[int]:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+# --- Cross-market Signals scanner: "what matters right now" across HL perps ---
+
+# Ignore illiquid markets so signals come from real, tradeable size.
+SIGNAL_MIN_OI = 5_000_000  # $5M open interest
+
+
+def _signal(
+    category: str, severity: str, emoji: str, title: str, detail: str, market: str = ""
+) -> dict:
+    # severity: alert | warn | info
+    return {
+        "id": f"{category}:{market or title}",
+        "category": category,
+        "severity": severity,
+        "emoji": emoji,
+        "title": title,
+        "detail": detail,
+        "market": market,
+    }
+
+
+@router.get("/signals")
+async def get_terminal_signals():
+    """A live cross-market signal feed derived from HyperLiquid's all-markets
+    feed + macro regime — top movers, funding extremes, squeeze setups, and the
+    Fear & Greed regime. One scan, plain-language cards, ranked by urgency."""
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            meta_ctx, fng_raw = await asyncio.gather(
+                _hl_post(client, {"type": "metaAndAssetCtxs"}),
+                _get_json(client, FNG_URL),
+                return_exceptions=True,
+            )
+    except Exception:
+        return []
+
+    signals: list[dict] = []
+
+    # Regime card from Fear & Greed.
+    if isinstance(fng_raw, dict):
+        entry = (fng_raw.get("data") or [{}])[0]
+        val = _to_int(entry.get("value"))
+        if val is not None:
+            label = entry.get("value_classification") or ""
+            if val <= 24:
+                signals.append(
+                    _signal(
+                        "regime",
+                        "alert",
+                        "😱",
+                        f"Extreme Fear ({val})",
+                        "Market sentiment is capitulating — historically a contrarian buy zone.",
+                    )
+                )
+            elif val >= 76:
+                signals.append(
+                    _signal(
+                        "regime",
+                        "alert",
+                        "🤑",
+                        f"Extreme Greed ({val})",
+                        "Sentiment is euphoric — historically a zone to de-risk.",
+                    )
+                )
+            else:
+                signals.append(
+                    _signal(
+                        "regime",
+                        "info",
+                        "🌡️",
+                        f"Fear & Greed: {label} ({val})",
+                        "Overall crypto risk appetite right now.",
+                    )
+                )
+
+    # Per-market signals from metaAndAssetCtxs.
+    markets = []
+    if isinstance(meta_ctx, list) and len(meta_ctx) >= 2:
+        universe = (meta_ctx[0] or {}).get("universe") or []
+        ctxs = meta_ctx[1] or []
+        for u, c in zip(universe, ctxs):
+            if not isinstance(u, dict) or not isinstance(c, dict):
+                continue
+            asset = u.get("name")
+            mark = _hl_float(c.get("markPx"))
+            prev = _hl_float(c.get("prevDayPx"))
+            oi = _hl_float(c.get("openInterest")) * mark
+            if not asset or mark <= 0 or oi < SIGNAL_MIN_OI:
+                continue
+            markets.append(
+                {
+                    "asset": asset,
+                    "market": f"{asset}-USD",
+                    "change": ((mark - prev) / prev * 100) if prev else 0.0,
+                    "funding": _hl_float(c.get("funding")),
+                    "oi": oi,
+                }
+            )
+
+    if markets:
+        # Top movers (24h).
+        by_change = sorted(markets, key=lambda m: m["change"], reverse=True)
+        for m in by_change[:2]:
+            if m["change"] > 2:
+                signals.append(
+                    _signal(
+                        "mover",
+                        "info",
+                        "🚀",
+                        f"{m['asset']} +{m['change']:.1f}% (24h)",
+                        f"Leading the board · {_fmt_usd(m['oi'])} open interest.",
+                        m["market"],
+                    )
+                )
+        for m in by_change[-2:]:
+            if m["change"] < -2:
+                signals.append(
+                    _signal(
+                        "mover",
+                        "info",
+                        "🔻",
+                        f"{m['asset']} {m['change']:.1f}% (24h)",
+                        f"Worst performer · {_fmt_usd(m['oi'])} open interest.",
+                        m["market"],
+                    )
+                )
+
+        # Funding extremes = crowded positioning.
+        by_funding = sorted(markets, key=lambda m: m["funding"], reverse=True)
+        hi = by_funding[0]
+        if hi["funding"] * 100 >= 0.005:  # >= 0.005%/h
+            signals.append(
+                _signal(
+                    "funding",
+                    "warn",
+                    "💸",
+                    f"{hi['asset']} funding {hi['funding']*100:+.4f}%/h",
+                    "Longs are paying heavily — crowded long, squeeze risk.",
+                    hi["market"],
+                )
+            )
+        lo = by_funding[-1]
+        if lo["funding"] * 100 <= -0.005:
+            signals.append(
+                _signal(
+                    "funding",
+                    "warn",
+                    "🧲",
+                    f"{lo['asset']} funding {lo['funding']*100:+.4f}%/h",
+                    "Shorts are paying — crowded short, fuel for a squeeze.",
+                    lo["market"],
+                )
+            )
+
+        # Squeeze setups: funding fights the price move.
+        for m in markets:
+            fpct = m["funding"] * 100
+            if fpct <= -0.002 and m["change"] >= 2:
+                signals.append(
+                    _signal(
+                        "squeeze",
+                        "alert",
+                        "⚡",
+                        f"{m['asset']} short squeeze building",
+                        f"Up {m['change']:.1f}% while shorts pay funding — trapped shorts.",
+                        m["market"],
+                    )
+                )
+            elif fpct >= 0.002 and m["change"] <= -2:
+                signals.append(
+                    _signal(
+                        "squeeze",
+                        "alert",
+                        "⚡",
+                        f"{m['asset']} long flush risk",
+                        f"Down {m['change']:.1f}% while longs pay funding — trapped longs.",
+                        m["market"],
+                    )
+                )
+
+    # Rank: alert > warn > info, de-duplicated by id.
+    order = {"alert": 0, "warn": 1, "info": 2}
+    seen, ranked = set(), []
+    for s in sorted(signals, key=lambda x: order.get(x["severity"], 3)):
+        if s["id"] in seen:
+            continue
+        seen.add(s["id"])
+        ranked.append(s)
+    return ranked[:14]
+
+
+def _fmt_usd(n: float) -> str:
+    if n >= 1e9:
+        return f"${n/1e9:.1f}B"
+    if n >= 1e6:
+        return f"${n/1e6:.0f}M"
+    if n >= 1e3:
+        return f"${n/1e3:.0f}K"
+    return f"${n:.0f}"
+
+
+# --- Token safety: GoPlus + Honeypot.is (EVM) / RugCheck (Solana), all free ---
+
+# Suwappu chain id -> GoPlus numeric chain id (EVM only).
+GOPLUS_CHAIN_IDS = {
+    "ethereum": "1",
+    "eth": "1",
+    "bsc": "56",
+    "bnb": "56",
+    "base": "8453",
+    "arbitrum": "42161",
+    "arbitrum_one": "42161",
+    "optimism": "10",
+    "op": "10",
+    "polygon": "137",
+    "polygon_pos": "137",
+    "avalanche": "43114",
+    "avax": "43114",
+}
+
+
+def _pct(value) -> Optional[float]:
+    """Parse a GoPlus/Honeypot tax-or-percent field (often a 0–1 ratio string or
+    a 0–100 number) into a percent."""
+    f = _to_float(value)
+    if f is None:
+        return None
+    return round(f * 100, 2) if f <= 1 else round(f, 2)
+
+
+def _flag(label: str, level: str) -> dict:
+    return {"label": label, "level": level}  # level: danger | warn | ok
+
+
+def _empty_report(chain: str, address: str) -> dict:
+    return {
+        "chain": chain,
+        "address": address,
+        "isHoneypot": None,
+        "canSell": None,
+        "buyTaxPct": None,
+        "sellTaxPct": None,
+        "mintable": None,
+        "freezable": None,
+        "ownerRenounced": None,
+        "lpLockedPct": None,
+        "topHolderPct": None,
+        "holderCount": None,
+        "score": None,
+        "riskLevel": "unknown",
+        "flags": [],
+        "sources": [],
+    }
+
+
+async def _evm_safety(chain: str, address: str) -> dict:
+    """GoPlus token_security + Honeypot.is sell-simulation for an EVM token."""
+    report = _empty_report(chain, address)
+    gp_id = GOPLUS_CHAIN_IDS[chain.lower()]
+    addr = address.lower()
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        gp_raw, hp_raw = await asyncio.gather(
+            _get_json(
+                client,
+                f"https://api.gopluslabs.io/api/v1/token_security/{gp_id}",
+                {"contract_addresses": addr},
+            ),
+            _get_json(
+                client,
+                "https://api.honeypot.is/v2/IsHoneypot",
+                {"address": addr, "chainID": gp_id},
+            ),
+            return_exceptions=True,
+        )
+
+    flags: list[dict] = []
+    if isinstance(gp_raw, dict):
+        report["sources"].append("goplus")
+        t = (gp_raw.get("result") or {}).get(addr) or {}
+        if t:
+            report["isHoneypot"] = t.get("is_honeypot") == "1"
+            report["buyTaxPct"] = _pct(t.get("buy_tax"))
+            report["sellTaxPct"] = _pct(t.get("sell_tax"))
+            report["mintable"] = t.get("is_mintable") == "1"
+            report["ownerRenounced"] = t.get("can_take_back_ownership") == "0" and not (
+                t.get("hidden_owner") == "1"
+            )
+            report["holderCount"] = _to_int(t.get("holder_count"))
+            lp = t.get("lp_holders") or []
+            locked = sum(
+                _to_float(h.get("percent"), 0.0) or 0.0 for h in lp if h.get("is_locked") == 1
+            )
+            report["lpLockedPct"] = round(locked * 100, 1) if lp else None
+            holders = t.get("holders") or []
+            if holders:
+                report["topHolderPct"] = round(
+                    sum(_to_float(h.get("percent"), 0.0) or 0.0 for h in holders[:10]) * 100, 1
+                )
+            if t.get("cannot_sell_all") == "1":
+                flags.append(_flag("Can't sell entire balance", "danger"))
+            if t.get("transfer_pausable") == "1":
+                flags.append(_flag("Transfers can be paused", "warn"))
+            if t.get("slippage_modifiable") == "1":
+                flags.append(_flag("Tax can be changed by owner", "warn"))
+            if t.get("is_open_source") == "0":
+                flags.append(_flag("Source not verified", "warn"))
+
+    # Honeypot.is runs a real buy+sell simulation — authoritative on can-sell.
+    if isinstance(hp_raw, dict):
+        report["sources"].append("honeypot.is")
+        hr = hp_raw.get("honeypotResult") or {}
+        sim = hp_raw.get("simulationResult") or {}
+        if hr.get("isHoneypot") is not None:
+            report["isHoneypot"] = bool(hr.get("isHoneypot"))
+        if sim.get("buyTax") is not None:
+            report["buyTaxPct"] = _pct(sim.get("buyTax"))
+        if sim.get("sellTax") is not None:
+            report["sellTaxPct"] = _pct(sim.get("sellTax"))
+
+    report["canSell"] = (not report["isHoneypot"]) if report["isHoneypot"] is not None else None
+    report["flags"] = _derive_flags(report, flags)
+    report["score"], report["riskLevel"] = _derive_risk(report)
+    return report
+
+
+async def _solana_safety(chain: str, address: str) -> dict:
+    """RugCheck report summary for a Solana mint."""
+    report = _empty_report(chain, address)
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        try:
+            rc = await _get_json(
+                client, f"https://api.rugcheck.xyz/v1/tokens/{address}/report/summary"
+            )
+        except Exception:
+            rc = None
+    flags: list[dict] = []
+    if isinstance(rc, dict):
+        report["sources"].append("rugcheck")
+        for r in rc.get("risks") or []:
+            raw = (r.get("level") or "").lower()
+            level = "danger" if raw in ("danger", "high") else "warn"
+            label = r.get("name") or "Risk"
+            flags.append(_flag(label, level))
+            name = label.lower()
+            if "mint" in name:
+                report["mintable"] = True
+            if "freeze" in name:
+                report["freezable"] = True
+            if "honeypot" in name:
+                report["isHoneypot"] = True
+        # RugCheck score is a RISK score (higher = riskier); map to a 0–100 trust.
+        risk_score = _to_float(rc.get("score"))
+        if risk_score is not None:
+            report["score"] = max(0, min(100, round(100 - risk_score / 10)))
+    report["canSell"] = (not report["isHoneypot"]) if report["isHoneypot"] is not None else None
+    report["flags"] = _derive_flags(report, flags)
+    score, level = _derive_risk(report)
+    if report["score"] is None:
+        report["score"] = score
+    report["riskLevel"] = level
+    return report
+
+
+def _derive_flags(report: dict, base: list[dict]) -> list[dict]:
+    flags = list(base)
+    if report.get("isHoneypot"):
+        flags.insert(0, _flag("Honeypot — cannot sell", "danger"))
+    if report.get("mintable"):
+        flags.append(_flag("Mint authority active", "warn"))
+    if report.get("freezable"):
+        flags.append(_flag("Freeze authority active", "warn"))
+    for tax_key, side in (("buyTaxPct", "Buy"), ("sellTaxPct", "Sell")):
+        tax = report.get(tax_key)
+        if tax is not None and tax >= 10:
+            flags.append(_flag(f"High {side.lower()} tax {tax:.0f}%", "warn"))
+    top = report.get("topHolderPct")
+    if top is not None and top >= 50:
+        flags.append(_flag(f"Top 10 hold {top:.0f}%", "warn" if top < 70 else "danger"))
+    # De-dup by label, preserve order.
+    seen, out = set(), []
+    for f in flags:
+        if f["label"] not in seen:
+            seen.add(f["label"])
+            out.append(f)
+    return out
+
+
+def _derive_risk(report: dict) -> tuple[Optional[int], str]:
+    flags = report.get("flags") or []
+    if report.get("isHoneypot") or any(f["level"] == "danger" for f in flags):
+        return (report.get("score") if report.get("score") is not None else 10), "danger"
+    if any(f["level"] == "warn" for f in flags):
+        return (report.get("score") if report.get("score") is not None else 55), "caution"
+    if not report.get("sources"):
+        return None, "unknown"
+    return (report.get("score") if report.get("score") is not None else 90), "safe"
+
+
+@router.get("/token/safety")
+async def get_terminal_token_safety(
+    chain: str = Query(...),
+    address: str = Query(...),
+):
+    """Aggregated token-safety report from free providers — GoPlus + Honeypot.is
+    (EVM) or RugCheck (Solana): honeypot/can-sell, buy/sell tax, mint/freeze
+    authority, LP-locked, top-holder concentration, plus human-readable risk
+    flags and a 0–100 trust score. Degrades to ``riskLevel: unknown`` rather
+    than failing if upstreams are down."""
+    chain_l = chain.lower()
+    try:
+        if chain_l in ("solana", "sol"):
+            return await _solana_safety(chain, address)
+        if chain_l in GOPLUS_CHAIN_IDS:
+            return await _evm_safety(chain, address)
+    except Exception:
+        return _empty_report(chain, address)
+    return _empty_report(chain, address)
 
 
 @router.get("/orderbook")
@@ -396,16 +1120,18 @@ def _terminal_user(request: Request) -> dict:
     raise HTTPException(status_code=401, detail="Sign in to trade")
 
 
-def _to_float(value) -> Optional[float]:
-    """Coerce Decimal/None/str to float for JSON serialization."""
+def _to_float(value, default: Optional[float] = None) -> Optional[float]:
+    """Coerce Decimal/None/str to float for JSON serialization. Returns
+    `default` (None unless given) when the value can't be parsed — callers may
+    pass a numeric default to use it directly in sums."""
     if value is None:
-        return None
+        return default
     if isinstance(value, Decimal):
         return float(value)
     try:
         return float(value)
     except (TypeError, ValueError):
-        return None
+        return default
 
 
 def _jsonify(obj):
@@ -1047,3 +1773,169 @@ async def terminal_predict_redeem(request: Request, body: PredictRedeemBody):
         "message": result.error or "Redeem could not be completed.",
         "category": result.error_category or None,
     }
+
+
+# === Custodial wallet: deposit addresses, balances, withdrawals (web parity) ===
+# Mirrors the proven Telegram custodial flow (bot/handlers/custodial.py +
+# bot/services/hot_wallet.py): an omnibus hot-wallet deposit address per chain
+# type + a per-user CustodialBalance ledger. Read paths are safe; the withdraw
+# path reuses the bot's exact send → debit-after-success → record ordering.
+
+_BASE58_ALPHABET = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+
+
+def _is_base58_addr(s: str) -> bool:
+    return bool(s) and all(c in _BASE58_ALPHABET for c in s)
+
+
+def _valid_withdraw_address(chain: str, address: str) -> bool:
+    """Per-chain destination validation — same rules as the bot, so a wrong-
+    format address can't burn funds (e.g. an EVM 0x pasted as a Solana dest)."""
+    address = (address or "").strip()
+    chain_l = (chain or "").lower()
+    if chain_l in ("solana", "sol"):
+        return _is_base58_addr(address) and 32 <= len(address) <= 44
+    if chain_l in ("tron", "trx"):
+        return address.startswith("T") and _is_base58_addr(address) and len(address) == 34
+    if not address.startswith("0x") or len(address) != 42:
+        return False
+    try:
+        int(address[2:], 16)
+        return True
+    except ValueError:
+        return False
+
+
+def _withdraw_enabled() -> bool:
+    """Server-side kill-switch for web withdrawals. Enabled by default; set
+    TERMINAL_WITHDRAW_ENABLED=false in the environment to pause withdrawals
+    instantly without a redeploy (deposits are unaffected)."""
+    return os.getenv("TERMINAL_WITHDRAW_ENABLED", "true").strip().lower() not in (
+        "false",
+        "0",
+        "no",
+        "off",
+    )
+
+
+@router.get("/wallet/summary")
+async def terminal_wallet_summary(request: Request):
+    """Custodial wallet overview for the signed-in user: the omnibus deposit
+    addresses (EVM + Solana, same as the bot shows) and the per-user balances."""
+    uid = int(_terminal_user(request)["user_id"])
+    from bot.services.hot_wallet import hot_wallet_service
+
+    evm = hot_wallet_service.get_deposit_wallet("evm")
+    sol = hot_wallet_service.get_deposit_wallet("solana")
+    balances_raw = hot_wallet_service.get_all_custodial_balances(uid) or {}
+
+    balances = []
+    for chain, tokens in balances_raw.items():
+        for token_symbol, amt in (tokens or {}).items():
+            value = _to_float(amt) or 0.0
+            if value > 0:
+                balances.append({"chain": chain, "token": token_symbol, "amount": value})
+    balances.sort(key=lambda b: b["amount"], reverse=True)
+
+    return {
+        "evmDepositAddress": evm.address if evm else None,
+        "solanaDepositAddress": sol.address if sol else None,
+        "balances": balances,
+        "withdrawEnabled": _withdraw_enabled(),
+    }
+
+
+class WalletWithdrawBody(BaseModel):
+    chain: str
+    token: str
+    amount: float
+    toAddress: str
+    memo: Optional[str] = None
+
+
+@router.post("/wallet/withdraw")
+async def terminal_wallet_withdraw(request: Request, body: WalletWithdrawBody):
+    """Withdraw a custodial balance to an external address. Reuses the bot's
+    proven path: validate → balance check → on-chain send → debit only after a
+    successful send → record. Never debits on a failed/reverted send."""
+    if not _withdraw_enabled():
+        raise HTTPException(
+            status_code=503, detail="Withdrawals are temporarily paused. Please try again shortly."
+        )
+    uid = int(_terminal_user(request)["user_id"])
+    chain = (body.chain or "").strip()
+    token = (body.token or "").strip().upper()
+    to_address = (body.toAddress or "").strip()
+
+    if not _valid_withdraw_address(chain, to_address):
+        raise HTTPException(
+            status_code=400, detail="That destination address isn't valid for this network."
+        )
+    if not (body.amount and body.amount > 0):
+        raise HTTPException(status_code=400, detail="Enter an amount greater than zero.")
+
+    from decimal import Decimal as _D
+    from bot.services.hot_wallet import hot_wallet_service
+    from bot.models.custodial import TransactionType
+    from bot.config.tokens import TOKENS, get_token_address
+
+    amount = _D(str(body.amount))
+    balance = hot_wallet_service.get_custodial_balance(uid, chain, token)
+    if amount > balance:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient balance — you have {_to_float(balance)} {token} on {chain}.",
+        )
+
+    chain_type = "solana" if chain.lower() in ("solana", "sol") else "evm"
+    hot_wallet = hot_wallet_service.get_deposit_wallet(chain_type)
+    if not hot_wallet:
+        raise HTTPException(status_code=503, detail="Withdrawals are temporarily unavailable.")
+
+    token_address = get_token_address(token, chain)
+    memo = body.memo or ""
+    try:
+        if token_address and token_address != "0x0000000000000000000000000000000000000000":
+            token_cfg = TOKENS.get(token)
+            if not token_cfg:
+                raise HTTPException(status_code=400, detail=f"Unknown token {token}.")
+            tx_hash = await hot_wallet_service.send_token(
+                wallet=hot_wallet,
+                chain_name=chain,
+                token_address=token_address,
+                to_address=to_address,
+                amount=amount,
+                decimals=token_cfg.decimals,
+                memo=memo,
+            )
+        else:
+            tx_hash = await hot_wallet_service.send_native_token(
+                wallet=hot_wallet,
+                chain_name=chain,
+                to_address=to_address,
+                amount=amount,
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("terminal withdraw send failed for user %s", uid)
+        raise HTTPException(
+            status_code=502,
+            detail="The withdrawal couldn't be submitted on-chain. Your balance is unchanged.",
+        )
+
+    # Debit the ledger ONLY after a successful on-chain send (matches the bot).
+    hot_wallet_service.update_custodial_balance(
+        user_id=uid, chain=chain, token_symbol=token, amount=amount, operation="subtract"
+    )
+    hot_wallet_service.record_transaction(
+        user_id=uid,
+        tx_type=TransactionType.WITHDRAWAL,
+        chain=chain,
+        token_symbol=token,
+        amount=amount,
+        tx_hash=tx_hash,
+        from_address=hot_wallet.address,
+        to_address=to_address,
+    )
+    return {"ok": True, "txHash": tx_hash, "status": "submitted"}

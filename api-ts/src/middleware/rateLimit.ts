@@ -10,6 +10,8 @@ const TIER_LIMITS: Record<string, number> = {
 	free: 30,
 	agent: 100,
 	pro: 500,
+	premium: 2_000,
+	enterprise: 10_000,
 }
 
 const WINDOW_MS = 60_000 // 1 minute

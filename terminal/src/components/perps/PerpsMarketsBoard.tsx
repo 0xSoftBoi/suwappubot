@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
-import type { HLMarket } from '../../types/api'
+import type { HLMarket, PerpsMarketContext } from '../../types/api'
 import { usePerpsFunding, formatFundingPct } from '../../hooks/usePerpsFunding'
+import { usePerpsContext } from '../../hooks/usePerpsContext'
 
 interface Props {
   selectedMarket: string
@@ -30,6 +31,13 @@ function formatMark(n: number) {
   return n.toPrecision(4)
 }
 
+function formatUsd(n: number) {
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(0)}M`
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`
+  return `$${n.toFixed(0)}`
+}
+
 // The full HyperLiquid markets board — every perp with live mark, funding and max
 // leverage. Selecting a row drives the order ticket. This is the perps desk's
 // equivalent of the spot pair list.
@@ -41,13 +49,30 @@ export function PerpsMarketsBoard({ selectedMarket, onSelectMarket }: Props) {
     staleTime: 15_000,
     refetchInterval: 20_000,
   })
+  const { data: context } = usePerpsContext()
 
+  // Index the intel feed by bare asset symbol for O(1) per-row lookup.
+  const ctxByAsset = useMemo(() => {
+    const map = new Map<string, PerpsMarketContext>()
+    for (const c of context ?? []) map.set(c.asset, c)
+    return map
+  }, [context])
+
+  const ctxFor = (name: string) => ctxByAsset.get(name.replace('-USD', '').toUpperCase())
+
+  // Default to heaviest markets first (open interest) — what traders scan for.
+  // Falls back to mark price before the intel feed lands.
   const filtered = useMemo(() => {
     const list = markets ?? []
     const q = search.trim().toUpperCase()
     const matched = q ? list.filter((m) => m.name.toUpperCase().includes(q)) : list
-    return [...matched].sort((a, b) => b.markPrice - a.markPrice)
-  }, [markets, search])
+    return [...matched].sort((a, b) => {
+      const oiA = ctxByAsset.get(a.name.replace('-USD', '').toUpperCase())?.oiNotional
+      const oiB = ctxByAsset.get(b.name.replace('-USD', '').toUpperCase())?.oiNotional
+      if (oiA != null && oiB != null) return oiB - oiA
+      return b.markPrice - a.markPrice
+    })
+  }, [markets, search, ctxByAsset])
 
   return (
     <div className="flex h-full flex-col">
@@ -75,6 +100,8 @@ export function PerpsMarketsBoard({ selectedMarket, onSelectMarket }: Props) {
               <tr className="text-terminal-text-muted border-b border-terminal-border">
                 <th className="text-left py-1.5 px-3 font-medium">Market</th>
                 <th className="text-right py-1.5 px-3 font-medium">Mark</th>
+                <th className="text-right py-1.5 px-3 font-medium">24h</th>
+                <th className="text-right py-1.5 px-3 font-medium">OI</th>
                 <th className="text-right py-1.5 px-3 font-medium">Funding/1h</th>
                 <th className="text-right py-1.5 px-3 font-medium">Max Lev</th>
               </tr>
@@ -82,6 +109,8 @@ export function PerpsMarketsBoard({ selectedMarket, onSelectMarket }: Props) {
             <tbody>
               {filtered.map((m) => {
                 const active = m.name === selectedMarket
+                const ctx = ctxFor(m.name)
+                const chg = ctx?.dayChangePct
                 return (
                   <tr
                     key={m.name}
@@ -105,7 +134,21 @@ export function PerpsMarketsBoard({ selectedMarket, onSelectMarket }: Props) {
                       </span>
                     </td>
                     <td className="py-2 px-3 text-right font-mono tabular-nums text-terminal-text">
-                      ${formatMark(m.markPrice)}
+                      ${formatMark(ctx?.markPrice ?? m.markPrice)}
+                    </td>
+                    <td
+                      className={`py-2 px-3 text-right font-mono tabular-nums ${
+                        chg == null
+                          ? 'text-terminal-text-muted'
+                          : chg >= 0
+                            ? 'text-bull'
+                            : 'text-bear'
+                      }`}
+                    >
+                      {chg == null ? '—' : `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`}
+                    </td>
+                    <td className="py-2 px-3 text-right font-mono tabular-nums text-terminal-text-secondary">
+                      {ctx ? formatUsd(ctx.oiNotional) : '—'}
                     </td>
                     <td className="py-2 px-3 text-right">
                       <FundingCell market={m} />

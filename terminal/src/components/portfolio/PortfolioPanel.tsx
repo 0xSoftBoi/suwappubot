@@ -5,6 +5,7 @@ import { TradeHistory } from './TradeHistory'
 import { PnLSummary } from './PnLSummary'
 import { EquityCurve } from './EquityCurve'
 import { PerpsPositions } from '../perps/PositionsTable'
+import { WalletModal } from '../wallet/WalletModal'
 import { useAuth } from '../../contexts/AuthContext'
 
 type Tab = 'holdings' | 'orders' | 'history' | 'positions'
@@ -18,10 +19,20 @@ const TABS: { id: Tab; label: string }[] = [
 
 export function PortfolioPanel() {
   const [activeTab, setActiveTab] = useState<Tab>('holdings')
+  const [wallet, setWallet] = useState<null | 'deposit' | 'withdraw'>(null)
   const { isAuthenticated } = useAuth()
+
+  const openWallet = (tab: 'deposit' | 'withdraw') => {
+    if (!isAuthenticated) {
+      toast('Sign in to deposit or withdraw')
+      return
+    }
+    setWallet(tab)
+  }
 
   return (
     <div className="h-full flex flex-col">
+      <WalletModal open={wallet !== null} onClose={() => setWallet(null)} initialTab={wallet ?? 'deposit'} />
       {/* Tab bar */}
       <div className="flex items-center border-b border-terminal-border px-2 shrink-0">
         {TABS.map(tab => (
@@ -34,16 +45,10 @@ export function PortfolioPanel() {
           </button>
         ))}
         <div className="ml-auto flex items-center gap-2 py-1">
-          <button
-            className="terminal-button-secondary text-xs"
-            onClick={() => toast('Create a Turnkey wallet to deposit/withdraw')}
-          >
+          <button className="terminal-button-secondary text-xs" onClick={() => openWallet('deposit')}>
             Deposit
           </button>
-          <button
-            className="terminal-button-secondary text-xs"
-            onClick={() => toast('Create a Turnkey wallet to deposit/withdraw')}
-          >
+          <button className="terminal-button-secondary text-xs" onClick={() => openWallet('withdraw')}>
             Withdraw
           </button>
         </div>

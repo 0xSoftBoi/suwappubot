@@ -9,6 +9,8 @@ import { PerpsPanel } from './PerpsPanel'
 import { PerpsChart } from './PerpsChart'
 import { PerpsPositions } from './PositionsTable'
 import { PerpsOpenOrders } from './OpenOrdersTable'
+import { OrderFlowPanel } from './OrderFlowPanel'
+import { SmartMoneyPanel } from './SmartMoneyPanel'
 
 // The HyperLiquid perps desk. Markets board (left) + order ticket (right) share a
 // single selected market; live positions span the bottom. Desktop uses resizable
@@ -17,7 +19,9 @@ export function PerpsWorkspace() {
   const isMobile = useIsMobile()
   const [selectedMarket, setSelectedMarket] = useState('ETH-USD')
 
-  const [bottomTab, setBottomTab] = useState<'positions' | 'orders'>('positions')
+  const [bottomTab, setBottomTab] = useState<'positions' | 'orders' | 'flow' | 'whales'>(
+    'positions'
+  )
 
   const { data: markets } = useQuery({
     queryKey: ['perps-markets'],
@@ -25,27 +29,43 @@ export function PerpsWorkspace() {
     staleTime: 15_000,
   })
 
-  // Shared bottom panel: tab between live positions and resting open orders.
+  // Shared bottom panel: tab between live positions, resting orders, and the
+  // real-time order-flow (CVD / book imbalance / whale prints) for the market.
+  const BOTTOM_TABS = [
+    { id: 'positions', label: 'Positions' },
+    { id: 'orders', label: 'Open Orders' },
+    { id: 'flow', label: 'Order Flow' },
+    { id: 'whales', label: 'Smart Money' },
+  ] as const
   const bottomTabBar = (
     <div role="tablist" aria-label="Perps activity" className="flex shrink-0 border-b border-terminal-border">
-      {(['positions', 'orders'] as const).map((t) => (
+      {BOTTOM_TABS.map((t) => (
         <button
-          key={t}
+          key={t.id}
           role="tab"
-          aria-selected={bottomTab === t}
-          onClick={() => setBottomTab(t)}
+          aria-selected={bottomTab === t.id}
+          onClick={() => setBottomTab(t.id)}
           className={`px-3 py-2 text-sm font-semibold transition-colors ${
-            bottomTab === t
+            bottomTab === t.id
               ? 'border-b-2 border-sakura-500 text-terminal-text'
               : 'text-terminal-text-secondary hover:text-terminal-text'
           }`}
         >
-          {t === 'positions' ? 'Positions' : 'Open Orders'}
+          {t.label}
         </button>
       ))}
     </div>
   )
-  const bottomBody = bottomTab === 'positions' ? <PerpsPositions /> : <PerpsOpenOrders />
+  const bottomBody =
+    bottomTab === 'positions' ? (
+      <PerpsPositions />
+    ) : bottomTab === 'orders' ? (
+      <PerpsOpenOrders />
+    ) : bottomTab === 'flow' ? (
+      <OrderFlowPanel market={selectedMarket} />
+    ) : (
+      <SmartMoneyPanel market={selectedMarket} />
+    )
 
   if (isMobile) {
     return (
