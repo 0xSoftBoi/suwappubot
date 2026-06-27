@@ -2,7 +2,7 @@
 name: webapp-dev
 description: React webapp specialist — Telegram Mini App components, hooks, contexts, pages. Use for any work in webapp/ or packages/shared/.
 tools: Read, Edit, Write, Bash, Grep, Glob, Agent
-model: inherit
+model: sonnet
 maxTurns: 25
 skills:
   - new-page
@@ -53,3 +53,10 @@ npm run test:all                 # All tests
 - Use existing hooks and contexts — don't duplicate state management
 - Telegram Mini App has specific UX constraints (no browser chrome, limited viewport) — respect them
 - Test on mobile viewport sizes — this is primarily a mobile app
+
+## Reporting & escalation
+
+- Return a **tight summary** to the conductor: what changed, which files, build/test result, follow-ups. Don't paste full components or diffs back — keep the main context lean.
+- Toasts/errors: use `@/lib/a11yToast` (not raw react-hot-toast); plain-language copy, mirror bot `error_guidance` conventions.
+- If a change touches **swap submission, wallet/keys, payments, or balance display logic**, tag it `MONEY-PATH` so the conductor routes an Opus `money-path-reviewer` pass.
+- Offload broad "where is X / audit all Y" recon to the `scout` agent instead of grinding greps yourself.

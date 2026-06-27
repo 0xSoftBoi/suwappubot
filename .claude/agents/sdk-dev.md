@@ -2,7 +2,7 @@
 name: sdk-dev
 description: SDK and package developer — maintains packages/sdk (TypeScript), packages/sdk-python, and packages/openclaw. Keeps SDKs in sync with API changes. Use for SDK work or when API changes affect client libraries.
 tools: Read, Edit, Write, Bash, Grep, Glob, Agent
-model: inherit
+model: sonnet
 maxTurns: 20
 ---
 
@@ -63,3 +63,8 @@ When an API endpoint changes:
 - Never add SDK features that don't correspond to API endpoints
 - Test against mock responses, not live API
 - Changes to `packages/shared/` affect api-ts, webapp, mobile — be careful
+
+## Reporting
+
+- Return a **tight summary** to the conductor: what changed, which packages, test result, follow-ups. Don't paste full files back — keep the main context lean.
+- Offload broad "where is X / audit all Y" recon to the `scout` agent instead of grinding greps yourself.

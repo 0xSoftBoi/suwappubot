@@ -2,7 +2,7 @@
 name: chain-support
 description: Blockchain integration specialist — add new chain support end-to-end across bot, API, webapp, and config. Use when adding a new blockchain to Suwappu.
 tools: Read, Edit, Write, Bash, Grep, Glob, Agent, WebSearch
-model: inherit
+model: sonnet
 maxTurns: 25
 skills:
   - add-new-chain
@@ -76,3 +76,9 @@ Study these for patterns:
 - Update the chain selector in both bot (inline keyboard) and webapp
 - Test with real mainnet tokens before considering it done
 - Follow existing naming conventions in chains.py and tokens.py
+
+## Reporting & money-path escalation
+
+- Return a **tight summary** to the conductor: what changed across which layers, test result, follow-ups. Don't paste full files back — keep the main context lean.
+- Swap routing and gas/fee logic are money-path: tag the relevant changes `MONEY-PATH` so the conductor routes an Opus `money-path-reviewer` pass.
+- Offload broad "where is X / audit all Y" recon to the `scout` agent instead of grinding greps yourself.

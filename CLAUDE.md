@@ -168,9 +168,44 @@ bash scripts/verify.sh agent  # Run only agent card/registry checks
 1. **CI green ≠ the bot boots.** The "Tests & Quality Gates" job does not exercise `bot/main.py`'s startup import chain, so a bad import passes CI and then crashes the bot. After every deploy, verify: `curl https://api.suwappu.bot/health` → 200 **and** `railway logs --service python-api | grep -iE "ImportError|ModuleNotFound|cannot import"` is empty. The `/ship` skill does this.
 2. **Don't call an integration "live" without a real end-to-end test.** Parse/boot/CI prove the code *loads*, not that the feature *works*. Send the actual message, do the actual (testnet/small) swap, fetch a real record through the new path. Use the `verify` / `run` skills. If a live test is genuinely blocked, say "code-complete, not functionally verified — needs X," not "live."
 3. **For implementation, prefer `Explore` agents + direct edits over the `Workflow` tool.** Workflow schema-agents drop `StructuredOutput` on most runs → later phases skip and the work needs full hand-finishing (salvage ladder: parse → boot-import gate → dead-button audit → money-path review). Use `Workflow` only for read-only research fan-out.
-4. **Model tiers:** Opus = money-path code + adversarial review; Sonnet = feature work, sweeps, research; Haiku = grep/parse/registration audits + `Explore` fan-out. Don't run cheap mechanical checks on the main Opus loop.
+4. **Model tiers & the conductor:** The main loop runs **Sonnet** and acts as the *conductor* — it plans, routes, and synthesizes; it does **not** grind. Opus runs **only** at the quality gates (`money-path-reviewer`, `security-auditor`, `suwappu-lead` for heavy architecture). Haiku does mechanical recon (`scout`, `Explore`). See **Conductor protocol** below. (Escape hatch: `/model opus` for a genuinely hard-architecture session.)
 5. **Reuse before building:** use the repo skills (`/migrations`, `/new-handler`, `/new-route`, `/new-test`, `/ship`) and the **Blockscout MCP** for on-chain checks (router contracts, real tx) rather than hand-rolling.
 6. **Pre-merge formatting:** CI runs `black --check --line-length=100 bot/ api/ tests/`. Run black on changed Python before pushing or CI fails on style.
+
+## Conductor protocol (how the main loop works)
+
+The main loop is the **conductor**, not a worker. Measured baseline (46 sessions): 97% of output came from the main loop and only **3% of file-touching actions were delegated** — that is the habit we are fixing.
+
+**Default to delegation.** Any multi-step search, audit, feature edit, test run, or verbose command goes to a specialist. The conductor's own job is: understand → decompose → route → synthesize → decide. Do trivial single edits and final synthesis yourself; push everything else down.
+
+**Routing table:**
+
+| Work | Send to | Model |
+|------|---------|-------|
+| "where is X / does Y exist / audit all Z", registration & parse/boot gates, dead-button audits | `scout` | haiku |
+| Broad fan-out file search (conclusion only) | `Explore` | haiku |
+| Web / competitor / economics / design-critique / best-practice research | `researcher` | sonnet |
+| Python bot/api/db feature work | `bot-dev` | sonnet |
+| TypeScript api-ts feature work | `api-ts-dev` | sonnet |
+| Webapp (Telegram Mini App) feature work | `webapp-dev` | sonnet |
+| Showcase site / marketing / visual polish | `showcase-dev` | sonnet |
+| Dual-ORM schema change | `db-migrate` | sonnet |
+| New chain integration | `chain-support` | sonnet |
+| SDK/package sync | `sdk-dev` | sonnet |
+| Tests | `test-engineer` | sonnet |
+| Swap/balance/RPC debugging | `swap-debug` | sonnet |
+| Deploys / health / logs | `deploy-ops` | sonnet |
+| Production incident | `incident-responder` | sonnet |
+| General code-quality review | `reviewer` | sonnet |
+| **Any diff a builder tagged `MONEY-PATH`** (swap exec, wallet/keys, KMS, billing/x402, fee math, seasons/points, withdrawals) | `money-path-reviewer` | **opus** |
+| Security posture / OWASP / secret scan | `security-auditor` | **opus** |
+| Genuinely large multi-service architecture needing a second Opus brain | `suwappu-lead` | **opus** |
+
+**Never use `general-purpose` for research** — it's an untiered catch-all that runs at the main-loop tier. Use `researcher` (sonnet) or `scout` (haiku) instead.
+
+**Context discipline** (the 4.5B cache-read tokens come from 1,400–1,800-turn marathons):
+- **One task ≈ one session.** `/clear` between unrelated tasks instead of letting context balloon.
+- **Isolate verbose output** — test runs, log tails, big greps, doc fetches go to a subagent so their output stays in *its* context, and only a tight summary returns to the conductor.
 
 ## Custom Skills
 
