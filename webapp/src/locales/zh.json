@@ -1,0 +1,65 @@
+{
+  "nav": {
+    "home": "首页",
+    "swap": "兑换",
+    "wallet": "钱包",
+    "portfolio": "投资组合",
+    "history": "历史",
+    "settings": "设置"
+  },
+  "common": {
+    "back": "返回",
+    "confirm": "确认",
+    "cancel": "取消",
+    "loading": "加载中...",
+    "error": "错误",
+    "save": "保存",
+    "close": "关闭",
+    "retry": "重试",
+    "continue": "继续",
+    "done": "完成",
+    "search": "搜索"
+  },
+  "settings": {
+    "title": "设置",
+    "language": "语言",
+    "notifications": "通知",
+    "notificationsDesc": "启用所有通知",
+    "linkedWallets": "关联钱包",
+    "slippage": "滑点",
+    "gas": "Gas 设置"
+  },
+  "swap": {
+    "title": "兑换",
+    "from": "从",
+    "to": "至",
+    "selectToken": "选择代币",
+    "enterAmount": "输入金额",
+    "swapNow": "立即兑换",
+    "confirmSwap": "确认兑换",
+    "swapSuccess": "兑换成功"
+  },
+  "wallet": {
+    "title": "钱包",
+    "balance": "余额",
+    "send": "发送",
+    "receive": "接收",
+    "copyAddress": "复制地址"
+  },
+  "portfolio": {
+    "title": "投资组合",
+    "totalValue": "总价值",
+    "noAssets": "未找到资产"
+  },
+  "home": {
+    "title": "首页",
+    "quickSwap": "快速兑换"
+  },
+  "language": {
+    "title": "语言",
+    "en": "English",
+    "es": "Español",
+    "fr": "Français",
+    "zh": "中文"
+  }
+}

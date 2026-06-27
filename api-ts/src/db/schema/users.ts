@@ -7,6 +7,7 @@ import {
 	serial,
 	text,
 	timestamp,
+	uuid,
 	varchar,
 } from 'drizzle-orm/pg-core'
 
@@ -25,6 +26,7 @@ export const users = pgTable('users', {
 	defaultSlippage: integer('default_slippage').default(50),
 	notificationsEnabled: boolean('notifications_enabled').default(true),
 	gasMode: varchar('gas_mode', { length: 10 }).default('auto'),
+	languagePreference: text('language_preference').default('en'),
 
 	// Terms of Service
 	tosAccepted: boolean('tos_accepted').default(false),
@@ -39,6 +41,9 @@ export const users = pgTable('users', {
 	twoFaEnabled: boolean('two_fa_enabled').default(false),
 	totpSecret: varchar('totp_secret', { length: 64 }),
 	twoFaThreshold: integer('two_fa_threshold').default(1000),
+
+	// Enterprise org membership
+	organizationId: uuid('organization_id'),
 
 	// Timestamps
 	createdAt: timestamp('created_at').defaultNow(),

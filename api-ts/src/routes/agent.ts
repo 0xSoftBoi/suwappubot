@@ -13,7 +13,10 @@ import { type SpendPermission, validateSpendPermission } from '../lib/spendPermi
 import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { agentBearerAuth, agentBearerAuthAllowInactive } from '../middleware'
+import { agentFlexAuth } from '../middleware/agentFlexAuth'
 import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
+import { recordUsage } from '../middleware/recordUsage'
+import { requireScope } from '../middleware/requireScope'
 import { ipRateLimit } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
 import { BYPASS_TIERS, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment } from '../middleware/x402Payment'
@@ -401,26 +404,26 @@ agentRoutes.get('/chains', async (c) => {
 // AUTHENTICATED ENDPOINTS
 // ===========================================
 
-agentRoutes.use('/me', agentBearerAuth())
-agentRoutes.use('/me/*', agentBearerAuth())
+agentRoutes.use('/me', agentFlexAuth())
+agentRoutes.use('/me/*', agentFlexAuth())
 agentRoutes.use('/quote', agentOrMppAuth())
 agentRoutes.use('/swap', agentOrMppAuth())
-agentRoutes.use('/execute', agentBearerAuth())
-agentRoutes.use('/portfolio', agentBearerAuth())
-agentRoutes.use('/wallets', agentBearerAuth())
-agentRoutes.use('/wallets/*', agentBearerAuth())
-agentRoutes.use('/swap/*', agentBearerAuth())
-agentRoutes.use('/swaps', agentBearerAuth())
-agentRoutes.use('/prices', agentBearerAuth())
-agentRoutes.use('/tokens', agentBearerAuth())
-agentRoutes.use('/webhooks', agentBearerAuth())
-agentRoutes.use('/webhooks/*', agentBearerAuth())
-agentRoutes.use('/keys/*', agentBearerAuth())
-agentRoutes.use('/wallet/policy', agentBearerAuth())
-agentRoutes.use('/wallet/policy/*', agentBearerAuth())
-agentRoutes.use('/wallet/policies', agentBearerAuth())
-agentRoutes.use('/billing', agentBearerAuth())
-agentRoutes.use('/billing/*', agentBearerAuth())
+agentRoutes.use('/execute', agentFlexAuth())
+agentRoutes.use('/portfolio', agentFlexAuth())
+agentRoutes.use('/wallets', agentFlexAuth())
+agentRoutes.use('/wallets/*', agentFlexAuth())
+agentRoutes.use('/swap/*', agentFlexAuth())
+agentRoutes.use('/swaps', agentFlexAuth())
+agentRoutes.use('/prices', agentFlexAuth())
+agentRoutes.use('/tokens', agentFlexAuth())
+agentRoutes.use('/webhooks', agentFlexAuth())
+agentRoutes.use('/webhooks/*', agentFlexAuth())
+agentRoutes.use('/keys/*', agentFlexAuth())
+agentRoutes.use('/wallet/policy', agentFlexAuth())
+agentRoutes.use('/wallet/policy/*', agentFlexAuth())
+agentRoutes.use('/wallet/policies', agentFlexAuth())
+agentRoutes.use('/billing', agentFlexAuth())
+agentRoutes.use('/billing/*', agentFlexAuth())
 agentRoutes.use('/reactivate', agentBearerAuthAllowInactive())
 
 // Apply rate limiting to all authenticated endpoints
@@ -460,6 +463,15 @@ agentRoutes.use('/swap/execute', meteredPayment('swap/execute'))
 agentRoutes.use('/portfolio', meteredPayment('portfolio'))
 agentRoutes.use('/prices', meteredPayment('prices'))
 agentRoutes.use('/tokens', meteredPayment('tokens'))
+
+// Usage recording — fire-and-forget, only activates for org API key requests
+agentRoutes.use('*', recordUsage())
+
+// Scope enforcement on sensitive endpoints (API key paths only; bearer token paths bypass)
+agentRoutes.use('/swap/execute', requireScope('swap:execute'))
+agentRoutes.use('/portfolio', requireScope('trade:read'))
+agentRoutes.use('/wallets', requireScope('trade:read'))
+agentRoutes.use('/wallets/*', requireScope('trade:read'))
 
 // GET /v1/agent/me - Get current agent profile
 agentRoutes.get('/me', async (c) => {

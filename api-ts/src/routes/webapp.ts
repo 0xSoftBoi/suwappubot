@@ -2,10 +2,12 @@ import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import jwt from 'jsonwebtoken'
 import { EnvService } from '../config/EnvService'
+import { requireDb } from '../db'
 import { logger } from '../lib/logger'
 import { mapErrorToResponse } from '../errors'
 import { requireTier, telegramAuth } from '../middleware'
 import { runEffect, runEffectEither } from '../runtime'
+import { getVipStatusRaw } from '../services/VipService'
 import {
 	BalanceService,
 	PointsService,
@@ -412,6 +414,18 @@ protectedWebapp.get('/preferences', async (c) => {
 			// Get linked wallets
 			const wallets = yield* walletService.getActiveWallets(user.id)
 
+			// Determine language: stored preference → Accept-Language header → 'en'
+			const acceptLang = c.req.header('Accept-Language')
+			const headerLang = acceptLang ? acceptLang.split(',')[0]?.split('-')[0]?.trim() : undefined
+			const SUPPORTED_LANGS = ['en', 'es', 'fr', 'zh'] as const
+			type SupportedLang = (typeof SUPPORTED_LANGS)[number]
+			const resolvedLang: SupportedLang =
+				(SUPPORTED_LANGS as readonly string[]).includes(user.languagePreference ?? '')
+					? (user.languagePreference as SupportedLang)
+					: (SUPPORTED_LANGS as readonly string[]).includes(headerLang ?? '')
+						? (headerLang as SupportedLang)
+						: 'en'
+
 			return {
 				user: {
 					id: user.id,
@@ -426,6 +440,7 @@ protectedWebapp.get('/preferences', async (c) => {
 					twoFaEnabled: user.twoFaEnabled ?? false,
 					twoFaThreshold: user.twoFaThreshold ?? 1000,
 					gasMode: user.gasMode ?? 'auto',
+					languagePreference: resolvedLang,
 				},
 				wallets: wallets.map((w) => ({
 					address: w.address,
@@ -493,6 +508,46 @@ protectedWebapp.put('/preferences', async (c) => {
 	return c.json(result.right)
 })
 
+// PATCH /webapp/me/language - Update language preference
+const SUPPORTED_LANGUAGES = ['en', 'es', 'fr', 'zh'] as const
+type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number]
+
+protectedWebapp.patch('/language', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const body = await c.req.json().catch(() => ({})) as { language?: unknown }
+
+	if (!body.language || !(SUPPORTED_LANGUAGES as readonly unknown[]).includes(body.language)) {
+		return c.json(
+			{ error: `Invalid language. Supported values: ${SUPPORTED_LANGUAGES.join(', ')}` },
+			400,
+		)
+	}
+
+	const language = body.language as SupportedLanguage
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			yield* userService.updateUserPreferences(userOption.value.id, {
+				languagePreference: language,
+			})
+
+			return { success: true, language }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message || 'Failed to update language' }, 500)
+	}
+	return c.json(result.right)
+})
+
 // === Points Routes ===
 
 // GET /webapp/me/points/stats - Get user's points stats
@@ -514,6 +569,32 @@ protectedWebapp.get('/points/stats', async (c) => {
 				...stats,
 				lastCheckin: stats.lastCheckin?.toISOString() ?? null,
 			}
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// GET /webapp/me/vip - Cross-line VIP status (effective tier, season volume,
+// loyalty multiplier, progress to next band).
+protectedWebapp.get('/vip', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+			const db = yield* requireDb
+			return yield* Effect.tryPromise({
+				try: () => getVipStatusRaw(db, userOption.value.id),
+				catch: (e) => new Error(`vip status failed: ${e}`),
+			})
 		}),
 	)
 
