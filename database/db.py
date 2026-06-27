@@ -491,6 +491,30 @@ def _ensure_schema(db_engine) -> None:
     if "rewards" in tables:
         _add_reward_category_column(db_engine, inspector, is_sqlite)
 
+    # --- users: enterprise org membership columns ---
+    if "users" in tables:
+        _add_user_org_columns(db_engine, inspector, is_sqlite)
+
+
+def _add_user_org_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add users.organization_id and users.organization_role for enterprise tenancy, idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("users")}
+    for col, col_type in [
+        ("organization_id", "VARCHAR(36)"),
+        ("organization_role", "VARCHAR(20)"),
+    ]:
+        if col not in cols:
+            try:
+                if is_sqlite:
+                    ddl = f"ALTER TABLE users ADD COLUMN {col} {col_type}"
+                else:
+                    ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col} {col_type}"
+                with db_engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info(f"Added users.{col}")
+            except Exception as e:
+                logger.warning(f"Failed to add users.{col}: {e}")
+
 
 def _add_reward_category_column(db_engine, inspector, is_sqlite: bool) -> None:
     """Add rewards.reward_category idempotently (default 'own_product').

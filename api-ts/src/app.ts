@@ -11,6 +11,7 @@ import {
 	adminRoutes,
 	agentRoutes,
 	billingRoutes,
+	enterpriseRoutes,
 	healthRoutes,
 	internalRoutes,
 	lendRoutes,
@@ -100,6 +101,9 @@ export function createApp(config: AppConfig) {
 
 	// Billing routes - Stripe subscription management
 	app.route('/billing', billingRoutes)
+
+	// Enterprise org management + API key control plane
+	app.route('/enterprise', enterpriseRoutes)
 
 	// Agent A2A API routes (v1/agent/*) - uses Bearer token auth internally
 	// Registration is public, other endpoints require Bearer token

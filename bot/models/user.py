@@ -78,6 +78,10 @@ class User(Base):
     weekly_digest = Column(Boolean, default=False)
     last_digest_at = Column(DateTime, nullable=True)
 
+    # Enterprise org membership (cross-db ref, no FK constraint)
+    organization_id = Column(String(36), nullable=True)
+    organization_role = Column(String(20), nullable=True)  # owner | admin | member | viewer
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -1,4 +1,5 @@
 export { adminKeyAuth, agentBearerAuth, agentBearerAuthAllowInactive } from './auth'
+export { apiKeyAuth } from './apiKeyAuth'
 export { agentOrMppAuth } from './agentOrMppAuth'
 export { createCorsMiddleware } from './cors'
 export { flexAuth } from './flexAuth'
