@@ -1,0 +1,583 @@
+/* ================================================================
+   Enterprise Dashboard — scoped styles
+   Relies on the summer-page token layer in globals.css for all
+   --summer-* custom properties.
+   ================================================================ */
+
+/* ── Shell ── */
+.shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px 60px;
+}
+
+/* ── Top header bar ── */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  margin-bottom: 28px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 8px 24px rgba(33, 88, 110, 0.08);
+}
+
+.orgName {
+  margin: 0;
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-display);
+  font-size: 1.22rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.tierBadge {
+  flex: 0 0 auto;
+  border: 1px solid rgba(229, 141, 43, 0.5);
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: linear-gradient(180deg, rgba(246, 169, 60, 0.18), rgba(229, 141, 43, 0.12));
+  color: #b96a12;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.headerSep {
+  flex: 1;
+}
+
+.userInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.userName {
+  color: var(--summer-ink, #17324a);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.roleBadge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.roleBadge--owner {
+  background: rgba(229, 141, 43, 0.14);
+  border: 1px solid rgba(229, 141, 43, 0.4);
+  color: #b96a12;
+}
+
+.roleBadge--admin {
+  background: rgba(14, 149, 189, 0.12);
+  border: 1px solid rgba(14, 149, 189, 0.36);
+  color: #0b789a;
+}
+
+.roleBadge--member {
+  background: rgba(33, 88, 110, 0.08);
+  border: 1px solid rgba(33, 88, 110, 0.2);
+  color: #345069;
+}
+
+.roleBadge--viewer {
+  background: rgba(142, 182, 197, 0.12);
+  border: 1px solid rgba(142, 182, 197, 0.3);
+  color: #5a7184;
+}
+
+.signOutBtn {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--summer-muted, #345069);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.signOutBtn:hover {
+  border-color: rgba(33, 88, 110, 0.4);
+  background: rgba(237, 248, 251, 0.9);
+}
+
+/* ── KPI card row ── */
+.kpiRow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.kpiCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 20px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 12px 24px rgba(33, 88, 110, 0.07);
+  transition: box-shadow 0.2s ease;
+}
+
+.kpiCard:hover {
+  box-shadow: 0 16px 32px rgba(33, 88, 110, 0.12);
+}
+
+.kpiLabel {
+  margin: 0;
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.kpiValue {
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* ── Section card (chart, tables, billing) ── */
+.card {
+  margin-bottom: 20px;
+  padding: 20px 22px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 12px 28px rgba(33, 88, 110, 0.07);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.cardTitle {
+  margin: 0;
+  color: var(--summer-ink, #17324a);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+/* ── Team / API keys table ── */
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid rgba(207, 227, 234, 0.8);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.table th {
+  padding: 10px 14px;
+  background: rgba(237, 248, 251, 0.6);
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-align: left;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.76);
+}
+
+.table td {
+  padding: 12px 14px;
+  color: var(--summer-ink, #17324a);
+  font-size: 0.88rem;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.6);
+  vertical-align: middle;
+}
+
+.table tr:last-child td {
+  border-bottom: 0;
+}
+
+.table tr:hover td {
+  background: rgba(237, 248, 251, 0.45);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: #0b789a;
+}
+
+/* ── Scope pills ── */
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pill {
+  border: 1px solid rgba(14, 149, 189, 0.28);
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: rgba(14, 149, 189, 0.08);
+  color: #0b789a;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+/* ── Action buttons in table cells ── */
+.actionBtn {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--summer-muted, #345069);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.actionBtn:hover {
+  border-color: rgba(212, 72, 63, 0.4);
+  color: #c0392b;
+}
+
+.actionBtn--create {
+  color: #0b789a;
+}
+
+.actionBtn--create:hover {
+  border-color: rgba(14, 149, 189, 0.5);
+  color: #0b789a;
+}
+
+/* ── Billing section ── */
+.billingRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.billingPlan {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid rgba(229, 141, 43, 0.36);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(246, 169, 60, 0.1), rgba(229, 141, 43, 0.06));
+}
+
+.billingPlanName {
+  color: var(--summer-ink, #17324a);
+  font-weight: 700;
+  font-size: 0.96rem;
+}
+
+.billingMeta {
+  color: var(--summer-muted, #345069);
+  font-size: 0.86rem;
+}
+
+.billingLink {
+  margin-left: auto;
+}
+
+/* ── Modal overlay ── */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(23, 50, 74, 0.36);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal {
+  width: min(480px, 100%);
+  padding: 28px 28px 24px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 48px rgba(33, 88, 110, 0.18);
+}
+
+.modalTitle {
+  margin: 0 0 20px;
+  color: var(--summer-ink, #17324a);
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+
+.fieldLabel {
+  display: block;
+  margin-bottom: 14px;
+}
+
+.fieldLabelText {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fieldInput {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--summer-ink, #17324a);
+  font-size: 0.9rem;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.fieldInput:focus {
+  border-color: rgba(14, 149, 189, 0.5);
+  box-shadow: 0 0 0 3px rgba(14, 149, 189, 0.1);
+}
+
+.scopeGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.scopeCheck {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(207, 227, 234, 0.8);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-mono);
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.scopeCheck:has(input:checked) {
+  border-color: rgba(14, 149, 189, 0.5);
+  background: rgba(14, 149, 189, 0.07);
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+/* ── Login / auth gate page ── */
+.loginPage {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.loginCard {
+  width: min(440px, 100%);
+  padding: 40px 36px 32px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 2px 0 rgba(255, 255, 255, 0.9) inset,
+    0 24px 48px rgba(33, 88, 110, 0.12);
+  text-align: center;
+}
+
+.loginLogo {
+  display: block;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 20px;
+}
+
+.loginTitle {
+  margin: 0 0 6px;
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.loginLead {
+  margin: 0 0 28px;
+  color: var(--summer-muted, #345069);
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.loginDivider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+  color: var(--summer-muted, #345069);
+  font-size: 0.8rem;
+}
+
+.loginDivider::before,
+.loginDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(207, 227, 234, 0.8);
+}
+
+.tokenInput {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.tokenInput:focus {
+  border-color: rgba(14, 149, 189, 0.5);
+  box-shadow: 0 0 0 3px rgba(14, 149, 189, 0.1);
+}
+
+.tokenSubmit {
+  margin-top: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 8px;
+  background: rgba(237, 248, 251, 0.8);
+  color: var(--summer-ink, #17324a);
+  font-weight: 700;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.tokenSubmit:hover {
+  background: rgba(14, 149, 189, 0.12);
+}
+
+.loginError {
+  margin-top: 10px;
+  color: #c0392b;
+  font-size: 0.82rem;
+}
+
+/* ── Loading / error states ── */
+.stateBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 40vh;
+  gap: 12px;
+  color: var(--summer-muted, #345069);
+  font-size: 0.94rem;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(14, 149, 189, 0.2);
+  border-top-color: #27bdf0;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Chart wrapper ── */
+.chartWrap {
+  margin-top: 4px;
+  padding: 12px 4px 4px;
+  border: 1px solid rgba(207, 227, 234, 0.76);
+  border-radius: 10px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(224, 247, 249, 0.76) 58%, rgba(255, 247, 231, 0.6));
+}
+
+/* ── Responsive ── */
+@media (max-width: 860px) {
+  .kpiRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .header {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .kpiRow {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .kpiValue {
+    font-size: 1.55rem;
+  }
+
+  .scopeGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .billingRow {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .billingLink {
+    margin-left: 0;
+  }
+}

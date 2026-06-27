@@ -1,7 +1,16 @@
 import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { Effect, Either } from 'effect'
 import { Hono } from 'hono'
-import { agents, requireDb, swapTransactions, webhookEvents } from '../db'
+import {
+	agents,
+	apiUsageEvents,
+	organizations,
+	requireDb,
+	subscriptions,
+	swapTransactions,
+	webhookEvents,
+	x402Payments,
+} from '../db'
 import { mapErrorToResponse } from '../errors'
 import { runEffectEither } from '../runtime'
 
@@ -15,8 +24,22 @@ adminRoutes.get('/stats', async (c) => {
 
 			const now = new Date()
 			const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+			const todayStart = new Date(
+				Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+			)
+			const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+			const thirtyDaysAgo = new Date(todayStart.getTime() - 30 * 24 * 60 * 60 * 1000)
 
-			const [agentStats, swapStats, webhookStats] = yield* Effect.all([
+			const [
+				agentStats,
+				swapStats,
+				webhookStats,
+				revenueRow,
+				orgStats,
+				activeOrgRow,
+				apiCallsRow,
+				subBreakdownRows,
+			] = yield* Effect.all([
 				// Agent counts
 				Effect.tryPromise({
 					try: () =>
@@ -52,23 +75,88 @@ adminRoutes.get('/stats', async (c) => {
 							.from(webhookEvents),
 					catch: (e) => new Error(`Database error: ${e}`),
 				}),
+				// Revenue this month (completed x402 payments)
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({
+								total: sql<number>`coalesce(sum(${x402Payments.amount}), 0)`,
+							})
+							.from(x402Payments)
+							.where(
+								and(
+									eq(x402Payments.status, 'completed'),
+									gte(x402Payments.createdAt, monthStart),
+								),
+							),
+					catch: (e) => new Error(`Database error: ${e}`),
+				}),
+				// Enterprise org counts
+				Effect.tryPromise({
+					try: () =>
+						db.select({ total: sql<number>`count(*)` }).from(organizations),
+					catch: (e) => new Error(`Database error: ${e}`),
+				}),
+				// Active enterprise orgs (at least one usage event in last 30 days)
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({ count: sql<number>`count(distinct ${apiUsageEvents.orgId})` })
+							.from(apiUsageEvents)
+							.where(gte(apiUsageEvents.createdAt, thirtyDaysAgo)),
+					catch: (e) => new Error(`Database error: ${e}`),
+				}),
+				// API calls today (all orgs)
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({ count: sql<number>`count(*)` })
+							.from(apiUsageEvents)
+							.where(gte(apiUsageEvents.createdAt, todayStart)),
+					catch: (e) => new Error(`Database error: ${e}`),
+				}),
+				// Subscription tier breakdown
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({
+								tier: subscriptions.tier,
+								count: sql<number>`count(*)`,
+							})
+							.from(subscriptions)
+							.groupBy(subscriptions.tier),
+					catch: (e) => new Error(`Database error: ${e}`),
+				}),
 			])
+
+			const subBreakdown = { free: 0, pro: 0, premium: 0, enterprise: 0 }
+			for (const row of subBreakdownRows) {
+				const tier = (row.tier ?? 'free') as string
+				if (tier in subBreakdown) {
+					subBreakdown[tier as keyof typeof subBreakdown] = Number(row.count)
+				}
+			}
 
 			return {
 				agents: {
-					total: agentStats[0]?.total ?? 0,
-					active: agentStats[0]?.active ?? 0,
+					total: Number(agentStats[0]?.total ?? 0),
+					active: Number(agentStats[0]?.active ?? 0),
 				},
 				swaps: {
-					total: swapStats[0]?.total ?? 0,
-					last_24h: swapStats[0]?.last_24h ?? 0,
+					total: Number(swapStats[0]?.total ?? 0),
+					last_24h: Number(swapStats[0]?.last_24h ?? 0),
 				},
 				webhooks: {
-					total: webhookStats[0]?.total ?? 0,
-					pending: webhookStats[0]?.pending ?? 0,
-					delivered: webhookStats[0]?.delivered ?? 0,
-					failed: webhookStats[0]?.failed ?? 0,
+					total: Number(webhookStats[0]?.total ?? 0),
+					pending: Number(webhookStats[0]?.pending ?? 0),
+					delivered: Number(webhookStats[0]?.delivered ?? 0),
+					failed: Number(webhookStats[0]?.failed ?? 0),
 				},
+				revenueThisMonth: Number(revenueRow[0]?.total ?? 0),
+				enterpriseOrgs: Number(orgStats[0]?.total ?? 0),
+				activeEnterpriseOrgs: Number(activeOrgRow[0]?.count ?? 0),
+				apiCallsToday: Number(apiCallsRow[0]?.count ?? 0),
+				subscriptionBreakdown: subBreakdown,
 			}
 		}),
 	)
@@ -291,6 +379,95 @@ adminRoutes.get('/webhooks', async (c) => {
 					delivered_at: ev.deliveredAt,
 				})),
 				pagination: { total, limit, offset, has_more: offset + limit < total },
+			}
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
+	}
+
+	return c.json({ success: true, ...result.right })
+})
+
+// GET /admin/stats/timeseries?days=30 - Daily breakdown for charts
+adminRoutes.get('/stats/timeseries', async (c) => {
+	const rawDays = parseInt(c.req.query('days') || '30', 10)
+	const days = Math.min(Math.max(isNaN(rawDays) ? 30 : rawDays, 1), 90)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+
+			const now = new Date()
+			const todayStart = new Date(
+				Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+			)
+			const windowStart = new Date(todayStart.getTime() - (days - 1) * 24 * 60 * 60 * 1000)
+
+			const [swapRows, agentRows, apiRows] = yield* Effect.all([
+				// Swap volume per day
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({
+								date: sql<string>`to_char(date_trunc('day', ${swapTransactions.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`,
+								count: sql<number>`count(*)`,
+								usdVolume: sql<number>`coalesce(sum(cast(${swapTransactions.fromAmountUsd} as numeric)), 0)`,
+							})
+							.from(swapTransactions)
+							.where(gte(swapTransactions.createdAt, windowStart))
+							.groupBy(
+								sql`date_trunc('day', ${swapTransactions.createdAt} at time zone 'UTC')`,
+							)
+							.orderBy(
+								sql`date_trunc('day', ${swapTransactions.createdAt} at time zone 'UTC')`,
+							),
+					catch: (e) => new Error(`Database error: ${e}`),
+				}),
+				// New agents per day
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({
+								date: sql<string>`to_char(date_trunc('day', ${agents.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`,
+								count: sql<number>`count(*)`,
+							})
+							.from(agents)
+							.where(gte(agents.createdAt, windowStart))
+							.groupBy(sql`date_trunc('day', ${agents.createdAt} at time zone 'UTC')`)
+							.orderBy(sql`date_trunc('day', ${agents.createdAt} at time zone 'UTC')`),
+					catch: (e) => new Error(`Database error: ${e}`),
+				}),
+				// API calls per day (all enterprise orgs)
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({
+								date: sql<string>`to_char(date_trunc('day', ${apiUsageEvents.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`,
+								count: sql<number>`count(*)`,
+							})
+							.from(apiUsageEvents)
+							.where(gte(apiUsageEvents.createdAt, windowStart))
+							.groupBy(
+								sql`date_trunc('day', ${apiUsageEvents.createdAt} at time zone 'UTC')`,
+							)
+							.orderBy(
+								sql`date_trunc('day', ${apiUsageEvents.createdAt} at time zone 'UTC')`,
+							),
+					catch: (e) => new Error(`Database error: ${e}`),
+				}),
+			])
+
+			return {
+				swapVolume: swapRows.map((r) => ({
+					date: r.date,
+					count: Number(r.count),
+					usdVolume: Number(r.usdVolume),
+				})),
+				newAgents: agentRows.map((r) => ({ date: r.date, count: Number(r.count) })),
+				apiCalls: apiRows.map((r) => ({ date: r.date, count: Number(r.count) })),
 			}
 		}),
 	)

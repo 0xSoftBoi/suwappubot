@@ -5,8 +5,16 @@ import { api } from '../lib/api'
 import { a11yToast } from '../lib/a11yToast'
 import type { EnterpriseOrg, OrgMember, OrgApiKey, OrgApiKeyCreated, OrgUsage, OrgRole } from '../lib/api'
 import { useSubscriptionTier } from '../hooks/useSubscriptionTier'
+import { getAuthToken } from '../lib/auth'
 
-const SHOWCASE_PRICING_URL = 'https://suwappu.bot/pricing'
+const SHOWCASE_BASE_URL = 'https://suwappu.bot'
+const SHOWCASE_PRICING_URL = `${SHOWCASE_BASE_URL}/pricing`
+
+function buildDashboardUrl(): string {
+  const token = getAuthToken()
+  const url = `${SHOWCASE_BASE_URL}/dashboard`
+  return token ? `${url}?token=${encodeURIComponent(token)}` : url
+}
 
 type Tab = 'team' | 'apikeys' | 'usage'
 
@@ -529,6 +537,30 @@ export function Enterprise() {
             <p className="text-xs text-suwappu-text-secondary">/{org.slug}</p>
           </div>
         )}
+
+        {/* Web dashboard deeplink */}
+        <a
+          href={buildDashboardUrl()}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-3 bg-suwappu-purple-deep/5 border border-suwappu-purple-deep/10 rounded-suwappu-xl px-4 py-3 hover:bg-suwappu-purple-deep/10 transition-colors"
+        >
+          <div className="w-9 h-9 rounded-suwappu-lg bg-suwappu-gradient flex items-center justify-center flex-shrink-0">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect width="20" height="14" x="2" y="5" rx="2" />
+              <path d="M2 10h20" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-heading font-semibold text-suwappu-purple-deep">Full Dashboard</p>
+            <p className="text-xs text-suwappu-text-secondary truncate">Charts, usage analytics, and team management on the web</p>
+          </div>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-suwappu-text-secondary flex-shrink-0">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+            <polyline points="15 3 21 3 21 9" />
+            <line x1="10" x2="21" y1="14" y2="3" />
+          </svg>
+        </a>
 
         {/* Tab bar */}
         <div className="flex gap-1 bg-suwappu-sakura-light rounded-suwappu-lg p-1">
