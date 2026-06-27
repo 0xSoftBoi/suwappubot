@@ -117,15 +117,16 @@
   background: rgba(237, 248, 251, 0.9);
 }
 
-/* ── KPI card row ── */
+/* ── KPI card row — 6 tiles ── */
 .kpiRow {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 20px;
 }
 
 .kpiCard {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -141,6 +142,17 @@
   box-shadow: 0 16px 32px rgba(33, 88, 110, 0.12);
 }
 
+/* Status indicator dot — top-right corner */
+.kpiDot {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
 .kpiLabel {
   margin: 0;
   color: var(--summer-muted, #345069);
@@ -154,7 +166,7 @@
 .kpiValue {
   color: var(--summer-ink, #17324a);
   font-family: var(--font-display);
-  font-size: 2rem;
+  font-size: 1.72rem;
   font-weight: 700;
   line-height: 1;
 }
@@ -277,11 +289,12 @@
 }
 
 /* ── Billing section ── */
-.billingRow {
+.billingPlanRow {
   display: flex;
   align-items: center;
   gap: 14px;
   flex-wrap: wrap;
+  margin-bottom: 18px;
 }
 
 .billingPlan {
@@ -305,8 +318,177 @@
   font-size: 0.86rem;
 }
 
+/* Active / inactive status pill */
+.billingStatusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(39, 174, 96, 0.35);
+  background: rgba(39, 174, 96, 0.09);
+  color: #1e8449;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.billingStatusPill[data-status='past_due'],
+.billingStatusPill[data-status='unpaid'] {
+  border-color: rgba(192, 57, 43, 0.35);
+  background: rgba(192, 57, 43, 0.09);
+  color: #c0392b;
+}
+
+.billingStatusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
 .billingLink {
   margin-left: auto;
+}
+
+/* Billing metrics block */
+.billingMetrics {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.billingMetric {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.billingMetricLabel {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--summer-muted, #345069);
+  font-size: 0.82rem;
+}
+
+/* Horizontal progress meters */
+.meterTrack {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(207, 227, 234, 0.6);
+  overflow: hidden;
+}
+
+.meterFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #27bdf0, #0b8bc7);
+  transition: width 0.4s ease;
+}
+
+.billingWarn {
+  margin: 4px 0 0;
+  color: #b96a12;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+/* ── Section kicker label ── */
+.kicker {
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* ── Proportion bar (top endpoints table) ── */
+.propBarTrack {
+  height: 6px;
+  width: 100%;
+  min-width: 80px;
+  border-radius: 999px;
+  background: rgba(207, 227, 234, 0.5);
+  overflow: hidden;
+}
+
+.propBarFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #27bdf0, #0b8bc7);
+  transition: width 0.3s ease;
+}
+
+/* ── Latency placeholder ── */
+.latencyPlaceholder {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px dashed rgba(207, 227, 234, 0.8);
+  border-radius: 10px;
+  background: rgba(237, 248, 251, 0.4);
+}
+
+.latencyPlaceholderIcon {
+  font-size: 1.4rem;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.latencyPlaceholderTitle {
+  margin: 0 0 4px;
+  color: var(--summer-ink, #17324a);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.latencyPlaceholderSub {
+  margin: 0;
+  color: var(--summer-muted, #345069);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+/* ── API key status badge ── */
+.keyStatusBadge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.keyStatus--active {
+  background: rgba(39, 174, 96, 0.1);
+  border: 1px solid rgba(39, 174, 96, 0.3);
+  color: #1e8449;
+}
+
+.keyStatus--expiring {
+  background: rgba(229, 176, 43, 0.12);
+  border: 1px solid rgba(229, 176, 43, 0.4);
+  color: #9a6b00;
+}
+
+.keyStatus--expired {
+  background: rgba(192, 57, 43, 0.1);
+  border: 1px solid rgba(192, 57, 43, 0.3);
+  color: #c0392b;
+}
+
+.keyStatus--revoked {
+  background: rgba(142, 182, 197, 0.12);
+  border: 1px solid rgba(142, 182, 197, 0.3);
+  color: #5a7184;
 }
 
 /* ── Modal overlay ── */
@@ -547,7 +729,13 @@
 }
 
 /* ── Responsive ── */
-@media (max-width: 860px) {
+@media (max-width: 1100px) {
+  .kpiRow {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
   .kpiRow {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -565,14 +753,14 @@
   }
 
   .kpiValue {
-    font-size: 1.55rem;
+    font-size: 1.45rem;
   }
 
   .scopeGrid {
     grid-template-columns: 1fr;
   }
 
-  .billingRow {
+  .billingPlanRow {
     flex-direction: column;
     align-items: flex-start;
   }

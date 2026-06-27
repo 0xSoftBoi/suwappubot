@@ -678,6 +678,158 @@
   .adm-tabs .adm-filter-btn { white-space: nowrap; }
 }
 
+/* ── Charts section ──────────────────────────────────────────────── */
+
+.adm-charts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 960px) {
+  .adm-charts { grid-template-columns: 1fr; }
+}
+
+.adm-chart-card {
+  padding: 18px 18px 14px;
+  border-radius: var(--adm-radius);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(56, 189, 248, 0.05), transparent 50%),
+    rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--adm-border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.035) inset;
+  overflow: hidden;
+}
+
+.adm-chart-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.adm-chart-card__title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--adm-ink);
+  letter-spacing: -0.01em;
+}
+
+.adm-chart-card__sub {
+  font-size: 0.72rem;
+  color: var(--adm-faint);
+}
+
+.adm-chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.adm-chart-empty {
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--adm-faint);
+  font-size: 0.8rem;
+}
+
+/* ── Donut chart (8th KPI card) ──────────────────────────────────── */
+
+.adm-stat--donut {
+  padding-bottom: 16px;
+}
+
+.adm-donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 6px;
+}
+
+.adm-donut-svg {
+  flex: 0 0 72px;
+  width: 72px;
+  height: 72px;
+  overflow: visible;
+}
+
+.adm-donut-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.adm-donut-legend__item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  color: var(--adm-muted);
+  white-space: nowrap;
+}
+
+.adm-donut-legend__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.adm-donut-legend__key {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.adm-donut-legend__val {
+  font-weight: 700;
+  color: var(--adm-ink);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.71rem;
+}
+
+/* ── Export button ───────────────────────────────────────────────── */
+
+.adm-export-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--adm-border);
+  background: var(--adm-surface);
+  color: var(--adm-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.03em;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.adm-export-btn:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.1);
+  color: var(--adm-accent);
+  border-color: rgba(56, 189, 248, 0.36);
+}
+
+.adm-export-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ── Filter divider ──────────────────────────────────────────────── */
+
+.adm-filter-divider {
+  display: inline-block;
+  width: 1px;
+  height: 18px;
+  background: var(--adm-border);
+  margin: 0 2px;
+  vertical-align: middle;
+}
+
 /* ── Billing placeholder card ──────────────────────────────────── */
 
 .adm-billing-placeholder {
