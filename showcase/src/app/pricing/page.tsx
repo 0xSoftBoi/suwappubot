@@ -26,7 +26,7 @@ const tiers: {
     price: '$0',
     cadence: '',
     fee: '1.0%',
-    blurb: 'Everything you need to start swapping across 40+ chains.',
+    blurb: 'Everything you need to start.',
     cta: 'Start free',
     highlight: false,
     features: ['Best-price routing across 9 aggregators', 'HyperLiquid perps & funding', 'Gasless first swaps on Tempo', 'Agent API, SDK & MCP access', '1× loyalty points — redeem for fee credits'],
@@ -36,7 +36,7 @@ const tiers: {
     price: '$9.99',
     cadence: '/mo',
     fee: '0.5%',
-    blurb: 'Half the swap fee for active traders.',
+    blurb: 'For serious traders.',
     cta: 'Upgrade to Pro',
     highlight: false,
     features: ['Everything in Free', '0.5% swap fee', 'Priority routing', 'Copy trading & DCA', '1.1× loyalty points on every trade'],
@@ -46,7 +46,7 @@ const tiers: {
     price: '$29.99',
     cadence: '/mo',
     fee: '0.3%',
-    blurb: 'The best rate for serious volume.',
+    blurb: 'For high-volume traders.',
     cta: 'Go Premium',
     highlight: true,
     badge: 'Most popular',
@@ -57,7 +57,7 @@ const tiers: {
     price: 'Custom',
     cadence: '',
     fee: '0.1%',
-    blurb: 'The only DeFi trading platform built for teams and institutions.',
+    blurb: 'For funds and institutions.',
     cta: 'Contact Sales',
     href: ENTERPRISE_CONTACT_PATH,
     highlight: false,
@@ -176,6 +176,10 @@ export default function PricingPage() {
           <p className="mkt-hero__lead">
             No seat counts, no hidden fees. Pick a tier to drop your swap fee — everything
             else is included on every plan.
+          </p>
+          {/* Clerk-pattern anxiety removal — free to start, no card required. */}
+          <p className="mkt-hero__clerk">
+            Free to start. No credit card. Your first trades are on us.
           </p>
         </header>
 

@@ -16,11 +16,11 @@
     "whatsapp": "WhatsApp"
   },
   "hero": {
-    "kicker": "The only bot that does all three",
-    "h1": "Cross-chain swaps, HyperLiquid perps, and gasless trades.",
-    "h1_accent": "gasless",
-    "lead": "Other tools make you pick one — a bridge, a perp desk, or a gas wallet. Suwappu unifies all three: best-price routing across 40+ chains, perps up to 20x, and sponsored-gas swaps. Trade from Telegram, the terminal, or one SDK call.",
-    "cta_bot": "Open Telegram Bot",
+    "kicker": "Now in open beta · 40+ chains",
+    "h1": "Trade anything.",
+    "h1_accent": "No limits.",
+    "lead": "Suwappu routes your trades across 40+ chains and 9 liquidity networks — finding the best price, every time. Non-custodial, no KYC for basic swaps. Start in 30 seconds.",
+    "cta_bot": "Start trading free",
     "cta_terminal": "Open Terminal",
     "byline_pre": "Built by the author of",
     "byline_book": "Printing Money",
@@ -28,10 +28,10 @@
     "byline_and": "and"
   },
   "cta": {
-    "kicker": "Start now",
-    "heading": "Your next swap is one line away.",
-    "lead": "Open the bot, or install the SDK and connect your agent — best-price swaps, perps, and gasless trades across 40+ chains.",
-    "open_bot": "Open Telegram Bot",
+    "kicker": "Start free",
+    "heading": "Your first trade takes 30 seconds.",
+    "lead": "Open the bot in Telegram, or install the SDK and connect your agent. Best execution across 40+ chains — no wallet setup required.",
+    "open_bot": "Start trading free",
     "whatsapp": "Chat on WhatsApp",
     "docs": "Read the docs"
   },

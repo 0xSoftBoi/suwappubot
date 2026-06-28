@@ -2162,6 +2162,332 @@ html {
   }
 }
 
+/* ── Developer quickstart / agent trading layer section ── */
+.summer-devlayer {
+  position: relative;
+  overflow: hidden;
+  margin-top: 12px;
+  padding: 26px;
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.2)),
+    linear-gradient(135deg, rgba(56, 189, 248, 0.16), rgba(216, 243, 239, 0.56));
+}
+
+.summer-devlayer__head {
+  position: relative;
+  z-index: 1;
+  max-width: 680px;
+  margin-bottom: 22px;
+}
+
+.summer-devlayer__head h2 {
+  margin: 10px 0 0;
+  color: var(--summer-ink);
+  font-size: 2.35rem;
+  line-height: 1.06;
+}
+
+.summer-devlayer__head > p {
+  margin: 12px 0 0;
+  color: var(--summer-muted);
+  font-size: 0.98rem;
+  line-height: 1.7;
+}
+
+.summer-devlayer__grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.summer-devlayer__card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 10px 24px rgba(33, 88, 110, 0.07);
+}
+
+.summer-devlayer__card b {
+  display: inline-flex;
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: #0b789a;
+  background: rgba(14, 165, 233, 0.12);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+}
+
+.summer-devlayer__card h3 {
+  margin: 4px 0 0;
+  color: var(--summer-ink);
+  font-size: 1.04rem;
+}
+
+.summer-devlayer__card > p {
+  margin: 0;
+  color: var(--summer-muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.summer-devlayer__card--enterprise {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 253, 250, 0.92)),
+    rgba(255, 255, 255, 0.88);
+  border-color: rgba(47, 143, 91, 0.28);
+}
+
+.summer-devlayer__snippet {
+  margin-top: auto;
+  padding-top: 10px;
+  /* override the default summer-code border to let card border show */
+  border: 1px solid rgba(207, 227, 234, 0.7);
+  border-radius: 8px;
+}
+
+.summer-devlayer__snippet pre {
+  padding: 12px 14px;
+  font-size: 0.8rem;
+}
+
+.summer-devlayer__ent-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+.summer-devlayer__ent-tags span {
+  border: 1px solid var(--summer-line);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--summer-ink);
+  background: rgba(255, 255, 255, 0.82);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.summer-devlayer__cta {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+/* ── /agents quickstart page ── */
+.agents-page {
+  --summer-ink: var(--suwappu-summer-ink);
+  --summer-muted: var(--suwappu-summer-muted);
+  --summer-line: var(--suwappu-summer-line);
+  --summer-panel: var(--suwappu-summer-panel);
+  --summer-sky: var(--suwappu-summer-sky);
+  --summer-green: var(--suwappu-summer-green);
+  --summer-persimmon: var(--suwappu-summer-persimmon);
+  position: relative;
+  min-height: 100vh;
+  overflow-x: hidden;
+  background:
+    radial-gradient(circle at 12% 16%, color-mix(in srgb, var(--suwappu-summer-flower-soft) 36%, transparent), transparent 18rem),
+    radial-gradient(circle at 88% 8%, rgba(244, 201, 99, 0.2), transparent 16rem),
+    linear-gradient(180deg, var(--suwappu-summer-canvas) 0%, #fffefb 12%, #d9f1f3 46%, #f7fbf8 100%);
+  color: var(--summer-ink);
+}
+
+.agents-hero {
+  text-align: center;
+  padding: 72px 24px 40px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.agents-hero h1 {
+  margin: 10px 0 0;
+  color: var(--summer-ink);
+  font-family: var(--font-display);
+  font-size: clamp(2.1rem, 5vw, 3.2rem);
+  line-height: 1.08;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.agents-hero__lead {
+  margin: 16px 0 0;
+  color: var(--summer-muted);
+  font-size: 1.08rem;
+  line-height: 1.65;
+}
+
+.agents-shell {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 1100px);
+  margin: 0 auto;
+  padding: 0 20px 60px;
+}
+
+/* Tabs */
+.agents-tabs {
+  margin: 32px 0 0;
+}
+
+.agents-tabs__nav {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(207, 227, 234, 0.88);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.6);
+  width: fit-content;
+  margin-bottom: 16px;
+}
+
+.agents-tabs__btn {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  border-radius: 7px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--summer-muted);
+  font-size: 0.88rem;
+  font-weight: 700;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.agents-tabs__btn--active {
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--summer-ink);
+  box-shadow: 0 2px 8px rgba(33, 88, 110, 0.1);
+}
+
+.agents-tabs__panel {
+  display: none;
+}
+.agents-tabs__panel--active {
+  display: block;
+}
+
+/* Capabilities grid */
+.agents-caps {
+  margin-top: 44px;
+}
+
+.agents-caps__head {
+  margin-bottom: 18px;
+}
+
+.agents-caps__head h2 {
+  margin: 8px 0 0;
+  color: var(--summer-ink);
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
+.agents-caps__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.agents-cap {
+  padding: 18px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 10px 20px rgba(33, 88, 110, 0.06);
+}
+
+.agents-cap__icon {
+  font-size: 1.5rem;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.agents-cap h3 {
+  margin: 0;
+  color: var(--summer-ink);
+  font-size: 1rem;
+}
+
+.agents-cap p {
+  margin: 6px 0 0;
+  color: var(--summer-muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+/* API key CTA */
+.agents-key-cta {
+  margin-top: 44px;
+  text-align: center;
+  padding: 40px 24px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(13, 149, 189, 0.16);
+  box-shadow: 0 16px 30px rgba(33, 88, 110, 0.1);
+}
+
+.agents-key-cta h2 {
+  margin: 0 0 10px;
+  color: var(--summer-ink);
+  font-size: 1.75rem;
+}
+
+.agents-key-cta > p {
+  margin: 0 0 22px;
+  color: var(--summer-muted);
+  max-width: 460px;
+  margin-left: auto;
+  margin-right: auto;
+  font-size: 0.98rem;
+  line-height: 1.65;
+}
+
+.agents-follow-on {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: var(--summer-muted);
+}
+
+.agents-follow-on a {
+  color: #3c8ca1;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+@media (max-width: 820px) {
+  .summer-devlayer__grid {
+    grid-template-columns: 1fr;
+  }
+  .agents-caps__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .agents-caps__grid {
+    grid-template-columns: 1fr;
+  }
+  .agents-tabs__nav {
+    width: 100%;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after {
@@ -5377,6 +5703,7 @@ button:focus:not(:focus-visible) {
 @media (prefers-reduced-motion: no-preference) {
   @supports (animation-timeline: view()) {
     .summer-page--cosmic .summer-shell > .summer-stats,
+    .summer-page--cosmic .summer-shell > .summer-testimonials,
     .summer-page--cosmic .summer-shell > .summer-trust,
     .summer-page--cosmic .summer-shell > .summer-features,
     .summer-page--cosmic .summer-shell > .summer-modules,
@@ -5392,4 +5719,116 @@ button:focus:not(:focus-visible) {
       animation-range: entry 0% cover 18%;
     }
   }
+}
+
+/* keep the closing brace above — it closes the @media block */
+
+/* ================================================================
+   Redesign additions — testimonials, hero trust micro-copy,
+   pricing Clerk-pattern line
+   ================================================================ */
+
+/* Hero trust micro-copy */
+.summer-hero__trust {
+  margin-top: 12px;
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* Testimonial strip */
+.summer-testimonials {
+  margin-top: 48px;
+}
+
+.summer-testimonials__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.summer-testimonial {
+  margin: 0;
+  padding: 24px 22px;
+  border-radius: 10px;
+  border: 1px solid rgba(207, 227, 234, 0.7);
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow:
+    0 2px 8px rgba(33, 88, 110, 0.06),
+    0 16px 32px rgba(33, 88, 110, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.summer-testimonial__quote {
+  margin: 0;
+  color: var(--summer-ink);
+  font-size: 1.05rem;
+  line-height: 1.6;
+  font-style: normal;
+  letter-spacing: -0.01em;
+}
+
+.summer-testimonial footer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.summer-testimonial__handle {
+  color: var(--summer-ink);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.summer-testimonial__role {
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* Dark-on-cosmic variant for the cosmic page */
+.summer-page--cosmic .summer-testimonial {
+  background: rgba(15, 40, 55, 0.45);
+  border-color: rgba(100, 180, 210, 0.18);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.2),
+    0 16px 32px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.summer-page--cosmic .summer-testimonial__quote,
+.summer-page--cosmic .summer-testimonial__handle {
+  color: rgba(230, 245, 250, 0.95);
+}
+
+.summer-page--cosmic .summer-testimonial__role {
+  color: rgba(160, 210, 230, 0.7);
+}
+
+@media (max-width: 860px) {
+  .summer-testimonials__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Pricing page — Clerk-pattern anxiety removal */
+.mkt-hero__clerk {
+  margin: 14px auto 0;
+  max-width: 480px;
+  color: var(--summer-green, #2a7a4f);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: center;
 }
