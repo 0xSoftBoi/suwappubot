@@ -896,6 +896,27 @@ class Settings(BaseSettings):
         ),
     )
 
+    # ── Gift Card marketplace (Bitrefill) ────────────────────────────────────
+    # SCAFFOLD — blocked on a live Bitrefill merchant account.
+    # Set BITREFILL_API_KEY to enable; leave unset to keep the feature dark.
+    # See bot/services/giftcard_api.py and bot/handlers/giftcard.py.
+    bitrefill_api_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Bitrefill v4 API key — enables the /gift command. "
+            "Obtain from https://www.bitrefill.com/api/. "
+            "Unset = feature disabled (shows 'coming soon')."
+        ),
+    )
+    bitrefill_api_secret: Optional[str] = Field(
+        default=None,
+        description=(
+            "Bitrefill v4 API secret — used as the Basic-auth password alongside "
+            "bitrefill_api_key. Some read-only endpoints work with key-only; "
+            "order creation requires both key + secret."
+        ),
+    )
+
     # ── P2P marketplace ──────────────────────────────────────────────────────
     # Suwappu aggregates P2P fiat<>crypto liquidity across its own native
     # on-chain escrow book plus external providers. Each provider is gated on its
@@ -1022,6 +1043,19 @@ class Settings(BaseSettings):
     bonds_contract_address: Optional[str] = Field(
         default=None,
         description="Deployed SuwppuBonds contract address on Base (protocol-owned liquidity bonding)",
+    )
+
+    # Battle treasury — sentinel user id for the house/treasury CustodialBalance account.
+    # Must be a negative integer to guarantee no collision with real auto-increment user ids.
+    # Override via BATTLE_TREASURY_USER_ID env var (must remain negative).
+    battle_treasury_user_id: int = Field(
+        default=-1,
+        description=(
+            "Sentinel user_id for the battle house/treasury CustodialBalance row. "
+            "Must be negative (never collides with real user rows). "
+            "Prediction battle stakes flow: user -> treasury at open; "
+            "treasury -> user on WIN/VOID at settlement."
+        ),
     )
 
     model_config = ConfigDict(
