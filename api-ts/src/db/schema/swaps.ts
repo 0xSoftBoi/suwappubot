@@ -38,6 +38,14 @@ export const swapTransactions = pgTable('swap_transactions', {
 	bridgeFee: real('bridge_fee'),
 	slippage: integer('slippage').default(50),
 
+	// Revenue / rebate accounting (per-swap; what Suwappu earns on this swap)
+	// Which rail earned revenue, e.g. 'mevblocker', 'cow', 'jupiter', '1inch_fusion', 'lifi'
+	ofaProtocol: varchar('ofa_protocol', { length: 50 }),
+	// Order-flow-auction rebate captured in USD (MEV-Blocker backrun rebate, CoW surplus fee)
+	ofaRebateUsd: real('ofa_rebate_usd'),
+	// Integrator/platform fee Suwappu captured on this swap, in USD
+	integratorFeeUsd: real('integrator_fee_usd'),
+
 	// Timing
 	createdAt: timestamp('created_at').defaultNow(),
 	updatedAt: timestamp('updated_at').defaultNow(),

@@ -60,6 +60,16 @@ class SwapTransaction(Base):
     bridge_fee = Column(Float, nullable=True)
     slippage = Column(Integer, default=50)  # In basis points
 
+    # Revenue / rebate accounting (per-swap; what Suwappu earns on this swap)
+    # Which rail earned revenue on this swap, e.g. 'mevblocker', 'cow',
+    # 'jupiter', '1inch_fusion', 'lifi'.
+    ofa_protocol = Column(String(50), nullable=True)
+    # Order-flow-auction rebate captured in USD (e.g. MEV-Blocker backrun
+    # rebate, CoW surplus fee).
+    ofa_rebate_usd = Column(Float, nullable=True)
+    # The integrator/platform fee Suwappu captured on this swap, in USD.
+    integrator_fee_usd = Column(Float, nullable=True)
+
     # Timing
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

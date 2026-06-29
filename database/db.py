@@ -351,6 +351,7 @@ def _ensure_schema(db_engine) -> None:
         _add_swap_agent_columns(db_engine, inspector, is_sqlite)
         _add_swap_price_columns(db_engine, inspector, is_sqlite)
         _add_swap_error_category_column(db_engine, inspector, is_sqlite)
+        _add_swap_revenue_columns(db_engine, inspector, is_sqlite)
 
     # --- user_settings: MEV protection column + quick trade presets ---
     if "user_settings" in tables:
@@ -1264,6 +1265,31 @@ def _add_swap_price_columns(db_engine, inspector, is_sqlite: bool) -> None:
     new_columns = [
         ("from_token_price_usd", "FLOAT", "NULL"),
         ("to_token_price_usd", "FLOAT", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE swap_transactions ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = f"ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+
+def _add_swap_revenue_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add per-swap revenue/rebate accounting columns to swap_transactions.
+
+    Instruments what Suwappu earns per swap: which order-flow-auction rail
+    earned revenue (ofa_protocol), the OFA rebate captured (ofa_rebate_usd),
+    and the integrator/platform fee captured (integrator_fee_usd).
+    """
+    cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
+
+    new_columns = [
+        ("ofa_protocol", "VARCHAR(50)", "NULL"),
+        ("ofa_rebate_usd", "FLOAT", "NULL"),
+        ("integrator_fee_usd", "FLOAT", "NULL"),
     ]
 
     for col_name, col_type, default in new_columns:
