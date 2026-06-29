@@ -201,7 +201,9 @@ class ReferralEarning(Base):
     commission_rate = Column(Float, nullable=True)
 
     # Free-form JSON for extra service-layer context
-    metadata = Column(Text, nullable=True)
+    # NOTE: "metadata" is reserved by SQLAlchemy's declarative base — the ORM
+    # attribute is named earning_metadata; the DB column remains "metadata".
+    earning_metadata = Column("metadata", Text, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 

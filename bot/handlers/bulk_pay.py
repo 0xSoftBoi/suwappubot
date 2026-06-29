@@ -9,8 +9,8 @@ Flow
 2. Wallet chosen    → ask for token (native or ERC-20 symbol)
 3. Token confirmed  → ask for recipient list (one `address amount` per line)
 4. List parsed      → show summary (totals, per-recipient table, balance check)
-5. User confirms    → execute:
-     EVM + native token  → Multicall3 `disperse`-style batch (one tx, gas-efficient)
+5. User confirms    → 2FA gate (if enabled + above threshold) → execute:
+     EVM + native token  → sequential sends (one 21k tx per recipient)
      EVM + ERC-20        → sequential sends with per-recipient status
      Solana / TRON       → sequential sends with per-recipient status
 6. Result report    → per-recipient success / failure, partial-failure flagged
@@ -20,18 +20,26 @@ MONEY-PATH note (for reviewer)
 * Private key is decrypted exactly once per execution, via wallet_service.get_private_key()
   which uses the existing envelope-crypto / KMS path.  The key is scrubbed with
   _zeroize_str() after use.
-* EVM native batch uses a one-shot Multicall3 aggregate3 + value call (no disperse contract
-  dependency — just the universally-deployed Multicall3).  Token amounts are validated as
-  Decimal to avoid float rounding before conversion to wei/lamports/sun.
-* Balance check happens BEFORE confirmation is shown.  If balance < total + estimated_gas,
-  the user is blocked — no funds move.
+* EVM native sends use sequential 21k transfers (one tx per recipient).
+  The Multicall3 aggregate3Value path has been DISABLED pending a purpose-built
+  disperse contract + testnet verification (see CRITICAL #3 fix comment below).
+* Token amounts are validated as Decimal to avoid float rounding before conversion
+  to wei/lamports/sun.
+* Balance check happens BEFORE confirmation is shown.  Balance required for native
+  sends includes an estimated gas buffer (21_000 * n_recipients * gas_price).
 * Address validation is strict: wrong-chain format = immediate rejection of that line,
   entire list rejected (not silently skipped).
 * Confirmation step requires explicit "Confirm" button tap — no auto-send on timeout.
+* Wallet ownership is verified in EVERY step that loads a wallet: the DB wallet must
+  have wallet.user_id == caller db_user.id.  Wallet IDs from callback data are never
+  trusted alone (IDOR fix).
+* 2FA and spending-limit checks mirror bulk_swap.py exactly.
 """
 
 import asyncio
 import logging
+import secrets
+import time
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Optional
@@ -52,7 +60,11 @@ from bot.config.chains import CHAINS, ChainType, get_chain_by_name
 from bot.config.tokens import get_token_address, get_token_decimals
 from bot.models.user import User, Wallet
 from bot.services.rpc_manager import rpc_manager
+from bot.services.spending_limits import spending_limit_service
+from bot.services.twofa import twofa_service
 from bot.services.wallet import WalletService, _zeroize_str
+from bot.utils.rate_limiter import swap_limiter, enforce_rate_limit_for_update
+from bot.utils.tos_utils import enforce_tos
 from bot.utils.validators import validate_address
 from database.db import get_session
 
@@ -68,7 +80,8 @@ wallet_service = WalletService()
     BP_SELECT_TOKEN,
     BP_ENTER_LIST,
     BP_CONFIRM,
-) = range(4)
+    BP_2FA,
+) = range(5)
 
 # User-data keys
 _UD_WALLET_ID = "bp_wallet_id"
@@ -76,17 +89,28 @@ _UD_CHAIN = "bp_chain"
 _UD_CHAIN_TYPE = "bp_chain_type"
 _UD_TOKEN = "bp_token"
 _UD_RECIPIENTS = "bp_recipients"
+_UD_TOTAL_USD = "bp_total_usd"
+_UD_2FA_VERIFIED_AT = "bp_twofa_verified_at"
+_UD_2FA_ATTEMPTS = "bp_twofa_attempts"
+_UD_DB_USER_ID = "bp_db_user_id"
 
 # Max recipients per batch (safety cap to avoid OOM / RPC-rate-limit flood)
 MAX_RECIPIENTS = 100
 
-# Multicall3 — same address on every mainnet EVM chain (canonical deployment).
-MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11"
+# Multicall3 — address kept for reference only; the native batch path is DISABLED.
+# DISABLED: _build_multicall3_native_batch / _execute_evm_native_batch are removed.
+# Reason: aggregate3Value with per-call value can strand msg.value in the contract
+# if the sum of sub-call values drifts from msg.value (integer arithmetic edge
+# cases), and the path has no testnet verification.  Re-enable only after deploying
+# a purpose-built disperse contract with a full test suite on every target chain.
+MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11"  # kept for reference
 
-# Gas estimate per native transfer in a Multicall3 batch (21_000 + overhead).
-_GAS_PER_NATIVE_CALL = 21_000
-# Gas limit used when estimating for the confirmation screen (not on-chain).
-_BATCH_BASE_GAS = 50_000
+# Gas constants for native EVM sends
+_GAS_PER_NATIVE_TRANSFER = 21_000  # standard ETH transfer
+_GAS_BUFFER_FACTOR = Decimal("1.2")  # 20% buffer on gas cost estimate
+
+# 2FA validity window (seconds) — mirrors bulk_swap.py
+TWOFA_VALID_SECONDS = 300
 
 # ERC-20 transfer selector (keccak256("transfer(address,uint256)")[:4])
 _ERC20_TRANSFER_SELECTOR = "0xa9059cbb"
@@ -174,102 +198,14 @@ def _summarize(recipients: list[Recipient], token: str, chain_type: str) -> tupl
     return "\n".join(lines), total
 
 
+def _get_caller_db_user_id(context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+    """Return the authenticated DB user id stored at flow entry."""
+    return context.user_data.get(_UD_DB_USER_ID)
+
+
 # ---------------------------------------------------------------------------
 # EVM helpers
 # ---------------------------------------------------------------------------
-
-
-def _build_multicall3_native_batch(
-    w3: Web3,
-    from_address: str,
-    recipients: list[Recipient],
-    chain: object,
-) -> dict:
-    """Build a single Multicall3 aggregate3 transaction that distributes native
-    tokens to all recipients.
-
-    Uses `aggregate3Value` (Multicall3 v1.1+) which accepts msg.value and
-    distributes it.  Falls back to sequential sends on chains where Multicall3
-    is not available.
-
-    Returns raw tx dict (unsigned).
-    """
-    # aggregate3Value ABI (part of Multicall3 canonical deployment)
-    aggregate3_value_abi = [
-        {
-            "inputs": [
-                {
-                    "components": [
-                        {"name": "target", "type": "address"},
-                        {"name": "allowFailure", "type": "bool"},
-                        {"name": "value", "type": "uint256"},
-                        {"name": "callData", "type": "bytes"},
-                    ],
-                    "name": "calls",
-                    "type": "tuple[]",
-                }
-            ],
-            "name": "aggregate3Value",
-            "outputs": [
-                {
-                    "components": [
-                        {"name": "success", "type": "bool"},
-                        {"name": "returnData", "type": "bytes"},
-                    ],
-                    "name": "returnData",
-                    "type": "tuple[]",
-                }
-            ],
-            "stateMutability": "payable",
-            "type": "function",
-        }
-    ]
-
-    contract = w3.eth.contract(
-        address=Web3.to_checksum_address(MULTICALL3_ADDRESS), abi=aggregate3_value_abi
-    )
-
-    # Each call: send ETH to recipient via a plain transfer-call (empty callData).
-    calls = []
-    total_value = 0
-    for r in recipients:
-        # Native decimals are always 18 for EVM (TRON uses 6 but handled separately)
-        wei = int(r.amount * Decimal(10**chain.native_decimals))
-        total_value += wei
-        calls.append(
-            (
-                Web3.to_checksum_address(r.address),  # target
-                False,  # allowFailure=False: abort whole batch on any failure
-                wei,  # value
-                b"",  # callData (plain ETH transfer)
-            )
-        )
-
-    nonce = w3.eth.get_transaction_count(Web3.to_checksum_address(from_address))
-    gas_price = w3.eth.gas_price
-
-    # Apply chain minimum gas price (Rootstock etc.)
-    from bot.config.chains import apply_min_gas_price
-
-    gas_price = apply_min_gas_price(chain.name, gas_price)
-
-    tx = contract.functions.aggregate3Value(calls).build_transaction(
-        {
-            "from": Web3.to_checksum_address(from_address),
-            "value": total_value,
-            "nonce": nonce,
-            "gasPrice": gas_price,
-            "chainId": chain.chain_id,
-        }
-    )
-    # Estimate gas with a generous buffer
-    try:
-        estimated = w3.eth.estimate_gas(tx)
-        tx["gas"] = int(estimated * 1.2)
-    except Exception:
-        tx["gas"] = _BATCH_BASE_GAS + len(recipients) * _GAS_PER_NATIVE_CALL
-
-    return tx
 
 
 def _build_erc20_transfer_tx(
@@ -320,49 +256,16 @@ def _build_erc20_transfer_tx(
     return tx
 
 
-async def _execute_evm_native_batch(
-    wallet: Wallet,
-    chain_name: str,
-    recipients: list[Recipient],
-) -> list[Recipient]:
-    """Execute a native-token batch via Multicall3.  Returns updated recipients."""
-    chain = get_chain_by_name(chain_name)
-    if chain is None:
-        raise ValueError(f"Unknown chain: {chain_name}")
-
-    w3 = rpc_manager.get_web3(chain_name)
-
-    # Build the batch tx
-    tx = _build_multicall3_native_batch(w3, wallet.address, recipients, chain)
-
-    # Sign + broadcast
-    signed_hex = await wallet_service.sign_evm_transaction(wallet, tx)
-    raw_bytes = bytes.fromhex(signed_hex.replace("0x", ""))
-    tx_hash_bytes = await asyncio.get_event_loop().run_in_executor(
-        None, w3.eth.send_raw_transaction, raw_bytes
-    )
-    tx_hash = tx_hash_bytes.hex()
-    logger.info(
-        "bulk_pay: EVM native batch tx %s for %d recipients on %s",
-        tx_hash,
-        len(recipients),
-        chain_name,
-    )
-
-    # All recipients share the same tx hash
-    for r in recipients:
-        r.status = "ok"
-        r.tx_hash = tx_hash
-
-    return recipients
-
-
 async def _execute_evm_native_sequential(
     wallet: Wallet,
     chain_name: str,
     recipients: list[Recipient],
 ) -> list[Recipient]:
-    """Fallback: sequential native-token sends (one tx per recipient)."""
+    """Sequential native-token sends — one standard 21k tx per recipient.
+
+    This is the ONLY EVM native path.  The Multicall3 aggregate3Value batch
+    has been disabled (see module docstring / CRITICAL #3 fix).
+    """
     chain = get_chain_by_name(chain_name)
     if chain is None:
         raise ValueError(f"Unknown chain: {chain_name}")
@@ -379,7 +282,7 @@ async def _execute_evm_native_sequential(
                 "to": Web3.to_checksum_address(r.address),
                 "value": wei,
                 "nonce": nonce,
-                "gas": 21_000,
+                "gas": _GAS_PER_NATIVE_TRANSFER,
                 "gasPrice": gas_price,
                 "chainId": chain.chain_id,
             }
@@ -607,7 +510,7 @@ async def _execute_tron_sequential(
 
 
 # ---------------------------------------------------------------------------
-# Balance pre-checks
+# Balance pre-checks (MED #7 fix: add gas buffer for native EVM sends)
 # ---------------------------------------------------------------------------
 
 
@@ -616,8 +519,14 @@ async def _check_evm_balance(
     chain_name: str,
     token: str,
     total_needed: Decimal,
+    n_recipients: int,
 ) -> tuple[bool, str]:
-    """Return (sufficient, reason_text)."""
+    """Return (sufficient, reason_text).
+
+    For native sends, the required total includes an estimated gas reserve:
+      gas_cost = gas_price * GAS_PER_TRANSFER * n_recipients * 1.2 buffer
+    converted from wei to native units.
+    """
     chain = get_chain_by_name(chain_name)
     if chain is None:
         return False, f"Unknown chain {chain_name}"
@@ -627,9 +536,26 @@ async def _check_evm_balance(
     if is_native:
         balance = await wallet_service.get_evm_native_balance(chain_name, wallet_address)
         bal = Decimal(str(balance))
-        if bal < total_needed:
+
+        # Gas buffer: estimate gas cost for all transfers
+        try:
+            w3 = rpc_manager.get_web3(chain_name)
+            from bot.config.chains import apply_min_gas_price
+
+            gas_price_wei = apply_min_gas_price(chain.name, w3.eth.gas_price)
+            gas_cost_wei = gas_price_wei * _GAS_PER_NATIVE_TRANSFER * n_recipients
+            # Apply 20% buffer
+            gas_cost_wei = int(gas_cost_wei * Decimal("1.2"))
+            gas_cost_native = Decimal(gas_cost_wei) / Decimal(10**chain.native_decimals)
+        except Exception as exc:
+            logger.warning("bulk_pay: gas estimation failed, using 0 buffer: %s", exc)
+            gas_cost_native = Decimal(0)
+
+        total_required = total_needed + gas_cost_native
+        if bal < total_required:
             return False, (
-                f"Insufficient {chain.native_token}: have {bal:.6f}, need {total_needed:.6f}"
+                f"Insufficient {chain.native_token}: have {bal:.6f}, "
+                f"need {total_needed:.6f} + ~{gas_cost_native:.6f} gas = {total_required:.6f}"
             )
         return True, ""
     else:
@@ -675,12 +601,37 @@ async def _check_tron_balance(
 
 
 # ---------------------------------------------------------------------------
+# Wallet ownership binding helper (IDOR fix — CRITICAL #2)
+# ---------------------------------------------------------------------------
+
+
+def _get_owned_wallet(wallet_id: int, db_user_id: int) -> Optional[Wallet]:
+    """Load a wallet only if it belongs to db_user_id.
+
+    Uses Wallet.id == wallet_id AND Wallet.user_id == db_user_id so that a
+    caller cannot access another user's wallet by crafting a callback with an
+    arbitrary wallet_id.  Returns None if no matching wallet is found.
+    """
+    with get_session() as session:
+        return (
+            session.query(Wallet)
+            .filter(Wallet.id == wallet_id, Wallet.user_id == db_user_id)
+            .first()
+        )
+
+
+# ---------------------------------------------------------------------------
 # Conversation entry point: /pay
 # ---------------------------------------------------------------------------
 
 
+@enforce_tos
 async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle /pay — show wallet selector."""
+    allowed = await enforce_rate_limit_for_update(update, swap_limiter)
+    if not allowed:
+        return ConversationHandler.END
+
     user = update.effective_user
     context.user_data.clear()
 
@@ -689,6 +640,10 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         if not db_user:
             await update.message.reply_text("Please use /start first.")
             return ConversationHandler.END
+
+        # FIX CRITICAL #2: store the authenticated DB user id at flow entry.
+        # All subsequent wallet loads use this id to bind wallet ownership.
+        context.user_data[_UD_DB_USER_ID] = db_user.id
 
         wallets = (
             session.query(Wallet)
@@ -717,7 +672,12 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
 
 async def _pay_select_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Wallet chosen — ask for token."""
+    """Wallet chosen — ask for token.
+
+    FIX CRITICAL #2: wallet is loaded via _get_owned_wallet() which binds
+    Wallet.id == wallet_id AND Wallet.user_id == caller db_user.id.  A crafted
+    bp_wallet_<victim_id> callback will find no row and be rejected.
+    """
     query = update.callback_query
     await query.answer()
 
@@ -725,8 +685,15 @@ async def _pay_select_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text("Bulk payment cancelled.")
         return ConversationHandler.END
 
+    db_user_id = _get_caller_db_user_id(context)
+    if not db_user_id:
+        await query.edit_message_text("Session expired. Please start again with /pay.")
+        return ConversationHandler.END
+
     wallet_id = int(query.data.removeprefix("bp_wallet_"))
-    wallet = wallet_service.get_wallet_by_id(wallet_id)
+
+    # IDOR fix: bind wallet to authenticated caller
+    wallet = _get_owned_wallet(wallet_id, db_user_id)
     if wallet is None:
         await query.edit_message_text("Wallet not found. Please start again with /pay.")
         return ConversationHandler.END
@@ -849,8 +816,9 @@ async def _pay_enter_list(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     chain_name = context.user_data.get(_UD_CHAIN, "")
     token = context.user_data.get(_UD_TOKEN, NATIVE_SYMBOL)
     wallet_id = context.user_data.get(_UD_WALLET_ID)
+    db_user_id = _get_caller_db_user_id(context)
 
-    if not wallet_id or not chain_name:
+    if not wallet_id or not chain_name or not db_user_id:
         await update.message.reply_text("Session lost. Please start again with /pay.")
         return ConversationHandler.END
 
@@ -875,8 +843,8 @@ async def _pay_enter_list(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return BP_ENTER_LIST
 
-    # Balance check
-    wallet = wallet_service.get_wallet_by_id(wallet_id)
+    # FIX CRITICAL #2: load wallet with ownership binding
+    wallet = _get_owned_wallet(wallet_id, db_user_id)
     if wallet is None:
         await update.message.reply_text("Wallet not found. Please start again with /pay.")
         return ConversationHandler.END
@@ -886,7 +854,9 @@ async def _pay_enter_list(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     try:
         if chain_type == "evm":
-            sufficient, reason = await _check_evm_balance(wallet.address, chain_name, token, total)
+            sufficient, reason = await _check_evm_balance(
+                wallet.address, chain_name, token, total, len(recipients)
+            )
         elif chain_type == "solana":
             sufficient, reason = await _check_solana_balance(wallet.address, token, total)
         elif chain_type == "tron":
@@ -903,21 +873,36 @@ async def _pay_enter_list(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return BP_ENTER_LIST
 
-    # Store parsed recipients
+    # Store parsed recipients (serialized for persistence)
     context.user_data[_UD_RECIPIENTS] = [
         {"address": r.address, "amount": str(r.amount)} for r in recipients
     ]
 
+    # MED #7: compute USD value of batch for spending-limit check later
+    total_usd: Optional[float] = None
+    is_native = token.upper() in (
+        NATIVE_SYMBOL,
+        (CHAINS[chain_name].native_token.upper() if chain_name in CHAINS else ""),
+    )
+    price_token = CHAINS[chain_name].native_token if is_native and chain_name in CHAINS else token
+    try:
+        total_usd = await spending_limit_service.usd_value(price_token, float(total))
+    except Exception:
+        pass
+    context.user_data[_UD_TOTAL_USD] = total_usd
+
     summary, _ = _summarize(recipients, token, chain_type)
     chain_label = CHAINS.get(chain_name, {})
     chain_display = getattr(chain_label, "display_name", chain_name) if chain_label else chain_name
+
+    usd_line = f"\nEst. value: ~${total_usd:,.2f}" if total_usd else ""
 
     await checking_msg.edit_text(
         f"Bulk Payment Summary\n\n"
         f"Chain: {chain_display}\n"
         f"Token: {token}\n"
         f"Wallet: {wallet.address[:10]}…\n\n"
-        f"{summary}\n\n"
+        f"{summary}{usd_line}\n\n"
         "Tap Confirm to send. This CANNOT be undone.",
         reply_markup=InlineKeyboardMarkup(
             [
@@ -932,7 +917,12 @@ async def _pay_enter_list(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def _pay_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Execute the bulk payment."""
+    """Execute the bulk payment — spending-limit + 2FA gate before execution.
+
+    FIX MED #8: mirrors bulk_swap.py's spending_limit_service.check() and
+    twofa_service TOTP gate.
+    FIX CRITICAL #2: wallet loaded via _get_owned_wallet() (ownership binding).
+    """
     query = update.callback_query
     await query.answer()
 
@@ -940,26 +930,144 @@ async def _pay_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         await query.edit_message_text("Bulk payment cancelled.")
         return ConversationHandler.END
 
+    allowed = await enforce_rate_limit_for_update(update, swap_limiter)
+    if not allowed:
+        return ConversationHandler.END
+
     chain_type = context.user_data.get(_UD_CHAIN_TYPE, "evm")
     chain_name = context.user_data.get(_UD_CHAIN, "")
     token = context.user_data.get(_UD_TOKEN, NATIVE_SYMBOL)
     wallet_id = context.user_data.get(_UD_WALLET_ID)
     raw_recipients = context.user_data.get(_UD_RECIPIENTS, [])
+    db_user_id = _get_caller_db_user_id(context)
+    total_usd: Optional[float] = context.user_data.get(_UD_TOTAL_USD)
 
-    if not wallet_id or not chain_name or not raw_recipients:
+    if not wallet_id or not chain_name or not raw_recipients or not db_user_id:
         await query.edit_message_text("Session lost. Please start again with /pay.")
         return ConversationHandler.END
 
-    wallet = wallet_service.get_wallet_by_id(wallet_id)
+    # FIX CRITICAL #2: re-verify wallet ownership at execution time
+    wallet = _get_owned_wallet(wallet_id, db_user_id)
     if wallet is None:
         await query.edit_message_text("Wallet not found. Please start again with /pay.")
         return ConversationHandler.END
 
-    recipients = [
-        Recipient(address=r["address"], amount=Decimal(r["amount"])) for r in raw_recipients
-    ]
+    # FIX MED #8: spending-limit pre-check (mirrors bulk_swap.py:773-781)
+    if total_usd is not None:
+        limit_ok, limit_reason = spending_limit_service.check(db_user_id, total_usd)
+        if not limit_ok:
+            await query.edit_message_text(
+                f"Spending limit exceeded: {limit_reason}",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("Cancel", callback_data="bp_cancel")]]
+                ),
+            )
+            return ConversationHandler.END
 
-    await query.edit_message_text(f"Sending to {len(recipients)} recipients… please wait.")
+        # FIX MED #8: 2FA gate (mirrors bulk_swap.py:783-801)
+        verified_at = context.user_data.get(_UD_2FA_VERIFIED_AT, 0)
+        recently_verified = (time.time() - verified_at) < TWOFA_VALID_SECONDS
+        if (
+            not recently_verified
+            and twofa_service.is_2fa_enabled(db_user_id)
+            and total_usd >= spending_limit_service.effective_2fa_threshold(db_user_id)
+        ):
+            context.user_data[_UD_2FA_ATTEMPTS] = 0
+            await query.edit_message_text(
+                f"2FA Required\n\n"
+                f"This bulk payment moves ~${total_usd:,.2f}, which is at or above "
+                f"your 2FA threshold.\n\n"
+                f"Enter the 6-digit code from your authenticator app:",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("Cancel", callback_data="bp_cancel")]]
+                ),
+            )
+            return BP_2FA
+
+    return await _run_bulk_pay(query.edit_message_text, context, wallet, recipients=None)
+
+
+async def _pay_twofa_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Verify the TOTP code then execute the bulk payment."""
+    db_user_id = _get_caller_db_user_id(context)
+    wallet_id = context.user_data.get(_UD_WALLET_ID)
+
+    if not db_user_id or not wallet_id or not context.user_data.get(_UD_RECIPIENTS):
+        await update.message.reply_text("Session expired. Please start again with /pay.")
+        return ConversationHandler.END
+
+    code = (update.message.text or "").strip()
+    if not twofa_service.verify_transaction(db_user_id, code):
+        attempts = context.user_data.get(_UD_2FA_ATTEMPTS, 0) + 1
+        context.user_data[_UD_2FA_ATTEMPTS] = attempts
+        if attempts >= 3:
+            context.user_data.clear()
+            await update.message.reply_text("Too many invalid 2FA codes. Bulk payment cancelled.")
+            return ConversationHandler.END
+        await update.message.reply_text(
+            f"Invalid code. {3 - attempts} attempt(s) left — try again:"
+        )
+        return BP_2FA
+
+    context.user_data[_UD_2FA_VERIFIED_AT] = time.time()
+
+    # FIX CRITICAL #2: re-verify ownership before execution
+    wallet = _get_owned_wallet(wallet_id, db_user_id)
+    if wallet is None:
+        await update.message.reply_text("Wallet not found. Please start again with /pay.")
+        return ConversationHandler.END
+
+    status_msg = await update.message.reply_text("2FA verified. Executing bulk payment…")
+    return await _run_bulk_pay(status_msg.edit_text, context, wallet, recipients=None)
+
+
+async def _run_bulk_pay(
+    edit,
+    context: ContextTypes.DEFAULT_TYPE,
+    wallet: Wallet,
+    recipients: Optional[list[Recipient]],
+) -> int:
+    """Execute all pending recipients and build the result report.
+
+    MONEY-PATH: this is where funds move.  Each call signs and broadcasts an
+    on-chain transaction.  Per-recipient failure reporting ensures partial
+    failures are surfaced, not hidden.
+
+    MED #7 — replay / idempotency note:
+    Each run pulls recipients from context.user_data[_UD_RECIPIENTS] (set once
+    at list-entry time).  Already-sent recipients are identified by status "ok"
+    so a retry path skips them.  On partial failure the result report clearly
+    labels which sends succeeded and which failed; the user must start a new
+    /pay flow to re-attempt failed recipients — the same context cannot
+    re-trigger a second execution of the successful ones.
+    """
+    chain_type = context.user_data.get(_UD_CHAIN_TYPE, "evm")
+    chain_name = context.user_data.get(_UD_CHAIN, "")
+    token = context.user_data.get(_UD_TOKEN, NATIVE_SYMBOL)
+    raw_recipients = context.user_data.get(_UD_RECIPIENTS, [])
+
+    if not chain_name or not raw_recipients:
+        await edit("Session lost. Please start again with /pay.")
+        return ConversationHandler.END
+
+    # Deserialize; skip any already marked ok (idempotency guard)
+    all_recipients = [
+        Recipient(
+            address=r["address"],
+            amount=Decimal(r["amount"]),
+            status=r.get("status", "pending"),
+            tx_hash=r.get("tx_hash"),
+        )
+        for r in raw_recipients
+    ]
+    pending = [r for r in all_recipients if r.status != "ok"]
+
+    if not pending:
+        await edit("All recipients already sent in a previous attempt.")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    await edit(f"Sending to {len(pending)} recipient(s)… please wait.")
 
     try:
         if chain_type == "evm":
@@ -972,52 +1080,51 @@ async def _pay_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                 ),
             )
             if is_native:
-                # Try Multicall3 batch first; fall back to sequential on failure
-                try:
-                    recipients = await _execute_evm_native_batch(wallet, chain_name, recipients)
-                except Exception as exc:
-                    logger.warning(
-                        "bulk_pay: Multicall3 batch failed (%s), falling back to sequential", exc
-                    )
-                    # Reset status so sequential starts fresh
-                    for r in recipients:
-                        r.status = "pending"
-                    recipients = await _execute_evm_native_sequential(
-                        wallet, chain_name, recipients
-                    )
+                # FIX CRITICAL #3: only sequential sends; Multicall3 native batch disabled.
+                pending = await _execute_evm_native_sequential(wallet, chain_name, pending)
             else:
-                recipients = await _execute_evm_token_sequential(
-                    wallet, chain_name, token, recipients
-                )
+                pending = await _execute_evm_token_sequential(wallet, chain_name, token, pending)
 
         elif chain_type == "solana":
-            recipients = await _execute_solana_sequential(wallet, token, recipients)
+            pending = await _execute_solana_sequential(wallet, token, pending)
 
         elif chain_type == "tron":
-            recipients = await _execute_tron_sequential(wallet, token, recipients)
+            pending = await _execute_tron_sequential(wallet, token, pending)
 
         else:
-            for r in recipients:
+            for r in pending:
                 r.status = "failed"
                 r.error = f"Unsupported chain type: {chain_type}"
 
     except Exception as exc:
         logger.error("bulk_pay: unexpected execution error: %s", exc, exc_info=True)
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text=f"Bulk payment encountered an unexpected error: {str(exc)[:200]}",
-        )
+        await edit(f"Bulk payment encountered an unexpected error: {str(exc)[:200]}")
         return ConversationHandler.END
 
-    # Build result report
-    ok = [r for r in recipients if r.status == "ok"]
-    failed = [r for r in recipients if r.status != "ok"]
+    # Merge pending results back into all_recipients for the report
+    # (already-ok ones from a prior run keep their status)
+    pending_by_addr = {r.address: r for r in pending}
+    for r in all_recipients:
+        if r.address in pending_by_addr:
+            updated = pending_by_addr[r.address]
+            r.status = updated.status
+            r.tx_hash = updated.tx_hash
+            r.error = updated.error
 
-    lines = [f"Bulk Payment Complete — {len(ok)}/{len(recipients)} sent\n"]
+    # Persist updated statuses so a second confirm tap is idempotent
+    context.user_data[_UD_RECIPIENTS] = [
+        {"address": r.address, "amount": str(r.amount), "status": r.status, "tx_hash": r.tx_hash}
+        for r in all_recipients
+    ]
+
+    # Build result report
+    ok = [r for r in all_recipients if r.status == "ok"]
+    failed = [r for r in all_recipients if r.status != "ok"]
+
+    lines = [f"Bulk Payment Complete — {len(ok)}/{len(all_recipients)} sent\n"]
 
     if ok:
         lines.append("Sent successfully:")
-        # Deduplicate tx hashes for batched sends
         seen_hashes: set[str] = set()
         for r in ok:
             addr_short = r.address[:8] + "…" + r.address[-6:]
@@ -1032,19 +1139,22 @@ async def _pay_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         for r in failed:
             addr_short = r.address[:8] + "…" + r.address[-6:]
             lines.append(f"  {addr_short}  {r.amount} {token}  — {r.error or 'unknown error'}")
+        lines.append(
+            "\nTo retry failed recipients, start a new /pay flow with only the failed addresses."
+        )
 
     report = "\n".join(lines)
     # Telegram message limit ~4096 chars
     if len(report) > 3900:
         report = report[:3900] + "\n…(truncated)"
 
-    await context.bot.send_message(chat_id=query.message.chat_id, text=report)
+    await edit(report)
 
     if failed:
         logger.warning(
             "bulk_pay: partial failure — %d/%d recipients failed (wallet %s, chain %s)",
             len(failed),
-            len(recipients),
+            len(all_recipients),
             wallet.address,
             chain_name,
         )
@@ -1084,6 +1194,9 @@ bulk_pay_conversation_handler = ConversationHandler(
             CallbackQueryHandler(_pay_confirm, pattern="^bp_confirm$"),
             CallbackQueryHandler(_pay_confirm, pattern="^bp_cancel$"),
         ],
+        BP_2FA: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, _pay_twofa_entered),
+        ],
     },
     fallbacks=[CommandHandler("cancel", _pay_cancel)],
     allow_reentry=True,
@@ -1093,3 +1206,24 @@ bulk_pay_conversation_handler = ConversationHandler(
 
 # Named exports for main.py registration
 bulk_pay_handler = bulk_pay_conversation_handler
+
+# ---------------------------------------------------------------------------
+# MONEY-PATH audit surface
+# ---------------------------------------------------------------------------
+#
+# Every place funds move in this module:
+#
+# 1. _run_bulk_pay → _execute_evm_native_sequential / _execute_evm_token_sequential
+#    / _execute_solana_sequential / _execute_tron_sequential
+#    One on-chain tx per recipient.  The Multicall3 native batch (_execute_evm_native_batch)
+#    has been removed (CRITICAL #3 fix).
+#
+# Guards that protect execution:
+#   - @enforce_tos on the entry command
+#   - enforce_rate_limit_for_update (swap_limiter) on entry + confirm
+#   - Wallet ownership binding: _get_owned_wallet(wallet_id, db_user_id) in
+#     _pay_select_wallet, _pay_enter_list (balance check), _pay_confirm, _pay_twofa_entered
+#   - Balance check with gas buffer before confirmation card is shown
+#   - Spending-limit pre-check (spending_limit_service.check) at confirm (MED #8)
+#   - Optional TOTP 2FA gate at confirm (MED #8)
+#   - Per-recipient status tracking prevents re-sending already-ok recipients (MED #7)

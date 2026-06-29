@@ -296,70 +296,87 @@ class ReferralService:
         Returns:
             ReferralReward if a reward was created (or already existed), else None.
         """
-        with get_session() as session:
-            # Find the referral relationship
-            referral = (
-                session.query(Referral)
-                .filter(Referral.referee_id == referee_id, Referral.is_active == True)
-                .first()
+        # HIGH #4: wrap the INSERT block in try/except IntegrityError.  The
+        # SELECT-before-INSERT idempotency check has a race window; the DB unique
+        # constraint on referral_rewards.swap_id (and the partial unique index on
+        # referral_earnings(swap_id) WHERE stream_type='swap') is the authoritative
+        # guard.  On conflict, return the existing reward row.
+        reward_id: Optional[int] = None
+        try:
+            with get_session() as session:
+                # Find the referral relationship
+                referral = (
+                    session.query(Referral)
+                    .filter(Referral.referee_id == referee_id, Referral.is_active == True)
+                    .first()
+                )
+
+                if not referral:
+                    return None
+
+                # Idempotency: check if reward already exists for this swap
+                existing = (
+                    session.query(ReferralReward).filter(ReferralReward.swap_id == swap_id).first()
+                )
+
+                if existing:
+                    return existing
+
+                # Clamp rate to [0, 1] — defensive guard
+                rate = float(max(Decimal("0"), min(Decimal("1"), SWAP_COMMISSION_RATE)))
+                reward_amount = float(Decimal(str(fee_amount_usd)) * Decimal(str(rate)))
+
+                # --- Legacy ledger row ---
+                reward = ReferralReward(
+                    referral_id=referral.id,
+                    swap_id=swap_id,
+                    fee_amount_usd=fee_amount_usd,
+                    reward_amount_usd=reward_amount,
+                    is_paid=False,
+                )
+                session.add(reward)
+
+                # --- New multi-stream ledger row (stream_type='swap') ---
+                earning = ReferralEarning(
+                    referrer_id=referral.referrer_id,
+                    referred_id=referee_id,
+                    stream_type="swap",
+                    amount_usd=reward_amount,
+                    swap_id=swap_id,
+                    commission_rate=rate,
+                    earning_metadata=json.dumps({"fee_amount_usd": fee_amount_usd}),
+                    created_at=datetime.now(timezone.utc),
+                )
+                session.add(earning)
+
+                # Update referral code stats
+                code = (
+                    session.query(ReferralCode)
+                    .filter(ReferralCode.user_id == referral.referrer_id)
+                    .first()
+                )
+                if code:
+                    code.total_rewards_earned = (code.total_rewards_earned or 0) + reward_amount
+
+                # Update referrer's total rewards (denormalized fast-read column)
+                referrer = session.query(User).filter(User.id == referral.referrer_id).first()
+                if referrer:
+                    referrer.total_referral_rewards = (
+                        referrer.total_referral_rewards or 0
+                    ) + reward_amount
+
+                session.flush()
+                reward_id = reward.id
+
+        except IntegrityError:
+            # Concurrent INSERT hit the unique index — return the existing row.
+            logger.debug(
+                f"Swap earning for swap {swap_id} already exists (concurrent write); skipping."
             )
-
-            if not referral:
-                return None
-
-            # Idempotency: check if reward already exists for this swap
-            existing = (
-                session.query(ReferralReward).filter(ReferralReward.swap_id == swap_id).first()
-            )
-
-            if existing:
-                return existing
-
-            # Clamp rate to [0, 1] — defensive guard
-            rate = float(max(Decimal("0"), min(Decimal("1"), SWAP_COMMISSION_RATE)))
-            reward_amount = float(Decimal(str(fee_amount_usd)) * Decimal(str(rate)))
-
-            # --- Legacy ledger row ---
-            reward = ReferralReward(
-                referral_id=referral.id,
-                swap_id=swap_id,
-                fee_amount_usd=fee_amount_usd,
-                reward_amount_usd=reward_amount,
-                is_paid=False,
-            )
-            session.add(reward)
-
-            # --- New multi-stream ledger row (stream_type='swap') ---
-            earning = ReferralEarning(
-                referrer_id=referral.referrer_id,
-                referred_id=referee_id,
-                stream_type="swap",
-                amount_usd=reward_amount,
-                swap_id=swap_id,
-                commission_rate=rate,
-                metadata=json.dumps({"fee_amount_usd": fee_amount_usd}),
-                created_at=datetime.now(timezone.utc),
-            )
-            session.add(earning)
-
-            # Update referral code stats
-            code = (
-                session.query(ReferralCode)
-                .filter(ReferralCode.user_id == referral.referrer_id)
-                .first()
-            )
-            if code:
-                code.total_rewards_earned = (code.total_rewards_earned or 0) + reward_amount
-
-            # Update referrer's total rewards (denormalized fast-read column)
-            referrer = session.query(User).filter(User.id == referral.referrer_id).first()
-            if referrer:
-                referrer.total_referral_rewards = (
-                    referrer.total_referral_rewards or 0
-                ) + reward_amount
-
-            session.flush()
-            reward_id = reward.id
+            with get_session() as session:
+                return (
+                    session.query(ReferralReward).filter(ReferralReward.swap_id == swap_id).first()
+                )
 
         logger.info(
             f"Referral swap commission: ${reward_amount:.4f} ({rate:.0%} of "
@@ -636,74 +653,101 @@ class ReferralService:
         if builder_fee_usd <= 0:
             return None
 
-        with get_session() as session:
-            referral = (
-                session.query(Referral)
-                .filter(Referral.referee_id == referee_id, Referral.is_active == True)
-                .first()
-            )
-            if not referral:
-                return None
-
-            referrer_id = referral.referrer_id
-
-            # Idempotency guard: check for an existing earning row for this order
-            existing = (
-                session.query(ReferralEarning)
-                .filter(
-                    ReferralEarning.referrer_id == referrer_id,
-                    ReferralEarning.stream_type == "perps",
-                    ReferralEarning.perp_order_id == perp_order_id,
+        # HIGH #4: wrap the INSERT in try/except IntegrityError to handle the
+        # race window between the SELECT-before-INSERT idempotency check and the
+        # actual INSERT.  The DB partial unique index on
+        # referral_earnings(perp_order_id) WHERE stream_type='perps' (added by
+        # migration) is the authoritative guard; this catch makes it safe.
+        try:
+            with get_session() as session:
+                # HIGH #5: lock the referrals row with SELECT FOR UPDATE so the
+                # volume read-modify-write is atomic under concurrent closes.
+                # WARNING/TODO: perps_volume_14d_usd is a simple accumulator —
+                # it only grows and is never decayed.  True 14-day windowing
+                # (decay job or timestamped volume rows) is NOT yet implemented.
+                # Until a background decay job is added, high-volume referees
+                # permanently retain the highest tier they ever reached.
+                referral = (
+                    session.query(Referral)
+                    .filter(Referral.referee_id == referee_id, Referral.is_active == True)
+                    .with_for_update()
+                    .first()
                 )
-                .first()
-            )
-            if existing:
-                return existing
+                if not referral:
+                    return None
 
-            # Determine rate from 14-day rolling volume BEFORE this trade
-            volume_14d = float(referral.perps_volume_14d_usd or 0.0)
-            rate = self.get_perps_tier_rate(volume_14d)
-            commission = float(max(0.0, builder_fee_usd) * rate)
+                referrer_id = referral.referrer_id
 
-            earning = ReferralEarning(
-                referrer_id=referrer_id,
-                referred_id=referee_id,
-                stream_type="perps",
-                amount_usd=commission,
-                perp_order_id=perp_order_id,
-                commission_rate=rate,
-                metadata=json.dumps(
-                    {
-                        "builder_fee_usd": builder_fee_usd,
-                        "volume_14d_usd": volume_14d,
-                        "trade_notional_usd": trade_notional_usd,
-                        "market": market,
-                    }
-                ),
-                created_at=datetime.now(timezone.utc),
-            )
-            session.add(earning)
-
-            # Increment 14-day volume with this trade's notional
-            if trade_notional_usd > 0:
-                referral.perps_volume_14d_usd = (
-                    float(referral.perps_volume_14d_usd or 0.0) + trade_notional_usd
+                # Idempotency guard: check for an existing earning row for this order
+                existing = (
+                    session.query(ReferralEarning)
+                    .filter(
+                        ReferralEarning.referrer_id == referrer_id,
+                        ReferralEarning.stream_type == "perps",
+                        ReferralEarning.perp_order_id == perp_order_id,
+                    )
+                    .first()
                 )
+                if existing:
+                    return existing
 
-            # Update denormalized total on users table
-            referrer = session.query(User).filter(User.id == referrer_id).first()
-            if referrer:
-                referrer.total_referral_rewards = (
-                    float(referrer.total_referral_rewards or 0.0) + commission
+                # Determine rate from 14-day rolling volume BEFORE this trade.
+                # Clamp defensively to [0.0, 1.0] — matches get_perps_tier_rate
+                # but is an extra guard in case the tier table is misconfigured.
+                volume_14d = float(referral.perps_volume_14d_usd or 0.0)
+                rate = float(max(0.0, min(1.0, self.get_perps_tier_rate(volume_14d))))
+                commission = float(max(0.0, builder_fee_usd) * rate)
+
+                earning = ReferralEarning(
+                    referrer_id=referrer_id,
+                    referred_id=referee_id,
+                    stream_type="perps",
+                    amount_usd=commission,
+                    perp_order_id=perp_order_id,
+                    commission_rate=rate,
+                    earning_metadata=json.dumps(
+                        {
+                            "builder_fee_usd": builder_fee_usd,
+                            "volume_14d_usd": volume_14d,
+                            "trade_notional_usd": trade_notional_usd,
+                            "market": market,
+                        }
+                    ),
+                    created_at=datetime.now(timezone.utc),
                 )
+                session.add(earning)
 
-            # Also credit referral code stat
-            code = session.query(ReferralCode).filter(ReferralCode.user_id == referrer_id).first()
-            if code:
-                code.total_rewards_earned = (code.total_rewards_earned or 0.0) + commission
+                # Atomically increment 14-day volume with this trade's notional
+                # (safe because the referrals row is locked FOR UPDATE above).
+                if trade_notional_usd > 0:
+                    referral.perps_volume_14d_usd = (
+                        float(referral.perps_volume_14d_usd or 0.0) + trade_notional_usd
+                    )
 
-            session.flush()
-            earning_id = earning.id
+                # Update denormalized total on users table
+                referrer = session.query(User).filter(User.id == referrer_id).first()
+                if referrer:
+                    referrer.total_referral_rewards = (
+                        float(referrer.total_referral_rewards or 0.0) + commission
+                    )
+
+                # Also credit referral code stat
+                code = (
+                    session.query(ReferralCode).filter(ReferralCode.user_id == referrer_id).first()
+                )
+                if code:
+                    code.total_rewards_earned = (code.total_rewards_earned or 0.0) + commission
+
+                session.flush()
+                earning_id = earning.id
+
+        except IntegrityError:
+            # Concurrent INSERT hit the partial unique index — earning already exists.
+            logger.debug(
+                f"Perps earning for order {perp_order_id} / referrer of user {referee_id} "
+                f"already exists (concurrent write); skipping."
+            )
+            return None
 
         logger.info(
             f"Referral perps commission: ${commission:.4f} ({rate:.0%} of "
@@ -745,6 +789,10 @@ class ReferralService:
         Called by fraud/activity checks once the referee is confirmed legitimate.
         Returns True if a referral row was found and updated.
         """
+        # HIGH #6: capture referrer_id INSIDE the session block to avoid
+        # DetachedInstanceError when accessing the attribute after the session
+        # has closed (which silently swallowed milestone checks previously).
+        referrer_id: Optional[int] = None
         with get_session() as session:
             referral = (
                 session.query(Referral)
@@ -753,20 +801,19 @@ class ReferralService:
             )
             if not referral or referral.verified_at is not None:
                 return bool(referral)
+            referrer_id = referral.referrer_id  # captured while session is live
             referral.verified_at = datetime.now(timezone.utc)
 
         logger.info(f"Referral verified for referee {referee_id}")
 
         # Check milestones after each new verified referral.
-        try:
-            referrer_id = referral.referrer_id  # loaded before session closed
-        except Exception:
-            return True
-
-        try:
-            self._check_and_award_milestones(referrer_id)
-        except Exception as e:
-            logger.warning(f"Milestone check failed after verify for referrer {referrer_id}: {e}")
+        if referrer_id is not None:
+            try:
+                self._check_and_award_milestones(referrer_id)
+            except Exception as e:
+                logger.warning(
+                    f"Milestone check failed after verify for referrer {referrer_id}: {e}"
+                )
 
         return True
 
@@ -815,7 +862,7 @@ class ReferralService:
                         amount_usd=bonus_usd,
                         milestone_count=milestone_count,
                         commission_rate=None,
-                        metadata=json.dumps({"milestone_count": milestone_count}),
+                        earning_metadata=json.dumps({"milestone_count": milestone_count}),
                         created_at=datetime.now(timezone.utc),
                     )
                     session.add(earning)

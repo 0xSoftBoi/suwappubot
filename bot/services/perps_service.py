@@ -19,7 +19,10 @@ class PerpsService:
     # Per-market max leverage is fetched from HyperLiquid's meta endpoint at
     # order-time and clamped to that value. This fallback applies only when the
     # meta fetch fails (network error, unknown asset).
-    FALLBACK_MAX_LEVERAGE = 100
+    # Conservative cap used ONLY when the HL meta endpoint is unavailable, so a
+    # meta outage cannot let a user exceed a low-cap market's real max. Normal
+    # operation uses the per-market maxLeverage from meta.
+    FALLBACK_MAX_LEVERAGE = 20
     MIN_MARGIN_USD = 10.0
     FEE_PERCENTAGE = 0.02  # 2 bps
 

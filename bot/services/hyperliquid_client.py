@@ -141,7 +141,7 @@ class HyperLiquidClient:
             logger.error(f"Failed to get HyperLiquid markets: {e}")
             return []
 
-    async def get_market_max_leverage(self, asset: str, fallback: int = 100) -> int:
+    async def get_market_max_leverage(self, asset: str, fallback: int = 20) -> int:
         """Return HyperLiquid's per-market ``maxLeverage`` for ``asset``.
 
         Reads from the already-cached meta universe (populated by
@@ -152,8 +152,9 @@ class HyperLiquidClient:
         Args:
             asset: The coin name as it appears in HL meta (e.g. ``"ETH"``).
             fallback: Value to return when the market is unknown or meta is
-                      unavailable. Default 100 is conservative — the maximum
-                      any HL perp market allows as of 2025 is 100x.
+                      unavailable. Default 20 is deliberately conservative so a
+                      meta outage cannot let a user exceed a low-cap market's
+                      real limit; normal operation uses the per-market value.
         """
         # Ensure the cache is populated (it may already be warm).
         try:

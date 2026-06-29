@@ -138,6 +138,20 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
             ReferralMilestone,
         )
 
+        # Community payment-tool models (Bucket 2: tips, lucky boxes, split bills, airdrops)
+        from bot.models.community import (
+            Tip,
+            LuckyBox,
+            LuckyBoxClaim,
+            SplitBill,
+            SplitBillShare,
+            AirdropCampaign,
+            AirdropClaim,
+        )
+
+        # Gamified trading models (Bucket 3: directional battles)
+        from bot.models.battle import Battle
+
         # Points/XP and Copy Trading models
         from bot.models.points import (
             UserPoints,
@@ -518,6 +532,15 @@ def _ensure_schema(db_engine) -> None:
     # --- referrals: verified_at + perps_volume_14d_usd columns ---
     if "referrals" in tables:
         _add_referral_stream_columns(db_engine, inspector, is_sqlite)
+
+    # --- Bucket 2: community payment tools ---
+    _create_tips_table(db_engine, inspector, is_sqlite)
+    _create_lucky_boxes_tables(db_engine, inspector, is_sqlite)
+    _create_split_bills_tables(db_engine, inspector, is_sqlite)
+    _create_airdrop_tables(db_engine, inspector, is_sqlite)
+
+    # --- Bucket 3: gamified trading battles ---
+    _create_battles_table(db_engine, inspector, is_sqlite)
 
 
 def _add_user_org_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -2163,6 +2186,22 @@ def _create_referral_earnings_table(db_engine, inspector, is_sqlite: bool) -> No
                 " ON referral_earnings(created_at)"
             )
         )
+        # MONEY-PATH: partial UNIQUE indexes are the DB backstop against
+        # double-crediting a single swap/perp order. The service layer also
+        # SELECT-before-INSERTs, but these guarantee atomic dedupe under races.
+        # Partial indexes are supported by both SQLite (>=3.8.0) and PostgreSQL.
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_referral_earnings_swap"
+                " ON referral_earnings(swap_id) WHERE stream_type = 'swap'"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_referral_earnings_perp_order"
+                " ON referral_earnings(perp_order_id) WHERE stream_type = 'perps'"
+            )
+        )
 
 
 def _create_referral_milestones_table(db_engine, inspector, is_sqlite: bool) -> None:
@@ -2259,3 +2298,494 @@ def _add_referral_stream_columns(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info(f"Added referrals.{col_name}")
         except Exception as e:
             logger.warning(f"Failed to add referrals.{col_name}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Bucket 2 — community payment tools
+# ---------------------------------------------------------------------------
+
+
+def _create_tips_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the tips table (in-chat tipping ledger) idempotently.
+
+    Holds every tip event: pending (waiting for on-chain send), claimed
+    (recipient confirmed), or refunded (sender reclaimed unclaimed tip).
+    amount uses NUMERIC(18,6) to preserve fractional token amounts exactly.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "tips" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS tips (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        sender_id INTEGER NOT NULL REFERENCES users(id),
+                        recipient_id INTEGER REFERENCES users(id),
+                        recipient_username VARCHAR(128),
+                        chat_id VARCHAR(64) NOT NULL,
+                        token VARCHAR(20) NOT NULL,
+                        chain VARCHAR(50) NOT NULL,
+                        amount NUMERIC(18,6) NOT NULL,
+                        tx_hash VARCHAR(128),
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        claimed_at DATETIME
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS tips (
+                        id SERIAL PRIMARY KEY,
+                        sender_id INTEGER NOT NULL REFERENCES users(id),
+                        recipient_id INTEGER REFERENCES users(id),
+                        recipient_username VARCHAR(128),
+                        chat_id VARCHAR(64) NOT NULL,
+                        token VARCHAR(20) NOT NULL,
+                        chain VARCHAR(50) NOT NULL,
+                        amount NUMERIC(18,6) NOT NULL,
+                        tx_hash VARCHAR(128),
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        claimed_at TIMESTAMP
+                    )
+                """))
+            logger.info("Created tips table")
+
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_tips_sender_id ON tips(sender_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_tips_recipient_id ON tips(recipient_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_tips_chat_id ON tips(chat_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_tips_status ON tips(status)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_tips_sender_status ON tips(sender_id, status)")
+        )
+
+
+def _create_lucky_boxes_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create lucky_boxes and lucky_box_claims tables idempotently.
+
+    lucky_boxes:       red-packet pool created by a user in a chat.
+    lucky_box_claims:  one row per (box, claimer) — UNIQUE constraint prevents
+                       double-claiming.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "lucky_boxes" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS lucky_boxes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        creator_id INTEGER NOT NULL REFERENCES users(id),
+                        chat_id VARCHAR(64) NOT NULL,
+                        token VARCHAR(20) NOT NULL,
+                        chain VARCHAR(50) NOT NULL,
+                        total_amount NUMERIC(18,6) NOT NULL,
+                        remaining_amount NUMERIC(18,6) NOT NULL,
+                        total_count INTEGER NOT NULL,
+                        claimed_count INTEGER NOT NULL DEFAULT 0,
+                        split_mode VARCHAR(20) NOT NULL DEFAULT 'random',
+                        status VARCHAR(20) NOT NULL DEFAULT 'active',
+                        expires_at DATETIME NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS lucky_boxes (
+                        id SERIAL PRIMARY KEY,
+                        creator_id INTEGER NOT NULL REFERENCES users(id),
+                        chat_id VARCHAR(64) NOT NULL,
+                        token VARCHAR(20) NOT NULL,
+                        chain VARCHAR(50) NOT NULL,
+                        total_amount NUMERIC(18,6) NOT NULL,
+                        remaining_amount NUMERIC(18,6) NOT NULL,
+                        total_count INTEGER NOT NULL,
+                        claimed_count INTEGER NOT NULL DEFAULT 0,
+                        split_mode VARCHAR(20) NOT NULL DEFAULT 'random',
+                        status VARCHAR(20) NOT NULL DEFAULT 'active',
+                        expires_at TIMESTAMP NOT NULL,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            logger.info("Created lucky_boxes table")
+
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_lucky_boxes_creator_id ON lucky_boxes(creator_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_lucky_boxes_chat_id ON lucky_boxes(chat_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_lucky_boxes_status ON lucky_boxes(status)")
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_lucky_boxes_creator_status"
+                " ON lucky_boxes(creator_id, status)"
+            )
+        )
+
+    with db_engine.begin() as conn:
+        if "lucky_box_claims" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS lucky_box_claims (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        lucky_box_id INTEGER NOT NULL REFERENCES lucky_boxes(id),
+                        claimer_id INTEGER NOT NULL REFERENCES users(id),
+                        amount NUMERIC(18,6) NOT NULL,
+                        tx_hash VARCHAR(128),
+                        claimed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS lucky_box_claims (
+                        id SERIAL PRIMARY KEY,
+                        lucky_box_id INTEGER NOT NULL REFERENCES lucky_boxes(id),
+                        claimer_id INTEGER NOT NULL REFERENCES users(id),
+                        amount NUMERIC(18,6) NOT NULL,
+                        tx_hash VARCHAR(128),
+                        claimed_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            logger.info("Created lucky_box_claims table")
+
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_lucky_box_claims_lucky_box_id"
+                " ON lucky_box_claims(lucky_box_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_lucky_box_claims_claimer_id"
+                " ON lucky_box_claims(claimer_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_lucky_box_claims_box_claimer"
+                " ON lucky_box_claims(lucky_box_id, claimer_id)"
+            )
+        )
+
+
+def _create_split_bills_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create split_bills and split_bill_shares tables idempotently.
+
+    split_bills:       header record for a group bill-splitting session.
+    split_bill_shares: one row per debtor — UNIQUE on (split_bill_id, debtor_id)
+                       prevents duplicate share entries.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "split_bills" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS split_bills (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        creator_id INTEGER NOT NULL REFERENCES users(id),
+                        chat_id VARCHAR(64) NOT NULL,
+                        token VARCHAR(20) NOT NULL,
+                        chain VARCHAR(50) NOT NULL,
+                        total_amount NUMERIC(18,6) NOT NULL,
+                        description TEXT,
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS split_bills (
+                        id SERIAL PRIMARY KEY,
+                        creator_id INTEGER NOT NULL REFERENCES users(id),
+                        chat_id VARCHAR(64) NOT NULL,
+                        token VARCHAR(20) NOT NULL,
+                        chain VARCHAR(50) NOT NULL,
+                        total_amount NUMERIC(18,6) NOT NULL,
+                        description TEXT,
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            logger.info("Created split_bills table")
+
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_split_bills_creator_id ON split_bills(creator_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_split_bills_chat_id ON split_bills(chat_id)")
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_split_bills_creator_status"
+                " ON split_bills(creator_id, status)"
+            )
+        )
+
+    with db_engine.begin() as conn:
+        if "split_bill_shares" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS split_bill_shares (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        split_bill_id INTEGER NOT NULL REFERENCES split_bills(id),
+                        debtor_id INTEGER NOT NULL REFERENCES users(id),
+                        amount NUMERIC(18,6) NOT NULL,
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        paid_at DATETIME
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS split_bill_shares (
+                        id SERIAL PRIMARY KEY,
+                        split_bill_id INTEGER NOT NULL REFERENCES split_bills(id),
+                        debtor_id INTEGER NOT NULL REFERENCES users(id),
+                        amount NUMERIC(18,6) NOT NULL,
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        paid_at TIMESTAMP
+                    )
+                """))
+            logger.info("Created split_bill_shares table")
+
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_split_bill_shares_split_bill_id"
+                " ON split_bill_shares(split_bill_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_split_bill_shares_debtor_id"
+                " ON split_bill_shares(debtor_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_split_bill_shares_debtor_status"
+                " ON split_bill_shares(debtor_id, status)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_split_bill_shares_bill_debtor"
+                " ON split_bill_shares(split_bill_id, debtor_id)"
+            )
+        )
+
+
+def _create_airdrop_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create airdrop_campaigns and airdrop_claims tables idempotently.
+
+    airdrop_campaigns: campaign definition (total budget, per-user amount, eligibility).
+    airdrop_claims:    one row per (campaign, claimer) — UNIQUE constraint prevents
+                       double-claiming even if the handler is called twice.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "airdrop_campaigns" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS airdrop_campaigns (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        creator_id INTEGER NOT NULL REFERENCES users(id),
+                        chat_id VARCHAR(64) NOT NULL,
+                        token VARCHAR(20) NOT NULL,
+                        chain VARCHAR(50) NOT NULL,
+                        total_amount NUMERIC(18,6) NOT NULL,
+                        per_user_amount NUMERIC(18,6),
+                        criteria TEXT,
+                        status VARCHAR(20) NOT NULL DEFAULT 'active',
+                        expires_at DATETIME,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS airdrop_campaigns (
+                        id SERIAL PRIMARY KEY,
+                        creator_id INTEGER NOT NULL REFERENCES users(id),
+                        chat_id VARCHAR(64) NOT NULL,
+                        token VARCHAR(20) NOT NULL,
+                        chain VARCHAR(50) NOT NULL,
+                        total_amount NUMERIC(18,6) NOT NULL,
+                        per_user_amount NUMERIC(18,6),
+                        criteria TEXT,
+                        status VARCHAR(20) NOT NULL DEFAULT 'active',
+                        expires_at TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            logger.info("Created airdrop_campaigns table")
+
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_airdrop_campaigns_creator_id"
+                " ON airdrop_campaigns(creator_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_airdrop_campaigns_chat_id"
+                " ON airdrop_campaigns(chat_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_airdrop_campaigns_status"
+                " ON airdrop_campaigns(status)"
+            )
+        )
+
+    with db_engine.begin() as conn:
+        if "airdrop_claims" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS airdrop_claims (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        campaign_id INTEGER NOT NULL REFERENCES airdrop_campaigns(id),
+                        claimer_id INTEGER NOT NULL REFERENCES users(id),
+                        amount NUMERIC(18,6) NOT NULL,
+                        tx_hash VARCHAR(128),
+                        claimed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS airdrop_claims (
+                        id SERIAL PRIMARY KEY,
+                        campaign_id INTEGER NOT NULL REFERENCES airdrop_campaigns(id),
+                        claimer_id INTEGER NOT NULL REFERENCES users(id),
+                        amount NUMERIC(18,6) NOT NULL,
+                        tx_hash VARCHAR(128),
+                        claimed_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            logger.info("Created airdrop_claims table")
+
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_airdrop_claims_campaign_id"
+                " ON airdrop_claims(campaign_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_airdrop_claims_claimer_id"
+                " ON airdrop_claims(claimer_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_airdrop_claims_campaign_claimer"
+                " ON airdrop_claims(campaign_id, claimer_id)"
+            )
+        )
+
+
+# ---------------------------------------------------------------------------
+# Bucket 3 — gamified trading battles
+# ---------------------------------------------------------------------------
+
+
+def _create_battles_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the battles table (directional up/down bet) idempotently.
+
+    One row per battle.  The row is open (status='open') until expiry_at,
+    at which point the settlement service writes settle_price, outcome, pnl_usd,
+    and transitions status -> 'settled' (or 'voided' if data is unavailable).
+
+    All USD and price columns use NUMERIC for exact decimal arithmetic.
+    perp_order_id links to perp_orders when backing='perps'.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "battles" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS battles (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        market VARCHAR(50) NOT NULL,
+                        direction VARCHAR(10) NOT NULL,
+                        stake_usd NUMERIC(18,6) NOT NULL,
+                        backing VARCHAR(20) NOT NULL DEFAULT 'perps',
+                        leverage NUMERIC(10,2),
+                        entry_price NUMERIC(20,8) NOT NULL,
+                        expiry_at DATETIME NOT NULL,
+                        settle_price NUMERIC(20,8),
+                        outcome VARCHAR(10),
+                        pnl_usd NUMERIC(18,6),
+                        perp_order_id INTEGER,
+                        status VARCHAR(20) NOT NULL DEFAULT 'open',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        settled_at DATETIME
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS battles (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL,
+                        market VARCHAR(50) NOT NULL,
+                        direction VARCHAR(10) NOT NULL,
+                        stake_usd NUMERIC(18,6) NOT NULL,
+                        backing VARCHAR(20) NOT NULL DEFAULT 'perps',
+                        leverage NUMERIC(10,2),
+                        entry_price NUMERIC(20,8) NOT NULL,
+                        expiry_at TIMESTAMP NOT NULL,
+                        settle_price NUMERIC(20,8),
+                        outcome VARCHAR(10),
+                        pnl_usd NUMERIC(18,6),
+                        perp_order_id INTEGER,
+                        status VARCHAR(20) NOT NULL DEFAULT 'open',
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        settled_at TIMESTAMP
+                    )
+                """))
+            logger.info("Created battles table")
+
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_battles_user_id ON battles(user_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_battles_status ON battles(status)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_battles_expiry_at ON battles(expiry_at)")
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_battles_user_status"
+                " ON battles(user_id, status)"
+            )
+        )
