@@ -1127,7 +1127,7 @@ export interface CopySettings {
 }
 
 export interface FollowTraderParams {
-  walletId: number
+  walletId?: number
   maxAmountPerTrade?: number
   totalBudget?: number
   stopLossPercent?: number

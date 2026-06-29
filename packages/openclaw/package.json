@@ -1,7 +1,7 @@
 {
   "name": "@suwappu/openclaw",
   "version": "0.1.0",
-  "private": true,
+  "publishConfig": { "access": "public" },
   "description": "OpenClaw — agent/MCP skill client for the Suwappu cross-chain DEX API (swaps, perps, predictions, lending)",
   "type": "module",
   "main": "./dist/index.js",

@@ -5832,3 +5832,163 @@ button:focus:not(:focus-visible) {
   letter-spacing: 0.02em;
   text-align: center;
 }
+
+/* ================================================================
+   /agents — developer quickstart page
+   ================================================================ */
+
+.agents-hero {
+  padding-bottom: 0;
+}
+
+/* Tab strip */
+.agents-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--summer-line);
+  padding-bottom: 0;
+}
+
+.agents-tab {
+  padding: 10px 22px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--summer-muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.agents-tab:hover {
+  color: var(--summer-ink);
+}
+
+.agents-tab--active {
+  color: var(--summer-ink);
+  border-bottom-color: var(--summer-sky, #4fb8d0);
+}
+
+/* Quickstart block */
+.agents-qs {
+  margin: 48px auto 0;
+  max-width: 740px;
+}
+
+.agents-panel {
+  margin-top: 0;
+}
+
+.agents-code {
+  border-radius: 0 0 10px 10px;
+}
+
+.agents-caption {
+  margin-top: 14px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--summer-muted);
+  font-style: italic;
+}
+
+/* Capabilities grid */
+.agents-caps {
+  margin-top: 80px;
+}
+
+.agents-caps h2 {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.agents-caps__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.agents-cap {
+  padding: 24px 22px;
+  border-radius: 10px;
+  border: 1px solid rgba(207, 227, 234, 0.7);
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow:
+    0 2px 8px rgba(33, 88, 110, 0.06),
+    0 16px 32px rgba(33, 88, 110, 0.04);
+}
+
+.agents-cap h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--summer-ink);
+}
+
+.agents-cap p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--summer-muted);
+  line-height: 1.55;
+}
+
+/* CTA */
+.agents-cta {
+  margin: 64px 0 80px;
+  display: flex;
+  justify-content: center;
+}
+
+/* Dark/cosmic variant (docs-shell uses summer-page which is light;
+   these overrides are defensive in case it's ever layered on cosmic) */
+.summer-page--cosmic .agents-cap {
+  background: rgba(15, 40, 55, 0.45);
+  border-color: rgba(100, 180, 210, 0.18);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.2),
+    0 16px 32px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.summer-page--cosmic .agents-cap h3 {
+  color: rgba(230, 245, 250, 0.95);
+}
+
+.summer-page--cosmic .agents-cap p {
+  color: rgba(160, 210, 230, 0.7);
+}
+
+.summer-page--cosmic .agents-tab {
+  color: rgba(160, 210, 230, 0.7);
+}
+
+.summer-page--cosmic .agents-tab:hover,
+.summer-page--cosmic .agents-tab--active {
+  color: rgba(230, 245, 250, 0.95);
+}
+
+@media (max-width: 860px) {
+  .agents-caps__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agents-qs {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .agents-caps__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .agents-tab {
+    padding: 10px 14px;
+  }
+}

@@ -330,8 +330,33 @@ internalRoutes.get('/token/price', async (c) => {
 		return c.json({ error: 'chain and address are required' }, 400)
 	}
 
-	// TODO: Implement via TokenService once price endpoint is available
-	return c.json({ error: 'Not yet implemented' }, 501)
+	try {
+		const url = `https://api.dexscreener.com/latest/dex/tokens/${encodeURIComponent(address)}`
+		const res = await fetch(url, { headers: { Accept: 'application/json' } })
+		if (!res.ok) {
+			return c.json({ error: 'Upstream error fetching token price' }, 502)
+		}
+		const data = (await res.json()) as { pairs?: Array<{ chainId: string; liquidity?: { usd?: number }; priceUsd?: string; baseToken?: { address: string; symbol: string; name: string } }> }
+		const pairs = (data.pairs ?? []).filter(
+			(p) => !chain || p.chainId?.toLowerCase() === chain.toLowerCase(),
+		)
+		if (pairs.length === 0) {
+			return c.json({ error: 'Token not found on requested chain' }, 404)
+		}
+		// Pick highest-liquidity pair
+		const best = pairs.reduce((a, b) =>
+			(b.liquidity?.usd ?? 0) > (a.liquidity?.usd ?? 0) ? b : a,
+		)
+		return c.json({
+			address: best.baseToken?.address ?? address,
+			symbol: best.baseToken?.symbol ?? '',
+			name: best.baseToken?.name ?? '',
+			price_usd: best.priceUsd ? parseFloat(best.priceUsd) : null,
+			chain: best.chainId,
+		})
+	} catch (err) {
+		return c.json({ error: 'Failed to fetch token price', detail: String(err) }, 502)
+	}
 })
 
 // ─── Health ─────────────────────────────────────────────────

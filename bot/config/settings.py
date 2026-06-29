@@ -506,11 +506,11 @@ class Settings(BaseSettings):
     # HyperLiquid real-time WebSocket alert feed (fills / liquidations / funding / whales).
     # Connects to wss://api.hyperliquid.xyz/ws and pushes Telegram alerts. OFF by default.
     hl_ws_alerts_enabled: bool = Field(
-        default=False,
+        default=True,
         description="Enable the HyperLiquid WebSocket alert feed (per-user fills/liquidations/funding).",
     )
     hl_whale_alerts_enabled: bool = Field(
-        default=False,
+        default=True,
         description="Enable HyperLiquid whale-trade alerts (large single trades on major coins).",
     )
     hl_whale_alert_threshold_usd: float = Field(
@@ -659,7 +659,7 @@ class Settings(BaseSettings):
     # enable flag (not a key) so it ships dark and has a no-redeploy kill switch
     # — execution is verified for quote+build but not yet run on-chain.
     kyberswap_enabled: bool = Field(
-        default=False, description="Enable KyberSwap in the best-price race (no API key needed)"
+        default=True, description="Enable KyberSwap in the best-price race (no API key needed)"
     )
     kyberswap_client_id: str = Field(
         default="suwappu-bot",
