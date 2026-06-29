@@ -95,6 +95,7 @@ class HyperLiquidClient:
         self._client: Optional[httpx.AsyncClient] = None
         self._asset_index_cache: dict[str, int] = {}
         self._asset_sz_decimals: dict[str, int] = {}
+        self._asset_max_leverage: dict[str, int] = {}  # per-market maxLeverage from HL meta
         self._asset_index_fetched_at: float = 0.0
         self._spot_meta: dict = {}
         self._spot_meta_fetched_at: float = 0.0
@@ -139,6 +140,31 @@ class HyperLiquidClient:
         except Exception as e:
             logger.error(f"Failed to get HyperLiquid markets: {e}")
             return []
+
+    async def get_market_max_leverage(self, asset: str, fallback: int = 100) -> int:
+        """Return HyperLiquid's per-market ``maxLeverage`` for ``asset``.
+
+        Reads from the already-cached meta universe (populated by
+        ``_resolve_asset_index``).  If the cache is cold or the asset is
+        unknown, triggers a meta fetch and returns the value; if the fetch
+        fails, returns ``fallback`` so callers still get a safe cap.
+
+        Args:
+            asset: The coin name as it appears in HL meta (e.g. ``"ETH"``).
+            fallback: Value to return when the market is unknown or meta is
+                      unavailable. Default 100 is conservative — the maximum
+                      any HL perp market allows as of 2025 is 100x.
+        """
+        # Ensure the cache is populated (it may already be warm).
+        try:
+            await self._resolve_asset_index(asset)
+        except Exception:
+            pass  # unknown asset — fall through to fallback below
+
+        max_lev = self._asset_max_leverage.get(asset)
+        if max_lev and max_lev > 0:
+            return max_lev
+        return fallback
 
     async def get_mark_price(self, market: str) -> Optional[float]:
         """Get current mark price for a market."""
@@ -1294,6 +1320,11 @@ class HyperLiquidClient:
                             info.get("name"): int(info.get("szDecimals", 2))
                             for info in universe
                             if info.get("name")
+                        }
+                        self._asset_max_leverage = {
+                            info.get("name"): int(info.get("maxLeverage", 0))
+                            for info in universe
+                            if info.get("name") and info.get("maxLeverage")
                         }
                         self._asset_index_fetched_at = now
             except Exception as e:

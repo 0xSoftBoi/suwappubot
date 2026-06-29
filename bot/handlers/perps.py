@@ -69,7 +69,7 @@ async def perps_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _send_perps(
             update,
             "\U0001f4ca **Perpetual Trading**\n\n"
-            "Trade perpetual futures with up to 20x leverage on HyperLiquid.\n\n"
+            "Trade perpetual futures with up to 100x leverage on HyperLiquid (per-market limit).\n\n"
             "To get started, set up your HyperLiquid account first.",
             keyboard,
         )
@@ -140,7 +140,7 @@ async def perps_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             "**Key Terms:**\n"
             "\u2022 **Long** \u2014 Profit when price goes up\n"
             "\u2022 **Short** \u2014 Profit when price goes down\n"
-            "\u2022 **Leverage** \u2014 Multiplier (2x-20x)\n"
+            "\u2022 **Leverage** \u2014 Multiplier (1x up to per-market max on HyperLiquid)\n"
             "\u2022 **Liquidation** \u2014 Position auto-closed if losses exceed margin\n"
             "\u2022 **TP/SL** \u2014 Auto-close at profit target or loss limit\n\n"
             "\u26a0\ufe0f Higher leverage = higher risk. Start small!",
@@ -253,8 +253,25 @@ async def perps_amount_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
         context.user_data["perps_amount"] = amount
 
+        # Fetch the per-market max leverage from HyperLiquid's meta so the
+        # button grid reflects the real exchange cap.
+        market = context.user_data.get("perps_market", "ETH-USD")
+        asset = market.split("-")[0] if "-" in market else market
+        try:
+            from bot.services.hyperliquid_client import hyperliquid_client as _hl_client
+
+            market_max_lev = await _hl_client.get_market_max_leverage(asset, 100)
+        except Exception:
+            market_max_lev = 100
+
+        # Build leverage options that span from conservative to the market maximum.
+        # Include fixed steps and the market max so users always see the ceiling.
+        base_options = [1, 2, 3, 5, 10, 15, 20, 25, 50, 75]
+        leverage_options = sorted(set(o for o in base_options if o <= market_max_lev))
+        if market_max_lev not in leverage_options:
+            leverage_options.append(market_max_lev)
+
         keyboard = []
-        leverage_options = [1, 2, 3, 5, 10, 15, 20]
         row = []
         for lev in leverage_options:
             row.append(InlineKeyboardButton(f"{lev}x", callback_data=f"perps_lev_{lev}"))
@@ -266,8 +283,9 @@ async def perps_amount_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
         await update.message.reply_text(
             f"\U0001f4aa **Select Leverage**\n\n"
-            f"Position: ${amount:,.0f}\n\n"
-            f"Higher leverage = higher risk \u26a0\ufe0f",
+            f"Position margin: ${amount:,.0f}\n"
+            f"Market max: **{market_max_lev}x** (HyperLiquid)\n\n"
+            f"\u26a0\ufe0f Higher leverage = higher risk of liquidation",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown",
         )
@@ -299,6 +317,7 @@ async def perps_leverage_callback(update: Update, context: ContextTypes.DEFAULT_
     liq_estimate = (
         price * (1 - 1 / leverage) if side == "long" else price * (1 + 1 / leverage) if price else 0
     )
+    liq_distance_pct = (abs(price - liq_estimate) / price * 100) if price else 0
 
     keyboard = [
         [
@@ -307,15 +326,31 @@ async def perps_leverage_callback(update: Update, context: ContextTypes.DEFAULT_
         ],
     ]
 
-    await query.edit_message_text(
+    # Build the confirm message with risk detail proportional to leverage chosen.
+    confirm_text = (
         f"\U0001f4ca **Confirm Position**\n\n"
         f"Market: **{market}**\n"
         f"Side: **{side.upper()}**\n"
         f"Size: **{size:.4f}** ({amount:,.0f} USD \u00d7 {leverage}x)\n"
         f"Leverage: **{leverage}x**\n"
         f"Entry Price: ~${price:,.2f}\n"
-        f"Est. Liquidation: ~${liq_estimate:,.2f}\n\n"
-        f"\u26a0\ufe0f You can lose up to ${amount:,.0f} (your margin)",
+        f"Est. Liquidation: ~${liq_estimate:,.2f} "
+        f"({liq_distance_pct:.1f}% from entry)\n\n"
+        f"\u26a0\ufe0f You can lose up to ${amount:,.0f} (your full margin)"
+    )
+
+    # High-leverage additional warning (>25x): quantify how little the price
+    # needs to move before the position is liquidated.
+    if leverage > 25:
+        confirm_text += (
+            f"\n\n\U0001f6a8 **HIGH LEVERAGE WARNING**\n"
+            f"At {leverage}x, a {liq_distance_pct:.1f}% adverse move "
+            f"liquidates your entire margin (${amount:,.0f}).\n"
+            f"Ensure you have a stop-loss or can absorb full loss."
+        )
+
+    await query.edit_message_text(
+        confirm_text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown",
     )

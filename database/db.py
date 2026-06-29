@@ -129,7 +129,14 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         from bot.models.advanced import LimitOrder, DCAOrder, DCAExecution, SwapTemplate, RugMonitor
 
         # Referral system models
-        from bot.models.referral import Referral, ReferralCode, ReferralReward, ReferralPayout
+        from bot.models.referral import (
+            Referral,
+            ReferralCode,
+            ReferralReward,
+            ReferralPayout,
+            ReferralEarning,
+            ReferralMilestone,
+        )
 
         # Points/XP and Copy Trading models
         from bot.models.points import (
@@ -503,6 +510,14 @@ def _ensure_schema(db_engine) -> None:
     # --- users: enterprise org membership columns ---
     if "users" in tables:
         _add_user_org_columns(db_engine, inspector, is_sqlite)
+
+    # --- multi-stream referral: referral_earnings ledger + referral_milestones ---
+    _create_referral_earnings_table(db_engine, inspector, is_sqlite)
+    _create_referral_milestones_table(db_engine, inspector, is_sqlite)
+
+    # --- referrals: verified_at + perps_volume_14d_usd columns ---
+    if "referrals" in tables:
+        _add_referral_stream_columns(db_engine, inspector, is_sqlite)
 
 
 def _add_user_org_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -2068,3 +2083,179 @@ def _add_user_settings_granular_notify_columns(db_engine, inspector, is_sqlite: 
                 ddl = f"ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
+
+
+def _create_referral_earnings_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create referral_earnings ledger table for multi-stream commissions (idempotent).
+
+    Records every individual commission credit across three streams:
+      - swap:      percentage of fee from a referred user's swap
+      - perps:     volume-tiered percentage (20%%–80%%) of fee from a referred user's perp trade
+      - milestone: fixed bonus when the referrer reaches a verified-referral count threshold
+
+    The table is append-only; negative adjustments (e.g. clawbacks) use a negative
+    amount_usd row with the same stream_type.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "referral_earnings" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS referral_earnings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        referrer_id INTEGER NOT NULL REFERENCES users(id),
+                        referred_id INTEGER,
+                        stream_type VARCHAR(20) NOT NULL,
+                        amount_usd FLOAT NOT NULL,
+                        token VARCHAR(20),
+                        swap_id INTEGER,
+                        perp_order_id INTEGER,
+                        milestone_count INTEGER,
+                        commission_rate FLOAT,
+                        metadata TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS referral_earnings (
+                        id SERIAL PRIMARY KEY,
+                        referrer_id INTEGER NOT NULL REFERENCES users(id),
+                        referred_id INTEGER,
+                        stream_type VARCHAR(20) NOT NULL,
+                        amount_usd FLOAT NOT NULL,
+                        token VARCHAR(20),
+                        swap_id INTEGER,
+                        perp_order_id INTEGER,
+                        milestone_count INTEGER,
+                        commission_rate FLOAT,
+                        metadata TEXT,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            logger.info("Created referral_earnings table")
+
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_referral_earnings_referrer_id"
+                " ON referral_earnings(referrer_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_referral_earnings_referred_id"
+                " ON referral_earnings(referred_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_referral_earnings_stream_type"
+                " ON referral_earnings(stream_type)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_referral_earnings_created_at"
+                " ON referral_earnings(created_at)"
+            )
+        )
+
+
+def _create_referral_milestones_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create referral_milestones table to track fixed-payout milestone bonuses (idempotent).
+
+    Each row represents one milestone a referrer has unlocked:
+      milestone_count: 5 | 10 | 20 | 50 | 100 (open-ended; service layer defines values)
+      earned_at:       when the threshold was crossed
+      earning_id:      FK -> referral_earnings.id (the credit row for this bonus)
+
+    The UNIQUE constraint on (referrer_id, milestone_count) prevents double-crediting.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "referral_milestones" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS referral_milestones (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        referrer_id INTEGER NOT NULL REFERENCES users(id),
+                        milestone_count INTEGER NOT NULL,
+                        bonus_usd FLOAT NOT NULL,
+                        earned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        earning_id INTEGER REFERENCES referral_earnings(id)
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS referral_milestones (
+                        id SERIAL PRIMARY KEY,
+                        referrer_id INTEGER NOT NULL REFERENCES users(id),
+                        milestone_count INTEGER NOT NULL,
+                        bonus_usd FLOAT NOT NULL,
+                        earned_at TIMESTAMP DEFAULT NOW(),
+                        earning_id INTEGER REFERENCES referral_earnings(id)
+                    )
+                """))
+            logger.info("Created referral_milestones table")
+
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_referral_milestones_referrer_id"
+                " ON referral_milestones(referrer_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_referral_milestones_referrer_count"
+                " ON referral_milestones(referrer_id, milestone_count)"
+            )
+        )
+
+
+def _add_referral_stream_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add stream-support columns to the referrals table (idempotent).
+
+    verified_at:          NULL until the referee passes fraud/activity checks.
+                          Service layer sets this; NULL means unverified (uncounted
+                          for milestone purposes).
+    perps_volume_14d_usd: Rolling 14-day perp trading volume for the referee,
+                          updated by the perps commission service. Determines the
+                          volume-tiered commission rate (20%%–80%%).
+    """
+    cols = {c["name"] for c in inspector.get_columns("referrals")}
+
+    new_columns = [
+        ("verified_at", "TIMESTAMP", None),
+        ("perps_volume_14d_usd", "FLOAT", "0.0"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name in cols:
+            continue
+        try:
+            if default is None:
+                if is_sqlite:
+                    ddl = f"ALTER TABLE referrals ADD COLUMN {col_name} {col_type}"
+                else:
+                    ddl = f"ALTER TABLE referrals ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+            else:
+                if is_sqlite:
+                    ddl = f"ALTER TABLE referrals ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+                else:
+                    ddl = (
+                        f"ALTER TABLE referrals ADD COLUMN IF NOT EXISTS"
+                        f" {col_name} {col_type} DEFAULT {default}"
+                    )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info(f"Added referrals.{col_name}")
+        except Exception as e:
+            logger.warning(f"Failed to add referrals.{col_name}: {e}")

@@ -34,6 +34,8 @@ from bot.handlers.wallet import (
     wallet_import_handler,
 )
 from bot.handlers.swap import swap_conversation_handler, check_swap_status, swap_share_ref_handler
+from bot.handlers.bulk_swap import bulk_swap_conversation_handler
+from bot.handlers.bulk_pay import bulk_pay_conversation_handler
 from bot.handlers.paste_trade import (
     on_freeform_text,
     check_command,
@@ -405,6 +407,8 @@ def add_handlers(application: Application) -> None:
     # ============ CONVERSATION HANDLERS ============
     # Must be added before generic callback handlers
     application.add_handler(swap_conversation_handler)
+    application.add_handler(bulk_swap_conversation_handler)  # MONEY-PATH: /bulk multi-leg swap
+    application.add_handler(bulk_pay_conversation_handler)  # MONEY-PATH: /pay bulk send to many
     application.add_handler(
         swap_share_ref_handler
     )  # post-swap referral share (outside conversation)
