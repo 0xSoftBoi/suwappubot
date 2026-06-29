@@ -53,6 +53,13 @@ export {
 	type UserPointsStats,
 } from './PointsService'
 export {
+	type PolicyDecisionResult,
+	type PolicyIntent,
+	PolicyService,
+	PolicyServiceLive,
+	type PolicyVerdict,
+} from './PolicyService'
+export {
 	type SeasonHistoryEntry,
 	type SeasonLeaderboardEntry,
 	type SeasonStanding,
