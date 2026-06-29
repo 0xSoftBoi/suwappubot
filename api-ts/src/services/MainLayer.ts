@@ -11,6 +11,7 @@ import { JupiterServiceLive } from './JupiterService'
 import { LimitOrderServiceLive } from './LimitOrderService'
 import { OrderServiceLive } from './OrderService'
 import { PointsServiceLive } from './PointsService'
+import { PolicyServiceLive } from './PolicyService'
 import { RedisServiceLive } from './RedisService'
 import { SeasonsServiceLive } from './SeasonsService'
 import { ReferralServiceLive } from './ReferralService'
@@ -79,6 +80,7 @@ export const ServicesLayer = Layer.mergeAll(
 	PolymarketServiceLive,
 	MorphoServiceLive,
 	P2PServiceLive,
+	PolicyServiceLive,
 )
 
 // Full application layer with all services

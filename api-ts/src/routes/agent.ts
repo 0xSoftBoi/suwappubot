@@ -21,6 +21,8 @@ import { ipRateLimit } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
 import { BYPASS_TIERS, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment } from '../middleware/x402Payment'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
+import { writeAuditLog } from '../services/audit'
+import type { PolicyIntent } from '../services'
 import { runEffectEither } from '../runtime'
 import {
 	AgentService,
@@ -28,6 +30,7 @@ import {
 	CHAINS,
 	COMMON_TOKENS,
 	JupiterService,
+	PolicyService,
 	type QuoteParams,
 	SOLANA_TOKENS,
 	SwapService,
@@ -903,6 +906,80 @@ agentRoutes.post('/swap', async (c) => {
 
 		const quote = cached.quote
 
+		// --- Institutional policy gate ---
+		// Evaluate the trade intent against the org's policy rules + this agent's
+		// spend profile + kill switches BEFORE returning a signable tx. Org context
+		// comes from the API-key auth (apiKeyAuth sets orgId); plain agent-token
+		// requests are un-orged and pass through (PolicyService allows when no org).
+		// Enforcement is hard for Suwappu-issued-key / custodial flows; advisory for
+		// a self-signing EOA that could bypass this API entirely.
+		const apiKeyCtx = c.get('apiKeyAuth') as { orgId: string } | undefined
+		if (apiKeyCtx?.orgId) {
+			const policyIntent: PolicyIntent = cached.isSolana
+				? {
+						organizationId: apiKeyCtx.orgId,
+						agentId: agent.uuid ?? String(agent.id),
+						chain: 'solana',
+						fromToken: quote.inputMint ?? null,
+						toToken: quote.outputMint ?? null,
+						// TODO: Solana quote carries no USD value; USD-based caps are
+						// skipped until we price the input mint. Chain/token rules apply.
+						valueUsd: 0,
+					}
+				: {
+						organizationId: apiKeyCtx.orgId,
+						agentId: agent.uuid ?? String(agent.id),
+						chain: String(quote.fromChain),
+						fromToken: quote.fromToken?.address ?? null,
+						toToken: quote.toToken?.address ?? null,
+						valueUsd: parseFloat(quote.fromAmountUsd ?? '0') || 0,
+						gasUsd: parseFloat(quote.estimatedGasUsd ?? '0') || 0,
+					}
+
+			const verdict = await runEffectEither(
+				Effect.gen(function* () {
+					const policy = yield* PolicyService
+					return yield* policy.evaluate(policyIntent)
+				}),
+			)
+
+			if (Either.isRight(verdict) && verdict.right.decision !== 'allow') {
+				const { decision, reason, matchedPolicyId } = verdict.right
+				writeAuditLog({
+					userId: 0,
+					orgId: apiKeyCtx.orgId,
+					agentId: agent.uuid ?? String(agent.id),
+					eventType: `policy.${decision}`,
+					details: { reason, matchedPolicyId, chain: policyIntent.chain, valueUsd: policyIntent.valueUsd },
+				})
+				const status = decision === 'require_approval' ? 202 : 403
+				return c.json(
+					{
+						success: false,
+						status: decision,
+						error:
+							decision === 'require_approval'
+								? 'Transaction requires approval under org policy'
+								: 'Transaction blocked by org policy',
+						reason: reason ?? null,
+					},
+					status,
+				)
+			}
+			// If the policy query itself errored (Left), fail open but log it — never
+			// block legitimate trades on an infra hiccup. The decision log captures
+			// successful evaluations; this branch is the rare DB-down case.
+			if (Either.isLeft(verdict)) {
+				writeAuditLog({
+					userId: 0,
+					orgId: apiKeyCtx.orgId,
+					agentId: agent.uuid ?? String(agent.id),
+					eventType: 'policy.eval_error',
+					details: { error: String(verdict.left) },
+				})
+			}
+		}
+
 		// Handle Solana swaps
 		if (cached.isSolana) {
 			// Get swap transaction from Jupiter
@@ -1370,6 +1447,7 @@ agentRoutes.post('/wallets', async (c) => {
 								turnkey_wallet_id: wallet.walletId,
 								turnkey_sub_org_id: wallet.subOrgId,
 							}),
+							signal: AbortSignal.timeout(15_000),
 						})
 						if (res.ok) {
 							return (await res.json()) as { internal_user_id: number; internal_wallet_id: number }
@@ -1556,6 +1634,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 							idempotency_key: idempotencyKey,
 							quote_data: quoteData,
 						}),
+						signal: AbortSignal.timeout(30_000),
 					})
 
 					if (!res.ok) {

@@ -46,6 +46,8 @@ interface A2AMessage {
 
 interface A2ATask {
 	id: string
+	/** Agent that created the task — enforced on tasks/get + tasks/cancel so one agent cannot read or cancel another's task. */
+	agentId: number
 	status: { state: TaskState; message?: string; timestamp: string }
 	artifacts: Array<{ id: string; parts: Part[]; metadata?: Record<string, unknown> }>
 	messages: A2AMessage[]
@@ -108,6 +110,18 @@ export function isQuoteOwnedByAgent(
 	agentId: number,
 ): boolean {
 	return !!cached && cached.agentId === agentId
+}
+
+/**
+ * Ownership gate for tasks/get + tasks/cancel: a task may only be read or cancelled
+ * by the agent that created it. Callers treat a non-owned task as not-found so its
+ * existence and contents can't leak across agents via guessed/leaked task IDs.
+ */
+export function isTaskOwnedByAgent(
+	task: A2ATask | null | undefined,
+	agentId: number,
+): task is A2ATask {
+	return !!task && task.agentId === agentId
 }
 
 function isoNow(): string {
@@ -513,7 +527,7 @@ a2aRoutes.post('/', async (c) => {
 	}
 
 	const req = body as JsonRpcRequest
-	if (!req || req.jsonrpc !== '2.0' || !req.method || (req.id === undefined && req.id === null)) {
+	if (!req || req.jsonrpc !== '2.0' || !req.method || req.id === undefined || req.id === null) {
 		return c.json(jsonRpcError(req?.id ?? null, INVALID_REQUEST, 'Invalid JSON-RPC request'), 200)
 	}
 
@@ -529,9 +543,9 @@ a2aRoutes.post('/', async (c) => {
 		case 'message/send':
 			return handleMessageSend(c, req, agent)
 		case 'tasks/get':
-			return handleTasksGet(c, req)
+			return handleTasksGet(c, req, agent)
 		case 'tasks/cancel':
-			return handleTasksCancel(c, req)
+			return handleTasksCancel(c, req, agent)
 		default:
 			return c.json(jsonRpcError(req.id, METHOD_NOT_FOUND, `Unknown method: ${req.method}`), 200)
 	}
@@ -582,6 +596,7 @@ async function handleMessageSend(c: any, req: JsonRpcRequest, agent: Agent) {
 
 	const task: A2ATask = {
 		id: taskId,
+		agentId: agent.id,
 		status: { state: 'working', timestamp: now },
 		artifacts: [],
 		messages: [userMessage],
@@ -620,28 +635,30 @@ async function handleMessageSend(c: any, req: JsonRpcRequest, agent: Agent) {
 	return c.json(jsonRpcOk(req.id, { task }), 200)
 }
 
-async function handleTasksGet(c: any, req: JsonRpcRequest) {
+async function handleTasksGet(c: any, req: JsonRpcRequest, agent: Agent) {
 	const params = req.params as { taskId?: string } | undefined
 	if (!params?.taskId) {
 		return c.json(jsonRpcError(req.id, INVALID_REQUEST, 'params.taskId is required'), 200)
 	}
 
+	// Scope task lookup to the owning agent: treat another agent's task as not-found so
+	// existence (and contents) can't leak across agents via guessed/leaked task IDs.
 	const task = tasks.get(params.taskId)
-	if (!task) {
+	if (!isTaskOwnedByAgent(task, agent.id)) {
 		return c.json(jsonRpcError(req.id, TASK_NOT_FOUND, `Task not found: ${params.taskId}`), 200)
 	}
 
 	return c.json(jsonRpcOk(req.id, { task }), 200)
 }
 
-async function handleTasksCancel(c: any, req: JsonRpcRequest) {
+async function handleTasksCancel(c: any, req: JsonRpcRequest, agent: Agent) {
 	const params = req.params as { taskId?: string } | undefined
 	if (!params?.taskId) {
 		return c.json(jsonRpcError(req.id, INVALID_REQUEST, 'params.taskId is required'), 200)
 	}
 
 	const task = tasks.get(params.taskId)
-	if (!task) {
+	if (!isTaskOwnedByAgent(task, agent.id)) {
 		return c.json(jsonRpcError(req.id, TASK_NOT_FOUND, `Task not found: ${params.taskId}`), 200)
 	}
 

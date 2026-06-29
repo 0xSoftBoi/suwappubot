@@ -19,6 +19,8 @@ tools:
   - get_prices
   - list_chains
   - list_tokens
+  - get_tempo_tokens
+  - browse_mpp_directory
   - perps_markets
   - perps_quote
   - perps_positions

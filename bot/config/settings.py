@@ -493,6 +493,86 @@ class Settings(BaseSettings):
         description="Default Starknet token received from BTC/Lightning deposits",
     )
 
+    # Compliance screening for EVM swaps (UBS × Nethermind PoC model).
+    # Screens every swap's recipient / router / token addresses before signing
+    # at the SwapEngine.execute_swap choke point. OFF by default so existing
+    # flows are unchanged. See docs/architecture/compliance-screening.md.
+    compliance_mode: str = Field(
+        default="disabled",
+        description=(
+            "Compliance gate behaviour: 'disabled' (no screening), 'monitor' "
+            "(screen + log violations but allow), or 'enforce' (block "
+            "non-compliant swaps)."
+        ),
+    )
+    compliance_policy: str = Field(
+        default="blocklist_only",
+        description=(
+            "Which lists apply: 'blocklist_only' (deny sanctioned/blocked "
+            "addresses), 'allowlist_only' (deny anything not pre-approved), or "
+            "'allowlist_and_blocklist' (both; blocklist wins)."
+        ),
+    )
+    compliance_blocklist: str = Field(
+        default="",
+        description=(
+            "Comma-separated EVM addresses to block, in addition to the bundled "
+            "OFAC seed list (recipient/router/token interactions are refused)."
+        ),
+    )
+    compliance_allowlist: str = Field(
+        default="",
+        description=(
+            "Comma-separated EVM addresses that are pre-approved. Only consulted "
+            "when compliance_policy includes an allowlist."
+        ),
+    )
+    compliance_ofac_list_path: str = Field(
+        default="",
+        description=(
+            "Optional path to a newline-delimited file of OFAC-sanctioned "
+            "addresses, merged with the bundled seed list at load time."
+        ),
+    )
+
+    # Compliant transaction routing (UBS × Nethermind PoC, stage 2): route
+    # screened same-chain EVM swaps privately to block builders via the
+    # Flashbots relay instead of the public mempool. Falls back to public RPC
+    # on any error, so it can never break a swap. OFF by default.
+    compliance_routing_enabled: bool = Field(
+        default=False,
+        description=(
+            "Route screened same-chain EVM swap transactions privately via the "
+            "Flashbots relay (eth_sendPrivateTransaction) instead of the public "
+            "mempool. Falls back to public RPC on any relay error."
+        ),
+    )
+    flashbots_relay_url: str = Field(
+        default="https://relay.flashbots.net",
+        description="Flashbots-compatible relay endpoint for private tx submission.",
+    )
+    flashbots_signer_key: str = Field(
+        default="",
+        description=(
+            "Hex private key used ONLY to sign the Flashbots auth header "
+            "(identity/reputation; never holds funds). Ephemeral if empty."
+        ),
+    )
+    compliance_routing_chain_ids: str = Field(
+        default="1",
+        description=(
+            "Comma-separated EVM chain IDs whose swaps route through the relay "
+            "(default '1' = Ethereum mainnet)."
+        ),
+    )
+    flashbots_max_block_offset: int = Field(
+        default=25,
+        description=(
+            "How many future blocks a privately-routed tx stays valid for "
+            "(maxBlockNumber = current + offset)."
+        ),
+    )
+
     # Morpho Blue on Base (cbBTC-collateralized USDC borrowing + USDC earn vaults)
     morpho_enabled: bool = Field(
         default=True,
