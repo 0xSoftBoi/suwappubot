@@ -2,7 +2,7 @@
 name: bot-dev
 description: Python Telegram bot specialist — handlers, services, models, swap logic, wallet management, WhatsApp, copy trading, perps, token security. Use for any work in bot/, api/, database/, or tests/.
 tools: Read, Edit, Write, Bash, Grep, Glob, Agent
-model: inherit
+model: sonnet
 maxTurns: 25
 skills:
   - new-handler
@@ -48,3 +48,9 @@ You are a Python backend specialist for the Suwappu Telegram bot — a cross-cha
 - Follow existing patterns for new services (dependency injection via constructor)
 - All wallet operations must use the encryption service — never store raw private keys
 - Use `datetime.now(timezone.utc)` instead of deprecated `datetime.utcnow()`
+
+## Reporting & money-path escalation
+
+- Return a **tight summary** to the conductor: what changed, which files, test result, follow-ups. Don't paste full files or large diffs back — the conductor has them. Keeping your output lean protects the main context budget.
+- If your change touches **swap execution, wallet/keys, encryption/KMS, billing/x402, fee math, seasons/points accounting, or withdrawals**, tag it `MONEY-PATH` in your summary so the conductor routes an Opus `money-path-reviewer` pass before merge.
+- Offload broad "where is X / audit all Y" recon to the `scout` agent rather than grinding greps yourself.

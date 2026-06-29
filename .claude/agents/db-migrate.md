@@ -2,7 +2,7 @@
 name: db-migrate
 description: Database migration specialist — add columns, tables, indexes to both Python SQLAlchemy models and TypeScript Drizzle schemas. Use for any database schema changes.
 tools: Read, Edit, Write, Bash, Grep, Glob
-model: inherit
+model: sonnet
 maxTurns: 20
 skills:
   - migrations
@@ -90,3 +90,8 @@ export const myTable = pgTable("my_table", {
 - Test migrations by checking they're idempotent (run twice without error)
 - Use PostgreSQL-compatible types (TEXT, INTEGER, BOOLEAN, TIMESTAMP, JSONB, etc.)
 - Run schema drift check when adding new tables: `bun run scripts/validate-schema-sync.ts`
+
+## Reporting & money-path escalation
+
+- Return a **tight summary** to the conductor: which tables/columns changed, both ORMs updated, idempotency verified. Don't paste full schema files back.
+- If the schema touches **payments, subscriptions, fees, points/seasons accounting, or wallets**, tag it `MONEY-PATH` so the conductor routes an Opus `money-path-reviewer` pass on the accounting/migration safety.
