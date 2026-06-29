@@ -115,6 +115,64 @@ product is **arbitrage-as-an-x402-agent**: an agent that finds edges and execute
 
 ---
 
+## 2.5 Permissionless vs gated — what you can build with zero permission
+
+The single most useful filter on this whole strategy: **does it require anyone's
+permission?** "Permissionless" here = no license, no regulator sign-off, no provider
+reseller agreement, and **no custody of other people's fiat or capital** — you ship a
+contract or an API and go. The clean finding: **the permissionless subset is exactly the
+flywheel core.** Everything gated is the "v2, with a license" overlay.
+
+The dividing line is custody + whose money: **your software touching the user's own wallet
+(they sign) = permissionless; your platform holding/managing their funds or yield = gated.**
+
+### ✅ Permissionless — build now, no gatekeeper
+
+| Play | Why it's permissionless | Precedent |
+|---|---|---|
+| **Non-custodial swap execution + integrator bps fee** | User signs from their own wallet; you never hold funds; you skim a fee on volume. This is the core money path **and** it needs no money-transmitter license. | 1inch / Jupiter / 0x / LI.FI all operate this way, unlicensed |
+| **x402-paid MCP tools / API** | Charging per-call for your own software; funds settle peer-to-peer on-chain, you take a fee. | x402 / paid MCP endpoints |
+| **B2B execution backend (SOR-as-a-service)** | Selling/licensing your own software. | LI.FI embeds in Coinbase Wallet, MetaMask |
+| **★ Run a solver / filler in intent systems** | *Anyone* can permissionlessly compete to fill user orders and capture spread + positive slippage. **Your multi-chain execution + inventory is literally a solver's edge.** Best permissionless fit you have. | UniswapX, CoW Protocol, 1inch Fusion, Across |
+| **Keeper / liquidation / arb-searcher bots on your *own* book** | On-chain incentives + spreads, captured with your own capital. Trading your own treasury ≠ managing others' money. | MEV searchers, Aave/Compound liquidators |
+| **Arb agent that executes from the *user's own* wallet** | You're software + execution billed per fill, not a fund. The non-custodial framing is what keeps funding-rate / cross-chain arb permissionless. | — |
+| **First-party AI agents + model-powered features** | Normal API usage for your own product (not reselling tokens). | — |
+| **On-chain data / intelligence products** | Selling analytics over public chain data + your own flow. | Nansen, Arkham (unlicensed) |
+| **Agent-marketplace cut via on-chain x402** | Peer-to-peer settlement + a protocol fee; you never custody the flow. | — |
+| **Points / XP** | Permissionless until you tokenize it. | — |
+
+### 🔒 Gated — needs a license, approval, KYC, or custody
+
+| Play | What gates it |
+|---|---|
+| Stablecoin float **paid to users** / "earn X% on your balance" | Securities — this is exactly what killed BlockFi / Celsius / Coinbase "Lend" |
+| Custodying user **fiat** / fiat on-off ramp | Money transmission / MSB licensing |
+| **RWA / tokenized-treasury distribution** | Permissioned tokens (BUIDL/OUSG require KYC/accreditation) + distributing securities |
+| **Managing pooled user capital** (arb vaults, discretionary copy-trading) | Investment-management / derivatives licensing |
+| **Reselling raw Anthropic / OpenAI tokens** | Not law, but **ToS-gated** — needs a provider reseller agreement |
+
+> **The reframe:** you can build the *entire* execution + agent-economy flywheel —
+> non-custodial swap fees, x402 tools, solving/searching, own-book arb, first-party agents,
+> data — **without asking anyone's permission.** The float/RWA/capital-management legs are
+> real revenue but they're a *separate, later, licensed* business. Don't let the gated legs
+> block the permissionless core; they're additive, not on the critical path.
+
+> ⚠️ **Permissionless ≠ zero legal risk.** Non-custodial aggregators have a *favorable but
+> untested* posture; intent-solver/MEV economics and prediction markets are legally grey in
+> places; and even permissionless front-ends carry **OFAC/sanctions-screening + ToS
+> obligations**. Permissionless means *no gatekeeper to start*, not *no rules*.
+
+### ★ The standout: become a solver/filler
+Worth calling out separately because it's the **best permissionless play and I hadn't
+surfaced it.** Intent-based DEX architectures (UniswapX, CoW, 1inch Fusion, Across) let
+anyone compete, permissionlessly, to fill user orders — capturing the spread and positive
+slippage. A solver wins on **execution quality + cross-chain inventory**, which is *exactly*
+Suwappu's moat. And it's doubly aligned: every order you fill **deposits order-flow data
+into the core** (§0). It monetizes the moat, feeds the flywheel, and needs no one's
+permission. Strong candidate to sit alongside the funding-rate arb agent in Tier 2.
+
+---
+
 ## 3. The unified flywheel, in one sentence
 
 **Swap/perp execution (①) and copy-trading drive volume → balances sit in wallets earning
