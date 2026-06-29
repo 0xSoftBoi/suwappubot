@@ -102,6 +102,19 @@ export interface PnlDataPoint {
   tradeCount: number
 }
 
+export type TicketKind = 'support' | 'bug'
+export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed'
+
+export interface SupportTicket {
+  id: string
+  kind: TicketKind
+  status: TicketStatus
+  message: string
+  category?: string
+  adminReply?: string
+  createdAt: string
+}
+
 export interface ChainPnl {
   chain: string
   pnl: number
