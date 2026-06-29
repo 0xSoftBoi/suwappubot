@@ -154,14 +154,18 @@ const agentCards = [
   },
 ];
 
-const sdkLines = [
-  'bun add @suwappu/sdk',
-  "suwappu quote ETH USDC 1.0 --chain base",
-  'route: Base -> Uniswap V3',
-  'out: 3,483.28 USDC',
-  'suwappu perps long BTC --size 0.1 --lev 5x',
-  'status: filled',
-];
+// Real, copyable @suwappu/sdk agent flow: quote → execute the swap.
+// Mirrors packages/sdk (new Suwappu, getQuote, swap) — every call is real.
+const agentSnippet = `import { Suwappu } from "@suwappu/sdk";
+
+const client = new Suwappu({ apiKey: process.env.SUWAPPU_API_KEY });
+
+// Your agent quotes the route, then executes the swap.
+const quote = await client.getQuote({
+  from: "USDC", to: "ETH", chain: "base", amount: "1000",
+});
+const tx = await client.swap(quote);
+console.log(tx.txHash, tx.status);   // -> 0x… "filled"`;
 
 async function Hero() {
   const t = await getTranslations('hero');
@@ -428,22 +432,27 @@ export default async function Home() {
                 ))}
               </div>
             </div>
-            <div className="summer-code" aria-label="SDK example">
+            <div className="summer-code" aria-label="Agent quote and swap example">
               <div className="summer-code__bar">
                 <span />
                 <span />
                 <span />
-                <b>@suwappu/sdk</b>
+                <b>agent.ts</b>
               </div>
               <pre>
-                {sdkLines.map((line, index) => (
-                  <code key={line} className={index === 3 || index === 5 ? 'is-success' : ''}>
-                    <span>{index === 2 || index === 3 || index === 5 ? '=' : '>'}</span>
-                    {line}
-                  </code>
-                ))}
+                <code>{agentSnippet}</code>
               </pre>
             </div>
+          </section>
+
+          {/* ── NON-CUSTODIAL PLEDGE ── */}
+          <section className="summer-pledge" aria-label="Non-custodial">
+            <span className="summer-flower summer-flower--soft summer-pledge__mark" aria-hidden="true" />
+            <p className="summer-kicker">Non-custodial by design</p>
+            <p className="summer-pledge__body">
+              Suwappu is non-custodial. We never hold your keys or your funds. We provide
+              the routing and settlement layer — your tokens stay yours, end to end.
+            </p>
           </section>
 
           {/* ── BUILT FOR THE AGENTIC ERA ── */}

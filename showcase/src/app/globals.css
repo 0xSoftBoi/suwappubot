@@ -356,6 +356,33 @@ html {
   border: 1px solid rgba(13, 149, 189, 0.16);
   box-shadow: 0 16px 30px rgba(33, 88, 110, 0.1);
 }
+
+/* Non-custodial trust strip — standalone trust signal, Summer-Breeze tones. */
+.summer-pledge {
+  position: relative;
+  overflow: hidden;
+  margin-top: 12px;
+  padding: 30px 28px;
+  text-align: center;
+  border-radius: 8px;
+  border: 1px solid var(--summer-line);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.3)),
+    linear-gradient(135deg, rgba(244, 201, 99, 0.16), rgba(216, 243, 239, 0.5));
+}
+
+.summer-pledge__mark {
+  width: 34px;
+  margin: 0 auto 12px;
+}
+
+.summer-pledge__body {
+  max-width: 640px;
+  margin: 12px auto 0;
+  color: var(--summer-ink);
+  font-size: 1.06rem;
+  line-height: 1.65;
+}
 .summer-cta h2 {
   margin: 6px 0 10px;
   color: var(--suwappu-summer-ink, #17324a);
@@ -5617,6 +5644,12 @@ button:focus:not(:focus-visible) {
 .summer-page--cosmic .summer-tempo,
 .summer-page--cosmic .summer-agents,
 .summer-page--cosmic .summer-sdk {
+  border: 1px solid var(--pp-border);
+  border-radius: 22px;
+  box-shadow: var(--pp-shadow);
+}
+
+.summer-page--cosmic .summer-pledge {
   border: 1px solid var(--pp-border);
   border-radius: 22px;
   box-shadow: var(--pp-shadow);
