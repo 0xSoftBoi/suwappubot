@@ -225,6 +225,8 @@ export function generateSummerBreezeCssVars(scope = ':root'): string {
     '/* Generated from packages/design-tokens/src/tokens.ts. Keep in sync with generateSummerBreezeCssVars(). */',
     `${scope} {`,
     ...Object.entries(values).map(([name, value]) => `  ${name}: ${value};`),
+    '  /* Brand color for WhatsApp CTAs (not part of the generated token set). */',
+    '  --suwappu-whatsapp-green: #25D366;',
     '}',
   ].join('\n')
 }

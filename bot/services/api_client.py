@@ -157,6 +157,20 @@ class InternalAPIClient:
         """Sync user data to api-ts (create or update)."""
         return await self._request("POST", "/internal/user/sync", json_data=user_data)
 
+    # ─── Billing ─────────────────────────────────────────────
+
+    async def create_stripe_checkout(self, telegram_id: int, tier: str) -> dict:
+        """Create a Stripe checkout session for a Telegram user via api-ts.
+
+        Returns the session object, e.g. {"url": "https://checkout.stripe.com/..."}.
+        Raises APIClientError if Stripe is not configured or the user is unknown.
+        """
+        return await self._request(
+            "POST",
+            "/internal/billing/stripe/checkout",
+            json_data={"telegram_id": telegram_id, "tier": tier},
+        )
+
     # ─── Token Endpoints ─────────────────────────────────────
 
     async def get_token_price(self, chain: str, token_address: str) -> dict:
@@ -187,6 +201,47 @@ class InternalAPIClient:
             "POST",
             "/v1/smart-account/predict",
             json_data={"chainId": chain_id, "owner": owner},
+        )
+
+    # ─── Enterprise Endpoints ────────────────────────────────
+
+    async def get_my_org(self, user_id: int) -> Optional[dict]:
+        """GET /enterprise/orgs/me — returns org or None if user has no org."""
+        try:
+            return await self._request(
+                "GET",
+                "/enterprise/orgs/me",
+                params={"telegram_id": user_id},
+            )
+        except APIClientError as e:
+            if e.status == 404:
+                return None
+            raise
+
+    async def get_org_members(self, user_id: int, org_id: str) -> list:
+        """GET /enterprise/orgs/:orgId/members."""
+        result = await self._request(
+            "GET",
+            f"/enterprise/orgs/{org_id}/members",
+            params={"telegram_id": user_id},
+        )
+        return result if isinstance(result, list) else result.get("members", [])
+
+    async def get_org_api_keys(self, user_id: int, org_id: str) -> list:
+        """GET /enterprise/orgs/:orgId/api-keys."""
+        result = await self._request(
+            "GET",
+            f"/enterprise/orgs/{org_id}/api-keys",
+            params={"telegram_id": user_id},
+        )
+        return result if isinstance(result, list) else result.get("keys", [])
+
+    async def create_org_api_key(self, user_id: int, org_id: str, name: str, scopes: list) -> dict:
+        """POST /enterprise/orgs/:orgId/api-keys — returns { key } (raw key, shown once)."""
+        return await self._request(
+            "POST",
+            f"/enterprise/orgs/{org_id}/api-keys",
+            json_data={"telegram_id": user_id, "name": name, "scopes": scopes},
         )
 
     # ─── Health ──────────────────────────────────────────────

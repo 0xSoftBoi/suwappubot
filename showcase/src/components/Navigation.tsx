@@ -1,11 +1,29 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslations } from 'next-intl';
 import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
+import LanguageSwitcher from './LanguageSwitcher';
+
+/** Read current locale from cookie (set by LanguageSwitcher) or localStorage fallback. */
+function getCurrentLocale(): string {
+  try {
+    // localStorage mirror is the fastest read — no cookie parse needed.
+    const ls = localStorage.getItem('NEXT_LOCALE');
+    if (ls) return ls;
+  } catch {}
+  // Parse document.cookie as fallback.
+  const match = document.cookie.match(/(?:^|;\s*)NEXT_LOCALE=([^;]+)/);
+  return match?.[1] ?? 'en';
+}
 
 export default function Navigation() {
+  const t = useTranslations('nav');
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [locale, setLocale] = useState<string>(() =>
+    typeof window === 'undefined' ? 'en' : getCurrentLocale()
+  );
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -35,20 +53,21 @@ export default function Navigation() {
 
       {/* Desktop links */}
       <div className="nav__links">
-        <a href="/#hyperliquid" className="nav__link">HyperLiquid</a>
-        <a href="/#tempo" className="nav__link">Tempo</a>
-        <a href="/#agents" className="nav__link">Agents</a>
-        <a href="/solutions" className="nav__link">Solutions</a>
-        <a href="/compare" className="nav__link">Compare</a>
-        <a href="/pricing" className="nav__link">Pricing</a>
-        <a href="/docs" className="nav__link">Docs</a>
+        <a href="/#hyperliquid" className="nav__link">{t('hyperliquid')}</a>
+        <a href="/#tempo" className="nav__link">{t('tempo')}</a>
+        <a href="/for-agents" className="nav__link">{t('forAgents')}</a>
+        <a href="/solutions" className="nav__link">{t('solutions')}</a>
+        <a href="/compare" className="nav__link">{t('compare')}</a>
+        <a href="/pricing" className="nav__link">{t('pricing')}</a>
+        <a href="/docs" className="nav__link">{t('docs')}</a>
         <a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer" className="nav__link">GitHub</a>
+        <LanguageSwitcher current={locale} />
         <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="nav__cta">
-          Open Bot
+          {t('openBot')}
         </a>
         {WHATSAPP_ENABLED && (
           <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className="nav__cta nav__cta--whatsapp">
-            WhatsApp
+            {t('whatsapp')}
           </a>
         )}
       </div>
@@ -75,21 +94,24 @@ export default function Navigation() {
         aria-modal="true"
         aria-label="Navigation menu"
       >
-        <a href="/#hyperliquid" className="nav__drawer-link" onClick={closeMenu}>HyperLiquid</a>
-        <a href="/#tempo" className="nav__drawer-link" onClick={closeMenu}>Tempo</a>
-        <a href="/#agents" className="nav__drawer-link" onClick={closeMenu}>Agents</a>
-        <a href="/solutions" className="nav__drawer-link" onClick={closeMenu}>Solutions</a>
-        <a href="/compare" className="nav__drawer-link" onClick={closeMenu}>Compare</a>
-        <a href="/pricing" className="nav__drawer-link" onClick={closeMenu}>Pricing</a>
-        <a href="/docs" className="nav__drawer-link" onClick={closeMenu}>Docs</a>
-        <a href="/status" className="nav__drawer-link" onClick={closeMenu}>Status</a>
+        <div style={{ padding: '12px 20px 4px' }}>
+          <LanguageSwitcher current={locale} />
+        </div>
+        <a href="/#hyperliquid" className="nav__drawer-link" onClick={closeMenu}>{t('hyperliquid')}</a>
+        <a href="/#tempo" className="nav__drawer-link" onClick={closeMenu}>{t('tempo')}</a>
+        <a href="/for-agents" className="nav__drawer-link" onClick={closeMenu}>{t('forAgents')}</a>
+        <a href="/solutions" className="nav__drawer-link" onClick={closeMenu}>{t('solutions')}</a>
+        <a href="/compare" className="nav__drawer-link" onClick={closeMenu}>{t('compare')}</a>
+        <a href="/pricing" className="nav__drawer-link" onClick={closeMenu}>{t('pricing')}</a>
+        <a href="/docs" className="nav__drawer-link" onClick={closeMenu}>{t('docs')}</a>
+        <a href="/status" className="nav__drawer-link" onClick={closeMenu}>{t('status')}</a>
         <a href="https://github.com/0xSoftBoi/suwappubot" target="_blank" rel="noopener noreferrer" className="nav__drawer-link" onClick={closeMenu}>GitHub</a>
         <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="nav__drawer-cta" onClick={closeMenu}>
-          Open Bot
+          {t('openBot')}
         </a>
         {WHATSAPP_ENABLED && (
           <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className="nav__drawer-cta nav__drawer-cta--whatsapp" onClick={closeMenu}>
-            Chat on WhatsApp
+            {t('whatsapp')}
           </a>
         )}
       </div>

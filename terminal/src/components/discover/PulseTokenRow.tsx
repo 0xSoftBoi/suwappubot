@@ -1,5 +1,4 @@
 import type { PulseToken } from '../../types/api'
-import { InsiderMetrics } from './InsiderMetrics'
 import { QuickBuyButton } from './QuickBuyButton'
 import { Sparkline } from './Sparkline'
 import { TrustScoreBadge } from './TrustScoreBadge'
@@ -121,18 +120,16 @@ export function PulseTokenRow({ token, onBuy, onSelect, isNew }: PulseTokenRowPr
         {change24h.text}
       </td>
 
-      {/* Holders */}
+      {/* Holders — "—" when the feed doesn't supply a holder count */}
       <td className="py-1 px-2 text-right font-mono text-xs text-terminal-text-secondary">
-        {token.holders.toLocaleString()}
+        {token.holders > 0 ? token.holders.toLocaleString() : '—'}
       </td>
 
-      {/* Insider Metrics */}
-      <td className="py-1 px-2">
-        <InsiderMetrics
-          topHolderPercent={token.topHolderPercent}
-          devPercent={token.devPercent}
-          sniperPercent={token.sniperPercent}
-        />
+      {/* 24h transactions (real, from DexScreener) — buys / sells */}
+      <td className="py-1 px-2 text-right font-mono text-[11px]">
+        <span className="text-bull">{token.buys24h ?? 0}</span>
+        <span className="text-terminal-text-muted">/</span>
+        <span className="text-bear">{token.sells24h ?? 0}</span>
       </td>
 
       {/* Trust Score */}

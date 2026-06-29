@@ -12,6 +12,7 @@ const CHAIN_FILTERS = [
   { id: 'solana', label: 'SOL' },
   { id: 'base', label: 'Base' },
   { id: 'arbitrum', label: 'ARB' },
+  { id: 'tempo', label: 'Tempo' },
   { id: 'bsc', label: 'BSC' },
   { id: 'sui', label: 'SUI' },
   { id: 'monad', label: 'MON' },

@@ -50,6 +50,16 @@ export const POINT_ACTIONS = {
 
 export type PointAction = keyof typeof POINT_ACTIONS
 
+// Mirrors bot/models/points.py SUBSCRIPTION_POINT_MULTIPLIER — keep in sync.
+// Boosts SPENDABLE loyalty points only; XP and season-convertible (token) points
+// are intentionally NOT multiplied (see PointsService for the rationale).
+export const SUBSCRIPTION_POINT_MULTIPLIER: Record<string, number> = {
+	free: 1.0,
+	pro: 1.1,
+	premium: 1.25,
+	enterprise: 1.5,
+}
+
 // User points account
 export const userPoints = pgTable(
 	'user_points',
@@ -108,6 +118,9 @@ export const pointTransactions = pgTable(
 		// Related entities
 		swapId: integer('swap_id').references(() => swapTransactions.id),
 		referralId: integer('referral_id'),
+
+		// Active season at the time of earn (nullable; audit for convertible points)
+		seasonId: integer('season_id'),
 
 		// Extra data
 		metadata: json('metadata'),
@@ -186,6 +199,10 @@ export const rewards = pgTable('rewards', {
 	// Reward details
 	rewardType: varchar('reward_type', { length: 50 }).notNull(), // fee_discount, gas_rebate, raffle
 	rewardValue: varchar('reward_value', { length: 50 }).notNull(), // e.g., "0.5" for 0.5% fee, "5" for $5 gas
+
+	// own_product|gift_card|travel|merch|donation|crypto|experience — mirrors the
+	// Python Reward.reward_category. Routes redemption to a RewardProvider.
+	rewardCategory: varchar('reward_category', { length: 30 }).default('own_product').notNull(),
 
 	// Availability
 	isActive: boolean('is_active').default(true).notNull(),
@@ -371,4 +388,41 @@ export const DEFAULT_REWARDS: Omit<NewReward, 'id'>[] = [
 		rewardType: 'raffle',
 		rewardValue: '1',
 	},
+	// Subscription redemptions — spend the current_points wallet for a tier grant
+	// (loyalty rebate on our OWN product; lowest-regulatory-risk redemption). Priced
+	// at REDEMPTION_POINTS_PER_USD against the real monthly price. Never touches
+	// season points. See docs/economics/REDEMPTION_AND_PARTNERS.md.
+	{
+		name: '1 Month PRO',
+		description: 'Redeem points for 30 days of PRO (0.5% fees)',
+		emoji: '🥈',
+		pointsCost: 2000, // $9.99 × 200 pts/$
+		rewardType: 'subscription',
+		rewardValue: 'pro',
+		durationDays: 30,
+	},
+	{
+		name: '1 Month PREMIUM',
+		description: 'Redeem points for 30 days of PREMIUM (0.3% fees)',
+		emoji: '🥇',
+		pointsCost: 6000, // $29.99 × 200 pts/$
+		rewardType: 'subscription',
+		rewardValue: 'premium',
+		durationDays: 30,
+	},
+	{
+		name: '1 Month ENTERPRISE',
+		description: 'Redeem points for 30 days of ENTERPRISE (0.1% fees)',
+		emoji: '👑',
+		pointsCost: 20000, // $99.99 × 200 pts/$
+		rewardType: 'subscription',
+		rewardValue: 'enterprise',
+		durationDays: 30,
+	},
 ]
+
+// Redemption pricing: current_points per $1 of redemption value. 200 pts/$ == 1 point
+// ≈ $0.005 (0.5¢), conservative vs the ~1¢/point loyalty baseline to limit breakage
+// liability. pointsCost = round(price_usd * this). Keep in sync with the Python
+// REDEMPTION_POINTS_PER_USD (bot/models/points.py).
+export const REDEMPTION_POINTS_PER_USD = 200

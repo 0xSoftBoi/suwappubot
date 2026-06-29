@@ -13,9 +13,14 @@ import { Effect, Either, Option } from 'effect'
 import { AgentService, TokenService, SwapService, BalanceService, JupiterService, CHAINS, COMMON_TOKENS, SOLANA_TOKENS, type QuoteParams } from '../services'
 import { isStarknet } from '../config/chains'
 import { PolymarketService } from '../services/PolymarketService'
+import { HyperliquidService } from '../services/HyperliquidService'
+import { MorphoService } from '../services/MorphoService'
+import { PerpsQuoteSchema } from './validators'
 import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
 import { agentBearerAuth } from '../middleware'
+import { chargeAgentForCall, costForTool, setX402Headers } from '../middleware/x402Payment'
+import { EnvService } from '../config/EnvService'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import openApiSpec from '../../openapi-agent.json'
@@ -102,7 +107,7 @@ const TOOLS = [
 	},
 	{
 		name: 'get_tempo_tokens',
-		description: 'Get TIP-20 token list on Tempo mainnet (chain ID 4217) with addresses and decimals. Tempo uses USD-denominated stablecoins: pathUSD, AlphaUSD, BetaUSD, ThetaUSD.',
+		description: 'Get TIP-20 token list on Tempo mainnet (chain ID 4217) with addresses, decimals, and TIP-20 metadata (currency code, isTip20 flag). Tempo uses USD-denominated stablecoins: pathUSD, AlphaUSD, BetaUSD, ThetaUSD.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -133,12 +138,63 @@ const TOOLS = [
 		},
 	},
 	{
-		name: 'predict_market_detail',
+		name: 'predict_market',
 		description: 'Get detailed prediction market info including live CLOB midpoint prices for each outcome. Requires a market condition ID.',
 		inputSchema: {
 			type: 'object',
 			properties: {
 				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
+			},
+			required: ['market_id'],
+		},
+	},
+	{
+		name: 'perps_markets',
+		description: 'List available Hyperliquid perpetual futures markets with mark price, funding rate, max leverage, and size decimals.',
+		inputSchema: { type: 'object', properties: {} },
+	},
+	{
+		name: 'perps_quote',
+		description: 'Quote a Hyperliquid perpetual position: entry price, margin required, liquidation price, funding rate, and fees. Requires authentication.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				market: { type: 'string', description: 'Perp market symbol (e.g. "ETH-PERP", "BTC-PERP") from perps_markets' },
+				side: { type: 'string', enum: ['long', 'short'], description: 'Position direction' },
+				size: { type: 'number', description: 'Position size in the base asset' },
+				leverage: { type: 'number', description: 'Leverage multiplier (e.g. 10)' },
+			},
+			required: ['market', 'side', 'size', 'leverage'],
+		},
+	},
+	{
+		name: 'perps_positions',
+		description: 'List open Hyperliquid perpetual positions for a wallet address, with size, entry price, unrealized PnL, and liquidation price.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				address: { type: 'string', description: 'Wallet address to inspect' },
+			},
+			required: ['address'],
+		},
+	},
+	{
+		name: 'lend_markets',
+		description: 'List Morpho lending markets on a chain with supply/borrow APY, LLTV, utilization, and TVL.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				chain_id: { type: 'number', description: 'EVM chain ID (default 8453 = Base)' },
+			},
+		},
+	},
+	{
+		name: 'lend_market',
+		description: 'Get details for a single Morpho lending market by its unique market ID.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				market_id: { type: 'string', description: 'Morpho market unique ID (from lend_markets results)' },
 			},
 			required: ['market_id'],
 		},
@@ -176,7 +232,12 @@ const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
 	get_tempo_tokens: { title: 'Get Tempo (TIP-20) Tokens', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 	browse_mpp_directory: { title: 'Browse MPP Service Directory', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	predict_markets: { title: 'Search Prediction Markets', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-	predict_market_detail: { title: 'Prediction Market Detail', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+	predict_market: { title: 'Prediction Market Detail', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+	perps_markets: { title: 'List Perp Markets', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+	perps_quote: { title: 'Quote Perp Position', readOnlyHint: true, idempotentHint: false, openWorldHint: true },
+	perps_positions: { title: 'List Perp Positions', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+	lend_markets: { title: 'List Lending Markets', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+	lend_market: { title: 'Lending Market Detail', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 }
 
 const TOOLS_WITH_ANNOTATIONS = TOOLS.map((t) => ({
@@ -210,16 +271,44 @@ function isTempoChain(chain: string): boolean {
 	return n === 'tempo' || n === '4217'
 }
 
-const TEMPO_TOKENS = [
-	{ symbol: 'pathUSD', name: 'pathUSD', address: '0x20c0000000000000000000000000000000000000', decimals: 6, description: 'Tempo native stablecoin' },
-	{ symbol: 'AlphaUSD', name: 'AlphaUSD', address: '0x20c0000000000000000000000000000000000001', decimals: 6, description: 'Alpha yield-bearing stablecoin' },
-	{ symbol: 'BetaUSD', name: 'BetaUSD', address: '0x20c0000000000000000000000000000000000002', decimals: 6, description: 'Beta yield-bearing stablecoin' },
-	{ symbol: 'ThetaUSD', name: 'ThetaUSD', address: '0x20c0000000000000000000000000000000000003', decimals: 6, description: 'Theta yield-bearing stablecoin' },
-]
+// Tempo TIP-20 chain id. The token addresses/decimals live in the single source of
+// truth (COMMON_TOKENS[4217] in TokenService); only the human descriptions are kept
+// here since COMMON_TOKENS does not carry that metadata.
+const TEMPO_CHAIN_ID = 4217
+const TEMPO_TOKEN_DESCRIPTIONS: Record<string, string> = {
+	pathUSD: 'Tempo native stablecoin',
+	AlphaUSD: 'Alpha yield-bearing stablecoin',
+	BetaUSD: 'Beta yield-bearing stablecoin',
+	ThetaUSD: 'Theta yield-bearing stablecoin',
+}
+// TIP-20 tokens on Tempo are 6-decimal USD-denominated stablecoins.
+const TEMPO_TOKEN_DECIMALS = 6
+
+// Static TIP-20 metadata known for the Tempo native stablecoins. Currency code and the
+// isTip20 flag are constant for all COMMON_TOKENS[4217] entries (all are USD-denominated
+// TIP-20 tokens). Richer TIP-20 fields (compliance policy, transferWithMemo) live in the
+// Python `tempo_tip20` service and would need a dedicated internal endpoint to surface
+// here — not yet exposed, so only the statically-known fields are passed through.
+const TEMPO_TIP20_CURRENCY = 'USD'
+
+// Derive the Tempo token list from COMMON_TOKENS[4217] so MCP and TokenService never
+// drift apart. Adding a token to COMMON_TOKENS[4217] surfaces it here automatically.
+function buildTempoTokens() {
+	return Object.entries(COMMON_TOKENS[TEMPO_CHAIN_ID] || {}).map(([symbol, address]) => ({
+		symbol,
+		name: symbol,
+		address,
+		decimals: TEMPO_TOKEN_DECIMALS,
+		description: TEMPO_TOKEN_DESCRIPTIONS[symbol] || `${symbol} TIP-20 token on Tempo`,
+		// TIP-20 metadata passthrough (statically known for Tempo stablecoins).
+		currency: TEMPO_TIP20_CURRENCY,
+		isTip20: true,
+	}))
+}
 
 function handleGetTempoTokens(args: Record<string, unknown>) {
 	const search = (args.search as string)?.toUpperCase()
-	let tokens = TEMPO_TOKENS
+	let tokens = buildTempoTokens()
 	if (search) {
 		tokens = tokens.filter((t) => t.symbol.toUpperCase().includes(search))
 	}
@@ -228,7 +317,7 @@ function handleGetTempoTokens(args: Record<string, unknown>) {
 			type: 'text',
 			text: JSON.stringify({
 				chain: 'Tempo',
-				chain_id: 4217,
+				chain_id: TEMPO_CHAIN_ID,
 				native_token: 'USD',
 				tokens: tokens.map((t) => ({
 					symbol: t.symbol,
@@ -236,6 +325,8 @@ function handleGetTempoTokens(args: Record<string, unknown>) {
 					address: t.address,
 					decimals: t.decimals,
 					description: t.description,
+					currency: t.currency,
+					isTip20: t.isTip20,
 				})),
 			}),
 		}],
@@ -519,6 +610,73 @@ async function handlePredictMarketDetail(args: Record<string, unknown>) {
 	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
 }
 
+async function handlePerpsMarkets() {
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const hl = yield* HyperliquidService
+			return yield* hl.getMarkets()
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: `Hyperliquid error: ${result.left.message}` }] }
+	return { content: [{ type: 'text', text: JSON.stringify({ markets: result.right }) }] }
+}
+
+async function handlePerpsQuote(args: Record<string, unknown>) {
+	const parsed = PerpsQuoteSchema.safeParse(args)
+	if (!parsed.success)
+		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join('; ')}` }] }
+	const { market, side, size, leverage } = parsed.data
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const hl = yield* HyperliquidService
+			return yield* hl.getQuote(market, side, size, leverage)
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: `Hyperliquid error: ${result.left.message}` }] }
+	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
+}
+
+async function handlePerpsPositions(args: Record<string, unknown>) {
+	const address = args.address as string | undefined
+	if (!address) return { isError: true, content: [{ type: 'text', text: 'address is required' }] }
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const hl = yield* HyperliquidService
+			return yield* hl.getPositions(address)
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: `Hyperliquid error: ${result.left.message}` }] }
+	return { content: [{ type: 'text', text: JSON.stringify({ positions: result.right }) }] }
+}
+
+async function handleLendMarkets(args: Record<string, unknown>) {
+	const chainId = typeof args.chain_id === 'number' ? args.chain_id : 8453
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const morpho = yield* MorphoService
+			return yield* morpho.getMarkets(chainId)
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: `Morpho error: ${result.left.message}` }] }
+	return { content: [{ type: 'text', text: JSON.stringify({ markets: result.right }) }] }
+}
+
+async function handleLendMarket(args: Record<string, unknown>) {
+	const marketId = args.market_id as string | undefined
+	if (!marketId) return { isError: true, content: [{ type: 'text', text: 'market_id is required' }] }
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const morpho = yield* MorphoService
+			return yield* morpho.getMarket(marketId)
+		}),
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: `Morpho error: ${result.left.message}` }] }
+	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
+}
+
 async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent) {
 	const { quote_id, wallet_address } = args as { quote_id: string; wallet_address: string }
 	const cached = getCachedQuote(quote_id)
@@ -719,6 +877,30 @@ mcpRoutes.post('/', async (c) => {
 			const { name, arguments: args } = (req.params || {}) as { name?: string; arguments?: Record<string, unknown> }
 			if (!name) return c.json(rpcErr(req.id, -32602, 'Missing tool name'), 200)
 
+			// Pay-per-call metering. Charges prepaid credits (or bypasses for
+			// subscription tiers). On insufficient balance, return an HTTP 402
+			// x402 challenge so x402-enabled MCP clients can settle and retry.
+			const charge = await chargeAgentForCall({
+				agent: { id: agent.id, rateLimitTier: agent.rateLimitTier },
+				cost: costForTool(name),
+				resource: `mcp://tools/${name}`,
+				description: `Suwappu MCP tool: ${name} (${costForTool(name)} credit${costForTool(name) === 1 ? '' : 's'})`,
+				paymentHeader: c.req.header('X-PAYMENT') ?? c.req.header('PAYMENT-SIGNATURE'),
+			})
+			if (charge.kind === 'insufficient') {
+				const cenv = await runEffectEither(Effect.gen(function* () { return yield* EnvService }))
+				if (Either.isRight(cenv)) setX402Headers(c, cenv.right, charge.challenge)
+				return c.json(charge.challenge, 402)
+			}
+			if (charge.kind === 'ok') {
+				c.header('X-Metering-Cost', String(charge.cost))
+				c.header('X-Metering-Balance', String(charge.balance))
+			}
+			if (charge.kind === 'settled') {
+				c.header('X-Metering-Cost', String(charge.cost))
+				if (charge.txHash) c.header('X-Payment-Response', charge.txHash)
+			}
+
 			let result: { content: Array<{ type: string; text: string }>; isError?: boolean }
 			switch (name) {
 				case 'get_quote':
@@ -748,8 +930,25 @@ mcpRoutes.post('/', async (c) => {
 				case 'predict_markets':
 					result = await handlePredictMarkets(args || {})
 					break
+				case 'predict_market':
+				// predict_market_detail: legacy alias kept for older clients
 				case 'predict_market_detail':
 					result = await handlePredictMarketDetail(args || {})
+					break
+				case 'perps_markets':
+					result = await handlePerpsMarkets()
+					break
+				case 'perps_quote':
+					result = await handlePerpsQuote(args || {})
+					break
+				case 'perps_positions':
+					result = await handlePerpsPositions(args || {})
+					break
+				case 'lend_markets':
+					result = await handleLendMarkets(args || {})
+					break
+				case 'lend_market':
+					result = await handleLendMarket(args || {})
 					break
 				default:
 					return c.json(rpcErr(req.id, -32601, `Unknown tool: ${name}`), 200)

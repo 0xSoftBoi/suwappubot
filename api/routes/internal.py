@@ -114,6 +114,49 @@ async def sign_transaction(
             raise HTTPException(status_code=500, detail="Signing failed")
 
 
+# ─── Tempo TIP-20 metadata ─────────────────────────────────
+
+
+class TIP20InfoResponse(BaseModel):
+    address: str
+    name: str
+    symbol: str
+    decimals: int
+    currency_code: str  # ISO-4217 (e.g. "USD") — empty for plain ERC-20s
+    compliance_policy: Optional[str] = None
+    is_tip20: bool
+
+
+@router.get("/tempo/tip20/{token_address}", response_model=TIP20InfoResponse)
+async def tempo_tip20_info(
+    token_address: str,
+    x_internal_key: str = Header(None, alias="X-Internal-Key"),
+):
+    """Return TIP-20 metadata (currency code, compliance policy, is_tip20) for a
+    Tempo token. Lets api-ts / the bot surface native TIP-20 details on demand
+    without an on-chain call on every balance render.
+    """
+    _verify_internal_key(x_internal_key)
+
+    from bot.services.tempo_tip20 import tempo_tip20
+
+    try:
+        info = await tempo_tip20.get_tip20_info(token_address)
+    except Exception as e:
+        logger.warning(f"TIP-20 info fetch failed for {token_address}: {e}")
+        raise HTTPException(status_code=502, detail="TIP-20 info unavailable")
+
+    return TIP20InfoResponse(
+        address=info.address,
+        name=info.name,
+        symbol=info.symbol,
+        decimals=info.decimals,
+        currency_code=info.currency_code,
+        compliance_policy=info.compliance_policy,
+        is_tip20=info.is_tip20,
+    )
+
+
 # ─── x402 Payment Verification ─────────────────────────────
 
 
@@ -163,7 +206,7 @@ async def verify_x402_payment(
         )
 
     try:
-        success, message = x402_service._verify_transaction_on_chain(
+        success, message = await x402_service._verify_transaction_on_chain(
             tx_hash=request.tx_hash,
             chain=request.chain,
             expected_recipient=request.expected_recipient,

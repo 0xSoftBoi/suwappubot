@@ -1,0 +1,58 @@
+{
+  "nav": {
+    "engine": "Engine",
+    "hyperliquid": "HyperLiquid",
+    "tempo": "Tempo",
+    "agents": "Agents",
+    "api": "API",
+    "pricing": "Pricing",
+    "docs": "Docs",
+    "solutions": "Solutions",
+    "compare": "Compare",
+    "forAgents": "For Agents",
+    "status": "Status",
+    "openBot": "Open Bot",
+    "openTerminal": "Open Terminal",
+    "whatsapp": "WhatsApp"
+  },
+  "hero": {
+    "kicker": "Now in open beta · 40+ chains",
+    "h1": "Trade anything.",
+    "h1_accent": "No limits.",
+    "lead": "Suwappu routes your trades across 40+ chains and 9 liquidity networks — finding the best price, every time. Non-custodial, no KYC for basic swaps. Start in 30 seconds.",
+    "cta_bot": "Start trading free",
+    "cta_terminal": "Open Terminal",
+    "byline_pre": "Built by the author of",
+    "byline_book": "Printing Money",
+    "byline_mid": "— a hands-on DeFi-security book — and an open-source contributor to",
+    "byline_and": "and"
+  },
+  "cta": {
+    "kicker": "Start free",
+    "heading": "Your first trade takes 30 seconds.",
+    "lead": "Open the bot in Telegram, or install the SDK and connect your agent. Best execution across 40+ chains — no wallet setup required.",
+    "open_bot": "Start trading free",
+    "whatsapp": "Chat on WhatsApp",
+    "docs": "Read the docs"
+  },
+  "referral": {
+    "kicker": "Earn with Suwappu",
+    "heading": "30% of every trading fee. Forever.",
+    "body": "Refer a friend and earn 30% of the trading fees they generate — paid out automatically, on every chain. Grab your personal link with {cmd} inside the bot.",
+    "cta": "Get your referral link"
+  },
+  "pricing": {
+    "kicker": "Pricing",
+    "heading": "Simple, transparent pricing.",
+    "subheading": "Pick the plan that fits your volume. Cancel any time.",
+    "referral_heading": "Earn 30% as an affiliate",
+    "referral_body": "Refer active traders and earn 30% of their fees — on every chain, paid automatically. Grab your link with /ref inside the bot.",
+    "referral_cta": "Get your referral link",
+    "enterprise_heading": "Need a custom plan?",
+    "enterprise_body": "Dedicated infrastructure, volume-based pricing, and SLA for trading desks and agent fleets.",
+    "enterprise_cta": "Talk to us"
+  },
+  "languageSwitcher": {
+    "label": "Language"
+  }
+}

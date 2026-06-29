@@ -210,7 +210,134 @@ class PerpsService:
             )
 
         logger.info(f"Opened {side} {market} position for user {user_id}: {size} @ {entry_price}")
+
+        # Whole-product points: reward the perps trade on notional (fee-denominated
+        # season accrual). Never let a points error break the on-chain position.
+        try:
+            notional_usd = float(size) * float(entry_price or 0)
+            if notional_usd > 0:
+                self._award_xp(
+                    user_id,
+                    "perps_trade",
+                    int(notional_usd / 10),
+                    f"Perps {side} {market} (${notional_usd:,.0f} notional)",
+                    metadata={
+                        "amount_usd": notional_usd,
+                        "fee_usd": self._perps_fee_usd(notional_usd),
+                    },
+                )
+        except Exception as e:
+            logger.debug("perps_trade award skipped (open): %s", e)
+
         return position
+
+    async def place_limit_order(
+        self,
+        user_id: int,
+        market: str,
+        side: str,
+        size: float,
+        limit_price: float,
+        leverage: int = 1,
+    ) -> Optional[PerpOrder]:
+        """Place a resting GTC limit entry order on HyperLiquid.
+
+        Unlike :meth:`open_position` (a market order that fills immediately and
+        creates a position), a limit order RESTS until the market reaches
+        ``limit_price``. No ``PerpPosition`` is created here — once HyperLiquid
+        fills the order the position surfaces in the live positions poll
+        (``get_open_positions``). We record a ``PerpOrder`` for history. TP/SL is
+        intentionally NOT auto-placed for a limit entry: a reduce-only trigger
+        before a position exists is an HL edge case, so TP/SL is set after fill.
+        """
+        if leverage > self.MAX_LEVERAGE:
+            raise ValueError(f"Maximum leverage is {self.MAX_LEVERAGE}x")
+        if leverage < 1:
+            raise ValueError("Minimum leverage is 1x")
+        if side not in ("long", "short"):
+            raise ValueError("Side must be 'long' or 'short'")
+        if not size or size <= 0:
+            raise ValueError("Size must be greater than zero")
+        if not limit_price or limit_price <= 0:
+            raise ValueError("Limit price must be greater than zero")
+
+        account = self.get_account(user_id)
+        if not account:
+            raise ValueError("HyperLiquid account not set up. Use /perps setup first.")
+
+        api_key, api_secret = self._decrypt_credentials(account)
+
+        # Builder fee + referral, same as the market path, so Suwappu earns on
+        # the order when it fills.
+        builder_address = await self.ensure_builder_approved(account)
+        _, builder_fee = self._builder_config()
+        await self.ensure_referrer(account)
+
+        result = await self._client.place_order(
+            address=account.hl_address,
+            api_key=api_key,
+            api_secret=api_secret,
+            market=market,
+            side=side,
+            size=size,
+            price=limit_price,
+            leverage=leverage,
+            order_type="limit",
+            builder_address=builder_address,
+            builder_fee_tenths_bps=builder_fee if builder_address else None,
+        )
+
+        if not result:
+            raise Exception("Failed to place limit order on HyperLiquid")
+
+        # A GTC limit usually rests ("open"); it may fill instantly if it crosses
+        # the book (then the position shows up in the live poll).
+        filled = result.status == "filled"
+        with get_session() as session:
+            order = PerpOrder(
+                user_id=user_id,
+                exchange="hyperliquid",
+                market=market,
+                side=side,
+                order_type="limit",
+                size=Decimal(str(size)),
+                price=Decimal(str(limit_price)),
+                leverage=leverage,
+                status="filled" if filled else "open",
+                hl_order_id=result.order_id,
+                fill_price=Decimal(str(result.fill_price)) if result.fill_price else None,
+                filled_at=datetime.now(timezone.utc) if filled else None,
+            )
+            session.add(order)
+            session.flush()
+            session.expunge(order)
+
+        logger.info(
+            f"Placed limit {side} {market} for user {user_id}: {size} @ {limit_price} "
+            f"({'filled' if filled else 'resting'})"
+        )
+        return order
+
+    async def get_open_orders(self, user_id: int) -> list[dict]:
+        """Return the user's resting HyperLiquid orders (live, keyed by address)."""
+        account = self.get_account(user_id)
+        if not account or not account.hl_address:
+            return []
+        return await self._client.get_open_orders(account.hl_address)
+
+    async def cancel_order(self, user_id: int, market: str, order_id: str) -> bool:
+        """Cancel a resting HyperLiquid order for the user."""
+        account = self.get_account(user_id)
+        if not account:
+            raise ValueError("HyperLiquid account not found")
+        api_key, api_secret = self._decrypt_credentials(account)
+        return await self._client.cancel_order(
+            address=account.hl_address,
+            api_key=api_key,
+            api_secret=api_secret,
+            market=market,
+            order_id=order_id,
+        )
 
     async def close_position(
         self,
@@ -297,6 +424,25 @@ class PerpsService:
             session.add(order)
 
         logger.info(f"Closed {percent}% of {side} {market} for user {user_id}. PnL: ${pnl:.2f}")
+
+        # Whole-product points: reward the closing trade on the closed notional
+        # (fee-denominated). Closing is a fee-bearing on-chain order too, so it
+        # earns like the open. Points failures never break the close.
+        try:
+            close_notional_usd = float(close_size) * float(close_price or 0)
+            if close_notional_usd > 0:
+                self._award_xp(
+                    user_id,
+                    "perps_trade",
+                    int(close_notional_usd / 10),
+                    f"Perps close {side} {market} (${close_notional_usd:,.0f})",
+                    metadata={
+                        "amount_usd": close_notional_usd,
+                        "fee_usd": self._perps_fee_usd(close_notional_usd),
+                    },
+                )
+        except Exception as e:
+            logger.debug("perps_trade award skipped (close): %s", e)
 
         return {
             "market": market,
@@ -460,16 +606,45 @@ class PerpsService:
             logger.debug("ensure_referrer skipped for user %s: %s", account.user_id, e)
 
     @staticmethod
-    def _award_xp(user_id: int, action: str, amount: int, description: str) -> None:
-        """Best-effort XP award; never blocks the on-chain action."""
+    def _award_xp(
+        user_id: int,
+        action: str,
+        amount: int,
+        description: str,
+        metadata: Optional[dict] = None,
+    ) -> None:
+        """Best-effort XP award; never blocks the on-chain action.
+
+        ``metadata`` (e.g. ``{"amount_usd": notional, "fee_usd": fee}``) is
+        forwarded so the season accrual is fee-denominated for trading actions.
+        """
         try:
             from bot.services.points_service import points_service
 
             points_service.award_points(
-                user_id=user_id, action=action, amount=max(1, int(amount)), description=description
+                user_id=user_id,
+                action=action,
+                amount=max(1, int(amount)),
+                description=description,
+                metadata=metadata,
             )
         except Exception as e:
             logger.debug("XP award skipped (%s): %s", action, e)
+
+    def _perps_fee_usd(self, notional_usd: float) -> Optional[float]:
+        """Estimate the Suwappu builder fee (USD) on a perps order of ``notional_usd``.
+
+        HL builder fee is configured in tenths-of-a-bps; fee = notional * tenths/1e5.
+        Returns None when no builder fee is configured (no fee-denominated accrual).
+        """
+        try:
+            _, builder_fee_tenths_bps = self._builder_config()
+            tenths = float(builder_fee_tenths_bps or 0)
+            if tenths <= 0 or notional_usd <= 0:
+                return None
+            return float(notional_usd) * tenths / 100_000.0
+        except Exception:
+            return None
 
     async def place_twap(
         self,

@@ -69,6 +69,39 @@ MARKETS_PER_PAGE = 5
 # ============ HELPERS ============
 
 
+def _polymarket_restricted_regions() -> set:
+    """Regions where Polymarket trading/redemption is geo-blocked.
+
+    Polymarket blocks the US and ~33 other jurisdictions. We reuse the same
+    operator-set ``User.region`` infra that HyperUnit/HL funding uses. Defaults
+    to the US-only fallback when no explicit setting is configured.
+    """
+    raw = getattr(settings, "polymarket_restricted_regions", None)
+    if raw is None:
+        raw = getattr(settings, "hyperunit_restricted_regions", "US") or "US"
+    return {r.strip().upper() for r in str(raw).split(",") if r.strip()}
+
+
+def polymarket_region_allowed(telegram_id: int) -> bool:
+    """Whether Polymarket on-chain redemption may be offered to this user.
+
+    Mirrors ``fund.hyperunit_allowed``: a KNOWN region not in the restricted set
+    is allowed; an unknown region is allowed too (fail-open) — Polymarket itself
+    geo-blocks at the network edge, and existing /predict trading is not region
+    gated, so we only hard-refuse users we positively know are restricted.
+    """
+    try:
+        with get_session() as session:
+            user = session.query(User).filter(User.telegram_id == telegram_id).first()
+            region = (user.region or "").strip().upper() if user else ""
+        if not region:
+            return True  # unknown — do not block (matches untracked trade flow)
+        return region not in _polymarket_restricted_regions()
+    except Exception as e:  # noqa: BLE001 — never break redeem on a region read
+        logger.warning("polymarket region lookup failed for %s: %s", telegram_id, e)
+        return True
+
+
 def truncate(text: str, max_len: int = 100) -> str:
     """Truncate text to max length."""
     if len(text) <= max_len:
@@ -845,6 +878,24 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
             shares = amount / price if price > 0 else 0
             potential_payout = shares * 1.0
 
+            # Whole-product points: reward the prediction entry on USDC spent.
+            # Polymarket orders carry no Suwappu platform fee, so there is no
+            # fee_usd to pass — season accrual falls back to the volume-derived
+            # base (int(amount/10)), the documented non-fee path. Points failures
+            # must never affect the placed order.
+            try:
+                from bot.services.points_service import points_service
+
+                points_service.award_points(
+                    user_id=user_id,
+                    action="predict_trade",
+                    amount=max(1, int(amount / 10)),
+                    description=f"Prediction BUY {outcome.upper()} (${amount:,.2f})",
+                    metadata={"amount_usd": float(amount), "fee_usd": None},
+                )
+            except Exception as e:
+                logger.debug(f"predict_trade award skipped: {e}")
+
             await query.edit_message_text(
                 f"*Order Placed!*\n\n"
                 f"*Market:* {truncate(market.question)}\n"
@@ -918,6 +969,7 @@ async def positions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 PredictionPosition.user_id == user_id,
                 PredictionPosition.is_resolved == True,  # noqa: E712
                 PredictionPosition.resolved_payout > 0,
+                PredictionPosition.claimed == False,  # noqa: E712
             )
             .order_by(PredictionPosition.updated_at.desc())
             .limit(10)
@@ -980,7 +1032,8 @@ async def positions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 f"*Unrealized PnL:* {pnl_emoji} {format_usdc(total_pnl)}"
             )
 
-        # Resolved winners (queried above) hold real claimable value — surface them.
+        # Resolved winners (queried above) hold real claimable value — surface them
+        # with a per-position Redeem button that triggers the on-chain redeem.
         if claimable:
             total_claimable = sum(float(p.resolved_payout or 0) for p in claimable)
             text += "\n\n\U0001f3c6 *Claimable (resolved)*\n"
@@ -990,8 +1043,16 @@ async def positions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     f"\U0001f7e2 {truncate(pos.market_question or 'Unknown', 50)}\n"
                     f"  {pos.outcome} | {format_usdc(payout)} to redeem\n"
                 )
+                keyboard.append(
+                    [
+                        InlineKeyboardButton(
+                            f"Redeem {format_usdc(payout)}",
+                            callback_data=f"pred_redeem_{pos.id}",
+                        )
+                    ]
+                )
             text += f"*Total claimable:* {format_usdc(total_claimable)}\n"
-            text += "_Redeem on Polymarket to receive pUSD on Polygon._"
+            text += "_Redeem to receive pUSD on Polygon (needs a little MATIC for gas)._"
 
     keyboard.append([InlineKeyboardButton("Refresh", callback_data="pred_positions")])
     keyboard.append([InlineKeyboardButton("Back", callback_data="pred_menu")])
@@ -1158,6 +1219,199 @@ async def confirm_sell_callback(update: Update, context: ContextTypes.DEFAULT_TY
     return ConversationHandler.END
 
 
+# ============ REDEEM (on-chain claim of resolved winners) ============
+
+
+async def redeem_position_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show redeem confirmation for a resolved, claimable winning position."""
+    query = update.callback_query
+    await query.answer()
+
+    pred_data = context.user_data.get("predict", {})
+    user_id = pred_data.get("user_id")
+
+    try:
+        position_id = int(query.data.replace("pred_redeem_", ""))
+    except (ValueError, AttributeError):
+        await query.edit_message_text("Invalid position.")
+        return MY_POSITIONS
+
+    # Region gate: refuse for users we positively know are geo-restricted.
+    if not polymarket_region_allowed(query.from_user.id):
+        await query.edit_message_text(
+            "*Redeem unavailable*\n\n"
+            "On-chain redemption isn't available in your region.\n"
+            "Your winning position stays claimable and is safe.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("Back", callback_data="pred_positions")]]
+            ),
+        )
+        return MY_POSITIONS
+
+    with get_session() as session:
+        pos = (
+            session.query(PredictionPosition)
+            .filter(
+                PredictionPosition.id == position_id,
+                PredictionPosition.user_id == user_id,
+                PredictionPosition.is_resolved == True,  # noqa: E712
+                PredictionPosition.claimed == False,  # noqa: E712
+            )
+            .first()
+        )
+        if not pos:
+            await query.edit_message_text(
+                "This position is no longer claimable (already redeemed or not resolved)."
+            )
+            return MY_POSITIONS
+        payout = float(pos.resolved_payout or 0)
+        pred_data["redeem_position_id"] = position_id
+        pred_data["redeem_condition_id"] = pos.market_id
+        pred_data["redeem_payout"] = payout
+        pred_data["redeem_question"] = pos.market_question
+
+    keyboard = [
+        [
+            InlineKeyboardButton("Confirm Redeem", callback_data="pred_confirm_redeem"),
+            InlineKeyboardButton("Cancel", callback_data="pred_positions"),
+        ],
+    ]
+
+    await query.edit_message_text(
+        f"*Redeem Winnings*\n\n"
+        f"*Market:* {truncate(pred_data.get('redeem_question') or 'Unknown', 100)}\n"
+        f"*Payout:* {format_usdc(payout)} in pUSD\n\n"
+        f"This sends an on-chain transaction from your wallet on Polygon to "
+        f"redeem your winning shares. You'll need a little MATIC for gas.\n\n"
+        f"_Confirm to redeem._",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+    return MY_POSITIONS
+
+
+async def confirm_redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Execute the on-chain redemption and mark the position claimed on success."""
+    query = update.callback_query
+    await query.answer("Redeeming...")
+
+    pred_data = context.user_data.get("predict", {})
+    position_id = pred_data.get("redeem_position_id")
+    condition_id = pred_data.get("redeem_condition_id")
+    payout = pred_data.get("redeem_payout", 0)
+    wallet_id = pred_data.get("wallet_id")
+    user_id = pred_data.get("user_id")
+
+    if not position_id or not condition_id:
+        await query.edit_message_text("Session expired. Start again with /predict")
+        return ConversationHandler.END
+
+    await query.edit_message_text(
+        f"*Redeeming...*\n\n"
+        f"Sending the on-chain redeem transaction on Polygon.\n"
+        f"Please wait — this can take up to a couple of minutes.",
+        parse_mode="Markdown",
+    )
+
+    try:
+        # Load the wallet ORM row (the user's EVM = Polymarket trading wallet).
+        with get_session() as session:
+            wallet = (
+                session.query(Wallet)
+                .filter(Wallet.id == wallet_id, Wallet.user_id == user_id)
+                .first()
+            )
+            if not wallet:
+                raise Exception("Wallet not found")
+            session.expunge(wallet)
+
+        result = await polymarket_client.redeem_position(
+            wallet=wallet,
+            condition_id=condition_id,
+        )
+
+        if result.success:
+            with get_session() as session:
+                pos = (
+                    session.query(PredictionPosition)
+                    .filter(
+                        PredictionPosition.id == position_id,
+                        PredictionPosition.user_id == user_id,
+                    )
+                    .first()
+                )
+                if pos:
+                    pos.claimed = True
+                    pos.redeem_tx_hash = result.tx_hash
+                    session.commit()
+
+            short_tx = (result.tx_hash[:12] + "...") if result.tx_hash else ""
+            await query.edit_message_text(
+                f"*Redeemed!*\n\n"
+                f"Your winnings of {format_usdc(payout)} were redeemed as pUSD on Polygon.\n"
+                f"Tx: `{short_tx}`\n\n"
+                f"Use /predict to keep trading.",
+                parse_mode="Markdown",
+            )
+        else:
+            # Map the redeem error category to clear, calm guidance.
+            await query.edit_message_text(
+                _redeem_error_message(result),
+                parse_mode="Markdown",
+            )
+
+    except Exception as e:
+        logger.error(f"Redeem execution error: {e}")
+        await query.edit_message_text(
+            "*Redeem Failed*\n\n"
+            "An unexpected error occurred. Your winning position is unchanged "
+            "and still claimable — try again from /predict.",
+            parse_mode="Markdown",
+        )
+
+    context.user_data.pop("predict", None)
+    return ConversationHandler.END
+
+
+def _redeem_error_message(result) -> str:
+    """Plain-language message for a failed redeem, keyed on error_category.
+
+    Reuses the swap error_guidance copy for the gas case so the user gets the
+    same calm "funds are safe, top up a little MATIC" guidance bot-wide.
+    """
+    category = getattr(result, "error_category", "") or ""
+    if category == "insufficient_gas":
+        from bot.services.error_guidance import classify_swap_failure
+
+        guidance = classify_swap_failure("insufficient funds for gas", context={"chain": "polygon"})
+        return guidance.to_message()
+    if category == "not_resolved":
+        return (
+            "*Not redeemable yet*\n\n"
+            "This market hasn't fully resolved on-chain yet. Your funds are safe — "
+            "try again in a few minutes."
+        )
+    if category == "pending":
+        return (
+            "*Redeem submitted*\n\n"
+            "The transaction was broadcast but hasn't confirmed yet. It usually "
+            "settles shortly — check your wallet on Polygon."
+        )
+    if category == "reverted":
+        return (
+            "*Redeem Failed*\n\n"
+            "The redeem transaction reverted on-chain and no funds moved. "
+            "Your position is still claimable."
+        )
+    return (
+        "*Redeem Failed*\n\n"
+        f"{getattr(result, 'error', 'Unknown error')}\n\n"
+        "Your winning position is unchanged and still claimable."
+    )
+
+
 # ============ HISTORY ============
 
 
@@ -1293,6 +1547,8 @@ predict_conversation_handler = ConversationHandler(
         MY_POSITIONS: [
             CallbackQueryHandler(sell_position_callback, pattern="^pred_sell_"),
             CallbackQueryHandler(confirm_sell_callback, pattern="^pred_confirm_sell$"),
+            CallbackQueryHandler(redeem_position_callback, pattern="^pred_redeem_"),
+            CallbackQueryHandler(confirm_redeem_callback, pattern="^pred_confirm_redeem$"),
             CallbackQueryHandler(positions_callback, pattern="^pred_positions$"),
             CallbackQueryHandler(trending_callback, pattern="^pred_trending$"),
             CallbackQueryHandler(menu_callback, pattern="^pred_menu$"),

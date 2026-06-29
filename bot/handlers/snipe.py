@@ -55,6 +55,8 @@ from bot.services.sniping.launch_detector import TokenLaunch, LaunchPlatform
 from bot.services.wallet import WalletService
 from bot.utils.rate_limiter import UserRateLimiter
 from bot.utils.tos_utils import enforce_tos
+from bot.utils.gating import require_tier
+from bot.models.subscription import SubscriptionTier
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -101,6 +103,7 @@ def format_token_amount(amount: int, decimals: int = 9) -> str:
 # ============ MAIN SNIPE COMMAND ============
 
 
+@require_tier(SubscriptionTier.PRO)
 @enforce_tos
 async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle /snipe command.

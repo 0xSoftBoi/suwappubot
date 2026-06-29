@@ -17,9 +17,15 @@ from sqlalchemy.orm import Session
 
 from bot.config.chains import get_chain_by_name
 from bot.models.user import User, Wallet
+from bot.models.favorites import UserSettings
 from bot.models.swap import SwapStatus, SwapTransaction
 from bot.models.copy_trading import (
-    TraderProfile, CopyFollow, CopyTrade, CopyNotification, TraderTrade, TraderPosition
+    TraderProfile,
+    CopyFollow,
+    CopyTrade,
+    CopyNotification,
+    TraderTrade,
+    TraderPosition,
 )
 from bot.services.points_service import points_service, POINT_ACTIONS
 from database.db import get_session
@@ -34,23 +40,21 @@ DEFAULT_COPY_AMOUNT = 10.0  # Default fixed copy amount in USD
 
 class CopyService:
     """Service for managing copy trading functionality."""
-    
+
     # ==================== Profile Management ====================
-    
+
     def get_or_create_profile(self, user_id: int) -> TraderProfile:
         """Get or create a trader profile for a user."""
         with get_session() as session:
-            profile = session.query(TraderProfile).filter(
-                TraderProfile.user_id == user_id
-            ).first()
-            
+            profile = session.query(TraderProfile).filter(TraderProfile.user_id == user_id).first()
+
             if profile:
                 return profile
-            
+
             # Get user info for default display name
             user = session.query(User).filter(User.id == user_id).first()
             display_name = user.username if user else f"Trader{user_id}"
-            
+
             profile = TraderProfile(
                 user_id=user_id,
                 display_name=display_name,
@@ -59,10 +63,10 @@ class CopyService:
             session.add(profile)
             session.flush()
             profile_id = profile.id
-        
+
         with get_session() as session:
             return session.query(TraderProfile).filter(TraderProfile.id == profile_id).first()
-    
+
     def update_profile(
         self,
         user_id: int,
@@ -73,14 +77,12 @@ class CopyService:
     ) -> TraderProfile:
         """Update trader profile settings."""
         with get_session() as session:
-            profile = session.query(TraderProfile).filter(
-                TraderProfile.user_id == user_id
-            ).first()
-            
+            profile = session.query(TraderProfile).filter(TraderProfile.user_id == user_id).first()
+
             if not profile:
                 profile = TraderProfile(user_id=user_id)
                 session.add(profile)
-            
+
             if display_name is not None:
                 profile.display_name = display_name[:50]
             if bio is not None:
@@ -89,31 +91,29 @@ class CopyService:
                 profile.avatar_emoji = avatar_emoji[:10]
             if is_public is not None:
                 profile.is_public = is_public
-        
+
         return self.get_or_create_profile(user_id)
-    
+
     def toggle_public(self, user_id: int) -> Tuple[bool, str]:
         """Toggle public visibility of trader profile."""
         with get_session() as session:
-            profile = session.query(TraderProfile).filter(
-                TraderProfile.user_id == user_id
-            ).first()
-            
+            profile = session.query(TraderProfile).filter(TraderProfile.user_id == user_id).first()
+
             if not profile:
                 profile = TraderProfile(user_id=user_id, is_public=True)
                 session.add(profile)
                 return True, "Profile is now public! Others can follow your trades."
-            
+
             profile.is_public = not profile.is_public
             new_status = profile.is_public
-        
+
         if new_status:
             return True, "Profile is now public! Others can follow your trades."
         else:
             return False, "Profile is now private. You won't appear in trader lists."
-    
+
     # ==================== Following ====================
-    
+
     def follow_trader(
         self,
         follower_id: int,
@@ -123,44 +123,47 @@ class CopyService:
     ) -> Tuple[bool, str]:
         """
         Follow a trader for copy trading.
-        
+
         Args:
             follower_id: User ID of the follower
             trader_id: User ID of the trader to follow
             copy_mode: "notify" or "auto"
             copy_amount_usd: Fixed USD amount to copy
-            
+
         Returns:
             Tuple of (success, message)
         """
         if follower_id == trader_id:
             return False, "You can't follow yourself!"
-        
+
         with get_session() as session:
             # Check if trader has a public profile
-            trader_profile = session.query(TraderProfile).filter(
-                TraderProfile.user_id == trader_id,
-                TraderProfile.is_public == True
-            ).first()
-            
+            trader_profile = (
+                session.query(TraderProfile)
+                .filter(TraderProfile.user_id == trader_id, TraderProfile.is_public == True)
+                .first()
+            )
+
             if not trader_profile:
                 return False, "This trader doesn't have a public profile."
-            
+
             # Check follow limit
-            follow_count = session.query(func.count(CopyFollow.id)).filter(
-                CopyFollow.follower_id == follower_id,
-                CopyFollow.is_active == True
-            ).scalar()
-            
+            follow_count = (
+                session.query(func.count(CopyFollow.id))
+                .filter(CopyFollow.follower_id == follower_id, CopyFollow.is_active == True)
+                .scalar()
+            )
+
             if follow_count >= MAX_FOLLOWS:
                 return False, f"You can only follow up to {MAX_FOLLOWS} traders."
-            
+
             # Check if already following
-            existing = session.query(CopyFollow).filter(
-                CopyFollow.follower_id == follower_id,
-                CopyFollow.trader_id == trader_id
-            ).first()
-            
+            existing = (
+                session.query(CopyFollow)
+                .filter(CopyFollow.follower_id == follower_id, CopyFollow.trader_id == trader_id)
+                .first()
+            )
+
             if existing:
                 if existing.is_active:
                     return False, "You're already following this trader."
@@ -176,37 +179,45 @@ class CopyService:
                     copy_amount_usd=copy_amount_usd,
                 )
                 session.add(follow)
-            
+
             # Update follower count
             trader_profile.follower_count += 1
-        
+
         trader_name = trader_profile.display_name or f"Trader{trader_id}"
-        mode_desc = "with notifications" if copy_mode == "notify" else "in auto mode"
+        mode_desc = (
+            "with notifications"
+            if copy_mode == "notify"
+            else "in paper mode" if copy_mode == "paper" else "in auto mode"
+        )
         return True, f"Now following {trader_name} {mode_desc}!"
-    
+
     def unfollow_trader(self, follower_id: int, trader_id: int) -> Tuple[bool, str]:
         """Unfollow a trader."""
         with get_session() as session:
-            follow = session.query(CopyFollow).filter(
-                CopyFollow.follower_id == follower_id,
-                CopyFollow.trader_id == trader_id,
-                CopyFollow.is_active == True
-            ).first()
-            
+            follow = (
+                session.query(CopyFollow)
+                .filter(
+                    CopyFollow.follower_id == follower_id,
+                    CopyFollow.trader_id == trader_id,
+                    CopyFollow.is_active == True,
+                )
+                .first()
+            )
+
             if not follow:
                 return False, "You're not following this trader."
-            
+
             follow.is_active = False
-            
+
             # Update follower count
-            trader_profile = session.query(TraderProfile).filter(
-                TraderProfile.user_id == trader_id
-            ).first()
+            trader_profile = (
+                session.query(TraderProfile).filter(TraderProfile.user_id == trader_id).first()
+            )
             if trader_profile and trader_profile.follower_count > 0:
                 trader_profile.follower_count -= 1
-        
+
         return True, "Unfollowed successfully."
-    
+
     def update_follow_settings(
         self,
         follower_id: int,
@@ -218,15 +229,19 @@ class CopyService:
     ) -> Tuple[bool, str]:
         """Update copy settings for a followed trader."""
         with get_session() as session:
-            follow = session.query(CopyFollow).filter(
-                CopyFollow.follower_id == follower_id,
-                CopyFollow.trader_id == trader_id,
-                CopyFollow.is_active == True
-            ).first()
-            
+            follow = (
+                session.query(CopyFollow)
+                .filter(
+                    CopyFollow.follower_id == follower_id,
+                    CopyFollow.trader_id == trader_id,
+                    CopyFollow.is_active == True,
+                )
+                .first()
+            )
+
             if not follow:
                 return False, "You're not following this trader."
-            
+
             if copy_mode is not None:
                 follow.copy_mode = copy_mode
             if copy_amount_usd is not None:
@@ -235,19 +250,19 @@ class CopyService:
                 follow.max_trade_usd = max_trade_usd
             if daily_limit_usd is not None:
                 follow.daily_limit_usd = daily_limit_usd
-        
+
         return True, "Settings updated!"
-    
+
     def get_following(self, user_id: int) -> List[dict]:
         """Get list of traders a user is following."""
         with get_session() as session:
-            follows = session.query(CopyFollow, TraderProfile).join(
-                TraderProfile, CopyFollow.trader_id == TraderProfile.user_id
-            ).filter(
-                CopyFollow.follower_id == user_id,
-                CopyFollow.is_active == True
-            ).all()
-            
+            follows = (
+                session.query(CopyFollow, TraderProfile)
+                .join(TraderProfile, CopyFollow.trader_id == TraderProfile.user_id)
+                .filter(CopyFollow.follower_id == user_id, CopyFollow.is_active == True)
+                .all()
+            )
+
             return [
                 {
                     "trader_id": f.trader_id,
@@ -261,17 +276,17 @@ class CopyService:
                 }
                 for f, p in follows
             ]
-    
+
     def get_followers(self, trader_id: int) -> List[dict]:
         """Get list of users following a trader."""
         with get_session() as session:
-            follows = session.query(CopyFollow, User).join(
-                User, CopyFollow.follower_id == User.id
-            ).filter(
-                CopyFollow.trader_id == trader_id,
-                CopyFollow.is_active == True
-            ).all()
-            
+            follows = (
+                session.query(CopyFollow, User)
+                .join(User, CopyFollow.follower_id == User.id)
+                .filter(CopyFollow.trader_id == trader_id, CopyFollow.is_active == True)
+                .all()
+            )
+
             return [
                 {
                     "follower_id": f.follower_id,
@@ -281,7 +296,7 @@ class CopyService:
                 }
                 for f, u in follows
             ]
-    
+
     # ==================== Trade Recording & Notifications ====================
 
     @staticmethod
@@ -293,6 +308,7 @@ class CopyService:
         for the realized sell side. A pure buy (USDC->X) realizes ~0, which is correct.
         Tokens are keyed by (symbol, chain) — the best identity the stored data offers.
         """
+
         def _f(x):
             try:
                 return float(x)
@@ -309,11 +325,15 @@ class CopyService:
 
         # SELL side: realize PnL on the disposed (from) token against tracked basis.
         if from_qty > 0:
-            pos = session.query(TraderPosition).filter(
-                TraderPosition.trader_id == trader_id,
-                TraderPosition.token == swap.from_token,
-                TraderPosition.chain == swap.from_chain,
-            ).first()
+            pos = (
+                session.query(TraderPosition)
+                .filter(
+                    TraderPosition.trader_id == trader_id,
+                    TraderPosition.token == swap.from_token,
+                    TraderPosition.chain == swap.from_chain,
+                )
+                .first()
+            )
             if pos and pos.qty > 0:
                 avg_cost = pos.cost_usd / pos.qty
                 qty_sold = min(from_qty, pos.qty)
@@ -327,15 +347,22 @@ class CopyService:
 
         # BUY side: add the acquired (to) token to cost basis.
         if to_qty > 0:
-            pos = session.query(TraderPosition).filter(
-                TraderPosition.trader_id == trader_id,
-                TraderPosition.token == swap.to_token,
-                TraderPosition.chain == swap.to_chain,
-            ).first()
+            pos = (
+                session.query(TraderPosition)
+                .filter(
+                    TraderPosition.trader_id == trader_id,
+                    TraderPosition.token == swap.to_token,
+                    TraderPosition.chain == swap.to_chain,
+                )
+                .first()
+            )
             if not pos:
                 pos = TraderPosition(
-                    trader_id=trader_id, token=swap.to_token,
-                    chain=swap.to_chain, qty=0.0, cost_usd=0.0,
+                    trader_id=trader_id,
+                    token=swap.to_token,
+                    chain=swap.to_chain,
+                    qty=0.0,
+                    cost_usd=0.0,
                 )
                 session.add(pos)
             pos.qty += to_qty
@@ -352,24 +379,24 @@ class CopyService:
     ) -> List[int]:
         """
         Record a trader's swap and notify/copy followers.
-        
+
         Returns:
             List of follower user IDs that were notified/copied
         """
         # Update trader profile stats
         created_trader_trade = False
         with get_session() as session:
-            profile = session.query(TraderProfile).filter(
-                TraderProfile.user_id == trader_id
-            ).first()
-            
+            profile = (
+                session.query(TraderProfile).filter(TraderProfile.user_id == trader_id).first()
+            )
+
             if not profile:
                 profile = TraderProfile(user_id=trader_id, is_public=False)
                 session.add(profile)
-            
-            existing_trade = session.query(TraderTrade).filter(
-                TraderTrade.swap_id == swap.id
-            ).first()
+
+            existing_trade = (
+                session.query(TraderTrade).filter(TraderTrade.swap_id == swap.id).first()
+            )
 
             if not existing_trade:
                 created_trader_trade = True
@@ -404,47 +431,77 @@ class CopyService:
                 amount=POINT_ACTIONS["get_copied"]["points"],
                 description="Trade recorded for copying",
             )
-        
+
         # Notify followers if profile is public
         if not profile.is_public:
             return []
-        
+
         notified_users = []
-        
+
         with get_session() as session:
-            followers = session.query(CopyFollow).filter(
-                CopyFollow.trader_id == trader_id,
-                CopyFollow.is_active == True
-            ).all()
-            
+            followers = (
+                session.query(CopyFollow)
+                .filter(CopyFollow.trader_id == trader_id, CopyFollow.is_active == True)
+                .all()
+            )
+
             for follow in followers:
                 chains_filter = getattr(follow, "chains_filter", None)
                 if chains_filter:
-                    allowed_chains = {chain.strip().lower() for chain in chains_filter.split(",") if chain.strip()}
+                    allowed_chains = {
+                        chain.strip().lower() for chain in chains_filter.split(",") if chain.strip()
+                    }
                     if allowed_chains and swap.from_chain.lower() not in allowed_chains:
                         continue
 
+                # --- Advanced filters ---
+                # min_trade_usd: skip if the original trade is below the follower's threshold
+                if follow.min_trade_usd is not None and amount_usd < follow.min_trade_usd:
+                    logger.debug(
+                        "copy skipped for follow %s: below min trade size " "(%.2f < %.2f)",
+                        follow.id,
+                        amount_usd,
+                        follow.min_trade_usd,
+                    )
+                    continue
+
+                # min_wallet_pnl_pct: requires external all-time PnL data — wired for
+                # future implementation; pass-through for now.
+                # TODO: fetch trader's all-time PnL% from an on-chain analytics provider
+                # and compare against follow.min_wallet_pnl_pct when set.
+
+                # min_token_age_hours: requires token launch timestamp lookup — wired for
+                # future implementation; pass-through for now.
+                # TODO: fetch token creation time (e.g. from DexScreener / Helius) and
+                # compare swap.to_token age against follow.min_token_age_hours when set.
+
                 copy_amount = follow.get_copy_amount(amount_usd)
-                
+
                 # Check daily limit
                 if not follow.check_daily_limit(copy_amount):
                     continue
 
-                copy_trade = session.query(CopyTrade).filter(
-                    CopyTrade.original_swap_id == swap.id,
-                    CopyTrade.follow_id == follow.id,
-                    CopyTrade.copier_id == follow.follower_id,
-                ).first()
+                copy_trade = (
+                    session.query(CopyTrade)
+                    .filter(
+                        CopyTrade.original_swap_id == swap.id,
+                        CopyTrade.follow_id == follow.id,
+                        CopyTrade.copier_id == follow.follower_id,
+                    )
+                    .first()
+                )
                 if copy_trade:
                     if copy_trade.status in ["pending", "notified"]:
-                        notified_users.append({
-                            "user_id": follow.follower_id,
-                            "copy_trade_id": copy_trade.id,
-                            "copy_mode": follow.copy_mode,
-                            "copy_amount": copy_trade.copy_amount_usd,
-                        })
+                        notified_users.append(
+                            {
+                                "user_id": follow.follower_id,
+                                "copy_trade_id": copy_trade.id,
+                                "copy_mode": follow.copy_mode,
+                                "copy_amount": copy_trade.copy_amount_usd,
+                            }
+                        )
                     continue
-                
+
                 copy_trade = CopyTrade(
                     original_swap_id=swap.id,
                     trader_id=trader_id,
@@ -460,22 +517,22 @@ class CopyService:
                 )
                 session.add(copy_trade)
                 session.flush()
-                
-                notified_users.append({
-                    "user_id": follow.follower_id,
-                    "copy_trade_id": copy_trade.id,
-                    "copy_mode": follow.copy_mode,
-                    "copy_amount": copy_amount,
-                })
-        
+
+                notified_users.append(
+                    {
+                        "user_id": follow.follower_id,
+                        "copy_trade_id": copy_trade.id,
+                        "copy_mode": follow.copy_mode,
+                        "copy_amount": copy_amount,
+                    }
+                )
+
         return notified_users
 
     async def handle_swap_submitted(self, swap_id: int, bot=None) -> List[dict]:
         """Record a submitted trader swap and process notify/auto-copy followers."""
         with get_session() as session:
-            swap = session.query(SwapTransaction).filter(
-                SwapTransaction.id == swap_id
-            ).first()
+            swap = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
             if not swap:
                 return []
             if swap.idempotency_key and swap.idempotency_key.startswith("copy_"):
@@ -504,13 +561,20 @@ class CopyService:
             copy_trade_id = follower_info["copy_trade_id"]
             if follower_info["copy_mode"] == "auto":
                 success, message, swap_id = await self.execute_copy(follower_id, copy_trade_id)
-                processed.append({
-                    **follower_info,
-                    "status": "copied" if success else "failed",
-                    "message": message,
-                    "swap_id": swap_id,
-                })
+                processed.append(
+                    {
+                        **follower_info,
+                        "status": "copied" if success else "failed",
+                        "message": message,
+                        "swap_id": swap_id,
+                    }
+                )
                 await self._notify_copy_result(bot, follower_info, swap_data, success, message)
+            elif follower_info["copy_mode"] == "paper":
+                await self._execute_paper_copy(
+                    follower_id, copy_trade_id, bot, follower_info, swap_data
+                )
+                processed.append({**follower_info, "status": "paper"})
             else:
                 self.mark_notified(follower_id, copy_trade_id)
                 processed.append({**follower_info, "status": "notified"})
@@ -525,7 +589,7 @@ class CopyService:
         if not swap_id:
             return
         await self.handle_swap_submitted(int(swap_id))
-    
+
     async def execute_copy(
         self,
         copier_id: int,
@@ -534,32 +598,35 @@ class CopyService:
     ) -> Tuple[bool, str, Optional[int]]:
         """
         Execute a copy trade.
-        
+
         Returns:
             Tuple of (success, message, swap_id)
         """
         with get_session() as session:
-            copy_trade = session.query(CopyTrade).filter(
-                CopyTrade.id == copy_trade_id,
-                CopyTrade.copier_id == copier_id
-            ).first()
-            
+            copy_trade = (
+                session.query(CopyTrade)
+                .filter(CopyTrade.id == copy_trade_id, CopyTrade.copier_id == copier_id)
+                .first()
+            )
+
             if not copy_trade:
                 return False, "Copy trade not found.", None
-            
+
             if copy_trade.status not in ["pending", "notified"]:
                 return False, f"Trade already {copy_trade.status}.", None
-            
+
             # Get the original swap details
-            original_swap = session.query(SwapTransaction).filter(
-                SwapTransaction.id == copy_trade.original_swap_id
-            ).first()
-            
+            original_swap = (
+                session.query(SwapTransaction)
+                .filter(SwapTransaction.id == copy_trade.original_swap_id)
+                .first()
+            )
+
             if not original_swap:
                 copy_trade.status = "failed"
                 copy_trade.failure_reason = "Original swap not found"
                 return False, "Original swap not found.", None
-            
+
             copy_amount = float(custom_amount or copy_trade.copy_amount_usd)
             original_amount = self._copy_from_amount(original_swap, copy_trade, copy_amount)
             source_chain = get_chain_by_name(copy_trade.from_chain)
@@ -568,32 +635,40 @@ class CopyService:
                 copy_trade.failure_reason = f"Unsupported source chain {copy_trade.from_chain}"
                 return False, copy_trade.failure_reason, None
 
-            wallet = session.query(Wallet).filter(
-                Wallet.user_id == copier_id,
-                Wallet.chain_type == source_chain.chain_type.value,
-                Wallet.is_active == True,
-                Wallet.is_default == True,
-            ).first()
-            if not wallet:
-                wallet = session.query(Wallet).filter(
+            wallet = (
+                session.query(Wallet)
+                .filter(
                     Wallet.user_id == copier_id,
                     Wallet.chain_type == source_chain.chain_type.value,
                     Wallet.is_active == True,
-                ).order_by(Wallet.id.asc()).first()
+                    Wallet.is_default == True,
+                )
+                .first()
+            )
+            if not wallet:
+                wallet = (
+                    session.query(Wallet)
+                    .filter(
+                        Wallet.user_id == copier_id,
+                        Wallet.chain_type == source_chain.chain_type.value,
+                        Wallet.is_active == True,
+                    )
+                    .order_by(Wallet.id.asc())
+                    .first()
+                )
 
             if not wallet:
                 copy_trade.status = "failed"
                 copy_trade.failure_reason = f"No active {source_chain.chain_type.value} wallet"
                 return False, copy_trade.failure_reason, None
-            
-            follow = session.query(CopyFollow).filter(
-                CopyFollow.id == copy_trade.follow_id
-            ).first()
-        
+
+            follow = session.query(CopyFollow).filter(CopyFollow.id == copy_trade.follow_id).first()
+
         # Execute the swap via swap engine
         from bot.services.swap_engine import SwapEngine
+
         swap_engine = SwapEngine()
-        
+
         try:
             quote = await swap_engine.get_quote(
                 from_chain=copy_trade.from_chain,
@@ -611,74 +686,95 @@ class CopyService:
                 wallet_id=wallet.id,
                 user_id=copier_id,
                 idempotency_key=f"copy_{copy_trade_id}_{copier_id}",
+                automated=True,
             )
-            
+
             with get_session() as session:
-                copy_trade = session.query(CopyTrade).filter(
-                    CopyTrade.id == copy_trade_id
-                ).first()
+                copy_trade = session.query(CopyTrade).filter(CopyTrade.id == copy_trade_id).first()
                 copy_trade.copy_swap_id = swap_tx.id
                 copy_trade.status = "copied"
                 copy_trade.copied_at = datetime.now(timezone.utc)
 
-                follow = session.query(CopyFollow).filter(
-                    CopyFollow.id == copy_trade.follow_id
-                ).first()
+                follow = (
+                    session.query(CopyFollow).filter(CopyFollow.id == copy_trade.follow_id).first()
+                )
                 if follow:
                     follow.daily_copied_usd += copy_amount
                     follow.total_copied_trades += 1
                     follow.total_copied_volume += copy_amount
 
-                trader_profile = session.query(TraderProfile).filter(
-                    TraderProfile.user_id == copy_trade.trader_id
-                ).first()
+                trader_id = copy_trade.trader_id
+                trader_profile = (
+                    session.query(TraderProfile).filter(TraderProfile.user_id == trader_id).first()
+                )
                 if trader_profile:
                     trader_profile.times_copied += 1
                     trader_profile.total_copy_volume_usd += copy_amount
-            
-            # Award points to copier
-            points_service.award_points(
-                user_id=copier_id,
-                action="copy_trade",
-                description=f"Copied trade from trader",
-                swap_id=swap_tx.id,
-            )
-            
+
+            # Whole-product points: reward BOTH legs of a successful copy trade —
+            # the copier (copy_trade) and the leader being copied (get_copied).
+            # Wrapped so a points failure never marks the (already-executed) copy
+            # swap as failed via the outer except. Volume proxy = copy_amount;
+            # neither side carries a separate Suwappu fee here (the underlying
+            # swap's own fee is rewarded on the swap path), so no fee_usd.
+            try:
+                points_service.award_points(
+                    user_id=copier_id,
+                    action="copy_trade",
+                    description="Copied trade from trader",
+                    swap_id=swap_tx.id,
+                    metadata={"amount_usd": float(copy_amount)},
+                )
+            except Exception as e:
+                logger.debug(f"copy_trade award skipped for copier {copier_id}: {e}")
+
+            try:
+                if trader_id:
+                    points_service.award_points(
+                        user_id=int(trader_id),
+                        action="get_copied",
+                        description="Your trade was copied",
+                        swap_id=swap_tx.id,
+                        metadata={"amount_usd": float(copy_amount)},
+                    )
+            except Exception as e:
+                logger.debug(f"get_copied award skipped for leader {trader_id}: {e}")
+
             return True, "Trade copied successfully!", swap_tx.id
-            
+
         except Exception as e:
             logger.error(f"Copy trade failed for user {copier_id}: {e}")
-            
+
             with get_session() as session:
-                copy_trade = session.query(CopyTrade).filter(
-                    CopyTrade.id == copy_trade_id
-                ).first()
+                copy_trade = session.query(CopyTrade).filter(CopyTrade.id == copy_trade_id).first()
                 copy_trade.status = "failed"
                 copy_trade.failure_reason = str(e)[:255]
-            
+
             return False, f"Copy failed: {str(e)}", None
-    
+
     def skip_copy(self, copier_id: int, copy_trade_id: int) -> bool:
         """Mark a copy trade as skipped."""
         with get_session() as session:
-            copy_trade = session.query(CopyTrade).filter(
-                CopyTrade.id == copy_trade_id,
-                CopyTrade.copier_id == copier_id
-            ).first()
-            
+            copy_trade = (
+                session.query(CopyTrade)
+                .filter(CopyTrade.id == copy_trade_id, CopyTrade.copier_id == copier_id)
+                .first()
+            )
+
             if copy_trade and copy_trade.status in ["pending", "notified"]:
                 copy_trade.status = "skipped"
                 return True
-        
+
         return False
 
     def mark_notified(self, copier_id: int, copy_trade_id: int) -> bool:
         """Mark a pending copy trade as notified."""
         with get_session() as session:
-            copy_trade = session.query(CopyTrade).filter(
-                CopyTrade.id == copy_trade_id,
-                CopyTrade.copier_id == copier_id
-            ).first()
+            copy_trade = (
+                session.query(CopyTrade)
+                .filter(CopyTrade.id == copy_trade_id, CopyTrade.copier_id == copier_id)
+                .first()
+            )
 
             if copy_trade and copy_trade.status == "pending":
                 copy_trade.status = "notified"
@@ -686,7 +782,9 @@ class CopyService:
 
         return False
 
-    def _copy_from_amount(self, original_swap: SwapTransaction, copy_trade: CopyTrade, copy_amount: float) -> float:
+    def _copy_from_amount(
+        self, original_swap: SwapTransaction, copy_trade: CopyTrade, copy_amount: float
+    ) -> float:
         """Convert the configured copy allocation into source-token amount."""
         try:
             trader_amount = float(copy_trade.trader_amount_usd or 0)
@@ -706,6 +804,14 @@ class CopyService:
             follower = None
             with get_session() as session:
                 follower = session.query(User).filter(User.id == follower_info["user_id"]).first()
+                if follower:
+                    user_settings = (
+                        session.query(UserSettings)
+                        .filter(UserSettings.user_id == follower.id)
+                        .first()
+                    )
+                    if user_settings and not getattr(user_settings, "notify_copy_executed", True):
+                        return
             if not follower or not follower.telegram_id:
                 return
             await bot.send_message(
@@ -718,13 +824,82 @@ class CopyService:
         except Exception as exc:
             logger.warning("Failed to send copy signal notification: %s", exc)
 
-    async def _notify_copy_result(self, bot, follower_info: dict, swap_data: dict, success: bool, message: str) -> None:
+    async def _execute_paper_copy(
+        self,
+        copier_id: int,
+        copy_trade_id: int,
+        bot,
+        follower_info: dict,
+        swap_data: dict,
+    ) -> None:
+        """Record a paper copy trade (no real swap executed)."""
+        # current_token_price_usd: ideally fetched from a price feed; use
+        # the trader's per-unit price as a best-effort proxy for now.
+        try:
+            copy_amount = follower_info.get("copy_amount", 0.0)
+            trader_amount = swap_data.get("amount_usd", 0.0)
+            current_token_price_usd = None  # placeholder — wire up price feed if available
+
+            with get_session() as session:
+                copy_trade = session.query(CopyTrade).filter(CopyTrade.id == copy_trade_id).first()
+                if copy_trade and copy_trade.status in ["pending", "notified"]:
+                    copy_trade.status = "copied"
+                    copy_trade.copied_at = datetime.now(timezone.utc)
+                    copy_trade.paper_entry_price_usd = current_token_price_usd
+                    copy_trade.copy_amount_usd = copy_amount
+
+                follow = (
+                    session.query(CopyFollow)
+                    .filter(
+                        CopyFollow.copier_id == copier_id
+                        if hasattr(CopyFollow, "copier_id")
+                        else CopyFollow.follower_id == copier_id
+                    )
+                    .filter(CopyFollow.id == copy_trade.follow_id if copy_trade else False)
+                    .first()
+                )
+                if follow:
+                    follow.total_copied_trades += 1
+                    follow.total_copied_volume += copy_amount
+
+            if bot:
+                follower = None
+                with get_session() as session:
+                    follower = session.query(User).filter(User.id == copier_id).first()
+                if follower and follower.telegram_id:
+                    price_str = (
+                        f"${current_token_price_usd:,.6f}"
+                        if current_token_price_usd
+                        else "market price"
+                    )
+                    await bot.send_message(
+                        chat_id=follower.telegram_id,
+                        text=(
+                            f"Paper trade: would have bought "
+                            f"{swap_data.get('to_token', '?')} at {price_str} "
+                            f"(${copy_amount:.2f} allocation)"
+                        ),
+                    )
+        except Exception as exc:
+            logger.warning("Paper copy failed for user %s: %s", copier_id, exc)
+
+    async def _notify_copy_result(
+        self, bot, follower_info: dict, swap_data: dict, success: bool, message: str
+    ) -> None:
         if not bot:
             return
         try:
             follower = None
             with get_session() as session:
                 follower = session.query(User).filter(User.id == follower_info["user_id"]).first()
+                if follower:
+                    user_settings = (
+                        session.query(UserSettings)
+                        .filter(UserSettings.user_id == follower.id)
+                        .first()
+                    )
+                    if user_settings and not getattr(user_settings, "notify_copy_executed", True):
+                        return
             if not follower or not follower.telegram_id:
                 return
             prefix = "Auto-copy submitted" if success else "Auto-copy failed"
@@ -734,21 +909,24 @@ class CopyService:
             )
         except Exception as exc:
             logger.warning("Failed to send copy result notification: %s", exc)
-    
+
     # ==================== Discovery & Leaderboard ====================
-    
+
     def get_top_traders(self, limit: int = 10) -> List[dict]:
         """Get top public traders by rank score."""
         with get_session() as session:
-            profiles = session.query(TraderProfile, User).join(
-                User, TraderProfile.user_id == User.id
-            ).filter(
-                TraderProfile.is_public == True,
-                TraderProfile.total_trades >= 5  # Minimum trades to appear
-            ).order_by(
-                desc(TraderProfile.rank_score)
-            ).limit(limit).all()
-            
+            profiles = (
+                session.query(TraderProfile, User)
+                .join(User, TraderProfile.user_id == User.id)
+                .filter(
+                    TraderProfile.is_public == True,
+                    TraderProfile.total_trades >= 5,  # Minimum trades to appear
+                )
+                .order_by(desc(TraderProfile.rank_score))
+                .limit(limit)
+                .all()
+            )
+
             return [
                 {
                     "rank": i + 1,
@@ -764,17 +942,20 @@ class CopyService:
                 }
                 for i, (p, u) in enumerate(profiles)
             ]
-    
+
     def search_traders(self, query: str, limit: int = 10) -> List[dict]:
         """Search for traders by display name."""
         with get_session() as session:
-            profiles = session.query(TraderProfile, User).join(
-                User, TraderProfile.user_id == User.id
-            ).filter(
-                TraderProfile.is_public == True,
-                TraderProfile.display_name.ilike(f"%{query}%")
-            ).limit(limit).all()
-            
+            profiles = (
+                session.query(TraderProfile, User)
+                .join(User, TraderProfile.user_id == User.id)
+                .filter(
+                    TraderProfile.is_public == True, TraderProfile.display_name.ilike(f"%{query}%")
+                )
+                .limit(limit)
+                .all()
+            )
+
             return [
                 {
                     "user_id": p.user_id,
@@ -785,24 +966,26 @@ class CopyService:
                 }
                 for p, u in profiles
             ]
-    
+
     def get_trader_stats(self, trader_id: int) -> Optional[dict]:
         """Get detailed stats for a trader."""
         with get_session() as session:
-            profile = session.query(TraderProfile).filter(
-                TraderProfile.user_id == trader_id
-            ).first()
-            
+            profile = (
+                session.query(TraderProfile).filter(TraderProfile.user_id == trader_id).first()
+            )
+
             if not profile:
                 return None
-            
+
             # Get recent trades
-            recent_trades = session.query(TraderTrade).filter(
-                TraderTrade.trader_id == trader_id
-            ).order_by(
-                desc(TraderTrade.created_at)
-            ).limit(5).all()
-            
+            recent_trades = (
+                session.query(TraderTrade)
+                .filter(TraderTrade.trader_id == trader_id)
+                .order_by(desc(TraderTrade.created_at))
+                .limit(5)
+                .all()
+            )
+
             return {
                 "profile": {
                     "display_name": profile.display_name,
@@ -834,11 +1017,11 @@ class CopyService:
                         "date": t.created_at,
                     }
                     for t in recent_trades
-                ]
+                ],
             }
-    
+
     # ==================== Formatting ====================
-    
+
     def format_trader_card(self, trader_data: dict) -> str:
         """Format a trader's summary for display."""
         pnl_emoji = "📈" if trader_data.get("total_pnl", 0) >= 0 else "📉"
@@ -849,43 +1032,49 @@ class CopyService:
             f"├ {pnl_emoji} ${trader_data.get('total_pnl', 0):,.2f} PnL\n"
             f"└ 👥 {trader_data['follower_count']} followers\n"
         )
-    
+
     def format_top_traders_message(self) -> str:
         """Format top traders leaderboard."""
         traders = self.get_top_traders(10)
-        
+
         if not traders:
             return "🏆 *Top Traders*\n\nNo traders yet. Be the first to go public!"
-        
+
         msg = "🏆 *Top Traders*\n\n"
-        
+
         for t in traders:
-            rank_emoji = "🥇" if t["rank"] == 1 else "🥈" if t["rank"] == 2 else "🥉" if t["rank"] == 3 else f"#{t['rank']}"
+            rank_emoji = (
+                "🥇"
+                if t["rank"] == 1
+                else "🥈" if t["rank"] == 2 else "🥉" if t["rank"] == 3 else f"#{t['rank']}"
+            )
             pnl_emoji = "📈" if t["total_pnl"] >= 0 else "📉"
             msg += (
                 f"{rank_emoji} {t['avatar']} *{t['display_name']}*\n"
                 f"    ✅ {t['win_rate']:.0f}% • {pnl_emoji} ${t['total_pnl']:,.0f} • 👥 {t['follower_count']}\n\n"
             )
-        
+
         msg += "_Go public to appear on this list!_"
-        
+
         return msg
-    
+
     def format_following_message(self, user_id: int) -> str:
         """Format user's following list."""
         following = self.get_following(user_id)
-        
+
         if not following:
             return (
                 "👥 *Following*\n\n"
                 "You're not following anyone yet.\n\n"
                 "Use /traders to find traders to follow!"
             )
-        
+
         msg = f"👥 *Following* ({len(following)}/{MAX_FOLLOWS})\n\n"
-        
+
         for f in following:
-            mode_emoji = "🔔" if f["copy_mode"] == "notify" else "🤖"
+            mode_emoji = (
+                "🔔" if f["copy_mode"] == "notify" else "📄" if f["copy_mode"] == "paper" else "🤖"
+            )
             pnl_emoji = "📈" if f["copy_pnl"] >= 0 else "📉"
             msg += (
                 f"{f['avatar']} *{f['display_name']}*\n"
@@ -893,7 +1082,7 @@ class CopyService:
                 f"├ 📊 {f['total_copied']} copied\n"
                 f"└ {pnl_emoji} ${f['copy_pnl']:,.2f} PnL\n\n"
             )
-        
+
         return msg
 
 

@@ -29,6 +29,7 @@ from bot.config.tokens import TOKENS
 from bot.config.settings import settings
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction
+from bot.models.support import SupportTicket, TicketKind, TicketStatus
 from database.db import get_session
 from bot.services.turnkey_client import (
     generate_auth_challenge,
@@ -169,6 +170,30 @@ async def get_terminal_auth_payload(
 # --- Models ---
 
 
+class EnterpriseLeadRequest(BaseModel):
+    """Inbound enterprise/sales lead from the website "Talk to the team" form.
+
+    Public (no auth) — anyone on the marketing site can submit. Kept minimal and
+    qualification-oriented per high-converting B2B form practice (no phone field).
+    ``website`` is a hidden honeypot: real users leave it blank; bots fill it.
+    """
+
+    name: str
+    company: str
+    email: str
+    country: Optional[str] = None
+    monthly_volume: Optional[str] = None
+    use_case: Optional[str] = None
+    telegram: Optional[str] = None
+    website: Optional[str] = None  # honeypot — must stay empty
+
+
+class EnterpriseLeadResponse(BaseModel):
+    ok: bool
+    id: Optional[int] = None
+    error: Optional[str] = None
+
+
 class TelegramUser(BaseModel):
     id: int
     first_name: str
@@ -299,6 +324,87 @@ class WebAppSwapExecuteResponse(BaseModel):
     txHash: Optional[str] = None
     explorerUrl: Optional[str] = None
     swap: Dict[str, str]
+
+
+# --- Non-custodial (external wallet) swap models ---
+
+
+class WebAppSwapBuildRequest(BaseModel):
+    fromToken: str
+    toToken: str
+    fromChain: str
+    toChain: str
+    amount: str
+    slippage: Optional[float] = 0.5
+    fromAddress: str  # the connected external wallet (MetaMask / WalletConnect)
+    # Solana priority-fee tier (landing speed under congestion). Maps to a
+    # Jupiter priorityLevel + lamports cap server-side. EVM swaps ignore it.
+    priority: Optional[str] = "normal"
+    # Optional live per-CU priority price (micro-lamports), e.g. a Helius network
+    # estimate from the client. When set (non-turbo), it sets the exact priority
+    # price instead of the tier's priorityLevel cap. EVM swaps ignore it.
+    computeUnitPriceMicroLamports: Optional[int] = None
+
+
+# Solana speed tiers. normal/fast use a Jupiter priority fee (priorityLevel +
+# lamports cap). turbo uses a Jito tip → the tx is submitted to the Jito block
+# engine for MEV-protected bundle landing. 1_000_000 lamports = 0.001 SOL.
+# Tune here without a client deploy.
+_SOLANA_PRIORITY_TIERS: Dict[str, dict] = {
+    "normal": {"priority_level": "medium", "max_lamports": 1_000_000, "jito_tip_lamports": None},
+    "fast": {"priority_level": "high", "max_lamports": 5_000_000, "jito_tip_lamports": None},
+    # turbo: MEV-protected Jito bundle, ~0.005 SOL tip.
+    "turbo": {
+        "priority_level": "veryHigh",
+        "max_lamports": 10_000_000,
+        "jito_tip_lamports": 5_000_000,
+    },
+}
+
+
+class WebAppUnsignedTx(BaseModel):
+    to: str
+    data: str
+    value: str  # hex quantity, e.g. "0x0"
+    chainId: int
+    gas: Optional[str] = None  # hex quantity; absent => wallet estimates
+
+
+class WebAppSwapBuildResponse(BaseModel):
+    quoteId: str
+    chain: str = "evm"  # "evm" | "solana"
+    # EVM (MetaMask / WalletConnect): unsigned tx + optional ERC-20 approval.
+    chainId: Optional[int] = None
+    tx: Optional[WebAppUnsignedTx] = None
+    approval: Optional[WebAppUnsignedTx] = None
+    spender: Optional[str] = None
+    # Solana (Phantom): base64 VersionedTransaction the wallet signs + sends.
+    swapTransaction: Optional[str] = None
+    # When true (turbo tier), the signed tx must go to /swap/submit-jito for
+    # MEV-protected bundle landing rather than being broadcast via a normal RPC.
+    jito: bool = False
+    fromToken: WebAppSwapToken
+    toToken: WebAppSwapToken
+    fromAmount: str
+    toAmount: str
+    minReceived: str
+    priceImpact: float
+    gasUsd: float
+    route: str
+    expiresAt: str
+
+
+class WebAppSwapRecordRequest(BaseModel):
+    quoteId: str
+    txHash: str
+
+
+class WebAppSwapRecordResponse(BaseModel):
+    success: bool
+    swapId: int
+    status: str
+    txHash: str
+    explorerUrl: Optional[str] = None
 
 
 class WebAppFollowSettings(BaseModel):
@@ -936,6 +1042,118 @@ async def validate_webapp(
     return ValidateResponse(valid=True, user=TelegramUser(**user_data) if user_data else None)
 
 
+@router.post("/enterprise-lead", response_model=EnterpriseLeadResponse)
+async def submit_enterprise_lead(payload: EnterpriseLeadRequest):
+    """Capture an inbound enterprise/sales lead from the marketing site.
+
+    Public, no auth. Persists the lead as a ``SupportTicket`` of kind
+    ``enterprise_lead`` so the existing support_notifier fans it out to admins,
+    the support group, and Linear within its poll interval (instant routing =
+    the #1 conversion lever). Returns ``{ok: true, id}`` on success.
+    """
+    # Honeypot: bots fill the hidden "website" field; humans never see it.
+    if (payload.website or "").strip():
+        # Pretend success so the bot doesn't retry, but persist nothing.
+        return EnterpriseLeadResponse(ok=True)
+
+    name = (payload.name or "").strip()
+    company = (payload.company or "").strip()
+    email = (payload.email or "").strip()
+
+    if not name or not company or not email:
+        raise HTTPException(status_code=422, detail="Name, company, and work email are required.")
+    # Lightweight email sanity check (full validation happens on follow-up).
+    if "@" not in email or "." not in email.split("@")[-1] or len(email) > 254:
+        raise HTTPException(status_code=422, detail="Please enter a valid work email.")
+
+    # Trim every free-text field to keep one bad actor from filling the DB.
+    def _clip(v: Optional[str], n: int) -> Optional[str]:
+        v = (v or "").strip()
+        return v[:n] if v else None
+
+    country = _clip(payload.country, 80)
+    monthly_volume = _clip(payload.monthly_volume, 80)
+    use_case = _clip(payload.use_case, 2000)
+    telegram = _clip(payload.telegram, 120)
+
+    # Human-readable body for the Telegram/Linear alert.
+    lines = [
+        f"Name: {name[:200]}",
+        f"Company: {company[:200]}",
+        f"Email: {email}",
+    ]
+    if country:
+        lines.append(f"Country: {country}")
+    if monthly_volume:
+        lines.append(f"Monthly volume: {monthly_volume}")
+    if telegram:
+        lines.append(f"Telegram: {telegram}")
+    if use_case:
+        lines.append(f"\nUse case:\n{use_case}")
+    message = "\n".join(lines)
+
+    context = {
+        "name": name[:200],
+        "company": company[:200],
+        "email": email,
+        "country": country,
+        "monthly_volume": monthly_volume,
+        "telegram": telegram,
+        "use_case": use_case,
+    }
+
+    try:
+        with get_session() as session:
+            ticket = SupportTicket(
+                kind=TicketKind.ENTERPRISE_LEAD,
+                source="website",
+                category="enterprise",
+                priority="high",
+                username=None,
+                telegram_id=None,
+                message=message,
+                context_json=json.dumps(context),
+                status=TicketStatus.OPEN,
+            )
+            session.add(ticket)
+            session.commit()
+            lead_id = ticket.id
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to persist enterprise lead")
+        raise HTTPException(status_code=500, detail="Could not submit right now. Please try again.")
+
+    logger.info("Enterprise lead #%s captured from %s (%s)", lead_id, company[:80], email)
+    return EnterpriseLeadResponse(ok=True, id=lead_id)
+
+
+@router.get("/billing/stripe/checkout")
+async def webapp_stripe_checkout(
+    tier: str = Query(..., description="Subscription tier: pro or premium"),
+    user: TelegramUser = Depends(get_telegram_user),
+):
+    """Create a Stripe card-checkout session for the authenticated webapp user.
+
+    Stripe is owned by api-ts (checkout + webhook). We proxy there server-to-server
+    and return the checkout URL so the Mini App can open it via WebApp.openLink.
+    """
+    from bot.services.api_client import api_client, APIClientError
+
+    if tier not in ("pro", "premium"):
+        raise HTTPException(status_code=400, detail="Invalid tier. Must be pro or premium.")
+
+    try:
+        session = await api_client.create_stripe_checkout(user.id, tier)
+    except APIClientError as e:
+        logger.warning("[webapp] Stripe checkout unavailable: %s", e)
+        raise HTTPException(status_code=502, detail="Card payments are temporarily unavailable.")
+
+    url = session.get("url")
+    if not url:
+        raise HTTPException(status_code=502, detail="Card payments are temporarily unavailable.")
+
+    return {"url": url}
+
+
 def _token_response(symbol: str, token, chain: str) -> Optional[WebAppToken]:
     address = token.addresses.get(chain)
     if not address:
@@ -1139,6 +1357,79 @@ async def get_terminal_trending_pools(
     chain: str = "ethereum", limit: int = Query(default=20, ge=1, le=50)
 ):
     return await _fetch_dex_pools(chain, limit, "trending")
+
+
+# ── Solana data proxy ─────────────────────────────────────────────────────────
+# Keeps the Helius key SERVER-SIDE (never shipped to the client bundle). Only a
+# fixed set of read-only methods may be proxied — this is NOT an open RPC
+# passthrough — and responses are briefly cached so repeated mints/addresses
+# don't burn Helius credits.
+
+_HELIUS_RPC_METHODS = {
+    "getTokenSupply",
+    "getTokenLargestAccounts",
+    "getAccountInfo",
+    "getTokenAccounts",
+    "getAssetsByOwner",
+    "getPriorityFeeEstimate",
+}
+_SOLANA_ADDR_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+_helius_cache: Dict[str, tuple] = {}  # cache_key -> (expires_at, payload)
+_HELIUS_CACHE_TTL = 30.0
+
+
+class SolanaRpcRequest(BaseModel):
+    method: str
+    params: Any = None
+
+
+@router.post("/solana/rpc")
+async def solana_rpc_proxy(body: SolanaRpcRequest):
+    """Method-allowlisted Solana RPC/DAS proxy — the Helius key stays server-side."""
+    if not settings.helius_api_key:
+        raise HTTPException(status_code=503, detail="Solana data provider is not configured.")
+    if body.method not in _HELIUS_RPC_METHODS:
+        raise HTTPException(status_code=400, detail=f"Method not allowed: {body.method}")
+
+    cache_key = body.method + ":" + json.dumps(body.params, sort_keys=True, default=str)
+    now = time.time()
+    cached = _helius_cache.get(cache_key)
+    if cached and cached[0] > now:
+        return cached[1]
+
+    url = f"https://mainnet.helius-rpc.com/?api-key={settings.helius_api_key}"
+    payload = {"jsonrpc": "2.0", "id": 1, "method": body.method, "params": body.params}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Solana data provider failed: {exc}")
+
+    if len(_helius_cache) > 500:
+        _helius_cache.clear()
+    _helius_cache[cache_key] = (now + _HELIUS_CACHE_TTL, data)
+    return data
+
+
+@router.get("/solana/tx-history")
+async def solana_tx_history(address: str, limit: int = Query(default=15, ge=1, le=50)):
+    """Proxy the Helius Enhanced Transactions API (parsed activity) for an address."""
+    if not settings.helius_api_key:
+        raise HTTPException(status_code=503, detail="Solana data provider is not configured.")
+    if not _SOLANA_ADDR_RE.match(address):
+        raise HTTPException(status_code=400, detail="Invalid Solana address.")
+    url = f"https://api.helius.xyz/v0/addresses/{address}/transactions"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                url, params={"api-key": settings.helius_api_key, "limit": limit}
+            )
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Solana data provider failed: {exc}")
 
 
 def _windowed_trader_pnl(db, trader_user_ids):
@@ -2410,6 +2701,281 @@ async def execute_terminal_swap(
             "expectedToAmount": swap.to_amount or str(quote.to_amount_human),
         },
     )
+
+
+@router.post("/swap/build", response_model=WebAppSwapBuildResponse)
+async def build_terminal_swap(
+    body: WebAppSwapBuildRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """
+    Build the unsigned transaction(s) for a NON-CUSTODIAL (external wallet) swap.
+
+    The connected wallet (MetaMask / WalletConnect / etc.) signs and broadcasts
+    client-side; the server never holds the key. Returns the unsigned swap tx plus
+    an optional ERC-20 approval tx. Pair with POST /swap/record after broadcast.
+    """
+    from bot.services.swap_engine import SwapEngine, SwapError
+
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    try:
+        amount = float(body.amount)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid amount")
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than zero")
+
+    address = body.fromAddress.strip()
+    is_solana = body.fromChain.lower() == "solana"
+    if not is_solana and not (address.startswith("0x") and len(address) == 42):
+        raise HTTPException(status_code=400, detail="Invalid wallet address")
+
+    from_symbol = _token_symbol_for_address(body.fromChain, body.fromToken)
+    to_symbol = _token_symbol_for_address(body.toChain, body.toToken)
+
+    try:
+        if is_solana:
+            tier = _SOLANA_PRIORITY_TIERS.get(
+                (body.priority or "normal").lower(), _SOLANA_PRIORITY_TIERS["normal"]
+            )
+            quote, payload = await SwapEngine().build_external_solana_swap(
+                from_token=from_symbol,
+                to_token=to_symbol,
+                amount=amount,
+                from_address=address,
+                slippage=body.slippage or 0.5,
+                priority_level=tier["priority_level"],
+                max_lamports=tier["max_lamports"],
+                jito_tip_lamports=tier["jito_tip_lamports"],
+                # Jito (turbo) ignores a per-CU price; only forward it otherwise.
+                compute_unit_price_micro_lamports=(
+                    body.computeUnitPriceMicroLamports if not tier["jito_tip_lamports"] else None
+                ),
+            )
+        else:
+            quote, payload = await SwapEngine().build_external_evm_swap(
+                from_chain=body.fromChain,
+                to_chain=body.toChain,
+                from_token=from_symbol,
+                to_token=to_symbol,
+                amount=amount,
+                from_address=address,
+                slippage=body.slippage or 0.5,
+            )
+    except SwapError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Quote provider failed: {exc}")
+
+    quote_id = str(uuid.uuid4())
+    _cleanup_terminal_quote_cache()
+    _terminal_quote_cache[quote_id] = {
+        "created_at": time.time(),
+        "quote": quote,
+        "user_id": auth_payload.get("user_id"),
+        "external": True,
+        "from_address": address,
+        "from_chain": body.fromChain,
+        "to_chain": body.toChain,
+        "from_symbol": from_symbol,
+        "to_symbol": to_symbol,
+    }
+
+    expires_at = datetime.utcnow() + timedelta(
+        seconds=getattr(quote, "expires_in", _QUOTE_TTL_SECONDS)
+    )
+
+    common = dict(
+        quoteId=quote_id,
+        fromToken=_webapp_swap_token(from_symbol, body.fromChain),
+        toToken=_webapp_swap_token(to_symbol, body.toChain),
+        fromAmount=str(quote.from_amount_human),
+        toAmount=str(quote.to_amount_human),
+        minReceived=str(quote.to_amount_min),
+        priceImpact=float(quote.price_impact),
+        gasUsd=float(quote.gas_cost_usd),
+        route=quote.provider,
+        expiresAt=expires_at.isoformat(),
+    )
+
+    if is_solana:
+        return WebAppSwapBuildResponse(
+            chain="solana",
+            swapTransaction=payload["swapTransaction"],
+            jito=bool(payload.get("jito")),
+            **common,
+        )
+
+    approval_model = WebAppUnsignedTx(**payload["approval"]) if payload.get("approval") else None
+    return WebAppSwapBuildResponse(
+        chain="evm",
+        chainId=payload["chainId"],
+        tx=WebAppUnsignedTx(**payload["tx"]),
+        approval=approval_model,
+        spender=payload["spender"],
+        **common,
+    )
+
+
+class WebAppJitoSubmitRequest(BaseModel):
+    signedTransaction: str  # base64-encoded, Phantom-signed VersionedTransaction
+
+
+@router.post("/swap/submit-jito")
+async def submit_jito_swap(
+    body: WebAppJitoSubmitRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    """Submit a Phantom-signed Solana tx to the Jito block engine (MEV-protected).
+
+    For a non-custodial swap built with a Jito tip (turbo tier), the client signs
+    WITHOUT broadcasting and posts the signed tx here. We forward it to Jito's
+    block engine so it lands as a bundle (the server never holds the key). Returns
+    the transaction signature for /swap/record.
+    """
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    from bot.services.jito_api import jito_api, JitoError
+
+    try:
+        signature = await jito_api.send_transaction(body.signedTransaction)
+    except JitoError as exc:
+        raise HTTPException(status_code=502, detail=f"Jito submission failed: {exc}")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Jito submission failed: {exc}")
+
+    if not signature:
+        raise HTTPException(status_code=502, detail="Jito did not return a signature.")
+    return {"signature": signature}
+
+
+@router.post("/swap/record", response_model=WebAppSwapRecordResponse)
+async def record_terminal_swap(
+    body: WebAppSwapRecordRequest,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """
+    Record a client-broadcast (non-custodial) swap so it shows in history/portfolio.
+
+    The external wallet already signed + broadcast the tx; we only log the result
+    against the user. The cached quote is consumed so it can't be replayed.
+    """
+    from bot.config.chains import get_chain_by_name
+    from bot.models.swap import SwapTransaction, SwapStatus
+
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    tx_hash = body.txHash.strip()
+    # EVM tx hash: 0x + 64 hex. Solana signature: base58, ~64–90 chars (no 0x).
+    is_evm_hash = tx_hash.startswith("0x") and len(tx_hash) == 66
+    is_solana_sig = not tx_hash.startswith("0x") and 43 <= len(tx_hash) <= 100
+    if not (is_evm_hash or is_solana_sig):
+        raise HTTPException(status_code=400, detail="Invalid transaction hash")
+
+    _cleanup_terminal_quote_cache()
+    cached = _terminal_quote_cache.get(body.quoteId)
+    if not cached:
+        raise HTTPException(status_code=404, detail="Quote expired or not found")
+
+    user_id = int(auth_payload["user_id"])
+    quote_user_id = cached.get("user_id")
+    if quote_user_id and int(quote_user_id) != user_id:
+        raise HTTPException(status_code=403, detail="Quote does not belong to this user")
+
+    quote = cached["quote"]
+    from_chain = cached.get("from_chain", quote.from_chain)
+
+    swap = SwapTransaction(
+        user_id=user_id,
+        from_chain=from_chain,
+        from_token=cached.get("from_symbol", quote.from_token),
+        from_amount=str(quote.from_amount_human),
+        to_chain=cached.get("to_chain", quote.to_chain),
+        to_token=cached.get("to_symbol", quote.to_token),
+        to_amount=str(quote.to_amount_human),
+        status=SwapStatus.PENDING.value,
+        tx_hash=tx_hash,
+        idempotency_key=f"ext:{tx_hash}",
+        route_provider=quote.provider,
+        slippage=50,
+    )
+    db.add(swap)
+    db.commit()
+    db.refresh(swap)
+
+    # One-shot: drop the quote so the same broadcast can't be recorded twice.
+    _terminal_quote_cache.pop(body.quoteId, None)
+
+    explorer = None
+    chain = get_chain_by_name(from_chain)
+    base = getattr(chain, "explorer_url", None) or getattr(chain, "explorer", None)
+    if base:
+        explorer = f"{str(base).rstrip('/')}/tx/{tx_hash}"
+
+    return WebAppSwapRecordResponse(
+        success=True,
+        swapId=swap.id,
+        status=swap.status,
+        txHash=tx_hash,
+        explorerUrl=explorer,
+    )
+
+
+@router.get("/swaps", response_model=List[WebAppSwap])
+async def get_terminal_swaps(
+    limit: int = 20,
+    offset: int = 0,
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """
+    Swap history for the authenticated terminal/web user (session-JWT auth).
+
+    The Telegram webapp's /users/me/swaps requires Telegram initData, which a
+    terminal or external-wallet (SIWE/Phantom) session never has. This is the
+    JWT-native parallel so those users can see their swaps — including the status
+    the tx_poller reconciles (pending -> completed/failed) for client-broadcast
+    (non-custodial) swaps.
+    """
+    if not auth_payload or not auth_payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    swaps = (
+        db.query(SwapTransaction)
+        .filter(SwapTransaction.user_id == int(auth_payload["user_id"]))
+        .order_by(SwapTransaction.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        WebAppSwap(
+            id=str(swap.id),
+            fromChain=swap.from_chain,
+            toChain=swap.to_chain,
+            fromToken=swap.from_token,
+            toToken=swap.to_token,
+            fromAmount=swap.from_amount,
+            toAmount=swap.to_amount,
+            fromAmountUsd=swap.from_amount_usd,
+            toAmountUsd=swap.to_amount_usd,
+            status=swap.status,
+            txHash=swap.tx_hash,
+            bridgeTxHash=swap.bridge_tx_hash,
+            destinationTxHash=swap.destination_tx_hash,
+            createdAt=swap.created_at.isoformat() if swap.created_at else "",
+            completedAt=swap.completed_at.isoformat() if swap.completed_at else None,
+            errorMessage=swap.error_message,
+        )
+        for swap in swaps
+    ]
 
 
 @router.get("/users/me/swaps", response_model=List[WebAppSwap])

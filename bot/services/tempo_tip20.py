@@ -69,13 +69,15 @@ TIP20_ABI = [
         "type": "function",
     },
     {
+        # Verified against tempoxyz/tempo-std ITIP20.sol: the memo is a fixed
+        # bytes32 (NOT variable-length bytes), and the call has no return value.
         "inputs": [
             {"name": "to", "type": "address"},
             {"name": "amount", "type": "uint256"},
-            {"name": "memo", "type": "bytes"},
+            {"name": "memo", "type": "bytes32"},
         ],
         "name": "transferWithMemo",
-        "outputs": [{"name": "", "type": "bool"}],
+        "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function",
     },
@@ -158,6 +160,7 @@ TIP20_FACTORY_ABI = [
 @dataclass
 class TIP20Info:
     """Information about a TIP-20 token."""
+
     address: str
     name: str
     symbol: str
@@ -228,6 +231,17 @@ class TempoTIP20:
             is_tip20=is_tip20,
         )
 
+    @staticmethod
+    def encode_memo(memo: str) -> bytes:
+        """Encode a payment memo as the fixed 32-byte field TIP-20 expects.
+
+        UTF-8, right-padded with zeros (truncated to 32 bytes). An empty memo is
+        32 zero bytes — still a valid transferWithMemo. This mirrors ethers'
+        ``encodeBytes32String`` used in the Tempo docs/examples.
+        """
+        raw = (memo or "").encode("utf-8")[:32]
+        return raw.ljust(32, b"\x00")
+
     def build_transfer_with_memo(
         self,
         token_address: str,
@@ -241,20 +255,18 @@ class TempoTIP20:
             token_address: TIP-20 token contract address
             to: Recipient address
             amount: Amount in smallest unit
-            memo: Payment memo string (encoded as UTF-8 bytes)
+            memo: Payment memo string (encoded as a fixed bytes32)
         """
         web3 = _get_tempo_web3()
         addr = Web3.to_checksum_address(token_address)
         token = web3.eth.contract(address=addr, abi=TIP20_ABI)
-
-        memo_bytes = memo.encode("utf-8")
 
         data = token.encode_abi(
             "transferWithMemo",
             args=[
                 Web3.to_checksum_address(to),
                 amount,
-                memo_bytes,
+                self.encode_memo(memo),
             ],
         )
 
@@ -263,7 +275,6 @@ class TempoTIP20:
             "data": data,
             "value": 0,
         }
-
 
     async def build_permit_signature(
         self,
@@ -295,18 +306,10 @@ class TempoTIP20:
         loop = asyncio.get_event_loop()
         owner = Account.from_key(owner_key).address
 
-        nonce = await loop.run_in_executor(
-            None, token.functions.nonces(owner).call
-        )
-        domain_separator = await loop.run_in_executor(
-            None, token.functions.DOMAIN_SEPARATOR().call
-        )
-        name = await loop.run_in_executor(
-            None, token.functions.name().call
-        )
-        chain_id = await loop.run_in_executor(
-            None, lambda: web3.eth.chain_id
-        )
+        nonce = await loop.run_in_executor(None, token.functions.nonces(owner).call)
+        domain_separator = await loop.run_in_executor(None, token.functions.DOMAIN_SEPARATOR().call)
+        name = await loop.run_in_executor(None, token.functions.name().call)
+        chain_id = await loop.run_in_executor(None, lambda: web3.eth.chain_id)
 
         typed_data = {
             "types": {

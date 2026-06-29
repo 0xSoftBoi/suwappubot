@@ -6,6 +6,7 @@ import { OrderBookPanel } from '../orderbook/OrderBookPanel'
 import { RecentTradesPanel } from '../orderbook/RecentTradesPanel'
 import { SwapPanel } from '../trade/SwapPanel'
 import { PortfolioPanel } from '../portfolio/PortfolioPanel'
+import { SignalsFeed } from '../signals/SignalsFeed'
 import { DiscoveryPanel } from '../discover/DiscoveryPanel'
 import { CopyTradingDashboard } from '../copy/CopyTradingDashboard'
 import { CopilotPanel } from '../copilot/CopilotPanel'
@@ -15,6 +16,8 @@ import { LendingPanel } from '../lending/LendingPanel'
 import { WalletTrackerPanel } from '../tracker/WalletTrackerPanel'
 import { TweetMonitorPanel } from '../tweets/TweetMonitorPanel'
 import { WatchlistPanel } from '../watchlist/WatchlistPanel'
+import { PerpsWorkspace } from '../perps/PerpsWorkspace'
+import { PredictWorkspace } from '../predict/PredictWorkspace'
 import { useLayoutSizes } from '../../hooks/useLayoutSizes'
 import { useBottomTab, type BottomTab } from '../../contexts/BottomTabContext'
 import { useTrading } from '../../contexts/TradingContext'
@@ -23,6 +26,7 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 
 const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'portfolio', label: 'Portfolio' },
+  { id: 'signals', label: 'Signals' },
   { id: 'discovery', label: 'Discovery' },
   { id: 'watchlist', label: 'Watchlist' },
   { id: 'copy-trading', label: 'Copy Trading' },
@@ -103,6 +107,7 @@ function MobileLayout() {
             {/* Tab content */}
             <div className="flex-1 overflow-hidden">
               {bottomTab === 'portfolio' && <PortfolioPanel />}
+              {bottomTab === 'signals' && <SignalsFeed />}
               {bottomTab === 'discovery' && <DiscoveryPanel />}
               {bottomTab === 'watchlist' && <WatchlistPanel />}
               {bottomTab === 'copy-trading' && <CopyTradingDashboard />}
@@ -225,6 +230,7 @@ function DesktopLayout() {
           {/* Tab content */}
           <div className="flex-1 overflow-hidden">
             {bottomTab === 'portfolio' && <PortfolioPanel />}
+              {bottomTab === 'signals' && <SignalsFeed />}
             {bottomTab === 'discovery' && <DiscoveryPanel />}
             {bottomTab === 'watchlist' && <WatchlistPanel />}
             {bottomTab === 'copy-trading' && <CopyTradingDashboard />}
@@ -249,5 +255,24 @@ function DesktopLayout() {
 
 export function TradingLayout() {
   const isMobile = useIsMobile()
+  const { tradingMode } = useTrading()
+
+  // Perps + Predict are first-class top-level workspaces, swapped in via the
+  // Header ModeSwitch. Each handles its own mobile/desktop layout internally.
+  if (tradingMode === 'perps') {
+    return (
+      <div className="h-full">
+        <PerpsWorkspace />
+      </div>
+    )
+  }
+  if (tradingMode === 'predict') {
+    return (
+      <div className="h-full">
+        <PredictWorkspace />
+      </div>
+    )
+  }
+
   return isMobile ? <MobileLayout /> : <DesktopLayout />
 }

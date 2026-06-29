@@ -29,6 +29,7 @@ import base64
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.services.spending_limits import spending_limit_service
+from bot.services.compliance import compliance_service, flashbots_relay
 from bot.utils.cache import quote_cache
 from bot.utils.performance import track_time, MetricNames
 from bot.config.chains import CHAINS, ChainType, apply_min_gas_price, get_chain_by_name
@@ -146,6 +147,12 @@ def _parse_int(value, default: int = 0) -> int:
             return int(value, 16)
         return int(value)
     return default
+
+
+# On-chain decimals cache for raw-address destination tokens (paste-to-trade).
+# Keyed by (chain_name, address) — decimals are intrinsic to the token, so this
+# never needs invalidation.
+_ONCHAIN_DECIMALS_CACHE: dict[tuple[str, str], int] = {}
 
 
 class SwapEngine:
@@ -369,6 +376,113 @@ class SwapEngine:
             return suwappu_core.to_human_amount(amount_raw, decimals)
         return int(amount_raw) / (10**decimals)
 
+    @staticmethod
+    def _looks_like_raw_token(token: str) -> bool:
+        """True when ``token`` is a raw contract address, not a registry symbol.
+
+        Mirrors the passthrough rule in tokens.get_token_address: a 0x-hex
+        address (>=42 chars) or a >=32-char base58 mint. For these, the registry
+        decimals lookup falls back to 18, which mis-scales the human display of
+        any token with different decimals (e.g. 6-dp USDC) — see
+        _correct_destination_decimals.
+        """
+        if not token:
+            return False
+        return (token.startswith("0x") and len(token) >= 42) or len(token) >= 32
+
+    async def _resolve_onchain_decimals(self, address: str, chain_name: str) -> Optional[int]:
+        """Read a token's real decimals on-chain (cached). None on any failure.
+
+        Used to correct the displayed receive-amount when a token is bought by
+        raw address (paste-to-trade) and its decimals aren't in the registry.
+        """
+        key = (chain_name.lower(), address.lower())
+        if key in _ONCHAIN_DECIMALS_CACHE:
+            return _ONCHAIN_DECIMALS_CACHE[key]
+        try:
+            cfg = get_chain_by_name(chain_name)
+            if cfg is None:
+                return None
+            if cfg.chain_type == ChainType.EVM:
+
+                def _read() -> int:
+                    w3 = rpc_manager.get_web3(chain_name)
+                    contract = w3.eth.contract(
+                        address=Web3.to_checksum_address(address),
+                        abi=[
+                            {
+                                "constant": True,
+                                "inputs": [],
+                                "name": "decimals",
+                                "outputs": [{"name": "", "type": "uint8"}],
+                                "stateMutability": "view",
+                                "type": "function",
+                            }
+                        ],
+                    )
+                    return int(contract.functions.decimals().call())
+
+                dec = await asyncio.to_thread(_read)
+            elif cfg.chain_type == ChainType.SOLANA:
+                dec = await self._solana_mint_decimals(address)
+            else:
+                return None
+            if dec is not None and 0 <= dec <= 36:
+                _ONCHAIN_DECIMALS_CACHE[key] = dec
+                return dec
+        except Exception as e:
+            logger.debug(f"on-chain decimals read failed for {address}@{chain_name}: {e}")
+        return None
+
+    async def _solana_mint_decimals(self, mint: str) -> Optional[int]:
+        """Read an SPL mint's decimals via getTokenSupply. None on failure."""
+        try:
+            url = rpc_manager.get_rpc_url("solana")
+            payload = {"jsonrpc": "2.0", "id": 1, "method": "getTokenSupply", "params": [mint]}
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url, json=payload, timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
+                    data = await resp.json()
+            return int(data["result"]["value"]["decimals"])
+        except Exception as e:
+            logger.debug(f"solana mint decimals read failed for {mint}: {e}")
+            return None
+
+    async def _correct_destination_decimals(
+        self, quote, to_token: str, to_chain: str, amount: float
+    ):
+        """Fix the displayed receive-amount for a token bought by raw address.
+
+        Providers convert the raw output amount to human using the registry
+        decimals, which default to 18 for a raw address — so a 6-dp token shows
+        a wildly wrong "you receive" figure (execution is unaffected; it uses the
+        raw amounts). When the destination is a raw address, read its true
+        decimals on-chain and rescale to_amount_human + exchange_rate. Ranking is
+        unaffected (all providers mis-scaled identically), so correcting the
+        chosen quote is sufficient. Never raises — display-only best effort.
+        """
+        try:
+            if not self._looks_like_raw_token(to_token):
+                return quote
+            real = await self._resolve_onchain_decimals(to_token, to_chain)
+            if real is None:
+                return quote
+            assumed = get_token_decimals(to_token, to_chain)
+            if real == assumed:
+                return quote
+            corrected = int(quote.to_amount) / (10**real)
+            quote.to_amount_human = corrected
+            if amount and amount > 0:
+                quote.exchange_rate = corrected / amount
+            logger.info(
+                f"Corrected receive-amount decimals for {to_token[:10]}… on "
+                f"{to_chain}: {assumed} -> {real}"
+            )
+        except Exception as e:
+            logger.debug(f"destination decimals correction skipped: {e}")
+        return quote
+
     def _approval_amount(self, swap_amount: int) -> int:
         """Resolve the ERC-20 approval amount per the configured approval policy.
 
@@ -560,7 +674,9 @@ class SwapEngine:
         tasks = []
 
         if self._is_tempo_only_swap(from_chain, to_chain):
-            tasks.append(self._get_tempo_dex_quote(from_token, to_token, amount, amount_raw))
+            tasks.append(
+                self._get_tempo_dex_quote(from_token, to_token, amount, amount_raw, slippage)
+            )
 
         if self._is_solana_only_swap(from_chain, to_chain):
             tasks.append(
@@ -848,6 +964,13 @@ class SwapEngine:
         # (CCTP's 1:1 is genuine — native USDC, zero fee — so it stays in the race.)
         ranked = [q for q in quotes if q.provider != "wormhole"] or quotes
         best = max(ranked, key=lambda q: q.to_amount_human)
+
+        # Fix the displayed receive-amount when buying a token by raw address
+        # (its real decimals aren't in the registry). Done after ranking — all
+        # providers mis-scaled identically, so the winner is unchanged — and
+        # before caching so every consumer sees the corrected figure.
+        best = await self._correct_destination_decimals(best, to_token, to_chain, amount)
+
         if len(quotes) > 1:
             logger.info(
                 f"Best quote: {best.provider} ({best.to_amount_human:.6f} {best.to_token}) "
@@ -928,6 +1051,212 @@ class SwapEngine:
             exchange_rate=exchange_rate,
             raw_quote=quote.raw_response,
         )
+
+    async def build_external_evm_swap(
+        self,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        from_address: str,
+        slippage: float,
+    ):
+        """Build the unsigned EVM transaction(s) for a NON-CUSTODIAL swap.
+
+        The connected external wallet (MetaMask / WalletConnect / etc.) signs and
+        broadcasts the transaction client-side — the server never holds a private
+        key for it. We fetch a Li.Fi quote (the one same-chain EVM provider that
+        returns ready-to-sign ``transactionRequest`` calldata at quote time) and
+        surface it plus an ERC-20 approval tx when the sell token needs one.
+
+        Returns ``(quote, payload)`` where ``payload`` is a JSON-serialisable dict
+        with ``chainId``, the unsigned ``tx``, an optional ``approval`` tx, and the
+        ``spender`` the approval targets. Numeric tx fields are hex quantity
+        strings so they feed straight into ``wallet_sendTransaction``.
+        """
+        if not from_address or not from_address.startswith("0x") or len(from_address) != 42:
+            raise SwapError("A connected EVM wallet address is required.")
+
+        if from_chain.lower() != to_chain.lower():
+            # Cross-chain needs the bridge step-runner (multiple txs across chains),
+            # which can't be expressed as a single client-signed tx yet.
+            raise SwapError("External wallets support same-chain EVM swaps for now.")
+
+        chain = get_chain_by_name(from_chain)
+        if not chain or chain.chain_type != ChainType.EVM:
+            raise SwapError("External-wallet swaps are only supported on EVM chains.")
+
+        amount_raw = self._get_token_amount_raw(amount, from_token, from_chain)
+
+        quote = await self._get_lifi_quote(
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=from_token,
+            to_token=to_token,
+            amount=amount,
+            amount_raw=amount_raw,
+            from_address=from_address,
+            to_address=from_address,
+            slippage=slippage,
+        )
+
+        tx_request = quote.raw_quote.get("transactionRequest") or {}
+        to_target = tx_request.get("to")
+        call_data = tx_request.get("data")
+        if not to_target or not call_data:
+            raise SwapError("This route can't be signed by an external wallet yet.")
+
+        web3 = self.wallet_service._get_web3(from_chain)
+        sender = Web3.to_checksum_address(from_address)
+        spender = Web3.to_checksum_address(to_target)
+
+        swap_tx = {
+            "to": spender,
+            "data": call_data,
+            "value": hex(_parse_int(tx_request.get("value"), 0)),
+            "gas": hex(_parse_int(tx_request.get("gasLimit"), 500_000)),
+            "chainId": chain.chain_id,
+        }
+
+        # ERC-20 approval: skip for native sells (ETH/BNB/etc.). We read the live
+        # allowance with the user's address as owner — a pure view call, no key
+        # needed — and only return an approval tx when it's short. NOTE: 'exact'
+        # approval_mode on a reset-required token (e.g. USDT) would need a zero-out
+        # approval first; the default 'unlimited' mode approves max once and is safe.
+        approval = None
+        from_token_address = get_token_address(from_token, from_chain)
+        if from_token_address and from_token_address != NATIVE_TOKEN_ADDRESS:
+            token_addr = Web3.to_checksum_address(from_token_address)
+            erc20_abi = [
+                {
+                    "inputs": [
+                        {"name": "owner", "type": "address"},
+                        {"name": "spender", "type": "address"},
+                    ],
+                    "name": "allowance",
+                    "outputs": [{"name": "", "type": "uint256"}],
+                    "type": "function",
+                    "stateMutability": "view",
+                },
+                {
+                    "inputs": [
+                        {"name": "spender", "type": "address"},
+                        {"name": "amount", "type": "uint256"},
+                    ],
+                    "name": "approve",
+                    "outputs": [{"name": "", "type": "bool"}],
+                    "type": "function",
+                    "stateMutability": "nonpayable",
+                },
+            ]
+            token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
+            amount_needed = int(amount_raw)
+            try:
+                current_allowance = await asyncio.to_thread(
+                    lambda: token_contract.functions.allowance(sender, spender).call()
+                )
+            except Exception as exc:  # RPC hiccup — fail safe by requesting approval
+                logger.warning(f"external swap allowance read failed ({exc}); requesting approval")
+                current_allowance = 0
+
+            if current_allowance < amount_needed:
+                approve_amount = self._approval_amount(amount_needed)
+                approve_data = token_contract.encode_abi(
+                    fn_name="approve", args=[spender, approve_amount]
+                )
+                approval = {
+                    "to": token_addr,
+                    "data": approve_data,
+                    "value": "0x0",
+                    "chainId": chain.chain_id,
+                }
+
+        payload = {
+            "chainId": chain.chain_id,
+            "tx": swap_tx,
+            "approval": approval,
+            "spender": spender,
+        }
+        return quote, payload
+
+    async def build_external_solana_swap(
+        self,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        from_address: str,
+        slippage: float,
+        priority_level: str = "medium",
+        max_lamports: int = 1_000_000,
+        jito_tip_lamports: Optional[int] = None,
+        compute_unit_price_micro_lamports: Optional[int] = None,
+    ):
+        """Build the unsigned Solana transaction for a NON-CUSTODIAL swap.
+
+        Phantom (or any Solana wallet) signs + sends the returned base64
+        ``VersionedTransaction`` client-side — the server never holds the key.
+        Jupiter builds the serialized swap tx for the connected pubkey at build
+        time; there's no ERC-20-style approval step on Solana. Returns
+        ``(quote, payload)`` with ``swapTransaction`` (base64) + ``chain``.
+
+        ``priority_level``/``max_lamports`` set the Solana priority fee baked into
+        the tx (landing speed under congestion). They flow from the caller's
+        speed tier; the server holds the policy so caps can be tuned without a
+        client deploy. When ``jito_tip_lamports`` is set, Jupiter bakes a Jito tip
+        instead — the returned ``payload["jito"]`` is True and the client must
+        submit the signed tx to the Jito block engine (POST /swap/submit-jito) for
+        MEV-protected bundle landing rather than broadcasting via a normal RPC.
+        ``compute_unit_price_micro_lamports`` (the client's live network estimate,
+        e.g. from Helius) sets the exact per-CU priority price for the non-Jito
+        path; it takes precedence over ``priority_level``/``max_lamports``.
+        """
+        try:
+            import base58
+
+            if len(base58.b58decode(from_address)) != 32:
+                raise ValueError
+        except Exception:
+            raise SwapError("A connected Solana wallet address is required.")
+
+        amount_raw = self._get_token_amount_raw(amount, from_token, "solana")
+        slippage_bps = int(slippage * 100)
+
+        quote = await self._get_jupiter_quote(
+            from_token=from_token,
+            to_token=to_token,
+            amount=amount,
+            amount_raw=amount_raw,
+            from_address=from_address,
+            slippage_bps=slippage_bps,
+        )
+
+        # Mirror _execute_jupiter_swap: only attach a feeAccount when the quote
+        # itself reserved a platformFee, else Jupiter /swap rejects it.
+        jup_fee_account = (
+            self._jupiter_fee_account(quote.from_token, quote.to_token)
+            if isinstance(quote.raw_quote, dict) and quote.raw_quote.get("platformFee")
+            else None
+        )
+        swap_tx = await self.jupiter.get_swap_transaction(
+            quote_response=quote.raw_quote,
+            user_public_key=from_address,
+            fee_account=jup_fee_account,
+            priority_level=priority_level,
+            max_lamports=max_lamports,
+            jito_tip_lamports=jito_tip_lamports,
+            compute_unit_price_micro_lamports=compute_unit_price_micro_lamports,
+        )
+        if not swap_tx.swap_transaction:
+            raise SwapError("Jupiter did not return a swap transaction.")
+
+        payload = {
+            "chain": "solana",
+            "swapTransaction": swap_tx.swap_transaction,
+            "lastValidBlockHeight": swap_tx.last_valid_block_height,
+            "jito": bool(jito_tip_lamports),
+        }
+        return quote, payload
 
     @staticmethod
     def _jupiter_referral_accounts() -> dict:
@@ -1282,6 +1611,7 @@ class SwapEngine:
         to_token: str,
         amount: float,
         amount_raw: str,
+        slippage: float = 0.5,
     ) -> SwapQuote:
         """Get quote from Tempo Enshrined DEX for same-chain stablecoin swaps."""
         if not tempo_dex_api.is_supported_pair(from_token, to_token):
@@ -1296,6 +1626,13 @@ class SwapEngine:
         to_amount_human = quote.amount_out_human
         exchange_rate = to_amount_human / amount if amount > 0 else 0
 
+        # Apply slippage to the min-out. The enshrined DEX barely moves on
+        # stablecoin pairs, but `quote.amount_out` is the live quote — without a
+        # tolerance any micro price drift between quote and execution reverts the
+        # swap. Use the smaller of the caller's slippage and the Tempo default.
+        slippage_pct = min(slippage, settings.tempo_swap_slippage_pct)
+        min_amount_out = int(quote.amount_out * (1 - slippage_pct / 100))
+
         return SwapQuote(
             provider="tempo_dex",
             from_chain="tempo",
@@ -1306,7 +1643,7 @@ class SwapEngine:
             from_amount_human=amount,
             to_amount=str(quote.amount_out),
             to_amount_human=to_amount_human,
-            to_amount_min=str(quote.amount_out),  # enshrined DEX has minimal slippage
+            to_amount_min=str(min_amount_out),
             gas_cost_usd=0.01,  # Tempo payment lane has near-zero gas
             fee_cost_usd=0,
             total_cost_usd=0.01,
@@ -2169,6 +2506,17 @@ class SwapEngine:
                     f"Citrea swaps must route via JuiceSwap (got provider '{quote.provider}')"
                 )
 
+        # Same hard backstop for Tempo: chain id 4217 is absent from every
+        # external aggregator — same-chain Tempo swaps must execute on the
+        # protocol-level enshrined DEX. Without this guard a tempo quote would
+        # fall through to the Li.Fi/EVM path (which can't build a Tempo tx).
+        if self._is_tempo_only_swap(quote.from_chain, quote.to_chain):
+            if quote.provider != "tempo_dex":
+                raise SwapError(
+                    f"Tempo swaps must route via the enshrined DEX "
+                    f"(got provider '{quote.provider}')"
+                )
+
         # Prevent concurrent swaps from same wallet (with bounded growth)
         if wallet_id not in self._wallet_locks:
             if len(self._wallet_locks) >= self._wallet_locks_max:
@@ -2256,6 +2604,35 @@ class SwapEngine:
                     f"Skipping spending-limit check for user {user_id}: "
                     f"no USD price for {quote.from_token}"
                 )
+
+            # Compliance screening (UBS × Nethermind PoC model): screen the
+            # addresses this swap will touch — recipient, router/bridge contract
+            # and token contracts — against the allow/block lists before any
+            # funds move. No-op unless compliance_mode is monitor/enforce, and
+            # only EVM (0x…) addresses are screened. See
+            # docs/architecture/compliance-screening.md.
+            if compliance_service.enabled:
+                raw_q = quote.raw_quote or {}
+                recipient = (
+                    raw_q.get("recipient")
+                    or raw_q.get("receiver")
+                    or raw_q.get("toAddress")
+                    or wallet_address
+                )
+                router = (
+                    raw_q.get("router_address")
+                    or raw_q.get("router")
+                    or raw_q.get("to")
+                    or getattr(quote, "router_address", None)
+                )
+                compliance_result = compliance_service.screen(
+                    recipient=recipient,
+                    router=router,
+                    tokens=[quote.from_token, quote.to_token],
+                    chain=quote.from_chain,
+                )
+                if not compliance_result.allowed:
+                    raise SwapError(f"🚫 {compliance_result.reason}")
 
             # Validate balance
             await quote_validator.validate_balance(
@@ -2383,6 +2760,8 @@ class SwapEngine:
                     tx_hash = await self._execute_goatswap_swap(quote, wallet)
                 elif quote.provider == "juiceswap":
                     tx_hash = await self._execute_juiceswap_swap(quote, wallet)
+                elif quote.provider == "tempo_dex":
+                    tx_hash = await self._execute_tempo_dex_swap(quote, wallet, user_id)
                 # (GOAT/Citrea guards live at the top of execute_swap — any
                 # goat/citrea quote reaching this dispatch is guaranteed
                 # provider == "goatswap"/"juiceswap")
@@ -2728,12 +3107,41 @@ class SwapEngine:
             "chainId": chain.chain_id,
         }
 
-        # Sign and send
+        # Sign and send (routes privately via Flashbots relay when configured;
+        # falls back to public RPC on any relay error).
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
-        )
+        return await self._broadcast_evm_tx(web3, signed_tx_hex, chain)
 
+    async def _broadcast_evm_tx(self, web3: Web3, signed_tx_hex: str, chain) -> str:
+        """Broadcast a signed EVM tx, routing privately when configured.
+
+        Compliant routing (UBS × Nethermind PoC, stage 2): when
+        ``compliance_routing_enabled`` and the chain has a Flashbots-compatible
+        relay, submit the tx privately to block builders via
+        ``eth_sendPrivateTransaction``. Any relay error falls back to the public
+        ``send_raw_transaction`` path, so routing can never break a swap.
+
+        Returns the 0x-prefixed transaction hash.
+        """
+        raw_bytes = bytes.fromhex(signed_tx_hex.replace("0x", ""))
+        chain_id = getattr(chain, "chain_id", None)
+
+        if isinstance(chain_id, int) and flashbots_relay.should_route(chain_id):
+            try:
+                current_block = await asyncio.to_thread(lambda: web3.eth.block_number)
+            except Exception:
+                current_block = None
+            result = await flashbots_relay.send_private_transaction(
+                signed_tx_hex, chain_id, current_block
+            )
+            if result.submitted and result.tx_hash:
+                return result.tx_hash
+            logger.warning(
+                "Private routing unavailable (%s); falling back to public RPC",
+                result.error,
+            )
+
+        tx_hash = await asyncio.to_thread(lambda: web3.eth.send_raw_transaction(raw_bytes))
         return tx_hash.hex()
 
     @staticmethod
@@ -3364,30 +3772,77 @@ class SwapEngine:
         )
         gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
 
-        # Step 1: exact-amount ERC20/TIP-20 approval to the enshrined DEX.
-        approve_tx = dict(txs["approval_tx"])
-        approve_tx.update(
-            {
-                "gas": 80_000,
-                "gasPrice": gas_price,
-                "nonce": nonce,
-                "chainId": chain.chain_id,
-            }
-        )
-        signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-        approve_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_approve.replace("0x", "")))
-        )
-        logger.info(f"Tempo DEX approval tx: {approve_hash.hex()}")
-        receipt = await asyncio.to_thread(
-            lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
-        )
-        if receipt["status"] != 1:
-            raise SwapError(f"Tempo DEX approval failed (tx: {approve_hash.hex()})")
-        nonce += 1
+        async def _send_and_wait(tx: dict, gas: int, label: str) -> None:
+            """Sign, broadcast, and confirm a single legacy-gas Tempo tx."""
+            nonlocal nonce
+            tx = dict(tx)
+            tx.update(
+                {
+                    "to": Web3.to_checksum_address(tx["to"]),
+                    "value": tx.get("value", 0),
+                    "gas": gas,
+                    "gasPrice": gas_price,
+                    "nonce": nonce,
+                    "chainId": chain.chain_id,
+                }
+            )
+            signed = await self.wallet_service.sign_evm_transaction(wallet, tx)
+            sent = await asyncio.to_thread(
+                lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed.replace("0x", "")))
+            )
+            logger.info(f"Tempo {label} tx: {sent.hex()}")
+            rcpt = await asyncio.to_thread(
+                lambda: web3.eth.wait_for_transaction_receipt(sent, timeout=120)
+            )
+            if rcpt["status"] != 1:
+                raise SwapError(f"Tempo {label} failed (tx: {sent.hex()})")
+            nonce += 1
+
+        # Step 1: approval — gasless EIP-2612 permit (TIP-1004) when enabled and the
+        # wallet can sign locally; otherwise a standard approve() tx. A permit folds
+        # approval into the swap path and replaces the separate approve() send.
+        token_in_addr = raw.get("token_in") or get_token_address(quote.from_token, "tempo")
+        permit_used = False
+        swap_source = txs
+        if settings.tempo_use_permit and not wallet.is_turnkey_wallet and token_in_addr:
+            owner_key = None
+            try:
+                from bot.services.tempo_tip20 import tempo_tip20
+
+                owner_key = self.wallet_service.get_private_key(wallet)
+                if not owner_key.startswith("0x"):
+                    owner_key = "0x" + owner_key
+                v, r, s, deadline = await tempo_tip20.build_permit_signature(
+                    token_address=token_in_addr,
+                    owner_key=owner_key,
+                    spender=tempo_dex_api.dex_address,
+                    value=amount_in,
+                )
+                permit_bundle = tempo_dex_api.build_permit_swap_tx(
+                    token_in=quote.from_token,
+                    token_out=quote.to_token,
+                    amount_in=amount_in,
+                    min_amount_out=min_amount_out,
+                    sender=sender,
+                    permit_v=v,
+                    permit_r=r,
+                    permit_s=s,
+                    permit_deadline=deadline,
+                )
+                await _send_and_wait(permit_bundle["permit_tx"], 120_000, "permit")
+                swap_source = permit_bundle
+                permit_used = True
+            except Exception as e:
+                logger.warning(f"Tempo permit approval failed, falling back to approve(): {e}")
+            finally:
+                if owner_key:
+                    owner_key = None  # scrub the raw key reference
+
+        if not permit_used:
+            await _send_and_wait(txs["approval_tx"], 80_000, "approval")
 
         # Step 2: swapExactAmountIn on the enshrined DEX.
-        swap_tx = dict(txs["swap_tx"])
+        swap_tx = dict(swap_source["swap_tx"])
         gas_estimate = 250_000
         try:
             gas_estimate = await asyncio.to_thread(

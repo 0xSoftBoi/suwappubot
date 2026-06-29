@@ -32,7 +32,7 @@ from bot.utils.gating import require_tier
 from bot.models.subscription import SubscriptionTier
 from bot.services.referral_service import referral_service
 from bot.services.points_service import points_service
-from bot.services.token_security.token_analyzer import token_analyzer
+from bot.services.token_security.token_analyzer import token_analyzer, RiskLevel
 from bot.services.spending_limits import spending_limit_service
 from bot.services.twofa import twofa_service
 from bot.services.x402_service import x402_service
@@ -153,7 +153,9 @@ def _schedule_quote_prewarm(
             # Resolve tier/fee exactly as wallets_confirmed_callback does so the
             # cached quote is identical to what a cold fetch would return.
             user_tier = await x402_service.get_tier(user_id)
-            platform_fee_bps = fee_service.get_fee_bps(user_tier)
+            # Pass user_id so the prewarmed quote is keyed under the SAME VIP/points-
+            # adjusted bps the execution path uses (avoids a guaranteed cache miss).
+            platform_fee_bps = fee_service.get_fee_bps(user_tier, user_id=user_id)
             quote = await swap_engine.get_quote(
                 from_chain=snapshot["from_chain"],
                 to_chain=snapshot["to_chain"],
@@ -938,9 +940,13 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
 
         # Resolve tier first so the SAME rate drives the on-chain fee we send to
         # the aggregator (platform_fee_bps), the quote we display, and the fee we
-        # record — single source of truth, no drift.
-        user_tier = await x402_service.get_tier(context.user_data["user_id"])
-        platform_fee_bps = fee_service.get_fee_bps(user_tier)
+        # record — single source of truth, no drift. Passing user_id also folds in
+        # the user's active points fee_discount (tier − discount, floored), so the
+        # discount applies identically to the on-chain bps, the displayed quote,
+        # and the recorded fee (and the referral share scales with it).
+        fee_user_id = context.user_data["user_id"]
+        user_tier = await x402_service.get_tier(fee_user_id)
+        platform_fee_bps = fee_service.get_fee_bps(user_tier, user_id=fee_user_id)
 
         # Try the pre-warmed quote first (keyed on the reference wallet — the
         # first selected wallet — so it only hits when it matches the wallet
@@ -971,6 +977,7 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
             amount=quote.from_amount_human,
             token_symbol=swap_data["from_token"],
             tier=user_tier,
+            user_id=fee_user_id,
         )
         # Persist fee values so post-execution can record them
         context.user_data["swap"]["fee_amount"] = fee_amount
@@ -1001,12 +1008,13 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
 
         # NEW: Token Security Analysis
         security_text = ""
+        _security_report = None
         if swap_data["to_chain"] == "solana":
             try:
                 dest_token_address = get_token_address(swap_data["to_token"], "solana")
                 if dest_token_address:
-                    report = await token_analyzer.analyze(dest_token_address)
-                    security_text = f"\n\n\U0001f6e1️ *Security Shield*\n{token_analyzer.get_safety_summary(report)}"
+                    _security_report = await token_analyzer.analyze(dest_token_address)
+                    security_text = f"\n\n\U0001f6e1️ *Security Shield*\n{token_analyzer.get_safety_summary(_security_report)}"
             except Exception as e:
                 logger.debug(f"Security analysis failed: {e}")
 
@@ -1041,6 +1049,42 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
             ],
             [InlineKeyboardButton("« Back to Wallets", callback_data="swap_back_to_wallets")],
         ]
+
+        # HIGH/CRITICAL risk gate: intercept before showing the confirm screen.
+        # Store the prepared quote message so the "swap anyway" handler can display
+        # it without rebuilding, then replace the current message with a risk warning.
+        if _security_report is not None and _security_report.risk_level in (
+            RiskLevel.HIGH,
+            RiskLevel.CRITICAL,
+        ):
+            risk_label = _security_report.risk_level.value.upper()
+            attempt_id = swap_data.get("attempt_id", secrets.token_urlsafe(8))
+            context.user_data["swap"]["pending_confirm_text"] = text
+            context.user_data["swap"]["pending_confirm_keyboard"] = keyboard
+
+            risk_summary = token_analyzer.get_safety_summary(_security_report)
+            warning_text = (
+                f"🚨 *{risk_label} RISK TOKEN DETECTED*\n\n"
+                f"{risk_summary}\n\n"
+                f"This token has been flagged as *{risk_label}* risk. "
+                f"Swapping may result in a total loss of funds.\n\n"
+                f"Are you sure you want to proceed?"
+            )
+            risk_keyboard = [
+                [
+                    InlineKeyboardButton(
+                        "⚠️ I understand, swap anyway",
+                        callback_data=f"swap_risk_confirm_{attempt_id}",
+                    ),
+                    InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel"),
+                ]
+            ]
+            await query.edit_message_text(
+                warning_text,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(risk_keyboard),
+            )
+            return CONFIRM_SWAP
 
         await query.edit_message_text(
             text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
@@ -1321,22 +1365,52 @@ async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
                     user_id=user_id,
                     swap_amount_usd=swap_amount_usd,
                     swap_id=swap_tx.id,
+                    fee_usd=fee_usd,
                 )
                 total_points += points_earned
 
         num_fail = len(selected_wallet_ids) - num_success
+
+        # Gas rebate (one-shot points redemption): consume EXACTLY ONCE, and only
+        # if a swap actually went through (don't burn the rebate on a fully-failed
+        # batch). consume_gas_rebate atomically flips the redemption to 'applied',
+        # so it can rebate a single swap and never re-applies. Floor the displayed
+        # net gas at 0 — a rebate can offset the gas shown but never go negative.
+        gas_rebate_usd = 0.0
+        if num_success > 0:
+            gas_rebate_usd = points_service.consume_gas_rebate(user_id)
+
+        total_gas_usd = (quote.gas_cost_usd or 0.0) * num_success
+        net_gas_usd = max(0.0, total_gas_usd - gas_rebate_usd)
+        rebate_line = ""
+        if gas_rebate_usd > 0:
+            applied = min(gas_rebate_usd, total_gas_usd)
+            rebate_line = (
+                f"⛽ Gas rebate applied: −{format_usd(applied)} "
+                f"(gas now {format_usd(net_gas_usd)})\n"
+            )
 
         text = (
             f"✅ *Multi-Swap Submitted!*\n\n"
             f"• Success: *{num_success}* wallets\n"
             f"• Failed: *{num_fail}* wallets\n\n"
             f"💰 *+{total_points} XP earned!*\n"
-            f"Total platform fee: {format_usd(total_fee_usd)} ({swap_data.get('fee_percentage', 0.8)}%)\n\n"
+            f"Total platform fee: {format_usd(total_fee_usd)} ({swap_data.get('fee_percentage', 0.8)}%)\n"
+            f"{rebate_line}\n"
             f"Check individual status in /hx."
         )
 
         keyboard = [
             [InlineKeyboardButton("🔄 New Swap", callback_data="swap_start")],
+            # Post-swap action chips: surface adjacent features in-flow at the
+            # highest-intent moment (display only — these are existing, live
+            # callbacks; no execution logic changes).
+            [
+                InlineKeyboardButton("🔔 Alert", callback_data="alerts_menu"),
+                InlineKeyboardButton("🔁 DCA", callback_data="dca_menu"),
+                InlineKeyboardButton("🛡️ Check", callback_data="paste_check_hint"),
+                InlineKeyboardButton("🎁 Refer", callback_data="ref_menu"),
+            ],
             # Share moment: a freshly-completed swap is the highest-intent point
             # to ask the user to invite friends. Routed to a top-level handler
             # (swap_share_ref_callback) because the conversation has just ended.
@@ -1358,6 +1432,36 @@ async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
         await _render_swap_failure(edit, e, context)
 
     return ConversationHandler.END
+
+
+async def swap_risk_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle the secondary confirmation for HIGH/CRITICAL risk tokens.
+
+    The user tapped "I understand, swap anyway" on the risk warning screen.
+    Retrieve the pre-built quote message and show the normal confirm screen.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    swap_data = context.user_data.get("swap")
+    if not swap_data:
+        await query.edit_message_text("❌ Session expired. Start again with /s")
+        return ConversationHandler.END
+
+    pending_text = swap_data.pop("pending_confirm_text", None)
+    pending_keyboard = swap_data.pop("pending_confirm_keyboard", None)
+
+    if not pending_text or not pending_keyboard:
+        # Fallback: session data missing, drop to normal confirm state
+        await query.edit_message_text("⚠️ Risk acknowledged. Please use /s to start a new swap.")
+        return ConversationHandler.END
+
+    await query.edit_message_text(
+        pending_text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(pending_keyboard),
+    )
+    return CONFIRM_SWAP
 
 
 async def swap_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1653,12 +1757,109 @@ async def swap_share_ref_callback(update: Update, context: ContextTypes.DEFAULT_
 swap_share_ref_handler = CallbackQueryHandler(swap_share_ref_callback, pattern="^swap_share_ref$")
 
 
+@enforce_tos
+async def paste_buy_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Entry point for paste-to-trade Buy buttons.
+
+    The paste-to-trade card (bot/handlers/paste_trade.py) stashes the pending
+    token in context.user_data["paste_token"] and renders Buy buttons with
+    callback_data "pbuy_<amount>" / "pbuy_custom". This seeds the SAME swap
+    context the normal flow builds and hands off to show_wallet_selection, so
+    the buy inherits quote → wallet selection → CONFIRM_SWAP → 2FA and spending
+    limits. It NEVER calls execute_swap directly — the guardrail.
+    """
+    query = update.callback_query
+    await query.answer()
+    user = update.effective_user
+
+    allowed = await enforce_rate_limit_for_update(update, swap_limiter)
+    if not allowed:
+        return ConversationHandler.END
+
+    token = context.user_data.get("paste_token")
+    if not token:
+        await query.edit_message_text("❌ Session expired. Paste the token address again.")
+        return ConversationHandler.END
+
+    chain = token["chain"]
+    address = token["address"]
+    chain_config = get_chain_by_name(chain)
+    if not chain_config:
+        await query.edit_message_text("❌ Unsupported chain for this token.")
+        return ConversationHandler.END
+    native_symbol = chain_config.native_token
+    chain_type = chain_config.chain_type.value
+
+    # Resolve amount (preset from the button, or hand off to manual entry)
+    data = query.data
+    if data == "pbuy_custom":
+        context.user_data["swap"] = {
+            "from_chain": chain,
+            "from_token": native_symbol,
+            "to_chain": chain,
+            "to_token": address,
+        }
+        with get_session() as session:
+            db_user = session.query(User).filter(User.telegram_id == user.id).first()
+            if not db_user:
+                await query.edit_message_text("❌ Use /start first to set up your account.")
+                return ConversationHandler.END
+            context.user_data["user_id"] = db_user.id
+        await query.edit_message_text(
+            f"💱 Buying *{token.get('symbol', 'token')}* with {native_symbol}\n\n"
+            f"Enter the amount of {native_symbol} to spend:",
+            parse_mode="Markdown",
+        )
+        return ENTER_AMOUNT
+
+    try:
+        amount = float(data.replace("pbuy_", ""))
+    except (ValueError, TypeError):
+        await query.edit_message_text("❌ Invalid amount.")
+        return ConversationHandler.END
+
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == user.id).first()
+        if not db_user:
+            await query.edit_message_text("❌ Use /start first to set up your account.")
+            return ConversationHandler.END
+        context.user_data["user_id"] = db_user.id
+
+    default_wallet = wallet_service.get_default_wallet(db_user.id, chain_type)
+    if not default_wallet:
+        await query.edit_message_text(
+            f"❌ No {chain_config.display_name} wallet found. Use /wallet to create one."
+        )
+        return ConversationHandler.END
+
+    context.user_data["swap"] = {
+        "from_chain": chain,
+        "from_token": native_symbol,
+        "to_chain": chain,
+        "to_token": address,
+        "amount": amount,
+        "wallet_id": default_wallet.id,
+    }
+
+    _schedule_quote_prewarm(
+        context, context.user_data["swap"], default_wallet.id, default_wallet.address
+    )
+
+    await query.edit_message_text(
+        f"💱 Buying *{token.get('symbol', 'token')}* with "
+        f"*{format_amount(amount, symbol=native_symbol)}*\n\nFetching quote...",
+        parse_mode="Markdown",
+    )
+    return await show_wallet_selection(update, context)
+
+
 swap_conversation_handler = ConversationHandler(
     name="swap",
     persistent=True,
     entry_points=[
         CommandHandler("s", swap_command),
         CallbackQueryHandler(swap_start_callback, pattern="^swap_start$"),
+        CallbackQueryHandler(paste_buy_entry, pattern="^pbuy_"),
     ],
     states={
         SELECT_FROM_CHAIN: [
@@ -1690,6 +1891,7 @@ swap_conversation_handler = ConversationHandler(
             CallbackQueryHandler(confirm_swap, pattern="^swap_confirm$"),
             CallbackQueryHandler(swap_requote, pattern="^swap_requote$"),
             CallbackQueryHandler(show_wallet_selection, pattern="^swap_back_to_wallets$"),
+            CallbackQueryHandler(swap_risk_confirm_callback, pattern="^swap_risk_confirm_"),
         ],
         ENTER_2FA_CODE: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, twofa_code_entered),

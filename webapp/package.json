@@ -16,17 +16,20 @@
     "test:all": "bun run test && bun run test:integration"
   },
   "dependencies": {
+    "@p2pdotme/sdk": "^1.2.1",
     "@suwappu/design-tokens": "file:../packages/design-tokens",
     "@tanstack/react-query": "^5.59.0",
     "@turnkey/sdk-browser": "^5.14.2",
     "@turnkey/viem": "^0.14.22",
     "@twa-dev/sdk": "^7.10.0",
     "framer-motion": "^12.26.2",
+    "i18next": "^26.3.3",
     "lightweight-charts": "^5.1.0",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hot-toast": "^2.6.0",
+    "react-i18next": "^17.0.8",
     "react-router-dom": "6.28.2",
     "viem": "^2.45.1"
   },

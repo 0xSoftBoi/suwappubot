@@ -7,11 +7,21 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react'
+import { usePersistentState } from '../lib/persist'
 
 type Interval = '1m' | '5m' | '15m' | '1h' | '4h' | '1D'
 type Side = 'buy' | 'sell'
 
+// Top-level workspace mode. 'spot' is the classic swap terminal; 'perps' is the
+// HyperLiquid perps desk; 'predict' is the Polymarket prediction desk. Switched
+// from the Header and read by TradingLayout to swap the whole workspace.
+export type TradingMode = 'spot' | 'perps' | 'predict'
+
 interface TradingContextType {
+  // Top-level workspace mode (spot / perps / predict)
+  tradingMode: TradingMode
+  setTradingMode: (mode: TradingMode) => void
+
   // Order book click-to-fill: sets limit price
   limitPrice: string
   setLimitPrice: (price: string) => void
@@ -40,10 +50,14 @@ interface TradingContextType {
 const TradingContext = createContext<TradingContextType | undefined>(undefined)
 
 export function TradingProvider({ children }: { children: ReactNode }) {
+  // Persisted across reloads: the workspace mode, chart interval, and buy/sell
+  // side are sticky preferences. limitPrice / fullscreen / pending amount are
+  // transient and intentionally not persisted.
+  const [tradingMode, setTradingModeState] = usePersistentState<TradingMode>('mode', 'spot')
   const [limitPrice, setLimitPriceState] = useState('')
-  const [chartInterval, setChartIntervalState] = useState<Interval>('1h')
+  const [chartInterval, setChartIntervalState] = usePersistentState<Interval>('interval', '1h')
   const [chartFullscreen, setChartFullscreen] = useState(false)
-  const [side, setSideState] = useState<Side>('buy')
+  const [side, setSideState] = usePersistentState<Side>('side', 'buy')
   const [pendingSwapAmount, setPendingSwapAmountState] = useState('')
 
   const buyInputRef = useRef<HTMLInputElement | null>(null)
@@ -69,9 +83,15 @@ export function TradingProvider({ children }: { children: ReactNode }) {
     setPendingSwapAmountState(amount)
   }, [])
 
+  const setTradingMode = useCallback((mode: TradingMode) => {
+    setTradingModeState(mode)
+  }, [])
+
   return (
     <TradingContext.Provider
       value={{
+        tradingMode,
+        setTradingMode,
         limitPrice,
         setLimitPrice,
         chartInterval,

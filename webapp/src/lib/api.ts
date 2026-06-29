@@ -7,12 +7,13 @@
  */
 import { getInitData } from './telegram'
 import { getAuthToken } from './auth'
-import type { Portfolio, Swap, ApiError, HealthStatus, UserPreferencesResponse, UpdatePreferencesResponse, UserPreferences } from '../types/api'
+import type { Portfolio, Swap, ApiError, HealthStatus, UserPreferencesResponse, UpdatePreferencesResponse, UserPreferences, PortfolioPnl, SupportTicket, TicketKind } from '../types/api'
 import type { LinkedWallet, AuthChallenge, LinkWalletResponse } from '../types/auth'
 import type { SwapToken, SwapQuote, SwapQuoteRequest, SwapExecuteRequest, SwapExecuteResult, SwapStatusResponse } from '../types/swap'
 import type { SimulationResult } from '../types/simulation'
 import type { SnipeRequest, SnipeResult, LaunchToken } from '../types/snipe'
 import type { PredictionMarket, PredictionMarketDetail, PredictionEvent, PredictionTrade, MarketPrice, PredictionPosition, PredictionOrderRequest, PredictionOrderResult } from '../types/prediction'
+import type { P2POffersQuery, P2POffersResponse, P2PTradesResponse, P2PMyOffersResponse, P2PStartTradeRequest, P2PStartTradeResult, P2PCreateOfferRequest, P2PCreateOfferResult } from '../types/p2p'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -102,6 +103,13 @@ class ApiClient {
   }
 
   /**
+   * Get portfolio PnL analytics for the given time period
+   */
+  async getPortfolioPnl(period: '7d' | '30d' | '90d' | 'all' = '30d'): Promise<PortfolioPnl> {
+    return this.fetch<PortfolioPnl>(`/webapp/portfolio/pnl?period=${period}`)
+  }
+
+  /**
    * Get current user's swap history
    */
   async getSwaps(limit = 20, offset = 0): Promise<Swap[]> {
@@ -113,6 +121,16 @@ class ApiClient {
    */
   async getSwap(id: string): Promise<Swap> {
     return this.fetch<Swap>(`/swaps/${id}`)
+  }
+
+  // === Billing ===
+
+  /**
+   * Create a Stripe card-checkout session for the current user.
+   * Returns the hosted checkout URL to open (e.g. via Telegram WebApp.openLink).
+   */
+  async createStripeCheckout(tier: 'pro' | 'premium'): Promise<{ url: string }> {
+    return this.fetch<{ url: string }>(`/webapp/billing/stripe/checkout?tier=${tier}`)
   }
 
   // === Auth ===
@@ -311,6 +329,13 @@ class ApiClient {
   // === User Preferences ===
 
   /**
+   * Get VIP / tier status including point multiplier
+   */
+  async getVipStatus(): Promise<{ effective_tier: string; point_multiplier: number; season_volume_usd: number }> {
+    return this.fetch('/webapp/me/vip')
+  }
+
+  /**
    * Get user preferences (settings page data)
    */
   async getUserPreferences(): Promise<UserPreferencesResponse> {
@@ -369,6 +394,30 @@ class ApiClient {
    */
   async redeemReward(rewardId: number): Promise<RedemptionResult> {
     return this.fetch<RedemptionResult>(`/webapp/users/me/points/redeem/${rewardId}`, { method: 'POST' })
+  }
+
+  // === Seasons (convertible points) ===
+
+  /**
+   * Get the user's standing in the active season (points, rank, multipliers,
+   * estimated token allocation). `season` is null when no season is active.
+   */
+  async getSeasonStanding(): Promise<SeasonStanding> {
+    return this.fetch<SeasonStanding>('/webapp/users/me/points/season')
+  }
+
+  /**
+   * Get the season leaderboard (top N by season points, with estimated tokens).
+   */
+  async getSeasonLeaderboard(limit = 20): Promise<SeasonLeaderboardEntry[]> {
+    return this.fetch<SeasonLeaderboardEntry[]>(`/webapp/users/me/points/season/leaderboard?limit=${limit}`)
+  }
+
+  /**
+   * Get the user's season history with their settled snapshots (if any).
+   */
+  async getSeasons(): Promise<SeasonHistoryEntry[]> {
+    return this.fetch<SeasonHistoryEntry[]>('/webapp/users/me/seasons')
   }
 
   // === DCA (Dollar Cost Averaging) ===
@@ -634,6 +683,123 @@ class ApiClient {
     return this.fetch('/v1/agent/perps/markets')
   }
 
+  // === P2P Marketplace ===
+
+  async getP2POffers(query: P2POffersQuery): Promise<P2POffersResponse> {
+    const params = new URLSearchParams()
+    params.set('fiatCurrency', query.fiatCurrency)
+    params.set('cryptoAsset', query.cryptoAsset)
+    params.set('offerType', query.offerType)
+    if (query.fiatAmount != null) params.set('fiatAmount', String(query.fiatAmount))
+    if (query.region) params.set('region', query.region)
+    return this.fetch(`/webapp/p2p/offers?${params.toString()}`)
+  }
+
+  async getP2PTrades(): Promise<P2PTradesResponse> {
+    return this.fetch('/webapp/p2p/trades')
+  }
+
+  async getP2PMyOffers(): Promise<P2PMyOffersResponse> {
+    return this.fetch('/webapp/p2p/offers/mine')
+  }
+
+  async startP2PTrade(req: P2PStartTradeRequest): Promise<P2PStartTradeResult> {
+    return this.fetch<P2PStartTradeResult>('/webapp/p2p/trades', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  }
+
+  async createP2POffer(req: P2PCreateOfferRequest): Promise<P2PCreateOfferResult> {
+    return this.fetch<P2PCreateOfferResult>('/webapp/p2p/offers', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  }
+
+  // === Subscription Status ===
+
+  /**
+   * Get the current user's subscription tier.
+   * Returns { tier, fee_rate_percent, expires_at, active }
+   */
+  async getSubscriptionStatus(): Promise<{ tier: string; fee_rate_percent: number; expires_at: string | null; active: boolean }> {
+    return this.fetch<{ tier: string; fee_rate_percent: number; expires_at: string | null; active: boolean }>('/billing/status')
+  }
+
+  // === Enterprise Org Management ===
+
+  async getOrg(orgId: string): Promise<EnterpriseOrg> {
+    return this.fetch<EnterpriseOrg>(`/enterprise/orgs/${orgId}`)
+  }
+
+  async getMySupportTickets(): Promise<SupportTicket[]> {
+    return this.fetch<SupportTicket[]>('/webapp/support/tickets')
+  }
+
+  async createSupportTicket(params: { kind: TicketKind; message: string }): Promise<SupportTicket> {
+    return this.fetch<SupportTicket>('/webapp/support/tickets', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  }
+
+  async getMyOrg(): Promise<EnterpriseOrg | null> {
+    const res = await fetch(`${this.baseUrl}/enterprise/orgs/me`, {
+      headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
+    })
+    if (res.status === 404) return null
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw { detail: body.detail || 'Failed to load organization', status: res.status }
+    }
+    return res.json()
+  }
+
+  async createOrg(name: string, slug: string): Promise<EnterpriseOrg> {
+    return this.fetch<EnterpriseOrg>('/enterprise/orgs', {
+      method: 'POST',
+      body: JSON.stringify({ name, slug }),
+    })
+  }
+
+  async getOrgMembers(orgId: string): Promise<OrgMember[]> {
+    const res = await this.fetch<{ members: OrgMember[] }>(`/enterprise/orgs/${orgId}/members`)
+    return res.members
+  }
+
+  async inviteMember(orgId: string, userId: number, role: OrgRole): Promise<OrgMember> {
+    const res = await this.fetch<{ member: OrgMember }>(`/enterprise/orgs/${orgId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ userId: Number(userId), role }),
+    })
+    return res.member
+  }
+
+  async removeMember(orgId: string, userId: string): Promise<void> {
+    await this.fetch(`/enterprise/orgs/${orgId}/members/${userId}`, { method: 'DELETE' })
+  }
+
+  async getApiKeys(orgId: string): Promise<OrgApiKey[]> {
+    const res = await this.fetch<{ keys: OrgApiKey[] }>(`/enterprise/orgs/${orgId}/api-keys`)
+    return res.keys
+  }
+
+  async createApiKey(orgId: string, name: string, scopes: string[], expiresAt?: string): Promise<OrgApiKeyCreated> {
+    return this.fetch<OrgApiKeyCreated>(`/enterprise/orgs/${orgId}/api-keys`, {
+      method: 'POST',
+      body: JSON.stringify({ name, scopes, expiresAt }),
+    })
+  }
+
+  async revokeApiKey(orgId: string, keyId: string): Promise<void> {
+    await this.fetch(`/enterprise/orgs/${orgId}/api-keys/${keyId}`, { method: 'DELETE' })
+  }
+
+  async getOrgUsage(orgId: string): Promise<OrgUsage> {
+    return this.fetch<OrgUsage>(`/enterprise/orgs/${orgId}/usage`)
+  }
+
   /**
    * Lookup a token by contract address
    */
@@ -710,6 +876,84 @@ export interface RedemptionResult {
   rewardValue: string | null
   status: string
   expiresAt: string | null
+}
+
+// Season (convertible points) types
+export interface Season {
+  id: number
+  name: string
+  slug: string
+  status: string
+  seasonIndex?: number
+  // Weather season name (Summer/Fall/Winter/Spring) + official reporting quarter (e.g. "Q3 2026").
+  weather?: string
+  quarter?: string
+  startsAt: string
+  endsAt: string
+  tokenPool: number
+  tokenSymbol: string
+  description: string | null
+  daysRemaining: number | null
+}
+
+export interface SeasonEmission {
+  seasonIndex: number
+  totalSeasons: number
+  seasonPoolTokens: number
+  poolPctOfSupply: number // 0..1
+  decayPerSeason: number // e.g. 0.25
+  programAllocationPct: number // e.g. 0.30
+  inflationRate: number | null
+  committed: boolean
+}
+
+export interface SeasonStanding {
+  season: Season | null
+  standing: {
+    points: number
+    basePoints: number
+    rank: number | null
+    swapVolumeUsd: number
+    referralPoints: number
+    feePaidUsd: number
+  }
+  multiplier: {
+    level: number
+    streak: number
+    combined: number
+    levelName: string
+  }
+  estimatedAllocation: {
+    tokens: number
+    tokenSymbol: string
+    poolShare: number
+  }
+  totalSeasonPoints: number
+  // Optional so older API responses (pre-emission) still type-check.
+  emission?: SeasonEmission
+}
+
+export interface SeasonLeaderboardEntry {
+  rank: number
+  userId: number
+  username: string | null
+  points: number
+  estimatedTokens: number
+  poolShare: number
+}
+
+export interface SeasonSnapshot {
+  finalPoints: number
+  rank: number | null
+  tokenAllocation: number
+  tokenSymbol: string
+  claimed: boolean
+  claimable: boolean
+}
+
+export interface SeasonHistoryEntry {
+  season: Season
+  snapshot: SeasonSnapshot | null
 }
 
 
@@ -901,7 +1145,7 @@ export interface CopySettings {
 }
 
 export interface FollowTraderParams {
-  walletId: number
+  walletId?: number
   maxAmountPerTrade?: number
   totalBudget?: number
   stopLossPercent?: number
@@ -952,6 +1196,47 @@ export interface CopyFollowSettings {
 // Limit Order webapp types (used by dev branch)
 export interface WebappLimitOrder extends LimitOrder {
   targetPrice: number
+}
+
+// === Enterprise types ===
+
+export type OrgRole = 'owner' | 'admin' | 'member' | 'viewer'
+
+export interface EnterpriseOrg {
+  id: string
+  name: string
+  slug: string
+  seatLimit: number
+  memberCount: number
+  createdAt: string
+}
+
+export interface OrgMember {
+  userId: string
+  username?: string
+  firstName?: string
+  role: OrgRole
+  joinedAt: string
+}
+
+export interface OrgApiKey {
+  id: string
+  name: string
+  prefix: string
+  scopes: string[]
+  lastUsedAt?: string
+  expiresAt?: string
+  createdAt: string
+}
+
+export interface OrgApiKeyCreated extends OrgApiKey {
+  rawKey: string
+}
+
+export interface OrgUsage {
+  callsToday: number
+  callsThisMonth: number
+  rateLimitHits: number
 }
 
 // Export singleton instance

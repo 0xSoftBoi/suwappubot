@@ -1,0 +1,65 @@
+{
+  "nav": {
+    "home": "Home",
+    "swap": "Swap",
+    "wallet": "Wallet",
+    "portfolio": "Portfolio",
+    "history": "History",
+    "settings": "Settings"
+  },
+  "common": {
+    "back": "Back",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "loading": "Loading...",
+    "error": "Error",
+    "save": "Save",
+    "close": "Close",
+    "retry": "Retry",
+    "continue": "Continue",
+    "done": "Done",
+    "search": "Search"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "notifications": "Notifications",
+    "notificationsDesc": "Enable all notifications",
+    "linkedWallets": "Linked Wallets",
+    "slippage": "Slippage",
+    "gas": "Gas Settings"
+  },
+  "swap": {
+    "title": "Swap",
+    "from": "From",
+    "to": "To",
+    "selectToken": "Select Token",
+    "enterAmount": "Enter amount",
+    "swapNow": "Swap Now",
+    "confirmSwap": "Confirm Swap",
+    "swapSuccess": "Swap Successful"
+  },
+  "wallet": {
+    "title": "Wallet",
+    "balance": "Balance",
+    "send": "Send",
+    "receive": "Receive",
+    "copyAddress": "Copy Address"
+  },
+  "portfolio": {
+    "title": "Portfolio",
+    "totalValue": "Total Value",
+    "noAssets": "No assets found"
+  },
+  "home": {
+    "title": "Home",
+    "quickSwap": "Quick Swap"
+  },
+  "language": {
+    "title": "Language",
+    "en": "English",
+    "es": "Español",
+    "fr": "Français",
+    "zh": "中文"
+  }
+}

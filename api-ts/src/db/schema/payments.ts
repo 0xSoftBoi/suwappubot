@@ -88,3 +88,73 @@ export type AgentCredit = typeof agentCredits.$inferSelect
 export type NewAgentCredit = typeof agentCredits.$inferInsert
 export type AgentCreditTopup = typeof agentCreditTopups.$inferSelect
 export type NewAgentCreditTopup = typeof agentCreditTopups.$inferInsert
+
+/**
+ * Crypto-native agent subscriptions (USDC → time-bound tier).
+ *
+ * One active row per agent (agentId UNIQUE, upserted on renew). `txHash` is
+ * UNIQUE → idempotent on the funding transaction (no double-grant under
+ * concurrent requests). The active window is also denormalized onto
+ * agents.subscriptionTier / subscriptionExpiresAt for zero-query tier
+ * resolution at auth time.
+ */
+export const agentSubscriptions = pgTable(
+	'agent_subscriptions',
+	{
+		id: serial('id').primaryKey(),
+		agentId: integer('agent_id').notNull().unique(),
+		tier: varchar('tier', { length: 20 }).notNull(),
+		txHash: varchar('tx_hash', { length: 128 }).notNull().unique(),
+		chain: varchar('chain', { length: 32 }).default('base').notNull(),
+		amountUsd: real('amount_usd').notNull(),
+		startedAt: timestamp('started_at').defaultNow().notNull(),
+		expiresAt: timestamp('expires_at').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(table) => ({
+		agentIdx: index('ix_agent_subscriptions_agent_id').on(table.agentId),
+	}),
+)
+
+export type AgentSubscription = typeof agentSubscriptions.$inferSelect
+export type NewAgentSubscription = typeof agentSubscriptions.$inferInsert
+
+/**
+ * Recurring crypto subscriptions via Base Spend Permissions (true auto-renew).
+ *
+ * Stores the user-signed SpendPermission + signature so the operator can call
+ * spend() each period. Created by python-api _ensure_schema (authoritative for
+ * shared tables); api-ts only queries it. uint160/uint256 fields (allowance,
+ * salt) are stored as decimal strings to avoid int overflow.
+ */
+export const recurringSubscriptions = pgTable(
+	'recurring_subscriptions',
+	{
+		id: serial('id').primaryKey(),
+		userId: integer('user_id'),
+		agentId: integer('agent_id'),
+		account: varchar('account', { length: 64 }).notNull(),
+		spender: varchar('spender', { length: 64 }).notNull(),
+		token: varchar('token', { length: 64 }).notNull(),
+		allowance: varchar('allowance', { length: 80 }).notNull(),
+		periodSeconds: integer('period_seconds').notNull(),
+		startTs: integer('start_ts').notNull(),
+		endTs: integer('end_ts').notNull(),
+		salt: varchar('salt', { length: 80 }).notNull(),
+		signature: text('signature').notNull(),
+		tier: varchar('tier', { length: 20 }),
+		status: varchar('status', { length: 20 }).default('active').notNull(),
+		approvedTx: varchar('approved_tx', { length: 128 }),
+		nextChargeAt: timestamp('next_charge_at'),
+		lastChargeAt: timestamp('last_charge_at'),
+		lastChargeTx: varchar('last_charge_tx', { length: 128 }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at').defaultNow().notNull(),
+	},
+	(table) => ({
+		dueIdx: index('ix_recurring_subscriptions_due').on(table.status, table.nextChargeAt),
+	}),
+)
+
+export type RecurringSubscription = typeof recurringSubscriptions.$inferSelect
+export type NewRecurringSubscription = typeof recurringSubscriptions.$inferInsert

@@ -647,6 +647,10 @@ async def withdraw_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             from bot.config.tokens import TOKENS
 
             decimals = TOKENS[token].decimals
+            # Optional payment memo (Tempo TIP-20 transferWithMemo). The withdraw
+            # flow has no memo-input step yet; if a future step sets
+            # context.user_data["withdraw_memo"], it rides with the transfer.
+            memo = context.user_data.get("withdraw_memo", "") or ""
             tx_hash = await hot_wallet_service.send_token(
                 wallet=hot_wallet,
                 chain_name=chain,
@@ -654,7 +658,7 @@ async def withdraw_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 to_address=to_address,
                 amount=Decimal(str(amount)),
                 decimals=decimals,
-                memo=context.user_data.get("withdraw_memo"),
+                memo=memo,
             )
         else:
             tx_hash = await hot_wallet_service.send_native_token(

@@ -140,6 +140,9 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
             UserMilestone,
             Reward,
         )
+
+        # Rewards-marketplace async fulfillment orders
+        from bot.models.rewards_marketplace import RedemptionOrder
         from bot.models.copy_trading import (
             TraderProfile,
             CopyFollow,
@@ -148,6 +151,9 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
             TraderTrade,
             TraderPosition,
         )
+
+        # Season / convertible-points models
+        from bot.models.seasons import Season, SeasonPoints, SeasonSnapshot
 
         # User spot-position cost basis (unified Positions / PnL view)
         from bot.models.positions import UserPosition
@@ -190,6 +196,9 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
 
         # Prediction market models
         from bot.models.predict import PredictionOrder, PredictionPosition
+
+        # P2P marketplace models
+        from bot.models.p2p import P2POffer, P2PTrade
 
         # Token staking models
         from bot.models.token_staking import (
@@ -348,6 +357,8 @@ def _ensure_schema(db_engine) -> None:
         _add_user_settings_mev_column(db_engine, inspector, is_sqlite)
         _add_quicktrade_columns(db_engine, inspector, is_sqlite)
         _add_user_settings_trading_prefs(db_engine, inspector, is_sqlite)
+        _add_user_settings_proactive_column(db_engine, inspector, is_sqlite)
+        _add_user_settings_granular_notify_columns(db_engine, inspector, is_sqlite)
 
     # --- referral_rewards: multi-tier column ---
     _add_referral_tier_column(db_engine, inspector, is_sqlite)
@@ -383,9 +394,19 @@ def _ensure_schema(db_engine) -> None:
     # --- gamification tables: daily_quests, user_quests, jackpot_pools ---
     _create_gamification_tables(db_engine, inspector, is_sqlite)
 
+    # --- agent billing: agent_credits, agent_credit_topups, agent_subscriptions ---
+    _create_agent_billing_tables(db_engine, inspector, is_sqlite)
+
+    # --- recurring crypto subscriptions (Base Spend Permissions) ---
+    _create_recurring_subscriptions_table(db_engine, inspector, is_sqlite)
+
     # --- copy_follows: enhanced copy trading columns ---
     if "copy_follows" in tables:
         _add_copy_trading_columns(db_engine, inspector, is_sqlite)
+
+    # --- copy_trades: paper mode entry price ---
+    if "copy_trades" in tables:
+        _add_copy_trade_paper_column(db_engine, inspector, is_sqlite)
 
     # --- rug_monitors table ---
     if not inspector.has_table("rug_monitors"):
@@ -411,6 +432,10 @@ def _ensure_schema(db_engine) -> None:
     if "subscriptions" in tables:
         _add_subscription_started_at(db_engine, inspector, is_sqlite)
 
+    # --- audit_logs: org_id / agent_id columns (org-scoped audit trail) ---
+    if "audit_logs" in tables:
+        _add_audit_org_agent_columns(db_engine, inspector, is_sqlite)
+
     # --- rename registered_agents -> agents ---
     if "registered_agents" in tables and "agents" not in tables:
         with db_engine.begin() as conn:
@@ -423,6 +448,7 @@ def _ensure_schema(db_engine) -> None:
     _add_hyperliquid_ecosystem_tables(db_engine, inspector, is_sqlite)
     _add_cctp_tables(db_engine, inspector, is_sqlite)
     _add_user_region_column(db_engine, inspector, is_sqlite)
+    _add_user_language_preference_column(db_engine, inspector, is_sqlite)
     _add_savings_tables(db_engine, inspector, is_sqlite)
     _add_auth_tables(db_engine, inspector, is_sqlite)
     _add_btc_swap_tables(db_engine, inspector, is_sqlite)
@@ -437,6 +463,152 @@ def _ensure_schema(db_engine) -> None:
     # --- users: weekly digest columns ---
     if "users" in tables:
         _add_digest_columns(db_engine, inspector, is_sqlite)
+
+    # --- tempo_sponsorships table (Tempo fee-sponsorship persistence) ---
+    if not inspector.has_table("tempo_sponsorships"):
+        from bot.models.tempo import TempoSponsorship
+
+        TempoSponsorship.__table__.create(bind=db_engine)
+        logger.info("Created tempo_sponsorships table")
+
+    # --- p2p_offers / p2p_trades tables (P2P marketplace escrow persistence) ---
+    if not inspector.has_table("p2p_offers"):
+        from bot.models.p2p import P2POffer
+
+        P2POffer.__table__.create(bind=db_engine)
+        logger.info("Created p2p_offers table")
+
+    if not inspector.has_table("p2p_trades"):
+        from bot.models.p2p import P2PTrade
+
+        P2PTrade.__table__.create(bind=db_engine)
+        logger.info("Created p2p_trades table")
+
+    # --- prediction_positions: on-chain redemption columns ---
+    if "prediction_positions" in tables:
+        _add_prediction_redeem_columns(db_engine, inspector, is_sqlite)
+
+    # --- point_transactions: season_id stamp (convertible-points audit) ---
+    if "point_transactions" in tables:
+        _add_point_transactions_season_column(db_engine, inspector, is_sqlite)
+
+    # --- seasons / season_points: emission-schedule + fee-revenue columns ---
+    if "seasons" in tables or "season_points" in tables:
+        _add_season_econ_columns(db_engine, inspector, is_sqlite, tables)
+
+    # --- rewards: marketplace category column (async fulfillment routing) ---
+    if "rewards" in tables:
+        _add_reward_category_column(db_engine, inspector, is_sqlite)
+
+    # --- users: enterprise org membership columns ---
+    if "users" in tables:
+        _add_user_org_columns(db_engine, inspector, is_sqlite)
+
+
+def _add_user_org_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add users.organization_id and users.organization_role for enterprise tenancy, idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("users")}
+    for col, col_type in [
+        ("organization_id", "VARCHAR(36)"),
+        ("organization_role", "VARCHAR(20)"),
+    ]:
+        if col not in cols:
+            try:
+                if is_sqlite:
+                    ddl = f"ALTER TABLE users ADD COLUMN {col} {col_type}"
+                else:
+                    ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col} {col_type}"
+                with db_engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info(f"Added users.{col}")
+            except Exception as e:
+                logger.warning(f"Failed to add users.{col}: {e}")
+
+
+def _add_reward_category_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add rewards.reward_category idempotently (default 'own_product').
+
+    Categorizes each catalog item for the rewards marketplace. Existing rewards stay
+    'own_product' (synchronous, our-product redemptions); async categories
+    (gift_card/travel/merch/donation/experience) route through reward_providers. The
+    redemption_orders table itself is created by create_all from the new model.
+    """
+    cols = {c["name"] for c in inspector.get_columns("rewards")}
+    if "reward_category" in cols:
+        return
+    if is_sqlite:
+        ddl = (
+            "ALTER TABLE rewards ADD COLUMN reward_category "
+            "VARCHAR(30) NOT NULL DEFAULT 'own_product'"
+        )
+    else:
+        ddl = (
+            "ALTER TABLE rewards ADD COLUMN IF NOT EXISTS reward_category "
+            "VARCHAR(30) NOT NULL DEFAULT 'own_product'"
+        )
+    with db_engine.begin() as conn:
+        conn.execute(text(ddl))
+    logger.info("Added rewards.reward_category")
+
+
+def _add_season_econ_columns(db_engine, inspector, is_sqlite: bool, tables: set) -> None:
+    """Add disinflationary-emission + fee-revenue columns to season tables.
+
+    Idempotent: each column is guarded on its table existing and the column not
+    already being present. (sqlite has no ADD COLUMN IF NOT EXISTS, so we guard
+    explicitly; postgres uses IF NOT EXISTS as a belt-and-suspenders.)
+    """
+    # seasons.season_index, seasons.realized_fee_revenue_usd
+    if "seasons" in tables:
+        cols = {c["name"] for c in inspector.get_columns("seasons")}
+        season_new = [
+            ("season_index", "INTEGER", "1"),
+            ("realized_fee_revenue_usd", "DOUBLE PRECISION", "NULL"),
+            ("quarter", "VARCHAR(16)", "NULL"),
+        ]
+        for col_name, col_type, default in season_new:
+            if col_name in cols:
+                continue
+            ddl_default = "" if default == "NULL" else f" DEFAULT {default}"
+            if is_sqlite:
+                ddl = f"ALTER TABLE seasons ADD COLUMN {col_name} {col_type}{ddl_default}"
+            else:
+                ddl = (
+                    f"ALTER TABLE seasons ADD COLUMN IF NOT EXISTS "
+                    f"{col_name} {col_type}{ddl_default}"
+                )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info(f"Added seasons.{col_name}")
+
+    # season_points.fee_paid_usd
+    if "season_points" in tables:
+        cols = {c["name"] for c in inspector.get_columns("season_points")}
+        if "fee_paid_usd" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE season_points ADD COLUMN fee_paid_usd DOUBLE PRECISION DEFAULT 0"
+            else:
+                ddl = (
+                    "ALTER TABLE season_points ADD COLUMN IF NOT EXISTS "
+                    "fee_paid_usd DOUBLE PRECISION DEFAULT 0"
+                )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info("Added season_points.fee_paid_usd")
+
+
+def _add_point_transactions_season_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add point_transactions.season_id idempotently (nullable, for season audit)."""
+    cols = {c["name"] for c in inspector.get_columns("point_transactions")}
+    if "season_id" in cols:
+        return
+    if is_sqlite:
+        ddl = "ALTER TABLE point_transactions ADD COLUMN season_id INTEGER"
+    else:
+        ddl = "ALTER TABLE point_transactions ADD COLUMN IF NOT EXISTS season_id INTEGER"
+    with db_engine.begin() as conn:
+        conn.execute(text(ddl))
+    logger.info("Added point_transactions.season_id")
 
 
 def _add_digest_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -475,6 +647,9 @@ def _add_agent_drizzle_columns(db_engine, inspector, table_name: str, is_sqlite:
         ("total_requests", "INTEGER", "0"),
         ("total_swaps", "INTEGER", "0"),
         ("updated_at", "TIMESTAMP", "NULL"),
+        # Crypto-native subscription overlay (api-ts resolves effective tier from these).
+        ("subscription_tier", "VARCHAR(20)", "NULL"),
+        ("subscription_expires_at", "TIMESTAMP", "NULL"),
     ]
 
     for col_name, col_type, default in new_columns:
@@ -564,6 +739,22 @@ def _add_user_region_column(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info("Added users.region")
     except Exception as e:
         logger.warning(f"Failed to add users.region: {e}")
+
+
+def _add_user_language_preference_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add users.language_preference for persisting locale choice, idempotently."""
+    try:
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "language_preference" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE users ADD COLUMN language_preference VARCHAR(10) DEFAULT 'en'"
+            else:
+                ddl = "ALTER TABLE users ADD COLUMN IF NOT EXISTS language_preference VARCHAR(10) DEFAULT 'en'"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info("Added users.language_preference")
+    except Exception as e:
+        logger.warning(f"Failed to add users.language_preference: {e}")
 
 
 def _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -775,6 +966,46 @@ def _add_subscription_started_at(db_engine, inspector, is_sqlite: bool) -> None:
             ddl = "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS started_at TIMESTAMP"
         with db_engine.begin() as conn:
             conn.execute(text(ddl))
+
+
+def _add_audit_org_agent_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add org_id / agent_id columns + indexes to audit_logs idempotently.
+
+    api-ts (PolicyService / auditLog) writes these for the org-scoped audit
+    trail. audit_logs is python-owned, so the columns are added here rather
+    than via drizzle (which is scoped away from python tables).
+    """
+    cols = {c["name"] for c in inspector.get_columns("audit_logs")}
+
+    new_columns = [
+        ("org_id", "UUID" if not is_sqlite else "VARCHAR(36)"),
+        ("agent_id", "VARCHAR(64)"),
+    ]
+
+    for col_name, col_type in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE audit_logs ADD COLUMN {col_name} {col_type}"
+            else:
+                ddl = f"ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+    # Indexes for enterprise org-wide / per-agent audit queries.
+    if not is_sqlite:
+        with db_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS audit_logs_org_created_idx "
+                    "ON audit_logs (org_id, created_at)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS audit_logs_agent_created_idx "
+                    "ON audit_logs (agent_id, created_at)"
+                )
+            )
 
 
 def _add_discord_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -1167,6 +1398,19 @@ def _add_user_settings_mev_column(db_engine, inspector, is_sqlite: bool) -> None
             conn.execute(text(ddl))
 
 
+def _add_user_settings_proactive_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add proactive-alerts opt-in flag to user_settings (DEFAULT OFF)."""
+    cols = {c["name"] for c in inspector.get_columns("user_settings")}
+
+    if "proactive_alerts_enabled" not in cols:
+        if is_sqlite:
+            ddl = "ALTER TABLE user_settings ADD COLUMN proactive_alerts_enabled BOOLEAN DEFAULT FALSE"
+        else:
+            ddl = "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS proactive_alerts_enabled BOOLEAN DEFAULT FALSE"
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
+
+
 def _add_quicktrade_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Add quick-trade preset columns to user_settings table idempotently."""
     cols = {c["name"] for c in inspector.get_columns("user_settings")}
@@ -1231,6 +1475,39 @@ def _add_advanced_order_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 ddl = f"ALTER TABLE limit_orders ADD COLUMN {col_name} {col_type} DEFAULT {default}"
             else:
                 ddl = f"ALTER TABLE limit_orders ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+
+def _add_prediction_redeem_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add on-chain redemption columns to prediction_positions idempotently.
+
+    Resolved winning Polymarket positions are surfaced as "Claimable" until the
+    user redeems them on-chain (CTF/NegRiskAdapter ``redeemPositions``). These
+    columns track that redemption so a claimed position drops off the list and
+    its redeem tx is traceable. Additive + idempotent — safe to run repeatedly.
+    """
+    cols = {c["name"] for c in inspector.get_columns("prediction_positions")}
+
+    new_columns = [
+        ("claimed", "BOOLEAN", "FALSE"),
+        ("redeem_tx_hash", "VARCHAR(255)", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                # SQLite has no boolean literal; 0/NULL map cleanly.
+                sqlite_default = "0" if col_type == "BOOLEAN" else default
+                ddl = (
+                    f"ALTER TABLE prediction_positions ADD COLUMN "
+                    f"{col_name} {col_type} DEFAULT {sqlite_default}"
+                )
+            else:
+                ddl = (
+                    f"ALTER TABLE prediction_positions ADD COLUMN IF NOT EXISTS "
+                    f"{col_name} {col_type} DEFAULT {default}"
+                )
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
 
@@ -1492,6 +1769,216 @@ def _create_gamification_tables(db_engine, inspector, is_sqlite: bool) -> None:
         )
 
 
+def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create agent pay-per-call billing tables idempotently.
+
+    Backs the x402 prepaid-credit metering + crypto-native subscription surface
+    (api-ts middleware/x402Payment.ts and routes/agent.ts). These are defined in
+    api-ts's Drizzle schema, but drizzle-kit is tablesFilter-scoped away from
+    shared/python-owned tables, so python-api (the authority for the shared DB)
+    must create them here. Additive + idempotent.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        # --- agent_credits (prepaid balance; 1 credit ~= $0.001 USD) ---
+        if "agent_credits" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS agent_credits (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        agent_id INTEGER NOT NULL UNIQUE,
+                        balance REAL NOT NULL DEFAULT 0,
+                        lifetime_purchased REAL NOT NULL DEFAULT 0,
+                        lifetime_used REAL NOT NULL DEFAULT 0,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS agent_credits (
+                        id SERIAL PRIMARY KEY,
+                        agent_id INTEGER NOT NULL UNIQUE,
+                        balance REAL NOT NULL DEFAULT 0,
+                        lifetime_purchased REAL NOT NULL DEFAULT 0,
+                        lifetime_used REAL NOT NULL DEFAULT 0,
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                    )
+                """))
+
+        # --- agent_credit_topups (on-chain USDC topup ledger; idempotent on tx_hash) ---
+        if "agent_credit_topups" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS agent_credit_topups (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        agent_id INTEGER NOT NULL,
+                        tx_hash VARCHAR(128) NOT NULL UNIQUE,
+                        chain VARCHAR(32) NOT NULL DEFAULT 'base',
+                        amount_usd REAL NOT NULL,
+                        credits_added REAL NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS agent_credit_topups (
+                        id SERIAL PRIMARY KEY,
+                        agent_id INTEGER NOT NULL,
+                        tx_hash VARCHAR(128) NOT NULL UNIQUE,
+                        chain VARCHAR(32) NOT NULL DEFAULT 'base',
+                        amount_usd REAL NOT NULL,
+                        credits_added REAL NOT NULL,
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                    )
+                """))
+
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_agent_credit_topups_agent_id "
+                "ON agent_credit_topups(agent_id)"
+            )
+        )
+
+        # --- agent_subscriptions (USDC -> time-bound tier; idempotent on tx_hash) ---
+        if "agent_subscriptions" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS agent_subscriptions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        agent_id INTEGER NOT NULL UNIQUE,
+                        tier VARCHAR(20) NOT NULL,
+                        tx_hash VARCHAR(128) NOT NULL UNIQUE,
+                        chain VARCHAR(32) NOT NULL DEFAULT 'base',
+                        amount_usd REAL NOT NULL,
+                        started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        expires_at DATETIME NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS agent_subscriptions (
+                        id SERIAL PRIMARY KEY,
+                        agent_id INTEGER NOT NULL UNIQUE,
+                        tier VARCHAR(20) NOT NULL,
+                        tx_hash VARCHAR(128) NOT NULL UNIQUE,
+                        chain VARCHAR(32) NOT NULL DEFAULT 'base',
+                        amount_usd REAL NOT NULL,
+                        started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        expires_at TIMESTAMP NOT NULL,
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                    )
+                """))
+
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_agent_subscriptions_agent_id "
+                "ON agent_subscriptions(agent_id)"
+            )
+        )
+
+
+def _create_recurring_subscriptions_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the recurring_subscriptions table idempotently.
+
+    Backs true crypto auto-renew via Base Spend Permissions (api-ts
+    lib/spendPermission.ts + RecurringBillingService). Stores the user-signed
+    SpendPermission + signature so the operator can periodically call spend().
+    Amounts/timestamps that exceed JS/SQL int range (uint160/uint256) are stored
+    as decimal strings. Additive + idempotent (authoritative shared-DB path).
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "recurring_subscriptions" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS recurring_subscriptions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER,
+                        agent_id INTEGER,
+                        account VARCHAR(64) NOT NULL,
+                        spender VARCHAR(64) NOT NULL,
+                        token VARCHAR(64) NOT NULL,
+                        allowance VARCHAR(80) NOT NULL,
+                        period_seconds INTEGER NOT NULL,
+                        start_ts INTEGER NOT NULL,
+                        end_ts INTEGER NOT NULL,
+                        salt VARCHAR(80) NOT NULL,
+                        signature TEXT NOT NULL,
+                        tier VARCHAR(20),
+                        status VARCHAR(20) NOT NULL DEFAULT 'active',
+                        approved_tx VARCHAR(128),
+                        next_charge_at DATETIME,
+                        last_charge_at DATETIME,
+                        last_charge_tx VARCHAR(128),
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS recurring_subscriptions (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER,
+                        agent_id INTEGER,
+                        account VARCHAR(64) NOT NULL,
+                        spender VARCHAR(64) NOT NULL,
+                        token VARCHAR(64) NOT NULL,
+                        allowance VARCHAR(80) NOT NULL,
+                        period_seconds BIGINT NOT NULL,
+                        start_ts BIGINT NOT NULL,
+                        end_ts BIGINT NOT NULL,
+                        salt VARCHAR(80) NOT NULL,
+                        signature TEXT NOT NULL,
+                        tier VARCHAR(20),
+                        status VARCHAR(20) NOT NULL DEFAULT 'active',
+                        approved_tx VARCHAR(128),
+                        next_charge_at TIMESTAMP,
+                        last_charge_at TIMESTAMP,
+                        last_charge_tx VARCHAR(128),
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                    )
+                """))
+
+        # Idempotency: one row per (account, spender, token, salt) permission.
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_recurring_subscriptions_permission "
+                "ON recurring_subscriptions(account, spender, token, salt)"
+            )
+        )
+        # Scheduler query: due active charges.
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_recurring_subscriptions_due "
+                "ON recurring_subscriptions(status, next_charge_at)"
+            )
+        )
+
+
+def _add_copy_trade_paper_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add paper_entry_price_usd to copy_trades table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("copy_trades")}
+    if "paper_entry_price_usd" not in cols:
+        if is_sqlite:
+            ddl = "ALTER TABLE copy_trades ADD COLUMN paper_entry_price_usd FLOAT"
+        else:
+            ddl = "ALTER TABLE copy_trades ADD COLUMN IF NOT EXISTS paper_entry_price_usd FLOAT"
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
+
+
 def _add_copy_trading_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Add enhanced copy trading columns to copy_follows table idempotently."""
     cols = {c["name"] for c in inspector.get_columns("copy_follows")}
@@ -1499,6 +1986,9 @@ def _add_copy_trading_columns(db_engine, inspector, is_sqlite: bool) -> None:
     new_columns = [
         ("auto_sell_enabled", "BOOLEAN", "TRUE"),
         ("chains_filter", "VARCHAR(200)", "NULL"),
+        ("min_trade_usd", "FLOAT", "NULL"),
+        ("min_wallet_pnl_pct", "FLOAT", "NULL"),
+        ("min_token_age_hours", "FLOAT", "NULL"),
     ]
 
     for col_name, col_type, default in new_columns:
@@ -1555,3 +2045,26 @@ async def run_in_db(fn: Callable[..., T], *args, **kwargs) -> T:
     if kwargs:
         return await loop.run_in_executor(_db_executor, lambda: fn(*args, **kwargs))
     return await loop.run_in_executor(_db_executor, fn, *args)
+
+
+def _add_user_settings_granular_notify_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add granular per-event notification preference columns to user_settings (idempotent)."""
+    cols = {c["name"] for c in inspector.get_columns("user_settings")}
+
+    new_columns = [
+        ("notify_copy_executed", "BOOLEAN", "TRUE"),
+        ("notify_order_triggered", "BOOLEAN", "TRUE"),
+        ("notify_portfolio_milestone", "BOOLEAN", "FALSE"),
+        ("notify_risk_event", "BOOLEAN", "TRUE"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = (
+                    f"ALTER TABLE user_settings ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+                )
+            else:
+                ddl = f"ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))

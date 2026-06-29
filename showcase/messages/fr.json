@@ -1,0 +1,58 @@
+{
+  "nav": {
+    "engine": "Moteur",
+    "hyperliquid": "HyperLiquid",
+    "tempo": "Tempo",
+    "agents": "Agents",
+    "api": "API",
+    "pricing": "Tarifs",
+    "docs": "Docs",
+    "solutions": "Solutions",
+    "compare": "Comparer",
+    "forAgents": "Pour les Agents",
+    "status": "Statut",
+    "openBot": "Ouvrir le Bot",
+    "openTerminal": "Ouvrir le Terminal",
+    "whatsapp": "WhatsApp"
+  },
+  "hero": {
+    "kicker": "Le seul bot qui fait les trois",
+    "h1": "Swaps multi-chaînes, perps HyperLiquid et trades sans frais de gas.",
+    "h1_accent": "sans frais de gas",
+    "lead": "Les autres outils vous obligent à choisir — un bridge, un bureau de perps ou un wallet de gas. Suwappu unifie les trois : routage au meilleur prix sur 40+ chaînes, perps jusqu'à 20x et swaps avec gas sponsorisé. Tradez depuis Telegram, le terminal ou un seul appel SDK.",
+    "cta_bot": "Ouvrir le Bot Telegram",
+    "cta_terminal": "Ouvrir le Terminal",
+    "byline_pre": "Créé par l'auteur de",
+    "byline_book": "Printing Money",
+    "byline_mid": "— un livre pratique sur la sécurité DeFi — et contributeur open-source à",
+    "byline_and": "et"
+  },
+  "cta": {
+    "kicker": "Commencez maintenant",
+    "heading": "Votre prochain swap n'est qu'à une ligne.",
+    "lead": "Ouvrez le bot ou installez le SDK et connectez votre agent — swaps au meilleur prix, perps et trades sans frais de gas sur 40+ chaînes.",
+    "open_bot": "Ouvrir le Bot Telegram",
+    "whatsapp": "Discuter sur WhatsApp",
+    "docs": "Lire la documentation"
+  },
+  "referral": {
+    "kicker": "Gagnez avec Suwappu",
+    "heading": "30% de chaque commission de trading. Pour toujours.",
+    "body": "Référez un ami et gagnez 30% des commissions qu'il génère — versées automatiquement, sur chaque chaîne. Obtenez votre lien personnel avec {cmd} dans le bot.",
+    "cta": "Obtenir votre lien de parrainage"
+  },
+  "pricing": {
+    "kicker": "Tarifs",
+    "heading": "Des tarifs simples et transparents.",
+    "subheading": "Choisissez le plan adapté à votre volume. Résiliez à tout moment.",
+    "referral_heading": "Gagnez 30% en tant qu'affilié",
+    "referral_body": "Référez des traders actifs et gagnez 30% de leurs commissions — sur chaque chaîne, versées automatiquement. Obtenez votre lien avec /ref dans le bot.",
+    "referral_cta": "Obtenir votre lien de parrainage",
+    "enterprise_heading": "Besoin d'un plan personnalisé ?",
+    "enterprise_body": "Infrastructure dédiée, tarification au volume et SLA pour les desks de trading et les flottes d'agents.",
+    "enterprise_cta": "Nous contacter"
+  },
+  "languageSwitcher": {
+    "label": "Langue"
+  }
+}

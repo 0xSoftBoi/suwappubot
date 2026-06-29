@@ -63,6 +63,18 @@ export const StripeServiceLive = Layer.effect(
 								user_id: String(userId),
 								tier,
 							},
+							// Also stamp the SUBSCRIPTION (and thus its invoices) so
+							// subscription-level webhooks — customer.subscription.deleted and
+							// invoice.payment_failed — can resolve the user. Session metadata
+							// alone does NOT propagate to the subscription, which previously
+							// left the downgrade handler unable to find user_id.
+							subscription_data: {
+								metadata: {
+									telegram_id: telegramId,
+									user_id: String(userId),
+									tier,
+								},
+							},
 							success_url: successUrl,
 							cancel_url: cancelUrl,
 						})

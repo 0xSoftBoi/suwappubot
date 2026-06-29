@@ -75,6 +75,28 @@ export function PulseFilters({ filters, onChange, onReset }: PulseFiltersProps) 
         placeholder="Min"
       />
 
+      <FilterInput
+        label="Vol"
+        value={filters.minVolume}
+        onChange={v => update('minVolume', v)}
+        placeholder="Min"
+      />
+
+      <FilterInput
+        label="Txns"
+        value={filters.minTxns}
+        onChange={v => update('minTxns', v)}
+        placeholder="Min"
+      />
+
+      <FilterInput
+        label="Age"
+        value={filters.maxAgeMinutes}
+        onChange={v => update('maxAgeMinutes', v)}
+        placeholder="Max"
+        suffix="m"
+      />
+
       <div className="w-px h-3 bg-terminal-border" />
 
       <FilterInput
@@ -99,6 +121,13 @@ export function PulseFilters({ filters, onChange, onReset }: PulseFiltersProps) 
         onChange={v => update('maxSniperPercent', v)}
         placeholder="Max"
         suffix="%"
+      />
+
+      <FilterInput
+        label="Bundle"
+        value={filters.maxBundleCount}
+        onChange={v => update('maxBundleCount', v)}
+        placeholder="Max"
       />
 
       <div className="w-px h-3 bg-terminal-border" />

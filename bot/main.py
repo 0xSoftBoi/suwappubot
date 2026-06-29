@@ -7,6 +7,8 @@ from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
+    MessageHandler,
+    filters,
     PicklePersistence,
     AIORateLimiter,
 )
@@ -22,6 +24,7 @@ from bot.handlers.start import (
     tos_accept_callback,
     tos_decline_callback,
 )
+from bot.handlers.home import home_refresh_callback
 from bot.handlers.balance import balance_handler, balance_callback
 from bot.handlers.wallet import (
     wallet_handler,
@@ -31,6 +34,17 @@ from bot.handlers.wallet import (
     wallet_import_handler,
 )
 from bot.handlers.swap import swap_conversation_handler, check_swap_status, swap_share_ref_handler
+from bot.handlers.paste_trade import (
+    on_freeform_text,
+    check_command,
+    paste_cancel_callback,
+    paste_check_hint_callback,
+)
+from bot.handlers.trending import (
+    trending_command,
+    trending_open_callback,
+    trending_buy_callback,
+)
 from bot.handlers.twofa import twofa_conversation
 from bot.handlers.smart_account import smart_account_handler, smart_account_chain_handler
 from bot.handlers.recovery import recover_handler, recover_cancel_handler
@@ -69,10 +83,16 @@ from bot.handlers.settings import (
     recovery_conversation,
     limits_conversation,
     toggle_mev_handler,
+    toggle_proactive_handler,
     speed_menu_handler,
     speed_set_handler,
     chain_menu_handler,
     chain_set_handler,
+    notify_prefs_handler,
+    ntoggle_copy_handler,
+    ntoggle_order_handler,
+    ntoggle_portfolio_handler,
+    ntoggle_risk_handler,
 )
 from bot.handlers.admin import (
     status_handler,
@@ -133,6 +153,7 @@ from bot.handlers.limit_orders import (
     orders_handler,
     dca_handler,
     limit_order_conversation,
+    trailing_stop_conversation,
     dca_view_handler,
     dca_actions_handler,
     dca_menu_callback,
@@ -166,6 +187,8 @@ from bot.handlers.subscription import (
     sub_compare_callback,
     sub_back_callback,
 )
+from bot.handlers.vip import vip_handler
+from bot.handlers.import_handler import import_conversation_handler
 
 # Points/XP system handlers
 from bot.handlers.points import (
@@ -212,6 +235,7 @@ from bot.handlers.savings import savings_conversation_handler
 from bot.handlers.borrow import borrow_conversation_handler
 from bot.handlers.btc import btc_conversation_handler
 from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
+from bot.handlers.p2p_handler import p2p_conversation_handler
 from bot.handlers.fund import fund_command_handler, fund_callback_handler
 from bot.handlers.hl_ecosystem import (
     twap_handler,
@@ -238,11 +262,20 @@ from bot.handlers.token import (
     bond_menu_callback_handler,
     bond_list_callback_handler,
 )
+from bot.handlers.enterprise import (
+    org_handler,
+    org_newkey_conversation,
+    org_members_callback,
+    org_keys_callback,
+    org_cancel_callback,
+    org_back_callback,
+)
 from bot.handlers.mpp_handler import get_mpp_handlers
 from bot.handlers.tempo import get_tempo_handlers
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
+from bot.services.hl_ws_alerts import hl_ws_alerts
 from bot.services.orders import order_service
 from bot.services.tx_poller import tx_poller
 from bot.services.health_monitor import health_monitor
@@ -322,6 +355,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(dca_handler)  # /dca
     application.add_handler(tax_handler)  # /tax
     application.add_handler(subscription_handler)  # /sub (x402)
+    application.add_handler(org_handler)  # /org (enterprise org management)
+    application.add_handler(vip_handler)  # /vip (cross-line VIP status)
     application.add_handler(dashboard_handler)  # /dashboard (Mini App)
     application.add_handler(digest_handler)  # /digest
 
@@ -380,7 +415,11 @@ def add_handlers(application: Application) -> None:
     application.add_handler(withdrawal_conversation)
     application.add_handler(alert_conversation)
     application.add_handler(limit_order_conversation)
+    application.add_handler(
+        trailing_stop_conversation
+    )  # MONEY-PATH: trailing stop triggers sell execution
     application.add_handler(subscription_conversation)  # x402 subscription flow
+    application.add_handler(org_newkey_conversation)  # Enterprise /org new-key name entry
     application.add_handler(profile_edit_conversation)  # Copy trading profile editing
     application.add_handler(snipe_conversation_handler)  # Token sniping /snipe
     application.add_handler(perps_conversation_handler)  # Perps trading /perps
@@ -388,10 +427,25 @@ def add_handlers(application: Application) -> None:
     application.add_handler(savings_conversation_handler)  # USDC savings /save (Aave V3 Base)
     application.add_handler(borrow_conversation_handler)  # Borrow USDC vs cbBTC /borrow (Morpho)
     application.add_handler(btc_conversation_handler)  # BTC bridge /btc (Atomiq, Starknet)
+    application.add_handler(p2p_conversation_handler)  # P2P marketplace /p2p
     application.add_handler(token_conv_handler)  # SUWP token /token /suwp
     application.add_handler(twofa_conversation)  # TOTP 2FA enrollment /2fa
     application.add_handler(smart_account_handler)  # ERC-4337 smart account /sa
     application.add_handler(recover_handler)  # DKIM-email social recovery /recover
+
+    # Paste-to-trade: /check front door + card callbacks (Buy buttons enter the
+    # swap conversation via its own "^pbuy_" entry_point — no extra handler here)
+    application.add_handler(CommandHandler("check", check_command))
+    application.add_handler(CallbackQueryHandler(paste_cancel_callback, pattern="^paste_cancel$"))
+    application.add_handler(
+        CallbackQueryHandler(paste_check_hint_callback, pattern="^paste_check_hint$")
+    )
+
+    # Trending (pull-only discovery): /trending + inline tile + token-view-to-buy.
+    # Buy buttons funnel through paste_token + the swap "^pbuy_" entry_point.
+    application.add_handler(CommandHandler("trending", trending_command))
+    application.add_handler(CallbackQueryHandler(trending_open_callback, pattern="^trending_open$"))
+    application.add_handler(CallbackQueryHandler(trending_buy_callback, pattern="^tbuy_"))
 
     # ============ CALLBACK QUERY HANDLERS ============
 
@@ -403,6 +457,7 @@ def add_handlers(application: Application) -> None:
     # Navigation
     application.add_handler(CallbackQueryHandler(help_callback, pattern="^help$"))
     application.add_handler(CallbackQueryHandler(main_menu_callback, pattern="^main_menu$"))
+    application.add_handler(CallbackQueryHandler(home_refresh_callback, pattern="^home_refresh$"))
     application.add_handler(CallbackQueryHandler(more_menu_callback, pattern="^more_menu$"))
     application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
     application.add_handler(CallbackQueryHandler(tos_accept_callback, pattern="^tos_accept$"))
@@ -444,11 +499,17 @@ def add_handlers(application: Application) -> None:
     application.add_handler(toggle_notify_handler)
     application.add_handler(toggle_panic_handler)
     application.add_handler(toggle_mev_handler)  # Settings → MEV protection toggle
+    application.add_handler(toggle_proactive_handler)  # Settings → proactive-alerts opt-in
     application.add_handler(speed_menu_handler)  # Settings → tx speed menu
     application.add_handler(speed_set_handler)  # Settings → tx speed set
     application.add_handler(chain_menu_handler)  # Settings → default chain menu
     application.add_handler(chain_set_handler)  # Settings → default chain set
     application.add_handler(recovery_menu_callback)  # settings_recovery button
+    application.add_handler(notify_prefs_handler)  # Settings → notification prefs submenu
+    application.add_handler(ntoggle_copy_handler)  # Notif prefs → copy executed toggle
+    application.add_handler(ntoggle_order_handler)  # Notif prefs → order triggered toggle
+    application.add_handler(ntoggle_portfolio_handler)  # Notif prefs → portfolio milestone toggle
+    application.add_handler(ntoggle_risk_handler)  # Notif prefs → risk event toggle
 
     # Custodial
     application.add_handler(CallbackQueryHandler(custodial_callback, pattern="^custodial_menu$"))
@@ -513,6 +574,12 @@ def add_handlers(application: Application) -> None:
     application.add_handler(sub_compare_callback)
     application.add_handler(sub_back_callback)
 
+    # Enterprise org management
+    application.add_handler(CallbackQueryHandler(org_members_callback, pattern="^org_members$"))
+    application.add_handler(CallbackQueryHandler(org_keys_callback, pattern="^org_keys$"))
+    application.add_handler(CallbackQueryHandler(org_cancel_callback, pattern="^org_cancel$"))
+    application.add_handler(CallbackQueryHandler(org_back_callback, pattern="^org_back$"))
+
     # Points/XP callbacks
     application.add_handler(points_menu_callback_handler)
     application.add_handler(xp_callback_handler)
@@ -560,6 +627,16 @@ def add_handlers(application: Application) -> None:
     for tempo_handler in get_tempo_handlers():
         application.add_handler(tempo_handler)
 
+    # BullX Neo migration wizard — /import
+    application.add_handler(import_conversation_handler)
+
+    # Freeform text catch-all — MUST be registered last in the default group so
+    # it only fires when no ConversationHandler (or earlier handler) handles the
+    # text. PTB runs one handler per group; conversations only match when active,
+    # so a plain paste / freeform message falls through to here. Handles
+    # paste-to-trade (token address → card) and the keyword intent router.
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_freeform_text))
+
     # Error handler
     application.add_error_handler(error_handler)
 
@@ -579,51 +656,60 @@ async def post_init(application) -> None:
     except Exception as e:
         logger.warning(f"Could not set menu button: {e}")
 
-    # Register bot commands for Telegram autocomplete menu
+    # Register bot commands for Telegram autocomplete menu.
+    #
+    # A 40-item flat "/" list is an unscannable wall that buries the headline
+    # actions. We register a CURATED ~13-command default menu (the long tail
+    # still works when typed, and everything is reachable via /start's inline
+    # menu). Admins additionally get their ops tools in their OWN "/" menu via a
+    # per-chat scope, so they no longer have to remember hidden commands.
     try:
         commands = [
-            BotCommand("start", "Main menu"),
-            BotCommand("s", "Quick swap - /s <amount> <token>"),
-            BotCommand("w", "Wallet management"),
-            BotCommand("b", "Check balances"),
-            BotCommand("p", "Portfolio overview"),
-            BotCommand("pos", "Positions & PnL (spot + perps + predictions)"),
-            BotCommand("a", "Price alerts"),
-            BotCommand("o", "Limit orders"),
-            BotCommand("dca", "Dollar-cost averaging"),
-            BotCommand("snipe", "Token sniping"),
-            BotCommand("mpp", "Tempo machine payments (pay services/agents)"),
-            BotCommand("tempo", "Tempo session key for automated swaps"),
-            BotCommand("hx", "Transaction history"),
-            BotCommand("g", "Gas tracker"),
-            BotCommand("f", "Favorite tokens"),
-            BotCommand("ref", "Referral program"),
-            BotCommand("xp", "Points & XP"),
-            BotCommand("lb", "Leaderboard"),
-            BotCommand("checkin", "Daily check-in"),
-            BotCommand("traders", "Copy trading"),
-            BotCommand("perps", "Perpetual trading"),
-            BotCommand("twap", "TWAP order (slice over time)"),
-            BotCommand("stake", "Stake HYPE / view staking"),
-            BotCommand("vault", "HyperLiquid vaults"),
-            BotCommand("spot", "HyperCore spot trading"),
-            BotCommand("hlmove", "Move USDC spot<->perp"),
-            BotCommand("hl", "HyperLiquid hub & holdings"),
-            BotCommand("predict", "Prediction markets"),
-            BotCommand("token", "SUWP token & staking"),
-            BotCommand("suwp", "SUWP token & staking"),
-            BotCommand("following", "Copy trading follows"),
-            BotCommand("profile", "Your trader profile"),
-            BotCommand("c", "Custodial wallet"),
-            BotCommand("dashboard", "Open Mini App"),
-            BotCommand("btc", "BTC bridge (Lightning ⇄ Starknet)"),
-            BotCommand("borrow", "Borrow USDC against BTC"),
-            BotCommand("tax", "Tax export"),
-            BotCommand("set", "Settings"),
-            BotCommand("h", "Help"),
+            BotCommand("start", "🏠 Home — live balance, positions & PnL"),
+            BotCommand("s", "💱 Swap a token"),
+            BotCommand("perps", "📈 Perps trading"),
+            BotCommand("predict", "🔮 Prediction markets"),
+            BotCommand("p", "📊 Portfolio overview"),
+            BotCommand("pos", "💼 Positions & PnL"),
+            BotCommand("w", "👛 Wallets"),
+            BotCommand("save", "🏦 Earn yield on idle USDC"),
+            BotCommand("a", "🔔 Price alerts"),
+            BotCommand("check", "🛡️ Token safety check"),
+            BotCommand("btc", "₿ BTC bridge (Lightning ⇄ Starknet)"),
+            BotCommand("ref", "🎁 Referrals & rewards"),
+            BotCommand("vip", "⭐ VIP status — your tier, fee rate & XP multiplier"),
+            BotCommand("import", "📥 Import wallets — migrate from BullX or another bot"),
+            BotCommand("set", "⚙️ Settings"),
+            BotCommand("h", "📖 Help — full command list"),
         ]
         await application.bot.set_my_commands(commands)
-        logger.info(f"✓ Registered {len(commands)} bot commands")
+        logger.info(f"✓ Registered {len(commands)} default bot commands")
+
+        # Admin-scoped menu: curated commands + ops tools, only in admins' chats.
+        try:
+            from telegram import BotCommandScopeChat
+            from bot.handlers.admin import ADMIN_IDS
+
+            admin_commands = commands + [
+                BotCommand("st", "🛠️ Status"),
+                BotCommand("m", "🛠️ Metrics"),
+                BotCommand("perf", "🛠️ Performance"),
+                BotCommand("fee", "🛠️ Fees"),
+                BotCommand("hw", "🛠️ Hot wallets"),
+                BotCommand("bc", "🛠️ Broadcast"),
+                BotCommand("cc", "🛠️ Clear cache"),
+            ]
+            for admin_id in ADMIN_IDS:
+                try:
+                    await application.bot.set_my_commands(
+                        admin_commands, scope=BotCommandScopeChat(chat_id=admin_id)
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not set admin commands for {admin_id}: {e}")
+            if ADMIN_IDS:
+                logger.info(f"✓ Registered admin command menu for {len(ADMIN_IDS)} admin(s)")
+        except Exception as e:
+            logger.warning(f"Could not register admin command scope: {e}")
     except Exception as e:
         logger.warning(f"Could not register bot commands: {e}")
 
@@ -632,6 +718,12 @@ async def post_init(application) -> None:
 
     points_service.seed_milestones_and_rewards()
     logger.info("✓ Points milestones and rewards seeded")
+
+    # Seed the first convertible-points season (idempotent)
+    from bot.services.seasons_service import seasons_service
+
+    seasons_service.ensure_seed()
+    logger.info("✓ Season seeded")
 
     # Get admin IDs from settings
     admin_ids = getattr(settings, "admin_ids", [])
@@ -667,6 +759,11 @@ async def post_init(application) -> None:
         await rug_service.start(swap_engine=SwapEngine())
         logger.info("✓ Rug protection service started")
 
+        # Start HyperLiquid WebSocket alert feed
+        if settings.hl_ws_alerts_enabled:
+            await hl_ws_alerts.start(bot=application.bot)
+            logger.info("✓ HyperLiquid WebSocket alerts started")
+
 
 async def post_shutdown(application) -> None:
     """Called when the application shuts down."""
@@ -679,6 +776,8 @@ async def post_shutdown(application) -> None:
         await tx_poller.stop()
         await health_monitor.stop()
         await launch_detector.stop()
+        if settings.hl_ws_alerts_enabled:
+            await hl_ws_alerts.stop()
 
     logger.info("Closing HTTP session pool...")
     await close_http_session()

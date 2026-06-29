@@ -17,6 +17,7 @@ const defaultChains: Chain[] = [
   { id: 'polygon', name: 'Polygon', icon: '⬡' },
   { id: 'arb', name: 'Arbitrum', icon: '🔷' },
   { id: 'sol', name: 'Solana', icon: '◎' },
+  { id: 'tempo', name: 'Tempo', icon: '⏱️' },
 ]
 
 export function ChainSelector({ chains = defaultChains, selected, onSelect }: ChainSelectorProps) {

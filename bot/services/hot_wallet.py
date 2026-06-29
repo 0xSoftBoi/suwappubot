@@ -738,14 +738,15 @@ class HotWalletService:
         to_address: str,
         amount: Decimal,
         decimals: int,
-        memo: Optional[str] = None,
+        memo: str = "",
     ) -> str:
         """Send ERC20/SPL token from hot wallet. Returns tx hash/signature.
 
-        ``memo`` is only honored for TIP-20 tokens on Tempo: it routes through the
-        TIP-20 ``transferWithMemo(address,uint256,bytes32)`` extension (the official
-        fixed-32-byte memo, via pytempo) so the payment carries an on-chain memo.
-        Ignored on every other chain. None/empty → a plain ERC-20 ``transfer``.
+        On Tempo (chain 4217), tokens are TIP-20 (an ERC-20 superset). Tempo
+        transfers are routed through ``transferWithMemo`` so an optional payment
+        ``memo`` can ride with the transfer; an empty memo still produces a real
+        TIP-20 transferWithMemo call. All other chains use plain ERC-20
+        ``transfer``.
         """
         if wallet.chain_type == "solana":
             return await self._send_spl_token(wallet, token_address, to_address, amount, decimals)
@@ -756,22 +757,26 @@ class HotWalletService:
         chain = get_chain_by_name(chain_name)
 
         amount_raw = int(amount * Decimal(10**decimals))
+
         nonce = web3.eth.get_transaction_count(Web3.to_checksum_address(wallet.address))
         gas_price = web3.eth.gas_price
 
-        if chain_name.lower() == "tempo" and memo:
-            # TIP-20 transferWithMemo (memo is a fixed bytes32; pytempo right-pads).
-            from pytempo.contracts import TIP20
+        if chain_name == "tempo":
+            # TIP-20 transferWithMemo (Tempo native). build_transfer_with_memo
+            # returns {to, data, value}; we add the standard tx fields here.
+            from bot.services.tempo_tip20 import tempo_tip20
 
-            call = TIP20(Web3.to_checksum_address(token_address)).transfer_with_memo(
-                to=Web3.to_checksum_address(to_address),
+            base = tempo_tip20.build_transfer_with_memo(
+                token_address=token_address,
+                to=to_address,
                 amount=amount_raw,
-                memo=memo.encode("utf-8")[:32],
+                memo=memo or "",
             )
             tx = {
-                "to": Web3.to_checksum_address(token_address),
-                "data": "0x" + call.data.hex(),
-                "value": 0,
+                "from": Web3.to_checksum_address(wallet.address),
+                "to": base["to"],
+                "data": base["data"],
+                "value": base.get("value", 0),
                 "nonce": nonce,
                 "gasPrice": gas_price,
                 "chainId": chain.chain_id,
@@ -790,7 +795,10 @@ class HotWalletService:
                     "type": "function",
                 }
             ]
+
             contract = web3.eth.contract(address=Web3.to_checksum_address(token_address), abi=abi)
+
+            # Build transaction
             tx = contract.functions.transfer(
                 Web3.to_checksum_address(to_address), amount_raw
             ).build_transaction(

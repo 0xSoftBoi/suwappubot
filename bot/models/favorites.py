@@ -83,6 +83,15 @@ class UserSettings(Base):
     notify_on_complete = Column(Boolean, default=True)
     notify_on_price_alert = Column(Boolean, default=True)
     notify_gas_updates = Column(Boolean, default=False)
+    # Opt-in consent flag for future anticipatory/proactive push (DEFAULT OFF).
+    # Scaffold only — no push logic reads this yet; it gates future delivery.
+    proactive_alerts_enabled = Column(Boolean, default=False)
+
+    # Granular per-event notification preferences
+    notify_copy_executed = Column(Boolean, default=True, nullable=False)
+    notify_order_triggered = Column(Boolean, default=True, nullable=False)
+    notify_portfolio_milestone = Column(Boolean, default=False, nullable=False)
+    notify_risk_event = Column(Boolean, default=True, nullable=False)
 
     # Security settings
     per_swap_limit_usd = Column(Float, default=5000.0)

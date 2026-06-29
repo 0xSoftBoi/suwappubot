@@ -11,10 +11,12 @@ import {
 	adminRoutes,
 	agentRoutes,
 	billingRoutes,
+	enterpriseRoutes,
 	healthRoutes,
 	internalRoutes,
 	lendRoutes,
 	mcpRoutes,
+	p2pRoutes,
 	perpsRoutes,
 	predictRoutes,
 	publicSwapRoutes,
@@ -85,6 +87,9 @@ export function createApp(config: AppConfig) {
 	// Swap routes - mounted first so public endpoints (tokens, chains) are accessible
 	app.route('/webapp/swap', swapRoutes)
 
+	// P2P marketplace (native offer book + trades; external aggregation via bot)
+	app.route('/webapp/p2p', p2pRoutes)
+
 	// Webapp routes - Telegram auth
 	app.route('/webapp', webappRoutes)
 
@@ -96,6 +101,9 @@ export function createApp(config: AppConfig) {
 
 	// Billing routes - Stripe subscription management
 	app.route('/billing', billingRoutes)
+
+	// Enterprise org management + API key control plane
+	app.route('/enterprise', enterpriseRoutes)
 
 	// Agent A2A API routes (v1/agent/*) - uses Bearer token auth internally
 	// Registration is public, other endpoints require Bearer token
@@ -116,6 +124,25 @@ export function createApp(config: AppConfig) {
 	app.get('/.well-known/agent-card.json', (c) => c.json(agentCard))
 	app.get('/.well-known/agent.json', (c) => c.json(agentCard))
 	app.get('/agent-card.json', (c) => c.json(agentCard))
+
+	// security.txt — RFC 9116 responsible-disclosure contact (procurement/security
+	// teams check for this during vendor evaluation). Refresh `Expires` annually.
+	app.get('/.well-known/security.txt', (c) => {
+		c.header('Content-Type', 'text/plain; charset=utf-8')
+		return c.body(
+			[
+				'# Suwappu security disclosure policy — https://suwappu.bot/.well-known/security.txt',
+				'Contact: mailto:security@suwappu.bot',
+				'Contact: https://suwappu.bot/security',
+				'Expires: 2027-06-01T00:00:00.000Z',
+				'Canonical: https://suwappu.bot/.well-known/security.txt',
+				'Policy: https://suwappu.bot/security',
+				'Preferred-Languages: en',
+				'Hiring: https://suwappu.bot/careers',
+				'',
+			].join('\n'),
+		)
+	})
 
 	// llms.txt — machine-readable API summary for LLM/agent discovery
 	app.get('/llms.txt', (c) => {
@@ -182,7 +209,7 @@ Get key: POST /register (no auth needed)
 
 ## Protocols
 - REST: https://api.suwappu.bot/v1/agent/*
-- MCP: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0; tools: get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory, predict_markets, predict_market_detail; resources + prompts supported)
+- MCP: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0; tools: get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory, predict_markets, predict_market, perps_markets, perps_quote, perps_positions, lend_markets, lend_market; resources + prompts supported)
 - A2A: POST https://api.suwappu.bot/a2a (JSON-RPC 2.0, methods: message/send, tasks/get, tasks/cancel)
 - Agent Card: GET https://api.suwappu.bot/.well-known/agent.json
 - OpenAPI: GET https://api.suwappu.bot/v1/agent/openapi
@@ -196,6 +223,15 @@ Ethereum (1), Optimism (10), BSC (56), Polygon (137), Arbitrum (42161), Base (84
 ## Rate Limits
 free: 30/min, agent: 100/min, pro: 500/min
 Headers: X-RateLimit-Limit, X-RateLimit-Remaining, Retry-After (on 429)
+
+## Pricing & Payments (x402)
+Paid endpoints and MCP tools are metered in prepaid credits (1 credit ≈ $0.001 USD). Subscription tiers (agent/pro/premium/enterprise) bypass metering.
+- On insufficient balance the API returns HTTP 402 with an x402 challenge: header X-Payment-Required (base64 JSON) + Accept-Payment, and an \`accepts[]\` body (scheme=exact, USDC on Base). Standard x402 clients (x402-axios / x402-fetch) handle this automatically.
+- Pay-per-call cost weights: reads/quotes 1 credit, swap/execute 5 credits. MCP discovery tools (list_chains/list_tokens/get_tempo_tokens) are free.
+- Top up credits: POST /v1/agent/billing/topup {txHash, chain, amount} (pay USDC to the collector, submit the txHash; idempotent).
+- Prepaid access window (crypto, 30d, unmetered — NO auto-renew, re-pay to extend): POST /v1/agent/billing/subscribe {txHash, chain, amount, tier} — pro $9.99, premium $29.99, enterprise $99.99.
+- Check balance/subscription/pricing: GET /v1/agent/billing
+- Human users: Stripe checkout (GET /billing/stripe/checkout?tier=) or crypto (POST /billing/crypto).
 
 ## SDK
 npm: @suwappu/sdk | PyPI: suwappu

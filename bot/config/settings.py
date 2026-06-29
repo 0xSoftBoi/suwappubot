@@ -161,6 +161,12 @@ class Settings(BaseSettings):
         default=None, description="Infura API key — used as primary RPC for supported chains"
     )
 
+    # Helius (Solana RPC/DAS/Enhanced Transactions). SERVER-ONLY — proxied via
+    # /webapp/solana/* so the key never reaches the client bundle.
+    helius_api_key: str = Field(
+        default="", description="Helius API key for the server-side Solana data proxy"
+    )
+
     # Alchemy Configuration (Full Suite)
     alchemy_api_key: Optional[str] = Field(
         default=None, description="Alchemy API key for enhanced RPC, Token API, NFT API"
@@ -487,6 +493,86 @@ class Settings(BaseSettings):
         description="Default Starknet token received from BTC/Lightning deposits",
     )
 
+    # Compliance screening for EVM swaps (UBS × Nethermind PoC model).
+    # Screens every swap's recipient / router / token addresses before signing
+    # at the SwapEngine.execute_swap choke point. OFF by default so existing
+    # flows are unchanged. See docs/architecture/compliance-screening.md.
+    compliance_mode: str = Field(
+        default="disabled",
+        description=(
+            "Compliance gate behaviour: 'disabled' (no screening), 'monitor' "
+            "(screen + log violations but allow), or 'enforce' (block "
+            "non-compliant swaps)."
+        ),
+    )
+    compliance_policy: str = Field(
+        default="blocklist_only",
+        description=(
+            "Which lists apply: 'blocklist_only' (deny sanctioned/blocked "
+            "addresses), 'allowlist_only' (deny anything not pre-approved), or "
+            "'allowlist_and_blocklist' (both; blocklist wins)."
+        ),
+    )
+    compliance_blocklist: str = Field(
+        default="",
+        description=(
+            "Comma-separated EVM addresses to block, in addition to the bundled "
+            "OFAC seed list (recipient/router/token interactions are refused)."
+        ),
+    )
+    compliance_allowlist: str = Field(
+        default="",
+        description=(
+            "Comma-separated EVM addresses that are pre-approved. Only consulted "
+            "when compliance_policy includes an allowlist."
+        ),
+    )
+    compliance_ofac_list_path: str = Field(
+        default="",
+        description=(
+            "Optional path to a newline-delimited file of OFAC-sanctioned "
+            "addresses, merged with the bundled seed list at load time."
+        ),
+    )
+
+    # Compliant transaction routing (UBS × Nethermind PoC, stage 2): route
+    # screened same-chain EVM swaps privately to block builders via the
+    # Flashbots relay instead of the public mempool. Falls back to public RPC
+    # on any error, so it can never break a swap. OFF by default.
+    compliance_routing_enabled: bool = Field(
+        default=False,
+        description=(
+            "Route screened same-chain EVM swap transactions privately via the "
+            "Flashbots relay (eth_sendPrivateTransaction) instead of the public "
+            "mempool. Falls back to public RPC on any relay error."
+        ),
+    )
+    flashbots_relay_url: str = Field(
+        default="https://relay.flashbots.net",
+        description="Flashbots-compatible relay endpoint for private tx submission.",
+    )
+    flashbots_signer_key: str = Field(
+        default="",
+        description=(
+            "Hex private key used ONLY to sign the Flashbots auth header "
+            "(identity/reputation; never holds funds). Ephemeral if empty."
+        ),
+    )
+    compliance_routing_chain_ids: str = Field(
+        default="1",
+        description=(
+            "Comma-separated EVM chain IDs whose swaps route through the relay "
+            "(default '1' = Ethereum mainnet)."
+        ),
+    )
+    flashbots_max_block_offset: int = Field(
+        default=25,
+        description=(
+            "How many future blocks a privately-routed tx stays valid for "
+            "(maxBlockNumber = current + offset)."
+        ),
+    )
+
     # Morpho Blue on Base (cbBTC-collateralized USDC borrowing + USDC earn vaults)
     morpho_enabled: bool = Field(
         default=True,
@@ -495,6 +581,25 @@ class Settings(BaseSettings):
     morpho_vault_default: str = Field(
         default="0xbeeF010f9cb27031ad51e3333f9aF9C6B1228183",
         description="Default MetaMorpho USDC earn vault on Base (Steakhouse USDC)",
+    )
+
+    # HyperLiquid real-time WebSocket alert feed (fills / liquidations / funding / whales).
+    # Connects to wss://api.hyperliquid.xyz/ws and pushes Telegram alerts. OFF by default.
+    hl_ws_alerts_enabled: bool = Field(
+        default=True,
+        description="Enable the HyperLiquid WebSocket alert feed (per-user fills/liquidations/funding).",
+    )
+    hl_whale_alerts_enabled: bool = Field(
+        default=True,
+        description="Enable HyperLiquid whale-trade alerts (large single trades on major coins).",
+    )
+    hl_whale_alert_threshold_usd: float = Field(
+        default=1_000_000.0,
+        description="Minimum single-trade notional (USD) to emit a HyperLiquid whale alert.",
+    )
+    hl_whale_alert_coins: str = Field(
+        default="BTC,ETH,SOL,HYPE",
+        description="Comma-separated coins to watch for HyperLiquid whale trades.",
     )
 
     # Infura network name mappings
@@ -634,7 +739,7 @@ class Settings(BaseSettings):
     # enable flag (not a key) so it ships dark and has a no-redeploy kill switch
     # — execution is verified for quote+build but not yet run on-chain.
     kyberswap_enabled: bool = Field(
-        default=False, description="Enable KyberSwap in the best-price race (no API key needed)"
+        default=True, description="Enable KyberSwap in the best-price race (no API key needed)"
     )
     kyberswap_client_id: str = Field(
         default="suwappu-bot",
@@ -735,6 +840,43 @@ class Settings(BaseSettings):
         ),
     )
 
+    # === Tempo native features (chain id 4217) ===
+    # Tempo is first-class native: same-chain stablecoin swaps route through the
+    # protocol-level enshrined DEX, NOT any external aggregator (none support 4217).
+    tempo_swap_slippage_pct: float = Field(
+        default=0.1,
+        description=(
+            "Slippage tolerance (%) applied to the enshrined-DEX min-out. Stablecoin "
+            "pairs barely move, so a tight default avoids needless reverts."
+        ),
+    )
+    tempo_use_permit: bool = Field(
+        default=True,
+        description=(
+            "Use EIP-2612 permit (TIP-1004) for gasless token approval on Tempo swaps "
+            "instead of a separate approve() tx. Local wallets only; falls back to "
+            "approve() for Turnkey wallets or on any permit error."
+        ),
+    )
+    tempo_fee_sponsorship_enabled: bool = Field(
+        default=False,
+        description=(
+            "When true, the bot sponsors gas (paid in TIP-20 stablecoins) for a new "
+            "user's first few Tempo transactions. Requires tempo_sponsor_address to be "
+            "set. Default off so the bot never spends funds unexpectedly."
+        ),
+    )
+    tempo_sponsor_address: Optional[str] = Field(
+        default=None,
+        description="EVM address that pays sponsored Tempo gas (Tempo T2 feePayer).",
+    )
+    tempo_sponsor_max_txs: int = Field(
+        default=3, description="Max sponsored Tempo transactions per user."
+    )
+    tempo_sponsor_daily_budget_usd: float = Field(
+        default=100.0, description="Daily Tempo fee-sponsorship budget in USD."
+    )
+
     # Polymarket API (optional — for pre-configured CLOB credentials)
     polymarket_clob_api_key: Optional[str] = Field(
         default=None, description="Polymarket CLOB API key (optional)"
@@ -744,6 +886,58 @@ class Settings(BaseSettings):
     )
     polymarket_clob_passphrase: Optional[str] = Field(
         default=None, description="Polymarket CLOB API passphrase (optional)"
+    )
+    polymarket_restricted_regions: Optional[str] = Field(
+        default=None,
+        description=(
+            "Comma-separated ISO2 regions where Polymarket on-chain redemption is "
+            "geo-blocked. Falls back to hyperunit_restricted_regions (default 'US') "
+            "when unset."
+        ),
+    )
+
+    # ── P2P marketplace ──────────────────────────────────────────────────────
+    # Suwappu aggregates P2P fiat<>crypto liquidity across its own native
+    # on-chain escrow book plus external providers. Each provider is gated on its
+    # credentials being present; the native book always works.
+    p2p_enabled: bool = Field(default=True, description="Master switch for P2P features")
+
+    # Rewards marketplace (async gift-card/travel/merch/donation/experience fulfillment).
+    # Ships DISABLED: with no provider configured, async redemptions are recorded and
+    # immediately refunded (points never lost). Flip to True only once a real provider
+    # (Tremendous/Bitrefill/Duffel) + compliance sign-off is wired. See
+    # bot/services/reward_providers.py and docs/economics/REWARDS_MARKETPLACE.md.
+    rewards_marketplace_enabled: bool = Field(
+        default=False, description="Master switch for async rewards-marketplace fulfillment"
+    )
+    # NoOnes (dev.noones.com) — OAuth2 client-credentials API key/secret.
+    noones_api_key: Optional[str] = Field(
+        default=None, description="NoOnes API client id (dev.noones.com)"
+    )
+    noones_api_secret: Optional[str] = Field(default=None, description="NoOnes API client secret")
+    noones_api_base: str = Field(
+        default="https://api.noones.com", description="NoOnes API base URL"
+    )
+    # P2P.me — no public API yet; we deeplink/handoff and (later) call their API.
+    p2p_me_api_key: Optional[str] = Field(
+        default=None, description="P2P.me API key (when their API ships)"
+    )
+    p2p_me_api_base: str = Field(default="https://api.p2p.me", description="P2P.me API base URL")
+    # Native escrow: USDC token + chain used to lock the crypto leg.
+    p2p_escrow_chain: str = Field(default="base", description="Chain for native P2P USDC escrow")
+    p2p_escrow_token: str = Field(
+        default="USDC", description="Settlement asset for native P2P escrow"
+    )
+    p2p_escrow_hot_wallet_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "HotWallet id holding native P2P escrow funds (custodial-during-trade). "
+            "Falls back to the primary EVM deposit hot wallet when unset."
+        ),
+    )
+    # Comma-separated ISO2 regions blocked from P2P (regulatory).
+    p2p_restricted_regions: Optional[str] = Field(
+        default=None, description="Comma-separated ISO2 regions blocked from P2P"
     )
 
     # Fee Configuration (competitive pricing)

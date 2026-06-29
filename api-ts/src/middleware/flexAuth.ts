@@ -15,6 +15,12 @@ declare module 'hono' {
 	interface ContextVariableMap {
 		authUser: AuthUser
 		requestId: string
+		apiKeyAuth: {
+			orgId: string
+			scopes: string[]
+			keyId: string
+			rateLimitPerMin: number
+		} | undefined
 	}
 }
 

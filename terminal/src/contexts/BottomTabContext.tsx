@@ -1,6 +1,7 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useCallback, type ReactNode } from 'react'
+import { usePersistentState } from '../lib/persist'
 
-export type BottomTab = 'portfolio' | 'discovery' | 'watchlist' | 'copy-trading' | 'wallet-tracker' | 'tweets' | 'defi' | 'copilot'
+export type BottomTab = 'portfolio' | 'signals' | 'discovery' | 'watchlist' | 'copy-trading' | 'wallet-tracker' | 'tweets' | 'defi' | 'copilot'
 
 interface BottomTabContextType {
   activeTab: BottomTab
@@ -10,11 +11,12 @@ interface BottomTabContextType {
 const BottomTabContext = createContext<BottomTabContextType | undefined>(undefined)
 
 export function BottomTabProvider({ children }: { children: ReactNode }) {
-  const [activeTab, setActiveTabState] = useState<BottomTab>('portfolio')
+  // Reopen on the panel you were last using.
+  const [activeTab, setActiveTabState] = usePersistentState<BottomTab>('bottomTab', 'portfolio')
 
   const setActiveTab = useCallback((tab: BottomTab) => {
     setActiveTabState(tab)
-  }, [])
+  }, [setActiveTabState])
 
   return (
     <BottomTabContext.Provider value={{ activeTab, setActiveTab }}>

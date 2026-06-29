@@ -74,6 +74,7 @@ TIER_LIMITS = {
             "limit_orders",
             "dca",
             "portfolio",
+            "copy_trading",
         ],
         "price_usd": 9.99,
     },
@@ -197,7 +198,13 @@ class X402Service:
                 "ETH": "0x0000000000000000000000000000000000000000",
             },
             "tempo": {
+                # Tempo TIP-20 stablecoins (18 decimals). pathUSD is the primary
+                # payment token; the others are accepted fallbacks. Decimals are
+                # resolved per-address at verify time via get_decimals_by_address.
                 "pathUSD": "0x20c0000000000000000000000000000000000000",
+                "AlphaUSD": "0x20c0000000000000000000000000000000000001",
+                "BetaUSD": "0x20c0000000000000000000000000000000000002",
+                "ThetaUSD": "0x20c0000000000000000000000000000000000003",
             },
         }
 
@@ -485,8 +492,16 @@ class X402Service:
                     else:
                         amount_wei = int.from_bytes(data, byteorder="big")
 
-                    # Get token decimals (most stablecoins use 6 decimals)
-                    decimals = 6  # USDC standard
+                    # Resolve token decimals from the canonical token config so
+                    # non-6dp stablecoins (e.g. Tempo TIP-20 pathUSD/AlphaUSD/
+                    # BetaUSD/ThetaUSD = 18dp) are scaled correctly. Falls back to
+                    # 6 (USDC standard) when the address is unknown.
+                    try:
+                        from bot.config.tokens import get_decimals_by_address
+
+                        decimals = get_decimals_by_address(token_address, chain)
+                    except Exception:
+                        decimals = 6
                     actual_amount = Decimal(amount_wei) / Decimal(10**decimals)
 
                     expected_decimal = Decimal(str(expected_amount))

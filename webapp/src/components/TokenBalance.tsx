@@ -14,6 +14,7 @@ const chainConfig: Record<string, { color: string; name: string }> = {
   bsc: { color: '#F3BA2F', name: 'BSC' },
   avalanche: { color: '#E84142', name: 'AVAX' },
   solana: { color: '#9945FF', name: 'SOL' },
+  tempo: { color: '#F5A623', name: 'USD' },
 }
 
 export function TokenBalance({ token }: TokenBalanceProps) {

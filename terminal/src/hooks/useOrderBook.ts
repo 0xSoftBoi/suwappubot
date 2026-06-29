@@ -47,7 +47,7 @@ function bookFromFeed(bids: BookLevel[], asks: BookLevel[]): OrderBookData {
 
 export function useOrderBook(_precision: PrecisionStep = 0.01) {
   const { selectedPair, selectedChain } = usePair()
-  const symbol = cexSymbol(selectedPair.base?.address, selectedChain)
+  const symbol = cexSymbol(selectedPair.base?.address, selectedChain, selectedPair.base?.symbol)
   const productId = coinbaseProductId(symbol)
 
   // Live WS feed (browser-direct to Coinbase). null when no CEX market.

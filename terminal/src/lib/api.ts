@@ -4,6 +4,11 @@ import type {
   SwapQuote,
   SwapExecuteRequest,
   SwapExecuteResult,
+  SwapBuildRequest,
+  SwapBuildResult,
+  SwapRecordRequest,
+  SwapRecordResult,
+  TerminalSwap,
   CopilotResponse,
   PasskeyAuthInitResponse,
   PasskeyAuthCompleteResponse,
@@ -11,13 +16,30 @@ import type {
   ChainInfo,
   SwapToken,
   OHLCVCandle,
+  PredictHistoryPoint,
   OrderBookData,
   TerminalTrade,
   Pool,
   TokenSecurity,
+  TokenSafetyReport,
   HLMarket,
+  PerpsMarketContext,
+  WhaleSnapshot,
+  WalletSummary,
+  WalletWithdrawResult,
+  MarketRegime,
+  MarketSignal,
   HLPosition,
   PredictionMarket,
+  PerpsAccountStatus,
+  TerminalPerpsPosition,
+  TerminalPerpsOrder,
+  PerpsExecuteParams,
+  PerpsExecuteResult,
+  PredictionPositionRow,
+  PredictOrderParams,
+  PredictOrderResult,
+  PredictRedeemResult,
   TopTrader,
   TraderProfile,
   FollowedTrader,
@@ -91,12 +113,35 @@ export const api = {
     return { nonce: result.nonce, message: result.challenge }
   },
 
-  async walletVerify(address: string, signature: string, nonce: string) {
+  async walletVerify(address: string, signature: string, nonce: string, provider?: string) {
     const result = await request<{
       token: string
       expiresAt: string
       user?: { id?: number }
     }>('/auth/turnkey/verify', {
+      method: 'POST',
+      // `provider` lets the client tag a hardware wallet ("ledger"); the backend
+      // defaults to "external" when it's absent. Either way the wallet is keyless.
+      body: JSON.stringify({ address, signature, nonce, ...(provider ? { provider } : {}) }),
+    })
+    return { token: result.token, expiresAt: result.expiresAt, userId: result.user?.id ?? 0 }
+  },
+
+  // Solana (Phantom) SIWS auth — mirrors the EVM challenge/verify but ed25519.
+  async solanaChallenge(address: string) {
+    const result = await request<{ nonce: string; challenge: string }>('/auth/solana/challenge', {
+      method: 'POST',
+      body: JSON.stringify({ address }),
+    })
+    return { nonce: result.nonce, message: result.challenge }
+  },
+
+  async solanaVerify(address: string, signature: string, nonce: string) {
+    const result = await request<{
+      token: string
+      expiresAt: string
+      user?: { id?: number }
+    }>('/auth/solana/verify', {
       method: 'POST',
       body: JSON.stringify({ address, signature, nonce }),
     })
@@ -108,11 +153,16 @@ export const api = {
       authenticated: boolean
       userId?: number
       address?: string
+      walletProvider?: string
     }>('/auth/me')
     if (!result.authenticated || !result.userId || !result.address) {
       throw { detail: 'Not authenticated', status: 401 }
     }
-    return { userId: result.userId, walletAddress: result.address }
+    return {
+      userId: result.userId,
+      walletAddress: result.address,
+      walletProvider: result.walletProvider ?? null,
+    }
   },
 
   // Telegram Mini App login: validate the WebApp initData server-side (HMAC over
@@ -224,6 +274,37 @@ export const api = {
     })
   },
 
+  // Non-custodial swap: build unsigned tx(s) for the connected external wallet to
+  // sign client-side (server holds no key), then record the broadcast tx hash.
+  buildSwap(req: SwapBuildRequest) {
+    return request<SwapBuildResult>('/webapp/swap/build', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  },
+
+  recordSwap(req: SwapRecordRequest) {
+    return request<SwapRecordResult>('/webapp/swap/record', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  },
+
+  // Swap history for the current session (JWT auth) — terminal/external-wallet
+  // users can't reach the Telegram-only /users/me/swaps, so this is the parallel.
+  getSwaps(limit = 25) {
+    return request<TerminalSwap[]>(`/webapp/swaps?limit=${limit}`)
+  },
+
+  // Submit a Phantom-signed Solana tx to the Jito block engine (MEV-protected
+  // bundle landing) via the server proxy. Returns the on-chain signature.
+  submitJitoSwap(signedTransaction: string) {
+    return request<{ signature: string }>('/webapp/swap/submit-jito', {
+      method: 'POST',
+      body: JSON.stringify({ signedTransaction }),
+    })
+  },
+
   // Tokens
   getPopularTokens(chain?: string) {
     const params = chain ? `?chain=${chain}` : ''
@@ -246,6 +327,55 @@ export const api = {
     return request<OHLCVCandle[]>(`/terminal/chart/ohlcv?${params}`)
   },
 
+  // Perps candles — HyperLiquid candleSnapshot (public). `coin` is the HL asset
+  // symbol; "ETH-USD" is accepted and reduced server-side.
+  getPerpsCandles(coin: string, interval: string, limit = 300) {
+    const params = new URLSearchParams({ coin, interval, limit: String(limit) })
+    return request<OHLCVCandle[]>(`/terminal/perps/candles?${params}`)
+  },
+
+  // Perps market intelligence — HyperLiquid metaAndAssetCtxs (public): mark/
+  // oracle, basis, funding, open interest, 24h volume + change per market.
+  getPerpsContext() {
+    return request<PerpsMarketContext[]>('/terminal/perps/context')
+  },
+
+  // Smart-money positioning — top accounts' live positions in a coin,
+  // aggregated long-vs-short, from public HyperLiquid on-chain data.
+  // Custodial wallet — deposit addresses + balances (authed).
+  getWalletSummary() {
+    return request<WalletSummary>('/terminal/wallet/summary')
+  },
+
+  // Withdraw a custodial balance to an external address (authed, money path).
+  withdrawFunds(params: { chain: string; token: string; amount: number; toAddress: string; memo?: string }) {
+    return request<WalletWithdrawResult>('/terminal/wallet/withdraw', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  },
+
+  getPerpsWhales(coin: string) {
+    return request<WhaleSnapshot>(`/terminal/perps/whales?coin=${encodeURIComponent(coin)}`)
+  },
+
+  // Macro regime — Fear&Greed + BTC dominance/mcap + stablecoin supply (public).
+  getMarketRegime() {
+    return request<MarketRegime>('/terminal/market/regime')
+  },
+
+  // Cross-market Signals feed — movers, funding extremes, squeezes, regime.
+  getSignals() {
+    return request<MarketSignal[]>('/terminal/signals')
+  },
+
+  // Prediction probability history — Polymarket prices-history (public) for a
+  // single outcome's CLOB token id. `range` is a window: 1H/6H/1D/1W/1M/ALL.
+  getPredictHistory(tokenId: string, range = '1W') {
+    const params = new URLSearchParams({ tokenId, range })
+    return request<PredictHistoryPoint[]>(`/terminal/predict/history?${params}`)
+  },
+
   getOrderBook(symbol = 'ETHUSDC', depth = 15) {
     const params = new URLSearchParams({ symbol, depth: String(depth) })
     return request<OrderBookData>(`/terminal/orderbook?${params}`)
@@ -261,6 +391,18 @@ export const api = {
     return request<Portfolio>('/webapp/me/portfolio')
   },
 
+  // Solana data proxy — the Helius key stays server-side; the client never sees it.
+  solanaRpc<T = unknown>(method: string, params: unknown) {
+    return request<T>('/webapp/solana/rpc', {
+      method: 'POST',
+      body: JSON.stringify({ method, params }),
+    })
+  },
+
+  solanaTxHistory<T = unknown>(address: string, limit = 15) {
+    return request<T>(`/webapp/solana/tx-history?address=${address}&limit=${limit}`)
+  },
+
   // Discovery
   getNewPools(chain: string, limit: number) {
     return request<Pool[]>(`/webapp/discovery/new?chain=${chain}&limit=${limit}`)
@@ -272,6 +414,12 @@ export const api = {
 
   getTokenSecurity(chain: string, address: string) {
     return request<TokenSecurity>(`/webapp/discovery/security?chain=${chain}&address=${address}`)
+  },
+
+  // Aggregated token safety — GoPlus + Honeypot.is (EVM) / RugCheck (Solana).
+  getTokenSafety(chain: string, address: string) {
+    const params = new URLSearchParams({ chain, address })
+    return request<TokenSafetyReport>(`/terminal/token/safety?${params}`)
   },
 
   // Perps (HyperLiquid). api-ts wraps these in { markets } / { positions };
@@ -292,6 +440,74 @@ export const api = {
     return request<{ markets: PredictionMarket[] }>(
       `/v1/agent/predict/markets${params}`
     ).then((r) => r.markets ?? [])
+  },
+
+  // === Terminal trading execution (Python /terminal/* routes, session-JWT auth) ===
+  // These are the browser-callable write paths that reuse the same proven
+  // perps_service + Polymarket client the Telegram bot trades through.
+
+  getPerpsAccount() {
+    return request<PerpsAccountStatus>('/terminal/perps/account')
+  },
+
+  connectPerps(apiKey: string, apiSecret: string) {
+    return request<PerpsAccountStatus>('/terminal/perps/connect', {
+      method: 'POST',
+      body: JSON.stringify({ apiKey, apiSecret }),
+    })
+  },
+
+  getTerminalPerpsPositions() {
+    return request<{ positions: TerminalPerpsPosition[] }>(
+      '/terminal/perps/positions'
+    ).then((r) => r.positions ?? [])
+  },
+
+  executePerps(params: PerpsExecuteParams) {
+    return request<PerpsExecuteResult>('/terminal/perps/execute', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  },
+
+  closePerps(positionId: number, percent = 100) {
+    return request<{ ok: boolean; result: unknown }>('/terminal/perps/close', {
+      method: 'POST',
+      body: JSON.stringify({ positionId, percent }),
+    })
+  },
+
+  getTerminalPerpsOrders() {
+    return request<{ orders: TerminalPerpsOrder[] }>('/terminal/perps/orders').then(
+      (r) => r.orders ?? []
+    )
+  },
+
+  cancelPerpsOrder(market: string, orderId: string) {
+    return request<{ ok: boolean }>('/terminal/perps/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ market, orderId }),
+    })
+  },
+
+  getPredictionPositions() {
+    return request<{ positions: PredictionPositionRow[] }>(
+      '/terminal/predict/positions'
+    ).then((r) => r.positions ?? [])
+  },
+
+  placePredictionOrder(params: PredictOrderParams) {
+    return request<PredictOrderResult>('/terminal/predict/order', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  },
+
+  redeemPrediction(positionId: number) {
+    return request<PredictRedeemResult>('/terminal/predict/redeem', {
+      method: 'POST',
+      body: JSON.stringify({ positionId }),
+    })
   },
 
   // Copy Trading — real routes live under /webapp/me/copy/* and /webapp/copy/* (telegramAuth)

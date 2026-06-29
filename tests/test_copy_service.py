@@ -19,8 +19,13 @@ from bot.services.copy_service import CopyService
 def sqlite_db(tmp_path, monkeypatch):
     database_url = f"sqlite:///{tmp_path / 'copy-service.db'}"
     assert init_db(database_url)
-    monkeypatch.setattr("bot.services.copy_service.points_service.award_points", lambda *_, **__: None)
-    monkeypatch.setattr("bot.services.copy_service.points_service.award_swap_points", lambda *_, **__: (0, None, None))
+    monkeypatch.setattr(
+        "bot.services.copy_service.points_service.award_points", lambda *_, **__: None
+    )
+    monkeypatch.setattr(
+        "bot.services.copy_service.points_service.award_swap_points",
+        lambda *_, **__: (0, None, None),
+    )
     yield
 
 
@@ -33,12 +38,15 @@ def test_auto_copy_uses_real_swap_engine_quote_path(sqlite_db, monkeypatch):
             captured["quote_kwargs"] = kwargs
             return SimpleNamespace(**kwargs)
 
-        async def execute_swap(self, *, quote, wallet_id, user_id, idempotency_key):
+        async def execute_swap(
+            self, *, quote, wallet_id, user_id, idempotency_key, automated=False
+        ):
             captured["execute_kwargs"] = {
                 "quote": quote,
                 "wallet_id": wallet_id,
                 "user_id": user_id,
                 "idempotency_key": idempotency_key,
+                "automated": automated,
             }
             with get_session() as session:
                 swap = SwapTransaction(
@@ -60,19 +68,21 @@ def test_auto_copy_uses_real_swap_engine_quote_path(sqlite_db, monkeypatch):
     monkeypatch.setattr("bot.services.swap_engine.SwapEngine", FakeSwapEngine)
 
     with get_session() as session:
-        session.add_all([
-            User(id=1, username="leader"),
-            User(id=2, username="copier"),
-            TraderProfile(user_id=1, is_public=True, display_name="Leader"),
-            Wallet(
-                user_id=2,
-                address="0xcopy",
-                chain_type="evm",
-                encrypted_private_key="encrypted",
-                is_active=True,
-                is_default=True,
-            ),
-        ])
+        session.add_all(
+            [
+                User(id=1, username="leader"),
+                User(id=2, username="copier"),
+                TraderProfile(user_id=1, is_public=True, display_name="Leader"),
+                Wallet(
+                    user_id=2,
+                    address="0xcopy",
+                    chain_type="evm",
+                    encrypted_private_key="encrypted",
+                    is_active=True,
+                    is_default=True,
+                ),
+            ]
+        )
         session.flush()
         follow = CopyFollow(
             follower_id=2,
@@ -108,6 +118,8 @@ def test_auto_copy_uses_real_swap_engine_quote_path(sqlite_db, monkeypatch):
     assert captured["execute_kwargs"]["wallet_id"] == 1
     assert captured["execute_kwargs"]["user_id"] == 2
     assert captured["execute_kwargs"]["idempotency_key"].startswith("copy_")
+    # Autonomous copy-mirror executions must use the gasless/session-key path.
+    assert captured["execute_kwargs"]["automated"] is True
 
     with get_session() as session:
         copy_trade = session.query(CopyTrade).one()

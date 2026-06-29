@@ -17,6 +17,7 @@ const chainIcons: Record<string, string> = {
   optimism: '🔴',
   base: '🔷',
   bsc: '🟡',
+  tempo: '⏱️',
 }
 
 // Get icon for token based on symbol or chain

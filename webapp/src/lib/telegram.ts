@@ -51,6 +51,7 @@ export interface TelegramWebApp {
   ready: () => void
   expand: () => void
   close: () => void
+  openLink?: (url: string, options?: { try_instant_view?: boolean }) => void
 
   // Main Button
   MainButton: {
@@ -138,4 +139,17 @@ export function getTelegramUser(): TelegramUser | null {
 export function getInitData(): string {
   const webApp = getWebApp()
   return webApp?.initData || ''
+}
+
+/**
+ * Open an external URL. Prefers Telegram's native openLink (keeps the user in
+ * the Telegram in-app browser); falls back to window.open for plain browsers.
+ */
+export function openExternalLink(url: string): void {
+  const webApp = getWebApp()
+  if (webApp?.openLink) {
+    webApp.openLink(url)
+    return
+  }
+  window.open(url, '_blank', 'noopener,noreferrer')
 }

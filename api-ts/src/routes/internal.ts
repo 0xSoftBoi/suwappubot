@@ -1,7 +1,9 @@
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
+import { EnvService } from '../config/EnvService'
 import { runEffectEither } from '../runtime'
 import { SwapService, UserService, EventBus } from '../services'
+import { StripeService } from '../services/StripeService'
 import type { QuoteParams } from '../services/SwapService'
 
 /**
@@ -254,6 +256,66 @@ internalRoutes.post('/verify-payment', async (c) => {
 	}
 })
 
+// ─── Billing ────────────────────────────────────────────────
+
+/**
+ * POST /internal/billing/stripe/checkout
+ * Create a Stripe checkout session on behalf of a Telegram user and return its
+ * URL. Used by the Python bot, which can't attach Telegram init-data to a
+ * clickable inline-button link — it calls this server-to-server (X-Internal-Key)
+ * and puts the returned checkout.stripe.com URL straight on the button.
+ * Body: { telegram_id, tier: 'pro' | 'premium' } -> { url }
+ */
+internalRoutes.post('/billing/stripe/checkout', async (c) => {
+	let body: { telegram_id?: number | string; tier?: string }
+	try {
+		body = await c.req.json()
+	} catch {
+		return c.json({ error: 'Invalid JSON body' }, 400)
+	}
+
+	const telegramId = Number(body.telegram_id)
+	const tier = body.tier as 'pro' | 'premium'
+	if (!Number.isFinite(telegramId)) {
+		return c.json({ error: 'telegram_id is required' }, 400)
+	}
+	if (!['pro', 'premium'].includes(tier)) {
+		return c.json({ error: 'Invalid tier. Must be pro or premium.' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const stripeService = yield* StripeService
+			const userService = yield* UserService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramId)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+			const dbUserId = userOption.value.id
+
+			const baseUrl =
+				env.ALLOWED_ORIGINS?.split(',')[0]?.trim() || 'https://app.suwappu.bot'
+
+			const url = yield* stripeService.createCheckoutSession({
+				tier,
+				telegramId: String(telegramId),
+				userId: dbUserId,
+				successUrl: `${baseUrl}/premium?upgrade=success&tier=${tier}`,
+				cancelUrl: `${baseUrl}/premium`,
+			})
+
+			return { url }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: String(result.left) }, 502)
+	}
+	return c.json(result.right)
+})
+
 // ─── Token Routes ───────────────────────────────────────────
 
 /**
@@ -268,8 +330,33 @@ internalRoutes.get('/token/price', async (c) => {
 		return c.json({ error: 'chain and address are required' }, 400)
 	}
 
-	// TODO: Implement via TokenService once price endpoint is available
-	return c.json({ error: 'Not yet implemented' }, 501)
+	try {
+		const url = `https://api.dexscreener.com/latest/dex/tokens/${encodeURIComponent(address)}`
+		const res = await fetch(url, { headers: { Accept: 'application/json' } })
+		if (!res.ok) {
+			return c.json({ error: 'Upstream error fetching token price' }, 502)
+		}
+		const data = (await res.json()) as { pairs?: Array<{ chainId: string; liquidity?: { usd?: number }; priceUsd?: string; baseToken?: { address: string; symbol: string; name: string } }> }
+		const pairs = (data.pairs ?? []).filter(
+			(p) => !chain || p.chainId?.toLowerCase() === chain.toLowerCase(),
+		)
+		if (pairs.length === 0) {
+			return c.json({ error: 'Token not found on requested chain' }, 404)
+		}
+		// Pick highest-liquidity pair
+		const best = pairs.reduce((a, b) =>
+			(b.liquidity?.usd ?? 0) > (a.liquidity?.usd ?? 0) ? b : a,
+		)
+		return c.json({
+			address: best.baseToken?.address ?? address,
+			symbol: best.baseToken?.symbol ?? '',
+			name: best.baseToken?.name ?? '',
+			price_usd: best.priceUsd ? parseFloat(best.priceUsd) : null,
+			chain: best.chainId,
+		})
+	} catch (err) {
+		return c.json({ error: 'Failed to fetch token price', detail: String(err) }, 502)
+	}
 })
 
 // ─── Health ─────────────────────────────────────────────────

@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { Header } from './components/layout/Header'
+import { CommandPalette } from './components/command/CommandPalette'
+import { MarketRegimeStrip } from './components/market/MarketRegimeStrip'
 import { TradingLayout } from './components/layout/TradingLayout'
 import { PointsDashboard } from './components/points/PointsDashboard'
 import { HotkeysHelpOverlay } from './components/hotkeys/HotkeysHelpOverlay'
@@ -41,6 +43,8 @@ function TradingWorkspace() {
 
         <div className="relative z-10 mx-auto flex h-full max-w-[1800px] flex-col gap-1.5 md:gap-2">
           <Header />
+          <CommandPalette />
+          <MarketRegimeStrip />
           <main className="min-h-0 flex-1 overflow-hidden">
             <Routes>
               <Route path="/points" element={<PointsDashboard />} />

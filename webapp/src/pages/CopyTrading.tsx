@@ -207,7 +207,6 @@ export function CopyTrading() {
     
     try {
       await api.followTrader(selectedTrader.userId, {
-        walletId: 1, // TODO: Get from wallet context
         ...settings,
       })
       setShowFollowModal(false)
