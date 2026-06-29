@@ -42,6 +42,10 @@ export const COST_WEIGHTS: Record<string, number> = {
 	prices: 1,
 	tokens: 1,
 	chains: 1,
+	// LLM router: flat 5-credit per-call cost for v1.
+	// TODO: token-based metering — real cost should scale with prompt/completion
+	// tokens (and per-model rates); flat is a placeholder for v1.
+	llm: 5,
 }
 
 /**

@@ -218,6 +218,22 @@ export const CreateP2POfferSchema = z
 		path: ['maxFiatAmount'],
 	})
 
+/** OpenAI-compatible chat completion request for the LLM router. */
+export const LlmChatSchema = z.object({
+	model: z.string().min(1),
+	messages: z
+		.array(
+			z.object({
+				role: z.enum(['system', 'user', 'assistant']),
+				content: z.string(),
+			}),
+		)
+		.min(1, 'messages must be a non-empty array'),
+	max_tokens: z.number().int().positive().max(32_000).optional(),
+	temperature: z.number().min(0).max(2).optional(),
+	stream: z.boolean().optional(),
+})
+
 export function formatZodErrors(error: z.ZodError): Record<string, string> {
 	const fields: Record<string, string> = {}
 	for (const issue of error.issues) {

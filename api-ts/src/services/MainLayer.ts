@@ -27,6 +27,7 @@ import { P2PServiceLive } from './P2PService'
 import { WalletServiceLive } from './WalletService'
 import { StripeServiceLive } from './StripeService'
 import { SmartAccountServiceLive } from './SmartAccountService'
+import { LlmServiceLive } from './LlmService'
 
 // Base configuration layer
 export const ConfigLayer = EnvServiceLive
@@ -45,6 +46,10 @@ export const StripeLayer = StripeServiceLive.pipe(Layer.provide(ConfigLayer))
 
 // Smart-account (ERC-4337) layer depends on config only
 export const SmartAccountLayer = SmartAccountServiceLive.pipe(Layer.provide(ConfigLayer))
+
+// LLM router layer. LlmServiceLive is dependency-free (Layer.succeed); the
+// EnvService it reads at call time is provided by ConfigLayer in MainLayer.
+export const LlmLayer = LlmServiceLive
 
 // Redis layer depends on config
 export const RedisLayer = RedisServiceLive.pipe(Layer.provide(ConfigLayer))
@@ -93,6 +98,7 @@ export const MainLayer = Layer.mergeAll(
 	PolymarketCredentialLayer,
 	StripeLayer,
 	SmartAccountLayer,
+	LlmLayer,
 )
 
 // Type alias for the full context

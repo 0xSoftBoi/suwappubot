@@ -19,6 +19,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.1",
     "@effect/schema": "^0.75.5",
     "@turnkey/api-key-stamper": "^0.6.1",
     "@turnkey/sdk-server": "^5.0.1",

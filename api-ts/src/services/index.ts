@@ -156,3 +156,11 @@ export {
 	type SuwappuEvent,
 	type EventEnvelope,
 } from './EventBus'
+export {
+	type ChatCompletionParams,
+	type ChatCompletionResponse,
+	type ChatMessage,
+	LlmService,
+	type LlmServiceInterface,
+	LlmServiceLive,
+} from './LlmService'

@@ -14,6 +14,7 @@ import {
 	healthRoutes,
 	internalRoutes,
 	lendRoutes,
+	llmRoutes,
 	mcpRoutes,
 	p2pRoutes,
 	perpsRoutes,
@@ -109,6 +110,10 @@ export function createApp(config: AppConfig) {
 	app.route('/v1/agent/perps', perpsRoutes)
 	app.route('/v1/agent/predict', predictRoutes)
 	app.route('/v1/agent/lend', lendRoutes)
+
+	// Multi-provider LLM router — POST /v1/agent/llm/chat (OpenAI-compatible),
+	// agent Bearer auth + x402 metering (5 credits/call).
+	app.route('/v1/agent/llm', llmRoutes)
 
 	// A2A JSON-RPC endpoint - uses Bearer token auth internally
 	app.route('/a2a', a2aRoutes)

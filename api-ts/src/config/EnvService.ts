@@ -115,6 +115,15 @@ export const EnvSchema = Schema.Struct({
 	SMART_ACCOUNT_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
 	// ERC-4337 bundler JSON-RPC endpoint (e.g. Pimlico). Required to send UserOps.
 	BUNDLER_RPC_URL: Schema.optional(Schema.String),
+
+	// Multi-provider LLM router (see config/llmModels.ts + services/LlmService.ts).
+	// All OPTIONAL — a model whose provider key is unset returns a clean
+	// "provider not configured" 400 at call time rather than blocking startup.
+	ANTHROPIC_API_KEY: Schema.optional(Schema.String),
+	OPENAI_API_KEY: Schema.optional(Schema.String),
+	DEEPSEEK_API_KEY: Schema.optional(Schema.String),
+	QWEN_API_KEY: Schema.optional(Schema.String),
+	MINIMAX_API_KEY: Schema.optional(Schema.String),
 })
 
 export type Env = Schema.Schema.Type<typeof EnvSchema>
