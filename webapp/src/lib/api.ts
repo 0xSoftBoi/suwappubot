@@ -7,7 +7,7 @@
  */
 import { getInitData } from './telegram'
 import { getAuthToken } from './auth'
-import type { Portfolio, Swap, ApiError, HealthStatus, UserPreferencesResponse, UpdatePreferencesResponse, UserPreferences, PortfolioPnl } from '../types/api'
+import type { Portfolio, Swap, ApiError, HealthStatus, UserPreferencesResponse, UpdatePreferencesResponse, UserPreferences, PortfolioPnl, SupportTicket, TicketKind } from '../types/api'
 import type { LinkedWallet, AuthChallenge, LinkWalletResponse } from '../types/auth'
 import type { SwapToken, SwapQuote, SwapQuoteRequest, SwapExecuteRequest, SwapExecuteResult, SwapStatusResponse } from '../types/swap'
 import type { SimulationResult } from '../types/simulation'
@@ -731,6 +731,17 @@ class ApiClient {
 
   async getOrg(orgId: string): Promise<EnterpriseOrg> {
     return this.fetch<EnterpriseOrg>(`/enterprise/orgs/${orgId}`)
+  }
+
+  async getMySupportTickets(): Promise<SupportTicket[]> {
+    return this.fetch<SupportTicket[]>('/webapp/support/tickets')
+  }
+
+  async createSupportTicket(params: { kind: TicketKind; message: string }): Promise<SupportTicket> {
+    return this.fetch<SupportTicket>('/webapp/support/tickets', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
   }
 
   async getMyOrg(): Promise<EnterpriseOrg | null> {
