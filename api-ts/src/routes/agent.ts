@@ -1370,6 +1370,7 @@ agentRoutes.post('/wallets', async (c) => {
 								turnkey_wallet_id: wallet.walletId,
 								turnkey_sub_org_id: wallet.subOrgId,
 							}),
+							signal: AbortSignal.timeout(15_000),
 						})
 						if (res.ok) {
 							return (await res.json()) as { internal_user_id: number; internal_wallet_id: number }
@@ -1556,6 +1557,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 							idempotency_key: idempotencyKey,
 							quote_data: quoteData,
 						}),
+						signal: AbortSignal.timeout(30_000),
 					})
 
 					if (!res.ok) {
