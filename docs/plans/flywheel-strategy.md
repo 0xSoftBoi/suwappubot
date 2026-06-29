@@ -162,14 +162,19 @@ The dividing line is custody + whose money: **your software touching the user's 
 > places; and even permissionless front-ends carry **OFAC/sanctions-screening + ToS
 > obligations**. Permissionless means *no gatekeeper to start*, not *no rules*.
 
-### ★ The standout: become a solver/filler
-Worth calling out separately because it's the **best permissionless play and I hadn't
-surfaced it.** Intent-based DEX architectures (UniswapX, CoW, 1inch Fusion, Across) let
-anyone compete, permissionlessly, to fill user orders — capturing the spread and positive
-slippage. A solver wins on **execution quality + cross-chain inventory**, which is *exactly*
-Suwappu's moat. And it's doubly aligned: every order you fill **deposits order-flow data
-into the core** (§0). It monetizes the moat, feeds the flywheel, and needs no one's
-permission. Strong candidate to sit alongside the funding-rate arb agent in Tier 2.
+### ★ The standout: become a solver/filler → **internalize your own flow first**
+Worth calling out separately because it's the **best permissionless play.** Intent-based DEX
+architectures (UniswapX, CoW, 1inch Fusion, Across) let anyone compete, permissionlessly, to
+fill user orders — capturing the spread and positive slippage. A solver wins on **execution
+quality + cross-chain inventory**, which is *exactly* Suwappu's moat, and every fill deposits
+order-flow data into the core (§0).
+
+**But the research refines this:** generic *external* solving on majors is MM-dominated and a
+trap (UniswapX >90% SCP+Wintermute; CoW ~50% Barter). The real edge is **internalization** —
+fill *your own* bot users' swaps from inventory before routing externally, capturing spread
+you already pay away against your own non-toxic flow, hedged on your perps desk, with no
+auction competition. External cross-chain relaying (Across/ERC-7683) is a narrow add-on on
+top. **Full analysis + build sketch:** [`solver-strategy.md`](./solver-strategy.md).
 
 ---
 
