@@ -2754,6 +2754,13 @@ class SwapEngine:
                         if db_tx:
                             db_tx.tx_hash = tx_hash
                             db_tx.status = SwapStatus.SUBMITTED.value
+                            # OFA rail 1: label the row if this swap was
+                            # broadcast via MEV-Blocker (mainnet). The MEV
+                            # refund accrues on-chain to the fee wallet
+                            # asynchronously, so ofa_rebate_usd is reconciled
+                            # later, not here.
+                            if getattr(quote, "_ofa_mev_blocker", False):
+                                db_tx.ofa_protocol = "mevblocker"
 
                 await run_in_db(_update_tx_hash)
 
@@ -3077,13 +3084,21 @@ class SwapEngine:
             "chainId": chain.chain_id,
         }
 
-        # Sign and send
+        # Sign and send. OFA rail 1: on Ethereum mainnet with MEV_BLOCKER_ENABLED
+        # the raw tx is routed through MEV-Blocker (refundRecipient = fee wallet);
+        # on every other chain / when the flag is off this is the unchanged
+        # default eth_sendRawTransaction broadcast.
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        tx_hash_hex, used_mev_blocker = await self._broadcast_evm_raw_tx(
+            quote.from_chain, web3, signed_tx_hex
         )
+        if used_mev_blocker:
+            # Flag is read back in execute_swap to set ofa_protocol='mevblocker'.
+            # Stashed on the per-swap quote (not the shared engine) so concurrent
+            # swaps don't clobber each other.
+            quote._ofa_mev_blocker = True
 
-        return tx_hash.hex()
+        return tx_hash_hex
 
     @staticmethod
     def _is_retryable_rpc_error(error: Exception) -> bool:
@@ -3101,6 +3116,76 @@ class SwapEngine:
         url = getattr(provider, "endpoint_uri", None)
         if url:
             rpc_manager.report_failure(chain_name, url, str(error)[:120])
+
+    def _mev_blocker_url(self, chain_name: str) -> Optional[str]:
+        """Return the MEV-Blocker fast-RPC URL IFF this swap is eligible.
+
+        OFA rail 1 (additive, default OFF). Eligibility — ALL must hold:
+          * settings.mev_blocker_enabled is True
+          * chain is Ethereum mainnet (chain id 1) ONLY
+          * a fee_collector_address is configured (refund recipient)
+        Any other chain, or the flag off, returns None and the caller broadcasts
+        normally via the default RPC (unchanged behaviour).
+
+        The MEV refund accrues on-chain to refundRecipient asynchronously, so it
+        cannot be known at broadcast time — see the ledger note in execute_swap.
+        """
+        if not getattr(settings, "mev_blocker_enabled", False):
+            return None
+        chain = get_chain_by_name(chain_name)
+        if not chain or chain.chain_id != 1:
+            return None
+        refund_recipient = settings.fee_collector_address
+        if not refund_recipient:
+            # No recipient => no point routing through MEV-Blocker for a rebate.
+            return None
+        return f"https://rpc.mevblocker.io/fast?refundRecipient={refund_recipient}"
+
+    async def _broadcast_evm_raw_tx(
+        self,
+        chain_name: str,
+        web3: Web3,
+        signed_tx_hex: str,
+    ) -> tuple[str, bool]:
+        """Broadcast a signed raw EVM tx, optionally via MEV-Blocker (rail 1).
+
+        Returns (tx_hash_hex, used_mev_blocker). When MEV-Blocker is NOT eligible
+        (flag off, non-mainnet, or no fee collector) this is byte-for-byte the
+        same default broadcast the swap path used before — eth_sendRawTransaction
+        on the supplied web3 — so default behaviour is unchanged.
+        """
+        raw_hex = signed_tx_hex if signed_tx_hex.startswith("0x") else f"0x{signed_tx_hex}"
+
+        mev_url = self._mev_blocker_url(chain_name)
+        if mev_url:
+            # Ethereum mainnet + flag on: submit the raw tx to MEV-Blocker so any
+            # backrun/MEV refund is routed to refundRecipient (our fee wallet).
+            try:
+                session = await get_http_session()
+                payload = {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "eth_sendRawTransaction",
+                    "params": [raw_hex],
+                }
+                async with session.post(mev_url, json=payload) as resp:
+                    result = await resp.json()
+                if "error" in result:
+                    raise SwapError(f"MEV-Blocker broadcast failed: {result['error']}")
+                tx_hash = result["result"]
+                logger.info(f"Broadcast via MEV-Blocker (mainnet): {tx_hash}")
+                return tx_hash, True
+            except SwapError:
+                raise
+            except Exception as e:
+                # MEV-Blocker is best-effort plumbing — never break a mainnet swap
+                # because the OFA endpoint hiccuped. Fall back to the default RPC.
+                logger.warning(f"MEV-Blocker broadcast errored, falling back to default RPC: {e}")
+
+        tx_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(raw_hex.replace("0x", "")))
+        )
+        return tx_hash.hex(), False
 
     async def _execute_jupiter_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via Jupiter."""

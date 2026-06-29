@@ -916,6 +916,19 @@ class Settings(BaseSettings):
         ),
     )
 
+    # --- Order-flow-auction fee / rebate capture (Phase 1) ---
+    # Additive and default OFF — nothing changes for an existing swap until
+    # explicitly enabled, so production behaviour is unchanged on deploy.
+    mev_blocker_enabled: bool = Field(
+        default=False,
+        description=(
+            "When True, broadcast Ethereum-mainnet (chain id 1) ONLY swap txs through "
+            "MEV-Blocker (https://rpc.mevblocker.io/fast) with refundRecipient set to "
+            "fee_collector_address so the MEV refund/rebate accrues to the fee wallet. "
+            "All other chains broadcast normally regardless of this flag. Default off."
+        ),
+    )
+
     # Treasury Vault (Aave v3 on Base)
     aave_enabled: bool = Field(
         default=False,
