@@ -1,11 +1,16 @@
+import { and, eq, gte, sql as drizzleSql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import jwt from 'jsonwebtoken'
 import { EnvService } from '../config/EnvService'
+import { requireDb } from '../db'
+import { pointRedemptions, rewards, swapTransactions } from '../db/schema'
+import { walletTrackAlerts } from '../db/schema/walletTrackAlerts'
 import { logger } from '../lib/logger'
 import { mapErrorToResponse } from '../errors'
 import { requireTier, telegramAuth } from '../middleware'
 import { runEffect, runEffectEither } from '../runtime'
+import { getVipStatusRaw } from '../services/VipService'
 import {
 	BalanceService,
 	PointsService,
@@ -292,6 +297,180 @@ protectedWebapp.get('/portfolio', async (c) => {
 	return c.json(result.right)
 })
 
+// GET /webapp/me/portfolio/pnl - PnL analytics for the authenticated user
+protectedWebapp.get('/portfolio/pnl', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	// Parse query params
+	const periodParam = (c.req.query('period') ?? '30d') as '7d' | '30d' | '90d' | 'all'
+	const chainParam = c.req.query('chain') ?? 'all'
+
+	const periodDays: Record<string, number | null> = { '7d': 7, '30d': 30, '90d': 90, all: null }
+	const cutoffDays = periodDays[periodParam] ?? 30
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+			const userId = userOption.value.id
+			const db = yield* requireDb
+
+			const cutoffDate = cutoffDays !== null ? new Date(Date.now() - cutoffDays * 86400_000) : null
+
+			// Build where conditions
+			const conditions = [
+				eq(swapTransactions.userId, userId),
+				eq(swapTransactions.status, 'completed'),
+			]
+			if (cutoffDate) conditions.push(gte(swapTransactions.createdAt, cutoffDate))
+			if (chainParam !== 'all') conditions.push(eq(swapTransactions.fromChain, chainParam))
+
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(swapTransactions)
+						.where(and(...conditions))
+						.orderBy(swapTransactions.createdAt),
+				catch: (e) => new Error(`pnl query failed: ${e}`),
+			})
+
+			// Fee-credit redemptions saved (gas_rebate + fee_discount)
+			const feeRedemptions = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							rewardValue: rewards.rewardValue,
+							rewardType: rewards.rewardType,
+							count: drizzleSql<number>`count(*)`,
+						})
+						.from(pointRedemptions)
+						.leftJoin(rewards, eq(pointRedemptions.rewardId, rewards.id))
+						.where(
+							and(
+								eq(pointRedemptions.userId, userId),
+								eq(pointRedemptions.status, 'completed'),
+								cutoffDate ? gte(pointRedemptions.createdAt, cutoffDate) : drizzleSql`1=1`,
+							),
+						)
+						.groupBy(rewards.rewardValue, rewards.rewardType),
+				catch: (e) => new Error(`redemptions query failed: ${e}`),
+			})
+
+			// Compute KPIs
+			let totalRealizedPnlUsd = 0
+			let winCount = 0
+			let lossCount = 0
+			let totalGasPaidUsd = 0
+			let totalFeesPaidUsd = 0
+			let bestTrade: { fromToken: string; toToken: string; pnlUsd: number; date: string } | null =
+				null
+			let worstTrade: { fromToken: string; toToken: string; pnlUsd: number; date: string } | null =
+				null
+
+			// Daily buckets for equity curve and heatmap
+			const dailyPnl: Record<string, number> = {}
+			const chainPnl: Record<string, { pnlUsd: number; tradeCount: number }> = {}
+
+			for (const row of rows) {
+				const toUsd = row.toAmountUsd ?? 0
+				const fromUsd = row.fromAmountUsd ?? 0
+				const gas = row.gasCostUsd !== null ? parseFloat(row.gasCostUsd) : (row.gasFee ?? 0)
+				const fee = row.feeCostUsd !== null ? parseFloat(row.feeCostUsd) : (row.bridgeFee ?? 0)
+				const pnl = toUsd - fromUsd - gas - fee
+
+				totalRealizedPnlUsd += pnl
+				totalGasPaidUsd += gas
+				totalFeesPaidUsd += fee
+
+				if (pnl >= 0) winCount++
+				else lossCount++
+
+				if (bestTrade === null || pnl > bestTrade.pnlUsd) {
+					bestTrade = {
+						fromToken: row.fromToken,
+						toToken: row.toToken,
+						pnlUsd: pnl,
+						date: (row.completedAt ?? row.createdAt ?? new Date()).toISOString().slice(0, 10),
+					}
+				}
+				if (worstTrade === null || pnl < worstTrade.pnlUsd) {
+					worstTrade = {
+						fromToken: row.fromToken,
+						toToken: row.toToken,
+						pnlUsd: pnl,
+						date: (row.completedAt ?? row.createdAt ?? new Date()).toISOString().slice(0, 10),
+					}
+				}
+
+				const dayKey = (row.completedAt ?? row.createdAt ?? new Date())
+					.toISOString()
+					.slice(0, 10)
+				dailyPnl[dayKey] = (dailyPnl[dayKey] ?? 0) + pnl
+
+				const chain = row.fromChain
+				if (!chainPnl[chain]) chainPnl[chain] = { pnlUsd: 0, tradeCount: 0 }
+				chainPnl[chain].pnlUsd += pnl
+				chainPnl[chain].tradeCount += 1
+			}
+
+			const totalTrades = rows.length
+			const avgTradeUsd =
+				totalTrades > 0
+					? rows.reduce((s, r) => s + (r.fromAmountUsd ?? 0), 0) / totalTrades
+					: 0
+
+			// Build equity curve (sorted daily cumulative)
+			const sortedDays = Object.keys(dailyPnl).sort()
+			let running = 0
+			const equityCurve = sortedDays.map((date) => {
+				running += dailyPnl[date]
+				return { date, cumulativePnlUsd: running }
+			})
+			const pnlCalendar = sortedDays.map((date) => ({ date, pnlUsd: dailyPnl[date] }))
+
+			// totalPointsSavedUsd: sum gas_rebate rewardValues × count + fee_discount is usage-based
+			// We conservatively sum gas rebate redemptions (each rewardValue is in USD)
+			let totalPointsSavedUsd = 0
+			for (const r of feeRedemptions) {
+				if (r.rewardType === 'gas_rebate' && r.rewardValue) {
+					totalPointsSavedUsd += parseFloat(r.rewardValue) * Number(r.count)
+				}
+			}
+
+			return {
+				totalRealizedPnlUsd,
+				totalUnrealizedPnlUsd: 0, // best-effort: requires live prices per position, future work
+				winRate: totalTrades > 0 ? winCount / totalTrades : 0,
+				totalTrades,
+				winCount,
+				lossCount,
+				avgTradeUsd,
+				totalGasPaidUsd,
+				totalFeesPaidUsd,
+				totalPointsSavedUsd,
+				bestTrade,
+				worstTrade,
+				equityCurve,
+				pnlCalendar,
+				chainBreakdown: Object.entries(chainPnl).map(([chain, v]) => ({
+					chain,
+					pnlUsd: v.pnlUsd,
+					tradeCount: v.tradeCount,
+				})),
+			}
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
 // GET /webapp/users/me/wallets - Get user's wallets
 protectedWebapp.get('/wallets', async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
@@ -412,6 +591,18 @@ protectedWebapp.get('/preferences', async (c) => {
 			// Get linked wallets
 			const wallets = yield* walletService.getActiveWallets(user.id)
 
+			// Determine language: stored preference → Accept-Language header → 'en'
+			const acceptLang = c.req.header('Accept-Language')
+			const headerLang = acceptLang ? acceptLang.split(',')[0]?.split('-')[0]?.trim() : undefined
+			const SUPPORTED_LANGS = ['en', 'es', 'fr', 'zh'] as const
+			type SupportedLang = (typeof SUPPORTED_LANGS)[number]
+			const resolvedLang: SupportedLang =
+				(SUPPORTED_LANGS as readonly string[]).includes(user.languagePreference ?? '')
+					? (user.languagePreference as SupportedLang)
+					: (SUPPORTED_LANGS as readonly string[]).includes(headerLang ?? '')
+						? (headerLang as SupportedLang)
+						: 'en'
+
 			return {
 				user: {
 					id: user.id,
@@ -426,6 +617,7 @@ protectedWebapp.get('/preferences', async (c) => {
 					twoFaEnabled: user.twoFaEnabled ?? false,
 					twoFaThreshold: user.twoFaThreshold ?? 1000,
 					gasMode: user.gasMode ?? 'auto',
+					languagePreference: resolvedLang,
 				},
 				wallets: wallets.map((w) => ({
 					address: w.address,
@@ -493,6 +685,46 @@ protectedWebapp.put('/preferences', async (c) => {
 	return c.json(result.right)
 })
 
+// PATCH /webapp/me/language - Update language preference
+const SUPPORTED_LANGUAGES = ['en', 'es', 'fr', 'zh'] as const
+type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number]
+
+protectedWebapp.patch('/language', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const body = await c.req.json().catch(() => ({})) as { language?: unknown }
+
+	if (!body.language || !(SUPPORTED_LANGUAGES as readonly unknown[]).includes(body.language)) {
+		return c.json(
+			{ error: `Invalid language. Supported values: ${SUPPORTED_LANGUAGES.join(', ')}` },
+			400,
+		)
+	}
+
+	const language = body.language as SupportedLanguage
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+
+			yield* userService.updateUserPreferences(userOption.value.id, {
+				languagePreference: language,
+			})
+
+			return { success: true, language }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message || 'Failed to update language' }, 500)
+	}
+	return c.json(result.right)
+})
+
 // === Points Routes ===
 
 // GET /webapp/me/points/stats - Get user's points stats
@@ -514,6 +746,32 @@ protectedWebapp.get('/points/stats', async (c) => {
 				...stats,
 				lastCheckin: stats.lastCheckin?.toISOString() ?? null,
 			}
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// GET /webapp/me/vip - Cross-line VIP status (effective tier, season volume,
+// loyalty multiplier, progress to next band).
+protectedWebapp.get('/vip', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+			const db = yield* requireDb
+			return yield* Effect.tryPromise({
+				try: () => getVipStatusRaw(db, userOption.value.id),
+				catch: (e) => new Error(`vip status failed: ${e}`),
+			})
 		}),
 	)
 
@@ -1433,6 +1691,148 @@ webappRoutes.get('/tokens/:chain/:address/chart', async (c) => {
 		logger.error({ err: error }, 'Token chart error')
 		return c.json({ candles: [], pair: null })
 	}
+})
+
+// ---------------------------------------------------------------------------
+// Wallet-track alerts — smart money / KOL wallet monitoring
+//
+// CRUD only. The actual on-chain monitoring is handled by an external service
+// (e.g. a Helius/DexScreener WebSocket poller). When that service detects a
+// qualifying trade it should call POST /internal/wallet-track/trigger with the
+// walletTrackAlertId so the notification fan-out can run.
+// ---------------------------------------------------------------------------
+
+// POST /webapp/alerts/wallet-track  — subscribe to a wallet
+protectedWebapp.post('/alerts/wallet-track', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const body = await c.req.json().catch(() => ({})) as {
+		wallet_address?: string
+		label?: string
+		min_usd?: number
+		chains?: string[]
+	}
+
+	if (!body.wallet_address) {
+		return c.json({ error: 'wallet_address is required' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const db = yield* requireDb
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) return yield* Effect.fail(new Error('User not found'))
+
+			const userId = userOption.value.id
+			const [row] = yield* Effect.tryPromise(() =>
+				db
+					.insert(walletTrackAlerts)
+					.values({
+						userId,
+						walletAddress: body.wallet_address!,
+						label: body.label ?? null,
+						minUsd: body.min_usd ?? 10000,
+						chains: body.chains ? JSON.stringify(body.chains) : null,
+					})
+					.returning(),
+			)
+			return row
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, 'Failed to create wallet-track alert')
+		return c.json({ error: 'Failed to create alert' }, 500)
+	}
+
+	const row = result.right
+	return c.json({
+		id: row?.id,
+		wallet_address: row?.walletAddress,
+		label: row?.label,
+		min_usd: row?.minUsd,
+		chains: row?.chains ? (JSON.parse(row.chains) as string[]) : null,
+		created_at: row?.createdAt,
+	}, 201)
+})
+
+// GET /webapp/alerts/wallet-track  — list all tracked wallets for the user
+protectedWebapp.get('/alerts/wallet-track', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const db = yield* requireDb
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) return []
+
+			const userId = userOption.value.id
+			return yield* Effect.tryPromise(() =>
+				db
+					.select()
+					.from(walletTrackAlerts)
+					.where(and(eq(walletTrackAlerts.userId, userId), eq(walletTrackAlerts.isActive, true))),
+			)
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, 'Failed to list wallet-track alerts')
+		return c.json({ error: 'Failed to fetch alerts' }, 500)
+	}
+
+	const rows = result.right.map((row) => ({
+		id: row.id,
+		wallet_address: row.walletAddress,
+		label: row.label,
+		min_usd: row.minUsd,
+		chains: row.chains ? (JSON.parse(row.chains) as string[]) : null,
+		created_at: row.createdAt,
+	}))
+
+	return c.json({ alerts: rows })
+})
+
+// DELETE /webapp/alerts/wallet-track/:id  — remove a tracked wallet
+protectedWebapp.delete('/alerts/wallet-track/:id', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const id = Number(c.req.param('id'))
+	if (!Number.isFinite(id)) return c.json({ error: 'Invalid id' }, 400)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const db = yield* requireDb
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) return null
+
+			const userId = userOption.value.id
+			const [deleted] = yield* Effect.tryPromise(() =>
+				db
+					.delete(walletTrackAlerts)
+					.where(and(eq(walletTrackAlerts.id, id), eq(walletTrackAlerts.userId, userId)))
+					.returning({ id: walletTrackAlerts.id }),
+			)
+			return deleted ?? null
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, 'Failed to delete wallet-track alert')
+		return c.json({ error: 'Failed to delete alert' }, 500)
+	}
+
+	if (!result.right) {
+		return c.json({ error: 'Not found' }, 404)
+	}
+
+	return c.json({ success: true, id: result.right.id })
 })
 
 // Mount protected routes at both /me and /users/me for backward compatibility

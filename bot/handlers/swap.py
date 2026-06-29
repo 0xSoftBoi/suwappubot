@@ -32,7 +32,7 @@ from bot.utils.gating import require_tier
 from bot.models.subscription import SubscriptionTier
 from bot.services.referral_service import referral_service
 from bot.services.points_service import points_service
-from bot.services.token_security.token_analyzer import token_analyzer
+from bot.services.token_security.token_analyzer import token_analyzer, RiskLevel
 from bot.services.spending_limits import spending_limit_service
 from bot.services.twofa import twofa_service
 from bot.services.x402_service import x402_service
@@ -153,7 +153,9 @@ def _schedule_quote_prewarm(
             # Resolve tier/fee exactly as wallets_confirmed_callback does so the
             # cached quote is identical to what a cold fetch would return.
             user_tier = await x402_service.get_tier(user_id)
-            platform_fee_bps = fee_service.get_fee_bps(user_tier)
+            # Pass user_id so the prewarmed quote is keyed under the SAME VIP/points-
+            # adjusted bps the execution path uses (avoids a guaranteed cache miss).
+            platform_fee_bps = fee_service.get_fee_bps(user_tier, user_id=user_id)
             quote = await swap_engine.get_quote(
                 from_chain=snapshot["from_chain"],
                 to_chain=snapshot["to_chain"],
@@ -1006,12 +1008,13 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
 
         # NEW: Token Security Analysis
         security_text = ""
+        _security_report = None
         if swap_data["to_chain"] == "solana":
             try:
                 dest_token_address = get_token_address(swap_data["to_token"], "solana")
                 if dest_token_address:
-                    report = await token_analyzer.analyze(dest_token_address)
-                    security_text = f"\n\n\U0001f6e1️ *Security Shield*\n{token_analyzer.get_safety_summary(report)}"
+                    _security_report = await token_analyzer.analyze(dest_token_address)
+                    security_text = f"\n\n\U0001f6e1️ *Security Shield*\n{token_analyzer.get_safety_summary(_security_report)}"
             except Exception as e:
                 logger.debug(f"Security analysis failed: {e}")
 
@@ -1046,6 +1049,42 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
             ],
             [InlineKeyboardButton("« Back to Wallets", callback_data="swap_back_to_wallets")],
         ]
+
+        # HIGH/CRITICAL risk gate: intercept before showing the confirm screen.
+        # Store the prepared quote message so the "swap anyway" handler can display
+        # it without rebuilding, then replace the current message with a risk warning.
+        if _security_report is not None and _security_report.risk_level in (
+            RiskLevel.HIGH,
+            RiskLevel.CRITICAL,
+        ):
+            risk_label = _security_report.risk_level.value.upper()
+            attempt_id = swap_data.get("attempt_id", secrets.token_urlsafe(8))
+            context.user_data["swap"]["pending_confirm_text"] = text
+            context.user_data["swap"]["pending_confirm_keyboard"] = keyboard
+
+            risk_summary = token_analyzer.get_safety_summary(_security_report)
+            warning_text = (
+                f"🚨 *{risk_label} RISK TOKEN DETECTED*\n\n"
+                f"{risk_summary}\n\n"
+                f"This token has been flagged as *{risk_label}* risk. "
+                f"Swapping may result in a total loss of funds.\n\n"
+                f"Are you sure you want to proceed?"
+            )
+            risk_keyboard = [
+                [
+                    InlineKeyboardButton(
+                        "⚠️ I understand, swap anyway",
+                        callback_data=f"swap_risk_confirm_{attempt_id}",
+                    ),
+                    InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel"),
+                ]
+            ]
+            await query.edit_message_text(
+                warning_text,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(risk_keyboard),
+            )
+            return CONFIRM_SWAP
 
         await query.edit_message_text(
             text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
@@ -1393,6 +1432,36 @@ async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
         await _render_swap_failure(edit, e, context)
 
     return ConversationHandler.END
+
+
+async def swap_risk_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle the secondary confirmation for HIGH/CRITICAL risk tokens.
+
+    The user tapped "I understand, swap anyway" on the risk warning screen.
+    Retrieve the pre-built quote message and show the normal confirm screen.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    swap_data = context.user_data.get("swap")
+    if not swap_data:
+        await query.edit_message_text("❌ Session expired. Start again with /s")
+        return ConversationHandler.END
+
+    pending_text = swap_data.pop("pending_confirm_text", None)
+    pending_keyboard = swap_data.pop("pending_confirm_keyboard", None)
+
+    if not pending_text or not pending_keyboard:
+        # Fallback: session data missing, drop to normal confirm state
+        await query.edit_message_text("⚠️ Risk acknowledged. Please use /s to start a new swap.")
+        return ConversationHandler.END
+
+    await query.edit_message_text(
+        pending_text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(pending_keyboard),
+    )
+    return CONFIRM_SWAP
 
 
 async def swap_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1822,6 +1891,7 @@ swap_conversation_handler = ConversationHandler(
             CallbackQueryHandler(confirm_swap, pattern="^swap_confirm$"),
             CallbackQueryHandler(swap_requote, pattern="^swap_requote$"),
             CallbackQueryHandler(show_wallet_selection, pattern="^swap_back_to_wallets$"),
+            CallbackQueryHandler(swap_risk_confirm_callback, pattern="^swap_risk_confirm_"),
         ],
         ENTER_2FA_CODE: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, twofa_code_entered),

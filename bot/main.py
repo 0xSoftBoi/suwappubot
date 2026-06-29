@@ -88,6 +88,11 @@ from bot.handlers.settings import (
     speed_set_handler,
     chain_menu_handler,
     chain_set_handler,
+    notify_prefs_handler,
+    ntoggle_copy_handler,
+    ntoggle_order_handler,
+    ntoggle_portfolio_handler,
+    ntoggle_risk_handler,
 )
 from bot.handlers.admin import (
     status_handler,
@@ -148,6 +153,7 @@ from bot.handlers.limit_orders import (
     orders_handler,
     dca_handler,
     limit_order_conversation,
+    trailing_stop_conversation,
     dca_view_handler,
     dca_actions_handler,
     dca_menu_callback,
@@ -181,6 +187,8 @@ from bot.handlers.subscription import (
     sub_compare_callback,
     sub_back_callback,
 )
+from bot.handlers.vip import vip_handler
+from bot.handlers.import_handler import import_conversation_handler
 
 # Points/XP system handlers
 from bot.handlers.points import (
@@ -254,11 +262,20 @@ from bot.handlers.token import (
     bond_menu_callback_handler,
     bond_list_callback_handler,
 )
+from bot.handlers.enterprise import (
+    org_handler,
+    org_newkey_conversation,
+    org_members_callback,
+    org_keys_callback,
+    org_cancel_callback,
+    org_back_callback,
+)
 from bot.handlers.mpp_handler import get_mpp_handlers
 from bot.handlers.tempo import get_tempo_handlers
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
+from bot.services.hl_ws_alerts import hl_ws_alerts
 from bot.services.orders import order_service
 from bot.services.tx_poller import tx_poller
 from bot.services.health_monitor import health_monitor
@@ -338,6 +355,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(dca_handler)  # /dca
     application.add_handler(tax_handler)  # /tax
     application.add_handler(subscription_handler)  # /sub (x402)
+    application.add_handler(org_handler)  # /org (enterprise org management)
+    application.add_handler(vip_handler)  # /vip (cross-line VIP status)
     application.add_handler(dashboard_handler)  # /dashboard (Mini App)
     application.add_handler(digest_handler)  # /digest
 
@@ -396,7 +415,11 @@ def add_handlers(application: Application) -> None:
     application.add_handler(withdrawal_conversation)
     application.add_handler(alert_conversation)
     application.add_handler(limit_order_conversation)
+    application.add_handler(
+        trailing_stop_conversation
+    )  # MONEY-PATH: trailing stop triggers sell execution
     application.add_handler(subscription_conversation)  # x402 subscription flow
+    application.add_handler(org_newkey_conversation)  # Enterprise /org new-key name entry
     application.add_handler(profile_edit_conversation)  # Copy trading profile editing
     application.add_handler(snipe_conversation_handler)  # Token sniping /snipe
     application.add_handler(perps_conversation_handler)  # Perps trading /perps
@@ -482,6 +505,11 @@ def add_handlers(application: Application) -> None:
     application.add_handler(chain_menu_handler)  # Settings → default chain menu
     application.add_handler(chain_set_handler)  # Settings → default chain set
     application.add_handler(recovery_menu_callback)  # settings_recovery button
+    application.add_handler(notify_prefs_handler)  # Settings → notification prefs submenu
+    application.add_handler(ntoggle_copy_handler)  # Notif prefs → copy executed toggle
+    application.add_handler(ntoggle_order_handler)  # Notif prefs → order triggered toggle
+    application.add_handler(ntoggle_portfolio_handler)  # Notif prefs → portfolio milestone toggle
+    application.add_handler(ntoggle_risk_handler)  # Notif prefs → risk event toggle
 
     # Custodial
     application.add_handler(CallbackQueryHandler(custodial_callback, pattern="^custodial_menu$"))
@@ -546,6 +574,12 @@ def add_handlers(application: Application) -> None:
     application.add_handler(sub_compare_callback)
     application.add_handler(sub_back_callback)
 
+    # Enterprise org management
+    application.add_handler(CallbackQueryHandler(org_members_callback, pattern="^org_members$"))
+    application.add_handler(CallbackQueryHandler(org_keys_callback, pattern="^org_keys$"))
+    application.add_handler(CallbackQueryHandler(org_cancel_callback, pattern="^org_cancel$"))
+    application.add_handler(CallbackQueryHandler(org_back_callback, pattern="^org_back$"))
+
     # Points/XP callbacks
     application.add_handler(points_menu_callback_handler)
     application.add_handler(xp_callback_handler)
@@ -592,6 +626,9 @@ def add_handlers(application: Application) -> None:
     # Tempo session keys (access keys) — /tempo
     for tempo_handler in get_tempo_handlers():
         application.add_handler(tempo_handler)
+
+    # BullX Neo migration wizard — /import
+    application.add_handler(import_conversation_handler)
 
     # Freeform text catch-all — MUST be registered last in the default group so
     # it only fires when no ConversationHandler (or earlier handler) handles the
@@ -640,6 +677,8 @@ async def post_init(application) -> None:
             BotCommand("check", "🛡️ Token safety check"),
             BotCommand("btc", "₿ BTC bridge (Lightning ⇄ Starknet)"),
             BotCommand("ref", "🎁 Referrals & rewards"),
+            BotCommand("vip", "⭐ VIP status — your tier, fee rate & XP multiplier"),
+            BotCommand("import", "📥 Import wallets — migrate from BullX or another bot"),
             BotCommand("set", "⚙️ Settings"),
             BotCommand("h", "📖 Help — full command list"),
         ]
@@ -720,6 +759,11 @@ async def post_init(application) -> None:
         await rug_service.start(swap_engine=SwapEngine())
         logger.info("✓ Rug protection service started")
 
+        # Start HyperLiquid WebSocket alert feed
+        if settings.hl_ws_alerts_enabled:
+            await hl_ws_alerts.start(bot=application.bot)
+            logger.info("✓ HyperLiquid WebSocket alerts started")
+
 
 async def post_shutdown(application) -> None:
     """Called when the application shuts down."""
@@ -732,6 +776,8 @@ async def post_shutdown(application) -> None:
         await tx_poller.stop()
         await health_monitor.stop()
         await launch_detector.stop()
+        if settings.hl_ws_alerts_enabled:
+            await hl_ws_alerts.stop()
 
     logger.info("Closing HTTP session pool...")
     await close_http_session()

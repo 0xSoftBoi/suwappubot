@@ -7,7 +7,7 @@
  */
 import { getInitData } from './telegram'
 import { getAuthToken } from './auth'
-import type { Portfolio, Swap, ApiError, HealthStatus, UserPreferencesResponse, UpdatePreferencesResponse, UserPreferences } from '../types/api'
+import type { Portfolio, Swap, ApiError, HealthStatus, UserPreferencesResponse, UpdatePreferencesResponse, UserPreferences, PortfolioPnl } from '../types/api'
 import type { LinkedWallet, AuthChallenge, LinkWalletResponse } from '../types/auth'
 import type { SwapToken, SwapQuote, SwapQuoteRequest, SwapExecuteRequest, SwapExecuteResult, SwapStatusResponse } from '../types/swap'
 import type { SimulationResult } from '../types/simulation'
@@ -100,6 +100,13 @@ class ApiClient {
    */
   async getPortfolio(): Promise<Portfolio> {
     return this.fetch<Portfolio>('/webapp/users/me/portfolio')
+  }
+
+  /**
+   * Get portfolio PnL analytics for the given time period
+   */
+  async getPortfolioPnl(period: '7d' | '30d' | '90d' | 'all' = '30d'): Promise<PortfolioPnl> {
+    return this.fetch<PortfolioPnl>(`/webapp/portfolio/pnl?period=${period}`)
   }
 
   /**
@@ -320,6 +327,13 @@ class ApiClient {
   }
 
   // === User Preferences ===
+
+  /**
+   * Get VIP / tier status including point multiplier
+   */
+  async getVipStatus(): Promise<{ effective_tier: string; point_multiplier: number; season_volume_usd: number }> {
+    return this.fetch('/webapp/me/vip')
+  }
 
   /**
    * Get user preferences (settings page data)
@@ -703,6 +717,78 @@ class ApiClient {
     })
   }
 
+  // === Subscription Status ===
+
+  /**
+   * Get the current user's subscription tier.
+   * Returns { tier, fee_rate_percent, expires_at, active }
+   */
+  async getSubscriptionStatus(): Promise<{ tier: string; fee_rate_percent: number; expires_at: string | null; active: boolean }> {
+    return this.fetch<{ tier: string; fee_rate_percent: number; expires_at: string | null; active: boolean }>('/billing/status')
+  }
+
+  // === Enterprise Org Management ===
+
+  async getOrg(orgId: string): Promise<EnterpriseOrg> {
+    return this.fetch<EnterpriseOrg>(`/enterprise/orgs/${orgId}`)
+  }
+
+  async getMyOrg(): Promise<EnterpriseOrg | null> {
+    const res = await fetch(`${this.baseUrl}/enterprise/orgs/me`, {
+      headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
+    })
+    if (res.status === 404) return null
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw { detail: body.detail || 'Failed to load organization', status: res.status }
+    }
+    return res.json()
+  }
+
+  async createOrg(name: string, slug: string): Promise<EnterpriseOrg> {
+    return this.fetch<EnterpriseOrg>('/enterprise/orgs', {
+      method: 'POST',
+      body: JSON.stringify({ name, slug }),
+    })
+  }
+
+  async getOrgMembers(orgId: string): Promise<OrgMember[]> {
+    const res = await this.fetch<{ members: OrgMember[] }>(`/enterprise/orgs/${orgId}/members`)
+    return res.members
+  }
+
+  async inviteMember(orgId: string, userId: number, role: OrgRole): Promise<OrgMember> {
+    const res = await this.fetch<{ member: OrgMember }>(`/enterprise/orgs/${orgId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ userId: Number(userId), role }),
+    })
+    return res.member
+  }
+
+  async removeMember(orgId: string, userId: string): Promise<void> {
+    await this.fetch(`/enterprise/orgs/${orgId}/members/${userId}`, { method: 'DELETE' })
+  }
+
+  async getApiKeys(orgId: string): Promise<OrgApiKey[]> {
+    const res = await this.fetch<{ keys: OrgApiKey[] }>(`/enterprise/orgs/${orgId}/api-keys`)
+    return res.keys
+  }
+
+  async createApiKey(orgId: string, name: string, scopes: string[], expiresAt?: string): Promise<OrgApiKeyCreated> {
+    return this.fetch<OrgApiKeyCreated>(`/enterprise/orgs/${orgId}/api-keys`, {
+      method: 'POST',
+      body: JSON.stringify({ name, scopes, expiresAt }),
+    })
+  }
+
+  async revokeApiKey(orgId: string, keyId: string): Promise<void> {
+    await this.fetch(`/enterprise/orgs/${orgId}/api-keys/${keyId}`, { method: 'DELETE' })
+  }
+
+  async getOrgUsage(orgId: string): Promise<OrgUsage> {
+    return this.fetch<OrgUsage>(`/enterprise/orgs/${orgId}/usage`)
+  }
+
   /**
    * Lookup a token by contract address
    */
@@ -1048,7 +1134,7 @@ export interface CopySettings {
 }
 
 export interface FollowTraderParams {
-  walletId: number
+  walletId?: number
   maxAmountPerTrade?: number
   totalBudget?: number
   stopLossPercent?: number
@@ -1099,6 +1185,47 @@ export interface CopyFollowSettings {
 // Limit Order webapp types (used by dev branch)
 export interface WebappLimitOrder extends LimitOrder {
   targetPrice: number
+}
+
+// === Enterprise types ===
+
+export type OrgRole = 'owner' | 'admin' | 'member' | 'viewer'
+
+export interface EnterpriseOrg {
+  id: string
+  name: string
+  slug: string
+  seatLimit: number
+  memberCount: number
+  createdAt: string
+}
+
+export interface OrgMember {
+  userId: string
+  username?: string
+  firstName?: string
+  role: OrgRole
+  joinedAt: string
+}
+
+export interface OrgApiKey {
+  id: string
+  name: string
+  prefix: string
+  scopes: string[]
+  lastUsedAt?: string
+  expiresAt?: string
+  createdAt: string
+}
+
+export interface OrgApiKeyCreated extends OrgApiKey {
+  rawKey: string
+}
+
+export interface OrgUsage {
+  callsToday: number
+  callsThisMonth: number
+  rateLimitHits: number
 }
 
 // Export singleton instance

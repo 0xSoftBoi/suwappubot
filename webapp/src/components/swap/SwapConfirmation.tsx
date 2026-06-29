@@ -42,6 +42,7 @@ export interface SwapConfirmationProps {
   onConfirm: () => void
   onCancel: () => void
   isExecuting: boolean
+  estimatedXp?: number
   className?: string
 }
 
@@ -124,6 +125,7 @@ export const SwapConfirmationWithSimulation = React.memo(function SwapConfirmati
   onConfirm,
   onCancel,
   isExecuting,
+  estimatedXp,
   className = '',
 }: SwapConfirmationProps) {
   const { simulation, isLoading } = useTransactionSimulation(quote, fromToken, toToken)
@@ -211,6 +213,13 @@ export const SwapConfirmationWithSimulation = React.memo(function SwapConfirmati
                 </div>
               )}
             </div>
+
+            {/* XP preview */}
+            {estimatedXp != null && estimatedXp > 0 && (
+              <div style={{ color: 'var(--summer-sky, #7c3aed)', fontSize: '0.85rem', marginTop: '8px' }}>
+                Earn ~{estimatedXp} XP from this swap
+              </div>
+            )}
 
             {/* Simulation content */}
             <TransactionSimulation

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from bot.config.chains import get_chain_by_name
 from bot.models.user import User, Wallet
+from bot.models.favorites import UserSettings
 from bot.models.swap import SwapStatus, SwapTransaction
 from bot.models.copy_trading import (
     TraderProfile,
@@ -183,7 +184,11 @@ class CopyService:
             trader_profile.follower_count += 1
 
         trader_name = trader_profile.display_name or f"Trader{trader_id}"
-        mode_desc = "with notifications" if copy_mode == "notify" else "in auto mode"
+        mode_desc = (
+            "with notifications"
+            if copy_mode == "notify"
+            else "in paper mode" if copy_mode == "paper" else "in auto mode"
+        )
         return True, f"Now following {trader_name} {mode_desc}!"
 
     def unfollow_trader(self, follower_id: int, trader_id: int) -> Tuple[bool, str]:
@@ -449,6 +454,27 @@ class CopyService:
                     if allowed_chains and swap.from_chain.lower() not in allowed_chains:
                         continue
 
+                # --- Advanced filters ---
+                # min_trade_usd: skip if the original trade is below the follower's threshold
+                if follow.min_trade_usd is not None and amount_usd < follow.min_trade_usd:
+                    logger.debug(
+                        "copy skipped for follow %s: below min trade size " "(%.2f < %.2f)",
+                        follow.id,
+                        amount_usd,
+                        follow.min_trade_usd,
+                    )
+                    continue
+
+                # min_wallet_pnl_pct: requires external all-time PnL data — wired for
+                # future implementation; pass-through for now.
+                # TODO: fetch trader's all-time PnL% from an on-chain analytics provider
+                # and compare against follow.min_wallet_pnl_pct when set.
+
+                # min_token_age_hours: requires token launch timestamp lookup — wired for
+                # future implementation; pass-through for now.
+                # TODO: fetch token creation time (e.g. from DexScreener / Helius) and
+                # compare swap.to_token age against follow.min_token_age_hours when set.
+
                 copy_amount = follow.get_copy_amount(amount_usd)
 
                 # Check daily limit
@@ -544,6 +570,11 @@ class CopyService:
                     }
                 )
                 await self._notify_copy_result(bot, follower_info, swap_data, success, message)
+            elif follower_info["copy_mode"] == "paper":
+                await self._execute_paper_copy(
+                    follower_id, copy_trade_id, bot, follower_info, swap_data
+                )
+                processed.append({**follower_info, "status": "paper"})
             else:
                 self.mark_notified(follower_id, copy_trade_id)
                 processed.append({**follower_info, "status": "notified"})
@@ -773,6 +804,14 @@ class CopyService:
             follower = None
             with get_session() as session:
                 follower = session.query(User).filter(User.id == follower_info["user_id"]).first()
+                if follower:
+                    user_settings = (
+                        session.query(UserSettings)
+                        .filter(UserSettings.user_id == follower.id)
+                        .first()
+                    )
+                    if user_settings and not getattr(user_settings, "notify_copy_executed", True):
+                        return
             if not follower or not follower.telegram_id:
                 return
             await bot.send_message(
@@ -785,6 +824,65 @@ class CopyService:
         except Exception as exc:
             logger.warning("Failed to send copy signal notification: %s", exc)
 
+    async def _execute_paper_copy(
+        self,
+        copier_id: int,
+        copy_trade_id: int,
+        bot,
+        follower_info: dict,
+        swap_data: dict,
+    ) -> None:
+        """Record a paper copy trade (no real swap executed)."""
+        # current_token_price_usd: ideally fetched from a price feed; use
+        # the trader's per-unit price as a best-effort proxy for now.
+        try:
+            copy_amount = follower_info.get("copy_amount", 0.0)
+            trader_amount = swap_data.get("amount_usd", 0.0)
+            current_token_price_usd = None  # placeholder — wire up price feed if available
+
+            with get_session() as session:
+                copy_trade = session.query(CopyTrade).filter(CopyTrade.id == copy_trade_id).first()
+                if copy_trade and copy_trade.status in ["pending", "notified"]:
+                    copy_trade.status = "copied"
+                    copy_trade.copied_at = datetime.now(timezone.utc)
+                    copy_trade.paper_entry_price_usd = current_token_price_usd
+                    copy_trade.copy_amount_usd = copy_amount
+
+                follow = (
+                    session.query(CopyFollow)
+                    .filter(
+                        CopyFollow.copier_id == copier_id
+                        if hasattr(CopyFollow, "copier_id")
+                        else CopyFollow.follower_id == copier_id
+                    )
+                    .filter(CopyFollow.id == copy_trade.follow_id if copy_trade else False)
+                    .first()
+                )
+                if follow:
+                    follow.total_copied_trades += 1
+                    follow.total_copied_volume += copy_amount
+
+            if bot:
+                follower = None
+                with get_session() as session:
+                    follower = session.query(User).filter(User.id == copier_id).first()
+                if follower and follower.telegram_id:
+                    price_str = (
+                        f"${current_token_price_usd:,.6f}"
+                        if current_token_price_usd
+                        else "market price"
+                    )
+                    await bot.send_message(
+                        chat_id=follower.telegram_id,
+                        text=(
+                            f"Paper trade: would have bought "
+                            f"{swap_data.get('to_token', '?')} at {price_str} "
+                            f"(${copy_amount:.2f} allocation)"
+                        ),
+                    )
+        except Exception as exc:
+            logger.warning("Paper copy failed for user %s: %s", copier_id, exc)
+
     async def _notify_copy_result(
         self, bot, follower_info: dict, swap_data: dict, success: bool, message: str
     ) -> None:
@@ -794,6 +892,14 @@ class CopyService:
             follower = None
             with get_session() as session:
                 follower = session.query(User).filter(User.id == follower_info["user_id"]).first()
+                if follower:
+                    user_settings = (
+                        session.query(UserSettings)
+                        .filter(UserSettings.user_id == follower.id)
+                        .first()
+                    )
+                    if user_settings and not getattr(user_settings, "notify_copy_executed", True):
+                        return
             if not follower or not follower.telegram_id:
                 return
             prefix = "Auto-copy submitted" if success else "Auto-copy failed"
@@ -966,7 +1072,9 @@ class CopyService:
         msg = f"👥 *Following* ({len(following)}/{MAX_FOLLOWS})\n\n"
 
         for f in following:
-            mode_emoji = "🔔" if f["copy_mode"] == "notify" else "🤖"
+            mode_emoji = (
+                "🔔" if f["copy_mode"] == "notify" else "📄" if f["copy_mode"] == "paper" else "🤖"
+            )
             pnl_emoji = "📈" if f["copy_pnl"] >= 0 else "📉"
             msg += (
                 f"{f['avatar']} *{f['display_name']}*\n"

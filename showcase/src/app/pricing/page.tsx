@@ -26,42 +26,57 @@ const tiers: {
     price: '$0',
     cadence: '',
     fee: '1.0%',
-    blurb: 'Everything you need to start swapping across 40+ chains.',
+    blurb: 'Everything you need to start.',
     cta: 'Start free',
     highlight: false,
-    features: ['Best-price routing across 9 aggregators', 'HyperLiquid perps & funding', 'Gasless first swaps on Tempo', 'Agent API, SDK & MCP access'],
+    features: ['Best-price routing across 9 aggregators', 'HyperLiquid perps & funding', 'Gasless first swaps on Tempo', 'Agent API, SDK & MCP access', '1× loyalty points — redeem for fee credits'],
   },
   {
     name: 'Pro',
     price: '$9.99',
     cadence: '/mo',
     fee: '0.5%',
-    blurb: 'Half the swap fee for active traders.',
+    blurb: 'For serious traders.',
     cta: 'Upgrade to Pro',
     highlight: false,
-    features: ['Everything in Free', '0.5% swap fee', 'Priority routing', 'Copy trading & DCA'],
+    features: ['Everything in Free', '0.5% swap fee', 'Priority routing', 'Copy trading & DCA', '1.1× loyalty points on every trade'],
   },
   {
     name: 'Premium',
     price: '$29.99',
     cadence: '/mo',
     fee: '0.3%',
-    blurb: 'The best rate for serious volume.',
+    blurb: 'For high-volume traders.',
     cta: 'Go Premium',
     highlight: true,
     badge: 'Most popular',
-    features: ['Everything in Pro', '0.3% swap fee', 'Higher rate limits', 'Advanced alerts & analytics'],
+    features: ['Everything in Pro', '0.3% swap fee', 'Higher rate limits', 'Advanced alerts & analytics', '1.25× loyalty points on every trade'],
   },
   {
     name: 'Enterprise',
-    price: '$99.99',
-    cadence: '/mo',
+    price: 'Custom',
+    cadence: '',
     fee: '0.1%',
-    blurb: 'Lowest fee, for desks and agent fleets.',
-    cta: 'Talk to the team',
+    blurb: 'For funds and institutions.',
+    cta: 'Contact Sales',
     href: ENTERPRISE_CONTACT_PATH,
     highlight: false,
-    features: ['Everything in Premium', '0.1% swap fee', 'Dedicated rate limits', 'Priority support'],
+    badge: 'Industry-First',
+    features: [
+      'Everything in Premium',
+      '0.1% swap fee (vs 1% industry standard)',
+      'Multi-user org accounts with RBAC (Owner / Admin / Member / Viewer)',
+      'Up to 10 seats per org (configurable)',
+      'Programmatic API keys with scoped permissions',
+      'Per-org rate limits — 1,000 API calls/min default',
+      '7-chain execution (competitors offer 1–2)',
+      'KMS envelope encryption — institutional-grade custody',
+      'Dedicated support + SLA — first in category',
+      'Usage dashboard: API calls, rate-limit monitoring',
+      'Custom RPC / dedicated node — contact for pricing',
+      'White-label available — contact for pricing',
+      '1.5× loyalty points on every trade',
+    ],
   },
 ];
 
@@ -86,8 +101,27 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
     category: 'Agents & API',
     rows: [
       { label: 'REST API, SDK & MCP server', values: ['✓', '✓', '✓', '✓'] },
-      { label: 'Rate limits', values: ['Standard', 'Standard', 'Higher', 'Dedicated'] },
+      { label: 'Rate limits', values: ['Standard', 'Standard', 'Higher', '1,000 req/min+'] },
       { label: 'Managed wallets & policy guardrails', values: ['✓', '✓', '✓', '✓'] },
+    ],
+  },
+  {
+    category: 'Team & Org (Enterprise only)',
+    rows: [
+      { label: 'Multi-user org accounts', values: ['—', '—', '—', '✓'] },
+      { label: 'RBAC roles (Owner / Admin / Member / Viewer)', values: ['—', '—', '—', '✓'] },
+      { label: 'Programmatic API keys with scoped access', values: ['—', '—', '—', '✓'] },
+      { label: 'Usage dashboard & rate-limit monitoring', values: ['—', '—', '—', '✓'] },
+      { label: 'Custom RPC / dedicated node', values: ['—', '—', '—', 'Contact'] },
+      { label: 'White-label', values: ['—', '—', '—', 'Contact'] },
+    ],
+  },
+  {
+    category: 'Rewards',
+    rows: [
+      { label: 'Loyalty points earn rate', values: ['1×', '1.1×', '1.25×', '1.5×'] },
+      { label: 'Redeem points for fee credits & subscription', values: ['✓', '✓', '✓', '✓'] },
+      { label: 'Season points → SUWP', values: ['✓', '✓', '✓', '✓'] },
     ],
   },
   {
@@ -95,7 +129,7 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
     rows: [
       { label: 'KMS-backed key management', values: ['✓', '✓', '✓', '✓'] },
       { label: 'Spending limits, 2FA, withdrawal allowlist', values: ['✓', '✓', '✓', '✓'] },
-      { label: 'Support', values: ['Community', 'Community', 'Email', 'Priority'] },
+      { label: 'Support', values: ['Community', 'Community', 'Email', 'Dedicated + SLA'] },
     ],
   },
 ];
@@ -114,6 +148,18 @@ const faqs = [
     a: 'You can bring your own keys via the agent API for full self-custody, or use a managed wallet where keys are encrypted with KMS envelope encryption and signed server-side. See the Security page for details.',
   },
   {
+    q: 'Does my trading pay for my membership?',
+    a: 'Effectively, yes. Every swap, perp, prediction-market and P2P trade earns loyalty points, and higher tiers earn faster — 1.1× on Pro, 1.25× on Premium, 1.5× on Enterprise. Redeem points for fee credits, gas rebates, or to cover your next month of subscription. Your activity also accrues season points that convert to SUWP.',
+  },
+  {
+    q: 'Can I earn a lower fee just by trading?',
+    a: 'Yes — your VIP status is the better of your plan and your trading. Rack up cross-product volume in a season (swaps, perps, prediction markets, P2P all count toward one status) and you auto-unlock a lower swap fee and a faster points multiplier, even on Free. Check /vip in the bot to see your status and the next threshold.',
+  },
+  {
+    q: 'What does the Enterprise tier include that competitors do not?',
+    a: 'Suwappu Enterprise is the only offering in the DeFi bot space with multi-user org accounts, RBAC roles, scoped programmatic API keys, a per-org usage dashboard, a dedicated SLA, and white-label options. BullX, Photon, Banana Gun, Maestro, Trojan, and Axiom have no enterprise tier at all. On top of that, Enterprise users get 0.1% swap fees (versus the 1% industry standard), 7-chain execution, and KMS envelope encryption for institutional-grade custody.',
+  },
+  {
     q: 'How do referrals work?',
     a: 'Refer a friend with /ref and earn 30% of the trading fees they generate — paid out automatically, on every chain, for as long as they trade.',
   },
@@ -130,6 +176,10 @@ export default function PricingPage() {
           <p className="mkt-hero__lead">
             No seat counts, no hidden fees. Pick a tier to drop your swap fee — everything
             else is included on every plan.
+          </p>
+          {/* Clerk-pattern anxiety removal — free to start, no card required. */}
+          <p className="mkt-hero__clerk">
+            Free to start. No credit card. Your first trades are on us.
           </p>
         </header>
 
@@ -164,6 +214,18 @@ export default function PricingPage() {
             </article>
             );
           })}
+        </section>
+
+        <section className="mkt-callout mkt-callout--enterprise" aria-label="Enterprise differentiator">
+          <p className="mkt-callout__eyebrow">Industry-First</p>
+          <p className="mkt-callout__body">
+            BullX, Photon, Banana Gun, Maestro, Trojan, and Axiom offer zero enterprise tier — no team
+            accounts, no API keys, no SLA. Suwappu is the only DeFi trading platform purpose-built for
+            trading desks, agent fleets, and institutions.
+          </p>
+          <a className="summer-button summer-button--secondary" href={ENTERPRISE_CONTACT_PATH}>
+            Talk to Sales
+          </a>
         </section>
 
         <section className="pricing-compare" aria-label="Plan comparison">

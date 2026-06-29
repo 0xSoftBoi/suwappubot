@@ -1,6 +1,7 @@
 {
   "name": "@suwappu/sdk",
   "version": "0.1.0",
+  "publishConfig": { "access": "public" },
   "description": "TypeScript client for the Suwappu cross-chain DEX API",
   "type": "module",
   "main": "./dist/index.js",

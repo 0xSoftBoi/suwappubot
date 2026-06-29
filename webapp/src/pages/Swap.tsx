@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AppLayout, AppHeader } from '../components/layout'
 import { TokenInput, SwapArrow, SwapDetails, TokenSelector } from '../components/swap'
@@ -7,6 +7,7 @@ import { useTokens } from '../hooks/useTokens'
 import { useSwapQuote } from '../hooks/useSwapQuote'
 import { useSwapExecute } from '../hooks/useSwapExecute'
 import { api } from '../lib/api'
+import a11yToast from '../lib/a11yToast'
 import type { SwapToken, SwapExecuteResult } from '../types/swap'
 
 export function Swap() {
@@ -44,6 +45,17 @@ export function Swap() {
       ? prefsData.preferences.defaultSlippage / 100
       : 0.5
 
+  // VIP tier — drives XP multiplier
+  const { data: vipData } = useQuery({
+    queryKey: ['vipStatus'],
+    queryFn: () => api.getVipStatus(),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+
+  // Snapshot XP at confirmation time so toast reflects what was shown
+  const xpAtConfirmRef = useRef(0)
+
   // Build quote request
   const quoteRequest = useMemo(() => {
     if (!fromToken || !toToken || !fromAmount) return null
@@ -65,6 +77,12 @@ export function Swap() {
     error: quoteError,
     isFetching: quoteFetching,
   } = useSwapQuote(quoteRequest)
+
+  // Estimated XP: 1 XP per dollar, scaled by tier multiplier
+  const estimatedXp = useMemo(
+    () => Math.round((quote?.fromAmountUsd ?? 0) * (vipData?.point_multiplier ?? 1)),
+    [quote?.fromAmountUsd, vipData?.point_multiplier]
+  )
 
   // Swap execution mutation
   const {
@@ -109,6 +127,7 @@ export function Swap() {
   }
 
   const handleReview = () => {
+    xpAtConfirmRef.current = estimatedXp
     setIsConfirming(true)
   }
 
@@ -122,6 +141,9 @@ export function Swap() {
           setIsConfirming(false)
           setSwapResult(result as SwapExecuteResult)
           setIsSuccess(true)
+          if (xpAtConfirmRef.current > 0) {
+            a11yToast.success(`+${xpAtConfirmRef.current} XP earned`)
+          }
         },
         onError: () => {
           // Keep confirmation open so user can see the error or retry
@@ -431,6 +453,7 @@ export function Swap() {
           onConfirm={handleConfirm}
           onCancel={() => setIsConfirming(false)}
           isExecuting={swapPending}
+          estimatedXp={estimatedXp}
         />
       )}
     </>

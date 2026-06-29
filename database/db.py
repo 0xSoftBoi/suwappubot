@@ -358,6 +358,7 @@ def _ensure_schema(db_engine) -> None:
         _add_quicktrade_columns(db_engine, inspector, is_sqlite)
         _add_user_settings_trading_prefs(db_engine, inspector, is_sqlite)
         _add_user_settings_proactive_column(db_engine, inspector, is_sqlite)
+        _add_user_settings_granular_notify_columns(db_engine, inspector, is_sqlite)
 
     # --- referral_rewards: multi-tier column ---
     _add_referral_tier_column(db_engine, inspector, is_sqlite)
@@ -403,6 +404,10 @@ def _ensure_schema(db_engine) -> None:
     if "copy_follows" in tables:
         _add_copy_trading_columns(db_engine, inspector, is_sqlite)
 
+    # --- copy_trades: paper mode entry price ---
+    if "copy_trades" in tables:
+        _add_copy_trade_paper_column(db_engine, inspector, is_sqlite)
+
     # --- rug_monitors table ---
     if not inspector.has_table("rug_monitors"):
         from bot.models.advanced import RugMonitor
@@ -439,6 +444,7 @@ def _ensure_schema(db_engine) -> None:
     _add_hyperliquid_ecosystem_tables(db_engine, inspector, is_sqlite)
     _add_cctp_tables(db_engine, inspector, is_sqlite)
     _add_user_region_column(db_engine, inspector, is_sqlite)
+    _add_user_language_preference_column(db_engine, inspector, is_sqlite)
     _add_savings_tables(db_engine, inspector, is_sqlite)
     _add_auth_tables(db_engine, inspector, is_sqlite)
     _add_btc_swap_tables(db_engine, inspector, is_sqlite)
@@ -489,6 +495,30 @@ def _ensure_schema(db_engine) -> None:
     # --- rewards: marketplace category column (async fulfillment routing) ---
     if "rewards" in tables:
         _add_reward_category_column(db_engine, inspector, is_sqlite)
+
+    # --- users: enterprise org membership columns ---
+    if "users" in tables:
+        _add_user_org_columns(db_engine, inspector, is_sqlite)
+
+
+def _add_user_org_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add users.organization_id and users.organization_role for enterprise tenancy, idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("users")}
+    for col, col_type in [
+        ("organization_id", "VARCHAR(36)"),
+        ("organization_role", "VARCHAR(20)"),
+    ]:
+        if col not in cols:
+            try:
+                if is_sqlite:
+                    ddl = f"ALTER TABLE users ADD COLUMN {col} {col_type}"
+                else:
+                    ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col} {col_type}"
+                with db_engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info(f"Added users.{col}")
+            except Exception as e:
+                logger.warning(f"Failed to add users.{col}: {e}")
 
 
 def _add_reward_category_column(db_engine, inspector, is_sqlite: bool) -> None:
@@ -705,6 +735,22 @@ def _add_user_region_column(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info("Added users.region")
     except Exception as e:
         logger.warning(f"Failed to add users.region: {e}")
+
+
+def _add_user_language_preference_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add users.language_preference for persisting locale choice, idempotently."""
+    try:
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "language_preference" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE users ADD COLUMN language_preference VARCHAR(10) DEFAULT 'en'"
+            else:
+                ddl = "ALTER TABLE users ADD COLUMN IF NOT EXISTS language_preference VARCHAR(10) DEFAULT 'en'"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info("Added users.language_preference")
+    except Exception as e:
+        logger.warning(f"Failed to add users.language_preference: {e}")
 
 
 def _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -1877,6 +1923,18 @@ def _create_recurring_subscriptions_table(db_engine, inspector, is_sqlite: bool)
         )
 
 
+def _add_copy_trade_paper_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add paper_entry_price_usd to copy_trades table idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("copy_trades")}
+    if "paper_entry_price_usd" not in cols:
+        if is_sqlite:
+            ddl = "ALTER TABLE copy_trades ADD COLUMN paper_entry_price_usd FLOAT"
+        else:
+            ddl = "ALTER TABLE copy_trades ADD COLUMN IF NOT EXISTS paper_entry_price_usd FLOAT"
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
+
+
 def _add_copy_trading_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Add enhanced copy trading columns to copy_follows table idempotently."""
     cols = {c["name"] for c in inspector.get_columns("copy_follows")}
@@ -1884,6 +1942,9 @@ def _add_copy_trading_columns(db_engine, inspector, is_sqlite: bool) -> None:
     new_columns = [
         ("auto_sell_enabled", "BOOLEAN", "TRUE"),
         ("chains_filter", "VARCHAR(200)", "NULL"),
+        ("min_trade_usd", "FLOAT", "NULL"),
+        ("min_wallet_pnl_pct", "FLOAT", "NULL"),
+        ("min_token_age_hours", "FLOAT", "NULL"),
     ]
 
     for col_name, col_type, default in new_columns:
@@ -1940,3 +2001,26 @@ async def run_in_db(fn: Callable[..., T], *args, **kwargs) -> T:
     if kwargs:
         return await loop.run_in_executor(_db_executor, lambda: fn(*args, **kwargs))
     return await loop.run_in_executor(_db_executor, fn, *args)
+
+
+def _add_user_settings_granular_notify_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add granular per-event notification preference columns to user_settings (idempotent)."""
+    cols = {c["name"] for c in inspector.get_columns("user_settings")}
+
+    new_columns = [
+        ("notify_copy_executed", "BOOLEAN", "TRUE"),
+        ("notify_order_triggered", "BOOLEAN", "TRUE"),
+        ("notify_portfolio_milestone", "BOOLEAN", "FALSE"),
+        ("notify_risk_event", "BOOLEAN", "TRUE"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = (
+                    f"ALTER TABLE user_settings ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+                )
+            else:
+                ddl = f"ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))

@@ -11,6 +11,7 @@ import {
 	adminRoutes,
 	agentRoutes,
 	billingRoutes,
+	enterpriseRoutes,
 	healthRoutes,
 	internalRoutes,
 	lendRoutes,
@@ -101,6 +102,9 @@ export function createApp(config: AppConfig) {
 	// Billing routes - Stripe subscription management
 	app.route('/billing', billingRoutes)
 
+	// Enterprise org management + API key control plane
+	app.route('/enterprise', enterpriseRoutes)
+
 	// Agent A2A API routes (v1/agent/*) - uses Bearer token auth internally
 	// Registration is public, other endpoints require Bearer token
 	app.route('/v1/agent', agentRoutes)
@@ -127,10 +131,14 @@ export function createApp(config: AppConfig) {
 		c.header('Content-Type', 'text/plain; charset=utf-8')
 		return c.body(
 			[
+				'# Suwappu security disclosure policy — https://suwappu.bot/.well-known/security.txt',
 				'Contact: mailto:security@suwappu.bot',
-				'Expires: 2027-06-24T00:00:00.000Z',
+				'Contact: https://suwappu.bot/security',
+				'Expires: 2027-06-01T00:00:00.000Z',
+				'Canonical: https://suwappu.bot/.well-known/security.txt',
+				'Policy: https://suwappu.bot/security',
 				'Preferred-Languages: en',
-				'Canonical: https://api.suwappu.bot/.well-known/security.txt',
+				'Hiring: https://suwappu.bot/careers',
 				'',
 			].join('\n'),
 		)
@@ -201,7 +209,7 @@ Get key: POST /register (no auth needed)
 
 ## Protocols
 - REST: https://api.suwappu.bot/v1/agent/*
-- MCP: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0; tools: get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory, predict_markets, predict_market_detail; resources + prompts supported)
+- MCP: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0; tools: get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory, predict_markets, predict_market, perps_markets, perps_quote, perps_positions, lend_markets, lend_market; resources + prompts supported)
 - A2A: POST https://api.suwappu.bot/a2a (JSON-RPC 2.0, methods: message/send, tasks/get, tasks/cancel)
 - Agent Card: GET https://api.suwappu.bot/.well-known/agent.json
 - OpenAPI: GET https://api.suwappu.bot/v1/agent/openapi

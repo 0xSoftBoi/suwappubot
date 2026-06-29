@@ -35,6 +35,9 @@ class User(Base):
     panic_sell_enabled = Column(Boolean, default=False)
     gas_mode = Column(String(10), default="auto")  # Read/written by api-ts (webapp gas settings)
 
+    # Language preference (IETF tag, e.g. "en", "es", "fr", "zh")
+    language_preference = Column(String(10), nullable=True, default="en")
+
     # Region (ISO-3166 alpha-2, e.g. "US", "GB"). Set by onboarding/KYC. Used to
     # gate region-restricted features (e.g. HyperUnit native deposits, which are
     # not available to US users). None = unknown -> treated as restricted.
@@ -74,6 +77,10 @@ class User(Base):
     # Weekly portfolio digest
     weekly_digest = Column(Boolean, default=False)
     last_digest_at = Column(DateTime, nullable=True)
+
+    # Enterprise org membership (cross-db ref, no FK constraint)
+    organization_id = Column(String(36), nullable=True)
+    organization_role = Column(String(20), nullable=True)  # owner | admin | member | viewer
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
