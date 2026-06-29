@@ -479,11 +479,47 @@ class BattleService:
         On any exception the battle is voided and a refund is attempted.
         """
         with get_session() as session:
-            battle = session.query(Battle).filter(Battle.id == battle_id).first()
-            if not battle:
-                logger.error("battle %s: row gone after CAS — manual fix required", battle_id)
+            # ── Step 3 CAS: atomically claim the 'settling' row ───────────────
+            # This guards against the orphan-recovery path in settle_expired_battles
+            # resetting status='settling' → 'open' (after 5 min timeout) while
+            # Step 2 (async price fetch) is still in flight.  A new tick could then
+            # CAS-claim the row before we reach here, leaving two writers racing to
+            # apply a payout.  The guarded UPDATE ensures only the writer that
+            # transitions status OUT OF 'settling' proceeds with balance mutations.
+            final_status = "settled" if outcome != "void" else "voided"
+            settled_at = datetime.now(timezone.utc)
+            cas_result = session.execute(
+                text(
+                    "UPDATE battles "
+                    "SET status = :final_status, "
+                    "    settle_price = :settle_price, "
+                    "    outcome = :outcome, "
+                    "    pnl_usd = :pnl_usd, "
+                    "    settled_at = :settled_at "
+                    "WHERE id = :id AND status = 'settling'"
+                ),
+                {
+                    "final_status": final_status,
+                    "settle_price": float(settle_price) if settle_price is not None else None,
+                    "outcome": outcome,
+                    "pnl_usd": float(pnl_usd),
+                    "settled_at": settled_at,
+                    "id": battle_id,
+                },
+            )
+            if cas_result.rowcount == 0:
+                # Row was re-opened by orphan recovery and re-claimed by another tick,
+                # or already finalized.  Do NOT pay out — another writer owns it.
+                logger.warning(
+                    "battle %s: Step 3 CAS missed (status != 'settling') — "
+                    "another tick owns this settlement, skipping payout",
+                    battle_id,
+                )
                 return None
 
+            # CAS succeeded (rowcount==1): we exclusively own the final write.
+            # Apply balance mutations in the SAME transaction so the status flip
+            # and the payout commit or roll back together.
             if battle_backing == "prediction":
                 treasury_id = _get_treasury_user_id()
                 try:
@@ -503,6 +539,19 @@ class BattleService:
                     outcome = "void"
                     pnl_usd = Decimal("0")
                     settle_price = None
+                    # Overwrite the status columns set by the CAS above to reflect
+                    # the forced void outcome within the same transaction.
+                    session.execute(
+                        text(
+                            "UPDATE battles "
+                            "SET status = 'voided', "
+                            "    settle_price = NULL, "
+                            "    outcome = 'void', "
+                            "    pnl_usd = 0 "
+                            "WHERE id = :id"
+                        ),
+                        {"id": battle_id},
+                    )
                     try:
                         _adjust_balance_in_session(
                             session, treasury_id, battle_stake_usd, "subtract"
@@ -515,13 +564,14 @@ class BattleService:
                             refund_exc,
                         )
 
-            battle.settle_price = settle_price
-            battle.outcome = outcome
-            battle.pnl_usd = pnl_usd
-            battle.status = "settled" if outcome != "void" else "voided"
-            battle.settled_at = datetime.now(timezone.utc)
-
-            session.flush()
+            # Re-read the final row (fields written by CAS UPDATE above) so the
+            # returned object reflects the committed state.
+            battle = session.query(Battle).filter(Battle.id == battle_id).first()
+            if not battle:
+                logger.error(
+                    "battle %s: row gone after Step 3 CAS — manual fix required", battle_id
+                )
+                return None
             session.expunge(battle)
 
         logger.info(

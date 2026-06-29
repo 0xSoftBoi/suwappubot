@@ -44,10 +44,9 @@ from bot.config.xstocks import (
     XSTOCKS_BLOCKED_REGIONS,
     get_all_xstocks,
     get_xstock,
+    xstocks_region_allowed,
 )
-from bot.models.user import User
 from bot.utils.tos_utils import enforce_tos
-from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -79,29 +78,11 @@ _UNKNOWN_REGION_MSG = (
 def _xstocks_region_allowed(telegram_id: int) -> tuple[bool, str]:
     """Check whether this user may access xStocks.
 
-    Returns (allowed: bool, reason: str).
-    Fail-closed: unknown region = blocked.
-
-    region logic mirrors bot/handlers/fund.hyperunit_allowed but is
-    stricter — unknown region is blocked here, not allowed.
+    Thin delegation wrapper around the shared gate in bot.config.xstocks so
+    that behavior is identical at every execution surface.  See
+    xstocks_region_allowed() in that module for full documentation.
     """
-    try:
-        with get_session() as session:
-            user = session.query(User).filter(User.telegram_id == telegram_id).first()
-            region = (user.region or "").strip().upper() if user else ""
-
-        if not region:
-            return False, "unknown"
-
-        if region in XSTOCKS_BLOCKED_REGIONS:
-            return False, "blocked"
-
-        return True, "ok"
-
-    except Exception as exc:  # noqa: BLE001 — never break the menu on a region read
-        logger.warning("xstocks region lookup failed for %s: %s", telegram_id, exc)
-        # Fail-closed on error.
-        return False, "error"
+    return xstocks_region_allowed(telegram_id)
 
 
 # ---------------------------------------------------------------------------
@@ -371,6 +352,12 @@ async def stocks_sell_hint_callback(update: Update, context: ContextTypes.DEFAUL
     """Handle xs_sell_hint — guide user to sell via /s."""
     query = update.callback_query
     await query.answer()
+
+    allowed, reason = _xstocks_region_allowed(query.from_user.id)
+    if not allowed:
+        msg = _UNKNOWN_REGION_MSG if reason == "unknown" else _BLOCKED_REGIONS_MSG
+        await query.edit_message_text(msg, parse_mode="Markdown")
+        return
 
     token = context.user_data.get("paste_token", {})
     mint = token.get("address", "")

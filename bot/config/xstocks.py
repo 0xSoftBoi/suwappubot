@@ -18,13 +18,17 @@ issuance and legal level.  The on-chain Transfer Hook enforcement is currently
 DISABLED, so geo-fencing is entirely the operator's responsibility.  Every
 entry-point that surfaces these tokens MUST geo-block US/GB/CA/AU users.
 Unknown / unset region MUST be treated conservatively (fail-closed = block).
-See bot/handlers/stocks.py for the gate implementation.
+See also: xstocks_region_allowed() in this module (shared gate used by all
+execution paths) and bot/handlers/stocks.py (discovery UI gate).
 
 DO NOT add new mints here without first verifying them against the Jupiter
 token list and the Backed Finance on-chain registry.
 """
 
+import logging
 from typing import TypedDict
+
+logger = logging.getLogger(__name__)
 
 
 class XStockEntry(TypedDict):
@@ -154,6 +158,21 @@ XSTOCKS_BLOCKED_REGIONS: frozenset[str] = frozenset({"US", "GB", "CA", "AU"})
 XSTOCKS_BLOCKED_REGION_NAMES = "US, UK, Canada, or Australia"
 
 
+# Flat frozenset of every known xStock mint address — used by execution-layer
+# geo-gate checks so any entry-point can identify an xStock without importing
+# the full registry dict.  Case-sensitive: Solana addresses are case-sensitive.
+XSTOCKS_MINTS: frozenset[str] = frozenset(e["solana_mint"] for e in XSTOCKS.values())
+
+
+def is_xstock_mint(address: str) -> bool:
+    """Return True when ``address`` is a known xStock SPL Token-2022 mint.
+
+    Case-sensitive exact match against the registry.  Fast O(1) frozenset
+    lookup — safe to call in hot paths.
+    """
+    return address in XSTOCKS_MINTS
+
+
 def get_xstock(ticker: str) -> XStockEntry | None:
     """Return the registry entry for a ticker, or None if not found."""
     return XSTOCKS.get(ticker.upper())
@@ -162,3 +181,54 @@ def get_xstock(ticker: str) -> XStockEntry | None:
 def get_all_xstocks() -> list[XStockEntry]:
     """Return all xStocks entries, high-confidence first."""
     return sorted(XSTOCKS.values(), key=lambda e: (e["confidence"] != "high", e["ticker"]))
+
+
+# ---------------------------------------------------------------------------
+# Shared execution-layer geo-gate
+# ---------------------------------------------------------------------------
+# This function is intentionally defined here (not in a handler module) so that
+# swap.py, paste_trade.py, and any future execution surface can import it
+# without creating a circular import.  xstocks.py is a pure config/registry
+# module — it MUST NOT import from bot.handlers.*.
+
+
+def xstocks_region_allowed(telegram_id: int) -> tuple[bool, str]:
+    """Check whether a user may access xStocks.
+
+    Returns ``(allowed: bool, reason: str)`` where reason is one of:
+      "ok"      — user is in an allowed region
+      "blocked" — user is in a prohibited region (US/GB/CA/AU)
+      "unknown" — region is not set or empty
+      "error"   — DB lookup failed
+
+    Fail-closed: unknown region and DB errors are treated as blocked.
+    This is the authoritative gate for ALL xStocks execution paths.
+    Handlers use this function rather than reimplementing the logic.
+
+    NOTE: This function performs a *synchronous* DB query (via get_session).
+    It is safe to call from async handlers because get_session is a
+    synchronous context manager.  Do not await it.
+    """
+    # Import here (not at module top) to keep xstocks.py free of circular
+    # import risk.  bot.models and database are leaf packages with no upward
+    # imports into bot.config.
+    try:
+        from bot.models.user import User
+        from database.db import get_session
+
+        with get_session() as session:
+            user = session.query(User).filter(User.telegram_id == telegram_id).first()
+            region = (user.region or "").strip().upper() if user else ""
+
+        if not region:
+            return False, "unknown"
+
+        if region in XSTOCKS_BLOCKED_REGIONS:
+            return False, "blocked"
+
+        return True, "ok"
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("xstocks region lookup failed for %s: %s", telegram_id, exc)
+        # Fail-closed on any error.
+        return False, "error"
