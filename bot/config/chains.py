@@ -109,6 +109,18 @@ CHAINS: dict[str, ChainConfig] = {
         logo_emoji="🔵",
         lifi_chain_id=8453,
     ),
+    "base-sepolia": ChainConfig(
+        chain_id=84532,
+        name="base-sepolia",
+        display_name="Base Sepolia",
+        chain_type=ChainType.EVM,
+        native_token="ETH",
+        native_decimals=18,
+        rpc_url_env="BASE_SEPOLIA_RPC_URL",
+        explorer_url="https://sepolia.basescan.org",
+        logo_emoji="🔵",
+        lifi_chain_id=None,  # Li.Fi has no testnet support — native escrow / direct transfers only
+    ),
     "avalanche": ChainConfig(
         chain_id=43114,
         name="avalanche",
