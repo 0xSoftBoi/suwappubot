@@ -4,6 +4,14 @@
 **Part of:** [`flywheel-strategy.md`](./flywheel-strategy.md) — this is the concrete build-out
 of leg ① (execution) + the ★ solver/filler play in §2.5.
 
+> 🔄 **Superseded framing — read [`optimized-thesis.md`](./optimized-thesis.md) §3.** This
+> doc says "internalize your own flow first" with your own inventory. The optimized version is
+> **OFA-first, internalize-as-a-bidder-second**: run/route to an order-flow auction (capital-
+> light, best-ex guaranteed by competition, no PFOF conflict), and have Suwappu *bid in its own
+> auction* only on the subset where its inventory + perps hedge give a real edge. You get the
+> internalization upside without the balance-sheet risk. The build sketch below still applies —
+> it just becomes one bidder in the auction rather than the forced counterparty on every trade.
+
 The question: should Suwappu become a **solver/filler** to monetize execution quality? The
 research answer is sharper than "yes": **your edge is *owning the flow*, not *winning
 auctions*. Internalize your own users' swaps first (PFOF-style); treat external solving as a
