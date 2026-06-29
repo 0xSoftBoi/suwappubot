@@ -275,6 +275,7 @@ from bot.handlers.tempo import get_tempo_handlers
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
+from bot.services.hl_ws_alerts import hl_ws_alerts
 from bot.services.orders import order_service
 from bot.services.tx_poller import tx_poller
 from bot.services.health_monitor import health_monitor
@@ -414,7 +415,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(withdrawal_conversation)
     application.add_handler(alert_conversation)
     application.add_handler(limit_order_conversation)
-    application.add_handler(trailing_stop_conversation)  # MONEY-PATH: trailing stop triggers sell execution
+    application.add_handler(
+        trailing_stop_conversation
+    )  # MONEY-PATH: trailing stop triggers sell execution
     application.add_handler(subscription_conversation)  # x402 subscription flow
     application.add_handler(org_newkey_conversation)  # Enterprise /org new-key name entry
     application.add_handler(profile_edit_conversation)  # Copy trading profile editing
@@ -754,6 +757,11 @@ async def post_init(application) -> None:
         await rug_service.start(swap_engine=SwapEngine())
         logger.info("✓ Rug protection service started")
 
+        # Start HyperLiquid WebSocket alert feed
+        if settings.hl_ws_alerts_enabled:
+            await hl_ws_alerts.start(bot=application.bot)
+            logger.info("✓ HyperLiquid WebSocket alerts started")
+
 
 async def post_shutdown(application) -> None:
     """Called when the application shuts down."""
@@ -766,6 +774,8 @@ async def post_shutdown(application) -> None:
         await tx_poller.stop()
         await health_monitor.stop()
         await launch_detector.stop()
+        if settings.hl_ws_alerts_enabled:
+            await hl_ws_alerts.stop()
 
     logger.info("Closing HTTP session pool...")
     await close_http_session()

@@ -123,8 +123,8 @@ class VipService:
                     .order_by(SeasonPoints.season_id.desc())
                     .first()
                 )
-                if row and hasattr(row, "season_volume_usd"):
-                    return float(row.season_volume_usd or 0)
+                if row and hasattr(row, "swap_volume_usd"):
+                    return float(row.swap_volume_usd or 0)
         except Exception as exc:
             logger.debug("Season volume DB fetch failed: %s", exc)
         return 0.0
