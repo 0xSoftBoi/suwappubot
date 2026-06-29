@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken'
 import { EnvService } from '../config/EnvService'
 import { requireDb } from '../db'
 import { pointRedemptions, rewards, swapTransactions } from '../db/schema'
+import { walletTrackAlerts } from '../db/schema/walletTrackAlerts'
 import { logger } from '../lib/logger'
 import { mapErrorToResponse } from '../errors'
 import { requireTier, telegramAuth } from '../middleware'
@@ -1690,6 +1691,148 @@ webappRoutes.get('/tokens/:chain/:address/chart', async (c) => {
 		logger.error({ err: error }, 'Token chart error')
 		return c.json({ candles: [], pair: null })
 	}
+})
+
+// ---------------------------------------------------------------------------
+// Wallet-track alerts — smart money / KOL wallet monitoring
+//
+// CRUD only. The actual on-chain monitoring is handled by an external service
+// (e.g. a Helius/DexScreener WebSocket poller). When that service detects a
+// qualifying trade it should call POST /internal/wallet-track/trigger with the
+// walletTrackAlertId so the notification fan-out can run.
+// ---------------------------------------------------------------------------
+
+// POST /webapp/alerts/wallet-track  — subscribe to a wallet
+protectedWebapp.post('/alerts/wallet-track', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const body = await c.req.json().catch(() => ({})) as {
+		wallet_address?: string
+		label?: string
+		min_usd?: number
+		chains?: string[]
+	}
+
+	if (!body.wallet_address) {
+		return c.json({ error: 'wallet_address is required' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const db = yield* requireDb
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) return yield* Effect.fail(new Error('User not found'))
+
+			const userId = userOption.value.id
+			const [row] = yield* Effect.tryPromise(() =>
+				db
+					.insert(walletTrackAlerts)
+					.values({
+						userId,
+						walletAddress: body.wallet_address!,
+						label: body.label ?? null,
+						minUsd: body.min_usd ?? 10000,
+						chains: body.chains ? JSON.stringify(body.chains) : null,
+					})
+					.returning(),
+			)
+			return row
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, 'Failed to create wallet-track alert')
+		return c.json({ error: 'Failed to create alert' }, 500)
+	}
+
+	const row = result.right
+	return c.json({
+		id: row?.id,
+		wallet_address: row?.walletAddress,
+		label: row?.label,
+		min_usd: row?.minUsd,
+		chains: row?.chains ? (JSON.parse(row.chains) as string[]) : null,
+		created_at: row?.createdAt,
+	}, 201)
+})
+
+// GET /webapp/alerts/wallet-track  — list all tracked wallets for the user
+protectedWebapp.get('/alerts/wallet-track', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const db = yield* requireDb
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) return []
+
+			const userId = userOption.value.id
+			return yield* Effect.tryPromise(() =>
+				db
+					.select()
+					.from(walletTrackAlerts)
+					.where(and(eq(walletTrackAlerts.userId, userId), eq(walletTrackAlerts.isActive, true))),
+			)
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, 'Failed to list wallet-track alerts')
+		return c.json({ error: 'Failed to fetch alerts' }, 500)
+	}
+
+	const rows = result.right.map((row) => ({
+		id: row.id,
+		wallet_address: row.walletAddress,
+		label: row.label,
+		min_usd: row.minUsd,
+		chains: row.chains ? (JSON.parse(row.chains) as string[]) : null,
+		created_at: row.createdAt,
+	}))
+
+	return c.json({ alerts: rows })
+})
+
+// DELETE /webapp/alerts/wallet-track/:id  — remove a tracked wallet
+protectedWebapp.delete('/alerts/wallet-track/:id', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const id = Number(c.req.param('id'))
+	if (!Number.isFinite(id)) return c.json({ error: 'Invalid id' }, 400)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const db = yield* requireDb
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) return null
+
+			const userId = userOption.value.id
+			const [deleted] = yield* Effect.tryPromise(() =>
+				db
+					.delete(walletTrackAlerts)
+					.where(and(eq(walletTrackAlerts.id, id), eq(walletTrackAlerts.userId, userId)))
+					.returning({ id: walletTrackAlerts.id }),
+			)
+			return deleted ?? null
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		logger.error({ err: result.left }, 'Failed to delete wallet-track alert')
+		return c.json({ error: 'Failed to delete alert' }, 500)
+	}
+
+	if (!result.right) {
+		return c.json({ error: 'Not found' }, 404)
+	}
+
+	return c.json({ success: true, id: result.right.id })
 })
 
 // Mount protected routes at both /me and /users/me for backward compatibility

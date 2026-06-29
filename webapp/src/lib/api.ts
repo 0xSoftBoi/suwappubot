@@ -329,6 +329,13 @@ class ApiClient {
   // === User Preferences ===
 
   /**
+   * Get VIP / tier status including point multiplier
+   */
+  async getVipStatus(): Promise<{ effective_tier: string; point_multiplier: number; season_volume_usd: number }> {
+    return this.fetch('/webapp/me/vip')
+  }
+
+  /**
    * Get user preferences (settings page data)
    */
   async getUserPreferences(): Promise<UserPreferencesResponse> {

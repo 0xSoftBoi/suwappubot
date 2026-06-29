@@ -284,11 +284,17 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     # Fast path: no wallets yet → reply instantly, create wallets in the background
     if not wallet_service.get_user_wallets(user_id):
+        migration_nudge = (
+            "\n\n💡 _Migrating from another bot? Use /import to bring your wallets over._"
+            if is_new_user
+            else ""
+        )
         sent = await update.message.reply_text(
             get_text("welcome", lang)
             + "\n\n"
             + get_text("wallet_creating", lang)
-            + referral_message,
+            + referral_message
+            + migration_nudge,
             parse_mode="Markdown",
             reply_markup=reply_markup,
         )
