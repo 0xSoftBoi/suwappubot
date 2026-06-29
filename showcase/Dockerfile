@@ -8,7 +8,6 @@ FROM public.ecr.aws/docker/library/node:20-alpine AS builder
 WORKDIR /app
 RUN npm install -g bun
 COPY --from=deps /app/node_modules ./node_modules
-ARG CACHE_BUST=20260629
 COPY . .
 RUN mkdir -p public && bun run build
 

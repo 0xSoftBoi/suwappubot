@@ -1,4 +1,3 @@
-// build: 20260629
 import Analytics from '@/components/Analytics';
 import StructuredData from '@/components/StructuredData';
 import LiveTerminal from '@/components/LiveTerminal';
