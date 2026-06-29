@@ -24,7 +24,7 @@ import {
 } from '../services'
 import type { TelegramUser } from '../services/TelegramAuthService'
 import { withSigningFallback } from '../services/FallbackSigningService'
-import { APPROVAL_MODE, DEFAULT_SLIPPAGE } from '../config/constants'
+import { AGENT_FEE_FRACTION_EVM, APPROVAL_MODE, DEFAULT_SLIPPAGE } from '../config/constants'
 
 const swapRoutes = new Hono()
 
@@ -322,6 +322,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 			// address, and Li.Fi rebuilds the tx for the actual wallet anyway.
 
 			// Create swap record first (pending status)
+			const fromUsd = usdAmountFromQuote(quote)
 			const swapRecord = yield* swapService.createSwapRecord({
 				userId: user.id,
 				fromChain: quote.fromChain,
@@ -330,7 +331,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 				toToken: quote.toToken.symbol,
 				fromAmount: quote.fromAmount,
 				toAmount: quote.toAmount,
-				fromAmountUsd: usdAmountFromQuote(quote),
+				fromAmountUsd: fromUsd,
 				toAmountUsd: null,
 				status: 'pending',
 				routeProvider: 'lifi',
@@ -338,6 +339,12 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 				slippage: Math.round(quote.slippage * 10000), // Store as basis points
 				gasFee: parseFloat(quote.estimatedGasUsd) || null,
 				bridgeFee: parseFloat(quote.bridgeFeeUsd) || null,
+				// Integrator-fee instrumentation: the Li.Fi quote bakes in
+				// AGENT_FEE_FRACTION_EVM (0.8%) paid to the FEE_WALLET referrer.
+				// Record an estimate (fromUsd * fraction) into the ledger — like
+				// gasFee/bridgeFee, recorded at create time.
+				ofaProtocol: 'lifi',
+				integratorFeeUsd: fromUsd != null ? fromUsd * parseFloat(AGENT_FEE_FRACTION_EVM) : null,
 				idempotencyKey,
 			})
 
