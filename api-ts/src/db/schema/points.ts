@@ -50,6 +50,16 @@ export const POINT_ACTIONS = {
 
 export type PointAction = keyof typeof POINT_ACTIONS
 
+// Mirrors bot/models/points.py SUBSCRIPTION_POINT_MULTIPLIER — keep in sync.
+// Boosts SPENDABLE loyalty points only; XP and season-convertible (token) points
+// are intentionally NOT multiplied (see PointsService for the rationale).
+export const SUBSCRIPTION_POINT_MULTIPLIER: Record<string, number> = {
+	free: 1.0,
+	pro: 1.1,
+	premium: 1.25,
+	enterprise: 1.5,
+}
+
 // User points account
 export const userPoints = pgTable(
 	'user_points',
