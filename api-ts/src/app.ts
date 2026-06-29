@@ -131,10 +131,14 @@ export function createApp(config: AppConfig) {
 		c.header('Content-Type', 'text/plain; charset=utf-8')
 		return c.body(
 			[
+				'# Suwappu security disclosure policy — https://suwappu.bot/.well-known/security.txt',
 				'Contact: mailto:security@suwappu.bot',
-				'Expires: 2027-06-24T00:00:00.000Z',
+				'Contact: https://suwappu.bot/security',
+				'Expires: 2027-06-01T00:00:00.000Z',
+				'Canonical: https://suwappu.bot/.well-known/security.txt',
+				'Policy: https://suwappu.bot/security',
 				'Preferred-Languages: en',
-				'Canonical: https://api.suwappu.bot/.well-known/security.txt',
+				'Hiring: https://suwappu.bot/careers',
 				'',
 			].join('\n'),
 		)
