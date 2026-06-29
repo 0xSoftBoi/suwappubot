@@ -15,7 +15,7 @@ export default function TermsPage() {
         <article className="legal-page">
           <p className="summer-kicker">Legal</p>
           <h1>Terms of Service</h1>
-          <p className="legal-page__updated">Last updated: June 18, 2026</p>
+          <p className="legal-page__updated">Last updated: June 29, 2026</p>
 
           <h2>1. Acceptance</h2>
           <p>By accessing or using Suwappu — including the Telegram bot, trading terminal, REST API, SDK, and MCP server (together, the “Service”) — you agree to these Terms. If you do not agree, do not use the Service.</p>
@@ -44,10 +44,13 @@ export default function TermsPage() {
           <h2>9. Disclaimers &amp; limitation of liability</h2>
           <p>The Service is provided “as is” and “as available,” without warranties of any kind. To the maximum extent permitted by law, Suwappu and its contributors are not liable for any indirect, incidental, special, or consequential damages, or for any loss of funds, profits, or data arising from your use of the Service or from third-party protocols and venues.</p>
 
-          <h2>10. Changes</h2>
+          <h2>10. Privacy &amp; data</h2>
+          <p>Our handling of data is governed by our <a href="/legal/privacy">Privacy Policy</a>, which forms part of these Terms. We do not sell data that identifies you, your wallets, or your individual transactions. We may create, use, share, and license aggregated and anonymized data that does not identify any individual user, wallet, or transaction, as described in the Privacy Policy.</p>
+
+          <h2>11. Changes</h2>
           <p>We may update these Terms from time to time. Material changes will be reflected by the “Last updated” date above; continued use after changes constitutes acceptance.</p>
 
-          <h2>11. Contact</h2>
+          <h2>12. Contact</h2>
           <p>Questions about these Terms? Reach us through the official Suwappu Telegram or at <code>legal@suwappu.bot</code>.</p>
         </article>
       </div>

@@ -20,6 +20,7 @@ Welcome to Suwappu Bot! By using this service, you agree to the following:
 3. *Fees*: We charge a 1% fee on all swaps. These fees are used to maintain the service and provide gas sponsorship in custodial mode.
 4. *No Liability*: Suwappu Bot is provided "as is" without any warranties. We are not responsible for any losses, including but not limited to loss of funds, smart contract failures, or network issues.
 5. *Compliance*: You agree to comply with all applicable laws and regulations in your jurisdiction.
+6. *Data & Privacy*: We process your account and transaction data to operate the service. We never sell data that identifies you, your wallets, or your individual trades. We may use and share aggregated, anonymized data that does not identify you. Full details: https://suwappu.bot/legal/privacy
 
 Do you accept these terms and conditions?
 """
