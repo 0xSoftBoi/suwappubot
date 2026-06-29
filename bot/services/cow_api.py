@@ -57,6 +57,7 @@ SIGNING_SCHEME_PRESIGN = "presign"
 @dataclass
 class CoWQuote:
     """Quote from CoW Protocol."""
+
     quote_id: str
     from_token: str
     to_token: str
@@ -78,6 +79,7 @@ class CoWQuote:
 @dataclass
 class CoWOrder:
     """Submitted order to CoW Protocol."""
+
     order_uid: str
     from_token: str
     to_token: str
@@ -94,6 +96,7 @@ class CoWOrder:
 @dataclass
 class CoWOrderStatus:
     """Status of a CoW order."""
+
     order_uid: str
     status: str  # open, fulfilled, cancelled, expired, presignaturePending
     filled_amount: str
@@ -104,6 +107,7 @@ class CoWOrderStatus:
 
 class CoWError(Exception):
     """Exception for CoW Protocol errors."""
+
     def __init__(self, message: str, data: Optional[Dict] = None):
         super().__init__(message)
         self.data = data or {}
@@ -111,54 +115,75 @@ class CoWError(Exception):
 
 class CoWProtocolAPI:
     """Client for CoW Protocol MEV-protected batch auctions.
-    
+
     CoW Protocol is special because:
     - P2P matching means zero fees when orders match
     - Batch auctions prevent MEV extraction
     - Solvers compete to give users the best price
     - Orders are gasless (user just signs)
     """
-    
+
     def __init__(self):
         self.app_data = self._generate_app_data()
-    
+
     def _generate_app_data(self) -> str:
-        """Generate app data hash for order tracking."""
-        # App data identifies the integrator
+        """Build the appData document + its keccak256 hash for orders.
+
+        Stores the canonical JSON string on ``self.app_data_doc`` and returns the
+        0x-prefixed 32-byte hash. When ``cow_partner_fee_bps > 0`` AND a
+        ``fee_collector_address`` is set, an integrator ``partnerFee`` is embedded
+        in ``metadata`` so CoW takes the fee from surplus at settlement (and
+        ``submit_order`` sends the full document). Otherwise ``metadata`` is empty
+        and — because the original already serialized with ``sort_keys=True`` — the
+        document and hash are BYTE-IDENTICAL to before, so the off path is unchanged.
+
+        UNVERIFIED: the partnerFee schema (``bps``/``recipient``) and appData
+        ``version`` have not been validated against a live CoW order. Confirm with a
+        small real Base swap before enabling the fee in production.
+        """
+        metadata: Dict[str, Any] = {}
+        bps = int(getattr(settings, "cow_partner_fee_bps", 0) or 0)
+        recipient = getattr(settings, "fee_collector_address", None)
+        self.partner_fee_enabled = bool(bps > 0 and recipient)
+        if self.partner_fee_enabled:
+            metadata["partnerFee"] = {
+                "bps": min(bps, 100),  # CoW caps partner fees at 100 bps (1%)
+                "recipient": Web3.to_checksum_address(recipient),
+            }
         app_data = {
             "appCode": "suwappu",
             "version": "1.0.0",
-            "metadata": {}
+            "metadata": metadata,
         }
         # appData is keccak256 of the canonical JSON document. Use Web3.to_hex so
         # we always emit the full 0x-prefixed 32-byte hash — the previous
         # `"0x" + keccak(...).hex()[:64]` silently dropped 2 hex chars on web3
         # versions whose HexBytes.hex() already includes the 0x prefix.
-        app_data_json = json.dumps(app_data, separators=(",", ":"), sort_keys=True)
-        return Web3.to_hex(Web3.keccak(text=app_data_json))
-    
+        self.app_data_doc = json.dumps(app_data, separators=(",", ":"), sort_keys=True)
+        return Web3.to_hex(Web3.keccak(text=self.app_data_doc))
+
     def is_supported_chain(self, chain: str) -> bool:
         """Check if CoW supports this chain."""
         return chain.lower() in COW_API_URLS
-    
+
     def get_api_url(self, chain: str) -> str:
         """Get API URL for a chain."""
         url = COW_API_URLS.get(chain.lower())
         if not url:
             raise CoWError(f"Chain not supported by CoW: {chain}")
         return url
-    
+
     def get_settlement_address(self, chain: str) -> str:
         """Get settlement contract address."""
         address = COW_SETTLEMENT_ADDRESSES.get(chain.lower())
         if not address:
             raise CoWError(f"No settlement contract for chain: {chain}")
         return address
-    
+
     def get_supported_chains(self) -> List[str]:
         """Get list of supported chains."""
         return list(COW_API_URLS.keys())
-    
+
     async def get_quote(
         self,
         chain: str,
@@ -171,7 +196,7 @@ class CoWProtocolAPI:
     ) -> CoWQuote:
         """
         Get a quote from CoW Protocol.
-        
+
         Args:
             chain: Chain name (ethereum, arbitrum, base, gnosis)
             from_token: Sell token address
@@ -180,20 +205,20 @@ class CoWProtocolAPI:
             from_address: Sender address
             kind: "sell" (exact input) or "buy" (exact output)
             receiver: Receiver address (defaults to from_address)
-            
+
         Returns:
             CoWQuote with pricing details
         """
         if not self.is_supported_chain(chain):
             raise CoWError(f"Chain not supported: {chain}")
-        
+
         api_url = self.get_api_url(chain)
         receiver = receiver or from_address
-        
+
         await api_limiter.wait_and_acquire("cow")
-        
+
         session = await get_session()
-        
+
         # Build quote request
         quote_request = {
             "sellToken": Web3.to_checksum_address(from_token),
@@ -206,14 +231,15 @@ class CoWProtocolAPI:
             "buyTokenBalance": "erc20",
             "signingScheme": SIGNING_SCHEME_EIP712,
         }
-        
+
         if kind == ORDER_KIND_SELL:
             quote_request["sellAmountBeforeFee"] = amount
         else:
             quote_request["buyAmountAfterFee"] = amount
-        
+
         async def _do_quote():
             import aiohttp as _aiohttp
+
             async with session.post(
                 f"{api_url}/api/v1/quote",
                 json=quote_request,
@@ -232,20 +258,20 @@ class CoWProtocolAPI:
             data = await with_retry(_do_quote, label="CoW quote", base_delay=0.5)
         except Exception as exc:
             raise CoWError(f"CoW quote error: {exc}") from exc
-        
+
         quote = data.get("quote", {})
-        
+
         # Parse amounts
         sell_amount = quote.get("sellAmount", "0")
         buy_amount = quote.get("buyAmount", "0")
         fee_amount = quote.get("feeAmount", "0")
-        
+
         # Get decimals for human-readable amounts using address lookup
         buy_decimals = get_decimals_by_address(to_token, chain)
-        buy_amount_human = int(buy_amount) / (10 ** buy_decimals)
+        buy_amount_human = int(buy_amount) / (10**buy_decimals)
         sell_decimals = get_decimals_by_address(from_token, chain)
-        fee_amount_human = int(fee_amount) / (10 ** sell_decimals)
-        
+        fee_amount_human = int(fee_amount) / (10**sell_decimals)
+
         return CoWQuote(
             quote_id=data.get("id", ""),
             from_token=from_token,
@@ -264,7 +290,7 @@ class CoWProtocolAPI:
             app_data=self.app_data,
             raw_quote=data,
         )
-    
+
     def build_order_data(
         self,
         quote: CoWQuote,
@@ -272,7 +298,7 @@ class CoWProtocolAPI:
     ) -> Dict[str, Any]:
         """Build order data for signing."""
         valid_to = valid_to or quote.valid_to
-        
+
         return {
             "sellToken": Web3.to_checksum_address(quote.from_token),
             "buyToken": Web3.to_checksum_address(quote.to_token),
@@ -287,7 +313,7 @@ class CoWProtocolAPI:
             "sellTokenBalance": quote.sell_token_balance,
             "buyTokenBalance": quote.buy_token_balance,
         }
-    
+
     def get_order_typed_data(
         self,
         chain: str,
@@ -296,7 +322,7 @@ class CoWProtocolAPI:
         """Get EIP-712 typed data for order signing."""
         chain_config = get_chain_by_name(chain)
         chain_id = chain_config.chain_id if chain_config else 1
-        
+
         return {
             "types": {
                 "EIP712Domain": [
@@ -342,7 +368,7 @@ class CoWProtocolAPI:
                 "buyTokenBalance": order_data["buyTokenBalance"],
             },
         }
-    
+
     async def submit_order(
         self,
         chain: str,
@@ -352,43 +378,49 @@ class CoWProtocolAPI:
     ) -> CoWOrder:
         """
         Submit a signed order to CoW Protocol.
-        
+
         Args:
             chain: Chain name
             quote: Quote from get_quote
             signature: EIP-712 signature of the order
             from_address: Sender address
-            
+
         Returns:
             CoWOrder with order UID
         """
         api_url = self.get_api_url(chain)
-        
+
         await api_limiter.wait_and_acquire("cow")
-        
+
         session = await get_session()
-        
+
         order_data = self.build_order_data(quote)
-        
+
         order_request = {
             **order_data,
             "from": Web3.to_checksum_address(from_address),
             "signature": signature,
             "signingScheme": SIGNING_SCHEME_EIP712,
         }
-        
-        async with session.post(
-            f"{api_url}/api/v1/orders",
-            json=order_request
-        ) as response:
+
+        # partnerFee: CoW must receive the FULL appData document (not just the
+        # hash) to honor the fee. The signed order struct still commits to the
+        # hash via order_data["appData"]; here we additionally hand the orderbook
+        # the document + hash so keccak(document) == appDataHash is verified.
+        # When the fee is off this branch is skipped and the request is unchanged.
+        if getattr(self, "partner_fee_enabled", False):
+            order_request["appData"] = self.app_data_doc
+            order_request["appDataHash"] = self.app_data
+
+        async with session.post(f"{api_url}/api/v1/orders", json=order_request) as response:
             if response.status not in [200, 201]:
                 error_text = await response.text()
                 raise CoWError(f"CoW order submission error: {error_text}")
-            
+
             # Response is the order UID as a string
             order_uid = await response.text()
             order_uid = order_uid.strip('"')
-        
+
         return CoWOrder(
             order_uid=order_uid,
             from_token=quote.from_token,
@@ -402,7 +434,7 @@ class CoWProtocolAPI:
             executed_buy_amount=None,
             raw_response={"uid": order_uid},
         )
-    
+
     async def get_order_status(
         self,
         chain: str,
@@ -410,23 +442,21 @@ class CoWProtocolAPI:
     ) -> CoWOrderStatus:
         """
         Get the status of an order.
-        
+
         Args:
             chain: Chain name
             order_uid: Order UID from submit_order
-            
+
         Returns:
             CoWOrderStatus with current status
         """
         api_url = self.get_api_url(chain)
-        
+
         await api_limiter.wait_and_acquire("cow")
-        
+
         session = await get_session()
-        
-        async with session.get(
-            f"{api_url}/api/v1/orders/{order_uid}"
-        ) as response:
+
+        async with session.get(f"{api_url}/api/v1/orders/{order_uid}") as response:
             if response.status == 404:
                 return CoWOrderStatus(
                     order_uid=order_uid,
@@ -436,13 +466,13 @@ class CoWProtocolAPI:
                     invalidated=False,
                     raw_response={},
                 )
-            
+
             if response.status != 200:
                 error_text = await response.text()
                 raise CoWError(f"CoW status error: {error_text}")
-            
+
             data = await response.json()
-        
+
         return CoWOrderStatus(
             order_uid=order_uid,
             status=data.get("status", "unknown"),
@@ -451,7 +481,7 @@ class CoWProtocolAPI:
             invalidated=data.get("invalidated", False),
             raw_response=data,
         )
-    
+
     async def cancel_order(
         self,
         chain: str,
@@ -460,17 +490,17 @@ class CoWProtocolAPI:
     ) -> bool:
         """Cancel an order."""
         api_url = self.get_api_url(chain)
-        
+
         await api_limiter.wait_and_acquire("cow")
-        
+
         session = await get_session()
-        
+
         async with session.delete(
             f"{api_url}/api/v1/orders/{order_uid}",
-            json={"signature": signature, "signingScheme": SIGNING_SCHEME_EIP712}
+            json={"signature": signature, "signingScheme": SIGNING_SCHEME_EIP712},
         ) as response:
             return response.status == 200
-    
+
     def build_approval_transaction(
         self,
         chain: str,
@@ -478,30 +508,31 @@ class CoWProtocolAPI:
         amount: str,
     ) -> Dict[str, Any]:
         """Build approval transaction for CoW vault relayer."""
-        erc20_approve_abi = [{
-            "inputs": [
-                {"name": "spender", "type": "address"},
-                {"name": "amount", "type": "uint256"}
-            ],
-            "name": "approve",
-            "outputs": [{"name": "", "type": "bool"}],
-            "stateMutability": "nonpayable",
-            "type": "function"
-        }]
-        
+        erc20_approve_abi = [
+            {
+                "inputs": [
+                    {"name": "spender", "type": "address"},
+                    {"name": "amount", "type": "uint256"},
+                ],
+                "name": "approve",
+                "outputs": [{"name": "", "type": "bool"}],
+                "stateMutability": "nonpayable",
+                "type": "function",
+            }
+        ]
+
         token_contract = Web3().eth.contract(
-            address=Web3.to_checksum_address(token_address),
-            abi=erc20_approve_abi
+            address=Web3.to_checksum_address(token_address), abi=erc20_approve_abi
         )
-        
+
         data = token_contract.encode_abi(
             fn_name="approve",
             args=[
                 Web3.to_checksum_address(COW_VAULT_RELAYER),
-                int(amount) if amount != "max" else 2**256 - 1
-            ]
+                int(amount) if amount != "max" else 2**256 - 1,
+            ],
         )
-        
+
         return {
             "to": Web3.to_checksum_address(token_address),
             "data": data,
@@ -511,4 +542,3 @@ class CoWProtocolAPI:
 
 # Global instance
 cow_api = CoWProtocolAPI()
-

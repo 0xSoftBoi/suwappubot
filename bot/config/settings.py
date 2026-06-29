@@ -928,6 +928,17 @@ class Settings(BaseSettings):
             "All other chains broadcast normally regardless of this flag. Default off."
         ),
     )
+    cow_partner_fee_bps: int = Field(
+        default=0,
+        description=(
+            "Integrator partner fee (basis points, cap 100) attached to CoW Protocol "
+            "orders via the appData partnerFee mechanism; recipient = fee_collector_address. "
+            "0 = OFF: appData is byte-identical to before and no fee is taken. "
+            "UNVERIFIED money path — the appData partnerFee schema/version has NOT been "
+            "validated against a live CoW order; place a small real CoW swap on Base and "
+            "confirm the order is accepted + the fee is taken BEFORE setting this > 0 in prod."
+        ),
+    )
 
     # Treasury Vault (Aave v3 on Base)
     aave_enabled: bool = Field(

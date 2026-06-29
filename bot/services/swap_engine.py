@@ -2761,6 +2761,18 @@ class SwapEngine:
                             # later, not here.
                             if getattr(quote, "_ofa_mev_blocker", False):
                                 db_tx.ofa_protocol = "mevblocker"
+                            # Integrator-fee capture: when the winning quote
+                            # reserved a platform fee (Jupiter referral feeAccount,
+                            # 0x/1inch/Kyber fee param, …) record an estimate of
+                            # what we earned. Estimate = output_usd * bps / 1e4;
+                            # the exact amount accrues on-chain to the fee wallet.
+                            fee_bps = getattr(quote, "platform_fee_bps", None)
+                            if fee_bps and to_amount_usd:
+                                db_tx.integrator_fee_usd = round(
+                                    to_amount_usd * fee_bps / 10000.0, 6
+                                )
+                                if not db_tx.ofa_protocol:
+                                    db_tx.ofa_protocol = quote.provider
 
                 await run_in_db(_update_tx_hash)
 
