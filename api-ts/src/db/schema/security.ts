@@ -1,21 +1,36 @@
 import {
 	boolean,
+	index,
 	integer,
 	pgTable,
 	serial,
 	text,
 	timestamp,
+	uuid,
 	varchar,
 } from 'drizzle-orm/pg-core'
 
-export const auditLogs = pgTable('audit_logs', {
-	id: serial('id').primaryKey(),
-	userId: integer('user_id').notNull(),
-	eventType: varchar('event_type', { length: 50 }).notNull(),
-	details: text('details'),
-	ipAddress: varchar('ip_address', { length: 45 }),
-	createdAt: timestamp('created_at').defaultNow(),
-})
+export const auditLogs = pgTable(
+	'audit_logs',
+	{
+		id: serial('id').primaryKey(),
+		userId: integer('user_id').notNull(),
+		// Org-scoped audit trail: nullable so legacy/system events (userId 0,
+		// no org) still write. Set for any org-mutating or money-path event so an
+		// enterprise admin can query org-wide activity — the institutional gate.
+		orgId: uuid('org_id'),
+		// Agent-scoped events stamp the agent id here instead of overloading userId.
+		agentId: varchar('agent_id', { length: 64 }),
+		eventType: varchar('event_type', { length: 50 }).notNull(),
+		details: text('details'),
+		ipAddress: varchar('ip_address', { length: 45 }),
+		createdAt: timestamp('created_at').defaultNow(),
+	},
+	(t) => ({
+		orgCreatedIdx: index('audit_logs_org_created_idx').on(t.orgId, t.createdAt),
+		agentCreatedIdx: index('audit_logs_agent_created_idx').on(t.agentId, t.createdAt),
+	}),
+)
 
 export const backupCodes = pgTable('backup_codes', {
 	id: serial('id').primaryKey(),

@@ -19,6 +19,10 @@ import { runEffect } from '../runtime'
  */
 export interface AuditEvent {
 	userId: number
+	/** Org id for org-scoped events — enables enterprise org-wide audit queries. */
+	orgId?: string | null
+	/** Agent id for agent-scoped events (kept separate from userId). */
+	agentId?: string | null
 	eventType: string
 	details?: Record<string, unknown> | string | null
 	ipAddress?: string | null
@@ -40,6 +44,8 @@ export const auditLog = (event: AuditEvent) =>
 			try: () =>
 				db.insert(auditLogs).values({
 					userId: event.userId,
+					orgId: event.orgId ?? null,
+					agentId: event.agentId?.slice(0, 64) ?? null,
 					eventType: event.eventType.slice(0, 50),
 					details: serializeDetails(event.details),
 					ipAddress: event.ipAddress?.slice(0, 45) ?? null,
