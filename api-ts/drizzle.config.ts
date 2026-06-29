@@ -30,5 +30,11 @@ export default defineConfig({
 		// api-ts-exclusive copy-trading stats (traderStats.ts) — python computes stats
 		// in-memory (copy_service.get_trader_stats) but defines no trader_stats table.
 		'trader_stats',
+		// api-ts-exclusive institutional policy layer (policies.ts) — no python owner.
+		// (audit_logs columns are NOT here: audit_logs is python-owned, so its new
+		// org_id/agent_id columns are added via database/db.py _ensure_schema.)
+		'policies',
+		'policy_decisions',
+		'policy_kill_switches',
 	],
 })
