@@ -82,14 +82,14 @@ export function PredictPositions() {
               )}
             </td>
             <td className="px-3 py-2 text-terminal-text-secondary">{p.outcome}</td>
-            <td className="px-3 py-2 text-right font-mono">{p.shares.toFixed(1)}</td>
-            <td className="px-3 py-2 text-right font-mono">{(p.avgPrice * 100).toFixed(0)}¢</td>
-            <td className="px-3 py-2 text-right font-mono">{(p.currentPrice * 100).toFixed(0)}¢</td>
+            <td className="px-3 py-2 text-right font-mono">{(p.shares ?? 0).toFixed(1)}</td>
+            <td className="px-3 py-2 text-right font-mono">{((p.avgPrice ?? 0) * 100).toFixed(0)}¢</td>
+            <td className="px-3 py-2 text-right font-mono">{((p.currentPrice ?? 0) * 100).toFixed(0)}¢</td>
             <td
-              className={`px-3 py-2 text-right font-mono ${p.unrealizedPnl >= 0 ? 'text-bull' : 'text-bear'}`}
+              className={`px-3 py-2 text-right font-mono ${(p.unrealizedPnl ?? 0) >= 0 ? 'text-bull' : 'text-bear'}`}
             >
-              {p.unrealizedPnl >= 0 ? '+' : ''}
-              {p.unrealizedPnl.toFixed(2)}
+              {(p.unrealizedPnl ?? 0) >= 0 ? '+' : ''}
+              {(p.unrealizedPnl ?? 0).toFixed(2)}
             </td>
             <td className="px-3 py-2 text-right">
               {p.claimable && (
