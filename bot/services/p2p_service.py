@@ -358,6 +358,53 @@ class P2PService:
         crypto_amount = str(fiat_amount / offer.price_per_unit) if offer.price_per_unit > 0 else "0"
         expires_at = datetime.utcnow() + timedelta(minutes=30)
 
+        # For native trades, capture the maker id + both parties' payout addresses
+        # now, so settlement (release→buyer, refund→seller) never trusts free-text
+        # operator input. offer_type is from the MAKER's perspective: SELL_CRYPTO
+        # means the maker sells crypto (maker=seller, taker=buyer); BUY_CRYPTO means
+        # the maker buys crypto (maker=buyer, taker=seller).
+        maker_user_id: Optional[int] = None
+        buyer_address: Optional[str] = None
+        seller_address: Optional[str] = None
+        if offer.source == P2PSource.NATIVE.value:
+
+            def _load_maker() -> tuple[Optional[int], Optional[str]]:
+                from bot.models.user import Wallet
+
+                with get_session() as session:
+                    row = session.query(P2POffer).filter(P2POffer.id == int(offer.offer_id)).first()
+                    if not row:
+                        return (None, None)
+                    addr = None
+                    if row.maker_wallet_id:
+                        w = session.query(Wallet).filter(Wallet.id == row.maker_wallet_id).first()
+                        addr = w.address if w else None
+                    return (row.maker_user_id, addr)
+
+            maker_user_id, maker_address = await run_in_db(_load_maker)
+
+            from web3 import Web3
+
+            def _checksum(a: Optional[str]) -> Optional[str]:
+                return Web3.to_checksum_address(a) if a and Web3.is_address(a) else None
+
+            taker_norm = _checksum(taker_wallet_address)
+            maker_norm = _checksum(maker_address)
+            if offer.offer_type == P2POfferType.SELL_CRYPTO.value:
+                buyer_address = taker_norm
+                seller_address = maker_norm
+            else:
+                buyer_address = maker_norm
+                seller_address = taker_norm
+            # Fail closed: a native trade must have a verified buyer payout address
+            # (the normal completion path) recorded up front, never deferred to
+            # free-text operator input at release time.
+            if not buyer_address:
+                raise P2PError(
+                    "Cannot start native trade: no verified payout address for the "
+                    "crypto buyer. Both parties need a valid wallet on file."
+                )
+
         def _persist() -> int:
             with get_session() as session:
                 trade = P2PTrade(
@@ -369,6 +416,7 @@ class P2PService:
                         offer.offer_id if offer.source != P2PSource.NATIVE.value else None
                     ),
                     taker_user_id=taker_user_id,
+                    maker_user_id=maker_user_id,
                     counterparty_handle=offer.maker_handle,
                     status=P2PTradeStatus.INITIATED.value,
                     offer_type=offer.offer_type,
@@ -380,6 +428,8 @@ class P2PService:
                     price_per_unit=Decimal(str(offer.price_per_unit)),
                     payment_method=payment_method,
                     expires_at=expires_at,
+                    buyer_address=buyer_address,
+                    seller_address=seller_address,
                 )
                 session.add(trade)
                 session.commit()
@@ -413,12 +463,47 @@ class P2PService:
             fiat_payment_ref=payment_ref,
         )
 
-    async def release_escrow(self, *, trade_id: int, buyer_address: str) -> P2PTrade:
+    @staticmethod
+    def _resolve_payout(recorded: Optional[str], override: Optional[str], label: str) -> str:
+        """Resolve a settlement address from the trade — never free-text operator input.
+
+        The server-recorded address (captured at trade creation) is authoritative and
+        mandatory: settlement fails closed if it is missing, so funds can never go to
+        an unvalidated operator-supplied address. An operator override is permitted
+        ONLY as a confirmation that must checksum-match the recorded address (guards
+        typos / swapped args / a compromised admin redirecting funds).
+        """
+        from web3 import Web3
+
+        def _norm(a: Optional[str]) -> Optional[str]:
+            return Web3.to_checksum_address(a) if a and Web3.is_address(a) else None
+
+        rec = _norm(recorded)
+        if not rec:
+            raise P2PError(
+                f"No verified {label} address on record for this trade — cannot settle "
+                f"automatically; resolve via dispute."
+            )
+        if override:
+            ovr = _norm(override)
+            if not ovr:
+                raise P2PError(f"Invalid {label} address.")
+            if ovr != rec:
+                raise P2PError(
+                    f"Provided {label} address does not match the recorded {label} "
+                    f"address for this trade."
+                )
+        return rec
+
+    async def release_escrow(
+        self, *, trade_id: int, buyer_address: Optional[str] = None
+    ) -> P2PTrade:
         trade = await self.get_trade(trade_id)
         if trade.source != P2PSource.NATIVE.value:
             raise P2PError("Escrow release only applies to native trades.")
         if not trade.escrow_lock_tx:
             raise P2PError("Escrow was never locked for this trade — nothing to release.")
+        buyer_address = self._resolve_payout(trade.buyer_address, buyer_address, "buyer")
         # Atomic compare-and-set: only one caller can reserve the trade for release.
         # Guards against double-release (admin retry / two operators) draining the
         # omnibus escrow wallet. Reservation is keyed on escrow_release_tx being NULL,
@@ -501,8 +586,7 @@ class P2PService:
             trade.source == P2PSource.NATIVE.value
             and trade.status == P2PTradeStatus.ESCROW_LOCKED.value
         ):
-            if not seller_address:
-                raise P2PError("Refund requires the seller's destination address.")
+            seller_address = self._resolve_payout(trade.seller_address, seller_address, "seller")
             if not await self._reserve_for_cancel(trade_id):
                 raise P2PError("Trade is not in a refundable state (already settled or cancelled).")
             await self.escrow.refund(
