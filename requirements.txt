@@ -9,49 +9,49 @@
 # resolver conflicts on a pinned core line, relax that one line and rebuild.
 
 # ---- Web framework / server ----
-fastapi==0.128.8
+fastapi==0.138.2
 starlette==0.49.3
 uvicorn[standard]>=0.30,<1.0          # ASGI server — entrypoint (not in local venv)
 uvloop>=0.19,<1.0                     # Fast event loop (installed in api/main.py)
-anyio==4.12.1
+anyio==4.14.1
 h11==0.16.0
 sniffio==1.3.1
 
 # ---- Telegram bot ----
-python-telegram-bot[rate-limiter]==22.5
+python-telegram-bot[rate-limiter]==22.8
 
 # ---- HTTP clients ----
 httpx==0.28.1
 httpcore==1.0.9
-requests==2.32.5
-aiohttp==3.13.5
-aiohappyeyeballs==2.6.1
+requests==2.34.2
+aiohttp==3.14.1
+aiohappyeyeballs==2.6.2
 aiosignal==1.4.0
 async-timeout==5.0.1
 frozenlist==1.8.0
 multidict==6.7.1
-propcache==0.4.1
-yarl==1.22.0
+propcache==0.5.2
+yarl==1.24.2
 websockets==15.0.1
 websocket-client==1.9.0
-urllib3==2.6.3
-certifi==2026.5.20
+urllib3==2.7.0
+certifi==2026.6.17
 charset-normalizer==3.4.7
-idna==3.17
+idna==3.18
 
 # ---- Database ----
-SQLAlchemy==2.0.50
+SQLAlchemy==2.0.51
 psycopg2-binary>=2.9,<3.0             # PostgreSQL driver (sslmode/connect_timeout args) — not in local venv
 
 # ---- Pydantic / settings ----
 pydantic==2.13.4
-pydantic_core==2.46.4
-pydantic-settings==2.11.0
+pydantic_core==2.47.0
+pydantic-settings==2.14.2
 annotated-types==0.7.0
 annotated-doc==0.0.4
 typing_extensions==4.15.0
 typing-inspection==0.4.2
-python-dotenv==1.2.1
+python-dotenv==1.2.2
 
 # ---- Crypto / encryption ----
 cryptography==48.0.0
@@ -60,7 +60,7 @@ pycryptodome==3.23.0
 cffi==2.0.0
 pycparser==2.23
 PyJWT==2.13.0
-pyotp==2.9.0
+pyotp==2.10.0
 
 # ---- EVM / web3 ----
 web3==7.16.0
@@ -70,8 +70,8 @@ eth-account==0.13.7
 # (web3/eth-account/rlp/attrs). Used by the Tempo sponsored-swap path.
 pytempo==0.5.1
 eth_abi==5.2.0
-eth-hash==0.7.1
-eth-keyfile==0.8.1
+eth-hash==0.8.0
+eth-keyfile==0.9.1
 eth-keys==0.7.0
 eth-rlp==2.2.0
 eth-typing==5.2.1
@@ -79,19 +79,19 @@ eth-utils==5.3.1
 hexbytes==1.3.1
 rlp==4.1.0
 ckzg==2.1.7
-parsimonious==0.10.0
+parsimonious==0.11.0
 pyunormalize==17.0.0
 cytoolz==1.1.0
 toolz==1.1.0
-bitarray==3.8.1
+bitarray==3.8.2
 
 # ---- Solana ----
-solana==0.36.12
+solana==0.38.0
 solders==0.27.1
 base58==2.1.1
 construct==2.10.70
 construct-typing==0.7.0
-jsonalias==0.1.1
+jsonalias==0.1.2
 
 # ---- Tron (imported by bot/services) ----
 tronpy>=0.5,<1.0                      # not in local venv
@@ -100,9 +100,9 @@ tronpy>=0.5,<1.0                      # not in local venv
 starknet-py>=0.28.1; python_version >= "3.10"
 
 # ---- Perps / Polymarket / Hyperliquid ----
-hyperliquid-python-sdk==0.23.0
+hyperliquid-python-sdk==0.24.0
 py-clob-client>=0.20                  # Polymarket CLOB (imported as py_clob_client) — not in local venv
-msgpack==1.1.2
+msgpack==1.2.1
 
 # ---- Discord integration (imported by bot/) ----
 discord.py>=2.3,<3.0                  # not in local venv
@@ -123,7 +123,7 @@ redis==7.0.1
 
 # ---- Serialization / misc ----
 orjson>=3.10                          # not in local venv
-regex==2026.1.15
+regex==2026.6.28
 attrs==26.1.0
 packaging==26.2
 Pygments==2.20.0
