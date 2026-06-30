@@ -41,6 +41,6 @@
     "@biomejs/biome": "^2.4.3",
     "@types/bun": "^1.1.14",
     "drizzle-kit": "^0.31.8",
-    "typescript": "^5.6.3"
+    "typescript": "^6.0.3"
   }
 }
