@@ -170,3 +170,120 @@ async def test_native_trade_lifecycle(tmp_db):
     assert done.completed_at is not None
 
     assert set(tx_by_action) == {"lock", "release"}
+    # Escrow lock/release used the trade's own chain, not the global setting.
+    assert tx_by_action["lock"]["chain"] == "base"
+    assert tx_by_action["release"]["chain"] == "base"
+
+
+async def test_release_escrow_is_not_double_spendable(tmp_db):
+    """A second /p2prelease on a completed trade must NOT fire a second on-chain send."""
+    from bot.services.p2p_service import P2PError
+
+    svc = P2PService()
+    release_calls = []
+
+    async def fake_executor(action, **kw):
+        if action == "release":
+            release_calls.append(kw)
+        return f"0x{action}"
+
+    svc.escrow.set_executor(fake_executor)
+
+    offer_id = await svc.create_offer(
+        maker_user_id=111,
+        maker_wallet_id=5,
+        offer_type=P2POfferType.SELL_CRYPTO.value,
+        fiat_currency="NGN",
+        crypto_asset="USDC",
+        crypto_chain="base",
+        price_per_unit=1600.0,
+        min_fiat_amount=1000.0,
+        max_fiat_amount=1_000_000.0,
+        payment_methods=["bank_transfer"],
+    )
+    quote = P2POfferQuote(
+        source=P2PSource.NATIVE.value,
+        offer_id=str(offer_id),
+        offer_type=P2POfferType.SELL_CRYPTO.value,
+        fiat_currency="NGN",
+        crypto_asset="USDC",
+        crypto_chain="base",
+        price_per_unit=1600.0,
+        min_fiat_amount=1000.0,
+        max_fiat_amount=1_000_000.0,
+        payment_methods=["bank_transfer"],
+    )
+    trade = await svc.start_trade(
+        taker_user_id=222,
+        taker_wallet_address="0x" + "cd" * 20,
+        offer=quote,
+        fiat_amount=160_000.0,
+        payment_method="bank_transfer",
+    )
+
+    # Release before any lock must be rejected (nothing escrowed).
+    with pytest.raises(P2PError):
+        await svc.release_escrow(trade_id=trade.id, buyer_address="0x" + "cd" * 20)
+    assert release_calls == []
+
+    await svc.lock_escrow(trade_id=trade.id, seller_wallet_id=5)
+    await svc.release_escrow(trade_id=trade.id, buyer_address="0x" + "cd" * 20)
+    assert len(release_calls) == 1
+
+    # Second release on the same (now COMPLETED) trade must NOT call the executor again.
+    with pytest.raises(P2PError):
+        await svc.release_escrow(trade_id=trade.id, buyer_address="0x" + "cd" * 20)
+    assert len(release_calls) == 1
+
+
+async def test_cancel_trade_refuses_refund_after_fiat_sent(tmp_db):
+    """A fiat-paid trade must force the dispute path, not a silent no-op refund."""
+    from bot.services.p2p_service import P2PError
+
+    svc = P2PService()
+    refund_calls = []
+
+    async def fake_executor(action, **kw):
+        if action == "refund":
+            refund_calls.append(kw)
+        return f"0x{action}"
+
+    svc.escrow.set_executor(fake_executor)
+
+    offer_id = await svc.create_offer(
+        maker_user_id=111,
+        maker_wallet_id=5,
+        offer_type=P2POfferType.SELL_CRYPTO.value,
+        fiat_currency="NGN",
+        crypto_asset="USDC",
+        crypto_chain="base",
+        price_per_unit=1600.0,
+        min_fiat_amount=1000.0,
+        max_fiat_amount=1_000_000.0,
+        payment_methods=["bank_transfer"],
+    )
+    quote = P2POfferQuote(
+        source=P2PSource.NATIVE.value,
+        offer_id=str(offer_id),
+        offer_type=P2POfferType.SELL_CRYPTO.value,
+        fiat_currency="NGN",
+        crypto_asset="USDC",
+        crypto_chain="base",
+        price_per_unit=1600.0,
+        min_fiat_amount=1000.0,
+        max_fiat_amount=1_000_000.0,
+        payment_methods=["bank_transfer"],
+    )
+    trade = await svc.start_trade(
+        taker_user_id=222,
+        taker_wallet_address="0x" + "cd" * 20,
+        offer=quote,
+        fiat_amount=160_000.0,
+        payment_method="bank_transfer",
+    )
+    await svc.lock_escrow(trade_id=trade.id, seller_wallet_id=5)
+    await svc.mark_fiat_sent(trade_id=trade.id, payment_ref="ref")
+
+    with pytest.raises(P2PError):
+        await svc.cancel_trade(trade_id=trade.id, seller_address="0x" + "ab" * 20)
+    assert refund_calls == []
