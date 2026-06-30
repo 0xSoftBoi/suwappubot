@@ -67,6 +67,9 @@ export const p2pTrades = pgTable('p2p_trades', {
 	escrowAddress: varchar('escrow_address', { length: 255 }),
 	escrowLockTx: varchar('escrow_lock_tx', { length: 255 }),
 	escrowReleaseTx: varchar('escrow_release_tx', { length: 255 }),
+	// Resolved payout addresses captured at trade creation (native escrow settlement).
+	buyerAddress: varchar('buyer_address', { length: 255 }),
+	sellerAddress: varchar('seller_address', { length: 255 }),
 	fiatPaymentRef: varchar('fiat_payment_ref', { length: 255 }),
 	disputeReason: text('dispute_reason'),
 	disputedAt: timestamp('disputed_at'),

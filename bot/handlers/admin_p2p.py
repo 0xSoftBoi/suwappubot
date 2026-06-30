@@ -54,22 +54,23 @@ async def p2p_release_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     args = context.args or []
-    if len(args) != 2:
+    if len(args) not in (1, 2):
         await update.message.reply_text(
-            "Usage: `/p2prelease <trade_id> <buyer_address>`", parse_mode="Markdown"
+            "Usage: `/p2prelease <trade_id> [buyer_address]`\n"
+            "Address is optional — defaults to the buyer recorded for the trade; "
+            "if given it must match.",
+            parse_mode="Markdown",
         )
         return
 
     try:
         trade_id = int(args[0])
-        buyer_address = _parse_address(args[1])
+        buyer_address = _parse_address(args[1]) if len(args) == 2 else None
     except (ValueError, P2PError) as e:
         await update.message.reply_text(f"❌ {e}")
         return
 
-    await update.message.reply_text(
-        f"⏳ Releasing escrow for trade {trade_id} → {buyer_address[:10]}…"
-    )
+    await update.message.reply_text(f"⏳ Releasing escrow for trade {trade_id}…")
     try:
         trade = await p2p_service.release_escrow(trade_id=trade_id, buyer_address=buyer_address)
         await update.message.reply_text(
@@ -89,22 +90,23 @@ async def p2p_refund_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     args = context.args or []
-    if len(args) != 2:
+    if len(args) not in (1, 2):
         await update.message.reply_text(
-            "Usage: `/p2prefund <trade_id> <seller_address>`", parse_mode="Markdown"
+            "Usage: `/p2prefund <trade_id> [seller_address]`\n"
+            "Address is optional — defaults to the seller recorded for the trade; "
+            "if given it must match.",
+            parse_mode="Markdown",
         )
         return
 
     try:
         trade_id = int(args[0])
-        seller_address = _parse_address(args[1])
+        seller_address = _parse_address(args[1]) if len(args) == 2 else None
     except (ValueError, P2PError) as e:
         await update.message.reply_text(f"❌ {e}")
         return
 
-    await update.message.reply_text(
-        f"⏳ Refunding escrow for trade {trade_id} → {seller_address[:10]}…"
-    )
+    await update.message.reply_text(f"⏳ Refunding escrow for trade {trade_id}…")
     try:
         trade = await p2p_service.cancel_trade(trade_id=trade_id, seller_address=seller_address)
         await update.message.reply_text(

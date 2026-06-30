@@ -483,6 +483,20 @@ def _ensure_schema(db_engine) -> None:
 
         P2PTrade.__table__.create(bind=db_engine)
         logger.info("Created p2p_trades table")
+    else:
+        # Additive: resolved payout addresses captured at trade creation so native
+        # escrow settlement never relies on free-text operator input. Idempotent.
+        cols = {c["name"] for c in inspector.get_columns("p2p_trades")}
+        for col_name in ("buyer_address", "seller_address"):
+            if col_name in cols:
+                continue
+            if is_sqlite:
+                ddl = f"ALTER TABLE p2p_trades ADD COLUMN {col_name} VARCHAR(255)"
+            else:
+                ddl = f"ALTER TABLE p2p_trades ADD COLUMN IF NOT EXISTS {col_name} VARCHAR(255)"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info(f"Added p2p_trades.{col_name}")
 
     # --- prediction_positions: on-chain redemption columns ---
     if "prediction_positions" in tables:
