@@ -55,6 +55,8 @@ TOKENS: dict[str, TokenConfig] = {
             "arbitrum": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
             "optimism": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
             "base": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            # Base Sepolia testnet USDC (matches P2P.me testnet USDC; for native escrow testing)
+            "base-sepolia": "0xDABa329Ed949f28F64019f22c33c3B253B2Ded60",
             "solana": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             "tron": "TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8",
             "plasma": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
