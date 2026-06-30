@@ -212,6 +212,10 @@ class Settings(BaseSettings):
         default="https://mainnet.base.org,https://base-rpc.publicnode.com,https://1rpc.io/base,https://base.drpc.org",
         description="Base mainnet RPC URL(s)",
     )
+    base_sepolia_rpc_url: str = Field(
+        default="https://sepolia.base.org,https://base-sepolia-rpc.publicnode.com",
+        description="Base Sepolia testnet RPC URL(s) — used for native P2P escrow testing",
+    )
     avalanche_rpc_url: str = Field(
         default="https://api.avax.network/ext/bc/C/rpc,https://avalanche-c-chain-rpc.publicnode.com,https://1rpc.io/avax/c,https://avalanche.drpc.org",
         description="Avalanche C-Chain RPC URL(s)",

@@ -432,6 +432,10 @@ def _ensure_schema(db_engine) -> None:
     if "subscriptions" in tables:
         _add_subscription_started_at(db_engine, inspector, is_sqlite)
 
+    # --- audit_logs: org_id / agent_id columns (org-scoped audit trail) ---
+    if "audit_logs" in tables:
+        _add_audit_org_agent_columns(db_engine, inspector, is_sqlite)
+
     # --- rename registered_agents -> agents ---
     if "registered_agents" in tables and "agents" not in tables:
         with db_engine.begin() as conn:
@@ -962,6 +966,46 @@ def _add_subscription_started_at(db_engine, inspector, is_sqlite: bool) -> None:
             ddl = "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS started_at TIMESTAMP"
         with db_engine.begin() as conn:
             conn.execute(text(ddl))
+
+
+def _add_audit_org_agent_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add org_id / agent_id columns + indexes to audit_logs idempotently.
+
+    api-ts (PolicyService / auditLog) writes these for the org-scoped audit
+    trail. audit_logs is python-owned, so the columns are added here rather
+    than via drizzle (which is scoped away from python tables).
+    """
+    cols = {c["name"] for c in inspector.get_columns("audit_logs")}
+
+    new_columns = [
+        ("org_id", "UUID" if not is_sqlite else "VARCHAR(36)"),
+        ("agent_id", "VARCHAR(64)"),
+    ]
+
+    for col_name, col_type in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE audit_logs ADD COLUMN {col_name} {col_type}"
+            else:
+                ddl = f"ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+    # Indexes for enterprise org-wide / per-agent audit queries.
+    if not is_sqlite:
+        with db_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS audit_logs_org_created_idx "
+                    "ON audit_logs (org_id, created_at)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS audit_logs_agent_created_idx "
+                    "ON audit_logs (agent_id, created_at)"
+                )
+            )
 
 
 def _add_discord_columns(db_engine, inspector, is_sqlite: bool) -> None:

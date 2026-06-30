@@ -236,6 +236,7 @@ from bot.handlers.borrow import borrow_conversation_handler
 from bot.handlers.btc import btc_conversation_handler
 from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
 from bot.handlers.p2p_handler import p2p_conversation_handler
+from bot.handlers.admin_p2p import p2p_release_handler, p2p_refund_handler
 from bot.handlers.fund import fund_command_handler, fund_callback_handler
 from bot.handlers.hl_ecosystem import (
     twap_handler,
@@ -428,6 +429,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(borrow_conversation_handler)  # Borrow USDC vs cbBTC /borrow (Morpho)
     application.add_handler(btc_conversation_handler)  # BTC bridge /btc (Atomiq, Starknet)
     application.add_handler(p2p_conversation_handler)  # P2P marketplace /p2p
+    application.add_handler(p2p_release_handler)  # admin /p2prelease — settle native escrow
+    application.add_handler(p2p_refund_handler)  # admin /p2prefund — refund native escrow
     application.add_handler(token_conv_handler)  # SUWP token /token /suwp
     application.add_handler(twofa_conversation)  # TOTP 2FA enrollment /2fa
     application.add_handler(smart_account_handler)  # ERC-4337 smart account /sa
