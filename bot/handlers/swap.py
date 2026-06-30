@@ -297,6 +297,8 @@ async def start_swap(
     chains_with_bal = []
     chains_without_bal = []
     for name, chain in CHAINS.items():
+        if chain.is_testnet:
+            continue
         if name in chains_with_balance:
             chains_with_bal.append((name, chain))
         else:
@@ -531,6 +533,8 @@ async def select_from_token(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     chains_with_bal = []
     chains_without_bal = []
     for name, chain in CHAINS.items():
+        if chain.is_testnet:
+            continue
         if name in chains_with_balance:
             chains_with_bal.append((name, chain))
         else:
