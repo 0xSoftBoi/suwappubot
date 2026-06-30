@@ -440,13 +440,49 @@ class P2PService:
         trade_id = await run_in_db(_persist)
         return await self.get_trade(trade_id)
 
-    async def lock_escrow(self, *, trade_id: int, seller_wallet_id: int) -> P2PTrade:
-        """Lock the seller's crypto into native escrow (native trades only)."""
+    async def _resolve_seller_wallet_id(self, trade: P2PTrade) -> int:
+        """Resolve which Suwappu wallet holds the crypto leg to escrow.
+
+        The seller is determined by offer_type, NOT by whoever drives the trade:
+        on a SELL_CRYPTO offer the maker is the seller (escrow the offer's maker
+        wallet); on a BUY_CRYPTO offer the taker is the seller (escrow the taker's
+        default EVM wallet). Resolving this server-side prevents escrowing the wrong
+        party's funds (e.g. the taker's wallet on a SELL_CRYPTO offer).
+        """
+
+        def _resolve() -> Optional[int]:
+            if trade.offer_type == P2POfferType.SELL_CRYPTO.value:
+                with get_session() as session:
+                    offer = session.query(P2POffer).filter(P2POffer.id == trade.offer_id).first()
+                    return offer.maker_wallet_id if offer else None
+            # BUY_CRYPTO: the taker is the seller of crypto.
+            from bot.services.wallet import WalletService
+
+            w = WalletService().get_default_wallet(trade.taker_user_id, "evm")
+            return w.id if w else None
+
+        wallet_id = await run_in_db(_resolve)
+        if not wallet_id:
+            raise P2PError("Could not resolve the seller's escrow wallet for this trade.")
+        return int(wallet_id)
+
+    async def lock_escrow(
+        self, *, trade_id: int, seller_wallet_id: Optional[int] = None
+    ) -> P2PTrade:
+        """Lock the seller's crypto into native escrow (native trades only).
+
+        The seller wallet is resolved from the trade (by offer_type), so a caller
+        cannot escrow the wrong party. An explicitly-passed ``seller_wallet_id`` is
+        accepted only as a guard that must match the resolved wallet.
+        """
         trade = await self.get_trade(trade_id)
         if trade.source != P2PSource.NATIVE.value:
             raise P2PError("Escrow lock only applies to native trades.")
+        resolved_wallet_id = await self._resolve_seller_wallet_id(trade)
+        if seller_wallet_id is not None and int(seller_wallet_id) != resolved_wallet_id:
+            raise P2PError("Provided seller wallet does not match the trade's seller wallet.")
         tx_hash = await self.escrow.lock(
-            seller_wallet_id=seller_wallet_id,
+            seller_wallet_id=resolved_wallet_id,
             amount=trade.crypto_amount,
             chain=trade.crypto_chain,
         )
