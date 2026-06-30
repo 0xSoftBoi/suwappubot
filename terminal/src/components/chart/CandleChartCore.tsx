@@ -53,7 +53,7 @@ interface Props {
 // terminal (spot pairs, perps markets). Owns the lightweight-charts lifecycle
 // and a live OHLC crosshair readout; the caller owns toolbar + data fetching.
 export function CandleChartCore({
-  candles,
+  candles: rawCandles,
   isLoading,
   chartType,
   label,
@@ -61,6 +61,19 @@ export function CandleChartCore({
   emptyState,
   showSMA = true,
 }: Props) {
+  // lightweight-charts hard-asserts that series data is strictly ascending and
+  // unique by time — a single duplicate/out-of-order timestamp throws and takes
+  // the whole terminal down via the error boundary. Some feeds (esp. when
+  // switching tickers) return candles with a repeated bucket timestamp, so
+  // sanitize here once: sort ascending and collapse duplicate timestamps,
+  // keeping the last (most complete) candle for each bucket.
+  const candles = useMemo(() => {
+    if (!rawCandles) return rawCandles
+    const byTime = new Map<number, (typeof rawCandles)[number]>()
+    for (const c of rawCandles) byTime.set(c.time as number, c)
+    return Array.from(byTime.values()).sort((a, b) => (a.time as number) - (b.time as number))
+  }, [rawCandles])
+
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
