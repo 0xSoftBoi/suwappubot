@@ -13,9 +13,12 @@ import logging
 
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
+from web3 import Web3
 
 from bot.config.settings import settings
 from bot.services.p2p_service import P2PError, p2p_service
+
+_ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +36,14 @@ def is_admin(user_id: int) -> bool:
 
 
 def _parse_address(raw: str) -> str:
-    """Light validation: an EVM address, 0x + 40 hex chars."""
+    """Validate + checksum an EVM payout address; reject the zero/burn address."""
     addr = raw.strip()
-    if not (addr.startswith("0x") and len(addr) == 42):
-        raise P2PError(f"Invalid address: {raw!r}")
-    return addr
+    if not Web3.is_address(addr):
+        raise P2PError(f"Invalid EVM address: {raw!r}")
+    checksummed = Web3.to_checksum_address(addr)
+    if checksummed == _ZERO_ADDRESS:
+        raise P2PError("Refusing to send to the zero address.")
+    return checksummed
 
 
 async def p2p_release_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -102,7 +108,8 @@ async def p2p_refund_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         trade = await p2p_service.cancel_trade(trade_id=trade_id, seller_address=seller_address)
         await update.message.reply_text(
-            f"✅ Trade {trade_id} refunded + cancelled.\nStatus: `{trade.status}`",
+            f"✅ Trade {trade_id} cancelled (status: `{trade.status}`). "
+            f"If escrow was locked, USDC was refunded on-chain to the seller.",
             parse_mode="Markdown",
         )
     except Exception as e:

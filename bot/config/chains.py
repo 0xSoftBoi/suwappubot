@@ -33,6 +33,10 @@ class ChainConfig:
     # Network-enforced minimum gas price in wei (e.g. Rootstock's 0.06 gwei floor).
     # Applied via apply_min_gas_price() in the tx-build path.
     min_gas_price_wei: int = 0
+    # Testnet chains are excluded from user-facing chain pickers, balance scans, and
+    # deposit-address generation. They exist only for internal/admin paths (e.g. the
+    # native P2P escrow testnet trade), resolved directly via get_chain_by_name().
+    is_testnet: bool = False
 
 
 # Chain configurations
@@ -120,6 +124,7 @@ CHAINS: dict[str, ChainConfig] = {
         explorer_url="https://sepolia.basescan.org",
         logo_emoji="🔵",
         lifi_chain_id=None,  # Li.Fi has no testnet support — native escrow / direct transfers only
+        is_testnet=True,  # excluded from user-facing pickers/balance scans; admin escrow path only
     ),
     "avalanche": ChainConfig(
         chain_id=43114,
@@ -603,9 +608,13 @@ def get_chain_by_name(name: str) -> Optional[ChainConfig]:
     return CHAINS.get(name.lower())
 
 
-def get_evm_chains() -> list[ChainConfig]:
-    """Get all EVM chain configurations."""
-    return [c for c in CHAINS.values() if c.chain_type == ChainType.EVM]
+def get_evm_chains(include_testnet: bool = False) -> list[ChainConfig]:
+    """Get all EVM chain configurations (mainnet only unless include_testnet)."""
+    return [
+        c
+        for c in CHAINS.values()
+        if c.chain_type == ChainType.EVM and (include_testnet or not c.is_testnet)
+    ]
 
 
 def get_solana_chain() -> ChainConfig:

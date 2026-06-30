@@ -83,7 +83,7 @@ class P2PEscrow:
     def is_ready(self) -> bool:
         return self._executor is not None
 
-    async def lock(self, *, seller_wallet_id: int, amount: str) -> str:
+    async def lock(self, *, seller_wallet_id: int, amount: str, chain: Optional[str] = None) -> str:
         if not self._executor:
             raise EscrowNotConfiguredError(
                 "Native P2P escrow is not yet wired to the on-chain signer. "
@@ -94,11 +94,11 @@ class P2PEscrow:
             from_wallet_id=seller_wallet_id,
             to_address=None,
             amount=amount,
-            chain=self.chain,
+            chain=chain or self.chain,
             token=self.token,
         )
 
-    async def release(self, *, buyer_address: str, amount: str) -> str:
+    async def release(self, *, buyer_address: str, amount: str, chain: Optional[str] = None) -> str:
         if not self._executor:
             raise EscrowNotConfiguredError(
                 "Native P2P escrow is not yet wired to the on-chain signer."
@@ -108,11 +108,11 @@ class P2PEscrow:
             from_wallet_id=None,
             to_address=buyer_address,
             amount=amount,
-            chain=self.chain,
+            chain=chain or self.chain,
             token=self.token,
         )
 
-    async def refund(self, *, seller_address: str, amount: str) -> str:
+    async def refund(self, *, seller_address: str, amount: str, chain: Optional[str] = None) -> str:
         if not self._executor:
             raise EscrowNotConfiguredError(
                 "Native P2P escrow is not yet wired to the on-chain signer."
@@ -122,7 +122,7 @@ class P2PEscrow:
             from_wallet_id=None,
             to_address=seller_address,
             amount=amount,
-            chain=self.chain,
+            chain=chain or self.chain,
             token=self.token,
         )
 
@@ -396,7 +396,9 @@ class P2PService:
         if trade.source != P2PSource.NATIVE.value:
             raise P2PError("Escrow lock only applies to native trades.")
         tx_hash = await self.escrow.lock(
-            seller_wallet_id=seller_wallet_id, amount=trade.crypto_amount
+            seller_wallet_id=seller_wallet_id,
+            amount=trade.crypto_amount,
+            chain=trade.crypto_chain,
         )
         return await self._update_trade(
             trade_id,
@@ -415,7 +417,23 @@ class P2PService:
         trade = await self.get_trade(trade_id)
         if trade.source != P2PSource.NATIVE.value:
             raise P2PError("Escrow release only applies to native trades.")
-        tx_hash = await self.escrow.release(buyer_address=buyer_address, amount=trade.crypto_amount)
+        if not trade.escrow_lock_tx:
+            raise P2PError("Escrow was never locked for this trade — nothing to release.")
+        # Atomic compare-and-set: only one caller can reserve the trade for release.
+        # Guards against double-release (admin retry / two operators) draining the
+        # omnibus escrow wallet. Reservation is keyed on escrow_release_tx being NULL,
+        # so a recorded release can never be repeated; a transient on-chain failure
+        # leaves the trade RELEASED-but-unrecorded and is safely retryable.
+        if not await self._reserve_for_release(trade_id):
+            raise P2PError(
+                "Trade is not in a releasable state (already released, cancelled, "
+                "or not yet escrowed)."
+            )
+        tx_hash = await self.escrow.release(
+            buyer_address=buyer_address,
+            amount=trade.crypto_amount,
+            chain=trade.crypto_chain,
+        )
         completed = await self._update_trade(
             trade_id,
             status=P2PTradeStatus.COMPLETED.value,
@@ -467,13 +485,32 @@ class P2PService:
         self, *, trade_id: int, seller_address: Optional[str] = None
     ) -> P2PTrade:
         trade = await self.get_trade(trade_id)
-        # If crypto was already escrowed, refund the seller before cancelling.
+        # A fiat-paid trade must not be unilaterally refunded — that would let a
+        # buyer pay and a seller reclaim the crypto. Force the dispute path instead
+        # of silently cancelling without a refund (and falsely reporting success).
+        if (
+            trade.source == P2PSource.NATIVE.value
+            and trade.status == P2PTradeStatus.FIAT_SENT.value
+        ):
+            raise P2PError(
+                "Buyer has marked fiat sent — resolve via dispute, not a unilateral refund."
+            )
+        # If crypto is still escrowed, atomically reserve the trade for cancellation
+        # before refunding, so two concurrent refund attempts can't double-spend.
         if (
             trade.source == P2PSource.NATIVE.value
             and trade.status == P2PTradeStatus.ESCROW_LOCKED.value
-            and seller_address
         ):
-            await self.escrow.refund(seller_address=seller_address, amount=trade.crypto_amount)
+            if not seller_address:
+                raise P2PError("Refund requires the seller's destination address.")
+            if not await self._reserve_for_cancel(trade_id):
+                raise P2PError("Trade is not in a refundable state (already settled or cancelled).")
+            await self.escrow.refund(
+                seller_address=seller_address,
+                amount=trade.crypto_amount,
+                chain=trade.crypto_chain,
+            )
+            return await self.get_trade(trade_id)
         return await self._update_trade(trade_id, status=P2PTradeStatus.CANCELLED.value)
 
     async def open_dispute(self, *, trade_id: int, reason: str) -> P2PTrade:
@@ -548,6 +585,69 @@ class P2PService:
         if not trade:
             raise P2PError(f"Trade {trade_id} not found.")
         return trade
+
+    async def _reserve_for_release(self, trade_id: int) -> bool:
+        """Atomically move a native trade to RELEASED iff it is releasable.
+
+        Single guarded UPDATE (compare-and-set) so concurrent/duplicate release
+        attempts cannot each fire an on-chain transfer. Reservation requires the
+        escrow to be locked and not already released; status RELEASED is included
+        in the source set so a transiently-failed release (no tx recorded) stays
+        retryable. Returns True iff this caller won the reservation.
+        """
+
+        def _reserve() -> bool:
+            with get_session() as session:
+                rows = (
+                    session.query(P2PTrade)
+                    .filter(
+                        P2PTrade.id == trade_id,
+                        P2PTrade.source == P2PSource.NATIVE.value,
+                        P2PTrade.escrow_lock_tx.isnot(None),
+                        P2PTrade.escrow_release_tx.is_(None),
+                        P2PTrade.status.in_(
+                            [
+                                P2PTradeStatus.ESCROW_LOCKED.value,
+                                P2PTradeStatus.FIAT_SENT.value,
+                                P2PTradeStatus.RELEASED.value,
+                            ]
+                        ),
+                    )
+                    .update(
+                        {P2PTrade.status: P2PTradeStatus.RELEASED.value},
+                        synchronize_session=False,
+                    )
+                )
+                session.commit()
+                return rows > 0
+
+        return await run_in_db(_reserve)
+
+    async def _reserve_for_cancel(self, trade_id: int) -> bool:
+        """Atomically move a locked native trade to CANCELLED iff still ESCROW_LOCKED.
+
+        Compare-and-set guard so two concurrent refund attempts cannot both fire an
+        on-chain refund. Returns True iff this caller won the reservation.
+        """
+
+        def _reserve() -> bool:
+            with get_session() as session:
+                rows = (
+                    session.query(P2PTrade)
+                    .filter(
+                        P2PTrade.id == trade_id,
+                        P2PTrade.source == P2PSource.NATIVE.value,
+                        P2PTrade.status == P2PTradeStatus.ESCROW_LOCKED.value,
+                    )
+                    .update(
+                        {P2PTrade.status: P2PTradeStatus.CANCELLED.value},
+                        synchronize_session=False,
+                    )
+                )
+                session.commit()
+                return rows > 0
+
+        return await run_in_db(_reserve)
 
 
 # Module-level singleton (mirrors order_service / swap_engine convention).
