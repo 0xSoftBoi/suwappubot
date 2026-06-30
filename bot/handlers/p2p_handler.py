@@ -690,10 +690,12 @@ async def payment_method_callback(update: Update, context: ContextTypes.DEFAULT_
             payment_method=payment_method,
             region=data.get("region"),
         )
-        # Lock escrow when the taker is buying crypto (seller's funds get escrowed).
-        # This depends on the on-chain signer that is NOT yet wired.
-        if data.get("taker_action") == "buy" and data.get("wallet_id"):
-            await p2p_service.lock_escrow(trade_id=trade.id, seller_wallet_id=data["wallet_id"])
+        # Lock escrow when the taker is buying crypto. The seller (whose funds get
+        # escrowed) is the MAKER here, so the service resolves the correct seller
+        # wallet from the trade itself — we must not pass the taker's wallet.
+        # Depends on the on-chain signer that is NOT yet wired.
+        if data.get("taker_action") == "buy":
+            await p2p_service.lock_escrow(trade_id=trade.id)
     except (EscrowNotConfiguredError, P2PError) as e:
         logger.info(f"Native P2P trade not completed (escrow/validation): {e}")
         await query.edit_message_text(
