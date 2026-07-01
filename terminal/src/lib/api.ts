@@ -29,6 +29,7 @@ import type {
   WalletWithdrawResult,
   MarketRegime,
   MarketSignal,
+  PulseToken,
   HLPosition,
   PredictionMarket,
   PerpsAccountStatus,
@@ -370,6 +371,12 @@ export const api = {
   // Cross-market Signals feed — movers, funding extremes, squeezes, regime.
   getSignals() {
     return request<MarketSignal[]>('/terminal/signals')
+  },
+
+  // Final Stretch (pre-migration/pre-graduation) Pulse discovery stage —
+  // public, read-only, display/filter only.
+  getFinalStretch(limit = 30) {
+    return request<PulseToken[]>(`/terminal/discovery/final-stretch?limit=${limit}`)
   },
 
   // Prediction probability history — Polymarket prices-history (public) for a

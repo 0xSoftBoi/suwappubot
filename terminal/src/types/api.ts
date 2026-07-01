@@ -886,6 +886,10 @@ export interface PulseToken {
   priceChange1h?: number
   priceChange6h?: number
   priceChange24h?: number
+  // Final Stretch (pre-migration) signals — best-effort proxies, null when
+  // there isn't enough tape/data to judge (never fabricated).
+  insidersPercent?: number | null
+  bundlePercent?: number | null
 }
 
 export interface PulseFilters {
@@ -900,6 +904,8 @@ export interface PulseFilters {
   maxSniperPercent: number | null
   maxBundleCount: number | null
   minHolders: number | null
+  maxInsidersPercent: number | null
+  maxBundlePercent: number | null
 }
 
 export interface ReferralStats {
