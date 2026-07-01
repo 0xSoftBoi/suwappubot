@@ -51,9 +51,6 @@
     "readdirp": {
       "picomatch": "^2.3.2"
     },
-    "fdir": {
-      "picomatch": "^4.0.4"
-    },
     "@parcel/watcher": {
       "picomatch": "^4.0.4"
     },
