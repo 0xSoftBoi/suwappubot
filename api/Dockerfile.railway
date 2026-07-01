@@ -13,7 +13,7 @@
 
 # ---- Builder: install deps into an isolated venv (with build tools as a fallback for
 #      any package that ships only an sdist) ----
-FROM python:3.14-slim-bookworm AS builder
+FROM python:3.12-slim-bookworm AS builder
 # NOTE: 3.12 — the codebase uses PEP 604 `X | None` annotations that evaluate at
 # import time, which require Python >= 3.10. The pinned deps in requirements.txt all ship
 # 3.12 manylinux wheels.
@@ -34,7 +34,7 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # ---- Runtime: slim image, no build tools, non-root ----
-FROM python:3.14-slim-bookworm AS runtime
+FROM python:3.12-slim-bookworm AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -69,3 +69,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -fsS "http://localhost:${PORT:-8000}/health" || exit 1
 
 CMD exec uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}
+
