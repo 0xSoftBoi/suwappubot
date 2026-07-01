@@ -119,6 +119,106 @@ async def p2p_refund_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"❌ Refund failed: {e}")
 
 
+async def p2p_disputes_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Admin: list native trades awaiting arbitration. Usage: /p2pdisputes"""
+    user = update.effective_user
+    if not is_admin(user.id):
+        await update.message.reply_text("❌ Admin access required.")
+        return
+
+    try:
+        disputed = await p2p_service.get_disputed_trades()
+    except Exception as e:
+        logger.exception("p2pdisputes failed")
+        await update.message.reply_text(f"❌ Could not load disputes: {e}")
+        return
+
+    if not disputed:
+        await update.message.reply_text("✅ No open disputes.")
+        return
+
+    lines = ["⚖️ *Open disputes*\n"]
+    for t in disputed:
+        lines.append(
+            f"• Trade `{t.id}` — {t.crypto_amount} {t.crypto_asset} on {t.crypto_chain}\n"
+            f"  by `{t.disputed_by}`: {(t.dispute_reason or '')[:120]}\n"
+            f"  → `/p2presolve {t.id} release` or `/p2presolve {t.id} refund`"
+        )
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def p2p_resolve_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Admin: arbitrate a dispute. Usage: /p2presolve <trade_id> <release|refund> [note]"""
+    user = update.effective_user
+    if not is_admin(user.id):
+        await update.message.reply_text("❌ Admin access required.")
+        return
+
+    args = context.args or []
+    if len(args) < 2 or args[1].lower() not in ("release", "refund"):
+        await update.message.reply_text(
+            "Usage: `/p2presolve <trade_id> <release|refund> [note]`\n"
+            "release → crypto to the buyer; refund → crypto back to the seller.",
+            parse_mode="Markdown",
+        )
+        return
+
+    try:
+        trade_id = int(args[0])
+    except ValueError:
+        await update.message.reply_text("❌ trade_id must be a number.")
+        return
+    resolution = args[1].lower()
+    note = " ".join(args[2:]) if len(args) > 2 else None
+
+    await update.message.reply_text(f"⏳ Resolving dispute on trade {trade_id} ({resolution})…")
+    try:
+        trade = await p2p_service.resolve_dispute(
+            trade_id=trade_id, resolution=resolution, resolver_id=user.id, note=note
+        )
+        await update.message.reply_text(
+            f"✅ Dispute on trade {trade_id} resolved: *{resolution}*.\n"
+            f"Status: `{trade.status}`\nEscrow tx: `{trade.escrow_release_tx}`",
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        logger.exception("p2presolve failed for trade %s", trade_id)
+        await update.message.reply_text(f"❌ Resolve failed: {e}")
+
+
+async def p2p_dispute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Open a dispute on your own trade. Usage: /p2pdispute <trade_id> <reason>"""
+    user = update.effective_user
+    args = context.args or []
+    if len(args) < 2:
+        await update.message.reply_text(
+            "Usage: `/p2pdispute <trade_id> <reason>`\n"
+            "Freezes the escrow so neither side can move it until an arbiter decides.",
+            parse_mode="Markdown",
+        )
+        return
+
+    try:
+        trade_id = int(args[0])
+    except ValueError:
+        await update.message.reply_text("❌ trade_id must be a number.")
+        return
+    reason = " ".join(args[1:])
+
+    try:
+        await p2p_service.open_dispute(trade_id=trade_id, reason=reason, opened_by=user.id)
+        await update.message.reply_text(
+            f"⚖️ Dispute opened on trade {trade_id}. The escrow is frozen; "
+            f"our team will review and decide. You'll be notified of the outcome."
+        )
+    except Exception as e:
+        logger.info("p2pdispute rejected for trade %s: %s", trade_id, e)
+        await update.message.reply_text(f"❌ {e}")
+
+
 # Create handlers
 p2p_release_handler = CommandHandler("p2prelease", p2p_release_command)
 p2p_refund_handler = CommandHandler("p2prefund", p2p_refund_command)
+p2p_disputes_handler = CommandHandler("p2pdisputes", p2p_disputes_command)
+p2p_resolve_handler = CommandHandler("p2presolve", p2p_resolve_command)
+p2p_dispute_handler = CommandHandler("p2pdispute", p2p_dispute_command)

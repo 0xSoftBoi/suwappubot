@@ -108,7 +108,7 @@ export function DesktopLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen bg-suwappu-bg overflow-hidden">
       {/* Sidebar */}
-      <aside className="w-56 flex-shrink-0 bg-white/80 backdrop-blur-md border-r border-suwappu-sakura-mid/20 flex flex-col">
+      <aside className="w-56 shrink-0 bg-white/80 backdrop-blur-md border-r border-suwappu-sakura-mid/20 flex flex-col">
         {/* App title with drag region for hidden titlebar */}
         <div
           className="h-14 flex items-center px-4 border-b border-suwappu-sakura-mid/10"

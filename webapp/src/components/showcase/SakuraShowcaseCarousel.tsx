@@ -88,7 +88,7 @@ function ShowcaseCardItem({
 
   return (
     <div
-      className="flex-shrink-0 w-[300px] group"
+      className="shrink-0 w-[300px] group"
       style={{
         opacity: isVisible ? 1 : 0,
         transform: isVisible ? 'translateY(0) scale(1)' : 'translateY(30px) scale(0.95)',
@@ -245,7 +245,7 @@ export function SakuraShowcaseCarousel({ cards, title, subtitle }: SakuraShowcas
           <ShowcaseCardItem key={card.id} card={card} index={i} isVisible={isVisible} />
         ))}
         {/* End spacer */}
-        <div className="flex-shrink-0 w-1" />
+        <div className="shrink-0 w-1" />
       </div>
 
       {/* Scroll progress indicator */}

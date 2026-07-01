@@ -48,7 +48,7 @@ export const DefaultButton: Story = {
 
 export const ExternalWalletButton: Story = {
   render: () => (
-    <button className="flex items-center justify-center gap-3 px-8 py-4 bg-gradient-to-r from-orange-400 to-orange-500 text-white font-heading font-bold rounded-suwappu-pill shadow-suwappu-button transition-all duration-300 hover:-translate-y-0.5 hover:shadow-suwappu-button-hover active:translate-y-0">
+    <button className="flex items-center justify-center gap-3 px-8 py-4 bg-linear-to-r from-orange-400 to-orange-500 text-white font-heading font-bold rounded-suwappu-pill shadow-suwappu-button transition-all duration-300 hover:-translate-y-0.5 hover:shadow-suwappu-button-hover active:translate-y-0">
       <ExternalWalletIcon className="w-6 h-6" />
       Connect External Wallet
     </button>
@@ -171,7 +171,7 @@ export const ErrorState: Story = {
         Try Again
       </button>
       <div className="flex items-start gap-2 px-4 py-3 bg-suwappu-error/20 border border-suwappu-error/30 rounded-suwappu-lg">
-        <svg className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-5 h-5 text-red-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         <span className="text-sm font-body text-red-700">User rejected the connection request</span>
@@ -183,7 +183,7 @@ export const ErrorState: Story = {
 export const InstallPrompt: Story = {
   render: () => (
     <div className="p-6 bg-white rounded-suwappu-xxl shadow-suwappu-3 border border-suwappu-sakura-mid/20 max-w-sm text-center">
-      <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-orange-400 to-orange-500 rounded-suwappu-xl flex items-center justify-center">
+      <div className="w-16 h-16 mx-auto mb-4 bg-linear-to-br from-orange-400 to-orange-500 rounded-suwappu-xl flex items-center justify-center">
         <ExternalWalletIcon className="w-10 h-10 text-white" />
       </div>
       <h3 className="font-heading text-xl font-bold text-suwappu-purple-deep mb-2">Install External Wallet</h3>
@@ -194,7 +194,7 @@ export const InstallPrompt: Story = {
         href="https://metamask.io/download/"
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-orange-400 to-orange-500 text-white font-heading font-bold rounded-suwappu-pill shadow-suwappu-button transition-all duration-300 hover:-translate-y-0.5 hover:shadow-suwappu-button-hover"
+        className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-linear-to-r from-orange-400 to-orange-500 text-white font-heading font-bold rounded-suwappu-pill shadow-suwappu-button transition-all duration-300 hover:-translate-y-0.5 hover:shadow-suwappu-button-hover"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />

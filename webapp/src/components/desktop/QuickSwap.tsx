@@ -185,7 +185,7 @@ export function QuickSwap() {
                 value={fromToken}
                 onChange={(e) => setFromToken(e.target.value)}
                 placeholder="Token"
-                className="w-28 px-3 py-2.5 bg-suwappu-sakura-50 border border-suwappu-sakura-mid/20 rounded-xl text-sm font-heading focus:outline-none focus:ring-2 focus:ring-suwappu-magenta-mid/30"
+                className="w-28 px-3 py-2.5 bg-suwappu-sakura-50 border border-suwappu-sakura-mid/20 rounded-xl text-sm font-heading focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta-mid/30"
               />
               <input
                 type="number"
@@ -193,7 +193,7 @@ export function QuickSwap() {
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="Amount"
                 autoFocus
-                className="flex-1 px-3 py-2.5 bg-suwappu-sakura-50 border border-suwappu-sakura-mid/20 rounded-xl text-sm font-heading focus:outline-none focus:ring-2 focus:ring-suwappu-magenta-mid/30"
+                className="flex-1 px-3 py-2.5 bg-suwappu-sakura-50 border border-suwappu-sakura-mid/20 rounded-xl text-sm font-heading focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta-mid/30"
               />
             </div>
           </div>
@@ -217,7 +217,7 @@ export function QuickSwap() {
               value={toToken}
               onChange={(e) => setToToken(e.target.value)}
               placeholder="Token name or address"
-              className="w-full px-3 py-2.5 bg-suwappu-sakura-50 border border-suwappu-sakura-mid/20 rounded-xl text-sm font-heading focus:outline-none focus:ring-2 focus:ring-suwappu-magenta-mid/30"
+              className="w-full px-3 py-2.5 bg-suwappu-sakura-50 border border-suwappu-sakura-mid/20 rounded-xl text-sm font-heading focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta-mid/30"
             />
           </div>
 

@@ -1,5 +1,7 @@
 export * from './advanced'
 export * from './agents'
+export * from './battles'
+export * from './community'
 export * from './copyTrades'
 export * from './dcaOrders'
 export * from './fees'

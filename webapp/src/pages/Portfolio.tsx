@@ -228,7 +228,7 @@ function PnlHeatmap({ dataPoints }: HeatmapProps) {
               key={i}
               onClick={() => !isFuture && cell.tradeCount > 0 && setSelectedDay(cell)}
               className={`
-                aspect-square rounded-sm flex items-center justify-center
+                aspect-square rounded-xs flex items-center justify-center
                 text-[8px] font-medium transition-opacity
                 ${isFuture ? 'bg-gray-50 text-gray-300 cursor-default' : pnlColor(cell.pnl, maxAbs)}
                 ${cell.pnl !== 0 && !isFuture ? 'cursor-pointer hover:opacity-80' : ''}
@@ -244,15 +244,15 @@ function PnlHeatmap({ dataPoints }: HeatmapProps) {
       {/* Legend */}
       <div className="flex items-center gap-2 mt-2 justify-end">
         <div className="flex items-center gap-1">
-          <div className="w-2.5 h-2.5 rounded-sm bg-red-500" />
+          <div className="w-2.5 h-2.5 rounded-xs bg-red-500" />
           <span className="text-[9px] text-suwappu-text-secondary">Loss</span>
         </div>
         <div className="flex items-center gap-1">
-          <div className="w-2.5 h-2.5 rounded-sm bg-gray-100" />
+          <div className="w-2.5 h-2.5 rounded-xs bg-gray-100" />
           <span className="text-[9px] text-suwappu-text-secondary">No trades</span>
         </div>
         <div className="flex items-center gap-1">
-          <div className="w-2.5 h-2.5 rounded-sm bg-green-500" />
+          <div className="w-2.5 h-2.5 rounded-xs bg-green-500" />
           <span className="text-[9px] text-suwappu-text-secondary">Profit</span>
         </div>
       </div>
@@ -349,7 +349,7 @@ function KpiCard({ label, value, subtitle, positive }: KpiCardProps) {
     'text-suwappu-purple-deep'
 
   return (
-    <div className="flex-shrink-0 bg-white rounded-suwappu-xl p-3 shadow-suwappu-1 min-w-[110px]">
+    <div className="shrink-0 bg-white rounded-suwappu-xl p-3 shadow-suwappu-1 min-w-[110px]">
       <div className="text-[10px] text-suwappu-text-secondary mb-0.5">{label}</div>
       <div className={`text-sm font-bold font-heading truncate ${valueColor}`}>{value}</div>
       {subtitle && <div className="text-[9px] text-suwappu-text-secondary mt-0.5 leading-tight">{subtitle}</div>}

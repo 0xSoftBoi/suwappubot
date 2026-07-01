@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from pydantic import Field, ConfigDict
+from pydantic import Field, ConfigDict, field_validator
 from typing import ClassVar, Dict, Optional, List
 from functools import lru_cache
 import random
@@ -849,6 +849,29 @@ class Settings(BaseSettings):
         default="claude-haiku-4-5-20251001",
         description="Anthropic model used to parse natural-language trade intents",
     )
+    NL_TRADING_PROVIDER: str = Field(
+        default="anthropic",
+        description="LLM provider for NL trade intent parsing: anthropic|openai|deepseek|groq|custom",
+    )
+    OPENAI_API_KEY: str = Field(
+        default="", description="OpenAI API key for NL trade intent parsing"
+    )
+    DEEPSEEK_API_KEY: str = Field(
+        default="", description="DeepSeek API key for NL trade intent parsing"
+    )
+    GROQ_API_KEY: str = Field(default="", description="Groq API key for NL trade intent parsing")
+    NL_TRADING_BASE_URL: str = Field(
+        default="",
+        description="Optional override base_url for OpenAI-compatible NL trading providers",
+    )
+    NL_LLM_FALLBACK_PER_USER_DAILY: int = Field(
+        default=30,
+        description="Max LLM fallback calls (deterministic-parse misses) per user per day",
+    )
+    NL_LLM_FALLBACK_GLOBAL_DAILY: int = Field(
+        default=5000,
+        description="Max LLM fallback calls (deterministic-parse misses) globally per day",
+    )
 
     # Application Settings
     log_level: str = Field(default="INFO", description="Logging level")
@@ -923,6 +946,27 @@ class Settings(BaseSettings):
             "Comma-separated ISO2 regions where Polymarket on-chain redemption is "
             "geo-blocked. Falls back to hyperunit_restricted_regions (default 'US') "
             "when unset."
+        ),
+    )
+
+    # ── Gift Card marketplace (Bitrefill) ────────────────────────────────────
+    # SCAFFOLD — blocked on a live Bitrefill merchant account.
+    # Set BITREFILL_API_KEY to enable; leave unset to keep the feature dark.
+    # See bot/services/giftcard_api.py and bot/handlers/giftcard.py.
+    bitrefill_api_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Bitrefill v4 API key — enables the /gift command. "
+            "Obtain from https://www.bitrefill.com/api/. "
+            "Unset = feature disabled (shows 'coming soon')."
+        ),
+    )
+    bitrefill_api_secret: Optional[str] = Field(
+        default=None,
+        description=(
+            "Bitrefill v4 API secret — used as the Basic-auth password alongside "
+            "bitrefill_api_key. Some read-only endpoints work with key-only; "
+            "order creation requires both key + secret."
         ),
     )
 
@@ -1061,6 +1105,36 @@ class Settings(BaseSettings):
         default=None,
         description="Deployed SuwppuBonds contract address on Base (protocol-owned liquidity bonding)",
     )
+
+    # Battle treasury — sentinel user id for the house/treasury CustodialBalance account.
+    # Must be a negative integer to guarantee no collision with real auto-increment user ids.
+    # Override via BATTLE_TREASURY_USER_ID env var (must remain negative).
+    battle_treasury_user_id: int = Field(
+        default=-1,
+        description=(
+            "Sentinel user_id for the battle house/treasury CustodialBalance row. "
+            "Must be negative (never collides with real user rows). "
+            "Prediction battle stakes flow: user -> treasury at open; "
+            "treasury -> user on WIN/VOID at settlement."
+        ),
+    )
+
+    @field_validator("battle_treasury_user_id")
+    @classmethod
+    def _validate_battle_treasury_user_id(cls, v: int) -> int:
+        """Enforce the negative-sentinel invariant documented above.
+
+        A misconfigured non-negative BATTLE_TREASURY_USER_ID could collide with
+        a real auto-increment users.id row, letting battle treasury debits/
+        credits silently corrupt an actual user's CustodialBalance. Fail fast
+        at settings load rather than at first battle open.
+        """
+        if v >= 0:
+            raise ValueError(
+                f"BATTLE_TREASURY_USER_ID must be negative (got {v}). "
+                "A non-negative value can collide with a real users.id row."
+            )
+        return v
 
     model_config = ConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"

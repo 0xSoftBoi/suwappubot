@@ -1,6 +1,20 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+/* v3 compat: keep hover states working on touch devices (Telegram Mini App) */
+@custom-variant hover (&:hover);
+
+/* v3 compat: restore default border color */
+@layer base {
+  *, ::after, ::before, ::backdrop, ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
+
+/* v3 compat: restore default ring width */
+@theme {
+  --default-ring-width: 3px;
+}
 
 /* Accessible toast entrance (a11yToast). Applied via the motion-safe: variant
    only, so users with prefers-reduced-motion get an instant, motion-free

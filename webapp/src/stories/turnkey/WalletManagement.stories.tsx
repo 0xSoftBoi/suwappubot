@@ -35,7 +35,7 @@ export const WalletCard: Story = {
     <div className="p-4 bg-white rounded-suwappu-xl shadow-suwappu-2 border border-suwappu-sakura-mid/20 w-80">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 bg-gradient-to-br from-suwappu-purple to-suwappu-magenta-mid rounded-suwappu-lg flex items-center justify-center">
+          <div className="w-12 h-12 bg-linear-to-br from-suwappu-purple to-suwappu-magenta-mid rounded-suwappu-lg flex items-center justify-center">
             <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor">
               <path d="M21.5 11.75L18.75 9l1-3.5-2.25.75L15 4l-3 2.5L9 4 6.5 6.25l-2.25-.75 1 3.5L2.5 11.75l2.75 2.75-.5 3.25 3-1 2.25 2 2-1.5 2 1.5 2.25-2 3 1-.5-3.25 2.75-2.75z" />
             </svg>
@@ -62,7 +62,7 @@ export const WalletCardVariants: Story = {
       <div className="p-4 bg-white rounded-suwappu-xl shadow-suwappu-2 border border-suwappu-sakura-mid/20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-gradient-to-br from-suwappu-purple to-suwappu-magenta-mid rounded-suwappu-lg flex items-center justify-center">
+            <div className="w-12 h-12 bg-linear-to-br from-suwappu-purple to-suwappu-magenta-mid rounded-suwappu-lg flex items-center justify-center">
               <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4" />
               </svg>
@@ -84,7 +84,7 @@ export const WalletCardVariants: Story = {
       <div className="p-4 bg-white rounded-suwappu-xl shadow-suwappu-2 border border-suwappu-sakura-mid/20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-gradient-to-br from-orange-400 to-orange-500 rounded-suwappu-lg flex items-center justify-center">
+            <div className="w-12 h-12 bg-linear-to-br from-orange-400 to-orange-500 rounded-suwappu-lg flex items-center justify-center">
               <svg className="w-7 h-7 text-white" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M21.5 11.75L18.75 9l1-3.5-2.25.75L15 4l-3 2.5L9 4 6.5 6.25l-2.25-.75 1 3.5L2.5 11.75l2.75 2.75-.5 3.25 3-1 2.25 2 2-1.5 2 1.5 2.25-2 3 1-.5-3.25 2.75-2.75z" />
               </svg>
@@ -106,7 +106,7 @@ export const WalletCardVariants: Story = {
       <div className="p-4 bg-white rounded-suwappu-xl shadow-suwappu-2 border border-suwappu-sakura-mid/20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-green-400 rounded-suwappu-lg flex items-center justify-center">
+            <div className="w-12 h-12 bg-linear-to-br from-purple-500 to-green-400 rounded-suwappu-lg flex items-center justify-center">
               <span className="text-white font-bold text-lg">S</span>
             </div>
             <div>
@@ -142,8 +142,8 @@ export const WalletList: Story = {
             <div className="flex items-center gap-3">
               <div className={`w-10 h-10 rounded-suwappu-md flex items-center justify-center ${
                 wallet.provider === 'turnkey'
-                  ? 'bg-gradient-to-br from-suwappu-purple to-suwappu-magenta-mid'
-                  : 'bg-gradient-to-br from-orange-400 to-orange-500'
+                  ? 'bg-linear-to-br from-suwappu-purple to-suwappu-magenta-mid'
+                  : 'bg-linear-to-br from-orange-400 to-orange-500'
               }`}>
                 {wallet.chain === 'solana' ? (
                   <span className="text-white font-bold">S</span>
@@ -179,7 +179,7 @@ export const WalletDetails: Story = {
   render: () => (
     <div className="p-6 bg-white rounded-suwappu-xxl shadow-suwappu-3 border border-suwappu-sakura-mid/20 w-96">
       <div className="text-center mb-6">
-        <div className="w-20 h-20 mx-auto mb-3 bg-gradient-to-br from-suwappu-purple to-suwappu-magenta-mid rounded-full flex items-center justify-center shadow-suwappu-glow">
+        <div className="w-20 h-20 mx-auto mb-3 bg-linear-to-br from-suwappu-purple to-suwappu-magenta-mid rounded-full flex items-center justify-center shadow-suwappu-glow">
           <svg className="w-10 h-10 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4" />
           </svg>
@@ -248,8 +248,8 @@ export const AddWalletOptions: Story = {
       </h3>
 
       <div className="space-y-3">
-        <button className="w-full flex items-center gap-4 p-4 bg-gradient-to-r from-suwappu-sakura-light/50 to-suwappu-rose/30 rounded-suwappu-xl border border-suwappu-sakura-mid/30 hover:border-suwappu-magenta-mid/50 hover:shadow-suwappu-2 transition-all group">
-          <div className="w-12 h-12 bg-gradient-to-br from-suwappu-purple to-suwappu-magenta-mid rounded-suwappu-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+        <button className="w-full flex items-center gap-4 p-4 bg-linear-to-r from-suwappu-sakura-light/50 to-suwappu-rose/30 rounded-suwappu-xl border border-suwappu-sakura-mid/30 hover:border-suwappu-magenta-mid/50 hover:shadow-suwappu-2 transition-all group">
+          <div className="w-12 h-12 bg-linear-to-br from-suwappu-purple to-suwappu-magenta-mid rounded-suwappu-lg flex items-center justify-center group-hover:scale-110 transition-transform">
             <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4" />
             </svg>
@@ -264,7 +264,7 @@ export const AddWalletOptions: Story = {
         </button>
 
         <button className="w-full flex items-center gap-4 p-4 bg-white rounded-suwappu-xl border border-suwappu-sakura-mid/30 hover:border-suwappu-magenta-mid/50 hover:shadow-suwappu-2 transition-all group">
-          <div className="w-12 h-12 bg-gradient-to-br from-orange-400 to-orange-500 rounded-suwappu-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+          <div className="w-12 h-12 bg-linear-to-br from-orange-400 to-orange-500 rounded-suwappu-lg flex items-center justify-center group-hover:scale-110 transition-transform">
             <svg className="w-7 h-7 text-white" viewBox="0 0 24 24" fill="currentColor">
               <path d="M21.5 11.75L18.75 9l1-3.5-2.25.75L15 4l-3 2.5L9 4 6.5 6.25l-2.25-.75 1 3.5L2.5 11.75l2.75 2.75-.5 3.25 3-1 2.25 2 2-1.5 2 1.5 2.25-2 3 1-.5-3.25 2.75-2.75z" />
             </svg>
@@ -276,7 +276,7 @@ export const AddWalletOptions: Story = {
         </button>
 
         <button className="w-full flex items-center gap-4 p-4 bg-white rounded-suwappu-xl border border-suwappu-sakura-mid/30 hover:border-suwappu-magenta-mid/50 hover:shadow-suwappu-2 transition-all group">
-          <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-suwappu-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+          <div className="w-12 h-12 bg-linear-to-br from-blue-500 to-blue-600 rounded-suwappu-lg flex items-center justify-center group-hover:scale-110 transition-transform">
             <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
             </svg>
