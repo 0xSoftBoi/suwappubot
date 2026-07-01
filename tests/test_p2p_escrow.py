@@ -662,3 +662,28 @@ async def test_dispute_resolve_reverts_on_onchain_failure(tmp_db):
     done = await svc.resolve_dispute(trade_id=trade.id, resolution="release", resolver_id=7)
     assert done.status == P2PTradeStatus.COMPLETED.value
     assert done.escrow_release_tx == "0xrelease"
+
+
+async def test_resolving_marker_not_hijacked_by_release_or_cancel(tmp_db):
+    """The in-flight RESOLVING marker can't be picked up by /p2prelease or /p2prefund."""
+    from bot.services.p2p_service import P2PError
+
+    svc = P2PService()
+
+    async def fake_executor(action, **kw):
+        return f"0x{action}"
+
+    svc.escrow.set_executor(fake_executor)
+    trade = await _locked_native_trade(svc)
+    await svc.open_dispute(trade_id=trade.id, reason="d", opened_by=222)
+
+    # Simulate the in-flight resolution window (arbiter claimed the dispute).
+    assert await svc._reserve_from_dispute(trade.id) is True
+    mid = await svc.get_trade(trade.id)
+    assert mid.status == P2PTradeStatus.RESOLVING.value
+
+    # A stray release or refund during that window must NOT fire a second move.
+    with pytest.raises(P2PError):
+        await svc.release_escrow(trade_id=trade.id)
+    with pytest.raises(P2PError):
+        await svc.cancel_trade(trade_id=trade.id, seller_address="0x" + "ab" * 20)

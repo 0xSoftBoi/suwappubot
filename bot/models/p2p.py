@@ -73,6 +73,7 @@ class P2PTradeStatus(str, enum.Enum):
     COMPLETED = "completed"  # Settled end-to-end
     CANCELLED = "cancelled"
     DISPUTED = "disputed"
+    RESOLVING = "resolving"  # arbiter claimed the dispute; on-chain move in flight
     EXPIRED = "expired"
 
 

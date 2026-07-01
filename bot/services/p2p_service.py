@@ -658,10 +658,13 @@ class P2PService:
         self, *, trade_id: int, seller_address: Optional[str] = None
     ) -> P2PTrade:
         trade = await self.get_trade(trade_id)
-        # A trade already frozen in DISPUTED can only be settled by an arbiter
-        # (resolve_dispute) — never a unilateral cancel (which would skip the
-        # refund and strand the escrowed crypto).
-        if trade.source == P2PSource.NATIVE.value and trade.status == P2PTradeStatus.DISPUTED.value:
+        # A trade frozen in DISPUTED (or mid-resolution RESOLVING) can only be
+        # settled by an arbiter (resolve_dispute) — never a unilateral cancel
+        # (which would skip the refund and strand the escrowed crypto).
+        if trade.source == P2PSource.NATIVE.value and trade.status in (
+            P2PTradeStatus.DISPUTED.value,
+            P2PTradeStatus.RESOLVING.value,
+        ):
             raise P2PError("Trade is under dispute — resolve it via arbitration.")
         # A fiat-paid trade must not be unilaterally refunded — that would let a
         # buyer pay and a seller reclaim the crypto. Force the dispute path instead
@@ -760,10 +763,11 @@ class P2PService:
         else:
             payout = self._resolve_payout(trade.seller_address, None, "seller")
 
-        # Atomic single-winner claim: DISPUTED → RELEASED (an in-flight "resolving"
-        # marker), keyed on escrow_release_tx IS NULL. Because the source set is
-        # strictly {DISPUTED}, concurrent /p2presolve calls (even release vs refund)
-        # contend on one row UPDATE and exactly one wins — no double-spend.
+        # Atomic single-winner claim: DISPUTED → RESOLVING (a dedicated in-flight
+        # marker that no other money-moving path accepts), keyed on
+        # escrow_release_tx IS NULL. Because the source set is strictly {DISPUTED},
+        # concurrent /p2presolve calls (even release vs refund) contend on one row
+        # UPDATE and exactly one wins — no double-spend.
         if not await self._reserve_from_dispute(trade_id):
             raise P2PError("Dispute already resolved or being resolved.")
 
@@ -998,14 +1002,14 @@ class P2PService:
         return await run_in_db(_reserve)
 
     async def _reserve_from_dispute(self, trade_id: int) -> bool:
-        """Atomically claim a DISPUTED trade for resolution (→ RELEASED marker).
+        """Atomically claim a DISPUTED trade for resolution (→ RESOLVING marker).
 
-        Compare-and-set from strictly ``DISPUTED`` (release_tx NULL) → RELEASED, an
-        in-flight "resolving" marker. Because the source set is only {DISPUTED},
-        exactly one concurrent resolver wins — the loser sees the trade already out
-        of DISPUTED and is rejected, so no double on-chain move. On a transient
-        on-chain failure the caller reverts the marker back to DISPUTED (retryable).
-        Returns True iff this caller won the claim.
+        Compare-and-set from strictly ``DISPUTED`` (release_tx NULL) → RESOLVING, a
+        dedicated in-flight marker (NOT RELEASED — which release_escrow would pick
+        up and double-fire). Because the source set is only {DISPUTED}, exactly one
+        concurrent resolver wins; the loser sees the trade out of DISPUTED and is
+        rejected, so no double on-chain move. On a transient on-chain failure the
+        caller reverts to DISPUTED (retryable). Returns True iff this caller won.
         """
 
         def _reserve() -> bool:
@@ -1019,7 +1023,7 @@ class P2PService:
                         P2PTrade.escrow_release_tx.is_(None),
                     )
                     .update(
-                        {P2PTrade.status: P2PTradeStatus.RELEASED.value},
+                        {P2PTrade.status: P2PTradeStatus.RESOLVING.value},
                         synchronize_session=False,
                     )
                 )
