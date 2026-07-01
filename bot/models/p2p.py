@@ -168,6 +168,12 @@ class P2PTrade(Base):
     escrow_lock_tx = Column(String(255), nullable=True)
     escrow_release_tx = Column(String(255), nullable=True)
 
+    # Resolved EVM payout addresses captured server-side at trade creation, so
+    # settlement never relies on free-text operator input. release_escrow pays
+    # buyer_address; an escrow refund pays seller_address.
+    buyer_address = Column(String(255), nullable=True)
+    seller_address = Column(String(255), nullable=True)
+
     # Fiat-leg proof submitted by the payer
     fiat_payment_ref = Column(String(255), nullable=True)
 

@@ -64,7 +64,7 @@ export function PerpsOpenOrders() {
         {orders.map((o) => {
           const busy = cancellingId === o.orderId && cancel.isPending
           // A trigger order (TP/SL) shows its trigger price; a limit shows limitPx.
-          const shownPrice = o.isTrigger && o.triggerPrice ? o.triggerPrice : o.price
+          const shownPrice = (o.isTrigger && o.triggerPrice ? o.triggerPrice : o.price) ?? 0
           return (
             <tr
               key={o.orderId}
@@ -82,7 +82,7 @@ export function PerpsOpenOrders() {
                   {o.side.toUpperCase()}
                 </span>
               </td>
-              <td className="px-3 py-2 text-right font-mono">{o.size.toFixed(4)}</td>
+              <td className="px-3 py-2 text-right font-mono">{(o.size ?? 0).toFixed(4)}</td>
               <td className="px-3 py-2 text-right font-mono">${shownPrice.toFixed(2)}</td>
               <td className="px-3 py-2 text-right">
                 <button
