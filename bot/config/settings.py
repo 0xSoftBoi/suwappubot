@@ -775,6 +775,14 @@ class Settings(BaseSettings):
         "from whatsapp_phone_number_id (Meta's numeric API id)",
     )
 
+    # Linear (support ticket sync — bot/services/support_notifier.py)
+    linear_api_key: Optional[str] = Field(
+        default=None, description="Linear API key used to create issues from support tickets"
+    )
+    linear_team_id: Optional[str] = Field(
+        default=None, description="Linear team ID (UUID) that support-ticket issues are filed under"
+    )
+
     # Discord Bot
     discord_bot_token: Optional[str] = Field(default=None, description="Discord bot token")
     discord_guild_ids: Optional[str] = Field(
