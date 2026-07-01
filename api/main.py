@@ -53,6 +53,7 @@ from bot.services.alerts import alert_service
 from bot.services.orders import order_service
 from bot.services.swap_engine import SwapEngine
 from bot.services.tx_poller import tx_poller
+from bot.services.withdraw_reconciler import withdraw_reconciler
 from bot.services.health_monitor import health_monitor
 from bot.services.balance_refresher import balance_refresher
 from bot.services.perps_monitor import perps_monitor
@@ -267,6 +268,12 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)
         await tx_poller.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
+        # Resolves PENDING custodial withdrawal placeholders left behind by
+        # crashes or ambiguous post-broadcast send failures (see
+        # bot/services/withdraw_reconciler.py + PostBroadcastAmbiguous in
+        # hot_wallet.py).
+        await withdraw_reconciler.start()
+        await asyncio.sleep(2)
         await health_monitor.start(
             bot=bot_app.bot if bot_initialized else None, admin_ids=admin_ids
         )
@@ -401,6 +408,7 @@ async def lifespan(app: FastAPI):
         await alert_service.stop()
         await order_service.stop()
         await tx_poller.stop()
+        await withdraw_reconciler.stop()
         await health_monitor.stop()
         await balance_refresher.stop()
         await perps_monitor.stop()
@@ -911,7 +919,13 @@ async def health_ready():
     # Background service heartbeats (TTL 60s; missing key = service dead)
     now = time.time()
     svc_heartbeats: dict = {}
-    watched_services = ["tx_poller", "balance_refresher", "perps_monitor", "predict_monitor"]
+    watched_services = [
+        "tx_poller",
+        "withdraw_reconciler",
+        "balance_refresher",
+        "perps_monitor",
+        "predict_monitor",
+    ]
     if getattr(settings, "hl_ws_alerts_enabled", False) or getattr(
         settings, "hl_whale_alerts_enabled", False
     ):

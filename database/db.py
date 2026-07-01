@@ -341,6 +341,59 @@ def _ensure_schema(db_engine) -> None:
                 )
             )
 
+    # --- custodial_transactions idempotency (withdraw replay protection) ---
+    if "custodial_transactions" in tables:
+        cols = {c["name"] for c in inspector.get_columns("custodial_transactions")}
+
+        if "idempotency_key" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE custodial_transactions ADD COLUMN idempotency_key VARCHAR(128)"
+            else:
+                ddl = (
+                    "ALTER TABLE custodial_transactions "
+                    "ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128)"
+                )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+        # Unique index to enforce withdraw idempotency (NULLs allowed)
+        with db_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_custodial_transactions_idempotency_key "
+                    "ON custodial_transactions(idempotency_key)"
+                )
+            )
+
+    # --- custodial_transactions idempotency: scope to (user_id, key) ---
+    # A GLOBAL unique index on idempotency_key (above) lets one user's client-
+    # chosen key collide with another user's, leaking their tx hash/status on
+    # a 409 and letting one user DoS another's withdraw key. Supersede it with
+    # a composite UNIQUE(user_id, idempotency_key) index instead. Additive +
+    # idempotent: dropping the old index only removes the (now redundant,
+    # more-restrictive) global constraint; the new composite index still
+    # enforces per-user dedupe and NULLs remain allowed for non-withdrawal
+    # transaction types.
+    if "custodial_transactions" in tables:
+        cols = {c["name"] for c in inspector.get_columns("custodial_transactions")}
+        if "idempotency_key" in cols and "user_id" in cols:
+            with db_engine.begin() as conn:
+                conn.execute(text("DROP INDEX IF EXISTS ux_custodial_transactions_idempotency_key"))
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS "
+                        "ux_custodial_transactions_user_idempotency_key "
+                        "ON custodial_transactions(user_id, idempotency_key)"
+                    )
+                )
+                # Speeds up the PENDING-withdrawal reconciler's periodic scan.
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_custodial_transactions_status_type "
+                        "ON custodial_transactions(status, tx_type)"
+                    )
+                )
+
     # --- wallets: envelope encryption columns ---
     if "wallets" in tables:
         _add_encryption_columns(db_engine, inspector, "wallets", is_sqlite)
@@ -2422,7 +2475,9 @@ def _add_referral_stream_columns(db_engine, inspector, is_sqlite: bool) -> None:
                     ddl = f"ALTER TABLE referrals ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
             else:
                 if is_sqlite:
-                    ddl = f"ALTER TABLE referrals ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+                    ddl = (
+                        f"ALTER TABLE referrals ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+                    )
                 else:
                     ddl = (
                         f"ALTER TABLE referrals ADD COLUMN IF NOT EXISTS"
@@ -2490,18 +2545,10 @@ def _create_tips_table(db_engine, inspector, is_sqlite: bool) -> None:
                 """))
             logger.info("Created tips table")
 
-        conn.execute(
-            text("CREATE INDEX IF NOT EXISTS ix_tips_sender_id ON tips(sender_id)")
-        )
-        conn.execute(
-            text("CREATE INDEX IF NOT EXISTS ix_tips_recipient_id ON tips(recipient_id)")
-        )
-        conn.execute(
-            text("CREATE INDEX IF NOT EXISTS ix_tips_chat_id ON tips(chat_id)")
-        )
-        conn.execute(
-            text("CREATE INDEX IF NOT EXISTS ix_tips_status ON tips(status)")
-        )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tips_sender_id ON tips(sender_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tips_recipient_id ON tips(recipient_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tips_chat_id ON tips(chat_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_tips_status ON tips(status)"))
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_tips_sender_status ON tips(sender_id, status)")
         )
@@ -2909,18 +2956,9 @@ def _create_battles_table(db_engine, inspector, is_sqlite: bool) -> None:
                 """))
             logger.info("Created battles table")
 
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_battles_user_id ON battles(user_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_battles_status ON battles(status)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_battles_expiry_at ON battles(expiry_at)"))
         conn.execute(
-            text("CREATE INDEX IF NOT EXISTS ix_battles_user_id ON battles(user_id)")
-        )
-        conn.execute(
-            text("CREATE INDEX IF NOT EXISTS ix_battles_status ON battles(status)")
-        )
-        conn.execute(
-            text("CREATE INDEX IF NOT EXISTS ix_battles_expiry_at ON battles(expiry_at)")
-        )
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_battles_user_status"
-                " ON battles(user_id, status)"
-            )
+            text("CREATE INDEX IF NOT EXISTS ix_battles_user_status" " ON battles(user_id, status)")
         )
