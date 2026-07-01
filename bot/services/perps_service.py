@@ -16,7 +16,13 @@ class PerpsService:
     """Service for managing perpetual trading positions."""
 
     # Default limits
-    MAX_LEVERAGE = 20  # Cap even if exchange allows more
+    # Per-market max leverage is fetched from HyperLiquid's meta endpoint at
+    # order-time and clamped to that value. This fallback applies only when the
+    # meta fetch fails (network error, unknown asset).
+    # Conservative cap used ONLY when the HL meta endpoint is unavailable, so a
+    # meta outage cannot let a user exceed a low-cap market's real max. Normal
+    # operation uses the per-market maxLeverage from meta.
+    FALLBACK_MAX_LEVERAGE = 20
     MIN_MARGIN_USD = 10.0
     FEE_PERCENTAGE = 0.02  # 2 bps
 
@@ -113,9 +119,12 @@ class PerpsService:
         sl_price: Optional[float] = None,
     ) -> Optional[PerpPosition]:
         """Open a new perpetual position."""
-        # Validate
-        if leverage > self.MAX_LEVERAGE:
-            raise ValueError(f"Maximum leverage is {self.MAX_LEVERAGE}x")
+        # Resolve per-market max leverage from HyperLiquid's meta endpoint.
+        # The HL asset name strips the "-USD" suffix (ETH-USD -> ETH).
+        asset = market.split("-")[0] if "-" in market else market
+        market_max = await self._client.get_market_max_leverage(asset, self.FALLBACK_MAX_LEVERAGE)
+        if leverage > market_max:
+            raise ValueError(f"Maximum leverage for {market} is {market_max}x (HyperLiquid limit)")
         if leverage < 1:
             raise ValueError("Minimum leverage is 1x")
         if side not in ("long", "short"):
@@ -196,6 +205,7 @@ class PerpsService:
             session.flush()
             position_id = position.id
             order.position_id = position_id
+            order_db_id = order.id  # capture before session closes
 
             session.expunge(position)
 
@@ -229,6 +239,28 @@ class PerpsService:
         except Exception as e:
             logger.debug("perps_trade award skipped (open): %s", e)
 
+        # Referral perps commission — best-effort, never blocks position open.
+        # MONEY-PATH: only credit when a builder fee was actually attached to this
+        # order (builder_address is truthy only if ensure_builder_approved()
+        # succeeded above). _perps_fee_usd() alone just recomputes a theoretical
+        # fee from config — it says nothing about whether HL actually accepted a
+        # builder fee on this specific order, so it must not gate the credit alone.
+        try:
+            notional_usd = float(size) * float(entry_price or 0)
+            builder_fee_usd = self._perps_fee_usd(notional_usd)
+            if builder_address and builder_fee_usd and builder_fee_usd > 0 and order_db_id:
+                from bot.services.referral_service import referral_service
+
+                referral_service.credit_perps_commission(
+                    referee_id=user_id,
+                    perp_order_id=order_db_id,
+                    builder_fee_usd=builder_fee_usd,
+                    trade_notional_usd=notional_usd,
+                    market=market,
+                )
+        except Exception as e:
+            logger.debug("Perps referral commission skipped (open): %s", e)
+
         return position
 
     async def place_limit_order(
@@ -250,8 +282,11 @@ class PerpsService:
         intentionally NOT auto-placed for a limit entry: a reduce-only trigger
         before a position exists is an HL edge case, so TP/SL is set after fill.
         """
-        if leverage > self.MAX_LEVERAGE:
-            raise ValueError(f"Maximum leverage is {self.MAX_LEVERAGE}x")
+        # Resolve per-market max leverage from HyperLiquid's meta endpoint.
+        asset = market.split("-")[0] if "-" in market else market
+        market_max = await self._client.get_market_max_leverage(asset, self.FALLBACK_MAX_LEVERAGE)
+        if leverage > market_max:
+            raise ValueError(f"Maximum leverage for {market} is {market_max}x (HyperLiquid limit)")
         if leverage < 1:
             raise ValueError("Minimum leverage is 1x")
         if side not in ("long", "short"):
@@ -422,6 +457,8 @@ class PerpsService:
                 filled_at=datetime.now(timezone.utc),
             )
             session.add(order)
+            session.flush()
+            close_order_db_id = order.id  # capture before session closes
 
         logger.info(f"Closed {percent}% of {side} {market} for user {user_id}. PnL: ${pnl:.2f}")
 
@@ -443,6 +480,25 @@ class PerpsService:
                 )
         except Exception as e:
             logger.debug("perps_trade award skipped (close): %s", e)
+
+        # Referral perps commission on close — best-effort, never blocks close.
+        # MONEY-PATH: same guard as open — only credit when builder_address was
+        # actually attached to the close order (see builder_fee_tenths_bps= above).
+        try:
+            close_notional_usd = float(close_size) * float(close_price or 0)
+            builder_fee_usd = self._perps_fee_usd(close_notional_usd)
+            if builder_address and builder_fee_usd and builder_fee_usd > 0 and close_order_db_id:
+                from bot.services.referral_service import referral_service
+
+                referral_service.credit_perps_commission(
+                    referee_id=user_id,
+                    perp_order_id=close_order_db_id,
+                    builder_fee_usd=builder_fee_usd,
+                    trade_notional_usd=close_notional_usd,
+                    market=market,
+                )
+        except Exception as e:
+            logger.debug("Perps referral commission skipped (close): %s", e)
 
         return {
             "market": market,

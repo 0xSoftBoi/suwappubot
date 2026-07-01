@@ -3252,6 +3252,243 @@ async def webapp_points_leaderboard(request: Request, limit: int = Query(default
 
 
 # ---------------------------------------------------------------------------
+# Battle endpoints
+# ---------------------------------------------------------------------------
+# Auth: X-Telegram-Init-Data header, validated via validate_telegram_init_data.
+# User is resolved from init_data's telegram id — never from the request body.
+# Money-path safety lives in battle_service (already reviewed); these endpoints
+# only delegate and translate ValueError -> HTTP 400.
+# ---------------------------------------------------------------------------
+
+
+class WebAppBattleConfig(BaseModel):
+    markets: List[str]
+    multiplier: float
+    backings: List[str]
+    durations_minutes: List[int]
+    max_open: int
+
+
+class WebAppBattleEntry(BaseModel):
+    id: int
+    market: str
+    direction: str
+    stake_usd: float
+    backing: str
+    status: str
+    outcome: Optional[str] = None
+    pnl_usd: Optional[float] = None
+    expiry_at: str
+    created_at: str
+
+
+class WebAppBattleOpenRequest(BaseModel):
+    market: str
+    direction: str  # "up" | "down"
+    stake_usd: float
+    backing: str  # "perps" | "prediction"
+    duration_minutes: int
+
+
+def _battle_response(battle) -> WebAppBattleEntry:
+    """Serialize a Battle ORM row to the webapp response shape."""
+    return WebAppBattleEntry(
+        id=battle.id,
+        market=battle.market,
+        direction=battle.direction,
+        stake_usd=float(battle.stake_usd),
+        backing=battle.backing,
+        status=battle.status,
+        outcome=battle.outcome,
+        pnl_usd=float(battle.pnl_usd) if battle.pnl_usd is not None else None,
+        expiry_at=battle.expiry_at.isoformat() if battle.expiry_at else "",
+        created_at=battle.created_at.isoformat() if battle.created_at else "",
+    )
+
+
+@router.get("/battle/config", response_model=WebAppBattleConfig)
+async def get_battle_config():
+    """Return static battle configuration for the Mini App UI.
+
+    Public (no auth) — the frontend needs this to render selectors before
+    the user authenticates.
+    """
+    from bot.services.battle_service import (
+        BATTLE_MARKETS,
+        BATTLE_MAX_OPEN,
+        BATTLE_DURATIONS,
+        PREDICTION_WIN_MULTIPLIER,
+    )
+
+    return WebAppBattleConfig(
+        markets=[m.replace("-USD", "") for m in BATTLE_MARKETS],
+        multiplier=float(PREDICTION_WIN_MULTIPLIER),
+        backings=["perps", "prediction"],
+        durations_minutes=sorted(set(BATTLE_DURATIONS.values())),
+        max_open=BATTLE_MAX_OPEN,
+    )
+
+
+@router.get("/battle/list", response_model=List[WebAppBattleEntry])
+async def get_battle_list(
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db),
+):
+    """Return the authenticated user's open and recently settled battles."""
+    from bot.services.battle_service import battle_service
+
+    user = db.query(User).filter(User.telegram_id == tg_user.id).first()
+    if not user:
+        return []
+
+    battles = battle_service.get_user_battles(user.id, limit=50)
+    return [_battle_response(b) for b in battles]
+
+
+@router.post("/battle/open", response_model=WebAppBattleEntry)
+async def open_battle(
+    body: WebAppBattleOpenRequest,
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db),
+):
+    """Open a new directional battle for the authenticated user.
+
+    MONEY-PATH: user_id is resolved exclusively from the validated init_data
+    (via get_telegram_user -> tg_user.id -> DB lookup). The request body
+    MUST NOT and does not supply user_id. All balance safety checks and
+    per-user caps are enforced inside battle_service.open_battle().
+    """
+    from bot.services.battle_service import battle_service, BATTLE_MARKETS
+
+    # Resolve DB user from the Telegram identity in the init_data token.
+    user = db.query(User).filter(User.telegram_id == tg_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    # Normalise market: accept both "BTC" and "BTC-USD" from the client.
+    market = body.market.strip().upper()
+    if not market.endswith("-USD"):
+        market = f"{market}-USD"
+    if market not in BATTLE_MARKETS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported market. Choose from: {', '.join(m.replace('-USD', '') for m in BATTLE_MARKETS)}",
+        )
+
+    try:
+        battle = await battle_service.open_battle(
+            user_id=user.id,
+            market=market,
+            direction=body.direction.strip().lower(),
+            stake_usd=Decimal(str(body.stake_usd)),
+            backing=body.backing.strip().lower(),
+            duration_minutes=body.duration_minutes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("battle/open failed for tg_user=%s: %s", tg_user.id, exc)
+        raise HTTPException(status_code=502, detail="Battle could not be opened. Please try again.")
+
+    return _battle_response(battle)
+
+
+# ---------------------------------------------------------------------------
+# Stocks (xStocks) endpoint
+# ---------------------------------------------------------------------------
+# Auth: X-Telegram-Init-Data header validated by get_telegram_user.
+# Geo-gate: xstocks_region_allowed() is the single authoritative check.
+# Stock mints are NEVER returned to a geo-blocked user.
+# Market-hours logic is replicated from bot/handlers/stocks.py (same rule,
+# kept in one place there; imported here to stay DRY).
+# ---------------------------------------------------------------------------
+
+
+class WebAppStockEntry(BaseModel):
+    ticker: str
+    name: str
+    mint: str
+    confidence: str
+
+
+class WebAppStocksResponse(BaseModel):
+    allowed: bool
+    region_status: str  # "ok" | "blocked" | "unknown" | "error"
+    blocked_message: Optional[str] = None
+    stocks: List[WebAppStockEntry]
+    market_open: bool
+    off_hours_warning: Optional[str] = None
+
+
+@router.get("/stocks", response_model=WebAppStocksResponse)
+async def get_stocks(
+    tg_user: TelegramUser = Depends(get_telegram_user),
+):
+    """Return xStocks listing with geo-gate and market-hours status.
+
+    The ``stocks`` list is only populated when the user is in an allowed region.
+    Geo-blocked users receive allowed=false and an empty stocks list — mints
+    are never transmitted to prohibited regions.
+    """
+    from bot.config.xstocks import (
+        get_all_xstocks,
+        xstocks_region_allowed,
+        XSTOCKS_BLOCKED_REGION_NAMES,
+    )
+    from bot.handlers.stocks import _is_market_hours, _market_hours_warning
+
+    allowed, region_status = xstocks_region_allowed(tg_user.id)
+
+    if not allowed:
+        if region_status == "blocked":
+            blocked_message = (
+                f"xStocks are not available in your region. Trading of tokenized equities "
+                f"is restricted in {XSTOCKS_BLOCKED_REGION_NAMES} due to regulatory "
+                f"requirements from the token issuer (Backed Finance)."
+            )
+        elif region_status == "unknown":
+            blocked_message = (
+                f"xStocks require region verification. Tokenized equity trading is only "
+                f"available in jurisdictions outside {XSTOCKS_BLOCKED_REGION_NAMES}. "
+                f"Contact support to complete region verification."
+            )
+        else:
+            blocked_message = "xStocks are temporarily unavailable. Please try again later."
+
+        return WebAppStocksResponse(
+            allowed=False,
+            region_status=region_status,
+            blocked_message=blocked_message,
+            stocks=[],
+            market_open=False,
+            off_hours_warning=None,
+        )
+
+    market_open = _is_market_hours()
+    warning_text = _market_hours_warning()
+    off_hours_warning = warning_text.strip() if warning_text.strip() else None
+
+    stocks = [
+        WebAppStockEntry(
+            ticker=entry["ticker"],
+            name=entry["name"],
+            mint=entry["solana_mint"],
+            confidence=entry["confidence"],
+        )
+        for entry in get_all_xstocks()
+    ]
+
+    return WebAppStocksResponse(
+        allowed=True,
+        region_status=region_status,
+        blocked_message=None,
+        stocks=stocks,
+        market_open=market_open,
+        off_hours_warning=off_hours_warning,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Referral endpoints (read-only display; writes/claims stay in the Telegram bot)
 # ---------------------------------------------------------------------------
 

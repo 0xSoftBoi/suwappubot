@@ -34,6 +34,27 @@ from bot.handlers.wallet import (
     wallet_import_handler,
 )
 from bot.handlers.swap import swap_conversation_handler, check_swap_status, swap_share_ref_handler
+from bot.handlers.bulk_swap import bulk_swap_conversation_handler
+from bot.handlers.bulk_pay import bulk_pay_conversation_handler
+from bot.handlers.battle import battle_conversation_handler, battle_menu_callback_handler
+from bot.handlers.tip import tip_handler
+from bot.handlers.luckybox import luckybox_handler, luckybox_claim_handler
+from bot.handlers.split import split_handler, split_pay_handler
+from bot.handlers.airdrop import (
+    airdrop_conversation,
+    airdrop_claim_handler,
+    airdrop_mine_handler,
+    airdrop_cancel_campaign_handler,
+)
+from bot.handlers.giftcard import gift_conversation
+from bot.handlers.stocks import (
+    stocks_command_handler,
+    stocks_page_callback_handler,
+    stocks_view_callback_handler,
+    stocks_list_callback_handler,
+    stocks_sell_hint_callback_handler,
+    stocks_close_callback_handler,
+)
 from bot.handlers.paste_trade import (
     on_freeform_text,
     check_command,
@@ -413,6 +434,8 @@ def add_handlers(application: Application) -> None:
     # ============ CONVERSATION HANDLERS ============
     # Must be added before generic callback handlers
     application.add_handler(swap_conversation_handler)
+    application.add_handler(bulk_swap_conversation_handler)  # MONEY-PATH: /bulk multi-leg swap
+    application.add_handler(bulk_pay_conversation_handler)  # MONEY-PATH: /pay bulk send to many
     application.add_handler(
         swap_share_ref_handler
     )  # post-swap referral share (outside conversation)
@@ -431,6 +454,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(profile_edit_conversation)  # Copy trading profile editing
     application.add_handler(snipe_conversation_handler)  # Token sniping /snipe
     application.add_handler(perps_conversation_handler)  # Perps trading /perps
+    application.add_handler(battle_conversation_handler)  # MONEY-PATH: gamified /battle
     application.add_handler(predict_conversation_handler)  # Prediction markets /predict
     application.add_handler(savings_conversation_handler)  # USDC savings /save (Aave V3 Base)
     application.add_handler(borrow_conversation_handler)  # Borrow USDC vs cbBTC /borrow (Morpho)
@@ -445,6 +469,16 @@ def add_handlers(application: Application) -> None:
     application.add_handler(twofa_conversation)  # TOTP 2FA enrollment /2fa
     application.add_handler(smart_account_handler)  # ERC-4337 smart account /sa
     application.add_handler(recover_handler)  # DKIM-email social recovery /recover
+    application.add_handler(airdrop_conversation)  # MONEY-PATH: /airdrop campaign wizard
+    application.add_handler(gift_conversation)  # /gift gift cards (gated on BITREFILL_API_KEY)
+
+    # ============ COMMUNITY PAYMENT TOOLS (Bucket 2) ============
+    # MONEY-PATH: custodial-balance transfers (tip / lucky box / split)
+    application.add_handler(tip_handler)  # /tip @user <amt> <token>
+    application.add_handler(luckybox_handler)  # /luckybox <total> <count> [random|even]
+    application.add_handler(luckybox_claim_handler)  # ^lbclaim_\d+$ — after luckybox_handler
+    application.add_handler(split_handler)  # /split <total> @a @b ...
+    application.add_handler(split_pay_handler)  # ^splitpay_\d+$
 
     # Paste-to-trade: /check front door + card callbacks (Buy buttons enter the
     # swap conversation via its own "^pbuy_" entry_point — no extra handler here)
@@ -460,12 +494,27 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(trending_open_callback, pattern="^trending_open$"))
     application.add_handler(CallbackQueryHandler(trending_buy_callback, pattern="^tbuy_"))
 
+    # xStocks — tokenized equities (Backed Finance / Jupiter, Solana). Geo-gated
+    # (US/GB/CA/AU + unknown blocked). Buy buttons reuse the swap "^pbuy_" entry.
+    application.add_handler(stocks_command_handler)  # /stocks
+    application.add_handler(stocks_page_callback_handler)  # xs_page_<n>
+    application.add_handler(stocks_view_callback_handler)  # xs_view_<TICKER>
+    application.add_handler(stocks_list_callback_handler)  # xs_list_<n>
+    application.add_handler(stocks_sell_hint_callback_handler)  # xs_sell_hint
+    application.add_handler(stocks_close_callback_handler)  # xs_close
+
     # ============ CALLBACK QUERY HANDLERS ============
 
     # Smart accounts (ERC-4337) — chain switcher
     application.add_handler(smart_account_chain_handler)
     # Social recovery — cancel button
     application.add_handler(recover_cancel_handler)
+
+    # Gamified battle + airdrop callbacks (Bucket 2/3)
+    application.add_handler(battle_menu_callback_handler)  # ^battle_list$ outside conversation
+    application.add_handler(airdrop_claim_handler)  # "Claim Airdrop" button
+    application.add_handler(airdrop_mine_handler)  # "My Campaigns" button
+    application.add_handler(airdrop_cancel_campaign_handler)  # "Cancel #N" button
 
     # Navigation
     application.add_handler(CallbackQueryHandler(help_callback, pattern="^help$"))
