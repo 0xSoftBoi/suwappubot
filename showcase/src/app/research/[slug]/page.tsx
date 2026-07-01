@@ -12,8 +12,13 @@ export function generateStaticParams(): Params[] {
   return publishedPosts.map((p) => ({ slug: p.slug }));
 }
 
-export function generateMetadata({ params }: { params: Params }): Metadata {
-  const post = getPost(params.slug);
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<Params>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const post = getPost(slug);
   if (!post) return { title: 'Not found — Suwappu Research' };
   return {
     title: `${post.title} — Suwappu`,
@@ -28,8 +33,9 @@ function fmtDate(iso: string) {
   return `${months[m - 1]} ${d}, ${y}`;
 }
 
-export default function ResearchPost({ params }: { params: Params }) {
-  const post = getPost(params.slug);
+export default async function ResearchPost({ params }: { params: Promise<Params> }) {
+  const { slug } = await params;
+  const post = getPost(slug);
   if (!post || !post.body) notFound();
 
   // Strip the leading H1 (we render it in the header) before the body.

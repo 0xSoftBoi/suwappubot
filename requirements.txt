@@ -9,8 +9,8 @@
 # resolver conflicts on a pinned core line, relax that one line and rebuild.
 
 # ---- Web framework / server ----
-fastapi==0.128.8
-starlette==0.49.3
+fastapi==0.138.2
+starlette==1.3.1
 uvicorn[standard]>=0.30,<1.0          # ASGI server — entrypoint (not in local venv)
 uvloop>=0.19,<1.0                     # Fast event loop (installed in api/main.py)
 anyio==4.12.1
@@ -23,8 +23,9 @@ python-telegram-bot[rate-limiter]==22.5
 # ---- HTTP clients ----
 httpx==0.28.1
 httpcore==1.0.9
+httpx2  # required by starlette>=1.x TestClient; test-only, app clients still use httpx
 requests==2.32.5
-aiohttp==3.13.5
+aiohttp==3.14.1
 aiohappyeyeballs==2.6.1
 aiosignal==1.4.0
 async-timeout==5.0.1
@@ -34,7 +35,7 @@ propcache==0.4.1
 yarl==1.22.0
 websockets==15.0.1
 websocket-client==1.9.0
-urllib3==2.6.3
+urllib3==2.7.0
 certifi==2026.5.20
 charset-normalizer==3.4.7
 idna==3.17
@@ -54,7 +55,7 @@ typing-inspection==0.4.2
 python-dotenv==1.2.1
 
 # ---- Crypto / encryption ----
-cryptography==48.0.0
+cryptography==48.0.1
 dnspython==2.8.0  # DKIM public-key (TXT) lookup for email social recovery
 pycryptodome==3.23.0
 cffi==2.0.0
@@ -102,7 +103,7 @@ starknet-py>=0.28.1; python_version >= "3.10"
 # ---- Perps / Polymarket / Hyperliquid ----
 hyperliquid-python-sdk==0.23.0
 py-clob-client>=0.20                  # Polymarket CLOB (imported as py_clob_client) — not in local venv
-msgpack==1.1.2
+msgpack==1.2.1
 
 # ---- Discord integration (imported by bot/) ----
 discord.py>=2.3,<3.0                  # not in local venv

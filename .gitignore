@@ -36,3 +36,4 @@ contracts/crytic-export/
 contracts/slither_results.json
 .venv-test/
 .claude/settings.local.json
+contracts/lib/openzeppelin-contracts/package-lock.json
