@@ -148,7 +148,6 @@ async def _render_token_card(
     callback_data limit (Buy buttons carry only "pbuy_<amount>").
     """
     info = await get_token_info(address, chain_family)
-    context.user_data["paste_token"] = info
 
     chain_config = get_chain_by_name(info["chain"])
     native = chain_config.native_token if chain_config else "ETH"
@@ -157,9 +156,11 @@ async def _render_token_card(
 
     # Safety check — meaningful on Solana (authority/honeypot are SVM concepts);
     # degrade honestly elsewhere rather than imply a check we didn't run.
+    is_honeypot = False
     if info["chain"] == "solana":
         try:
             is_safe, warnings = await token_analyzer.quick_check(address)
+            is_honeypot = any("honeypot" in w.lower() for w in (warnings or []))
             if is_safe and not warnings:
                 safety = "🛡️ Safety: no immediate red flags"
             elif warnings:
@@ -170,6 +171,21 @@ async def _render_token_card(
             safety = "🛡️ Safety: check unavailable"
     else:
         safety = "🛡️ Safety: limited on this chain — verify the contract yourself"
+
+    # Hard-block confirmed honeypots at discovery: no Buy button, and we do NOT
+    # stash the token so the pbuy_ path can't be used for it. This stops a
+    # forwarded-tweet/pasted honeypot before it ever reaches the swap confirm.
+    if is_honeypot:
+        await update.message.reply_text(
+            f"*{info['symbol']}* — {info.get('name', '')}\n"
+            f"{chain_emoji} {chain_label}  `{_short(address)}`\n\n"
+            f"🛑 *HONEYPOT DETECTED* — simulation shows this token *cannot be sold* "
+            f"after buying. Buying is blocked to protect your funds.",
+            parse_mode="Markdown",
+        )
+        return
+
+    context.user_data["paste_token"] = info
 
     text = (
         f"*{info['symbol']}* — {info.get('name', '')}\n"
