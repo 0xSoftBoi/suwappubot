@@ -16,7 +16,6 @@ by staking, p2p, predictions, and morpho tables.
 from datetime import datetime
 
 from sqlalchemy import Column, DateTime, Index, Integer, Numeric, String
-from sqlalchemy.orm import relationship
 
 from database.db import Base
 

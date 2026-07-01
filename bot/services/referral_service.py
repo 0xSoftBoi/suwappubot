@@ -46,9 +46,8 @@ from typing import Optional, List, Tuple, Dict
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import func, text
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 
 from bot.models.user import User
 from bot.models.referral import (
@@ -59,7 +58,7 @@ from bot.models.referral import (
     ReferralEarning,
     ReferralMilestone,
 )
-from bot.services.fee_service import REFERRAL_REWARD_DECIMAL, fee_service
+from bot.services.fee_service import REFERRAL_REWARD_DECIMAL
 from database.db import get_session
 
 logger = logging.getLogger(__name__)

@@ -31,7 +31,6 @@ from sqlalchemy.exc import IntegrityError
 from bot.models.community import AirdropCampaign, AirdropClaim
 from bot.models.custodial import TransactionType
 from bot.models.user import User
-from bot.services.hot_wallet import hot_wallet_service
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
