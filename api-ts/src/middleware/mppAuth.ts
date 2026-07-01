@@ -5,6 +5,8 @@ import type { Env } from '../config/EnvService'
 import { EnvService } from '../config/EnvService'
 import { runEffectEither } from '../runtime'
 import { TTLCache } from '../lib/cache'
+import { requireDb } from '../db'
+import { consumePayment } from '../lib/paymentConsumption'
 
 interface PaymentChallenge {
 	price: string
@@ -137,7 +139,35 @@ async function verifyPayment(c: Context, next: Next, proofHeader: string, env: E
 		return c.json({ error: `Payment verification error: ${e.message}` }, 500)
 	}
 
-	// Payment verified — consume the challenge and proceed
+	// SECURITY (replay): a stateless verifier lets an attacker reuse ONE valid tx
+	// across N fresh 402 challenges (each challenge_id is distinct, so the
+	// per-challenge cache below does NOT stop it). Atomically consume the payment
+	// in the SHARED (chain, txHash) ledger — the same global guard the topup /
+	// subscribe / webapp-crypto paths use — so a given on-chain payment buys
+	// exactly one paid request. Fail closed if the DB is unavailable.
+	const consumeChain = proof.chain || challenge.chain
+	const dbResult = await runEffectEither(requireDb)
+	if (Either.isLeft(dbResult)) {
+		return c.json({ error: 'Payment ledger unavailable' }, 503)
+	}
+	let consumed: boolean
+	try {
+		consumed = await consumePayment(dbResult.right as any, {
+			chain: consumeChain,
+			txHash: proof.tx_hash,
+			purpose: 'mpp_swap',
+		})
+	} catch (e: any) {
+		return c.json({ error: `Payment ledger error: ${e.message}` }, 500)
+	}
+	if (!consumed) {
+		return c.json(
+			{ error: 'This payment has already been used. Each payment is valid for one request.' },
+			402,
+		)
+	}
+
+	// Payment verified & consumed — drop the challenge and proceed
 	challengeCache.delete(proof.challenge_id)
 	await next()
 }

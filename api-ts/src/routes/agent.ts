@@ -10,6 +10,7 @@ import type { Agent } from '../db'
 import { agents, agentCredits, agentCreditTopups, agentSubscriptions, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
 import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
 import { type SpendPermission, validateSpendPermission } from '../lib/spendPermission'
+import { assertSenderBound, consumePayment } from '../lib/paymentConsumption'
 import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { agentBearerAuth, agentBearerAuthAllowInactive } from '../middleware'
@@ -2485,7 +2486,7 @@ agentRoutes.post('/billing/topup', async (c) => {
 			const internalUrl = env.INTERNAL_API_URL
 			const internalKey = env.INTERNAL_API_KEY
 
-			yield* Effect.tryPromise({
+			const verification = yield* Effect.tryPromise({
 				try: async () => {
 					const res = await fetch(`${internalUrl}/internal/x402/verify`, {
 						method: 'POST',
@@ -2503,24 +2504,56 @@ agentRoutes.post('/billing/topup', async (c) => {
 						const errText = await res.text().catch(() => res.statusText)
 						throw new Error(`Payment verification failed: ${errText}`)
 					}
-					const verification = (await res.json()) as { verified?: boolean; error?: string }
-					if (!verification.verified) {
-						throw new Error(verification.error || 'Payment not verified on-chain')
+					const v = (await res.json()) as {
+						verified?: boolean
+						error?: string
+						sender?: string | null
 					}
-					return verification
+					if (!v.verified) {
+						throw new Error(v.error || 'Payment not verified on-chain')
+					}
+					return v
 				},
 				catch: (e) =>
 					new ValidationError({ message: e instanceof Error ? e.message : String(e) }),
 			})
 
-			// 3) Credit atomically + idempotently inside a transaction.
-			//    Insert the ledger row with ON CONFLICT DO NOTHING — if a concurrent request
-			//    already inserted this txHash, we credit nothing (no double-credit).
+			// 2b) Sender-spoof defense: the on-chain payer MUST be this agent's own
+			//     managed wallet. Otherwise an agent could credit itself with another
+			//     user's inbound payment txHash.
+			if (!assertSenderBound(verification.sender, [getAgentWalletAddress(agent)])) {
+				return yield* Effect.fail(
+					new ValidationError({
+						message:
+							'Payment sender does not match your managed wallet (sender-spoof rejected).',
+					}),
+				)
+			}
+
+			// 3) Credit atomically + idempotently inside a transaction. Consume the
+			//    payment in the SHARED (chain, txHash) ledger FIRST — this is the global
+			//    replay / cross-table double-redeem guard. If it's already consumed
+			//    (any path) or a concurrent request wins the race, we credit nothing.
 			const creditsAdded = amount / CREDIT_USD_VALUE
 
 			const txResult = yield* Effect.tryPromise({
 				try: () =>
 					db.transaction(async (tx) => {
+						const consumed = await consumePayment(tx, {
+							chain,
+							txHash,
+							purpose: 'agent_topup',
+							consumedBy: String(agent.id),
+						})
+						if (!consumed) {
+							const balRows = await tx
+								.select()
+								.from(agentCredits)
+								.where(eq(agentCredits.agentId, agent.id))
+								.limit(1)
+							return { credited: false, balance: balRows[0]?.balance ?? 0 }
+						}
+
 						const inserted = await tx
 							.insert(agentCreditTopups)
 							.values({ agentId: agent.id, txHash, chain, amountUsd: amount, creditsAdded })
@@ -2658,7 +2691,7 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 			const internalUrl = env.INTERNAL_API_URL
 			const internalKey = env.INTERNAL_API_KEY
 
-			yield* Effect.tryPromise({
+			const verification = yield* Effect.tryPromise({
 				try: async () => {
 					const res = await fetch(`${internalUrl}/internal/x402/verify`, {
 						method: 'POST',
@@ -2676,14 +2709,28 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 						const errText = await res.text().catch(() => res.statusText)
 						throw new Error(`Payment verification failed: ${errText}`)
 					}
-					const verification = (await res.json()) as { verified?: boolean; error?: string }
-					if (!verification.verified) {
-						throw new Error(verification.error || 'Payment not verified on-chain')
+					const v = (await res.json()) as {
+						verified?: boolean
+						error?: string
+						sender?: string | null
 					}
-					return verification
+					if (!v.verified) {
+						throw new Error(v.error || 'Payment not verified on-chain')
+					}
+					return v
 				},
 				catch: (e) => new ValidationError({ message: e instanceof Error ? e.message : String(e) }),
 			})
+
+			// 2b) Sender-spoof defense: on-chain payer must be this agent's managed wallet.
+			if (!assertSenderBound(verification.sender, [getAgentWalletAddress(agent)])) {
+				return yield* Effect.fail(
+					new ValidationError({
+						message:
+							'Payment sender does not match your managed wallet (sender-spoof rejected).',
+					}),
+				)
+			}
 
 			// 3) Grant atomically + idempotently. The ledger row's UNIQUE txHash is the
 			//    idempotency guard; we also denormalize the active window onto the agent
@@ -2710,6 +2757,21 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 			const txResult = yield* Effect.tryPromise({
 				try: () =>
 					db.transaction(async (tx) => {
+						// Consume the payment in the SHARED (chain, txHash) ledger FIRST —
+						// global replay / cross-table double-redeem guard. Note the
+						// agent_subscriptions row is keyed by agentId (upserted on renew),
+						// so its own txHash uniqueness does NOT stop the same payment being
+						// reused for a topup or a webapp sub; this ledger does.
+						const consumed = await consumePayment(tx, {
+							chain,
+							txHash,
+							purpose: 'agent_subscribe',
+							consumedBy: String(agent.id),
+						})
+						if (!consumed) {
+							return { granted: false as const }
+						}
+
 						const inserted = await tx
 							.insert(agentSubscriptions)
 							.values({ agentId: agent.id, tier, txHash, chain, amountUsd: amount, startedAt: now, expiresAt })

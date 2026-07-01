@@ -413,14 +413,22 @@ class X402Service:
         expected_recipient: str,
         expected_amount: float,
         token_address: Optional[str] = None,
-    ) -> tuple[bool, str]:
-        """Synchronous on-chain verification (runs in thread pool)."""
+    ) -> tuple[bool, str, Optional[str]]:
+        """Synchronous on-chain verification (runs in thread pool).
+
+        Returns (verified, message, sender) where ``sender`` is the on-chain
+        payer (the tx ``from`` for native transfers, or the Transfer event's
+        ``from`` for ERC20). SECURITY: callers MUST assert this sender is a wallet
+        bound to the authenticated principal (sender-spoof defense) — a stateless
+        recipient/amount check alone lets anyone redeem another user's inbound
+        payment txHash.
+        """
         try:
             from bot.config.chains import get_chain_by_name
 
             chain_config = get_chain_by_name(chain)
             if not chain_config:
-                return False, f"Unsupported chain: {chain}"
+                return False, f"Unsupported chain: {chain}", None
 
             from bot.services.rpc_manager import rpc_manager
 
@@ -431,11 +439,11 @@ class X402Service:
                 receipt = web3.eth.get_transaction_receipt(tx_hash)
             except Exception as e:
                 logger.error(f"Failed to fetch transaction receipt: {e}")
-                return False, f"Transaction not found: {tx_hash}"
+                return False, f"Transaction not found: {tx_hash}", None
 
             # Check transaction succeeded
             if receipt.get("status") != 1:
-                return False, "Transaction failed on-chain"
+                return False, "Transaction failed on-chain", None
 
             # Normalize addresses
             expected_recipient = Web3.to_checksum_address(expected_recipient)
@@ -445,13 +453,16 @@ class X402Service:
                 tx = web3.eth.get_transaction(tx_hash)
 
                 if not tx.get("to"):
-                    return False, "Missing recipient address"
+                    return False, "Missing recipient address", None
+
+                sender = Web3.to_checksum_address(tx["from"]) if tx.get("from") else None
 
                 actual_recipient = Web3.to_checksum_address(tx["to"])
                 if actual_recipient != expected_recipient:
                     return (
                         False,
                         f"Recipient mismatch: expected {expected_recipient}, got {actual_recipient}",
+                        sender,
                     )
 
                 actual_amount = Decimal(tx["value"]) / Decimal(10**18)
@@ -459,9 +470,13 @@ class X402Service:
                 min_amount = expected_decimal * Decimal("0.99")
 
                 if actual_amount < min_amount:
-                    return False, f"Amount too low: expected {expected_amount}, got {actual_amount}"
+                    return (
+                        False,
+                        f"Amount too low: expected {expected_amount}, got {actual_amount}",
+                        sender,
+                    )
 
-                return True, "Native token transfer verified"
+                return True, "Native token transfer verified", sender
 
             # Verify ERC20 token transfer
             else:
@@ -481,6 +496,8 @@ class X402Service:
                     if len(topics) < 3:
                         continue
 
+                    # topics[1] = Transfer `from` (the payer), topics[2] = `to`.
+                    from_address = Web3.to_checksum_address("0x" + topics[1].hex()[-40:])
                     to_address = Web3.to_checksum_address("0x" + topics[2].hex()[-40:])
 
                     if to_address != expected_recipient:
@@ -511,15 +528,16 @@ class X402Service:
                         return (
                             False,
                             f"Amount too low: expected {expected_amount}, got {actual_amount}",
+                            from_address,
                         )
 
-                    return True, "ERC20 transfer verified"
+                    return True, "ERC20 transfer verified", from_address
 
-                return False, f"No matching Transfer event found for token {token_address}"
+                return False, f"No matching Transfer event found for token {token_address}", None
 
         except Exception as e:
             logger.error(f"On-chain verification error: {e}")
-            return False, f"Verification failed: {str(e)}"
+            return False, f"Verification failed: {str(e)}", None
 
     async def _verify_transaction_on_chain(
         self,
@@ -528,8 +546,11 @@ class X402Service:
         expected_recipient: str,
         expected_amount: float,
         token_address: Optional[str] = None,
-    ) -> tuple[bool, str]:
-        """Verify a transaction on-chain without blocking the event loop."""
+    ) -> tuple[bool, str, Optional[str]]:
+        """Verify a transaction on-chain without blocking the event loop.
+
+        Returns (verified, message, sender) — see the sync variant.
+        """
         import asyncio
 
         return await asyncio.to_thread(
@@ -561,7 +582,7 @@ class X402Service:
             # Verify transaction on-chain
             try:
                 # Verify the transaction matches payment parameters
-                success, message = await self._verify_transaction_on_chain(
+                success, message, _sender = await self._verify_transaction_on_chain(
                     tx_hash=tx_hash,
                     chain=payment.chain,
                     expected_recipient=self.payment_recipient,

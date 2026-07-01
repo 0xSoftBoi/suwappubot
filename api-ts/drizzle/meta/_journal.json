@@ -43,6 +43,13 @@
       "when": 1782744042018,
       "tag": "0005_deep_thor_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782934378592,
+      "tag": "0006_furry_edwin_jarvis",
+      "breakpoints": true
     }
   ]
 }
