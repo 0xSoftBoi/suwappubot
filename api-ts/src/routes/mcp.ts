@@ -19,6 +19,7 @@ import { PerpsQuoteSchema } from './validators'
 import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
 import { agentBearerAuth } from '../middleware'
+import { checkEvmWalletOwnership } from './agent'
 import { chargeAgentForCall, costForTool, setX402Headers } from '../middleware/x402Payment'
 import { EnvService } from '../config/EnvService'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
@@ -500,8 +501,15 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
 }
 
-async function handleGetPortfolio(args: Record<string, unknown>) {
+export async function handleGetPortfolio(args: Record<string, unknown>, agent: Agent) {
 	const { wallet_address, chain } = args as { wallet_address: string; chain?: string }
+
+	// Ownership gate: mirror the REST route (GET /v1/agent/portfolio) so the MCP
+	// surface can't be used to read arbitrary wallet balances / enumerate wallets (H9).
+	if (!checkEvmWalletOwnership(agent, wallet_address)) {
+		return { isError: true, content: [{ type: 'text', text: 'wallet_address is not your managed wallet' }] }
+	}
+
 	const isSolana = chain ? isSolanaChain(chain) : (!wallet_address.startsWith('0x') && wallet_address.length >= 32 && wallet_address.length <= 44)
 
 	const result = await runEffectEither(
@@ -637,9 +645,15 @@ async function handlePerpsQuote(args: Record<string, unknown>) {
 	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
 }
 
-async function handlePerpsPositions(args: Record<string, unknown>) {
+export async function handlePerpsPositions(args: Record<string, unknown>, agent: Agent) {
 	const address = args.address as string | undefined
 	if (!address) return { isError: true, content: [{ type: 'text', text: 'address is required' }] }
+
+	// Ownership gate: same control as the portfolio surface — only the agent's own
+	// managed wallet may be inspected, otherwise this discloses positions for any address.
+	if (!checkEvmWalletOwnership(agent, address)) {
+		return { isError: true, content: [{ type: 'text', text: 'address is not your managed wallet' }] }
+	}
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -907,7 +921,7 @@ mcpRoutes.post('/', async (c) => {
 					result = await handleGetQuote(args || {}, agent)
 					break
 				case 'get_portfolio':
-					result = await handleGetPortfolio(args || {})
+					result = await handleGetPortfolio(args || {}, agent)
 					break
 				case 'get_prices':
 					result = await handleGetPrices(args || {})
@@ -942,7 +956,7 @@ mcpRoutes.post('/', async (c) => {
 					result = await handlePerpsQuote(args || {})
 					break
 				case 'perps_positions':
-					result = await handlePerpsPositions(args || {})
+					result = await handlePerpsPositions(args || {}, agent)
 					break
 				case 'lend_markets':
 					result = await handleLendMarkets(args || {})
