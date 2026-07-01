@@ -1,3 +1,5 @@
+import { isIP } from 'node:net'
+import { lookup } from 'node:dns/promises'
 import { z } from 'zod'
 
 // ---------------------------------------------------------------------------
@@ -7,27 +9,148 @@ import { z } from 'zod'
 /** Maximum swap amount in token units (prevents accidental whole-portfolio swaps). */
 const MAX_SWAP_AMOUNT = 1_000_000
 
+/** Hostnames that resolve to cloud-metadata / internal endpoints. */
+const BLOCKED_HOSTNAMES = new Set([
+	'localhost',
+	'metadata.google.internal',
+	'instance-data.ec2.internal',
+])
+
 /**
- * Rejects cloud-metadata endpoints, private IP ranges, and other SSRF targets.
- * Used on any user-supplied callback URL before it is stored or fetched.
+ * Classify a raw IPv4 dotted-quad string as private / loopback / link-local /
+ * unspecified / CGNAT / multicast / reserved. Malformed input is treated as
+ * unsafe (returns true) so callers fail closed.
+ */
+function isPrivateIpv4(ip: string): boolean {
+	const parts = ip.split('.')
+	if (parts.length !== 4) return true
+	const octets = parts.map((p) => Number(p))
+	if (octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true
+	const [a, b] = octets
+	if (a === 0) return true // 0.0.0.0/8 "this host" / unspecified
+	if (a === 127) return true // 127.0.0.0/8 loopback
+	if (a === 10) return true // 10.0.0.0/8
+	if (a === 172 && b >= 16 && b <= 31) return true // 172.16.0.0/12
+	if (a === 192 && b === 168) return true // 192.168.0.0/16
+	if (a === 169 && b === 254) return true // 169.254.0.0/16 link-local (incl. IMDS)
+	if (a === 100 && b >= 64 && b <= 127) return true // 100.64.0.0/10 CGNAT
+	if (a >= 224) return true // 224.0.0.0/4 multicast + 240.0.0.0/4 reserved
+	return false
+}
+
+/**
+ * Classify a raw IPv6 string as loopback / unspecified / ULA (fc00::/7) /
+ * link-local (fe80::/10) / multicast, including IPv4-mapped forms
+ * (::ffff:127.0.0.1 and ::ffff:7f00:0001). Fails closed on malformed input.
+ */
+function isPrivateIpv6(ip: string): boolean {
+	const addr = ip.toLowerCase().split('%')[0] // strip zone id
+	if (addr === '::1' || addr === '::') return true // loopback / unspecified
+	// IPv4-mapped, dotted form: ::ffff:127.0.0.1
+	const mappedDotted = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/)
+	if (mappedDotted) return isPrivateIpv4(mappedDotted[1])
+	// IPv4-mapped, hex form: ::ffff:7f00:0001
+	const mappedHex = addr.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
+	if (mappedHex) {
+		const hi = parseInt(mappedHex[1], 16)
+		const lo = parseInt(mappedHex[2], 16)
+		const v4 = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
+		return isPrivateIpv4(v4)
+	}
+	// Prefix checks on the first hextet.
+	const firstHextet = addr.split(':')[0]
+	if (firstHextet !== '') {
+		const first = parseInt(firstHextet, 16)
+		if (!Number.isNaN(first)) {
+			const highByte = first >> 8
+			if (highByte === 0xfc || highByte === 0xfd) return true // ULA fc00::/7
+			if (first >= 0xfe80 && first <= 0xfebf) return true // link-local fe80::/10
+			if (highByte === 0xff) return true // multicast ff00::/8
+		}
+	}
+	return false
+}
+
+/**
+ * True if the given IP literal (v4 or v6) points at a private, loopback,
+ * link-local, or otherwise internal address. Non-IP input returns false
+ * (it is not an IP literal — DNS names are handled separately).
+ */
+export function isPrivateIp(ip: string): boolean {
+	const v = isIP(ip)
+	if (v === 4) return isPrivateIpv4(ip)
+	if (v === 6) return isPrivateIpv6(ip)
+	return false
+}
+
+/**
+ * Synchronous SSRF guard for a user-supplied URL. Rejects:
+ *  - non-http(s) schemes
+ *  - literal private / loopback / link-local / metadata IPs (v4 & v6)
+ *  - numeric host encodings (decimal 2130706433, octal, hex 0x7f000001)
+ *  - explicitly blocked hostnames (localhost, cloud-metadata names)
+ * DNS names that pass are allowed here and re-checked against their resolved
+ * addresses before any fetch (see assertUrlSafeForFetch) to defeat rebinding.
  */
 function isPublicUrl(url: string): boolean {
+	let parsed: URL
 	try {
-		const { hostname } = new URL(url)
-		const h = hostname.toLowerCase()
-		// Cloud metadata services
-		if (h === '169.254.169.254') return false // AWS/GCP/Azure IMDS
-		if (h === 'metadata.google.internal') return false
-		if (h === 'instance-data.ec2.internal') return false
-		// Private / loopback ranges
-		if (/^(localhost|0\.0\.0\.0|::1)$/.test(h)) return false
-		if (/^127\./.test(h)) return false
-		if (/^10\./.test(h)) return false
-		if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return false
-		if (/^192\.168\./.test(h)) return false
-		return true
+		parsed = new URL(url)
 	} catch {
 		return false
+	}
+	// (1) Only http(s) — blocks file:, gopher:, ftp:, data:, etc.
+	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+
+	let host = parsed.hostname.toLowerCase()
+	// Strip IPv6 literal brackets: [::1] -> ::1
+	if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1)
+
+	// (2) Explicit hostname blocklist
+	if (BLOCKED_HOSTNAMES.has(host) || host.endsWith('.localhost')) return false
+
+	// (3) IP literal → classify directly
+	const ipVer = isIP(host)
+	if (ipVer !== 0) return !isPrivateIp(host)
+
+	// (4) Reject numeric host encodings that bypass dotted-quad checks:
+	//     decimal (2130706433), hex (0x7f000001), octal (0177.0.0.1), and
+	//     any host built only from digits/hex-octets/dots.
+	if (/^0x[0-9a-f]+$/.test(host)) return false // whole-host hex
+	if (/^\d+$/.test(host)) return false // whole-host decimal
+	if (/^0[0-7]+$/.test(host)) return false // whole-host octal
+	if (/(^|\.)0x[0-9a-f]+(\.|$)/.test(host)) return false // hex octet component
+	if (/(^|\.)0[0-7]+(\.|$)/.test(host)) return false // octal octet component
+	if (/^[0-9.]+$/.test(host)) return false // all-numeric dotted but not a valid IPv4
+
+	// Otherwise a DNS name — safe to store; resolved+re-checked before fetch.
+	return true
+}
+
+/**
+ * Async SSRF guard used immediately before fetching a stored callback URL.
+ * Re-runs the synchronous checks, then resolves the hostname (A + AAAA) and
+ * rejects if ANY resolved address is private/internal. Resolving right before
+ * the fetch closes the DNS-rebinding window left by store-time validation.
+ *
+ * Throws an Error (message suitable for the caller's error shape) when unsafe.
+ */
+export async function assertUrlSafeForFetch(url: string): Promise<void> {
+	if (!isPublicUrl(url)) {
+		throw new Error('callback_url must not point to a private or metadata endpoint')
+	}
+	const host = new URL(url).hostname.replace(/^\[|\]$/g, '')
+	// IP literals were already fully validated by isPublicUrl.
+	if (isIP(host) !== 0) return
+
+	let addresses: { address: string }[]
+	try {
+		addresses = await lookup(host, { all: true })
+	} catch {
+		throw new Error('callback_url host could not be resolved')
+	}
+	if (addresses.length === 0 || addresses.some((a) => isPrivateIp(a.address))) {
+		throw new Error('callback_url resolves to a private or metadata endpoint')
 	}
 }
 

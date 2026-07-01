@@ -39,6 +39,7 @@ import {
 	TurnkeyService,
 } from '../services'
 import {
+	assertUrlSafeForFetch,
 	CreatePolicySchema,
 	ExecuteCommandSchema,
 	ExecuteSwapSchema,
@@ -2223,6 +2224,22 @@ agentRoutes.post('/webhooks/test', async (c) => {
 	const deliveryId = crypto.randomUUID()
 	const timestamp = Math.floor(Date.now() / 1000).toString()
 	const signature = crypto.createHmac('sha256', signingKey).update(jsonBody).digest('hex')
+
+	// Re-validate + resolve the stored callback URL right before fetching to
+	// defeat DNS-rebinding (a name that passed store-time validation may now
+	// resolve to a private/metadata address). Fails closed on any internal IP.
+	try {
+		await assertUrlSafeForFetch(agent.callbackUrl)
+	} catch (err) {
+		return c.json(
+			{
+				success: false,
+				callback_url: agent.callbackUrl,
+				error: err instanceof Error ? err.message : 'callback_url is not allowed',
+			},
+			400,
+		)
+	}
 
 	const startTime = Date.now()
 	try {
