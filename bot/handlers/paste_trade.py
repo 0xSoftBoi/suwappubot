@@ -207,15 +207,18 @@ async def on_freeform_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     # Bounded to the first 80 tokens; only tokens long enough to be an address
     # are probed, which keeps this cheap and avoids false positives on prose.
     for raw in words[1:80]:
-        cand = re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", raw)
-        if ":" in cand:  # handle "CA:<addr>" style prefixes
-            cand = cand.rsplit(":", 1)[-1]
-        if len(cand) < 32:
-            continue
-        ok, fam = detect_address_chain(cand)
-        if ok:
-            await _render_token_card(update, context, cand, fam)
-            return
+        # Probe the token itself AND any URL/prefix segments, so an address that
+        # is embedded in a link (dexscreener.com/solana/<addr>, birdeye.so/token/
+        # <addr>, pump.fun/<addr>, solscan.io/token/<addr>) or behind a "CA:"
+        # prefix is still found. Segments are split on URL/prefix delimiters.
+        for seg in [raw, *re.split(r"[/:?#=&]+", raw)]:
+            cand = re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", seg)
+            if len(cand) < 32:
+                continue
+            ok, fam = detect_address_chain(cand)
+            if ok:
+                await _render_token_card(update, context, cand, fam)
+                return
 
     await _route_intent(update, context, text.lower())
 
