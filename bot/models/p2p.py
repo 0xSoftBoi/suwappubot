@@ -180,6 +180,14 @@ class P2PTrade(Base):
     # Dispute / arbitration
     dispute_reason = Column(Text, nullable=True)
     disputed_at = Column(DateTime, nullable=True)
+    # User (taker or maker) who opened the dispute.
+    disputed_by = Column(BigInteger, nullable=True)
+    # Arbiter resolution: 'release' (buyer wins → escrow to buyer) or 'refund'
+    # (seller wins → escrow to seller). Null until an admin resolves.
+    dispute_resolution = Column(String(16), nullable=True)
+    resolved_by = Column(BigInteger, nullable=True)  # admin who arbitrated
+    resolved_at = Column(DateTime, nullable=True)
+    resolution_note = Column(Text, nullable=True)
 
     error_message = Column(Text, nullable=True)
 
