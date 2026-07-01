@@ -111,15 +111,19 @@ async def history_command(
         if nav_buttons:
             keyboard.append(nav_buttons)
 
-        # Add Share button for the most recent completed swap (as a demo)
-        recent_completed = [s for s in swaps if s.status == SwapStatus.COMPLETED.value]
-        if recent_completed:
-            s = recent_completed[0]
+        # Share PnL buttons for the completed swaps on this page (up to 4), two
+        # per row. Each routes to the read-only pnl_share_ callback, which renders
+        # the branded card with the sharer's referral link + QR baked in. Capped
+        # at 4 to keep the keyboard compact; the newest completed swaps come first
+        # because `swaps` is already ordered created_at DESC.
+        recent_completed = [s for s in swaps if s.status == SwapStatus.COMPLETED.value][:4]
+        for i in range(0, len(recent_completed), 2):
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        f"🖼️ Share PNL ({s.to_token})", callback_data=f"pnl_share_{s.id}"
+                        f"🖼️ Share {s.to_token}", callback_data=f"pnl_share_{s.id}"
                     )
+                    for s in recent_completed[i : i + 2]
                 ]
             )
 
