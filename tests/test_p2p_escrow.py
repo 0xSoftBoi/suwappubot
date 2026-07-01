@@ -19,6 +19,13 @@ from bot.services.p2p_service import (
 )
 from bot.models.p2p import P2PSource, P2POfferType, P2PTradeStatus
 
+
+@pytest.fixture(autouse=True)
+def _escrow_allow_all_chains(monkeypatch):
+    """Neutralize the chain allowlist for escrow-mechanics tests (they use 'base')."""
+    monkeypatch.setattr(P2PEscrow, "_allowed_chains", staticmethod(lambda: set()))
+
+
 # ── P2PEscrow seam ───────────────────────────────────────────────────────────
 
 
@@ -455,3 +462,29 @@ async def test_lock_escrows_maker_wallet_on_sell_offer(tmp_db):
     )
     with pytest.raises(P2PError):
         await svc.lock_escrow(trade_id=trade2.id, seller_wallet_id=999)
+
+
+async def test_escrow_chain_allowlist_blocks_disallowed_chain(monkeypatch):
+    """With a testnet-only allowlist, escrow refuses to settle on mainnet."""
+    from bot.services.p2p_service import P2PError
+
+    monkeypatch.setattr(P2PEscrow, "_allowed_chains", staticmethod(lambda: {"base-sepolia"}))
+    escrow = P2PEscrow()
+    calls = []
+
+    async def fake_executor(action, **kw):
+        calls.append(kw.get("chain"))
+        return "0x"
+
+    escrow.set_executor(fake_executor)
+
+    # Mainnet 'base' is not in the allowlist → rejected before any on-chain call.
+    with pytest.raises(P2PError):
+        await escrow.lock(seller_wallet_id=1, amount="10", chain="base")
+    with pytest.raises(P2PError):
+        await escrow.release(buyer_address="0x" + "ab" * 20, amount="10", chain="base")
+    assert calls == []
+
+    # base-sepolia is allowed → proceeds.
+    assert await escrow.lock(seller_wallet_id=1, amount="10", chain="base-sepolia") == "0x"
+    assert calls == ["base-sepolia"]
