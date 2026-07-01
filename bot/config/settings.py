@@ -10,6 +10,10 @@ class Settings(BaseSettings):
 
     # Telegram
     telegram_bot_token: str = Field(..., description="Telegram bot token from BotFather")
+    telegram_bot_username: str = Field(
+        default="suwappubot",
+        description="Telegram bot @username (without @), used for referral deep-links",
+    )
     use_webhook: bool = Field(
         default=False,
         description="Use webhooks instead of polling (required for multiple replicas)",
@@ -809,6 +813,12 @@ class Settings(BaseSettings):
     # Telegram Mini App
     webapp_url: str = Field(
         default="https://app.suwappu.bot", description="URL for the Telegram Mini App dashboard"
+    )
+
+    # Terminal (non-custodial trading web app, served on its own subdomain)
+    terminal_url: str = Field(
+        default="https://terminal.suwappu.bot",
+        description="Base URL for the Suwappu terminal web app (client-side signing surface)",
     )
 
     # Agent Interoperability
