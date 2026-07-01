@@ -6,7 +6,7 @@
 #
 aiohappyeyeballs==2.6.1
     # via aiohttp
-aiohttp==3.13.5
+aiohttp==3.14.1
     # via
     #   -r requirements.in
     #   discord-py
@@ -25,6 +25,7 @@ annotated-types==0.7.0
 anyio==4.12.1
     # via
     #   httpx
+    #   httpx2
     #   starlette
     #   watchfiles
 asgiref==3.11.1
@@ -61,7 +62,7 @@ construct-typing==0.7.0
     # via solana
 crypto-cpp-py==2.0.0
     # via starknet-py
-cryptography==48.0.0
+cryptography==48.0.1
     # via -r requirements.in
 cytoolz==1.1.0
     # via eth-utils
@@ -121,7 +122,7 @@ eth-utils==5.3.1
     #   pytempo
     #   rlp
     #   web3
-fastapi==0.128.8
+fastapi==0.138.2
     # via -r requirements.in
 frozenlist==1.8.0
     # via
@@ -132,6 +133,7 @@ greenlet==3.5.3
 h11==0.16.0
     # via
     #   httpcore
+    #   httpcore2
     #   uvicorn
 h2==4.3.0
     # via httpx
@@ -144,6 +146,8 @@ hpack==4.2.0
     # via h2
 httpcore==1.0.9
     # via httpx
+httpcore2==2.3.0
+    # via httpx2
 httptools==0.8.0
     # via uvicorn
 httpx[http2]==0.28.1
@@ -153,6 +157,8 @@ httpx[http2]==0.28.1
     #   python-telegram-bot
     #   solana
     #   tronpy
+httpx2==2.3.0
+    # via -r requirements.in
 hyperframe==6.1.0
     # via h2
 hyperliquid-python-sdk==0.23.0
@@ -161,6 +167,7 @@ idna==3.17
     # via
     #   anyio
     #   httpx
+    #   httpx2
     #   requests
     #   yarl
 iniconfig==2.3.0
@@ -180,7 +187,7 @@ marshmallow-oneofschema==3.2.0
     # via starknet-py
 mpmath==1.3.0
     # via sympy
-msgpack==1.1.2
+msgpack==1.2.1
     # via
     #   -r requirements.in
     #   hyperliquid-python-sdk
@@ -297,7 +304,7 @@ sqlalchemy==2.0.50
     # via -r requirements.in
 starknet-py==0.30.0 ; python_version >= "3.10"
     # via -r requirements.in
-starlette==0.49.3
+starlette==1.3.1
     # via fastapi
 sympy==1.14.0
     # via crypto-cpp-py
@@ -305,12 +312,17 @@ toolz==1.1.0
     # via cytoolz
 tronpy==0.6.2
     # via -r requirements.in
+truststore==0.10.4
+    # via
+    #   httpcore2
+    #   httpx2
 typeguard==4.5.2
     # via marshmallow-dataclass
 types-requests==2.33.0.20260518
     # via web3
 typing-extensions==4.15.0
     # via
+    #   aiohttp
     #   aiosignal
     #   anyio
     #   construct-typing
@@ -334,8 +346,9 @@ typing-inspection==0.4.2
     #   fastapi
     #   pydantic
     #   pydantic-settings
-urllib3==2.6.3
+urllib3==2.7.0
     # via
+    #   -r requirements.in
     #   requests
     #   types-requests
 uvicorn[standard]==0.49.0

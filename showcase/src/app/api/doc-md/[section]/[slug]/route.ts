@@ -17,9 +17,10 @@ const INDEX_POINTER =
   '> Suwappu API documentation. The complete machine-readable index is at ' +
   'https://suwappu.bot/llms.txt — and the full corpus at https://suwappu.bot/llms-full.txt\n\n';
 
-export function GET(_req: Request, { params }: { params: Params }) {
-  const section = docsData.sections.find((s) => s.id === params.section);
-  const page = section?.pages.find((p) => p.slug === params.slug);
+export async function GET(_req: Request, { params }: { params: Promise<Params> }) {
+  const { section: sectionId, slug } = await params;
+  const section = docsData.sections.find((s) => s.id === sectionId);
+  const page = section?.pages.find((p) => p.slug === slug);
 
   if (!section || !page) {
     return new Response('Not found\n', {
