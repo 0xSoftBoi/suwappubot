@@ -1054,6 +1054,29 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
             [InlineKeyboardButton("« Back to Wallets", callback_data="swap_back_to_wallets")],
         ]
 
+        # HARD BLOCK: a confirmed honeypot (simulation shows the token cannot be
+        # sold after buying) is never a legitimate trade. Unlike the HIGH/CRITICAL
+        # warn-and-confirm gate below, there is NO "swap anyway" override here —
+        # allowing it would only enable a guaranteed total loss. `is_honeypot` is
+        # only True on a positive detection (verification errors leave it False),
+        # so this does not block on a merely-uncertain result.
+        if _security_report is not None and getattr(_security_report, "is_honeypot", False):
+            blocked_text = (
+                "🛑 *SWAP BLOCKED — HONEYPOT DETECTED*\n\n"
+                f"{token_analyzer.get_safety_summary(_security_report)}\n\n"
+                "Simulation shows this token *cannot be sold* after buying — a "
+                "confirmed honeypot. Suwappu has blocked this trade to protect "
+                "your funds."
+            )
+            await query.edit_message_text(
+                blocked_text,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")]]
+                ),
+            )
+            return CONFIRM_SWAP
+
         # HIGH/CRITICAL risk gate: intercept before showing the confirm screen.
         # Store the prepared quote message so the "swap anyway" handler can display
         # it without rebuilding, then replace the current message with a risk warning.
