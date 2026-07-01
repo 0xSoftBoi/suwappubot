@@ -34,6 +34,7 @@ urllib3>=2.7.0
 
 # ---- LLM (natural-language trade intent parsing, NL_TRADING_ENABLED) ----
 anthropic
+openai==1.54.4
 
 # ---- Database ----
 SQLAlchemy==2.0.50
