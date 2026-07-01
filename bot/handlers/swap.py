@@ -1670,6 +1670,15 @@ async def check_swap_status(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 [InlineKeyboardButton("🔄 Refresh Status", callback_data=f"swap_status_{swap_id}")]
             )
 
+        # Surface the shareable PnL card at the natural moment — right after a
+        # swap completes — instead of only behind /hx. Routes to the existing
+        # read-only pnl_share_ callback (renders the branded card with the
+        # sharer's referral link/QR baked in). This is the organic-growth loop.
+        if swap_tx.status == SwapStatus.COMPLETED.value:
+            keyboard.append(
+                [InlineKeyboardButton("📤 Share PnL", callback_data=f"pnl_share_{swap_id}")]
+            )
+
         keyboard.append([InlineKeyboardButton("🔄 New Swap", callback_data="swap_start")])
         keyboard.append([InlineKeyboardButton("« Main Menu", callback_data="main_menu")])
 
