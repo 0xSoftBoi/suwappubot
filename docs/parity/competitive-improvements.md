@@ -20,19 +20,28 @@ growth-loop and discovery additions on top of what already exists.
 
 ### Tier 1 — quick wins (build on existing systems)
 1. **Shareable PnL image cards** — the standard organic-growth loop (Hyperliquid/Axiom/GMGN).
-   _Status: SHIPPED_ (`bot/utils/pnl_card_image.py` + `/hx` share flow, with the sharer's
-   referral link baked in). Follow-up: attach to positions once per-position entry/exit is
-   tracked (the `UserPosition` aggregate lacks clean entry/exit today).
+   _Status: SHIPPED + iterated_ (`bot/utils/pnl_card_image.py` + `/hx` share flow, with the
+   sharer's referral link baked in). Iterations: (a) a scannable **QR of the referral link**
+   is rendered on the card so a viewer can open the bot with the referral attached straight
+   from a screenshot; (b) a **📤 Share PnL** button now surfaces on the completed-swap status
+   view (`check_swap_status`) — the semantically correct home for a completed swap's realized
+   ROI, not the fresh post-buy message where ROI is ~0%. Follow-up: attach to positions once
+   per-position entry/exit is tracked (the `UserPosition` aggregate lacks clean entry/exit
+   today).
 2. **Visible leaderboard + streaks** — _Already exists_ (`/lb`, `daily_streak`/`longest_streak`,
    daily check-in). Optional: add a season/PnL leaderboard variant + Mini App tab.
 3. **Bundle / sniper-supply-% signal** — Axiom/Trojan/Not.Trade surface "% of supply held by
    snipers/bundlers" as a first-class pre-trade metric, distinct from honeypot/simulation.
    Suwappu has honeypot/rug/simulation but not this. _Effort: M (needs early-buyer on-chain
    analysis)._ [Techbullion anti-rug roundup](https://techbullion.com/best-telegram-bot-for-avoiding-scams-honeypot-detection-and-anti-rug-tech-across-5-platforms/)
-4. **Prominent honeypot hard-block** — today HIGH/CRITICAL tokens show a "🚨 I understand,
-   swap anyway" secondary confirm (`bot/handlers/swap.py:1060-1091`) but never hard-block.
-   Banana Gun's "Banana Simulator" hard-blocks on honeypot. _Effort: S — add a hard-block for
-   the highest-confidence case with an advanced-user override._
+4. **Prominent honeypot hard-block** — _Status: SHIPPED_. A confirmed honeypot
+   (`is_honeypot`, only True on a positive sell-simulation) is now hard-blocked with **no
+   override** — both at the swap confirm gate (`bot/handlers/swap.py`, before the
+   HIGH/CRITICAL warn-and-confirm) and at token discovery in paste/forward-a-tweet
+   (`bot/handlers/paste_trade.py._render_token_card` shows a blocked card with no Buy button
+   and does not stash the token). HIGH/CRITICAL still use the "🚨 swap anyway" secondary
+   confirm; only the guaranteed-total-loss honeypot case is hard-blocked. Matches Banana
+   Gun's "Banana Simulator".
 5. **Turbo vs Secure speed/cost toggle** — BONKbot ("MEV Turbo vs Secure"), Nova ("Ultra V2
    vs Demon"). Suwappu already has `mev_protection_enabled` + `tx_speed_preset` on
    `UserSettings` — package them as one simple binary and confirm `tx_speed_preset` is wired
@@ -40,9 +49,13 @@ growth-loop and discovery additions on top of what already exists.
 
 ### Tier 2 — discovery + retention engines
 6. **Twitter/X-to-trade monitor** — Axiom Tweet Monitor / Bloom Twitter-OCR let users execute
-   directly off a tweet feed; the single most-cited reason traders default to Axiom. Suwappu
-   has no social-signal service. _Free v1: user forwards a tweet → bot extracts the contract
-   address → one-tap buy (reuse `pbuy_` paste-trade entry). Upgrade to a real feed later._
+   directly off a tweet feed; the single most-cited reason traders default to Axiom.
+   _Status: free v1 SHIPPED + iterated_ — a user forwards a tweet / alpha message → the bot
+   scans the whole message (`bot/handlers/paste_trade.py.on_freeform_text`) for an embedded
+   contract address and shows the token card + one-tap Buy (reuse `pbuy_` paste-trade entry).
+   Iteration: addresses embedded in **links** (dexscreener/birdeye/pump.fun/solscan) or behind
+   a `CA:`/`$` prefix are now extracted by splitting each token on URL/prefix delimiters, so a
+   forwarded tweet with only a chart link still resolves. Upgrade to a real subscribed feed later._
    [Axiom Tweet Monitor](https://docs.axiom.trade/tweet-monitor) · [Bloom](https://coincodecap.com/bloom-solana-bot-detailed-review)
 7. **Unified "Pulse" discovery feed** — new / near-migration / just-migrated tokens with
    filters (age, liquidity, sniper-%, holder concentration). Suwappu has the detection
@@ -102,10 +115,12 @@ growth-loop and discovery additions on top of what already exists.
 ---
 
 ## Build status (branch `claude/growth-discovery-referral-v2`)
-- ✅ **Shipped:** PnL image share cards (#1).
+- ✅ **Shipped:** PnL image share cards + referral QR + share-on-completion (#1); honeypot
+  hard-block at confirm & discovery (#4); forward-a-tweet → one-tap buy with in-link CA
+  extraction (free v1 of #6).
 - ⏭️ **Already existed:** leaderboard + streaks (#2).
-- ⏳ **Not yet built (money-path, warrant a focused pass):** bundle signal (#3), honeypot
-  hard-block (#4), Turbo/Secure toggle (#5), Referral 2.0 (#8), discovery engines (#6/#7).
+- ⏳ **Not yet built (money-path, warrant a focused pass):** bundle signal (#3), Turbo/Secure
+  toggle (#5), Referral 2.0 (#8), unified Pulse discovery feed (#7).
 - 🔴 **Decision-gated:** smart-money data source (#10), speed benchmark+marketing (#12),
   TON Pay compliance (#13), "no god-mode" security audit (#11).
 
