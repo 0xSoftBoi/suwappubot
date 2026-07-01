@@ -25,7 +25,7 @@ export function UserHeader({ showSettings = true, onSettingsClick }: UserHeaderP
   const isPremium = telegramUser?.is_premium
 
   return (
-    <header className="bg-gradient-to-r from-suwappu-purple-deep to-suwappu-magenta-mid text-white">
+    <header className="bg-linear-to-r from-suwappu-purple-deep to-suwappu-magenta-mid text-white">
       <div className="px-4 py-4">
         <div className="flex items-center gap-3">
           {/* Avatar */}

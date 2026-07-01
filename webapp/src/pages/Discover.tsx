@@ -97,7 +97,7 @@ export default function Discover() {
                     className="w-full flex items-center gap-3 px-3 py-3 hover:bg-suwappu-sakura-light/30 transition-colors text-left"
                   >
                     {/* Token icon */}
-                    <div className="w-10 h-10 rounded-full bg-suwappu-sakura-light flex items-center justify-center text-sm font-bold text-suwappu-magenta-mid flex-shrink-0 overflow-hidden">
+                    <div className="w-10 h-10 rounded-full bg-suwappu-sakura-light flex items-center justify-center text-sm font-bold text-suwappu-magenta-mid shrink-0 overflow-hidden">
                       {token.icon ? (
                         <img src={token.icon} alt={token.symbol || ''} className="w-full h-full object-cover" />
                       ) : (
@@ -112,12 +112,12 @@ export default function Discover() {
                     </div>
 
                     {/* Mini chart */}
-                    <div className="flex-shrink-0">
+                    <div className="shrink-0">
                       <MiniChart data={generateSparkline(token)} />
                     </div>
 
                     {/* Price info */}
-                    <div className="text-right flex-shrink-0 ml-2">
+                    <div className="text-right shrink-0 ml-2">
                       <p className="font-heading font-semibold text-sm text-suwappu-text">
                         {formatPrice(token.price || 0)}
                       </p>

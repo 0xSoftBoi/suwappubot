@@ -253,7 +253,7 @@ function RouteVisualizationSection({ simulation }: { simulation: SimulationResul
             )}
 
             {/* Arrow */}
-            <svg className="w-4 h-4 text-suwappu-text-secondary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 text-suwappu-text-secondary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
 
@@ -266,7 +266,7 @@ function RouteVisualizationSection({ simulation }: { simulation: SimulationResul
             </span>
 
             {/* Arrow */}
-            <svg className="w-4 h-4 text-suwappu-text-secondary flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 text-suwappu-text-secondary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
 

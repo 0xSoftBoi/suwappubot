@@ -19,7 +19,7 @@ function Swatch({ name, color, dark }: { name: string; color: string; dark?: boo
   return (
     <div className="flex items-center gap-3">
       <div
-        className="w-12 h-12 rounded-suwappu-lg shadow-suwappu-2 flex-shrink-0 ring-1 ring-black/5"
+        className="w-12 h-12 rounded-suwappu-lg shadow-suwappu-2 shrink-0 ring-1 ring-black/5"
         style={{ backgroundColor: color }}
       />
       <div>
@@ -68,7 +68,7 @@ export const PriceImpactScale: Story = {
             { level: 'severe', pct: '> 5%', desc: 'Strongly recommend splitting', color: designTokens.colors.impact.severe },
           ].map((item) => (
             <div key={item.level} className="flex items-center gap-3 p-3 rounded-suwappu-lg bg-white shadow-suwappu-1">
-              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
+              <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
               <div className="flex-1">
                 <span className="font-heading font-semibold text-sm capitalize">{item.level}</span>
                 <span className="text-suwappu-text-secondary text-xs ml-2">{item.pct}</span>
@@ -185,7 +185,7 @@ export const ChainColors: Story = {
               className="w-14 h-14 rounded-full mx-auto shadow-suwappu-2 flex items-center justify-center ring-2 ring-white"
               style={{ backgroundColor: color }}
             >
-              <span className="text-white text-xs font-bold drop-shadow-sm">
+              <span className="text-white text-xs font-bold drop-shadow-xs">
                 {name.slice(0, 3).toUpperCase()}
               </span>
             </div>
@@ -285,7 +285,7 @@ export const ProviderColors: Story = {
             return (
               <div key={key} className="flex items-center gap-3 p-3 rounded-suwappu-lg bg-white shadow-suwappu-1">
                 <div
-                  className="w-10 h-10 rounded-suwappu-sm flex-shrink-0 flex items-center justify-center"
+                  className="w-10 h-10 rounded-suwappu-sm shrink-0 flex items-center justify-center"
                   style={{ backgroundColor: color }}
                 >
                   <span className="text-white text-[10px] font-bold">{key.slice(0, 3).toUpperCase()}</span>

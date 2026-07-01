@@ -38,7 +38,7 @@ export function Welcome() {
     return (
       <div className="min-h-screen bg-suwappu-bg flex items-center justify-center p-4">
         <div className="p-8 bg-white/70 backdrop-blur-md rounded-suwappu-xxxl shadow-suwappu-4 border border-suwappu-sakura-mid/30 max-w-sm text-center">
-          <div className="w-24 h-24 mx-auto mb-6 bg-gradient-to-br from-suwappu-sakura-light via-suwappu-rose to-suwappu-magenta-mid rounded-full flex items-center justify-center animate-pulse">
+          <div className="w-24 h-24 mx-auto mb-6 bg-linear-to-br from-suwappu-sakura-light via-suwappu-rose to-suwappu-magenta-mid rounded-full flex items-center justify-center animate-pulse">
             <FaceIdIcon className="w-14 h-14 text-white" />
           </div>
           <h3 className="font-heading text-xl font-bold text-suwappu-purple-deep mb-2">
@@ -56,7 +56,7 @@ export function Welcome() {
     return (
       <div className="min-h-screen bg-suwappu-bg flex items-center justify-center p-4">
         <div className="p-8 bg-white rounded-suwappu-xxxl shadow-suwappu-3 border border-suwappu-success/30 max-w-sm text-center">
-          <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-suwappu-success to-green-400 rounded-full flex items-center justify-center animate-suwappu-heart">
+          <div className="w-20 h-20 mx-auto mb-4 bg-linear-to-br from-suwappu-success to-green-400 rounded-full flex items-center justify-center animate-suwappu-heart">
             <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
             </svg>
@@ -86,7 +86,7 @@ export function Welcome() {
           </button>
 
           <div className="text-center mb-6">
-            <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-suwappu-purple to-suwappu-magenta-mid rounded-full flex items-center justify-center shadow-suwappu-glow">
+            <div className="w-20 h-20 mx-auto mb-4 bg-linear-to-br from-suwappu-purple to-suwappu-magenta-mid rounded-full flex items-center justify-center shadow-suwappu-glow">
               <BiometricIcon className="w-10 h-10 text-white" />
             </div>
             <h2 className="font-display text-2xl text-suwappu-magenta-mid mb-2">Create Secure Wallet</h2>
@@ -144,7 +144,7 @@ export function Welcome() {
             </svg>
           </button>
 
-          <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-suwappu-purple to-suwappu-magenta-mid rounded-suwappu-xxl flex items-center justify-center">
+          <div className="w-16 h-16 mx-auto mb-4 bg-linear-to-br from-suwappu-purple to-suwappu-magenta-mid rounded-suwappu-xxl flex items-center justify-center">
             <BiometricIcon className="w-8 h-8 text-white" />
           </div>
           <h3 className="font-heading text-xl font-bold text-suwappu-purple-deep mb-2">

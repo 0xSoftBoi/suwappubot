@@ -21,7 +21,7 @@ function ColorSwatch({ name, color }: ColorSwatchProps) {
   return (
     <div className="flex items-center gap-4 mb-3">
       <div
-        className="w-16 h-16 rounded-suwappu-lg shadow-suwappu-2 flex-shrink-0"
+        className="w-16 h-16 rounded-suwappu-lg shadow-suwappu-2 shrink-0"
         style={{ backgroundColor: color }}
       />
       <div>

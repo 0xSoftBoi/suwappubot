@@ -33,7 +33,7 @@ function SakuraPetal({ delay = 0, left = 0 }: { delay?: number; left?: number })
 
 export const PetalFloat: Story = {
   render: () => (
-    <div className="relative h-96 bg-gradient-to-b from-suwappu-sky to-suwappu-bg overflow-hidden rounded-suwappu-xxl">
+    <div className="relative h-96 bg-linear-to-b from-suwappu-sky to-suwappu-bg overflow-hidden rounded-suwappu-xxl">
       {Array.from({ length: 15 }).map((_, i) => (
         <SakuraPetal key={i} delay={i * 0.5} left={Math.random() * 90} />
       ))}
@@ -67,7 +67,7 @@ export const Bounce: Story = {
 
         <div className="text-center">
           <div
-            className="w-16 h-16 bg-gradient-to-br from-suwappu-cyan to-suwappu-blue rounded-full shadow-suwappu-3 animate-suwappu-bounce"
+            className="w-16 h-16 bg-linear-to-br from-suwappu-cyan to-suwappu-blue rounded-full shadow-suwappu-3 animate-suwappu-bounce"
             style={{ animationDelay: '0.4s' }}
           />
           <p className="mt-4 text-sm text-suwappu-text-secondary">Delay 0.4s</p>
@@ -156,7 +156,7 @@ export const HoverEffects: Story = {
           <p className="text-sm text-suwappu-text-secondary">Hover for glow effect</p>
         </div>
 
-        <div className="p-6 bg-white rounded-suwappu-xl shadow-suwappu-2 transition-all duration-300 hover:bg-gradient-to-br hover:from-suwappu-sakura-light hover:to-white cursor-pointer group">
+        <div className="p-6 bg-white rounded-suwappu-xl shadow-suwappu-2 transition-all duration-300 hover:bg-linear-to-br hover:from-suwappu-sakura-light hover:to-white cursor-pointer group">
           <h3 className="font-heading font-bold text-suwappu-purple mb-2 group-hover:text-suwappu-magenta-mid transition-colors">
             Background Change
           </h3>

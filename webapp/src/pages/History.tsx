@@ -151,7 +151,7 @@ function SwapItem({ swap }: { swap: Swap }) {
         </div>
 
         {/* Right: Time and link */}
-        <div className="text-right flex-shrink-0">
+        <div className="text-right shrink-0">
           <div className="text-xs text-suwappu-text-secondary">{formatRelativeTime(swap.createdAt)}</div>
           {txUrl && (
             <a

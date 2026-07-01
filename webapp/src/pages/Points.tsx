@@ -49,7 +49,7 @@ function StatsCard({ stats, onCheckin, isCheckinLoading }: {
   isCheckinLoading: boolean 
 }) {
   return (
-    <div className="bg-gradient-to-br from-suwappu-magenta-mid to-suwappu-purple-deep rounded-suwappu-xl p-4 text-white shadow-suwappu-2">
+    <div className="bg-linear-to-br from-suwappu-magenta-mid to-suwappu-purple-deep rounded-suwappu-xl p-4 text-white shadow-suwappu-2">
       <div className="flex items-center justify-between mb-4">
         <div>
           <p className="text-white/70 text-xs">Total Points</p>
@@ -232,7 +232,7 @@ function SeasonBanner({ data }: { data: SeasonStanding }) {
   const seasonEmoji = (season.weather && weatherEmoji[season.weather]) || '☀️'
 
   return (
-    <div className="bg-gradient-to-br from-suwappu-purple-deep to-suwappu-magenta-mid rounded-suwappu-xl p-4 text-white shadow-suwappu-2 space-y-4">
+    <div className="bg-linear-to-br from-suwappu-purple-deep to-suwappu-magenta-mid rounded-suwappu-xl p-4 text-white shadow-suwappu-2 space-y-4">
       {/* Header: weather season + official quarter + countdown */}
       <div className="flex items-start justify-between">
         <div className="min-w-0">
@@ -242,7 +242,7 @@ function SeasonBanner({ data }: { data: SeasonStanding }) {
           <p className="font-heading font-bold text-lg truncate">{season.name}</p>
         </div>
         {countdown && (
-          <span className="flex-shrink-0 bg-white/15 rounded-full px-2.5 py-1 text-[11px] font-medium">
+          <span className="shrink-0 bg-white/15 rounded-full px-2.5 py-1 text-[11px] font-medium">
             {countdown}
           </span>
         )}

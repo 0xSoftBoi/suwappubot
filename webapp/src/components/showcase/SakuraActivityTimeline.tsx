@@ -81,7 +81,7 @@ function BloomNode({
 // ─── Branch Connector ────────────────────────────────────────────
 function BranchConnector({ isCompleted }: { isCompleted: boolean }) {
   return (
-    <div className="relative flex-shrink-0 w-20 flex items-center">
+    <div className="relative shrink-0 w-20 flex items-center">
       {/* Main branch line */}
       <div
         className="w-full h-[2px] rounded-full"
@@ -147,7 +147,7 @@ function EventCard({
 
   return (
     <div
-      className="flex flex-col items-center flex-shrink-0"
+      className="flex flex-col items-center shrink-0"
       style={{
         opacity: isVisible ? 1 : 0,
         transform: isVisible ? 'translateY(0)' : 'translateY(16px)',
@@ -274,7 +274,7 @@ export function SakuraActivityTimeline({ events, title, subtitle }: SakuraActivi
             )}
           </div>
         ))}
-        <div className="flex-shrink-0 w-4" />
+        <div className="shrink-0 w-4" />
       </div>
 
       {/* Inline keyframes */}

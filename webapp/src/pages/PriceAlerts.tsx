@@ -266,7 +266,7 @@ export function PriceAlerts() {
         {/* Create Alert Button */}
         <button
           onClick={() => setShowCreate(true)}
-          className="w-full py-3 bg-gradient-to-r from-suwappu-magenta-mid to-suwappu-purple-deep text-white font-heading font-semibold rounded-suwappu-xl shadow-suwappu-2 active:scale-[0.98] transition-transform"
+          className="w-full py-3 bg-linear-to-r from-suwappu-magenta-mid to-suwappu-purple-deep text-white font-heading font-semibold rounded-suwappu-xl shadow-suwappu-2 active:scale-[0.98] transition-transform"
         >
           + Create Alert
         </button>
