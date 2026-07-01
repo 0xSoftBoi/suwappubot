@@ -40,6 +40,7 @@ from bot.handlers.paste_trade import (
     paste_cancel_callback,
     paste_check_hint_callback,
 )
+from bot.handlers.nl_trade import handle_nl_text
 from bot.handlers.trending import (
     trending_command,
     trending_open_callback,
@@ -632,6 +633,24 @@ def add_handlers(application: Application) -> None:
 
     # BullX Neo migration wizard — /import
     application.add_handler(import_conversation_handler)
+
+    # Natural-language trade intent (Anthropic-backed) — registered in the
+    # SAME default group (0), immediately BEFORE the freeform-text catch-all,
+    # and ONLY when settings.NL_TRADING_ENABLED is True. This placement is
+    # safe because:
+    #  1. PTB checks handlers within a group in insertion order and stops the
+    #     group at the first match. All ConversationHandlers (2FA entry,
+    #     amount-entry, confirm-swap states, etc.) are registered earlier in
+    #     this same group, so an active conversation's text is consumed there
+    #     and this handler is never reached for it.
+    #  2. When the flag is off (default in production) the handler is not
+    #     registered at all, so there is zero behavior change from today.
+    #  3. handle_nl_text itself delegates to on_freeform_text (the existing
+    #     paste-to-trade / keyword router) for anything it can't confidently
+    #     classify, so enabling the flag never produces a dead-end or a
+    #     silently dropped message.
+    if settings.NL_TRADING_ENABLED:
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_nl_text))
 
     # Freeform text catch-all — MUST be registered last in the default group so
     # it only fires when no ConversationHandler (or earlier handler) handles the

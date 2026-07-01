@@ -28,6 +28,9 @@ websockets==15.0.1
 # fix (commit 32d0805) — keep a floor so pip-compile can't resolve below it.
 certifi>=2026.5.20
 
+# ---- LLM (natural-language trade intent parsing, NL_TRADING_ENABLED) ----
+anthropic
+
 # ---- Database ----
 SQLAlchemy==2.0.50
 psycopg2-binary>=2.9,<3.0             # PostgreSQL driver

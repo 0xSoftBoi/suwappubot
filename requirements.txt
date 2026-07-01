@@ -16,6 +16,8 @@ aiolimiter==1.2.1
     # via python-telegram-bot
 aiosignal==1.4.0
     # via aiohttp
+anthropic==0.115.0
+    # via -r requirements.in
 annotated-doc==0.0.4
     # via fastapi
 annotated-types==0.7.0
