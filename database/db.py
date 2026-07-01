@@ -363,6 +363,9 @@ def _ensure_schema(db_engine) -> None:
     # --- referral_rewards: multi-tier column ---
     _add_referral_tier_column(db_engine, inspector, is_sqlite)
 
+    # --- referral v2 columns ---
+    _add_referral_v2_columns(db_engine, inspector, is_sqlite)
+
     # --- limit_orders: advanced order columns ---
     if "limit_orders" in tables:
         _add_advanced_order_columns(db_engine, inspector, is_sqlite)
@@ -1359,6 +1362,75 @@ def _add_referral_tier_column(db_engine, inspector, is_sqlite: bool) -> None:
             ddl = "ALTER TABLE referral_rewards ADD COLUMN IF NOT EXISTS referral_tier INTEGER DEFAULT 1"
         with db_engine.begin() as conn:
             conn.execute(text(ddl))
+
+
+def _add_referral_v2_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add Referral v2 columns to referrals, referral_codes, and referral_payouts (idempotent)."""
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    # referrals.referee_swap_rebate_remaining — first-5-swaps 10% fee rebate counter.
+    # IMPORTANT: The column DEFAULT 5 applies to NEW rows only. All rows that existed
+    # before this deploy are backfilled to 0 in the same transaction so pre-existing
+    # referees do not receive a free rebate retroactively. Only referees whose Referral
+    # row is created AFTER this migration (i.e. new sign-ups) get the default of 5.
+    if "referrals" in tables:
+        cols = {c["name"] for c in inspector.get_columns("referrals")}
+        if "referee_swap_rebate_remaining" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE referrals ADD COLUMN referee_swap_rebate_remaining INTEGER DEFAULT 5"
+            else:
+                ddl = "ALTER TABLE referrals ADD COLUMN IF NOT EXISTS referee_swap_rebate_remaining INTEGER DEFAULT 5"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+                # Backfill all existing rows to 0 — they were created before the rebate
+                # feature and must not receive the 5-swap discount retroactively.
+                # This UPDATE runs only once: the outer `if col not in cols` guard is
+                # skipped on subsequent deploys once the column exists.
+                conn.execute(text("UPDATE referrals SET referee_swap_rebate_remaining = 0"))
+
+    # referral_codes.referrer_tier — volume-milestone tier (standard/power/elite)
+    if "referral_codes" in tables:
+        cols = {c["name"] for c in inspector.get_columns("referral_codes")}
+        if "referrer_tier" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE referral_codes ADD COLUMN referrer_tier VARCHAR(20) DEFAULT 'standard'"
+            else:
+                ddl = "ALTER TABLE referral_codes ADD COLUMN IF NOT EXISTS referrer_tier VARCHAR(20) DEFAULT 'standard'"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+    # referral_payouts.needs_review — large-claim flag (>$500 held for manual review)
+    if "referral_payouts" in tables:
+        cols = {c["name"] for c in inspector.get_columns("referral_payouts")}
+        if "needs_review" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE referral_payouts ADD COLUMN needs_review BOOLEAN DEFAULT FALSE"
+            else:
+                ddl = "ALTER TABLE referral_payouts ADD COLUMN IF NOT EXISTS needs_review BOOLEAN DEFAULT FALSE"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+    # referral_rewards.payout_id — FK to referral_payouts; set atomically with is_paid=True
+    # so reject_referral_claim can find reward rows without timestamp correlation.
+    if "referral_rewards" in tables:
+        cols = {c["name"] for c in inspector.get_columns("referral_rewards")}
+        if "payout_id" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE referral_rewards ADD COLUMN payout_id INTEGER REFERENCES referral_payouts(id)"
+            else:
+                ddl = "ALTER TABLE referral_rewards ADD COLUMN IF NOT EXISTS payout_id INTEGER REFERENCES referral_payouts(id)"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+                # Index for reject-path lookup by payout_id
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_referral_rewards_payout_id "
+                        "ON referral_rewards(payout_id)"
+                    )
+                )
 
 
 def _add_swap_price_columns(db_engine, inspector, is_sqlite: bool) -> None:
