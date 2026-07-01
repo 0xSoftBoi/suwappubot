@@ -21,6 +21,7 @@ new surface executes a swap directly.
 """
 
 import logging
+import re
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
@@ -190,12 +191,31 @@ async def on_freeform_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not text:
         return
 
-    # First whitespace-delimited token is the address candidate.
-    first = text.split()[0]
+    words = text.split()
+
+    # Fast path: the first whitespace token is the address candidate.
+    first = words[0]
     is_addr, family = detect_address_chain(first)
     if is_addr:
         await _render_token_card(update, context, first, family)
         return
+
+    # Forward-a-tweet / alpha-message discovery: scan the rest of the message for
+    # a contract address embedded anywhere (e.g. a forwarded tweet
+    # "🚀 $BONK sending it — CA: <mint>"). Strip surrounding punctuation and any
+    # "CA:"/"$"-style prefix from each token and take the first that validates.
+    # Bounded to the first 80 tokens; only tokens long enough to be an address
+    # are probed, which keeps this cheap and avoids false positives on prose.
+    for raw in words[1:80]:
+        cand = re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", raw)
+        if ":" in cand:  # handle "CA:<addr>" style prefixes
+            cand = cand.rsplit(":", 1)[-1]
+        if len(cand) < 32:
+            continue
+        ok, fam = detect_address_chain(cand)
+        if ok:
+            await _render_token_card(update, context, cand, fam)
+            return
 
     await _route_intent(update, context, text.lower())
 
