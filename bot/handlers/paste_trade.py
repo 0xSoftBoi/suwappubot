@@ -21,6 +21,7 @@ new surface executes a swap directly.
 """
 
 import logging
+import re
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
@@ -147,7 +148,6 @@ async def _render_token_card(
     callback_data limit (Buy buttons carry only "pbuy_<amount>").
     """
     info = await get_token_info(address, chain_family)
-    context.user_data["paste_token"] = info
 
     chain_config = get_chain_by_name(info["chain"])
     native = chain_config.native_token if chain_config else "ETH"
@@ -156,9 +156,11 @@ async def _render_token_card(
 
     # Safety check — meaningful on Solana (authority/honeypot are SVM concepts);
     # degrade honestly elsewhere rather than imply a check we didn't run.
+    is_honeypot = False
     if info["chain"] == "solana":
         try:
             is_safe, warnings = await token_analyzer.quick_check(address)
+            is_honeypot = any("honeypot" in w.lower() for w in (warnings or []))
             if is_safe and not warnings:
                 safety = "🛡️ Safety: no immediate red flags"
             elif warnings:
@@ -169,6 +171,21 @@ async def _render_token_card(
             safety = "🛡️ Safety: check unavailable"
     else:
         safety = "🛡️ Safety: limited on this chain — verify the contract yourself"
+
+    # Hard-block confirmed honeypots at discovery: no Buy button, and we do NOT
+    # stash the token so the pbuy_ path can't be used for it. This stops a
+    # forwarded-tweet/pasted honeypot before it ever reaches the swap confirm.
+    if is_honeypot:
+        await update.message.reply_text(
+            f"*{info['symbol']}* — {info.get('name', '')}\n"
+            f"{chain_emoji} {chain_label}  `{_short(address)}`\n\n"
+            f"🛑 *HONEYPOT DETECTED* — simulation shows this token *cannot be sold* "
+            f"after buying. Buying is blocked to protect your funds.",
+            parse_mode="Markdown",
+        )
+        return
+
+    context.user_data["paste_token"] = info
 
     text = (
         f"*{info['symbol']}* — {info.get('name', '')}\n"
@@ -190,12 +207,34 @@ async def on_freeform_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not text:
         return
 
-    # First whitespace-delimited token is the address candidate.
-    first = text.split()[0]
+    words = text.split()
+
+    # Fast path: the first whitespace token is the address candidate.
+    first = words[0]
     is_addr, family = detect_address_chain(first)
     if is_addr:
         await _render_token_card(update, context, first, family)
         return
+
+    # Forward-a-tweet / alpha-message discovery: scan the rest of the message for
+    # a contract address embedded anywhere (e.g. a forwarded tweet
+    # "🚀 $BONK sending it — CA: <mint>"). Strip surrounding punctuation and any
+    # "CA:"/"$"-style prefix from each token and take the first that validates.
+    # Bounded to the first 80 tokens; only tokens long enough to be an address
+    # are probed, which keeps this cheap and avoids false positives on prose.
+    for raw in words[1:80]:
+        # Probe the token itself AND any URL/prefix segments, so an address that
+        # is embedded in a link (dexscreener.com/solana/<addr>, birdeye.so/token/
+        # <addr>, pump.fun/<addr>, solscan.io/token/<addr>) or behind a "CA:"
+        # prefix is still found. Segments are split on URL/prefix delimiters.
+        for seg in [raw, *re.split(r"[/:?#=&]+", raw)]:
+            cand = re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", seg)
+            if len(cand) < 32:
+                continue
+            ok, fam = detect_address_chain(cand)
+            if ok:
+                await _render_token_card(update, context, cand, fam)
+                return
 
     await _route_intent(update, context, text.lower())
 

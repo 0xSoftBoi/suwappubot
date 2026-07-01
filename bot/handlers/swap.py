@@ -1054,6 +1054,29 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
             [InlineKeyboardButton("« Back to Wallets", callback_data="swap_back_to_wallets")],
         ]
 
+        # HARD BLOCK: a confirmed honeypot (simulation shows the token cannot be
+        # sold after buying) is never a legitimate trade. Unlike the HIGH/CRITICAL
+        # warn-and-confirm gate below, there is NO "swap anyway" override here —
+        # allowing it would only enable a guaranteed total loss. `is_honeypot` is
+        # only True on a positive detection (verification errors leave it False),
+        # so this does not block on a merely-uncertain result.
+        if _security_report is not None and getattr(_security_report, "is_honeypot", False):
+            blocked_text = (
+                "🛑 *SWAP BLOCKED — HONEYPOT DETECTED*\n\n"
+                f"{token_analyzer.get_safety_summary(_security_report)}\n\n"
+                "Simulation shows this token *cannot be sold* after buying — a "
+                "confirmed honeypot. Suwappu has blocked this trade to protect "
+                "your funds."
+            )
+            await query.edit_message_text(
+                blocked_text,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")]]
+                ),
+            )
+            return CONFIRM_SWAP
+
         # HIGH/CRITICAL risk gate: intercept before showing the confirm screen.
         # Store the prepared quote message so the "swap anyway" handler can display
         # it without rebuilding, then replace the current message with a risk warning.
@@ -1645,6 +1668,15 @@ async def check_swap_status(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if swap_tx.status not in [SwapStatus.COMPLETED.value, SwapStatus.FAILED.value]:
             keyboard.append(
                 [InlineKeyboardButton("🔄 Refresh Status", callback_data=f"swap_status_{swap_id}")]
+            )
+
+        # Surface the shareable PnL card at the natural moment — right after a
+        # swap completes — instead of only behind /hx. Routes to the existing
+        # read-only pnl_share_ callback (renders the branded card with the
+        # sharer's referral link/QR baked in). This is the organic-growth loop.
+        if swap_tx.status == SwapStatus.COMPLETED.value:
+            keyboard.append(
+                [InlineKeyboardButton("📤 Share PnL", callback_data=f"pnl_share_{swap_id}")]
             )
 
         keyboard.append([InlineKeyboardButton("🔄 New Swap", callback_data="swap_start")])
