@@ -38,7 +38,7 @@
   "referral": {
     "kicker": "Gana con Suwappu",
     "heading": "30% de cada comisión de trading. Para siempre.",
-    "body": "Refiere a un amigo y gana el 30% de las comisiones que genere — pagado automáticamente, en cada cadena. Obtén tu enlace personal con {cmd} dentro del bot.",
+    "body": "Refiere a un amigo y gana el 30% de las comisiones que genere — pagado automáticamente, en cada cadena. Obtén tu enlace personal con <cmd>/ref</cmd> dentro del bot.",
     "cta": "Obtener tu enlace de referido"
   },
   "pricing": {
