@@ -38,7 +38,7 @@
   "referral": {
     "kicker": "Gagnez avec Suwappu",
     "heading": "30% de chaque commission de trading. Pour toujours.",
-    "body": "Référez un ami et gagnez 30% des commissions qu'il génère — versées automatiquement, sur chaque chaîne. Obtenez votre lien personnel avec {cmd} dans le bot.",
+    "body": "Référez un ami et gagnez 30% des commissions qu'il génère — versées automatiquement, sur chaque chaîne. Obtenez votre lien personnel avec <cmd>/ref</cmd> dans le bot.",
     "cta": "Obtenir votre lien de parrainage"
   },
   "pricing": {

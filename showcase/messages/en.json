@@ -38,7 +38,7 @@
   "referral": {
     "kicker": "Earn with Suwappu",
     "heading": "30% of every trading fee. Forever.",
-    "body": "Refer a friend and earn 30% of the trading fees they generate — paid out automatically, on every chain. Grab your personal link with {cmd} inside the bot.",
+    "body": "Refer a friend and earn 30% of the trading fees they generate — paid out automatically, on every chain. Grab your personal link with <cmd>/ref</cmd> inside the bot.",
     "cta": "Get your referral link"
   },
   "pricing": {
