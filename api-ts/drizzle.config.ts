@@ -19,11 +19,18 @@ export default defineConfig({
 	// "relation … already exists" (start.sh swallows it, but it's noise that masks real
 	// failures). The x402 billing tables below were missing, which caused exactly that.
 	// (user_quests is intentionally NOT here — python owns it via database/db.py.)
+	//
+	// NOTE: not every table below is api-ts-EXCLUSIVE. daily_quests, jackpot_pools,
+	// agent_credits, agent_credit_topups, agent_subscriptions are ALSO created by the
+	// Python stack's _ensure_schema() (CREATE TABLE IF NOT EXISTS, database/db.py:1759+)
+	// with matching DDL — they are co-managed, which is safe because both sides are
+	// idempotent. tablesFilter simply bounds what drizzle-kit will touch; it does not
+	// assert sole ownership.
 	tablesFilter: [
 		'daily_quests',
 		'jackpot_pools',
 		'polymarket_accounts',
-		// api-ts-exclusive x402 native-billing tables (payments.ts) — no python owner.
+		// x402 native-billing tables (payments.ts) — co-created by python _ensure_schema.
 		'agent_credits',
 		'agent_credit_topups',
 		'agent_subscriptions',
