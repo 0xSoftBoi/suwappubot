@@ -7,6 +7,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react'
+import { usePersistentState } from '../lib/persist'
 
 type Interval = '1m' | '5m' | '15m' | '1h' | '4h' | '1D'
 type Side = 'buy' | 'sell'
@@ -49,11 +50,14 @@ interface TradingContextType {
 const TradingContext = createContext<TradingContextType | undefined>(undefined)
 
 export function TradingProvider({ children }: { children: ReactNode }) {
-  const [tradingMode, setTradingModeState] = useState<TradingMode>('spot')
+  // Persisted across reloads: the workspace mode, chart interval, and buy/sell
+  // side are sticky preferences. limitPrice / fullscreen / pending amount are
+  // transient and intentionally not persisted.
+  const [tradingMode, setTradingModeState] = usePersistentState<TradingMode>('mode', 'spot')
   const [limitPrice, setLimitPriceState] = useState('')
-  const [chartInterval, setChartIntervalState] = useState<Interval>('1h')
+  const [chartInterval, setChartIntervalState] = usePersistentState<Interval>('interval', '1h')
   const [chartFullscreen, setChartFullscreen] = useState(false)
-  const [side, setSideState] = useState<Side>('buy')
+  const [side, setSideState] = usePersistentState<Side>('side', 'buy')
   const [pendingSwapAmount, setPendingSwapAmountState] = useState('')
 
   const buyInputRef = useRef<HTMLInputElement | null>(null)

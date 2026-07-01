@@ -53,6 +53,20 @@ export {
 	type UserPointsStats,
 } from './PointsService'
 export {
+	type PolicyDecisionResult,
+	type PolicyIntent,
+	PolicyService,
+	PolicyServiceLive,
+	type PolicyVerdict,
+} from './PolicyService'
+export {
+	type SeasonHistoryEntry,
+	type SeasonLeaderboardEntry,
+	type SeasonStanding,
+	SeasonsService,
+	SeasonsServiceLive,
+} from './SeasonsService'
+export {
 	cacheKeys,
 	QUOTE_TTL,
 	RedisService,
@@ -129,6 +143,13 @@ export {
 	PolymarketCredentialService,
 	PolymarketCredentialServiceLive,
 } from './PolymarketCredentialService'
+export {
+	type CreateOfferParams,
+	type ListOffersParams,
+	P2PService,
+	P2PServiceLive,
+	type P2PServiceInterface,
+} from './P2PService'
 export {
 	type LendingMarket,
 	type LendingMarketDetail,

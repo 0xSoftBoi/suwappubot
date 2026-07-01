@@ -8,6 +8,10 @@ class AuditLog(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    # Org-scoped audit trail (nullable so legacy/system events still write).
+    org_id = Column(String(36), nullable=True, index=True)
+    # Agent-scoped events stamp the agent id here instead of overloading user_id.
+    agent_id = Column(String(64), nullable=True, index=True)
     event_type = Column(
         String(50), nullable=False, index=True
     )  # login, swap, withdrawal, settings_change, 2fa_toggle, whitelist_change

@@ -1,5 +1,6 @@
 """Transaction history handlers."""
 
+import logging
 from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
@@ -11,6 +12,8 @@ from bot.utils.formatters import format_amount, format_usd, format_tx_link, form
 from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
 from bot.services.pnl import pnl_service
+
+logger = logging.getLogger(__name__)
 
 SWAPS_PER_PAGE = 5
 
@@ -108,15 +111,19 @@ async def history_command(
         if nav_buttons:
             keyboard.append(nav_buttons)
 
-        # Add Share button for the most recent completed swap (as a demo)
-        recent_completed = [s for s in swaps if s.status == SwapStatus.COMPLETED.value]
-        if recent_completed:
-            s = recent_completed[0]
+        # Share PnL buttons for the completed swaps on this page (up to 4), two
+        # per row. Each routes to the read-only pnl_share_ callback, which renders
+        # the branded card with the sharer's referral link + QR baked in. Capped
+        # at 4 to keep the keyboard compact; the newest completed swaps come first
+        # because `swaps` is already ordered created_at DESC.
+        recent_completed = [s for s in swaps if s.status == SwapStatus.COMPLETED.value][:4]
+        for i in range(0, len(recent_completed), 2):
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        f"🖼️ Share PNL ({s.to_token})", callback_data=f"pnl_share_{s.id}"
+                        f"🖼️ Share {s.to_token}", callback_data=f"pnl_share_{s.id}"
                     )
+                    for s in recent_completed[i : i + 2]
                 ]
             )
 
@@ -300,26 +307,70 @@ async def share_pnl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"🤖 *Swapped via Suwappu Bot*"
     )
 
+    tweet_url = (
+        "https://twitter.com/intent/tweet?text=Just%20made%20"
+        f"{roi:.1f}%25%20profit%20using%20SuwappuBot!%20%23Suwappu%20%23Solana"
+    )
     keyboard = [
-        [
-            InlineKeyboardButton(
-                "🐦 Share on X (Twitter)",
-                url=f"https://twitter.com/intent/tweet?text=Just%20made%20{roi:.1f}%25%20profit%20using%20SuwappuBot!%20%23Suwappu%20%23Solana",
-            )
-        ],
+        [InlineKeyboardButton("🐦 Share on X (Twitter)", url=tweet_url)],
         [InlineKeyboardButton("« Back to History", callback_data="history")],
     ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await query.edit_message_text(
-        card_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    # Best-effort: render an image card so the shared post looks good. Any
+    # failure (font issues, PIL edge cases, etc.) falls back to the original
+    # text card so the share flow never breaks.
+    try:
+        ref_code = None
+        user = update.effective_user
+        if user:
+            try:
+                from bot.services.referral_service import referral_service
+
+                with get_session() as session:
+                    db_user = session.query(User).filter(User.telegram_id == user.id).first()
+                    if db_user:
+                        ref_code = referral_service.get_or_create_code(db_user.id).code
+            except Exception:
+                logger.debug("share_pnl_callback: ref code lookup failed", exc_info=True)
+
+        from bot.utils.pnl_card_image import render_pnl_card
+
+        image_buf = render_pnl_card(
+            token=data["token"],
+            roi_pct=roi,
+            pnl_usd=data["profit_usd"],
+            entry=data["entry_price"],
+            exit_price=data["current_price"],
+            ref_code=ref_code,
+        )
+        image_buf.name = "pnl_card.png"
+
+        # Send the image as a new photo message with the same caption +
+        # buttons the text card used. We intentionally do not delete/edit the
+        # original message — edit_message_text cannot be turned into a photo
+        # message in-place, and reply_photo is the safe, permission-agnostic
+        # way to post a new message in any chat type.
+        await query.message.reply_photo(
+            photo=image_buf,
+            caption=card_text,
+            parse_mode="Markdown",
+            reply_markup=reply_markup,
+        )
+        return
+    except Exception:
+        logger.warning(
+            "share_pnl_callback: image card render/send failed, falling back", exc_info=True
+        )
+
+    await query.edit_message_text(card_text, parse_mode="Markdown", reply_markup=reply_markup)
 
 
 # Individual callbacks
 history_callback = CallbackQueryHandler(history_command, pattern="^history$")
 history_menu_callback = CallbackQueryHandler(history_command, pattern="^history_menu$")
 history_page_handler = CallbackQueryHandler(history_page_callback, pattern="^history_page_")
-share_pnl_handler = CallbackQueryHandler(share_pnl_callback, pattern="^pnl_share_")
+share_pnl_handler = CallbackQueryHandler(share_pnl_callback, pattern=r"^pnl_share_\d+$")
 
 # Create handlers
 history_handler = CommandHandler("hx", history_command)

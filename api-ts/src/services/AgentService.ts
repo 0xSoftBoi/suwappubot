@@ -3,6 +3,7 @@ import { eq, sql } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
 import { type Agent, agents, type DrizzleService, requireDb, requireRow, webhookEvents } from '../db'
 import { DatabaseError } from '../errors'
+import { auditLog } from './audit'
 
 export interface RegisterAgentParams {
 	name: string
@@ -122,6 +123,14 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 
 			// Return agent with full API key (only time it's shown)
 			const agent = yield* requireRow(result, 'Failed to register agent: no row returned')
+
+			// Audit the key issuance (agent id reused as userId — see audit.ts).
+			yield* auditLog({
+				userId: agent.id,
+				eventType: 'agent.key_issued',
+				details: { agentId: agent.id, name: agent.name },
+			})
+
 			return { agent, apiKey }
 		}),
 

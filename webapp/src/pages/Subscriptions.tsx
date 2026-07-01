@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AppLayout, AppHeader } from '../components/layout'
+import { api } from '../lib/api'
+import { openExternalLink } from '../lib/telegram'
+import { a11yToast } from '../lib/a11yToast'
 
 interface Plan {
   id: string
@@ -42,7 +45,7 @@ const plans: Plan[] = [
     popular: true,
   },
   {
-    id: 'whale',
+    id: 'premium',
     name: 'Whale',
     price: 29.99,
     period: 'month',
@@ -96,7 +99,7 @@ function PlanCard({ plan, onSelect }: { plan: Plan; onSelect: (id: string) => vo
           plan.current
             ? 'bg-suwappu-sakura-light text-suwappu-text-secondary cursor-default'
             : plan.popular
-            ? 'bg-gradient-to-r from-suwappu-magenta-mid to-suwappu-purple-deep text-white'
+            ? 'bg-linear-to-r from-suwappu-magenta-mid to-suwappu-purple-deep text-white'
             : 'bg-suwappu-purple-deep text-white hover:bg-suwappu-purple-deep/90'
         }`}
       >
@@ -110,6 +113,7 @@ export function Subscriptions() {
   const navigate = useNavigate()
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [payingCard, setPayingCard] = useState(false)
 
   const handleSelect = (planId: string) => {
     if (planId === 'free') return
@@ -119,6 +123,20 @@ export function Subscriptions() {
 
   const plan = plans.find(p => p.id === selectedPlan)
 
+  const handlePayWithCard = async () => {
+    if (!plan || (plan.id !== 'pro' && plan.id !== 'premium')) return
+    setPayingCard(true)
+    try {
+      const { url } = await api.createStripeCheckout(plan.id)
+      setShowConfirm(false)
+      openExternalLink(url)
+    } catch {
+      a11yToast.error("Couldn't start card checkout. Please try again or pay with crypto.")
+    } finally {
+      setPayingCard(false)
+    }
+  }
+
   return (
     <AppLayout 
       header={<AppHeader title="Premium" showBack onBack={() => navigate(-1)} />} 
@@ -127,7 +145,7 @@ export function Subscriptions() {
       <div className="p-3 pb-20 space-y-4">
         {/* Header */}
         <div className="text-center py-4">
-          <div className="w-16 h-16 mx-auto mb-3 bg-gradient-to-br from-suwappu-magenta-mid to-suwappu-purple-deep rounded-full flex items-center justify-center">
+          <div className="w-16 h-16 mx-auto mb-3 bg-linear-to-br from-suwappu-magenta-mid to-suwappu-purple-deep rounded-full flex items-center justify-center">
             <span className="text-3xl">👑</span>
           </div>
           <h2 className="font-heading font-bold text-xl text-suwappu-purple-deep">
@@ -174,12 +192,6 @@ export function Subscriptions() {
           </div>
         </div>
 
-        {/* Coming Soon */}
-        <div className="text-center">
-          <span className="inline-flex items-center gap-1 px-3 py-1 bg-yellow-100 text-yellow-700 text-xs font-medium rounded-full">
-            🚧 Payment integration coming soon
-          </span>
-        </div>
       </div>
 
       {/* Confirm Modal */}
@@ -210,8 +222,12 @@ export function Subscriptions() {
                 <span>Pay with USDC</span>
                 <span className="text-white/70">$</span>
               </button>
-              <button className="w-full py-3 bg-gray-800 text-white rounded-suwappu-lg font-medium text-sm">
-                Pay with Card
+              <button
+                onClick={handlePayWithCard}
+                disabled={payingCard}
+                className="w-full py-3 bg-gray-800 text-white rounded-suwappu-lg font-medium text-sm disabled:opacity-60"
+              >
+                {payingCard ? 'Opening checkout…' : 'Pay with Card'}
               </button>
             </div>
 

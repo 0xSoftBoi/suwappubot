@@ -6,44 +6,63 @@ interface Props {
   onSelect?: (market: PredictionMarket) => void
 }
 
+function formatVol(v: number) {
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`
+  if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}K`
+  return `$${v.toFixed(0)}`
+}
+
+// Compact, human countdown to resolution ("3d", "5h", "Soon", "Ended").
+function formatEnds(endDate?: string) {
+  if (!endDate) return null
+  const ms = new Date(endDate).getTime() - Date.now()
+  if (ms <= 0) return 'Ended'
+  const days = Math.floor(ms / 86_400_000)
+  if (days >= 1) return `${days}d`
+  const hours = Math.floor(ms / 3_600_000)
+  if (hours >= 1) return `${hours}h`
+  return 'Soon'
+}
+
 export function MarketCard({ market, selected, onSelect }: Props) {
-  const yesPrice = market.outcomePrices[0] || 0
-  const noPrice = market.outcomePrices[1] || 0
+  const yesPct = Math.round((market.outcomePrices[0] || 0) * 100)
+  const noPct = Math.round((market.outcomePrices[1] || 0) * 100)
+  const ends = formatEnds(market.endDate)
 
   return (
     <div
       onClick={() => onSelect?.(market)}
-      className={`rounded-lg p-3 border transition-colors
+      className={`rounded-lg border p-3 transition-all
         ${onSelect ? 'cursor-pointer' : ''}
         ${
           selected
-            ? 'bg-sakura-500/10 border-sakura-500'
-            : 'bg-terminal-bg border-terminal-border hover:border-terminal-border-active'
+            ? 'border-sakura-500 bg-sakura-500/10 shadow-[0_2px_10px_rgba(14,165,233,0.12)]'
+            : 'border-terminal-border bg-terminal-bg hover:border-terminal-border-active hover:bg-terminal-bg-tertiary/40'
         }`}
     >
-      <p className="text-sm text-terminal-text font-medium mb-2 leading-snug">
-        {market.question}
-      </p>
-
-      <div className="flex gap-2 mb-2">
-        <div className="flex-1 bg-bull-dim rounded px-2 py-1.5 text-center">
-          <div className="text-xs text-terminal-text-secondary">Yes</div>
-          <div className="text-sm font-mono text-bull font-semibold">
-            {(yesPrice * 100).toFixed(0)}¢
-          </div>
-        </div>
-        <div className="flex-1 bg-bear-dim rounded px-2 py-1.5 text-center">
-          <div className="text-xs text-terminal-text-secondary">No</div>
-          <div className="text-sm font-mono text-bear font-semibold">
-            {(noPrice * 100).toFixed(0)}¢
-          </div>
-        </div>
+      <div className="mb-2.5 flex items-start justify-between gap-2">
+        <p className="line-clamp-2 text-[13px] font-semibold leading-snug text-terminal-text">
+          {market.question}
+        </p>
+        <span className="shrink-0 font-mono text-lg font-bold leading-none text-bull tabular-nums">
+          {yesPct}
+          <span className="text-xs text-terminal-text-muted">%</span>
+        </span>
       </div>
 
-      <div className="flex justify-between text-[10px] text-terminal-text-muted">
-        <span>Vol: ${market.volume >= 1000 ? `${(market.volume / 1000).toFixed(0)}K` : market.volume.toFixed(0)}</span>
-        {market.endDate && (
-          <span>Ends: {new Date(market.endDate).toLocaleDateString()}</span>
+      {/* Yes/No probability split bar */}
+      <div className="mb-2 flex h-1.5 overflow-hidden rounded-full bg-bear/25">
+        <div className="h-full bg-bull transition-all" style={{ width: `${yesPct}%` }} />
+      </div>
+      <div className="mb-2 flex justify-between font-mono text-[11px]">
+        <span className="text-bull">Yes {yesPct}¢</span>
+        <span className="text-bear">No {noPct}¢</span>
+      </div>
+
+      <div className="flex items-center justify-between text-[10px] text-terminal-text-muted">
+        <span>Vol {formatVol(market.volume)}</span>
+        {ends && (
+          <span className="rounded bg-terminal-bg-tertiary/70 px-1.5 py-0.5 font-medium">{ends}</span>
         )}
       </div>
     </div>

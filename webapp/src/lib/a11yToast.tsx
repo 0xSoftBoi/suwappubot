@@ -105,7 +105,7 @@ function renderToast(t: Toast, severity: ToastSeverity, message: string) {
       data-severity={severity}
     >
       <span
-        className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-base font-bold ${meta.accentClass}`}
+        className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-base font-bold ${meta.accentClass}`}
         aria-hidden="true"
       >
         {meta.icon}
@@ -123,7 +123,7 @@ function renderToast(t: Toast, severity: ToastSeverity, message: string) {
         type="button"
         onClick={() => toast.dismiss(t.id)}
         // >=44px touch target for tremor / low-vision users (WCAG 2.5.8).
-        className="flex-shrink-0 -mr-1 -mt-1 w-11 h-11 flex items-center justify-center rounded-full text-suwappu-text-secondary hover:text-suwappu-text hover:bg-suwappu-sakura-light/40 transition-colors"
+        className="shrink-0 -mr-1 -mt-1 w-11 h-11 flex items-center justify-center rounded-full text-suwappu-text-secondary hover:text-suwappu-text hover:bg-suwappu-sakura-light/40 transition-colors"
         aria-label="Dismiss notification"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">

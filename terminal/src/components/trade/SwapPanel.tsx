@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { OrderTabs } from './OrderTabs'
+import { TokenSafetyStrip } from './TokenSafetyStrip'
 import { TokenInput } from '../swap/TokenInput'
 import { QuoteComparison } from '../swap/QuoteComparison'
 import { SlippageControl } from '../swap/SlippageControl'
@@ -13,6 +14,7 @@ import { WalletConnect } from '../auth/WalletConnect'
 import { useAuth } from '../../contexts/AuthContext'
 import { useTrading } from '../../contexts/TradingContext'
 import { usePair } from '../../contexts/PairContext'
+import { usePersistentState } from '../../lib/persist'
 import { useQuery } from '@tanstack/react-query'
 import type { SwapToken, SwapQuoteRequest, SolanaPriorityTier } from '../../types/api'
 import { getSolanaPriorityFees } from '../../lib/helius'
@@ -26,7 +28,7 @@ export function SwapPanel() {
   const { selectedPair, setSelectedPair } = usePair()
   const [activeTab, setActiveTab] = useState<OrderTab>('swap')
   const [amount, setAmount] = useState('')
-  const [slippage, setSlippage] = useState(0.5)
+  const [slippage, setSlippage] = usePersistentState('slippage', 0.5)
   // Solana priority-fee tier — only affects the non-custodial Phantom path,
   // so it's surfaced (below) only for Solana tokens.
   const [priorityTier, setPriorityTier] = useState<SolanaPriorityTier>('normal')
@@ -284,6 +286,12 @@ export function SwapPanel() {
         onTokenSelect={setToToken}
         readOnly
       />
+
+      {/* Pre-trade safety check on the token being acquired (honeypot, tax,
+          authorities, LP, concentration) — loud + red when it's a honeypot. */}
+      {toToken && (
+        <TokenSafetyStrip chain={toToken.chain} address={toToken.address} symbol={toToken.symbol} />
+      )}
 
       {/* Slippage */}
       <SlippageControl value={slippage} onChange={setSlippage} />

@@ -188,8 +188,8 @@ export function SecurityBadge({
             />
             <DetailRow
               label="Top Holder %"
-              value={`${security.topHolderPercent.toFixed(1)}%`}
-              danger={security.topHolderPercent > 50}
+              value={`${(security.topHolderPercent ?? 0).toFixed(1)}%`}
+              danger={(security.topHolderPercent ?? 0) > 50}
             />
             <DetailRow
               label="Dev Holdings %"
@@ -198,7 +198,7 @@ export function SecurityBadge({
             />
             <DetailRow
               label="LP Burned"
-              value={`${security.lpBurned.toFixed(1)}%`}
+              value={`${(security.lpBurned ?? 0).toFixed(1)}%`}
             />
             <DetailRow
               label="Owner Renounced"

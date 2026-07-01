@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { AppLayout, AppHeader } from '../components/layout'
 import { SettingsItem, ToggleItem } from '../components/ui'
 import { WalletCard } from '../components/cards'
+import { LanguageSwitcher } from '../components/LanguageSwitcher'
 import { useAuth, formatAddress } from '../contexts/AuthContext'
 import { api } from '../lib/api'
 import type { UserPreferences, LinkedWalletInfo, UserProfile } from '../types/api'
@@ -21,6 +23,7 @@ const bpToPercent = (bp: number) => (bp / 100).toFixed(1)
 const percentToBp = (pct: string) => Math.round(parseFloat(pct) * 100)
 
 export function Settings() {
+  const { t } = useTranslation()
   const [view, setView] = useState<SettingsView>('main')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -179,7 +182,7 @@ export function Settings() {
                 type="text"
                 value={slippageInput}
                 onChange={(e) => setSlippageInput(e.target.value)}
-                className="flex-1 px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-suwappu-magenta-mid/30"
+                className="flex-1 px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm font-mono text-center focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta-mid/30"
               />
               <span className="text-sm text-suwappu-text-secondary">%</span>
             </div>
@@ -455,7 +458,7 @@ export function Settings() {
   const slippageDisplay = preferences ? bpToPercent(preferences.defaultSlippage) : '0.5'
 
   return (
-    <AppLayout header={<AppHeader title="Settings" />} activeNav="settings">
+    <AppLayout header={<AppHeader title={t('settings.title')} />} activeNav="settings">
       <div className="p-3 pb-20 space-y-4">
         {error && (
           <div className="bg-suwappu-error/10 border border-suwappu-error/20 rounded-suwappu-lg p-3">
@@ -503,10 +506,16 @@ export function Settings() {
 
         {/* Settings Menu */}
         <div className="space-y-1">
-          <SettingsItem icon="🔔" label="Notifications" hasArrow onClick={() => setView('notifications')} />
-          <SettingsItem icon="📊" label="Slippage" value={`${slippageDisplay}%`} hasArrow onClick={() => setView('slippage')} />
-          <SettingsItem icon="⛽" label="Gas Settings" value={preferences?.gasMode ? preferences.gasMode.charAt(0).toUpperCase() + preferences.gasMode.slice(1) : 'Auto'} hasArrow onClick={() => setView('gas')} />
-          <SettingsItem icon="🌐" label="Language" value="English" hasArrow />
+          <SettingsItem icon="🔔" label={t('settings.notifications')} hasArrow onClick={() => setView('notifications')} />
+          <SettingsItem icon="📊" label={t('settings.slippage')} value={`${slippageDisplay}%`} hasArrow onClick={() => setView('slippage')} />
+          <SettingsItem icon="⛽" label={t('settings.gas')} value={preferences?.gasMode ? preferences.gasMode.charAt(0).toUpperCase() + preferences.gasMode.slice(1) : 'Auto'} hasArrow onClick={() => setView('gas')} />
+          <div className="flex items-center justify-between px-3 py-2.5 bg-white rounded-suwappu-lg shadow-suwappu-1">
+            <div className="flex items-center gap-3">
+              <span>🌐</span>
+              <span className="text-sm font-medium text-suwappu-text">{t('settings.language')}</span>
+            </div>
+            <LanguageSwitcher />
+          </div>
           {isDesktop && (
             <SettingsItem icon="🖥️" label="Desktop" hasArrow onClick={() => setView('desktop')} />
           )}

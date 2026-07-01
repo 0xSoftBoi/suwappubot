@@ -321,3 +321,50 @@ def test_no_dead_buttons():
 
     dead = sorted(cb for cb in emitted if not covered(cb))
     assert not dead, f"dead buttons (no handler): {dead}"
+
+
+# ---------------------------------------------------------------------------
+# 10. Raw-address receive-amount is corrected to the token's real decimals
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_destination_decimals_correction(monkeypatch):
+    """A token bought by raw address must display its receive amount using the
+    token's REAL on-chain decimals, not the registry's 18-decimal default.
+
+    Regression for the live-test finding: 0.01 ETH -> USDC(Base, 6dp) showed
+    1.68e-11 because the human conversion used 18 decimals. Execution was always
+    correct (raw amounts); only the display was wrong.
+    """
+    from types import SimpleNamespace
+    from bot.services.swap_engine import SwapEngine
+
+    eng = SwapEngine()
+    # 16810460 raw / 10^18 = 1.68e-11 (the WRONG value providers produce).
+    quote = SimpleNamespace(to_amount="16810460", to_amount_human=1.68e-11, exchange_rate=0.0)
+    USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+
+    # Mock the on-chain read → real USDC decimals (no network).
+    monkeypatch.setattr(eng, "_resolve_onchain_decimals", AsyncMock(return_value=6))
+
+    corrected = await eng._correct_destination_decimals(quote, USDC_BASE, "base", amount=0.01)
+    # 16810460 / 10^6 = 16.81 USDC — a sane figure.
+    assert abs(corrected.to_amount_human - 16.81046) < 1e-3
+    assert corrected.exchange_rate > 1  # ~1681 USDC per ETH
+    assert corrected.to_amount == "16810460"  # raw untouched → execution safe
+
+
+@pytest.mark.asyncio
+async def test_decimals_correction_skips_registry_symbols(monkeypatch):
+    """A normal registry symbol (not a raw address) is left untouched."""
+    from types import SimpleNamespace
+    from bot.services.swap_engine import SwapEngine
+
+    eng = SwapEngine()
+    # If this were called it would corrupt the value; assert it ISN'T.
+    resolver = AsyncMock(return_value=6)
+    monkeypatch.setattr(eng, "_resolve_onchain_decimals", resolver)
+
+    quote = SimpleNamespace(to_amount="1000000", to_amount_human=1.0, exchange_rate=1.0)
+    out = await eng._correct_destination_decimals(quote, "USDC", "base", amount=1.0)
+    assert out.to_amount_human == 1.0  # unchanged
+    resolver.assert_not_called()  # raw-address guard short-circuits first

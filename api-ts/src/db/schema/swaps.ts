@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { index, integer, pgTable, real, serial, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core'
+import { index, integer, numeric, pgTable, real, serial, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core'
 import { users } from './users'
 
 export const swapTransactions = pgTable('swap_transactions', {
@@ -32,6 +32,12 @@ export const swapTransactions = pgTable('swap_transactions', {
 	// Route info
 	routeProvider: varchar('route_provider', { length: 50 }),
 	routeData: text('route_data'),
+
+	// Cost-basis / PnL columns (nullable — populated at execution time)
+	entryPriceUsd: numeric('entry_price_usd', { precision: 20, scale: 8 }),
+	toEntryPriceUsd: numeric('to_entry_price_usd', { precision: 20, scale: 8 }),
+	gasCostUsd: numeric('gas_cost_usd', { precision: 20, scale: 8 }),
+	feeCostUsd: numeric('fee_cost_usd', { precision: 20, scale: 8 }),
 
 	// Fees
 	gasFee: real('gas_fee'),

@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
 import {
+	type DbClient,
 	DEFAULT_MILESTONES,
 	DEFAULT_REWARDS,
 	type DrizzleService,
@@ -17,6 +18,7 @@ import {
 	requireDb,
 	requireRow,
 	rewards,
+	subscriptions,
 	type UserMilestone,
 	type UserPoints,
 	userMilestones,
@@ -24,6 +26,8 @@ import {
 	users,
 } from '../db'
 import { DatabaseError, NotFoundError, ValidationError } from '../errors'
+import { logger } from '../lib/logger'
+import { accrueSeasonPointsRaw, getActiveSeasonRaw } from './SeasonsService'
 
 // Stats response type
 export interface UserPointsStats {
@@ -93,6 +97,7 @@ export interface PointsServiceInterface {
 		userId: number,
 		swapAmountUsd: number,
 		swapId?: number,
+		feeUsd?: number,
 	) => Effect.Effect<SwapPointsResult, DatabaseError, DrizzleService>
 	readonly dailyCheckin: (
 		userId: number,
@@ -191,6 +196,41 @@ const getOrCreateUserPoints = (
 		return yield* requireRow(created, 'Failed to create user points: no row returned')
 	})
 
+// Internal helper: resolve the active season id for stamping point_transactions.
+// Never fails the caller — returns null on any error / no active season.
+const activeSeasonId = (db: DbClient): Effect.Effect<number | null> =>
+	Effect.tryPromise({
+		try: () => getActiveSeasonRaw(db),
+		catch: (e) => e,
+	}).pipe(
+		Effect.map((season) => season?.id ?? null),
+		Effect.catchAll(() => Effect.succeed(null)),
+	)
+
+// Internal helper: accrue season points for an allowlisted action. This is the
+// SINGLE write site into season_points from the points earn path (funnel logic
+// lives in SeasonsService.accrueSeasonPointsRaw — one source of truth). Accrual
+// must NEVER fail an award, so any error is swallowed and logged.
+const accrueSeason = (
+	db: DbClient,
+	userId: number,
+	action: string,
+	baseAmount: number,
+	swapAmountUsd?: number,
+	feeUsd?: number,
+): Effect.Effect<void> =>
+	Effect.tryPromise({
+		try: () => accrueSeasonPointsRaw(db, userId, action, baseAmount, swapAmountUsd, feeUsd),
+		catch: (e) => e,
+	}).pipe(
+		Effect.asVoid,
+		Effect.catchAll((e) =>
+			Effect.sync(() => {
+				logger.warn(`[PointsService] season accrual failed (${action}, user ${userId}): ${e}`)
+			}),
+		),
+	)
+
 // Internal helper: Check and award milestones
 const checkAndAwardMilestones = (
 	userId: number,
@@ -268,6 +308,7 @@ const checkAndAwardMilestones = (
 							new DatabaseError({ message: `Failed to add milestone points: ${e}`, cause: e }),
 					})
 
+					const seasonId = yield* activeSeasonId(db)
 					yield* Effect.tryPromise({
 						try: () =>
 							db.insert(pointTransactions).values({
@@ -276,10 +317,14 @@ const checkAndAwardMilestones = (
 								action: 'milestone',
 								description: `${milestone.emoji} ${milestone.name}`,
 								metadata: { milestoneId: milestone.id, milestoneName: milestone.name },
+								seasonId,
 							}),
 						catch: (e) =>
 							new DatabaseError({ message: `Failed to record milestone: ${e}`, cause: e }),
 					})
+
+					// Accrue season points for the milestone reward (allowlisted).
+					yield* accrueSeason(db, userId, 'milestone', milestone.pointsReward)
 				}
 			}
 		}
@@ -357,6 +402,9 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 			const newLevel = getLevelFromXp(newXp)
 			const leveledUp = newLevel !== oldLevel
 
+			// Active season for transaction stamping (null if none / on error).
+			const seasonId = yield* activeSeasonId(db)
+
 			yield* Effect.tryPromise({
 				try: () =>
 					db
@@ -380,10 +428,21 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 						action,
 						description: desc,
 						metadata,
+						seasonId,
 					}),
 				catch: (e) =>
 					new DatabaseError({ message: `Failed to record transaction: ${e}`, cause: e }),
 			})
+
+			// Accrue season points for allowlisted actions (checkin, referral_*,
+			// copy_trade, milestone, streak_bonus). 'swap'/'first_swap_daily' route
+			// through awardSwapPoints instead, so don't double count here. Pass
+			// swapAmountUsd only if this is a 'swap' action (so the MIN_SWAP gate works).
+			const swapUsd =
+				action === 'swap' && typeof metadata?.swapAmountUsd === 'number'
+					? metadata.swapAmountUsd
+					: undefined
+			yield* accrueSeason(db, userId, action, pointAmount, swapUsd)
 
 			if (leveledUp) {
 				yield* Effect.tryPromise({
@@ -394,6 +453,7 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 							action: 'level_up',
 							description: `Leveled up to ${LEVELS[newLevel].name}!`,
 							metadata: { oldLevel, newLevel },
+							seasonId,
 						}),
 					catch: (e) => new DatabaseError({ message: `Failed to record level up: ${e}`, cause: e }),
 				})
@@ -419,7 +479,7 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 			}
 		}),
 
-	awardSwapPoints: (userId: number, swapAmountUsd: number, swapId?: number) =>
+	awardSwapPoints: (userId: number, swapAmountUsd: number, swapId?: number, feeUsd?: number) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(
 				Effect.mapError((e) => new DatabaseError({ message: e.message })),
@@ -438,6 +498,9 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 			const newLevel = getLevelFromXp(newXp)
 			const leveledUp = newLevel !== oldLevel
 			const levelBonus = leveledUp ? POINT_ACTIONS.level_up.points : 0
+
+			// Active season for transaction stamping (null if none / on error).
+			const seasonId = yield* activeSeasonId(db)
 
 			yield* Effect.tryPromise({
 				try: () =>
@@ -468,6 +531,7 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 							description: `Swap volume: $${swapAmountUsd.toFixed(2)}`,
 							swapId,
 							metadata: { swapAmountUsd },
+							seasonId,
 						}),
 					catch: (e) =>
 						new DatabaseError({ message: `Failed to record swap points: ${e}`, cause: e }),
@@ -483,6 +547,7 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 							action: 'first_swap_daily',
 							description: 'First swap of the day bonus',
 							swapId,
+							seasonId,
 						}),
 					catch: (e) =>
 						new DatabaseError({ message: `Failed to record daily bonus: ${e}`, cause: e }),
@@ -498,9 +563,24 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 							action: 'level_up',
 							description: `Leveled up to ${LEVELS[newLevel].name}!`,
 							metadata: { oldLevel, newLevel },
+							seasonId,
 						}),
 					catch: (e) => new DatabaseError({ message: `Failed to record level up: ${e}`, cause: e }),
 				})
+			}
+
+			// Accrue season points. Two separate allowlisted actions with their own
+			// base amounts (no double counting): 'swap' and 'first_swap_daily'.
+			// Season points are FEE-DENOMINATED (Tullock self-funding fix): when
+			// feeUsd is provided the accrual funnel overrides the base to
+			// SEASON_POINTS_PER_FEE_USD * feeUsd, so even sub-$10 swaps (volumePoints
+			// == 0) accrue on fees. volumePoints is only the legacy fallback base when
+			// feeUsd is absent. Gate on either having a fee or volume points.
+			if (feeUsd != null || volumePoints > 0) {
+				yield* accrueSeason(db, userId, 'swap', volumePoints, swapAmountUsd, feeUsd)
+			}
+			if (isFirstSwapToday && dailyBonus > 0) {
+				yield* accrueSeason(db, userId, 'first_swap_daily', dailyBonus)
 			}
 
 			// Get updated user points for milestone check
@@ -572,6 +652,9 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 				catch: (e) => new DatabaseError({ message: `Failed to update checkin: ${e}`, cause: e }),
 			})
 
+			// Active season for transaction stamping (null if none / on error).
+			const seasonId = yield* activeSeasonId(db)
+
 			yield* Effect.tryPromise({
 				try: () =>
 					db.insert(pointTransactions).values({
@@ -580,6 +663,7 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 						action: 'checkin',
 						description: 'Daily check-in',
 						metadata: { streak: newStreak },
+						seasonId,
 					}),
 				catch: (e) => new DatabaseError({ message: `Failed to record checkin: ${e}`, cause: e }),
 			})
@@ -593,6 +677,7 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 							action: 'streak_bonus',
 							description: `${newStreak}-day streak bonus`,
 							metadata: { streak: newStreak },
+							seasonId,
 						}),
 					catch: (e) =>
 						new DatabaseError({ message: `Failed to record streak bonus: ${e}`, cause: e }),
@@ -608,9 +693,19 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 							action: 'level_up',
 							description: `Leveled up to ${LEVELS[newLevel].name}!`,
 							metadata: { oldLevel, newLevel },
+							seasonId,
 						}),
 					catch: (e) => new DatabaseError({ message: `Failed to record level up: ${e}`, cause: e }),
 				})
+			}
+
+			// Accrue season points for the check-in. Two allowlisted actions with
+			// their own base amounts (no double counting): 'checkin' (base) +
+			// 'streak_bonus'. The streak multiplier reads the freshly-updated
+			// dailyStreak above, so the multiplier reflects today's streak.
+			yield* accrueSeason(db, userId, 'checkin', basePoints)
+			if (streakBonus > 0) {
+				yield* accrueSeason(db, userId, 'streak_bonus', streakBonus)
 			}
 
 			// Check streak milestones
@@ -658,6 +753,149 @@ export const PointsServiceLive = Layer.succeed(PointsService, {
 						message: `Insufficient points. Need ${reward.pointsCost}, have ${current.currentPoints}`,
 					}),
 				)
+			}
+
+			// Partner / cash-equivalent redemptions (airline miles, gift cards,
+			// stablecoin cash-out) are NOT enabled: they cross the cash-equivalent line
+			// and require a partner integration + compliance sign-off (see
+			// docs/economics/REDEMPTION_AND_PARTNERS.md). Reject rather than deduct.
+			if (
+				[
+						'partner_transfer',
+						'gift_card',
+						'miles',
+						'cashout',
+						'stablecoin',
+						'travel',
+						'merch',
+						'donation',
+						'experience',
+					].includes(
+					reward.rewardType,
+				)
+			) {
+				return yield* Effect.fail(
+					new ValidationError({ message: 'Partner redemptions are not available yet.' }),
+				)
+			}
+
+			// Subscription rewards grant a REAL tier — money path. The points
+			// deduction, redemption record, and subscription grant all run in ONE
+			// db.transaction so they're atomic (grant failure → no points lost, no
+			// free sub). Spends currentPoints (loyalty wallet) ONLY; never touches
+			// season points. EXTENDS existing expiry + keeps the higher tier.
+			if (reward.rewardType === 'subscription') {
+				const TIER_ORDER = ['free', 'pro', 'premium', 'enterprise']
+				const targetTier = (reward.rewardValue ?? '').toLowerCase()
+				if (!TIER_ORDER.includes(targetTier) || targetTier === 'free') {
+					return yield* Effect.fail(
+						new ValidationError({ message: 'Unknown subscription tier' }),
+					)
+				}
+				const durationDays = reward.durationDays ?? 30
+				const cost = reward.pointsCost
+				const rName = reward.name
+				const rValue = reward.rewardValue
+				const rStock = reward.stock
+
+				const subRedemption = yield* Effect.tryPromise({
+					try: () =>
+						db.transaction(async (tx) => {
+							const upRows = await tx
+								.select()
+								.from(userPoints)
+								.where(eq(userPoints.userId, userId))
+							const up = upRows[0]
+							if (!up || up.currentPoints < cost) {
+								throw new Error('Insufficient points')
+							}
+							await tx
+								.update(userPoints)
+								.set({
+									currentPoints: up.currentPoints - cost,
+									pointsSpent: up.pointsSpent + cost,
+									updatedAt: new Date(),
+								})
+								.where(eq(userPoints.userId, userId))
+
+							const subRows = await tx
+								.select()
+								.from(subscriptions)
+								.where(eq(subscriptions.userId, userId))
+							const sub = subRows[0]
+							const now = new Date()
+							let base = now
+							if (sub?.expiresAt && sub.expiresAt > now) base = sub.expiresAt
+							const newExpiry = new Date(base.getTime() + durationDays * 86400000)
+							const currentTier = (sub?.tier ?? 'free').toLowerCase()
+							const newTier =
+								TIER_ORDER.indexOf(targetTier) >= TIER_ORDER.indexOf(currentTier)
+									? targetTier
+									: currentTier
+
+							await tx
+								.insert(subscriptions)
+								.values({
+									userId,
+									tier: newTier,
+									startedAt: sub?.startedAt ?? now,
+									expiresAt: newExpiry,
+								})
+								.onConflictDoUpdate({
+									target: subscriptions.userId,
+									set: {
+										tier: newTier,
+										startedAt: sub?.startedAt ?? now,
+										expiresAt: newExpiry,
+										updatedAt: now,
+									},
+								})
+
+							const red = await tx
+								.insert(pointRedemptions)
+								.values({
+									userId,
+									rewardId,
+									pointsSpent: cost,
+									rewardType: 'subscription',
+									rewardValue: rValue,
+									status: 'completed',
+									completedAt: now,
+									expiresAt: newExpiry,
+								})
+								.returning()
+
+							await tx.insert(pointTransactions).values({
+								userId,
+								amount: -cost,
+								action: 'redemption',
+								description: `Redeemed: ${rName}`,
+								metadata: {
+									rewardId,
+									rewardType: 'subscription',
+									tier: newTier,
+									expiresAt: newExpiry.toISOString(),
+								},
+							})
+
+							if (rStock !== null) {
+								await tx
+									.update(rewards)
+									.set({ stock: rStock - 1 })
+									.where(eq(rewards.id, rewardId))
+							}
+							return red[0]
+						}),
+					catch: (e) =>
+						new DatabaseError({ message: `Subscription redemption failed: ${e}`, cause: e }),
+				})
+
+				if (!subRedemption) {
+					return yield* Effect.fail(
+						new DatabaseError({ message: 'Subscription redemption: no row returned' }),
+					)
+				}
+				return subRedemption
 			}
 
 			const expiresAt = reward.durationDays

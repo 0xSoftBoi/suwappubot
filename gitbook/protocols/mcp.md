@@ -50,7 +50,7 @@ Before calling any tools, initialize the MCP session:
     },
     "serverInfo": {
       "name": "suwappu",
-      "version": "0.5.0"
+      "version": "0.6.0"
     }
   }
 }

@@ -31,6 +31,12 @@ HYPE_WEI_DECIMALS = 8
 # Hyperliquidity Provider — the flagship community vault, surfaced first in /vault.
 HLP_VAULT_ADDRESS = "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303"
 
+# Universal safety ceiling for get_market_max_leverage()'s fallback value. No
+# HyperLiquid market currently allows more than 50x; this bounds any
+# caller-supplied fallback so a bad/legacy call site can never hand back an
+# unbounded leverage cap when meta is unavailable.
+MAX_SAFE_FALLBACK_LEVERAGE = 50
+
 
 def hype_to_wei(amount: float) -> int:
     """Convert a HYPE amount to the integer ``wei`` units staking actions expect."""
@@ -95,6 +101,7 @@ class HyperLiquidClient:
         self._client: Optional[httpx.AsyncClient] = None
         self._asset_index_cache: dict[str, int] = {}
         self._asset_sz_decimals: dict[str, int] = {}
+        self._asset_max_leverage: dict[str, int] = {}  # per-market maxLeverage from HL meta
         self._asset_index_fetched_at: float = 0.0
         self._spot_meta: dict = {}
         self._spot_meta_fetched_at: float = 0.0
@@ -140,6 +147,38 @@ class HyperLiquidClient:
             logger.error(f"Failed to get HyperLiquid markets: {e}")
             return []
 
+    async def get_market_max_leverage(self, asset: str, fallback: int = 20) -> int:
+        """Return HyperLiquid's per-market ``maxLeverage`` for ``asset``.
+
+        Reads from the already-cached meta universe (populated by
+        ``_resolve_asset_index``).  If the cache is cold or the asset is
+        unknown, triggers a meta fetch and returns the value; if the fetch
+        fails, returns ``fallback`` so callers still get a safe cap.
+
+        Args:
+            asset: The coin name as it appears in HL meta (e.g. ``"ETH"``).
+            fallback: Value to return when the market is unknown or meta is
+                      unavailable. Default 20 is deliberately conservative so a
+                      meta outage cannot let a user exceed a low-cap market's
+                      real limit; normal operation uses the per-market value.
+        """
+        # Defensively clamp the caller-supplied fallback so even a bad/legacy
+        # call site (e.g. passing 100) can never exceed a universally-safe
+        # ceiling when meta is unavailable. Per-market lookups below are
+        # unaffected — this only bounds the "meta is down" escape hatch.
+        safe_fallback = min(int(fallback), MAX_SAFE_FALLBACK_LEVERAGE) if fallback else fallback
+
+        # Ensure the cache is populated (it may already be warm).
+        try:
+            await self._resolve_asset_index(asset)
+        except Exception:
+            pass  # unknown asset — fall through to fallback below
+
+        max_lev = self._asset_max_leverage.get(asset)
+        if max_lev and max_lev > 0:
+            return max_lev
+        return safe_fallback
+
     async def get_mark_price(self, market: str) -> Optional[float]:
         """Get current mark price for a market."""
         try:
@@ -182,6 +221,11 @@ class HyperLiquidClient:
                     "margin_summary": data.get("marginSummary", {}),
                     "positions": data.get("assetPositions", []),
                     "cross_margin_summary": data.get("crossMarginSummary", {}),
+                    # Top-level clearinghouseState fields needed for account health.
+                    "maintenance_margin_used": float(
+                        data.get("crossMaintenanceMarginUsed", 0) or 0
+                    ),
+                    "withdrawable": float(data.get("withdrawable", 0) or 0),
                 }
             return None
         except Exception as e:
@@ -383,6 +427,44 @@ class HyperLiquidClient:
         except Exception as e:
             logger.error(f"Failed to cancel order: {e}")
             return False
+
+    async def get_open_orders(self, address: str) -> list[dict]:
+        """Return the user's resting (open) orders via ``frontendOpenOrders``.
+
+        ``frontendOpenOrders`` is richer than ``openOrders`` — it includes the
+        order type and trigger info, so resting limits and TP/SL triggers are
+        distinguishable in the UI. ``side`` is HL's "B"/"A" (buy/sell).
+        """
+        try:
+            client = await self._get_client()
+            response = await client.post(
+                self.INFO_URL,
+                json={"type": "frontendOpenOrders", "user": address},
+            )
+            if response.status_code != 200:
+                return []
+
+            orders = []
+            for o in response.json() or []:
+                trigger_px = o.get("triggerPx")
+                orders.append(
+                    {
+                        "order_id": str(o.get("oid", "")),
+                        "market": o.get("coin", "") + "-USD",
+                        "side": "buy" if o.get("side") == "B" else "sell",
+                        "size": float(o.get("sz", 0) or 0),
+                        "price": float(o.get("limitPx", 0) or 0),
+                        "order_type": o.get("orderType", "Limit"),
+                        "reduce_only": bool(o.get("reduceOnly", False)),
+                        "is_trigger": bool(o.get("isTrigger", False)),
+                        "trigger_price": float(trigger_px) if trigger_px else None,
+                        "timestamp": o.get("timestamp"),
+                    }
+                )
+            return orders
+        except Exception as e:
+            logger.error(f"Failed to get open orders: {e}")
+            return []
 
     async def approve_builder_fee(
         self,
@@ -1251,6 +1333,11 @@ class HyperLiquidClient:
                             info.get("name"): int(info.get("szDecimals", 2))
                             for info in universe
                             if info.get("name")
+                        }
+                        self._asset_max_leverage = {
+                            info.get("name"): int(info.get("maxLeverage", 0))
+                            for info in universe
+                            if info.get("name") and info.get("maxLeverage")
                         }
                         self._asset_index_fetched_at = now
             except Exception as e:

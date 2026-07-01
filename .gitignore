@@ -20,6 +20,10 @@ terminal/qa-screenshots/
 terminal/storybook-static/
 webapp/dist/
 
+# extension
+extension/dist/
+extension/node_modules/
+
 # local dev venv
 .venv/
 
@@ -32,3 +36,4 @@ contracts/crytic-export/
 contracts/slither_results.json
 .venv-test/
 .claude/settings.local.json
+contracts/lib/openzeppelin-contracts/package-lock.json

@@ -1,10 +1,9 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { WagmiProvider } from 'wagmi'
-import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit'
-import '@rainbow-me/rainbowkit/styles.css'
-import { config as wagmiConfig } from './lib/wagmi'
+// wagmi + RainbowKit are mounted inside AuthProvider (see AuthContext) so the
+// wallet-connect feature is self-contained. They must NOT be mounted here too —
+// a second WagmiProvider/RainbowKitProvider would nest providers.
 import { AuthProvider } from './contexts/AuthContext'
 import { BottomTabProvider } from './contexts/BottomTabContext'
 import { HotkeysProvider } from './contexts/HotkeysContext'
@@ -13,6 +12,12 @@ import { PairProvider } from './contexts/PairContext'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { App } from './App'
 import './index.css'
+
+// Dev-only API fixtures for screenshots / design work (VITE_MOCK=1). No-op in prod.
+if (import.meta.env.DEV && import.meta.env.VITE_MOCK) {
+  const { installDevMock } = await import('./lib/devMock')
+  installDevMock()
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -26,24 +31,20 @@ const queryClient = new QueryClient({
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <WagmiProvider config={wagmiConfig}>
-      <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider theme={darkTheme({ accentColor: '#ec4899', borderRadius: 'small' })}>
-          <AuthProvider>
-            <PairProvider>
-              <BottomTabProvider>
-                <TradingProvider>
-                  <HotkeysProvider>
-                    <ErrorBoundary>
-                      <App />
-                    </ErrorBoundary>
-                  </HotkeysProvider>
-                </TradingProvider>
-              </BottomTabProvider>
-            </PairProvider>
-          </AuthProvider>
-        </RainbowKitProvider>
-      </QueryClientProvider>
-    </WagmiProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <PairProvider>
+          <BottomTabProvider>
+            <TradingProvider>
+              <HotkeysProvider>
+                <ErrorBoundary>
+                  <App />
+                </ErrorBoundary>
+              </HotkeysProvider>
+            </TradingProvider>
+          </BottomTabProvider>
+        </PairProvider>
+      </AuthProvider>
+    </QueryClientProvider>
   </React.StrictMode>,
 )

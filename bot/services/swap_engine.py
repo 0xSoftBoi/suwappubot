@@ -29,6 +29,7 @@ import base64
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.services.spending_limits import spending_limit_service
+from bot.services.compliance import compliance_service, flashbots_relay
 from bot.utils.cache import quote_cache
 from bot.utils.performance import track_time, MetricNames
 from bot.config.chains import CHAINS, ChainType, apply_min_gas_price, get_chain_by_name
@@ -146,6 +147,12 @@ def _parse_int(value, default: int = 0) -> int:
             return int(value, 16)
         return int(value)
     return default
+
+
+# On-chain decimals cache for raw-address destination tokens (paste-to-trade).
+# Keyed by (chain_name, address) — decimals are intrinsic to the token, so this
+# never needs invalidation.
+_ONCHAIN_DECIMALS_CACHE: dict[tuple[str, str], int] = {}
 
 
 class SwapEngine:
@@ -368,6 +375,113 @@ class SwapEngine:
         if USE_CPP_CORE:
             return suwappu_core.to_human_amount(amount_raw, decimals)
         return int(amount_raw) / (10**decimals)
+
+    @staticmethod
+    def _looks_like_raw_token(token: str) -> bool:
+        """True when ``token`` is a raw contract address, not a registry symbol.
+
+        Mirrors the passthrough rule in tokens.get_token_address: a 0x-hex
+        address (>=42 chars) or a >=32-char base58 mint. For these, the registry
+        decimals lookup falls back to 18, which mis-scales the human display of
+        any token with different decimals (e.g. 6-dp USDC) — see
+        _correct_destination_decimals.
+        """
+        if not token:
+            return False
+        return (token.startswith("0x") and len(token) >= 42) or len(token) >= 32
+
+    async def _resolve_onchain_decimals(self, address: str, chain_name: str) -> Optional[int]:
+        """Read a token's real decimals on-chain (cached). None on any failure.
+
+        Used to correct the displayed receive-amount when a token is bought by
+        raw address (paste-to-trade) and its decimals aren't in the registry.
+        """
+        key = (chain_name.lower(), address.lower())
+        if key in _ONCHAIN_DECIMALS_CACHE:
+            return _ONCHAIN_DECIMALS_CACHE[key]
+        try:
+            cfg = get_chain_by_name(chain_name)
+            if cfg is None:
+                return None
+            if cfg.chain_type == ChainType.EVM:
+
+                def _read() -> int:
+                    w3 = rpc_manager.get_web3(chain_name)
+                    contract = w3.eth.contract(
+                        address=Web3.to_checksum_address(address),
+                        abi=[
+                            {
+                                "constant": True,
+                                "inputs": [],
+                                "name": "decimals",
+                                "outputs": [{"name": "", "type": "uint8"}],
+                                "stateMutability": "view",
+                                "type": "function",
+                            }
+                        ],
+                    )
+                    return int(contract.functions.decimals().call())
+
+                dec = await asyncio.to_thread(_read)
+            elif cfg.chain_type == ChainType.SOLANA:
+                dec = await self._solana_mint_decimals(address)
+            else:
+                return None
+            if dec is not None and 0 <= dec <= 36:
+                _ONCHAIN_DECIMALS_CACHE[key] = dec
+                return dec
+        except Exception as e:
+            logger.debug(f"on-chain decimals read failed for {address}@{chain_name}: {e}")
+        return None
+
+    async def _solana_mint_decimals(self, mint: str) -> Optional[int]:
+        """Read an SPL mint's decimals via getTokenSupply. None on failure."""
+        try:
+            url = rpc_manager.get_rpc_url("solana")
+            payload = {"jsonrpc": "2.0", "id": 1, "method": "getTokenSupply", "params": [mint]}
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url, json=payload, timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
+                    data = await resp.json()
+            return int(data["result"]["value"]["decimals"])
+        except Exception as e:
+            logger.debug(f"solana mint decimals read failed for {mint}: {e}")
+            return None
+
+    async def _correct_destination_decimals(
+        self, quote, to_token: str, to_chain: str, amount: float
+    ):
+        """Fix the displayed receive-amount for a token bought by raw address.
+
+        Providers convert the raw output amount to human using the registry
+        decimals, which default to 18 for a raw address — so a 6-dp token shows
+        a wildly wrong "you receive" figure (execution is unaffected; it uses the
+        raw amounts). When the destination is a raw address, read its true
+        decimals on-chain and rescale to_amount_human + exchange_rate. Ranking is
+        unaffected (all providers mis-scaled identically), so correcting the
+        chosen quote is sufficient. Never raises — display-only best effort.
+        """
+        try:
+            if not self._looks_like_raw_token(to_token):
+                return quote
+            real = await self._resolve_onchain_decimals(to_token, to_chain)
+            if real is None:
+                return quote
+            assumed = get_token_decimals(to_token, to_chain)
+            if real == assumed:
+                return quote
+            corrected = int(quote.to_amount) / (10**real)
+            quote.to_amount_human = corrected
+            if amount and amount > 0:
+                quote.exchange_rate = corrected / amount
+            logger.info(
+                f"Corrected receive-amount decimals for {to_token[:10]}… on "
+                f"{to_chain}: {assumed} -> {real}"
+            )
+        except Exception as e:
+            logger.debug(f"destination decimals correction skipped: {e}")
+        return quote
 
     def _approval_amount(self, swap_amount: int) -> int:
         """Resolve the ERC-20 approval amount per the configured approval policy.
@@ -850,6 +964,13 @@ class SwapEngine:
         # (CCTP's 1:1 is genuine — native USDC, zero fee — so it stays in the race.)
         ranked = [q for q in quotes if q.provider != "wormhole"] or quotes
         best = max(ranked, key=lambda q: q.to_amount_human)
+
+        # Fix the displayed receive-amount when buying a token by raw address
+        # (its real decimals aren't in the registry). Done after ranking — all
+        # providers mis-scaled identically, so the winner is unchanged — and
+        # before caching so every consumer sees the corrected figure.
+        best = await self._correct_destination_decimals(best, to_token, to_chain, amount)
+
         if len(quotes) > 1:
             logger.info(
                 f"Best quote: {best.provider} ({best.to_amount_human:.6f} {best.to_token}) "
@@ -2484,6 +2605,35 @@ class SwapEngine:
                     f"no USD price for {quote.from_token}"
                 )
 
+            # Compliance screening (UBS × Nethermind PoC model): screen the
+            # addresses this swap will touch — recipient, router/bridge contract
+            # and token contracts — against the allow/block lists before any
+            # funds move. No-op unless compliance_mode is monitor/enforce, and
+            # only EVM (0x…) addresses are screened. See
+            # docs/architecture/compliance-screening.md.
+            if compliance_service.enabled:
+                raw_q = quote.raw_quote or {}
+                recipient = (
+                    raw_q.get("recipient")
+                    or raw_q.get("receiver")
+                    or raw_q.get("toAddress")
+                    or wallet_address
+                )
+                router = (
+                    raw_q.get("router_address")
+                    or raw_q.get("router")
+                    or raw_q.get("to")
+                    or getattr(quote, "router_address", None)
+                )
+                compliance_result = compliance_service.screen(
+                    recipient=recipient,
+                    router=router,
+                    tokens=[quote.from_token, quote.to_token],
+                    chain=quote.from_chain,
+                )
+                if not compliance_result.allowed:
+                    raise SwapError(f"🚫 {compliance_result.reason}")
+
             # Validate balance
             await quote_validator.validate_balance(
                 wallet_id=wallet_id,
@@ -2957,12 +3107,41 @@ class SwapEngine:
             "chainId": chain.chain_id,
         }
 
-        # Sign and send
+        # Sign and send (routes privately via Flashbots relay when configured;
+        # falls back to public RPC on any relay error).
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        tx_hash = await asyncio.to_thread(
-            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
-        )
+        return await self._broadcast_evm_tx(web3, signed_tx_hex, chain)
 
+    async def _broadcast_evm_tx(self, web3: Web3, signed_tx_hex: str, chain) -> str:
+        """Broadcast a signed EVM tx, routing privately when configured.
+
+        Compliant routing (UBS × Nethermind PoC, stage 2): when
+        ``compliance_routing_enabled`` and the chain has a Flashbots-compatible
+        relay, submit the tx privately to block builders via
+        ``eth_sendPrivateTransaction``. Any relay error falls back to the public
+        ``send_raw_transaction`` path, so routing can never break a swap.
+
+        Returns the 0x-prefixed transaction hash.
+        """
+        raw_bytes = bytes.fromhex(signed_tx_hex.replace("0x", ""))
+        chain_id = getattr(chain, "chain_id", None)
+
+        if isinstance(chain_id, int) and flashbots_relay.should_route(chain_id):
+            try:
+                current_block = await asyncio.to_thread(lambda: web3.eth.block_number)
+            except Exception:
+                current_block = None
+            result = await flashbots_relay.send_private_transaction(
+                signed_tx_hex, chain_id, current_block
+            )
+            if result.submitted and result.tx_hash:
+                return result.tx_hash
+            logger.warning(
+                "Private routing unavailable (%s); falling back to public RPC",
+                result.error,
+            )
+
+        tx_hash = await asyncio.to_thread(lambda: web3.eth.send_raw_transaction(raw_bytes))
         return tx_hash.hex()
 
     @staticmethod

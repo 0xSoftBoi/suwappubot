@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
-import type { HLMarket } from '../../types/api'
+import type { HLMarket, PerpsMarketContext } from '../../types/api'
 import { usePerpsFunding, formatFundingPct } from '../../hooks/usePerpsFunding'
+import { usePerpsContext } from '../../hooks/usePerpsContext'
 
 interface Props {
   selectedMarket: string
@@ -12,11 +13,29 @@ interface Props {
 // Funding cell uses the shared funding hook so the rate matches the order ticket.
 function FundingCell({ market }: { market: HLMarket }) {
   const funding = usePerpsFunding(market)
+  const positive = funding.hourlyRate >= 0
   return (
-    <span className={`font-mono ${funding.hourlyRate >= 0 ? 'text-bull' : 'text-bear'}`}>
+    <span
+      className={`inline-block rounded px-1.5 py-0.5 font-mono text-[11px] tabular-nums ${
+        positive ? 'bg-bull-dim text-bull' : 'bg-bear-dim text-bear'
+      }`}
+    >
       {formatFundingPct(funding.hourlyRate)}
     </span>
   )
+}
+
+function formatMark(n: number) {
+  if (n >= 1000) return n.toLocaleString('en-US', { maximumFractionDigits: 2 })
+  if (n >= 1) return n.toFixed(2)
+  return n.toPrecision(4)
+}
+
+function formatUsd(n: number) {
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(0)}M`
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`
+  return `$${n.toFixed(0)}`
 }
 
 // The full HyperLiquid markets board — every perp with live mark, funding and max
@@ -30,13 +49,30 @@ export function PerpsMarketsBoard({ selectedMarket, onSelectMarket }: Props) {
     staleTime: 15_000,
     refetchInterval: 20_000,
   })
+  const { data: context } = usePerpsContext()
 
+  // Index the intel feed by bare asset symbol for O(1) per-row lookup.
+  const ctxByAsset = useMemo(() => {
+    const map = new Map<string, PerpsMarketContext>()
+    for (const c of context ?? []) map.set(c.asset, c)
+    return map
+  }, [context])
+
+  const ctxFor = (name: string) => ctxByAsset.get(name.replace('-USD', '').toUpperCase())
+
+  // Default to heaviest markets first (open interest) — what traders scan for.
+  // Falls back to mark price before the intel feed lands.
   const filtered = useMemo(() => {
     const list = markets ?? []
     const q = search.trim().toUpperCase()
     const matched = q ? list.filter((m) => m.name.toUpperCase().includes(q)) : list
-    return [...matched].sort((a, b) => b.markPrice - a.markPrice)
-  }, [markets, search])
+    return [...matched].sort((a, b) => {
+      const oiA = ctxByAsset.get(a.name.replace('-USD', '').toUpperCase())?.oiNotional
+      const oiB = ctxByAsset.get(b.name.replace('-USD', '').toUpperCase())?.oiNotional
+      if (oiA != null && oiB != null) return oiB - oiA
+      return b.markPrice - a.markPrice
+    })
+  }, [markets, search, ctxByAsset])
 
   return (
     <div className="flex h-full flex-col">
@@ -64,6 +100,8 @@ export function PerpsMarketsBoard({ selectedMarket, onSelectMarket }: Props) {
               <tr className="text-terminal-text-muted border-b border-terminal-border">
                 <th className="text-left py-1.5 px-3 font-medium">Market</th>
                 <th className="text-right py-1.5 px-3 font-medium">Mark</th>
+                <th className="text-right py-1.5 px-3 font-medium">24h</th>
+                <th className="text-right py-1.5 px-3 font-medium">OI</th>
                 <th className="text-right py-1.5 px-3 font-medium">Funding/1h</th>
                 <th className="text-right py-1.5 px-3 font-medium">Max Lev</th>
               </tr>
@@ -71,26 +109,54 @@ export function PerpsMarketsBoard({ selectedMarket, onSelectMarket }: Props) {
             <tbody>
               {filtered.map((m) => {
                 const active = m.name === selectedMarket
+                const ctx = ctxFor(m.name)
+                const chg = ctx?.dayChangePct
                 return (
                   <tr
                     key={m.name}
                     onClick={() => onSelectMarket(m.name)}
-                    className={`cursor-pointer border-b border-terminal-border/40 transition-colors
+                    className={`group cursor-pointer border-b border-terminal-border/40 transition-colors
                       ${active ? 'bg-sakura-500/10' : 'hover:bg-terminal-bg-tertiary/50'}`}
                   >
-                    <td className="py-1.5 px-3">
-                      <span
-                        className={`font-medium ${active ? 'text-sakura-400' : 'text-terminal-text'}`}
-                      >
-                        {m.name}
+                    <td className="py-2 px-3">
+                      <span className="flex items-center gap-2">
+                        <span
+                          className={`h-3.5 w-0.5 rounded-full transition-colors ${
+                            active ? 'bg-sakura-500' : 'bg-transparent group-hover:bg-terminal-border-active'
+                          }`}
+                        />
+                        <span
+                          className={`font-semibold ${active ? 'text-sakura-600' : 'text-terminal-text'}`}
+                        >
+                          {m.name.replace('-USD', '')}
+                        </span>
+                        <span className="text-[10px] text-terminal-text-muted">USD</span>
                       </span>
                     </td>
-                    <td className="py-1.5 px-3 text-right font-mono">${m.markPrice.toFixed(2)}</td>
-                    <td className="py-1.5 px-3 text-right">
+                    <td className="py-2 px-3 text-right font-mono tabular-nums text-terminal-text">
+                      ${formatMark(ctx?.markPrice ?? m.markPrice)}
+                    </td>
+                    <td
+                      className={`py-2 px-3 text-right font-mono tabular-nums ${
+                        chg == null
+                          ? 'text-terminal-text-muted'
+                          : chg >= 0
+                            ? 'text-bull'
+                            : 'text-bear'
+                      }`}
+                    >
+                      {chg == null ? '—' : `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`}
+                    </td>
+                    <td className="py-2 px-3 text-right font-mono tabular-nums text-terminal-text-secondary">
+                      {ctx ? formatUsd(ctx.oiNotional) : '—'}
+                    </td>
+                    <td className="py-2 px-3 text-right">
                       <FundingCell market={m} />
                     </td>
-                    <td className="py-1.5 px-3 text-right font-mono text-terminal-text-secondary">
-                      {m.maxLeverage}x
+                    <td className="py-2 px-3 text-right">
+                      <span className="rounded bg-terminal-bg-tertiary/70 px-1.5 py-0.5 font-mono text-[10px] text-terminal-text-secondary">
+                        {m.maxLeverage}×
+                      </span>
                     </td>
                   </tr>
                 )

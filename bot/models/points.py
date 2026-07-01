@@ -35,7 +35,6 @@ from sqlalchemy.orm import relationship
 
 from database.db import Base
 
-
 # Level thresholds and perks.
 # ``fee`` is an ASPIRATIONAL roadmap target, NOT the charged rate. The fee
 # actually charged comes from the subscription tier in fee_service.TIER_FEE_RATES.
@@ -61,7 +60,21 @@ POINT_ACTIONS = {
     "streak_bonus": {"points": 5, "per_day": True, "description": "Streak bonus per day"},
     "copy_trade": {"points": 10, "description": "Copy a trade"},
     "get_copied": {"points": 5, "description": "Someone copies your trade"},
+    # Whole-product earn actions (parity with swaps). Volume/notional actions use
+    # `per` so the caller passes amount = notional_usd / per (mirrors the swap rule).
+    # Season accrual for the fee-bearing ones is fee-denominated (wash-proof) when
+    # the award carries `fee_usd` in metadata — see seasons.SEASON_POINT_ACTION_ALLOWLIST.
+    "perps_trade": {"points": 1, "per": 10, "description": "1 point per $10 perps notional"},
+    "predict_trade": {"points": 1, "per": 10, "description": "1 point per $10 prediction volume"},
+    "predict_win": {"points": 50, "description": "Winning prediction settles"},
+    "p2p_trade": {"points": 1, "per": 10, "description": "1 point per $10 P2P trade value"},
 }
+
+# Redemption pricing: how many current_points equal $1 of redemption value.
+# 200 pts/$ == 1 point ≈ $0.005 (0.5¢) — deliberately conservative vs the ~1¢/point
+# loyalty-industry baseline, to limit breakage liability. Used to price subscription
+# (and future partner) redemptions. Reward `points_cost` = round(price_usd * this).
+REDEMPTION_POINTS_PER_USD = 200
 
 
 class UserPoints(Base):
@@ -157,6 +170,10 @@ class PointTransaction(Base):
     swap_id = Column(Integer, ForeignKey("swap_transactions.id"), nullable=True)
     referral_id = Column(Integer, nullable=True)
 
+    # Season the earn was stamped against (convertible-points audit). Nullable —
+    # set to the active season id when one exists at award time.
+    season_id = Column(Integer, nullable=True)
+
     # Additional data
     extra_data = Column(JSON, nullable=True)  # Extra info like swap amount, etc.
 
@@ -250,6 +267,12 @@ class Reward(Base):
     points_cost = Column(Integer, nullable=False)
     reward_type = Column(String(50), nullable=False)  # "fee_discount", "gas_rebate", "raffle"
     reward_value = Column(String(255), nullable=False)  # "0.5" for 0.5% fee, "5" for $5 gas, etc.
+
+    # Marketplace category — routes redemption to the right fulfillment path.
+    # own_product (default; subscriptions/fee-discounts/etc. — synchronous, our product),
+    # or an async marketplace category: gift_card|travel|merch|donation|crypto|experience.
+    # Existing catalog items stay 'own_product'; see bot/services/reward_providers.py.
+    reward_category = Column(String(30), nullable=False, default="own_product")
 
     # Availability
     is_active = Column(Boolean, default=True)
@@ -394,5 +417,35 @@ DEFAULT_REWARDS = [
         "reward_type": "raffle",
         "reward_value": "1",
         "emoji": "🎟️",
+    },
+    # Subscription redemptions — spend the current_points wallet for a tier grant.
+    # Priced at REDEMPTION_POINTS_PER_USD against the real monthly price (loyalty rebate
+    # on our OWN product — lowest-regulatory-risk redemption). Does NOT touch season points.
+    {
+        "name": "1 Month PRO",
+        "description": "Redeem points for 30 days of PRO (0.5% fees)",
+        "points_cost": 2000,  # $9.99 × 200 pts/$ ≈ 2000
+        "reward_type": "subscription",
+        "reward_value": "pro",
+        "duration_days": 30,
+        "emoji": "🥈",
+    },
+    {
+        "name": "1 Month PREMIUM",
+        "description": "Redeem points for 30 days of PREMIUM (0.3% fees)",
+        "points_cost": 6000,  # $29.99 × 200 pts/$ ≈ 6000
+        "reward_type": "subscription",
+        "reward_value": "premium",
+        "duration_days": 30,
+        "emoji": "🥇",
+    },
+    {
+        "name": "1 Month ENTERPRISE",
+        "description": "Redeem points for 30 days of ENTERPRISE (0.1% fees)",
+        "points_cost": 20000,  # $99.99 × 200 pts/$ ≈ 20000
+        "reward_type": "subscription",
+        "reward_value": "enterprise",
+        "duration_days": 30,
+        "emoji": "👑",
     },
 ]

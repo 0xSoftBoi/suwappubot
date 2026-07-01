@@ -52,7 +52,7 @@ export const AnimatedButton = forwardRef<HTMLButtonElement, AnimatedButtonProps>
     ref
   ) => {
     const baseStyles =
-      'inline-flex items-center justify-center font-heading font-semibold rounded-suwappu-pill transition-all focus:outline-none focus:ring-2 focus:ring-offset-2'
+      'inline-flex items-center justify-center font-heading font-semibold rounded-suwappu-pill transition-all focus:outline-hidden focus:ring-2 focus:ring-offset-2'
 
     const variantStyles = {
       primary:
@@ -97,9 +97,9 @@ export const AnimatedButton = forwardRef<HTMLButtonElement, AnimatedButtonProps>
           />
         ) : (
           <>
-            {leftIcon && <span className="flex-shrink-0">{leftIcon}</span>}
+            {leftIcon && <span className="shrink-0">{leftIcon}</span>}
             {children}
-            {rightIcon && <span className="flex-shrink-0">{rightIcon}</span>}
+            {rightIcon && <span className="shrink-0">{rightIcon}</span>}
           </>
         )}
       </motion.button>
@@ -169,7 +169,7 @@ export function Confetti({
           {confetti.map((piece) => (
             <motion.div
               key={piece.id}
-              className="absolute w-3 h-3 rounded-sm"
+              className="absolute w-3 h-3 rounded-xs"
               style={{
                 left: `${piece.x}%`,
                 top: -20,

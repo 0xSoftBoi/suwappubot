@@ -29,6 +29,7 @@ from bot.config.tokens import TOKENS
 from bot.config.settings import settings
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction
+from bot.models.support import SupportTicket, TicketKind, TicketStatus
 from database.db import get_session
 from bot.services.turnkey_client import (
     generate_auth_challenge,
@@ -167,6 +168,30 @@ async def get_terminal_auth_payload(
 
 
 # --- Models ---
+
+
+class EnterpriseLeadRequest(BaseModel):
+    """Inbound enterprise/sales lead from the website "Talk to the team" form.
+
+    Public (no auth) — anyone on the marketing site can submit. Kept minimal and
+    qualification-oriented per high-converting B2B form practice (no phone field).
+    ``website`` is a hidden honeypot: real users leave it blank; bots fill it.
+    """
+
+    name: str
+    company: str
+    email: str
+    country: Optional[str] = None
+    monthly_volume: Optional[str] = None
+    use_case: Optional[str] = None
+    telegram: Optional[str] = None
+    website: Optional[str] = None  # honeypot — must stay empty
+
+
+class EnterpriseLeadResponse(BaseModel):
+    ok: bool
+    id: Optional[int] = None
+    error: Optional[str] = None
 
 
 class TelegramUser(BaseModel):
@@ -1015,6 +1040,118 @@ async def validate_webapp(
         return ValidateResponse(valid=False)
 
     return ValidateResponse(valid=True, user=TelegramUser(**user_data) if user_data else None)
+
+
+@router.post("/enterprise-lead", response_model=EnterpriseLeadResponse)
+async def submit_enterprise_lead(payload: EnterpriseLeadRequest):
+    """Capture an inbound enterprise/sales lead from the marketing site.
+
+    Public, no auth. Persists the lead as a ``SupportTicket`` of kind
+    ``enterprise_lead`` so the existing support_notifier fans it out to admins,
+    the support group, and Linear within its poll interval (instant routing =
+    the #1 conversion lever). Returns ``{ok: true, id}`` on success.
+    """
+    # Honeypot: bots fill the hidden "website" field; humans never see it.
+    if (payload.website or "").strip():
+        # Pretend success so the bot doesn't retry, but persist nothing.
+        return EnterpriseLeadResponse(ok=True)
+
+    name = (payload.name or "").strip()
+    company = (payload.company or "").strip()
+    email = (payload.email or "").strip()
+
+    if not name or not company or not email:
+        raise HTTPException(status_code=422, detail="Name, company, and work email are required.")
+    # Lightweight email sanity check (full validation happens on follow-up).
+    if "@" not in email or "." not in email.split("@")[-1] or len(email) > 254:
+        raise HTTPException(status_code=422, detail="Please enter a valid work email.")
+
+    # Trim every free-text field to keep one bad actor from filling the DB.
+    def _clip(v: Optional[str], n: int) -> Optional[str]:
+        v = (v or "").strip()
+        return v[:n] if v else None
+
+    country = _clip(payload.country, 80)
+    monthly_volume = _clip(payload.monthly_volume, 80)
+    use_case = _clip(payload.use_case, 2000)
+    telegram = _clip(payload.telegram, 120)
+
+    # Human-readable body for the Telegram/Linear alert.
+    lines = [
+        f"Name: {name[:200]}",
+        f"Company: {company[:200]}",
+        f"Email: {email}",
+    ]
+    if country:
+        lines.append(f"Country: {country}")
+    if monthly_volume:
+        lines.append(f"Monthly volume: {monthly_volume}")
+    if telegram:
+        lines.append(f"Telegram: {telegram}")
+    if use_case:
+        lines.append(f"\nUse case:\n{use_case}")
+    message = "\n".join(lines)
+
+    context = {
+        "name": name[:200],
+        "company": company[:200],
+        "email": email,
+        "country": country,
+        "monthly_volume": monthly_volume,
+        "telegram": telegram,
+        "use_case": use_case,
+    }
+
+    try:
+        with get_session() as session:
+            ticket = SupportTicket(
+                kind=TicketKind.ENTERPRISE_LEAD,
+                source="website",
+                category="enterprise",
+                priority="high",
+                username=None,
+                telegram_id=None,
+                message=message,
+                context_json=json.dumps(context),
+                status=TicketStatus.OPEN,
+            )
+            session.add(ticket)
+            session.commit()
+            lead_id = ticket.id
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to persist enterprise lead")
+        raise HTTPException(status_code=500, detail="Could not submit right now. Please try again.")
+
+    logger.info("Enterprise lead #%s captured from %s (%s)", lead_id, company[:80], email)
+    return EnterpriseLeadResponse(ok=True, id=lead_id)
+
+
+@router.get("/billing/stripe/checkout")
+async def webapp_stripe_checkout(
+    tier: str = Query(..., description="Subscription tier: pro or premium"),
+    user: TelegramUser = Depends(get_telegram_user),
+):
+    """Create a Stripe card-checkout session for the authenticated webapp user.
+
+    Stripe is owned by api-ts (checkout + webhook). We proxy there server-to-server
+    and return the checkout URL so the Mini App can open it via WebApp.openLink.
+    """
+    from bot.services.api_client import api_client, APIClientError
+
+    if tier not in ("pro", "premium"):
+        raise HTTPException(status_code=400, detail="Invalid tier. Must be pro or premium.")
+
+    try:
+        session = await api_client.create_stripe_checkout(user.id, tier)
+    except APIClientError as e:
+        logger.warning("[webapp] Stripe checkout unavailable: %s", e)
+        raise HTTPException(status_code=502, detail="Card payments are temporarily unavailable.")
+
+    url = session.get("url")
+    if not url:
+        raise HTTPException(status_code=502, detail="Card payments are temporarily unavailable.")
+
+    return {"url": url}
 
 
 def _token_response(symbol: str, token, chain: str) -> Optional[WebAppToken]:
@@ -3112,3 +3249,324 @@ async def webapp_points_leaderboard(request: Request, limit: int = Query(default
     from api.routes.mobile import get_leaderboard
 
     return await get_leaderboard(request, limit)
+
+
+# ---------------------------------------------------------------------------
+# Battle endpoints
+# ---------------------------------------------------------------------------
+# Auth: X-Telegram-Init-Data header, validated via validate_telegram_init_data.
+# User is resolved from init_data's telegram id — never from the request body.
+# Money-path safety lives in battle_service (already reviewed); these endpoints
+# only delegate and translate ValueError -> HTTP 400.
+# ---------------------------------------------------------------------------
+
+
+class WebAppBattleConfig(BaseModel):
+    markets: List[str]
+    multiplier: float
+    backings: List[str]
+    durations_minutes: List[int]
+    max_open: int
+
+
+class WebAppBattleEntry(BaseModel):
+    id: int
+    market: str
+    direction: str
+    stake_usd: float
+    backing: str
+    status: str
+    outcome: Optional[str] = None
+    pnl_usd: Optional[float] = None
+    expiry_at: str
+    created_at: str
+
+
+class WebAppBattleOpenRequest(BaseModel):
+    market: str
+    direction: str  # "up" | "down"
+    stake_usd: float
+    backing: str  # "perps" | "prediction"
+    duration_minutes: int
+
+
+def _battle_response(battle) -> WebAppBattleEntry:
+    """Serialize a Battle ORM row to the webapp response shape."""
+    return WebAppBattleEntry(
+        id=battle.id,
+        market=battle.market,
+        direction=battle.direction,
+        stake_usd=float(battle.stake_usd),
+        backing=battle.backing,
+        status=battle.status,
+        outcome=battle.outcome,
+        pnl_usd=float(battle.pnl_usd) if battle.pnl_usd is not None else None,
+        expiry_at=battle.expiry_at.isoformat() if battle.expiry_at else "",
+        created_at=battle.created_at.isoformat() if battle.created_at else "",
+    )
+
+
+@router.get("/battle/config", response_model=WebAppBattleConfig)
+async def get_battle_config():
+    """Return static battle configuration for the Mini App UI.
+
+    Public (no auth) — the frontend needs this to render selectors before
+    the user authenticates.
+    """
+    from bot.services.battle_service import (
+        BATTLE_MARKETS,
+        BATTLE_MAX_OPEN,
+        BATTLE_DURATIONS,
+        PREDICTION_WIN_MULTIPLIER,
+    )
+
+    return WebAppBattleConfig(
+        markets=[m.replace("-USD", "") for m in BATTLE_MARKETS],
+        multiplier=float(PREDICTION_WIN_MULTIPLIER),
+        backings=["perps", "prediction"],
+        durations_minutes=sorted(set(BATTLE_DURATIONS.values())),
+        max_open=BATTLE_MAX_OPEN,
+    )
+
+
+@router.get("/battle/list", response_model=List[WebAppBattleEntry])
+async def get_battle_list(
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db),
+):
+    """Return the authenticated user's open and recently settled battles."""
+    from bot.services.battle_service import battle_service
+
+    user = db.query(User).filter(User.telegram_id == tg_user.id).first()
+    if not user:
+        return []
+
+    battles = battle_service.get_user_battles(user.id, limit=50)
+    return [_battle_response(b) for b in battles]
+
+
+@router.post("/battle/open", response_model=WebAppBattleEntry)
+async def open_battle(
+    body: WebAppBattleOpenRequest,
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db),
+):
+    """Open a new directional battle for the authenticated user.
+
+    MONEY-PATH: user_id is resolved exclusively from the validated init_data
+    (via get_telegram_user -> tg_user.id -> DB lookup). The request body
+    MUST NOT and does not supply user_id. All balance safety checks and
+    per-user caps are enforced inside battle_service.open_battle().
+    """
+    from bot.services.battle_service import battle_service, BATTLE_MARKETS
+
+    # Resolve DB user from the Telegram identity in the init_data token.
+    user = db.query(User).filter(User.telegram_id == tg_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    # Normalise market: accept both "BTC" and "BTC-USD" from the client.
+    market = body.market.strip().upper()
+    if not market.endswith("-USD"):
+        market = f"{market}-USD"
+    if market not in BATTLE_MARKETS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported market. Choose from: {', '.join(m.replace('-USD', '') for m in BATTLE_MARKETS)}",
+        )
+
+    try:
+        battle = await battle_service.open_battle(
+            user_id=user.id,
+            market=market,
+            direction=body.direction.strip().lower(),
+            stake_usd=Decimal(str(body.stake_usd)),
+            backing=body.backing.strip().lower(),
+            duration_minutes=body.duration_minutes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("battle/open failed for tg_user=%s: %s", tg_user.id, exc)
+        raise HTTPException(status_code=502, detail="Battle could not be opened. Please try again.")
+
+    return _battle_response(battle)
+
+
+# ---------------------------------------------------------------------------
+# Stocks (xStocks) endpoint
+# ---------------------------------------------------------------------------
+# Auth: X-Telegram-Init-Data header validated by get_telegram_user.
+# Geo-gate: xstocks_region_allowed() is the single authoritative check.
+# Stock mints are NEVER returned to a geo-blocked user.
+# Market-hours logic is replicated from bot/handlers/stocks.py (same rule,
+# kept in one place there; imported here to stay DRY).
+# ---------------------------------------------------------------------------
+
+
+class WebAppStockEntry(BaseModel):
+    ticker: str
+    name: str
+    mint: str
+    confidence: str
+
+
+class WebAppStocksResponse(BaseModel):
+    allowed: bool
+    region_status: str  # "ok" | "blocked" | "unknown" | "error"
+    blocked_message: Optional[str] = None
+    stocks: List[WebAppStockEntry]
+    market_open: bool
+    off_hours_warning: Optional[str] = None
+
+
+@router.get("/stocks", response_model=WebAppStocksResponse)
+async def get_stocks(
+    tg_user: TelegramUser = Depends(get_telegram_user),
+):
+    """Return xStocks listing with geo-gate and market-hours status.
+
+    The ``stocks`` list is only populated when the user is in an allowed region.
+    Geo-blocked users receive allowed=false and an empty stocks list — mints
+    are never transmitted to prohibited regions.
+    """
+    from bot.config.xstocks import (
+        get_all_xstocks,
+        xstocks_region_allowed,
+        XSTOCKS_BLOCKED_REGION_NAMES,
+    )
+    from bot.handlers.stocks import _is_market_hours, _market_hours_warning
+
+    allowed, region_status = xstocks_region_allowed(tg_user.id)
+
+    if not allowed:
+        if region_status == "blocked":
+            blocked_message = (
+                f"xStocks are not available in your region. Trading of tokenized equities "
+                f"is restricted in {XSTOCKS_BLOCKED_REGION_NAMES} due to regulatory "
+                f"requirements from the token issuer (Backed Finance)."
+            )
+        elif region_status == "unknown":
+            blocked_message = (
+                f"xStocks require region verification. Tokenized equity trading is only "
+                f"available in jurisdictions outside {XSTOCKS_BLOCKED_REGION_NAMES}. "
+                f"Contact support to complete region verification."
+            )
+        else:
+            blocked_message = "xStocks are temporarily unavailable. Please try again later."
+
+        return WebAppStocksResponse(
+            allowed=False,
+            region_status=region_status,
+            blocked_message=blocked_message,
+            stocks=[],
+            market_open=False,
+            off_hours_warning=None,
+        )
+
+    market_open = _is_market_hours()
+    warning_text = _market_hours_warning()
+    off_hours_warning = warning_text.strip() if warning_text.strip() else None
+
+    stocks = [
+        WebAppStockEntry(
+            ticker=entry["ticker"],
+            name=entry["name"],
+            mint=entry["solana_mint"],
+            confidence=entry["confidence"],
+        )
+        for entry in get_all_xstocks()
+    ]
+
+    return WebAppStocksResponse(
+        allowed=True,
+        region_status=region_status,
+        blocked_message=None,
+        stocks=stocks,
+        market_open=market_open,
+        off_hours_warning=off_hours_warning,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Referral endpoints (read-only display; writes/claims stay in the Telegram bot)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/referrals/stats")
+async def webapp_referral_stats(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    from bot.services.referral_service import referral_service
+    from bot.config.settings import settings
+
+    user_id = _require_terminal_user(auth_payload)
+    stats = referral_service.get_referral_stats(user_id)
+    # NOTE: terminal JWT carries no username, so a webapp-first user's auto-created
+    # code is user_id-derived. Common path (bot /ref) already seeds a username-based
+    # code; readable-code-from-webapp is a minor follow-up (would need a User lookup).
+    code_obj = referral_service.get_or_create_code(user_id)
+    bot_username = settings.telegram_bot_username
+    referral_link = f"https://t.me/{bot_username}?start={code_obj.code}"
+    tier = code_obj.referrer_tier or "standard"
+    reward_rate_pct = 40 if tier == "elite" else 30
+    return {
+        "referral_code": stats.get("referral_code", code_obj.code),
+        "referral_link": referral_link,
+        "total_referrals": stats.get("total_referrals", 0),
+        "active_referrals": stats.get("active_referrals", 0),
+        "total_earnings_usd": stats.get("total_earnings_usd", 0.0),
+        "pending_rewards_usd": stats.get("pending_rewards_usd", 0.0),
+        "pending_rewards_count": stats.get("pending_rewards_count", 0),
+        "code_times_used": stats.get("code_times_used", 0),
+        "tier": tier,
+        "reward_rate_pct": reward_rate_pct,
+    }
+
+
+@router.get("/referrals")
+async def webapp_referrals_list(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    from bot.services.referral_service import referral_service
+
+    user_id = _require_terminal_user(auth_payload)
+    referrals = referral_service.get_referrals_list(user_id, limit=limit)
+    return {"referrals": referrals}
+
+
+@router.get("/referrals/code")
+async def webapp_referral_code(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    from bot.services.referral_service import referral_service
+    from bot.config.settings import settings
+
+    user_id = _require_terminal_user(auth_payload)
+    code_obj = referral_service.get_or_create_code(user_id)
+    bot_username = settings.telegram_bot_username
+    return {
+        "code": code_obj.code,
+        "link": f"https://t.me/{bot_username}?start={code_obj.code}",
+    }
+
+
+@router.get("/referrals/leaderboard")
+async def webapp_referral_leaderboard(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    from bot.services.referral_service import referral_service
+
+    _require_terminal_user(auth_payload)
+    leaderboard = referral_service.get_leaderboard(limit=20)
+    return {
+        "leaderboard": [
+            {
+                "rank": idx + 1,
+                "username": entry.get("username"),
+                "total_reward_usd": entry.get("total_reward_usd", 0.0),
+            }
+            for idx, entry in enumerate(leaderboard)
+        ]
+    }

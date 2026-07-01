@@ -121,7 +121,7 @@ export function TokenSelector({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by name or address..."
-              className="w-full px-3 py-2 text-sm bg-suwappu-sakura-light/50 rounded-suwappu-md focus:outline-none focus:ring-2 focus:ring-suwappu-magenta-mid/30"
+              className="w-full px-3 py-2 text-sm bg-suwappu-sakura-light/50 rounded-suwappu-md focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta-mid/30"
             />
           </div>
 

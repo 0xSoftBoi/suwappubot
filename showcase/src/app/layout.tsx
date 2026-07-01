@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import { Space_Grotesk, DM_Sans, Fira_Code } from 'next/font/google';
+import { NextIntlClientProvider } from 'next-intl';
+import { getLocale, getMessages } from 'next-intl/server';
 import './summer-token-vars.css';
 import './globals.css';
 
@@ -100,13 +102,16 @@ export const metadata: Metadata = {
   category: 'technology',
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const locale = await getLocale();
+  const messages = await getMessages();
+
   return (
-    <html lang="en" className={`${spaceGrotesk.variable} ${dmSans.variable} ${firaCode.variable}`}>
+    <html lang={locale} className={`${spaceGrotesk.variable} ${dmSans.variable} ${firaCode.variable}`}>
       <head>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="author" type="text/plain" href="/llms.txt" />
@@ -114,7 +119,9 @@ export default function RootLayout({
       </head>
       <body className="font-sans antialiased bg-[var(--suwappu-summer-canvas-warm)] text-[var(--suwappu-summer-ink)]">
         <a href="#main-content" className="skip-to-content">Skip to content</a>
-        {children}
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          {children}
+        </NextIntlClientProvider>
       </body>
     </html>
   );

@@ -282,6 +282,14 @@ async def lifespan(app: FastAPI):
         # Prediction-market loop: live PnL refresh + market-resolution settlement.
         await predict_monitor.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
+        # Wire the native P2P escrow executor to the on-chain USDC settlement path.
+        if getattr(settings, "p2p_enabled", True):
+            try:
+                from bot.services.p2p_escrow_executor import wire_p2p_escrow
+
+                wire_p2p_escrow()
+            except Exception as e:  # noqa: BLE001 — never block startup on P2P
+                logger.warning("P2P escrow wiring skipped: %s", e)
         # Real-time HyperLiquid WS alert feed (no-op unless hl_ws/whale flags on).
         await hl_ws_alerts.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
@@ -757,6 +765,10 @@ class AuthVerifyRequest(BaseModel):
     address: str
     signature: str
     nonce: str
+    # Optional client tag for the connecting wallet. "ledger" marks a hardware
+    # wallet; anything else (or absent) is treated as a plain "external" wallet.
+    # Both are keyless/non-custodial — this only affects how we label the wallet.
+    provider: Optional[str] = None
 
 
 class AuthVerifyResponse(BaseModel):
@@ -990,11 +1002,24 @@ async def auth_verify(
     if not is_valid:
         raise HTTPException(status_code=401, detail="Invalid signature or expired challenge")
 
+    # Normalize the client-supplied provider tag. Only "ledger" is special-cased;
+    # everything else collapses to the keyless "external" default so a bogus value
+    # can never select a custodial code path. (See bot.utils.wallet_provider.)
+    from bot.utils.wallet_provider import normalize_wallet_provider
+
+    provider_tag = normalize_wallet_provider(request.provider)
+
     # Find or create user by wallet address
     wallet = db.query(Wallet).filter(Wallet.address.ilike(address)).first()
 
     if wallet:
         user = db.query(User).filter(User.id == wallet.user_id).first()
+        # Upgrade the label if a returning keyless wallet now connects via Ledger
+        # (e.g. first connected with MetaMask, later re-pairs the hardware device).
+        # Never touch a custodial wallet ("turnkey"/"local") — those hold/sign keys.
+        if provider_tag == "ledger" and wallet.wallet_provider in ("external", None):
+            wallet.wallet_provider = "ledger"
+            db.commit()
     else:
         # Create new user and wallet for first-time login
         user = User(telegram_id=None, username=f"web_{address[:8]}", created_at=datetime.utcnow())
@@ -1013,8 +1038,8 @@ async def auth_verify(
             chain_type="evm",
             is_active=True,
             is_default=True,
-            wallet_provider="external",
-            name="Connected Wallet",
+            wallet_provider=provider_tag,
+            name="Ledger" if provider_tag == "ledger" else "Connected Wallet",
             created_at=datetime.utcnow(),
         )
         db.add(wallet)
@@ -2367,6 +2392,58 @@ async def telegram_webhook(request: Request):
         # Errors are logged but we don't want to block the webhook
 
     return {"status": "ok"}
+
+
+@app.post("/internal/railway-webhook", include_in_schema=False)
+async def railway_webhook(request: Request):
+    """Receive Railway deploy-status webhooks and fan failures out to Telegram admins.
+
+    Railway posts a JSON payload on deployment status changes. We only alert on
+    failure/crash states so the team hears about a bad deploy without watching the
+    dashboard. Auth is a shared secret passed as ``?token=`` on the webhook URL
+    (Railway does not send custom auth headers). Always returns 200 so Railway
+    never disables the webhook on our account.
+    """
+    expected = os.environ.get("RAILWAY_WEBHOOK_SECRET")
+    if not expected or request.query_params.get("token") != expected:
+        logger.warning("Railway webhook hit with missing/invalid token")
+        raise HTTPException(status_code=403, detail="Invalid token")
+
+    try:
+        payload = await request.json()
+    except Exception:  # noqa: BLE001
+        return {"status": "ignored", "reason": "unparseable body"}
+
+    # Railway payloads vary by event; deploy events carry a top-level `status`
+    # and a nested `deployment`/`service`/`environment`. Be defensive.
+    status = str(payload.get("status") or payload.get("type") or "").upper()
+    alert_states = {"FAILED", "CRASHED", "REMOVED", "DEPLOY_FAILED", "BUILD_FAILED"}
+    if not any(s in status for s in alert_states):
+        return {"status": "ok", "ignored_status": status}
+
+    service = (payload.get("service") or {}).get("name") or payload.get("serviceName") or "?"
+    env = (payload.get("environment") or {}).get("name") or payload.get("environmentName") or "?"
+    project = (payload.get("project") or {}).get("name") or "suwappu"
+    commit = (payload.get("deployment") or {}).get("meta", {}).get("commitMessage")
+    commit_line = f"\n`{commit.splitlines()[0][:80]}`" if commit else ""
+
+    text = (
+        f"🚨 *Railway deploy {status}*\n"
+        f"Project: `{project}`\n"
+        f"Service: `{service}`\n"
+        f"Env: `{env}`{commit_line}"
+    )
+
+    bot_app = getattr(request.app.state, "bot_app", None)
+    bot = bot_app.bot if bot_app else None
+    try:
+        from bot.services.support_notifier import post_admin_update
+
+        await post_admin_update(bot, text)
+    except Exception as e:  # noqa: BLE001 — never let alerting failure 500 the webhook
+        logger.error("Failed to fan out Railway webhook alert: %s", e)
+
+    return {"status": "alerted", "deploy_status": status}
 
 
 @app.get("/", include_in_schema=False)

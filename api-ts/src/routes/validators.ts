@@ -188,6 +188,36 @@ export const PerpsQuoteSchema = z.object({
 	leverage: z.number().min(1).max(20),
 })
 
+/** Numeric string (for DB numeric columns) — accepts string or number, stored as string. */
+const numericString = z
+	.union([z.string(), z.number()])
+	.transform((v) => String(v))
+	.refine((v) => v.trim() !== '' && !Number.isNaN(Number(v)) && Number(v) >= 0, {
+		message: 'Must be a non-negative number',
+	})
+
+/** Create a native P2P offer (webapp). */
+export const CreateP2POfferSchema = z
+	.object({
+		offerType: z.enum(['sell_crypto', 'buy_crypto']),
+		fiatCurrency: z.string().length(3).toUpperCase(),
+		cryptoAsset: z.string().min(1).max(20),
+		cryptoChain: z.string().min(1).max(32).default('base'),
+		pricePerUnit: numericString,
+		minFiatAmount: numericString,
+		maxFiatAmount: numericString,
+		availableCrypto: z.string().max(78).optional(),
+		paymentMethods: z.array(z.string().min(1).max(64)).min(1).max(20),
+		region: z.string().max(8).optional(),
+		terms: z.string().max(2000).optional(),
+		paymentWindowMinutes: z.number().int().min(5).max(1440).default(30),
+		makerWalletId: z.number().int().positive().optional(),
+	})
+	.refine((d) => Number(d.maxFiatAmount) >= Number(d.minFiatAmount), {
+		message: 'maxFiatAmount must be >= minFiatAmount',
+		path: ['maxFiatAmount'],
+	})
+
 export function formatZodErrors(error: z.ZodError): Record<string, string> {
 	const fields: Record<string, string> = {}
 	for (const issue of error.issues) {

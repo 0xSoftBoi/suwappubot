@@ -27,12 +27,17 @@ from bot.utils.formatters import format_amount, format_usd, format_time_estimate
 from bot.utils.validators import validate_amount
 from bot.utils.rate_limiter import swap_limiter, enforce_rate_limit_for_update
 from database.db import get_session
+from bot.config.xstocks import (
+    XSTOCKS_BLOCKED_REGION_NAMES,
+    is_xstock_mint,
+    xstocks_region_allowed,
+)
 from bot.utils.tos_utils import enforce_tos
 from bot.utils.gating import require_tier
 from bot.models.subscription import SubscriptionTier
 from bot.services.referral_service import referral_service
 from bot.services.points_service import points_service
-from bot.services.token_security.token_analyzer import token_analyzer
+from bot.services.token_security.token_analyzer import token_analyzer, RiskLevel
 from bot.services.spending_limits import spending_limit_service
 from bot.services.twofa import twofa_service
 from bot.services.x402_service import x402_service
@@ -153,7 +158,9 @@ def _schedule_quote_prewarm(
             # Resolve tier/fee exactly as wallets_confirmed_callback does so the
             # cached quote is identical to what a cold fetch would return.
             user_tier = await x402_service.get_tier(user_id)
-            platform_fee_bps = fee_service.get_fee_bps(user_tier)
+            # Pass user_id so the prewarmed quote is keyed under the SAME VIP/points-
+            # adjusted bps the execution path uses (avoids a guaranteed cache miss).
+            platform_fee_bps = fee_service.get_fee_bps(user_tier, user_id=user_id)
             quote = await swap_engine.get_quote(
                 from_chain=snapshot["from_chain"],
                 to_chain=snapshot["to_chain"],
@@ -295,6 +302,8 @@ async def start_swap(
     chains_with_bal = []
     chains_without_bal = []
     for name, chain in CHAINS.items():
+        if chain.is_testnet:
+            continue
         if name in chains_with_balance:
             chains_with_bal.append((name, chain))
         else:
@@ -529,6 +538,8 @@ async def select_from_token(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     chains_with_bal = []
     chains_without_bal = []
     for name, chain in CHAINS.items():
+        if chain.is_testnet:
+            continue
         if name in chains_with_balance:
             chains_with_bal.append((name, chain))
         else:
@@ -916,6 +927,39 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         await query.edit_message_text("❌ Please select at least one wallet.")
         return SELECT_WALLETS
 
+    # xStocks execution-layer geo-gate (manual /s path, covers both buy and sell).
+    # to_token is an xStock mint when buying via paste-to-trade or when the user
+    # manually enters a mint as the destination.  from_token is an xStock mint when
+    # selling (user pastes or enters the mint as the source token).  Checked here
+    # — at the quote/confirm boundary — so the gate fires for every code path that
+    # reaches execution, regardless of how the swap was initiated.
+    _xstock_candidate = swap_data.get("to_token") or ""
+    _xstock_sell_candidate = swap_data.get("from_token") or ""
+    if is_xstock_mint(_xstock_candidate) or is_xstock_mint(_xstock_sell_candidate):
+        _xstock_tg_user = update.effective_user
+        _xstock_tg_id = _xstock_tg_user.id if _xstock_tg_user else 0
+        _xstock_allowed, _xstock_reason = xstocks_region_allowed(_xstock_tg_id)
+        if not _xstock_allowed:
+            if _xstock_reason == "unknown":
+                _xstock_block_msg = (
+                    "*xStocks require region verification*\n\n"
+                    "Tokenized equity trading (xStocks) is only available in jurisdictions "
+                    f"outside {XSTOCKS_BLOCKED_REGION_NAMES}.\n\n"
+                    "Your account region has not been set.  Please contact support to "
+                    "complete region verification before accessing xStocks."
+                )
+            else:
+                _xstock_block_msg = (
+                    "*xStocks are not available in your region*\n\n"
+                    f"Trading of tokenized equities (xStocks) is restricted in "
+                    f"{XSTOCKS_BLOCKED_REGION_NAMES} due to regulatory requirements "
+                    "from the token issuer (Backed Finance).\n\n"
+                    "If you believe this is an error, contact support — your account "
+                    "region must be set by a verified operator using the /setregion command."
+                )
+            await query.edit_message_text(_xstock_block_msg, parse_mode="Markdown")
+            return ConversationHandler.END
+
     await query.edit_message_text("⏳ Getting quotes for all wallets...")
 
     try:
@@ -938,9 +982,13 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
 
         # Resolve tier first so the SAME rate drives the on-chain fee we send to
         # the aggregator (platform_fee_bps), the quote we display, and the fee we
-        # record — single source of truth, no drift.
-        user_tier = await x402_service.get_tier(context.user_data["user_id"])
-        platform_fee_bps = fee_service.get_fee_bps(user_tier)
+        # record — single source of truth, no drift. Passing user_id also folds in
+        # the user's active points fee_discount (tier − discount, floored), so the
+        # discount applies identically to the on-chain bps, the displayed quote,
+        # and the recorded fee (and the referral share scales with it).
+        fee_user_id = context.user_data["user_id"]
+        user_tier = await x402_service.get_tier(fee_user_id)
+        platform_fee_bps = fee_service.get_fee_bps(user_tier, user_id=fee_user_id)
 
         # Try the pre-warmed quote first (keyed on the reference wallet — the
         # first selected wallet — so it only hits when it matches the wallet
@@ -971,6 +1019,7 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
             amount=quote.from_amount_human,
             token_symbol=swap_data["from_token"],
             tier=user_tier,
+            user_id=fee_user_id,
         )
         # Persist fee values so post-execution can record them
         context.user_data["swap"]["fee_amount"] = fee_amount
@@ -1001,12 +1050,13 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
 
         # NEW: Token Security Analysis
         security_text = ""
+        _security_report = None
         if swap_data["to_chain"] == "solana":
             try:
                 dest_token_address = get_token_address(swap_data["to_token"], "solana")
                 if dest_token_address:
-                    report = await token_analyzer.analyze(dest_token_address)
-                    security_text = f"\n\n\U0001f6e1️ *Security Shield*\n{token_analyzer.get_safety_summary(report)}"
+                    _security_report = await token_analyzer.analyze(dest_token_address)
+                    security_text = f"\n\n\U0001f6e1️ *Security Shield*\n{token_analyzer.get_safety_summary(_security_report)}"
             except Exception as e:
                 logger.debug(f"Security analysis failed: {e}")
 
@@ -1041,6 +1091,65 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
             ],
             [InlineKeyboardButton("« Back to Wallets", callback_data="swap_back_to_wallets")],
         ]
+
+        # HARD BLOCK: a confirmed honeypot (simulation shows the token cannot be
+        # sold after buying) is never a legitimate trade. Unlike the HIGH/CRITICAL
+        # warn-and-confirm gate below, there is NO "swap anyway" override here —
+        # allowing it would only enable a guaranteed total loss. `is_honeypot` is
+        # only True on a positive detection (verification errors leave it False),
+        # so this does not block on a merely-uncertain result.
+        if _security_report is not None and getattr(_security_report, "is_honeypot", False):
+            blocked_text = (
+                "🛑 *SWAP BLOCKED — HONEYPOT DETECTED*\n\n"
+                f"{token_analyzer.get_safety_summary(_security_report)}\n\n"
+                "Simulation shows this token *cannot be sold* after buying — a "
+                "confirmed honeypot. Suwappu has blocked this trade to protect "
+                "your funds."
+            )
+            await query.edit_message_text(
+                blocked_text,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")]]
+                ),
+            )
+            return CONFIRM_SWAP
+
+        # HIGH/CRITICAL risk gate: intercept before showing the confirm screen.
+        # Store the prepared quote message so the "swap anyway" handler can display
+        # it without rebuilding, then replace the current message with a risk warning.
+        if _security_report is not None and _security_report.risk_level in (
+            RiskLevel.HIGH,
+            RiskLevel.CRITICAL,
+        ):
+            risk_label = _security_report.risk_level.value.upper()
+            attempt_id = swap_data.get("attempt_id", secrets.token_urlsafe(8))
+            context.user_data["swap"]["pending_confirm_text"] = text
+            context.user_data["swap"]["pending_confirm_keyboard"] = keyboard
+
+            risk_summary = token_analyzer.get_safety_summary(_security_report)
+            warning_text = (
+                f"🚨 *{risk_label} RISK TOKEN DETECTED*\n\n"
+                f"{risk_summary}\n\n"
+                f"This token has been flagged as *{risk_label}* risk. "
+                f"Swapping may result in a total loss of funds.\n\n"
+                f"Are you sure you want to proceed?"
+            )
+            risk_keyboard = [
+                [
+                    InlineKeyboardButton(
+                        "⚠️ I understand, swap anyway",
+                        callback_data=f"swap_risk_confirm_{attempt_id}",
+                    ),
+                    InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel"),
+                ]
+            ]
+            await query.edit_message_text(
+                warning_text,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(risk_keyboard),
+            )
+            return CONFIRM_SWAP
 
         await query.edit_message_text(
             text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
@@ -1309,7 +1418,14 @@ async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
                     swap_id=swap_tx.id,
                 )
 
-                # Record reward and award points
+                # Consume one referee rebate slot if applicable.
+                # This is the SINGLE decrement point for referee_swap_rebate_remaining.
+                # It runs here — keyed to the actual charged swap — independent of the
+                # volume/cap guards inside record_reward. The atomic SQL UPDATE WHERE
+                # remaining > 0 is concurrency-safe without an explicit row lock.
+                referral_service.consume_referee_rebate(referee_id=user_id)
+
+                # Record referral reward and award points
                 referral_service.record_reward(
                     referee_id=user_id,
                     swap_id=swap_tx.id,
@@ -1321,17 +1437,38 @@ async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
                     user_id=user_id,
                     swap_amount_usd=swap_amount_usd,
                     swap_id=swap_tx.id,
+                    fee_usd=fee_usd,
                 )
                 total_points += points_earned
 
         num_fail = len(selected_wallet_ids) - num_success
+
+        # Gas rebate (one-shot points redemption): consume EXACTLY ONCE, and only
+        # if a swap actually went through (don't burn the rebate on a fully-failed
+        # batch). consume_gas_rebate atomically flips the redemption to 'applied',
+        # so it can rebate a single swap and never re-applies. Floor the displayed
+        # net gas at 0 — a rebate can offset the gas shown but never go negative.
+        gas_rebate_usd = 0.0
+        if num_success > 0:
+            gas_rebate_usd = points_service.consume_gas_rebate(user_id)
+
+        total_gas_usd = (quote.gas_cost_usd or 0.0) * num_success
+        net_gas_usd = max(0.0, total_gas_usd - gas_rebate_usd)
+        rebate_line = ""
+        if gas_rebate_usd > 0:
+            applied = min(gas_rebate_usd, total_gas_usd)
+            rebate_line = (
+                f"⛽ Gas rebate applied: −{format_usd(applied)} "
+                f"(gas now {format_usd(net_gas_usd)})\n"
+            )
 
         text = (
             f"✅ *Multi-Swap Submitted!*\n\n"
             f"• Success: *{num_success}* wallets\n"
             f"• Failed: *{num_fail}* wallets\n\n"
             f"💰 *+{total_points} XP earned!*\n"
-            f"Total platform fee: {format_usd(total_fee_usd)} ({swap_data.get('fee_percentage', 0.8)}%)\n\n"
+            f"Total platform fee: {format_usd(total_fee_usd)} ({swap_data.get('fee_percentage', 0.8)}%)\n"
+            f"{rebate_line}\n"
             f"Check individual status in /hx."
         )
 
@@ -1367,6 +1504,36 @@ async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
         await _render_swap_failure(edit, e, context)
 
     return ConversationHandler.END
+
+
+async def swap_risk_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle the secondary confirmation for HIGH/CRITICAL risk tokens.
+
+    The user tapped "I understand, swap anyway" on the risk warning screen.
+    Retrieve the pre-built quote message and show the normal confirm screen.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    swap_data = context.user_data.get("swap")
+    if not swap_data:
+        await query.edit_message_text("❌ Session expired. Start again with /s")
+        return ConversationHandler.END
+
+    pending_text = swap_data.pop("pending_confirm_text", None)
+    pending_keyboard = swap_data.pop("pending_confirm_keyboard", None)
+
+    if not pending_text or not pending_keyboard:
+        # Fallback: session data missing, drop to normal confirm state
+        await query.edit_message_text("⚠️ Risk acknowledged. Please use /s to start a new swap.")
+        return ConversationHandler.END
+
+    await query.edit_message_text(
+        pending_text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(pending_keyboard),
+    )
+    return CONFIRM_SWAP
 
 
 async def swap_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1541,6 +1708,15 @@ async def check_swap_status(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 [InlineKeyboardButton("🔄 Refresh Status", callback_data=f"swap_status_{swap_id}")]
             )
 
+        # Surface the shareable PnL card at the natural moment — right after a
+        # swap completes — instead of only behind /hx. Routes to the existing
+        # read-only pnl_share_ callback (renders the branded card with the
+        # sharer's referral link/QR baked in). This is the organic-growth loop.
+        if swap_tx.status == SwapStatus.COMPLETED.value:
+            keyboard.append(
+                [InlineKeyboardButton("📤 Share PnL", callback_data=f"pnl_share_{swap_id}")]
+            )
+
         keyboard.append([InlineKeyboardButton("🔄 New Swap", callback_data="swap_start")])
         keyboard.append([InlineKeyboardButton("« Main Menu", callback_data="main_menu")])
 
@@ -1695,6 +1871,33 @@ async def paste_buy_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     native_symbol = chain_config.native_token
     chain_type = chain_config.chain_type.value
 
+    # xStocks execution-layer geo-gate (buy path).
+    # Checked HERE — after the address is known, before any quote or wallet
+    # work — so the block is enforced even when a user bypasses the discovery
+    # UI and pastes a known mint directly into chat or uses /s.
+    if is_xstock_mint(address):
+        allowed, reason = xstocks_region_allowed(user.id)
+        if not allowed:
+            if reason == "unknown":
+                block_msg = (
+                    "*xStocks require region verification*\n\n"
+                    "Tokenized equity trading (xStocks) is only available in jurisdictions "
+                    f"outside {XSTOCKS_BLOCKED_REGION_NAMES}.\n\n"
+                    "Your account region has not been set.  Please contact support to "
+                    "complete region verification before accessing xStocks."
+                )
+            else:
+                block_msg = (
+                    "*xStocks are not available in your region*\n\n"
+                    f"Trading of tokenized equities (xStocks) is restricted in "
+                    f"{XSTOCKS_BLOCKED_REGION_NAMES} due to regulatory requirements "
+                    "from the token issuer (Backed Finance).\n\n"
+                    "If you believe this is an error, contact support — your account "
+                    "region must be set by a verified operator using the /setregion command."
+                )
+            await query.edit_message_text(block_msg, parse_mode="Markdown")
+            return ConversationHandler.END
+
     # Resolve amount (preset from the button, or hand off to manual entry)
     data = query.data
     if data == "pbuy_custom":
@@ -1796,6 +1999,7 @@ swap_conversation_handler = ConversationHandler(
             CallbackQueryHandler(confirm_swap, pattern="^swap_confirm$"),
             CallbackQueryHandler(swap_requote, pattern="^swap_requote$"),
             CallbackQueryHandler(show_wallet_selection, pattern="^swap_back_to_wallets$"),
+            CallbackQueryHandler(swap_risk_confirm_callback, pattern="^swap_risk_confirm_"),
         ],
         ENTER_2FA_CODE: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, twofa_code_entered),

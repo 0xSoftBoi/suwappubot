@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from pydantic import Field, ConfigDict
+from pydantic import Field, ConfigDict, field_validator
 from typing import ClassVar, Dict, Optional, List
 from functools import lru_cache
 import random
@@ -10,6 +10,10 @@ class Settings(BaseSettings):
 
     # Telegram
     telegram_bot_token: str = Field(..., description="Telegram bot token from BotFather")
+    telegram_bot_username: str = Field(
+        default="suwappubot",
+        description="Telegram bot @username (without @), used for referral deep-links",
+    )
     use_webhook: bool = Field(
         default=False,
         description="Use webhooks instead of polling (required for multiple replicas)",
@@ -211,6 +215,10 @@ class Settings(BaseSettings):
     base_rpc_url: str = Field(
         default="https://mainnet.base.org,https://base-rpc.publicnode.com,https://1rpc.io/base,https://base.drpc.org",
         description="Base mainnet RPC URL(s)",
+    )
+    base_sepolia_rpc_url: str = Field(
+        default="https://sepolia.base.org,https://base-sepolia-rpc.publicnode.com",
+        description="Base Sepolia testnet RPC URL(s) — used for native P2P escrow testing",
     )
     avalanche_rpc_url: str = Field(
         default="https://api.avax.network/ext/bc/C/rpc,https://avalanche-c-chain-rpc.publicnode.com,https://1rpc.io/avax/c,https://avalanche.drpc.org",
@@ -493,6 +501,86 @@ class Settings(BaseSettings):
         description="Default Starknet token received from BTC/Lightning deposits",
     )
 
+    # Compliance screening for EVM swaps (UBS × Nethermind PoC model).
+    # Screens every swap's recipient / router / token addresses before signing
+    # at the SwapEngine.execute_swap choke point. OFF by default so existing
+    # flows are unchanged. See docs/architecture/compliance-screening.md.
+    compliance_mode: str = Field(
+        default="disabled",
+        description=(
+            "Compliance gate behaviour: 'disabled' (no screening), 'monitor' "
+            "(screen + log violations but allow), or 'enforce' (block "
+            "non-compliant swaps)."
+        ),
+    )
+    compliance_policy: str = Field(
+        default="blocklist_only",
+        description=(
+            "Which lists apply: 'blocklist_only' (deny sanctioned/blocked "
+            "addresses), 'allowlist_only' (deny anything not pre-approved), or "
+            "'allowlist_and_blocklist' (both; blocklist wins)."
+        ),
+    )
+    compliance_blocklist: str = Field(
+        default="",
+        description=(
+            "Comma-separated EVM addresses to block, in addition to the bundled "
+            "OFAC seed list (recipient/router/token interactions are refused)."
+        ),
+    )
+    compliance_allowlist: str = Field(
+        default="",
+        description=(
+            "Comma-separated EVM addresses that are pre-approved. Only consulted "
+            "when compliance_policy includes an allowlist."
+        ),
+    )
+    compliance_ofac_list_path: str = Field(
+        default="",
+        description=(
+            "Optional path to a newline-delimited file of OFAC-sanctioned "
+            "addresses, merged with the bundled seed list at load time."
+        ),
+    )
+
+    # Compliant transaction routing (UBS × Nethermind PoC, stage 2): route
+    # screened same-chain EVM swaps privately to block builders via the
+    # Flashbots relay instead of the public mempool. Falls back to public RPC
+    # on any error, so it can never break a swap. OFF by default.
+    compliance_routing_enabled: bool = Field(
+        default=False,
+        description=(
+            "Route screened same-chain EVM swap transactions privately via the "
+            "Flashbots relay (eth_sendPrivateTransaction) instead of the public "
+            "mempool. Falls back to public RPC on any relay error."
+        ),
+    )
+    flashbots_relay_url: str = Field(
+        default="https://relay.flashbots.net",
+        description="Flashbots-compatible relay endpoint for private tx submission.",
+    )
+    flashbots_signer_key: str = Field(
+        default="",
+        description=(
+            "Hex private key used ONLY to sign the Flashbots auth header "
+            "(identity/reputation; never holds funds). Ephemeral if empty."
+        ),
+    )
+    compliance_routing_chain_ids: str = Field(
+        default="1",
+        description=(
+            "Comma-separated EVM chain IDs whose swaps route through the relay "
+            "(default '1' = Ethereum mainnet)."
+        ),
+    )
+    flashbots_max_block_offset: int = Field(
+        default=25,
+        description=(
+            "How many future blocks a privately-routed tx stays valid for "
+            "(maxBlockNumber = current + offset)."
+        ),
+    )
+
     # Morpho Blue on Base (cbBTC-collateralized USDC borrowing + USDC earn vaults)
     morpho_enabled: bool = Field(
         default=True,
@@ -506,11 +594,11 @@ class Settings(BaseSettings):
     # HyperLiquid real-time WebSocket alert feed (fills / liquidations / funding / whales).
     # Connects to wss://api.hyperliquid.xyz/ws and pushes Telegram alerts. OFF by default.
     hl_ws_alerts_enabled: bool = Field(
-        default=False,
+        default=True,
         description="Enable the HyperLiquid WebSocket alert feed (per-user fills/liquidations/funding).",
     )
     hl_whale_alerts_enabled: bool = Field(
-        default=False,
+        default=True,
         description="Enable HyperLiquid whale-trade alerts (large single trades on major coins).",
     )
     hl_whale_alert_threshold_usd: float = Field(
@@ -659,7 +747,7 @@ class Settings(BaseSettings):
     # enable flag (not a key) so it ships dark and has a no-redeploy kill switch
     # — execution is verified for quote+build but not yet run on-chain.
     kyberswap_enabled: bool = Field(
-        default=False, description="Enable KyberSwap in the best-price race (no API key needed)"
+        default=True, description="Enable KyberSwap in the best-price race (no API key needed)"
     )
     kyberswap_client_id: str = Field(
         default="suwappu-bot",
@@ -727,6 +815,12 @@ class Settings(BaseSettings):
         default="https://app.suwappu.bot", description="URL for the Telegram Mini App dashboard"
     )
 
+    # Terminal (non-custodial trading web app, served on its own subdomain)
+    terminal_url: str = Field(
+        default="https://terminal.suwappu.bot",
+        description="Base URL for the Suwappu terminal web app (client-side signing surface)",
+    )
+
     # Agent Interoperability
     agent_api_key: Optional[str] = Field(
         default=None, description="Secret key for other AI agents to access the API"
@@ -738,6 +832,45 @@ class Settings(BaseSettings):
     )
     admin_telegram_ids: str = Field(
         default="", description="Comma-separated Telegram user IDs for admin access"
+    )
+
+    # Natural-language trade intent parsing (Anthropic). OFF by default — NL
+    # parsing only ever produces a structured TradeIntent; it never quotes or
+    # executes a swap itself (see bot/services/nl_intent_service.py and
+    # bot/handlers/nl_trade.py, which hand off into the existing
+    # CONFIRM_SWAP -> ENTER_2FA_CODE flow).
+    ANTHROPIC_API_KEY: str = Field(
+        default="", description="Anthropic API key for NL trade intent parsing"
+    )
+    NL_TRADING_ENABLED: bool = Field(
+        default=False, description="Master switch for natural-language trade intent parsing"
+    )
+    NL_TRADING_MODEL: str = Field(
+        default="claude-haiku-4-5-20251001",
+        description="Anthropic model used to parse natural-language trade intents",
+    )
+    NL_TRADING_PROVIDER: str = Field(
+        default="anthropic",
+        description="LLM provider for NL trade intent parsing: anthropic|openai|deepseek|groq|custom",
+    )
+    OPENAI_API_KEY: str = Field(
+        default="", description="OpenAI API key for NL trade intent parsing"
+    )
+    DEEPSEEK_API_KEY: str = Field(
+        default="", description="DeepSeek API key for NL trade intent parsing"
+    )
+    GROQ_API_KEY: str = Field(default="", description="Groq API key for NL trade intent parsing")
+    NL_TRADING_BASE_URL: str = Field(
+        default="",
+        description="Optional override base_url for OpenAI-compatible NL trading providers",
+    )
+    NL_LLM_FALLBACK_PER_USER_DAILY: int = Field(
+        default=30,
+        description="Max LLM fallback calls (deterministic-parse misses) per user per day",
+    )
+    NL_LLM_FALLBACK_GLOBAL_DAILY: int = Field(
+        default=5000,
+        description="Max LLM fallback calls (deterministic-parse misses) globally per day",
     )
 
     # Application Settings
@@ -814,6 +947,79 @@ class Settings(BaseSettings):
             "geo-blocked. Falls back to hyperunit_restricted_regions (default 'US') "
             "when unset."
         ),
+    )
+
+    # ── Gift Card marketplace (Bitrefill) ────────────────────────────────────
+    # SCAFFOLD — blocked on a live Bitrefill merchant account.
+    # Set BITREFILL_API_KEY to enable; leave unset to keep the feature dark.
+    # See bot/services/giftcard_api.py and bot/handlers/giftcard.py.
+    bitrefill_api_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Bitrefill v4 API key — enables the /gift command. "
+            "Obtain from https://www.bitrefill.com/api/. "
+            "Unset = feature disabled (shows 'coming soon')."
+        ),
+    )
+    bitrefill_api_secret: Optional[str] = Field(
+        default=None,
+        description=(
+            "Bitrefill v4 API secret — used as the Basic-auth password alongside "
+            "bitrefill_api_key. Some read-only endpoints work with key-only; "
+            "order creation requires both key + secret."
+        ),
+    )
+
+    # ── P2P marketplace ──────────────────────────────────────────────────────
+    # Suwappu aggregates P2P fiat<>crypto liquidity across its own native
+    # on-chain escrow book plus external providers. Each provider is gated on its
+    # credentials being present; the native book always works.
+    p2p_enabled: bool = Field(default=True, description="Master switch for P2P features")
+
+    # Rewards marketplace (async gift-card/travel/merch/donation/experience fulfillment).
+    # Ships DISABLED: with no provider configured, async redemptions are recorded and
+    # immediately refunded (points never lost). Flip to True only once a real provider
+    # (Tremendous/Bitrefill/Duffel) + compliance sign-off is wired. See
+    # bot/services/reward_providers.py and docs/economics/REWARDS_MARKETPLACE.md.
+    rewards_marketplace_enabled: bool = Field(
+        default=False, description="Master switch for async rewards-marketplace fulfillment"
+    )
+    # NoOnes (dev.noones.com) — OAuth2 client-credentials API key/secret.
+    noones_api_key: Optional[str] = Field(
+        default=None, description="NoOnes API client id (dev.noones.com)"
+    )
+    noones_api_secret: Optional[str] = Field(default=None, description="NoOnes API client secret")
+    noones_api_base: str = Field(
+        default="https://api.noones.com", description="NoOnes API base URL"
+    )
+    # P2P.me — no public API yet; we deeplink/handoff and (later) call their API.
+    p2p_me_api_key: Optional[str] = Field(
+        default=None, description="P2P.me API key (when their API ships)"
+    )
+    p2p_me_api_base: str = Field(default="https://api.p2p.me", description="P2P.me API base URL")
+    # Native escrow: USDC token + chain used to lock the crypto leg.
+    p2p_escrow_chain: str = Field(default="base", description="Chain for native P2P USDC escrow")
+    p2p_escrow_token: str = Field(
+        default="USDC", description="Settlement asset for native P2P escrow"
+    )
+    p2p_escrow_hot_wallet_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "HotWallet id holding native P2P escrow funds (custodial-during-trade). "
+            "Falls back to the primary EVM deposit hot wallet when unset."
+        ),
+    )
+    # Comma-separated allowlist of chains on which native escrow may move funds.
+    # Defaults to testnet only so an armed executor cannot touch mainnet funds
+    # until native P2P is validated end-to-end. Set to "" to allow all chains,
+    # or e.g. "base,base-sepolia" to enable mainnet.
+    p2p_escrow_allowed_chains: str = Field(
+        default="base-sepolia",
+        description="Comma-separated chains native P2P escrow may settle on (empty = all)",
+    )
+    # Comma-separated ISO2 regions blocked from P2P (regulatory).
+    p2p_restricted_regions: Optional[str] = Field(
+        default=None, description="Comma-separated ISO2 regions blocked from P2P"
     )
 
     # Fee Configuration (competitive pricing)
@@ -899,6 +1105,36 @@ class Settings(BaseSettings):
         default=None,
         description="Deployed SuwppuBonds contract address on Base (protocol-owned liquidity bonding)",
     )
+
+    # Battle treasury — sentinel user id for the house/treasury CustodialBalance account.
+    # Must be a negative integer to guarantee no collision with real auto-increment user ids.
+    # Override via BATTLE_TREASURY_USER_ID env var (must remain negative).
+    battle_treasury_user_id: int = Field(
+        default=-1,
+        description=(
+            "Sentinel user_id for the battle house/treasury CustodialBalance row. "
+            "Must be negative (never collides with real user rows). "
+            "Prediction battle stakes flow: user -> treasury at open; "
+            "treasury -> user on WIN/VOID at settlement."
+        ),
+    )
+
+    @field_validator("battle_treasury_user_id")
+    @classmethod
+    def _validate_battle_treasury_user_id(cls, v: int) -> int:
+        """Enforce the negative-sentinel invariant documented above.
+
+        A misconfigured non-negative BATTLE_TREASURY_USER_ID could collide with
+        a real auto-increment users.id row, letting battle treasury debits/
+        credits silently corrupt an actual user's CustodialBalance. Fail fast
+        at settings load rather than at first battle open.
+        """
+        if v >= 0:
+            raise ValueError(
+                f"BATTLE_TREASURY_USER_ID must be negative (got {v}). "
+                "A non-negative value can collide with a real users.id row."
+            )
+        return v
 
     model_config = ConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"

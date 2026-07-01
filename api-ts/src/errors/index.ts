@@ -1,4 +1,5 @@
 import { Data, Match } from 'effect'
+import { getErrorGuidance } from '../utils/errorGuidance'
 
 export class ValidationError extends Data.TaggedError('ValidationError')<{
 	readonly message: string
@@ -57,6 +58,7 @@ export interface ErrorResponseBody {
 	resource?: string
 	requestId?: string
 	timestamp?: string
+	error_guidance?: string
 }
 
 interface ErrorResponse {
@@ -70,7 +72,7 @@ export const mapErrorToResponse = (error: AppError | Error | unknown): ErrorResp
 		const message = error instanceof Error ? error.message : 'Unknown error'
 		return {
 			status: 500,
-			body: { error: 'Internal Error', message },
+			body: { error: 'Internal Error', message, error_guidance: getErrorGuidance('server_error', message) },
 		}
 	}
 
@@ -82,15 +84,24 @@ export const mapErrorToResponse = (error: AppError | Error | unknown): ErrorResp
 				error: 'Validation Error',
 				message: e.message,
 				...(e.fields && { fields: e.fields }),
+				error_guidance: getErrorGuidance('validation_error', e.message),
 			},
 		})),
 		Match.tag('UnauthorizedError', (e) => ({
 			status: e.status,
-			body: { error: 'Unauthorized', ...(e.message && { message: e.message }) },
+			body: {
+				error: 'Unauthorized',
+				...(e.message && { message: e.message }),
+				error_guidance: getErrorGuidance('unauthorized', e.message),
+			},
 		})),
 		Match.tag('ForbiddenError', (e) => ({
 			status: e.status,
-			body: { error: 'Forbidden', ...(e.message && { message: e.message }) },
+			body: {
+				error: 'Forbidden',
+				...(e.message && { message: e.message }),
+				error_guidance: getErrorGuidance('forbidden', e.message),
+			},
 		})),
 		Match.tag('NotFoundError', (e) => ({
 			status: e.status,
@@ -98,11 +109,16 @@ export const mapErrorToResponse = (error: AppError | Error | unknown): ErrorResp
 				error: 'Not Found',
 				...(e.message && { message: e.message }),
 				...(e.resource && { resource: e.resource }),
+				error_guidance: getErrorGuidance('not_found', e.message),
 			},
 		})),
 		Match.tag('DatabaseError', (e) => ({
 			status: e.status,
-			body: { error: 'Database Error', message: e.message },
+			body: {
+				error: 'Database Error',
+				message: e.message,
+				error_guidance: getErrorGuidance('server_error', e.message),
+			},
 		})),
 		Match.tag('ExternalServiceError', (e) => ({
 			status: e.status,
@@ -110,6 +126,7 @@ export const mapErrorToResponse = (error: AppError | Error | unknown): ErrorResp
 				error: 'External Service Error',
 				message: e.message,
 				...(e.service && { service: e.service }),
+				error_guidance: getErrorGuidance('external_service', e.message),
 			},
 		})),
 		Match.exhaustive,

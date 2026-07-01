@@ -2,7 +2,7 @@
 name: api-ts-dev
 description: TypeScript API specialist — Hono routes, Effect-TS services, Drizzle ORM schemas, A2A protocol. Use for any work in api-ts/.
 tools: Read, Edit, Write, Bash, Grep, Glob, Agent
-model: inherit
+model: sonnet
 maxTurns: 25
 skills:
   - new-route
@@ -53,3 +53,9 @@ bun run db:studio                # Open Drizzle Studio GUI
 - Prefer `@effect/schema` over Zod for validation
 - Use EnvService Effect Layer instead of raw `process.env` access
 - Validate inputs at the route level using Hono validators
+
+## Reporting & money-path escalation
+
+- Return a **tight summary** to the conductor: what changed, which files, `bun run check` result, follow-ups. Don't paste full files or diffs back — keep the main context lean.
+- If your change touches **billing/payments, swap execution, wallet/keys, fee math, subscriptions, or points accounting** (e.g. `routes/billing.ts`, `routes/swap.ts`, `db/schema/payments`, `subscriptions`, `points`, `fees`), tag it `MONEY-PATH` so the conductor routes an Opus `money-path-reviewer` pass.
+- Offload broad "where is X / audit all Y" recon to the `scout` agent instead of grinding greps yourself.

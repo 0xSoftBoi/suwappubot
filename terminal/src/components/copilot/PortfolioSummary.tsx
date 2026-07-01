@@ -37,7 +37,7 @@ export function PortfolioSummary({ data }: PortfolioSummaryProps) {
               <div className="flex gap-3">
                 <span>{token.balance}</span>
                 <span className="text-terminal-text-muted w-20 text-right">
-                  ${token.usdValue.toFixed(2)}
+                  ${(token.usdValue ?? 0).toFixed(2)}
                 </span>
               </div>
             </div>

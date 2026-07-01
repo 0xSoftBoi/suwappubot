@@ -7,6 +7,7 @@ import { requireDb } from '../db/DrizzleService'
 import { agents } from '../db/schema'
 import { runEffect, runEffectEither } from '../runtime'
 import { AgentService } from '../services'
+import { writeAuditLog } from '../services/audit'
 
 // Batch agent activity updates: collect IDs and flush every 60s
 const pendingActivityUpdates = new Set<number>()
@@ -93,6 +94,13 @@ export function adminKeyAuth(validKey: string | undefined) {
 
 		// Success — clear the failure record for this IP.
 		adminFailures.delete(ip)
+		// Audit admin access (system event — no user id; key isn't user-scoped).
+		writeAuditLog({
+			userId: 0,
+			eventType: 'admin.auth',
+			details: { method: c.req.method, path: c.req.path },
+			ipAddress: ip,
+		})
 		await next()
 	}
 }

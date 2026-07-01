@@ -11,6 +11,7 @@ Replaces all scattered Web3 creation patterns with a single entry point that:
 import asyncio
 import logging
 import random
+import ssl
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -29,6 +30,23 @@ from bot.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
+
+def _build_ssl_context() -> Optional[ssl.SSLContext]:
+    """SSL context backed by certifi's CA bundle.
+
+    aiohttp uses the system trust store, which in minimal containers can be
+    missing/stale — that silently fails EVERY https RPC health check (while
+    httpx/web3, which bundle certifi, keep working). Pin certifi explicitly.
+    """
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception as e:  # pragma: no cover - certifi should be present
+        logger.warning(f"RPC health check: certifi SSL context unavailable ({e}); using default")
+        return None
+
+
 # Chain ID map for chainlist.org lookup
 CHAINLIST_IDS: Dict[str, int] = {
     "ethereum": 1,
@@ -37,6 +55,7 @@ CHAINLIST_IDS: Dict[str, int] = {
     "arbitrum": 42161,
     "optimism": 10,
     "base": 8453,
+    "base-sepolia": 84532,
     "avalanche": 43114,
     "fantom": 250,
     "linea": 59144,
@@ -80,6 +99,7 @@ POA_CHAINS = {
     "arbitrum",
     "optimism",
     "base",
+    "base-sepolia",
     "gnosis",
     "scroll",
     "linea",
@@ -230,7 +250,7 @@ class RPCEndpoint:
             self.circuit_open_until = time.monotonic() + backoff
             logger.warning(
                 f"RPC circuit OPEN {self.url[:60]}... ({backoff}s, "
-                f"{self.consecutive_failures} failures)"
+                f"{self.consecutive_failures} failures, reason={error})"
             )
 
     def decay_stats(self):
@@ -250,6 +270,7 @@ class RPCManager:
         self._bg_task: Optional[asyncio.Task] = None
         self._running = False
         self._chainlist_last_fetch: float = 0.0
+        self._ssl_ctx: Optional[ssl.SSLContext] = _build_ssl_context()
 
     async def start(self):
         """Initialize endpoints and start background health checker."""
@@ -325,7 +346,8 @@ class RPCManager:
     async def _fetch_chainlist_endpoints(self):
         """Fetch additional RPCs from chainlist.org (graceful failure)."""
         try:
-            async with aiohttp.ClientSession() as session:
+            connector = aiohttp.TCPConnector(ssl=self._ssl_ctx) if self._ssl_ctx else None
+            async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.get(
                     "https://chainlist.org/rpcs.json",
                     timeout=aiohttp.ClientTimeout(total=15),
@@ -548,11 +570,12 @@ class RPCManager:
             payload = {"jsonrpc": "2.0", "method": "eth_blockNumber", "params": [], "id": 1}
             start = time.monotonic()
             try:
-                async with aiohttp.ClientSession() as session:
+                connector = aiohttp.TCPConnector(ssl=self._ssl_ctx) if self._ssl_ctx else None
+                async with aiohttp.ClientSession(connector=connector) as session:
                     async with session.post(
                         ep.url,
                         json=payload,
-                        timeout=aiohttp.ClientTimeout(total=5),
+                        timeout=aiohttp.ClientTimeout(total=10),
                     ) as resp:
                         latency = (time.monotonic() - start) * 1000
                         if resp.status == 429:

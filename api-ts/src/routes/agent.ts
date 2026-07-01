@@ -7,15 +7,22 @@ import openApiSpec from '../../openapi-agent.json'
 import { isStarknet } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import type { Agent } from '../db'
-import { agents, agentCredits, agentCreditTopups, agentSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
+import { agents, agentCredits, agentCreditTopups, agentSubscriptions, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
 import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
+import { type SpendPermission, validateSpendPermission } from '../lib/spendPermission'
+import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { agentBearerAuth, agentBearerAuthAllowInactive } from '../middleware'
+import { agentFlexAuth } from '../middleware/agentFlexAuth'
 import { agentOrMppAuth } from '../middleware/agentOrMppAuth'
+import { recordUsage } from '../middleware/recordUsage'
+import { requireScope } from '../middleware/requireScope'
 import { ipRateLimit } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
 import { BYPASS_TIERS, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment } from '../middleware/x402Payment'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
+import { writeAuditLog } from '../services/audit'
+import type { PolicyIntent } from '../services'
 import { runEffectEither } from '../runtime'
 import {
 	AgentService,
@@ -23,6 +30,7 @@ import {
 	CHAINS,
 	COMMON_TOKENS,
 	JupiterService,
+	PolicyService,
 	type QuoteParams,
 	SOLANA_TOKENS,
 	SwapService,
@@ -399,26 +407,26 @@ agentRoutes.get('/chains', async (c) => {
 // AUTHENTICATED ENDPOINTS
 // ===========================================
 
-agentRoutes.use('/me', agentBearerAuth())
-agentRoutes.use('/me/*', agentBearerAuth())
+agentRoutes.use('/me', agentFlexAuth())
+agentRoutes.use('/me/*', agentFlexAuth())
 agentRoutes.use('/quote', agentOrMppAuth())
 agentRoutes.use('/swap', agentOrMppAuth())
-agentRoutes.use('/execute', agentBearerAuth())
-agentRoutes.use('/portfolio', agentBearerAuth())
-agentRoutes.use('/wallets', agentBearerAuth())
-agentRoutes.use('/wallets/*', agentBearerAuth())
-agentRoutes.use('/swap/*', agentBearerAuth())
-agentRoutes.use('/swaps', agentBearerAuth())
-agentRoutes.use('/prices', agentBearerAuth())
-agentRoutes.use('/tokens', agentBearerAuth())
-agentRoutes.use('/webhooks', agentBearerAuth())
-agentRoutes.use('/webhooks/*', agentBearerAuth())
-agentRoutes.use('/keys/*', agentBearerAuth())
-agentRoutes.use('/wallet/policy', agentBearerAuth())
-agentRoutes.use('/wallet/policy/*', agentBearerAuth())
-agentRoutes.use('/wallet/policies', agentBearerAuth())
-agentRoutes.use('/billing', agentBearerAuth())
-agentRoutes.use('/billing/*', agentBearerAuth())
+agentRoutes.use('/execute', agentFlexAuth())
+agentRoutes.use('/portfolio', agentFlexAuth())
+agentRoutes.use('/wallets', agentFlexAuth())
+agentRoutes.use('/wallets/*', agentFlexAuth())
+agentRoutes.use('/swap/*', agentFlexAuth())
+agentRoutes.use('/swaps', agentFlexAuth())
+agentRoutes.use('/prices', agentFlexAuth())
+agentRoutes.use('/tokens', agentFlexAuth())
+agentRoutes.use('/webhooks', agentFlexAuth())
+agentRoutes.use('/webhooks/*', agentFlexAuth())
+agentRoutes.use('/keys/*', agentFlexAuth())
+agentRoutes.use('/wallet/policy', agentFlexAuth())
+agentRoutes.use('/wallet/policy/*', agentFlexAuth())
+agentRoutes.use('/wallet/policies', agentFlexAuth())
+agentRoutes.use('/billing', agentFlexAuth())
+agentRoutes.use('/billing/*', agentFlexAuth())
 agentRoutes.use('/reactivate', agentBearerAuthAllowInactive())
 
 // Apply rate limiting to all authenticated endpoints
@@ -458,6 +466,15 @@ agentRoutes.use('/swap/execute', meteredPayment('swap/execute'))
 agentRoutes.use('/portfolio', meteredPayment('portfolio'))
 agentRoutes.use('/prices', meteredPayment('prices'))
 agentRoutes.use('/tokens', meteredPayment('tokens'))
+
+// Usage recording — fire-and-forget, only activates for org API key requests
+agentRoutes.use('*', recordUsage())
+
+// Scope enforcement on sensitive endpoints (API key paths only; bearer token paths bypass)
+agentRoutes.use('/swap/execute', requireScope('swap:execute'))
+agentRoutes.use('/portfolio', requireScope('trade:read'))
+agentRoutes.use('/wallets', requireScope('trade:read'))
+agentRoutes.use('/wallets/*', requireScope('trade:read'))
 
 // GET /v1/agent/me - Get current agent profile
 agentRoutes.get('/me', async (c) => {
@@ -888,6 +905,80 @@ agentRoutes.post('/swap', async (c) => {
 		}
 
 		const quote = cached.quote
+
+		// --- Institutional policy gate ---
+		// Evaluate the trade intent against the org's policy rules + this agent's
+		// spend profile + kill switches BEFORE returning a signable tx. Org context
+		// comes from the API-key auth (apiKeyAuth sets orgId); plain agent-token
+		// requests are un-orged and pass through (PolicyService allows when no org).
+		// Enforcement is hard for Suwappu-issued-key / custodial flows; advisory for
+		// a self-signing EOA that could bypass this API entirely.
+		const apiKeyCtx = c.get('apiKeyAuth') as { orgId: string } | undefined
+		if (apiKeyCtx?.orgId) {
+			const policyIntent: PolicyIntent = cached.isSolana
+				? {
+						organizationId: apiKeyCtx.orgId,
+						agentId: agent.uuid ?? String(agent.id),
+						chain: 'solana',
+						fromToken: quote.inputMint ?? null,
+						toToken: quote.outputMint ?? null,
+						// TODO: Solana quote carries no USD value; USD-based caps are
+						// skipped until we price the input mint. Chain/token rules apply.
+						valueUsd: 0,
+					}
+				: {
+						organizationId: apiKeyCtx.orgId,
+						agentId: agent.uuid ?? String(agent.id),
+						chain: String(quote.fromChain),
+						fromToken: quote.fromToken?.address ?? null,
+						toToken: quote.toToken?.address ?? null,
+						valueUsd: parseFloat(quote.fromAmountUsd ?? '0') || 0,
+						gasUsd: parseFloat(quote.estimatedGasUsd ?? '0') || 0,
+					}
+
+			const verdict = await runEffectEither(
+				Effect.gen(function* () {
+					const policy = yield* PolicyService
+					return yield* policy.evaluate(policyIntent)
+				}),
+			)
+
+			if (Either.isRight(verdict) && verdict.right.decision !== 'allow') {
+				const { decision, reason, matchedPolicyId } = verdict.right
+				writeAuditLog({
+					userId: 0,
+					orgId: apiKeyCtx.orgId,
+					agentId: agent.uuid ?? String(agent.id),
+					eventType: `policy.${decision}`,
+					details: { reason, matchedPolicyId, chain: policyIntent.chain, valueUsd: policyIntent.valueUsd },
+				})
+				const status = decision === 'require_approval' ? 202 : 403
+				return c.json(
+					{
+						success: false,
+						status: decision,
+						error:
+							decision === 'require_approval'
+								? 'Transaction requires approval under org policy'
+								: 'Transaction blocked by org policy',
+						reason: reason ?? null,
+					},
+					status,
+				)
+			}
+			// If the policy query itself errored (Left), fail open but log it — never
+			// block legitimate trades on an infra hiccup. The decision log captures
+			// successful evaluations; this branch is the rare DB-down case.
+			if (Either.isLeft(verdict)) {
+				writeAuditLog({
+					userId: 0,
+					orgId: apiKeyCtx.orgId,
+					agentId: agent.uuid ?? String(agent.id),
+					eventType: 'policy.eval_error',
+					details: { error: String(verdict.left) },
+				})
+			}
+		}
 
 		// Handle Solana swaps
 		if (cached.isSolana) {
@@ -1356,6 +1447,7 @@ agentRoutes.post('/wallets', async (c) => {
 								turnkey_wallet_id: wallet.walletId,
 								turnkey_sub_org_id: wallet.subOrgId,
 							}),
+							signal: AbortSignal.timeout(15_000),
 						})
 						if (res.ok) {
 							return (await res.json()) as { internal_user_id: number; internal_wallet_id: number }
@@ -1542,6 +1634,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 							idempotency_key: idempotencyKey,
 							quote_data: quoteData,
 						}),
+						signal: AbortSignal.timeout(30_000),
 					})
 
 					if (!res.ok) {
@@ -2318,7 +2411,8 @@ agentRoutes.get('/billing', async (c) => {
 			body: { txHash: '0x...', chain: 'base', amount: '<USDC paid>', tier: 'pro' },
 			tier_prices_usd: TIER_PRICES_USD,
 			period_days: SUBSCRIPTION_PERIOD_DAYS,
-			note: 'Pay the tier price in USDC to the collector, then submit the txHash. Grants unmetered API + MCP access (metering bypass) for the period.',
+			note: 'Pay the tier price in USDC to the collector, then submit the txHash. Grants a PREPAID access window (no auto-renew) of unmetered API + MCP access; re-POST before expiry to extend (time stacks).',
+			auto_renew: false,
 			active: agent.subscriptionTier && agent.subscriptionExpiresAt && new Date(agent.subscriptionExpiresAt).getTime() > Date.now()
 				? { tier: agent.subscriptionTier, expires_at: agent.subscriptionExpiresAt }
 				: null,
@@ -2595,7 +2689,23 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 			//    idempotency guard; we also denormalize the active window onto the agent
 			//    row so auth-time tier resolution needs no join.
 			const now = new Date()
-			const expiresAt = new Date(now.getTime() + SUBSCRIPTION_PERIOD_DAYS * 24 * 60 * 60 * 1000)
+			// Prepaid access WINDOW (no auto-renew): if a paid window is still active,
+			// extend from its current expiry so early renewal never burns paid time.
+			const currentRows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ expiresAt: agentSubscriptions.expiresAt })
+						.from(agentSubscriptions)
+						.where(eq(agentSubscriptions.agentId, agent.id))
+						.limit(1),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+			const currentExpiry = currentRows[0]?.expiresAt
+			const base =
+				currentExpiry && new Date(currentExpiry).getTime() > now.getTime()
+					? new Date(currentExpiry)
+					: now
+			const expiresAt = new Date(base.getTime() + SUBSCRIPTION_PERIOD_DAYS * 24 * 60 * 60 * 1000)
 
 			const txResult = yield* Effect.tryPromise({
 				try: () =>
@@ -2651,9 +2761,167 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 		tx_hash: txHash,
 		tier: r.tier,
 		expires_at: r.expiresAt,
+		auto_renew: false,
+		renew: 'Prepaid window — re-POST before expiry to extend; time stacks.',
 		message: r.alreadyProcessed
 			? 'This transaction was already credited (idempotent — no double-grant).'
-			: `Subscribed to ${r.tier} until ${new Date(r.expiresAt).toISOString()}. Metered API + MCP calls are now free for the window.`,
+			: `Prepaid ${r.tier} access window active until ${new Date(r.expiresAt).toISOString()} (no auto-renew). Metered API + MCP calls are free for the window.`,
+	})
+})
+
+// POST /v1/agent/billing/recurring - TRUE auto-renew via Base Spend Permissions.
+// The user signs an EIP-712 SpendPermission letting our operator pull the tier
+// price in USDC once per period. We validate + record it (and register on-chain
+// when the operator is enabled). A scheduler then calls spend() each period.
+// Idempotent on the permission (account, spender, token, salt).
+const RecurringSchema = z.object({
+	tier: z.enum(['pro', 'premium', 'enterprise']),
+	signature: z.string().min(4),
+	permission: z.object({
+		account: z.string().min(4),
+		spender: z.string().min(4),
+		token: z.string().min(4),
+		allowance: z.string().min(1),
+		period: z.union([z.string(), z.number()]),
+		start: z.union([z.string(), z.number()]),
+		end: z.union([z.string(), z.number()]),
+		salt: z.string().min(1),
+		extraData: z.string().default('0x'),
+	}),
+})
+
+agentRoutes.post('/billing/recurring', async (c) => {
+	const agent = c.get('agent')
+
+	let body: unknown
+	try {
+		body = await c.req.json()
+	} catch {
+		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+	}
+	const parsed = RecurringSchema.safeParse(body)
+	if (!parsed.success) {
+		return c.json(
+			{ success: false, error: 'Validation error', fields: formatZodErrors(parsed.error) },
+			400,
+		)
+	}
+	const { tier, signature, permission: pin } = parsed.data
+	const price = TIER_PRICES_USD[tier]
+	if (price === undefined) {
+		return c.json({ success: false, error: `Unknown tier: ${tier}`, purchasable: PURCHASABLE_TIERS }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const db = yield* requireDb
+
+			const operator = operatorAddress(env)
+			if (!operator) {
+				return yield* Effect.fail(
+					new ValidationError({ message: 'Recurring billing operator is not configured' }),
+				)
+			}
+
+			// Parse numeric permission fields (uint160/uint256 → bigint).
+			let perm: SpendPermission
+			try {
+				perm = {
+					account: pin.account as `0x${string}`,
+					spender: pin.spender as `0x${string}`,
+					token: pin.token as `0x${string}`,
+					allowance: BigInt(pin.allowance),
+					period: Number(pin.period),
+					start: Number(pin.start),
+					end: Number(pin.end),
+					salt: BigInt(pin.salt),
+					extraData: (pin.extraData || '0x') as `0x${string}`,
+				}
+			} catch {
+				return yield* Effect.fail(new ValidationError({ message: 'Malformed permission numeric field' }))
+			}
+
+			// Security: spender must be OUR operator, token the configured USDC,
+			// allowance bounded (>= tier price, <= 10x to cap blast radius).
+			const usdc = env.AGENT_METERING_USDC_ADDRESS as `0x${string}`
+			const priceAtomic = BigInt(Math.round(price * 1_000_000))
+			const nowSec = Math.floor(Date.now() / 1000)
+			const check = validateSpendPermission(perm, {
+				spender: operator,
+				token: usdc,
+				nowSec,
+				maxAllowance: priceAtomic * 10n,
+			})
+			if (!check.ok) {
+				return yield* Effect.fail(new ValidationError({ message: `Invalid permission: ${check.error}` }))
+			}
+			if (perm.allowance < priceAtomic) {
+				return yield* Effect.fail(new ValidationError({ message: 'allowance below tier price' }))
+			}
+
+			// Register on-chain when the operator is live (gated). The contract is the
+			// real signature gate; a bad signature fails here and nothing is recorded.
+			let approvedTx: string | null = null
+			if (isRecurringEnabled(env)) {
+				const appr = yield* Effect.tryPromise({
+					try: () => approveSpendPermission(env, perm, signature as `0x${string}`),
+					catch: (e) => new Error(String(e)),
+				})
+				if (!appr.ok) {
+					return yield* Effect.fail(
+						new ValidationError({ message: `On-chain approval failed: ${appr.error}` }),
+					)
+				}
+				approvedTx = appr.txHash
+			}
+
+			const nextChargeAt = new Date(Number(perm.start) * 1000)
+			const inserted = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.insert(recurringSubscriptions)
+						.values({
+							agentId: agent.id,
+							account: perm.account,
+							spender: perm.spender,
+							token: perm.token,
+							allowance: perm.allowance.toString(),
+							periodSeconds: Number(perm.period),
+							startTs: Number(perm.start),
+							endTs: Number(perm.end),
+							salt: perm.salt.toString(),
+							signature,
+							tier,
+							status: 'active',
+							approvedTx,
+							nextChargeAt,
+						})
+						.onConflictDoNothing()
+						.returning({ id: recurringSubscriptions.id }),
+				catch: (e) => new Error(`Database error: ${e}`),
+			})
+
+			return { alreadyExists: inserted.length === 0, approvedTx, tier, nextChargeAt, operator }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
+	}
+	const r = result.right
+	return c.json({
+		success: true,
+		already_exists: r.alreadyExists,
+		tier: r.tier,
+		operator: r.operator,
+		approved_onchain: !!r.approvedTx,
+		approved_tx: r.approvedTx,
+		next_charge_at: r.nextChargeAt,
+		note: r.approvedTx
+			? 'Recurring authorization registered on-chain — we pull the tier price each period (cancel by revoking the permission).'
+			: 'Recurring authorization recorded; on-chain registration pending (operator not yet enabled).',
 	})
 })
 

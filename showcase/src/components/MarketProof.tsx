@@ -30,15 +30,21 @@ function fmtChange(n: number): string {
 }
 
 async function getMarket(): Promise<Record<string, CgEntry> | null> {
+  // Hard timeout so a slow/rate-limited upstream can never block SSR (and the
+  // Railway healthcheck). Falls back to the graceful "—" rows on abort.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
   try {
     const res = await fetch(
       'https://api.coingecko.com/api/v3/simple/price?ids=ethereum,bitcoin,solana&vs_currencies=usd&include_24hr_change=true',
-      { next: { revalidate: 60 } },
+      { next: { revalidate: 60 }, signal: controller.signal },
     );
     if (!res.ok) return null;
     return (await res.json()) as Record<string, CgEntry>;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

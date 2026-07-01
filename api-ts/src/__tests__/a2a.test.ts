@@ -1,6 +1,11 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import type { Agent } from '../db'
-import { isQuoteOwnedByAgent, resolveAgentEvmAddress, stopA2aCleanup } from '../routes/a2a'
+import {
+	isQuoteOwnedByAgent,
+	isTaskOwnedByAgent,
+	resolveAgentEvmAddress,
+	stopA2aCleanup,
+} from '../routes/a2a'
 
 const PLACEHOLDER = '0x0000000000000000000000000000000000000001'
 
@@ -30,6 +35,24 @@ describe('a2a quote ownership', () => {
 
 	it('rejects a webapp quote with no agentId', () => {
 		expect(isQuoteOwnedByAgent({}, 42)).toBe(false)
+	})
+})
+
+describe('a2a task ownership (tasks/get + tasks/cancel)', () => {
+	// Only the agentId field is read by the gate; cast the stub through unknown.
+	const task = (agentId: number) => ({ agentId }) as unknown as Parameters<typeof isTaskOwnedByAgent>[0]
+
+	it('lets the creating agent read/cancel its own task', () => {
+		expect(isTaskOwnedByAgent(task(42), 42)).toBe(true)
+	})
+
+	it('treats another agent\'s task as not-found (no cross-agent read/cancel)', () => {
+		expect(isTaskOwnedByAgent(task(42), 99)).toBe(false)
+	})
+
+	it('rejects a missing/expired task', () => {
+		expect(isTaskOwnedByAgent(null, 42)).toBe(false)
+		expect(isTaskOwnedByAgent(undefined, 42)).toBe(false)
 	})
 })
 

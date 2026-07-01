@@ -1286,7 +1286,7 @@ class WalletService:
             chain_tasks = [
                 _fetch_evm_chain(chain_name, chain)
                 for chain_name, chain in CHAINS.items()
-                if chain.chain_type == ChainType.EVM
+                if chain.chain_type == ChainType.EVM and not chain.is_testnet
             ]
             chain_results = await asyncio.gather(*chain_tasks, return_exceptions=True)
             for result in chain_results:
@@ -1519,7 +1519,7 @@ class WalletService:
                     # handles failover across chainlist.org + configured endpoints.
                     chain_tasks = []
                     for chain_name, chain in CHAINS.items():
-                        if chain.chain_type != ChainType.EVM:
+                        if chain.chain_type != ChainType.EVM or chain.is_testnet:
                             continue
                         chain_tasks.append(_fetch_evm_chain_rpc(chain_name, chain))
 

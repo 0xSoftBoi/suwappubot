@@ -11,7 +11,9 @@ import { JupiterServiceLive } from './JupiterService'
 import { LimitOrderServiceLive } from './LimitOrderService'
 import { OrderServiceLive } from './OrderService'
 import { PointsServiceLive } from './PointsService'
+import { PolicyServiceLive } from './PolicyService'
 import { RedisServiceLive } from './RedisService'
+import { SeasonsServiceLive } from './SeasonsService'
 import { ReferralServiceLive } from './ReferralService'
 import { SwapServiceLive } from './SwapService'
 import { TelegramAuthServiceLive } from './TelegramAuthService'
@@ -22,6 +24,7 @@ import { HyperliquidServiceLive } from './HyperliquidService'
 import { MorphoServiceLive } from './MorphoService'
 import { PolymarketServiceLive } from './PolymarketService'
 import { PolymarketCredentialServiceLive } from './PolymarketCredentialService'
+import { P2PServiceLive } from './P2PService'
 import { WalletServiceLive } from './WalletService'
 import { StripeServiceLive } from './StripeService'
 import { SmartAccountServiceLive } from './SmartAccountService'
@@ -62,6 +65,7 @@ export const ServicesLayer = Layer.mergeAll(
 	SwapServiceLive,
 	UserServiceLive,
 	PointsServiceLive,
+	SeasonsServiceLive,
 	BalanceServiceLive,
 	AgentServiceLive,
 	TokenServiceLive,
@@ -75,6 +79,8 @@ export const ServicesLayer = Layer.mergeAll(
 	HyperliquidServiceLive,
 	PolymarketServiceLive,
 	MorphoServiceLive,
+	P2PServiceLive,
+	PolicyServiceLive,
 )
 
 // Full application layer with all services

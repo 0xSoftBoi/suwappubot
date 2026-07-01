@@ -6,6 +6,7 @@ import { OrderBookPanel } from '../orderbook/OrderBookPanel'
 import { RecentTradesPanel } from '../orderbook/RecentTradesPanel'
 import { SwapPanel } from '../trade/SwapPanel'
 import { PortfolioPanel } from '../portfolio/PortfolioPanel'
+import { SignalsFeed } from '../signals/SignalsFeed'
 import { DiscoveryPanel } from '../discover/DiscoveryPanel'
 import { CopyTradingDashboard } from '../copy/CopyTradingDashboard'
 import { CopilotPanel } from '../copilot/CopilotPanel'
@@ -17,6 +18,7 @@ import { TweetMonitorPanel } from '../tweets/TweetMonitorPanel'
 import { WatchlistPanel } from '../watchlist/WatchlistPanel'
 import { PerpsWorkspace } from '../perps/PerpsWorkspace'
 import { PredictWorkspace } from '../predict/PredictWorkspace'
+import { ReferralsPanel } from '../referrals/ReferralsPanel'
 import { useLayoutSizes } from '../../hooks/useLayoutSizes'
 import { useBottomTab, type BottomTab } from '../../contexts/BottomTabContext'
 import { useTrading } from '../../contexts/TradingContext'
@@ -25,6 +27,7 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 
 const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'portfolio', label: 'Portfolio' },
+  { id: 'signals', label: 'Signals' },
   { id: 'discovery', label: 'Discovery' },
   { id: 'watchlist', label: 'Watchlist' },
   { id: 'copy-trading', label: 'Copy Trading' },
@@ -32,6 +35,7 @@ const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'tweets', label: 'Tweets' },
   { id: 'defi', label: 'DeFi Center' },
   { id: 'copilot', label: 'AI Co-Pilot' },
+  { id: 'referrals', label: 'Referrals' },
 ]
 
 type MobileTab = 'chart' | 'swap' | 'more'
@@ -105,6 +109,7 @@ function MobileLayout() {
             {/* Tab content */}
             <div className="flex-1 overflow-hidden">
               {bottomTab === 'portfolio' && <PortfolioPanel />}
+              {bottomTab === 'signals' && <SignalsFeed />}
               {bottomTab === 'discovery' && <DiscoveryPanel />}
               {bottomTab === 'watchlist' && <WatchlistPanel />}
               {bottomTab === 'copy-trading' && <CopyTradingDashboard />}
@@ -118,6 +123,7 @@ function MobileLayout() {
                 </div>
               )}
               {bottomTab === 'copilot' && <CopilotPanel />}
+              {bottomTab === 'referrals' && <ReferralsPanel />}
             </div>
           </div>
         )}
@@ -227,6 +233,7 @@ function DesktopLayout() {
           {/* Tab content */}
           <div className="flex-1 overflow-hidden">
             {bottomTab === 'portfolio' && <PortfolioPanel />}
+              {bottomTab === 'signals' && <SignalsFeed />}
             {bottomTab === 'discovery' && <DiscoveryPanel />}
             {bottomTab === 'watchlist' && <WatchlistPanel />}
             {bottomTab === 'copy-trading' && <CopyTradingDashboard />}
@@ -240,6 +247,7 @@ function DesktopLayout() {
               </div>
             )}
             {bottomTab === 'copilot' && <CopilotPanel />}
+            {bottomTab === 'referrals' && <ReferralsPanel />}
           </div>
         </div>
       </Allotment.Pane>

@@ -2,7 +2,7 @@
 name: security-auditor
 description: Security auditor for DeFi bot — OWASP top 10, wallet encryption, token security, input validation, dependency scanning, secret detection. Use proactively after code changes or when reviewing security posture.
 tools: Read, Bash, Grep, Glob, WebSearch
-model: sonnet
+model: opus
 maxTurns: 20
 permissionMode: default
 ---

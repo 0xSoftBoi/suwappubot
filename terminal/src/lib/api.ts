@@ -16,15 +16,24 @@ import type {
   ChainInfo,
   SwapToken,
   OHLCVCandle,
+  PredictHistoryPoint,
   OrderBookData,
   TerminalTrade,
   Pool,
   TokenSecurity,
+  TokenSafetyReport,
   HLMarket,
+  PerpsMarketContext,
+  WhaleSnapshot,
+  WalletSummary,
+  WalletWithdrawResult,
+  MarketRegime,
+  MarketSignal,
   HLPosition,
   PredictionMarket,
   PerpsAccountStatus,
   TerminalPerpsPosition,
+  TerminalPerpsOrder,
   PerpsExecuteParams,
   PerpsExecuteResult,
   PredictionPositionRow,
@@ -48,6 +57,9 @@ import type {
   DCAOrder,
   CreateDCAParams,
   LimitOrder,
+  ReferralStats,
+  ReferralEntry,
+  ReferralLeaderboardEntry,
   CreateLimitOrderParams,
   LendingMarket,
   TrackedWallet,
@@ -104,14 +116,16 @@ export const api = {
     return { nonce: result.nonce, message: result.challenge }
   },
 
-  async walletVerify(address: string, signature: string, nonce: string) {
+  async walletVerify(address: string, signature: string, nonce: string, provider?: string) {
     const result = await request<{
       token: string
       expiresAt: string
       user?: { id?: number }
     }>('/auth/turnkey/verify', {
       method: 'POST',
-      body: JSON.stringify({ address, signature, nonce }),
+      // `provider` lets the client tag a hardware wallet ("ledger"); the backend
+      // defaults to "external" when it's absent. Either way the wallet is keyless.
+      body: JSON.stringify({ address, signature, nonce, ...(provider ? { provider } : {}) }),
     })
     return { token: result.token, expiresAt: result.expiresAt, userId: result.user?.id ?? 0 }
   },
@@ -316,6 +330,55 @@ export const api = {
     return request<OHLCVCandle[]>(`/terminal/chart/ohlcv?${params}`)
   },
 
+  // Perps candles — HyperLiquid candleSnapshot (public). `coin` is the HL asset
+  // symbol; "ETH-USD" is accepted and reduced server-side.
+  getPerpsCandles(coin: string, interval: string, limit = 300) {
+    const params = new URLSearchParams({ coin, interval, limit: String(limit) })
+    return request<OHLCVCandle[]>(`/terminal/perps/candles?${params}`)
+  },
+
+  // Perps market intelligence — HyperLiquid metaAndAssetCtxs (public): mark/
+  // oracle, basis, funding, open interest, 24h volume + change per market.
+  getPerpsContext() {
+    return request<PerpsMarketContext[]>('/terminal/perps/context')
+  },
+
+  // Smart-money positioning — top accounts' live positions in a coin,
+  // aggregated long-vs-short, from public HyperLiquid on-chain data.
+  // Custodial wallet — deposit addresses + balances (authed).
+  getWalletSummary() {
+    return request<WalletSummary>('/terminal/wallet/summary')
+  },
+
+  // Withdraw a custodial balance to an external address (authed, money path).
+  withdrawFunds(params: { chain: string; token: string; amount: number; toAddress: string; memo?: string }) {
+    return request<WalletWithdrawResult>('/terminal/wallet/withdraw', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  },
+
+  getPerpsWhales(coin: string) {
+    return request<WhaleSnapshot>(`/terminal/perps/whales?coin=${encodeURIComponent(coin)}`)
+  },
+
+  // Macro regime — Fear&Greed + BTC dominance/mcap + stablecoin supply (public).
+  getMarketRegime() {
+    return request<MarketRegime>('/terminal/market/regime')
+  },
+
+  // Cross-market Signals feed — movers, funding extremes, squeezes, regime.
+  getSignals() {
+    return request<MarketSignal[]>('/terminal/signals')
+  },
+
+  // Prediction probability history — Polymarket prices-history (public) for a
+  // single outcome's CLOB token id. `range` is a window: 1H/6H/1D/1W/1M/ALL.
+  getPredictHistory(tokenId: string, range = '1W') {
+    const params = new URLSearchParams({ tokenId, range })
+    return request<PredictHistoryPoint[]>(`/terminal/predict/history?${params}`)
+  },
+
   getOrderBook(symbol = 'ETHUSDC', depth = 15) {
     const params = new URLSearchParams({ symbol, depth: String(depth) })
     return request<OrderBookData>(`/terminal/orderbook?${params}`)
@@ -343,6 +406,23 @@ export const api = {
     return request<T>(`/webapp/solana/tx-history?address=${address}&limit=${limit}`)
   },
 
+  // Referrals
+  getReferralStats() {
+    return request<ReferralStats>('/webapp/referrals/stats')
+  },
+
+  getReferralsList(limit = 50) {
+    return request<{ referrals: ReferralEntry[] }>(`/webapp/referrals?limit=${limit}`).then(r => r.referrals ?? [])
+  },
+
+  getReferralCode() {
+    return request<{ code: string; link: string }>('/webapp/referrals/code')
+  },
+
+  getReferralLeaderboard(limit = 20) {
+    return request<{ leaderboard: ReferralLeaderboardEntry[] }>(`/webapp/referrals/leaderboard?limit=${limit}`).then(r => r.leaderboard ?? [])
+  },
+
   // Discovery
   getNewPools(chain: string, limit: number) {
     return request<Pool[]>(`/webapp/discovery/new?chain=${chain}&limit=${limit}`)
@@ -354,6 +434,12 @@ export const api = {
 
   getTokenSecurity(chain: string, address: string) {
     return request<TokenSecurity>(`/webapp/discovery/security?chain=${chain}&address=${address}`)
+  },
+
+  // Aggregated token safety — GoPlus + Honeypot.is (EVM) / RugCheck (Solana).
+  getTokenSafety(chain: string, address: string) {
+    const params = new URLSearchParams({ chain, address })
+    return request<TokenSafetyReport>(`/terminal/token/safety?${params}`)
   },
 
   // Perps (HyperLiquid). api-ts wraps these in { markets } / { positions };
@@ -408,6 +494,19 @@ export const api = {
     return request<{ ok: boolean; result: unknown }>('/terminal/perps/close', {
       method: 'POST',
       body: JSON.stringify({ positionId, percent }),
+    })
+  },
+
+  getTerminalPerpsOrders() {
+    return request<{ orders: TerminalPerpsOrder[] }>('/terminal/perps/orders').then(
+      (r) => r.orders ?? []
+    )
+  },
+
+  cancelPerpsOrder(market: string, orderId: string) {
+    return request<{ ok: boolean }>('/terminal/perps/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ market, orderId }),
     })
   },
 

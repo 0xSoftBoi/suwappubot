@@ -220,6 +220,13 @@ export interface OHLCVCandle {
   volume: number
 }
 
+// A single point of a prediction-market probability line: unix seconds + the
+// outcome's implied probability as a percentage (0–100).
+export interface PredictHistoryPoint {
+  time: number
+  value: number
+}
+
 export interface OrderBookLevel {
   price: number
   size: number
@@ -250,6 +257,91 @@ export interface HLMarket {
   maxLeverage: number
   markPrice: number
   fundingRate: number
+}
+
+// Per-market intelligence from HyperLiquid's public metaAndAssetCtxs feed —
+// the data behind a pro perps desk (open interest, basis, 24h stats, funding).
+export interface PerpsMarketContext {
+  asset: string // bare HL symbol, e.g. "ETH"
+  name: string // "ETH-USD"
+  markPrice: number
+  oraclePrice: number
+  basisPct: number // spot-perp premium, % (mark vs oracle)
+  funding: number // hourly funding rate, decimal
+  oiNotional: number // open interest in USD
+  dayVolume: number // 24h notional volume, USD
+  dayChangePct: number // 24h price change, %
+  maxLeverage: number
+}
+
+// One whale's live position in a market, reconstructed from public HL data.
+export interface WhalePosition {
+  address: string // shortened 0x…
+  side: 'long' | 'short'
+  size: number
+  notional: number // USD
+  leverage: number
+  entryPrice: number
+  liquidationPrice: number | null // exchange-computed
+  unrealizedPnl: number
+}
+
+// Smart-money positioning snapshot for a perp from public on-chain positions.
+export interface WhaleSnapshot {
+  coin: string // "ETH-USD"
+  markPrice: number
+  sampled: number // number of top accounts inspected
+  longNotional: number
+  shortNotional: number
+  longCount: number
+  shortCount: number
+  longPct: number // long share of notional, 0–100
+  shortLiqAboveNotional: number // "squeeze fuel" above mark
+  longLiqBelowNotional: number // downside liquidation exposure
+  positions: WhalePosition[] // biggest, by notional
+}
+
+// One custodial balance row (per chain + token).
+export interface WalletBalance {
+  chain: string
+  token: string
+  amount: number
+}
+
+// Custodial wallet overview: omnibus deposit addresses + the user's balances.
+export interface WalletSummary {
+  evmDepositAddress: string | null
+  solanaDepositAddress: string | null
+  balances: WalletBalance[]
+  // Server-side kill-switch — when false the UI pauses the withdraw form.
+  withdrawEnabled?: boolean
+}
+
+export interface WalletWithdrawResult {
+  ok: boolean
+  txHash: string
+  status: string
+}
+
+// Always-on macro context for the terminal header. Any field may be null when
+// its upstream (alternative.me / CoinGecko / DefiLlama) is unreachable.
+export interface MarketRegime {
+  fearGreed: { value: number; label: string } | null
+  btcDominance: number | null // %
+  totalMcap: number | null // USD
+  mcapChange24h: number | null // %
+  stablecoinMcap: number | null // USD — "dry powder"
+}
+
+// A single plain-language card in the cross-market Signals feed.
+export interface MarketSignal {
+  id: string
+  category: 'regime' | 'mover' | 'funding' | 'squeeze'
+  severity: 'alert' | 'warn' | 'info'
+  emoji: string
+  title: string
+  detail: string
+  market: string // "ETH-USD" or "" for market-wide
 }
 
 export interface HLPositionQuote {
@@ -308,6 +400,34 @@ export interface TokenSecurity {
   devHoldingsPercent?: number
 }
 
+// A single human-readable safety flag from the aggregated report.
+export interface SafetyFlag {
+  label: string
+  level: 'danger' | 'warn' | 'ok'
+}
+
+// Aggregated token-safety report — GoPlus + Honeypot.is (EVM) or RugCheck
+// (Solana). Every field is nullable; riskLevel is 'unknown' when no provider
+// answered. Powers the pre-trade safety strip.
+export interface TokenSafetyReport {
+  chain: string
+  address: string
+  isHoneypot: boolean | null
+  canSell: boolean | null
+  buyTaxPct: number | null
+  sellTaxPct: number | null
+  mintable: boolean | null
+  freezable: boolean | null
+  ownerRenounced: boolean | null
+  lpLockedPct: number | null
+  topHolderPct: number | null
+  holderCount: number | null
+  score: number | null // 0–100 trust
+  riskLevel: 'safe' | 'caution' | 'danger' | 'unknown'
+  flags: SafetyFlag[]
+  sources: string[]
+}
+
 // One tradeable outcome of a prediction market — the CLOB tokenId is what an
 // order is placed against.
 export interface MarketToken {
@@ -344,6 +464,20 @@ export interface PerpsAccountStatus {
   withdrawable?: number | null
 }
 
+// A resting (open) HyperLiquid order as returned by /terminal/perps/orders —
+// e.g. a limit entry or a TP/SL trigger. Cancelled by (market, orderId).
+export interface TerminalPerpsOrder {
+  orderId: string
+  market: string
+  side: 'buy' | 'sell'
+  size: number
+  price: number
+  orderType: string // "Limit", "Stop Market", "Take Profit Market", …
+  reduceOnly: boolean
+  isTrigger: boolean
+  triggerPrice: number | null
+}
+
 // A live open perp position as returned by /terminal/perps/positions. `id` is
 // the local PerpPosition row id used to close; it's null when a live HL position
 // has no matching local row (e.g. opened outside Suwappu).
@@ -359,24 +493,39 @@ export interface TerminalPerpsPosition {
   liquidationPrice: number
 }
 
+export type PerpsOrderType = 'market' | 'limit'
+
 export interface PerpsExecuteParams {
   market: string
   side: 'long' | 'short'
   size: number
   leverage: number
-  tpPrice?: number
-  slPrice?: number
+  orderType?: PerpsOrderType
+  limitPrice?: number // required when orderType === 'limit'
+  tpPrice?: number // market only
+  slPrice?: number // market only
 }
 
 export interface PerpsExecuteResult {
   ok: boolean
-  position: {
+  kind?: 'position' | 'order'
+  // Present for a filled market order.
+  position?: {
     id: number
     market: string
     side: 'long' | 'short'
     size: number
     entryPrice: number
     leverage: number
+  }
+  // Present for a resting limit order.
+  order?: {
+    id: number
+    market: string
+    side: 'long' | 'short'
+    size: number
+    price: number
+    status: string
   }
 }
 
@@ -751,4 +900,30 @@ export interface PulseFilters {
   maxSniperPercent: number | null
   maxBundleCount: number | null
   minHolders: number | null
+}
+
+export interface ReferralStats {
+  referral_code: string
+  referral_link: string
+  total_referrals: number
+  active_referrals: number
+  total_earnings_usd: number
+  pending_rewards_usd: number
+  pending_rewards_count: number
+  code_times_used: number
+  tier: 'standard' | 'power' | 'elite'
+  reward_rate_pct: number
+}
+
+export interface ReferralEntry {
+  user_id: string
+  username: string
+  joined_at: string
+  total_rewards_usd: number
+}
+
+export interface ReferralLeaderboardEntry {
+  rank: number
+  username: string
+  total_reward_usd: number
 }

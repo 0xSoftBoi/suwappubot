@@ -1,5 +1,6 @@
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
+import type Stripe from 'stripe'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { EnvService } from '../config/EnvService'
@@ -11,6 +12,7 @@ import { ipRateLimit } from '../middleware/ipRateLimit'
 import { runEffectEither } from '../runtime'
 import { StripeService } from '../services/StripeService'
 import { UserService } from '../services'
+import { auditLog } from '../services/audit'
 
 export const billingRoutes = new Hono()
 
@@ -21,13 +23,20 @@ const FEE_RATES: Record<string, number> = {
 	enterprise: 0.1,
 }
 
-// GET /billing/stripe/checkout?tier=pro
-// Creates a Stripe checkout session and redirects to it
+// GET /billing/stripe/checkout?tier=pro[&format=json]
+// Creates a Stripe checkout session. By default redirects to it (direct-link
+// flow); with ?format=json (or Accept: application/json) returns { url } so the
+// Telegram Mini App can open it via WebApp.openLink (a redirect can't be
+// followed cross-origin from a fetch).
 billingRoutes.get('/stripe/checkout', ipRateLimit(5), telegramAuth(), async (c) => {
 	const tier = c.req.query('tier') as 'pro' | 'premium'
 	if (!['pro', 'premium'].includes(tier)) {
 		return c.json({ error: 'Invalid tier. Must be pro or premium.' }, 400)
 	}
+
+	const wantsJson =
+		c.req.query('format') === 'json' ||
+		(c.req.header('accept') ?? '').includes('application/json')
 
 	const telegramUser = c.get('telegramUser')
 
@@ -51,8 +60,8 @@ billingRoutes.get('/stripe/checkout', ipRateLimit(5), telegramAuth(), async (c) 
 				tier,
 				telegramId: String(telegramUser.id),
 				userId: dbUserId,
-				successUrl: `${baseUrl}/subscription/success?tier=${tier}`,
-				cancelUrl: `${baseUrl}/subscription`,
+				successUrl: `${baseUrl}/premium?upgrade=success&tier=${tier}`,
+				cancelUrl: `${baseUrl}/premium`,
 			})
 
 			return { url: checkoutUrl }
@@ -64,6 +73,7 @@ billingRoutes.get('/stripe/checkout', ipRateLimit(5), telegramAuth(), async (c) 
 		return c.json(body, status as 200)
 	}
 
+	if (wantsJson) return c.json({ url: result.right.url })
 	return c.redirect(result.right.url)
 })
 
@@ -83,11 +93,27 @@ billingRoutes.post('/stripe/webhook', async (c) => {
 				return { received: true }
 			}
 
-			const event = yield* stripeService.constructWebhookEvent(
-				body,
-				signature,
-				env.STRIPE_WEBHOOK_SECRET,
-			)
+			// Support multiple signing secrets (comma-separated) so more than one
+			// Stripe webhook endpoint — or an in-flight key rotation — can target this
+			// URL. Stripe signs each delivery with its own endpoint's secret, so we try
+			// each configured secret until one verifies.
+			const secrets = env.STRIPE_WEBHOOK_SECRET.split(',')
+				.map((s) => s.trim())
+				.filter(Boolean)
+
+			let event: Stripe.Event | null = null
+			for (const secret of secrets) {
+				const verified = yield* Effect.either(
+					stripeService.constructWebhookEvent(body, signature, secret),
+				)
+				if (Either.isRight(verified)) {
+					event = verified.right
+					break
+				}
+			}
+			if (!event) {
+				return yield* Effect.fail(new Error('Webhook signature verification failed'))
+			}
 
 			if (event.type === 'checkout.session.completed') {
 				const session = event.data.object as {
@@ -120,6 +146,12 @@ billingRoutes.post('/stripe/webhook', async (c) => {
 								}),
 						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 					})
+
+					yield* auditLog({
+						userId: parseInt(user_id, 10),
+						eventType: 'subscription.activated',
+						details: { tier, source: 'stripe', eventId: event.id },
+					})
 				}
 			}
 
@@ -127,6 +159,45 @@ billingRoutes.post('/stripe/webhook', async (c) => {
 				const sub = event.data.object as { metadata?: { user_id?: string } }
 				const userId = sub.metadata?.user_id
 				if (userId) {
+					yield* Effect.tryPromise({
+						try: () =>
+							db
+								.update(subscriptions)
+								.set({ tier: 'free', expiresAt: new Date(), updatedAt: new Date() })
+								.where(eq(subscriptions.userId, parseInt(userId, 10))),
+						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+					})
+
+					yield* auditLog({
+						userId: parseInt(userId, 10),
+						eventType: 'subscription.canceled',
+						details: { source: 'stripe', eventId: event.id },
+					})
+				}
+			}
+
+			if (event.type === 'invoice.payment_failed') {
+				const invoice = event.data.object as {
+					subscription_details?: { metadata?: { user_id?: string } }
+					metadata?: { user_id?: string }
+					next_payment_attempt?: number | null
+				}
+				const userId =
+					invoice.subscription_details?.metadata?.user_id ?? invoice.metadata?.user_id
+				// next_payment_attempt is null once Stripe stops retrying (final failure).
+				const isTerminal = !invoice.next_payment_attempt
+
+				// Always audit the failure (dunning visibility + SOC2 trail).
+				yield* auditLog({
+					userId: userId ? parseInt(userId, 10) : 0,
+					eventType: 'subscription.payment_failed',
+					details: { terminal: isTerminal, source: 'stripe', eventId: event.id },
+				})
+
+				// Downgrade ONLY on the final failed attempt, and only with a resolved
+				// user — never downgrade a paying user mid-retry. Idempotent with the
+				// customer.subscription.deleted handler above.
+				if (isTerminal && userId) {
 					yield* Effect.tryPromise({
 						try: () =>
 							db
@@ -241,7 +312,22 @@ billingRoutes.post('/crypto', ipRateLimit(10), telegramAuth(), async (c) => {
 
 			// 3) Record payment (idempotent) + grant the subscription atomically.
 			const now = new Date()
-			const expiresAt = new Date(now.getTime() + SUBSCRIPTION_PERIOD_DAYS * 24 * 60 * 60 * 1000)
+			// Prepaid window (no auto-renew): extend from current expiry if still active.
+			const currentRows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ expiresAt: subscriptions.expiresAt })
+						.from(subscriptions)
+						.where(eq(subscriptions.userId, dbUserId))
+						.limit(1),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+			const currentExpiry = currentRows[0]?.expiresAt
+			const base =
+				currentExpiry && new Date(currentExpiry).getTime() > now.getTime()
+					? new Date(currentExpiry)
+					: now
+			const expiresAt = new Date(base.getTime() + SUBSCRIPTION_PERIOD_DAYS * 24 * 60 * 60 * 1000)
 
 			const granted = yield* Effect.tryPromise({
 				try: () =>
@@ -291,10 +377,11 @@ billingRoutes.post('/crypto', ipRateLimit(10), telegramAuth(), async (c) => {
 		already_processed: r.alreadyProcessed,
 		tier: r.tier,
 		expires_at: r.expiresAt,
+		auto_renew: false,
 		fee_rate_percent: FEE_RATES[r.tier ?? 'free'] ?? 1.0,
 		message: r.alreadyProcessed
 			? 'This payment was already processed (idempotent).'
-			: `Subscribed to ${r.tier}.`,
+			: `Prepaid ${r.tier} access window active (no auto-renew — pay again to extend).`,
 	})
 })
 

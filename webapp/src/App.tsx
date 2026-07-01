@@ -29,6 +29,10 @@ const PredictionMarkets = lazy(() => import('./pages/PredictionMarkets').then(m 
 const PredictionMarketDetail = lazy(() => import('./pages/PredictionMarketDetail').then(m => ({ default: m.PredictionMarketDetail })))
 const PerpsMarkets = lazy(() => import('./pages/PerpsMarkets').then(m => ({ default: m.PerpsMarkets })))
 const PerpsMarketDetail = lazy(() => import('./pages/PerpsMarketDetail').then(m => ({ default: m.PerpsMarketDetail })))
+const P2P = lazy(() => import('./pages/P2P').then(m => ({ default: m.P2P })))
+const Enterprise = lazy(() => import('./pages/Enterprise').then(m => ({ default: m.Enterprise })))
+const Battle = lazy(() => import('./pages/Battle').then(m => ({ default: m.Battle })))
+const Stocks = lazy(() => import('./pages/Stocks').then(m => ({ default: m.Stocks })))
 import { DesktopLayout } from './components/layout'
 import { HotkeyOverlay } from './components/desktop/HotkeyOverlay'
 import './theme/suwappu.css'
@@ -350,6 +354,16 @@ function AppContent() {
           }
         />
         <Route
+          path="/p2p"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <P2P />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/recovery"
           element={
             <ProtectedRoute>
@@ -365,6 +379,37 @@ function AppContent() {
             <ProtectedRoute>
               <PageTransition>
                 <Settings />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/enterprise"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Enterprise />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/battle"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Battle />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/stocks"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Stocks />
               </PageTransition>
             </ProtectedRoute>
           }

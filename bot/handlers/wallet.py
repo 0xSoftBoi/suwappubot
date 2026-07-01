@@ -16,6 +16,7 @@ from bot.utils.validators import validate_private_key
 from bot.utils.formatters import format_address_link
 from bot.utils.qr_code import generate_wallet_qr
 from bot.utils.telegram_safe import safe_md
+from bot.i18n import get_text, get_user_lang
 from database.db import get_session
 import logging
 
@@ -324,16 +325,19 @@ async def wallet_create_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     # Show wallet created WITHOUT the private key in chat
+    lang = get_user_lang(update.effective_user)
     provider_note = (
         "🔐 Your wallet is secured by Turnkey."
         if wallet.is_turnkey_wallet
         else "🔐 Your private key is encrypted and stored securely."
     )
-    text = (
-        f"✅ *{chain_name} Wallet Created!*\n\n"
-        f"{chain_emoji} *Address:*\n"
-        f"`{address}`\n\n"
-        f"{provider_note}"
+    text = get_text(
+        "wallet_created",
+        lang,
+        chain_name=chain_name,
+        chain_emoji=chain_emoji,
+        address=address,
+        provider_note=provider_note,
     )
     if chain_type == "starknet":
         text += (
