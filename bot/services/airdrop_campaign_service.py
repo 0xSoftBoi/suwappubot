@@ -424,9 +424,51 @@ class AirdropCampaignService:
             new_remaining = remaining - per_user
             campaign.remaining_amount = str(new_remaining)
             if new_remaining < per_user:
-                # Next claim would fail; pre-mark exhausted if truly zero
-                if new_remaining == Decimal("0"):
-                    campaign.status = "exhausted"
+                # No further claim can be satisfied. Refund any sub-per_user dust
+                # to the creator and close the campaign so escrowed funds aren't
+                # stranded — a no-expiry campaign would otherwise linger 'active'
+                # with an unclaimable remainder forever. Mirrors cancel_campaign's
+                # refund path; runs inside the same locked claim transaction.
+                if new_remaining > Decimal("0"):
+                    from bot.models.custodial import CustodialBalance, CustodialTransaction
+                    from bot.config.tokens import get_token_address, NATIVE_TOKEN_ADDRESS
+
+                    dust_token_address = (
+                        get_token_address(campaign.token, campaign.chain) or NATIVE_TOKEN_ADDRESS
+                    )
+                    creator_balance = (
+                        session.query(CustodialBalance)
+                        .filter(
+                            CustodialBalance.user_id == campaign.creator_id,
+                            CustodialBalance.chain == campaign.chain,
+                            CustodialBalance.token_symbol == campaign.token,
+                        )
+                        .with_for_update()
+                        .first()
+                    )
+                    if not creator_balance:
+                        creator_balance = CustodialBalance(
+                            user_id=campaign.creator_id,
+                            chain=campaign.chain,
+                            token_symbol=campaign.token,
+                            token_address=dust_token_address,
+                            balance="0",
+                        )
+                        session.add(creator_balance)
+                    creator_balance.balance = str(Decimal(creator_balance.balance) + new_remaining)
+                    session.add(
+                        CustodialTransaction(
+                            user_id=campaign.creator_id,
+                            tx_type=TransactionType.REFUND.value,
+                            chain=campaign.chain,
+                            token_symbol=campaign.token,
+                            token_address=dust_token_address,
+                            amount=str(new_remaining),
+                            notes=f"airdrop_refund:campaign:{campaign_id}:dust",
+                        )
+                    )
+                    campaign.remaining_amount = "0"
+                campaign.status = "exhausted"
 
             # Credit claimer's custodial balance inside the same transaction
             from bot.models.custodial import CustodialBalance
