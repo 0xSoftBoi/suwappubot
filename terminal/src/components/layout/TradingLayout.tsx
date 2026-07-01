@@ -19,6 +19,7 @@ import { WatchlistPanel } from '../watchlist/WatchlistPanel'
 import { PerpsWorkspace } from '../perps/PerpsWorkspace'
 import { PredictWorkspace } from '../predict/PredictWorkspace'
 import { ReferralsPanel } from '../referrals/ReferralsPanel'
+import { RewardsPanel } from '../rewards/RewardsPanel'
 import { useLayoutSizes } from '../../hooks/useLayoutSizes'
 import { useBottomTab, type BottomTab } from '../../contexts/BottomTabContext'
 import { useTrading } from '../../contexts/TradingContext'
@@ -36,6 +37,7 @@ const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'defi', label: 'DeFi Center' },
   { id: 'copilot', label: 'AI Co-Pilot' },
   { id: 'referrals', label: 'Referrals' },
+  { id: 'rewards', label: 'Cashback' },
 ]
 
 type MobileTab = 'chart' | 'swap' | 'more'
@@ -124,6 +126,7 @@ function MobileLayout() {
               )}
               {bottomTab === 'copilot' && <CopilotPanel />}
               {bottomTab === 'referrals' && <ReferralsPanel />}
+              {bottomTab === 'rewards' && <RewardsPanel />}
             </div>
           </div>
         )}
@@ -248,6 +251,7 @@ function DesktopLayout() {
             )}
             {bottomTab === 'copilot' && <CopilotPanel />}
             {bottomTab === 'referrals' && <ReferralsPanel />}
+            {bottomTab === 'rewards' && <RewardsPanel />}
           </div>
         </div>
       </Allotment.Pane>
