@@ -47,7 +47,7 @@ export function TokenInput({
             value={amount}
             onChange={(e) => onAmountChange?.(e.target.value)}
             placeholder="0.0"
-            className="flex-1 text-xl font-heading font-bold text-suwappu-text bg-transparent focus:outline-none min-w-0"
+            className="flex-1 text-xl font-heading font-bold text-suwappu-text bg-transparent focus:outline-hidden min-w-0"
           />
         )}
         <button

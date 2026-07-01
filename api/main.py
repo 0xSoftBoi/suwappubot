@@ -2394,6 +2394,58 @@ async def telegram_webhook(request: Request):
     return {"status": "ok"}
 
 
+@app.post("/internal/railway-webhook", include_in_schema=False)
+async def railway_webhook(request: Request):
+    """Receive Railway deploy-status webhooks and fan failures out to Telegram admins.
+
+    Railway posts a JSON payload on deployment status changes. We only alert on
+    failure/crash states so the team hears about a bad deploy without watching the
+    dashboard. Auth is a shared secret passed as ``?token=`` on the webhook URL
+    (Railway does not send custom auth headers). Always returns 200 so Railway
+    never disables the webhook on our account.
+    """
+    expected = os.environ.get("RAILWAY_WEBHOOK_SECRET")
+    if not expected or request.query_params.get("token") != expected:
+        logger.warning("Railway webhook hit with missing/invalid token")
+        raise HTTPException(status_code=403, detail="Invalid token")
+
+    try:
+        payload = await request.json()
+    except Exception:  # noqa: BLE001
+        return {"status": "ignored", "reason": "unparseable body"}
+
+    # Railway payloads vary by event; deploy events carry a top-level `status`
+    # and a nested `deployment`/`service`/`environment`. Be defensive.
+    status = str(payload.get("status") or payload.get("type") or "").upper()
+    alert_states = {"FAILED", "CRASHED", "REMOVED", "DEPLOY_FAILED", "BUILD_FAILED"}
+    if not any(s in status for s in alert_states):
+        return {"status": "ok", "ignored_status": status}
+
+    service = (payload.get("service") or {}).get("name") or payload.get("serviceName") or "?"
+    env = (payload.get("environment") or {}).get("name") or payload.get("environmentName") or "?"
+    project = (payload.get("project") or {}).get("name") or "suwappu"
+    commit = (payload.get("deployment") or {}).get("meta", {}).get("commitMessage")
+    commit_line = f"\n`{commit.splitlines()[0][:80]}`" if commit else ""
+
+    text = (
+        f"🚨 *Railway deploy {status}*\n"
+        f"Project: `{project}`\n"
+        f"Service: `{service}`\n"
+        f"Env: `{env}`{commit_line}"
+    )
+
+    bot_app = getattr(request.app.state, "bot_app", None)
+    bot = bot_app.bot if bot_app else None
+    try:
+        from bot.services.support_notifier import post_admin_update
+
+        await post_admin_update(bot, text)
+    except Exception as e:  # noqa: BLE001 — never let alerting failure 500 the webhook
+        logger.error("Failed to fan out Railway webhook alert: %s", e)
+
+    return {"status": "alerted", "deploy_status": status}
+
+
 @app.get("/", include_in_schema=False)
 async def root_redirect():
     """Redirect root to the API documentation portal."""

@@ -15,9 +15,14 @@ export function generateStaticParams(): Params[] {
   );
 }
 
-export function generateMetadata({ params }: { params: Params }): Metadata {
-  const section = docsData.sections.find((s) => s.id === params.section);
-  const page = section?.pages.find((p) => p.slug === params.slug);
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<Params>;
+}): Promise<Metadata> {
+  const { section: sectionId, slug } = await params;
+  const section = docsData.sections.find((s) => s.id === sectionId);
+  const page = section?.pages.find((p) => p.slug === slug);
 
   if (!section || !page) {
     return { title: 'Not Found — Suwappu Docs' };
@@ -31,17 +36,18 @@ export function generateMetadata({ params }: { params: Params }): Metadata {
       title: `${page.title} — Suwappu Docs`,
       description: desc,
       type: 'article',
-      url: `https://suwappu.bot/docs/${params.section}/${params.slug}`,
+      url: `https://suwappu.bot/docs/${sectionId}/${slug}`,
     },
     alternates: {
-      canonical: `https://suwappu.bot/docs/${params.section}/${params.slug}`,
+      canonical: `https://suwappu.bot/docs/${sectionId}/${slug}`,
     },
   };
 }
 
-export default function DocPage({ params }: { params: Params }) {
-  const section = docsData.sections.find((s) => s.id === params.section);
-  const page = section?.pages.find((p) => p.slug === params.slug);
+export default async function DocPage({ params }: { params: Promise<Params> }) {
+  const { section: sectionId, slug } = await params;
+  const section = docsData.sections.find((s) => s.id === sectionId);
+  const page = section?.pages.find((p) => p.slug === slug);
 
   if (!section || !page) {
     notFound();

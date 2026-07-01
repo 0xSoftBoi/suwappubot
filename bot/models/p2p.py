@@ -73,6 +73,7 @@ class P2PTradeStatus(str, enum.Enum):
     COMPLETED = "completed"  # Settled end-to-end
     CANCELLED = "cancelled"
     DISPUTED = "disputed"
+    RESOLVING = "resolving"  # arbiter claimed the dispute; on-chain move in flight
     EXPIRED = "expired"
 
 
@@ -168,12 +169,26 @@ class P2PTrade(Base):
     escrow_lock_tx = Column(String(255), nullable=True)
     escrow_release_tx = Column(String(255), nullable=True)
 
+    # Resolved EVM payout addresses captured server-side at trade creation, so
+    # settlement never relies on free-text operator input. release_escrow pays
+    # buyer_address; an escrow refund pays seller_address.
+    buyer_address = Column(String(255), nullable=True)
+    seller_address = Column(String(255), nullable=True)
+
     # Fiat-leg proof submitted by the payer
     fiat_payment_ref = Column(String(255), nullable=True)
 
     # Dispute / arbitration
     dispute_reason = Column(Text, nullable=True)
     disputed_at = Column(DateTime, nullable=True)
+    # User (taker or maker) who opened the dispute.
+    disputed_by = Column(BigInteger, nullable=True)
+    # Arbiter resolution: 'release' (buyer wins → escrow to buyer) or 'refund'
+    # (seller wins → escrow to seller). Null until an admin resolves.
+    dispute_resolution = Column(String(16), nullable=True)
+    resolved_by = Column(BigInteger, nullable=True)  # admin who arbitrated
+    resolved_at = Column(DateTime, nullable=True)
+    resolution_note = Column(Text, nullable=True)
 
     error_message = Column(Text, nullable=True)
 

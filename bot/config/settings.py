@@ -10,6 +10,10 @@ class Settings(BaseSettings):
 
     # Telegram
     telegram_bot_token: str = Field(..., description="Telegram bot token from BotFather")
+    telegram_bot_username: str = Field(
+        default="suwappubot",
+        description="Telegram bot @username (without @), used for referral deep-links",
+    )
     use_webhook: bool = Field(
         default=False,
         description="Use webhooks instead of polling (required for multiple replicas)",
@@ -211,6 +215,10 @@ class Settings(BaseSettings):
     base_rpc_url: str = Field(
         default="https://mainnet.base.org,https://base-rpc.publicnode.com,https://1rpc.io/base,https://base.drpc.org",
         description="Base mainnet RPC URL(s)",
+    )
+    base_sepolia_rpc_url: str = Field(
+        default="https://sepolia.base.org,https://base-sepolia-rpc.publicnode.com",
+        description="Base Sepolia testnet RPC URL(s) — used for native P2P escrow testing",
     )
     avalanche_rpc_url: str = Field(
         default="https://api.avax.network/ext/bc/C/rpc,https://avalanche-c-chain-rpc.publicnode.com,https://1rpc.io/avax/c,https://avalanche.drpc.org",
@@ -807,6 +815,12 @@ class Settings(BaseSettings):
         default="https://app.suwappu.bot", description="URL for the Telegram Mini App dashboard"
     )
 
+    # Terminal (non-custodial trading web app, served on its own subdomain)
+    terminal_url: str = Field(
+        default="https://terminal.suwappu.bot",
+        description="Base URL for the Suwappu terminal web app (client-side signing surface)",
+    )
+
     # Agent Interoperability
     agent_api_key: Optional[str] = Field(
         default=None, description="Secret key for other AI agents to access the API"
@@ -818,6 +832,45 @@ class Settings(BaseSettings):
     )
     admin_telegram_ids: str = Field(
         default="", description="Comma-separated Telegram user IDs for admin access"
+    )
+
+    # Natural-language trade intent parsing (Anthropic). OFF by default — NL
+    # parsing only ever produces a structured TradeIntent; it never quotes or
+    # executes a swap itself (see bot/services/nl_intent_service.py and
+    # bot/handlers/nl_trade.py, which hand off into the existing
+    # CONFIRM_SWAP -> ENTER_2FA_CODE flow).
+    ANTHROPIC_API_KEY: str = Field(
+        default="", description="Anthropic API key for NL trade intent parsing"
+    )
+    NL_TRADING_ENABLED: bool = Field(
+        default=False, description="Master switch for natural-language trade intent parsing"
+    )
+    NL_TRADING_MODEL: str = Field(
+        default="claude-haiku-4-5-20251001",
+        description="Anthropic model used to parse natural-language trade intents",
+    )
+    NL_TRADING_PROVIDER: str = Field(
+        default="anthropic",
+        description="LLM provider for NL trade intent parsing: anthropic|openai|deepseek|groq|custom",
+    )
+    OPENAI_API_KEY: str = Field(
+        default="", description="OpenAI API key for NL trade intent parsing"
+    )
+    DEEPSEEK_API_KEY: str = Field(
+        default="", description="DeepSeek API key for NL trade intent parsing"
+    )
+    GROQ_API_KEY: str = Field(default="", description="Groq API key for NL trade intent parsing")
+    NL_TRADING_BASE_URL: str = Field(
+        default="",
+        description="Optional override base_url for OpenAI-compatible NL trading providers",
+    )
+    NL_LLM_FALLBACK_PER_USER_DAILY: int = Field(
+        default=30,
+        description="Max LLM fallback calls (deterministic-parse misses) per user per day",
+    )
+    NL_LLM_FALLBACK_GLOBAL_DAILY: int = Field(
+        default=5000,
+        description="Max LLM fallback calls (deterministic-parse misses) globally per day",
     )
 
     # Application Settings
@@ -955,6 +1008,14 @@ class Settings(BaseSettings):
             "HotWallet id holding native P2P escrow funds (custodial-during-trade). "
             "Falls back to the primary EVM deposit hot wallet when unset."
         ),
+    )
+    # Comma-separated allowlist of chains on which native escrow may move funds.
+    # Defaults to testnet only so an armed executor cannot touch mainnet funds
+    # until native P2P is validated end-to-end. Set to "" to allow all chains,
+    # or e.g. "base,base-sepolia" to enable mainnet.
+    p2p_escrow_allowed_chains: str = Field(
+        default="base-sepolia",
+        description="Comma-separated chains native P2P escrow may settle on (empty = all)",
     )
     # Comma-separated ISO2 regions blocked from P2P (regulatory).
     p2p_restricted_regions: Optional[str] = Field(

@@ -127,7 +127,16 @@ export function ProbabilityChart({ market }: Props) {
       topColor: up ? 'rgba(34, 197, 94, 0.34)' : 'rgba(239, 68, 68, 0.3)',
       bottomColor: up ? 'rgba(34, 197, 94, 0.02)' : 'rgba(239, 68, 68, 0.02)',
     })
-    areaRef.current.setData(points.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })))
+    // lightweight-charts hard-asserts strictly-ascending, unique timestamps —
+    // a duplicate/out-of-order point (plausible from tick-level Polymarket
+    // history) throws and white-screens the terminal. Dedupe by time (keep
+    // last) and sort ascending before setData.
+    const byTime = new Map<number, number>()
+    for (const p of points) byTime.set(p.time as number, p.value)
+    const safe = Array.from(byTime.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([time, value]) => ({ time: time as UTCTimestamp, value }))
+    areaRef.current.setData(safe)
     chartRef.current?.timeScale().fitContent()
   }, [points])
 

@@ -99,7 +99,7 @@ function PlanCard({ plan, onSelect }: { plan: Plan; onSelect: (id: string) => vo
           plan.current
             ? 'bg-suwappu-sakura-light text-suwappu-text-secondary cursor-default'
             : plan.popular
-            ? 'bg-gradient-to-r from-suwappu-magenta-mid to-suwappu-purple-deep text-white'
+            ? 'bg-linear-to-r from-suwappu-magenta-mid to-suwappu-purple-deep text-white'
             : 'bg-suwappu-purple-deep text-white hover:bg-suwappu-purple-deep/90'
         }`}
       >
@@ -145,7 +145,7 @@ export function Subscriptions() {
       <div className="p-3 pb-20 space-y-4">
         {/* Header */}
         <div className="text-center py-4">
-          <div className="w-16 h-16 mx-auto mb-3 bg-gradient-to-br from-suwappu-magenta-mid to-suwappu-purple-deep rounded-full flex items-center justify-center">
+          <div className="w-16 h-16 mx-auto mb-3 bg-linear-to-br from-suwappu-magenta-mid to-suwappu-purple-deep rounded-full flex items-center justify-center">
             <span className="text-3xl">👑</span>
           </div>
           <h2 className="font-heading font-bold text-xl text-suwappu-purple-deep">

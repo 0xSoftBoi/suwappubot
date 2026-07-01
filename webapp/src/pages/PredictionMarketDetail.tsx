@@ -62,7 +62,7 @@ export function PredictionMarketDetail() {
                   <img
                     src={market.image}
                     alt=""
-                    className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
+                    className="w-12 h-12 rounded-lg object-cover shrink-0"
                   />
                 )}
                 <div className="flex-1">
@@ -112,7 +112,7 @@ export function PredictionMarketDetail() {
                   onClick={() => setActiveTab(tab.key)}
                   className={`flex-1 py-2 rounded-md text-xs font-medium transition-colors ${
                     activeTab === tab.key
-                      ? 'bg-white text-suwappu-text shadow-sm'
+                      ? 'bg-white text-suwappu-text shadow-xs'
                       : 'text-suwappu-text-secondary'
                   }`}
                 >

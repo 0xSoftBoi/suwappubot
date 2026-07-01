@@ -54,6 +54,9 @@ class Referral(Base):
     verified_at = Column(DateTime, nullable=True)  # NULL = unverified
     perps_volume_14d_usd = Column(Float, default=0.0)  # 14-day rolling perp volume for tier calc
 
+    # Referral v2: referee rebate — first 5 swaps get a 10% fee discount (reward-side)
+    referee_swap_rebate_remaining = Column(Integer, default=5)
+
     # Relationships
     referrer = relationship("User", foreign_keys=[referrer_id], backref="referrals_made")
     referee = relationship("User", foreign_keys=[referee_id], backref="referred_by")
@@ -79,6 +82,9 @@ class ReferralCode(Base):
     times_used = Column(Integer, default=0)
     total_rewards_earned = Column(Float, default=0.0)  # Total USD earned from this code
 
+    # Referral v2: volume-milestone tier (standard / power / elite)
+    referrer_tier = Column(String(20), default="standard")
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     last_used_at = Column(DateTime, nullable=True)
@@ -90,8 +96,10 @@ class ReferralCode(Base):
 class ReferralReward(Base):
     """Tracks individual referral rewards from swaps (legacy per-swap table).
 
-    Retained for backward compatibility.  New multi-stream earnings are
-    recorded in ReferralEarning instead.
+    Every time a referee swaps, a tier-based percentage of the fee goes to
+    the referrer (see referral_service._l1_rate_for_tier).  Retained for
+    backward compatibility with claim_rewards.  New multi-stream earnings
+    are additionally recorded in ReferralEarning.
     """
 
     __tablename__ = "referral_rewards"
@@ -104,11 +112,16 @@ class ReferralReward(Base):
 
     # Reward details
     fee_amount_usd = Column(Float, nullable=False)  # Total fee paid by referee
-    reward_amount_usd = Column(Float, nullable=False)  # Referrer's share of fee
+    reward_amount_usd = Column(Float, nullable=False)  # Referrer's tier-based share of fee
 
     # Status
     is_paid = Column(Boolean, default=False)
     paid_at = Column(DateTime, nullable=True)
+
+    # Referral v2: FK to the ReferralPayout that consumed this reward row.
+    # Set atomically with is_paid=True in claim_rewards so reject_referral_claim
+    # can find the exact rows belonging to a payout without timestamp correlation.
+    payout_id = Column(Integer, ForeignKey("referral_payouts.id"), nullable=True, index=True)
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -149,6 +162,9 @@ class ReferralPayout(Base):
 
     # Error tracking
     error_message = Column(String(500), nullable=True)
+
+    # Referral v2: large-claim review flag — set True when claim > $500; not credited until reviewed
+    needs_review = Column(Boolean, default=False)
 
     # Relationship
     user = relationship("User", backref="referral_payouts")

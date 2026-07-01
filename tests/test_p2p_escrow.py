@@ -19,6 +19,13 @@ from bot.services.p2p_service import (
 )
 from bot.models.p2p import P2PSource, P2POfferType, P2PTradeStatus
 
+
+@pytest.fixture(autouse=True)
+def _escrow_allow_all_chains(monkeypatch):
+    """Neutralize the chain allowlist for escrow-mechanics tests (they use 'base')."""
+    monkeypatch.setattr(P2PEscrow, "_allowed_chains", staticmethod(lambda: set()))
+
+
 # ── P2PEscrow seam ───────────────────────────────────────────────────────────
 
 
@@ -170,3 +177,513 @@ async def test_native_trade_lifecycle(tmp_db):
     assert done.completed_at is not None
 
     assert set(tx_by_action) == {"lock", "release"}
+    # Escrow lock/release used the trade's own chain, not the global setting.
+    assert tx_by_action["lock"]["chain"] == "base"
+    assert tx_by_action["release"]["chain"] == "base"
+
+
+async def test_release_escrow_is_not_double_spendable(tmp_db):
+    """A second /p2prelease on a completed trade must NOT fire a second on-chain send."""
+    from bot.services.p2p_service import P2PError
+
+    svc = P2PService()
+    release_calls = []
+
+    async def fake_executor(action, **kw):
+        if action == "release":
+            release_calls.append(kw)
+        return f"0x{action}"
+
+    svc.escrow.set_executor(fake_executor)
+
+    offer_id = await svc.create_offer(
+        maker_user_id=111,
+        maker_wallet_id=5,
+        offer_type=P2POfferType.SELL_CRYPTO.value,
+        fiat_currency="NGN",
+        crypto_asset="USDC",
+        crypto_chain="base",
+        price_per_unit=1600.0,
+        min_fiat_amount=1000.0,
+        max_fiat_amount=1_000_000.0,
+        payment_methods=["bank_transfer"],
+    )
+    quote = P2POfferQuote(
+        source=P2PSource.NATIVE.value,
+        offer_id=str(offer_id),
+        offer_type=P2POfferType.SELL_CRYPTO.value,
+        fiat_currency="NGN",
+        crypto_asset="USDC",
+        crypto_chain="base",
+        price_per_unit=1600.0,
+        min_fiat_amount=1000.0,
+        max_fiat_amount=1_000_000.0,
+        payment_methods=["bank_transfer"],
+    )
+    trade = await svc.start_trade(
+        taker_user_id=222,
+        taker_wallet_address="0x" + "cd" * 20,
+        offer=quote,
+        fiat_amount=160_000.0,
+        payment_method="bank_transfer",
+    )
+
+    # Release before any lock must be rejected (nothing escrowed).
+    with pytest.raises(P2PError):
+        await svc.release_escrow(trade_id=trade.id, buyer_address="0x" + "cd" * 20)
+    assert release_calls == []
+
+    await svc.lock_escrow(trade_id=trade.id, seller_wallet_id=5)
+    await svc.release_escrow(trade_id=trade.id, buyer_address="0x" + "cd" * 20)
+    assert len(release_calls) == 1
+
+    # Second release on the same (now COMPLETED) trade must NOT call the executor again.
+    with pytest.raises(P2PError):
+        await svc.release_escrow(trade_id=trade.id, buyer_address="0x" + "cd" * 20)
+    assert len(release_calls) == 1
+
+
+async def test_cancel_trade_refuses_refund_after_fiat_sent(tmp_db):
+    """A fiat-paid trade must force the dispute path, not a silent no-op refund."""
+    from bot.services.p2p_service import P2PError
+
+    svc = P2PService()
+    refund_calls = []
+
+    async def fake_executor(action, **kw):
+        if action == "refund":
+            refund_calls.append(kw)
+        return f"0x{action}"
+
+    svc.escrow.set_executor(fake_executor)
+
+    offer_id = await svc.create_offer(
+        maker_user_id=111,
+        maker_wallet_id=5,
+        offer_type=P2POfferType.SELL_CRYPTO.value,
+        fiat_currency="NGN",
+        crypto_asset="USDC",
+        crypto_chain="base",
+        price_per_unit=1600.0,
+        min_fiat_amount=1000.0,
+        max_fiat_amount=1_000_000.0,
+        payment_methods=["bank_transfer"],
+    )
+    quote = P2POfferQuote(
+        source=P2PSource.NATIVE.value,
+        offer_id=str(offer_id),
+        offer_type=P2POfferType.SELL_CRYPTO.value,
+        fiat_currency="NGN",
+        crypto_asset="USDC",
+        crypto_chain="base",
+        price_per_unit=1600.0,
+        min_fiat_amount=1000.0,
+        max_fiat_amount=1_000_000.0,
+        payment_methods=["bank_transfer"],
+    )
+    trade = await svc.start_trade(
+        taker_user_id=222,
+        taker_wallet_address="0x" + "cd" * 20,
+        offer=quote,
+        fiat_amount=160_000.0,
+        payment_method="bank_transfer",
+    )
+    await svc.lock_escrow(trade_id=trade.id, seller_wallet_id=5)
+    await svc.mark_fiat_sent(trade_id=trade.id, payment_ref="ref")
+
+    with pytest.raises(P2PError):
+        await svc.cancel_trade(trade_id=trade.id, seller_address="0x" + "ab" * 20)
+    assert refund_calls == []
+
+
+async def test_release_uses_recorded_buyer_and_rejects_mismatch(tmp_db):
+    """Release defaults to the buyer recorded at trade creation; a wrong override is rejected."""
+    from bot.services.p2p_service import P2PError
+
+    svc = P2PService()
+    release_to = []
+
+    async def fake_executor(action, **kw):
+        if action == "release":
+            release_to.append(kw["to_address"])
+        return f"0x{action}"
+
+    svc.escrow.set_executor(fake_executor)
+
+    taker_addr = "0x" + "cd" * 20
+    offer_id = await svc.create_offer(
+        maker_user_id=111,
+        maker_wallet_id=5,
+        offer_type=P2POfferType.SELL_CRYPTO.value,  # taker is the buyer
+        fiat_currency="NGN",
+        crypto_asset="USDC",
+        crypto_chain="base",
+        price_per_unit=1600.0,
+        min_fiat_amount=1000.0,
+        max_fiat_amount=1_000_000.0,
+        payment_methods=["bank_transfer"],
+    )
+    quote = P2POfferQuote(
+        source=P2PSource.NATIVE.value,
+        offer_id=str(offer_id),
+        offer_type=P2POfferType.SELL_CRYPTO.value,
+        fiat_currency="NGN",
+        crypto_asset="USDC",
+        crypto_chain="base",
+        price_per_unit=1600.0,
+        min_fiat_amount=1000.0,
+        max_fiat_amount=1_000_000.0,
+        payment_methods=["bank_transfer"],
+    )
+    trade = await svc.start_trade(
+        taker_user_id=222,
+        taker_wallet_address=taker_addr,
+        offer=quote,
+        fiat_amount=160_000.0,
+        payment_method="bank_transfer",
+    )
+    # Buyer address was captured server-side from the taker wallet.
+    assert trade.buyer_address.lower() == taker_addr.lower()
+
+    await svc.lock_escrow(trade_id=trade.id, seller_wallet_id=5)
+
+    # A mismatched override is rejected and fires no on-chain send.
+    with pytest.raises(P2PError):
+        await svc.release_escrow(trade_id=trade.id, buyer_address="0x" + "11" * 20)
+    assert release_to == []
+
+    # No override → defaults to the recorded buyer.
+    done = await svc.release_escrow(trade_id=trade.id)
+    assert done.status == P2PTradeStatus.COMPLETED.value
+    assert len(release_to) == 1
+    assert release_to[0].lower() == taker_addr.lower()
+
+
+async def test_native_trade_fails_closed_without_buyer_address(tmp_db):
+    """A native trade can't start without a verified buyer payout address (fail closed)."""
+    from bot.services.p2p_service import P2PError
+
+    svc = P2PService()
+    svc.escrow.set_executor(lambda *a, **k: "0x")
+
+    offer_id = await svc.create_offer(
+        maker_user_id=111,
+        maker_wallet_id=5,
+        offer_type=P2POfferType.SELL_CRYPTO.value,  # taker is the buyer
+        fiat_currency="NGN",
+        crypto_asset="USDC",
+        crypto_chain="base",
+        price_per_unit=1600.0,
+        min_fiat_amount=1000.0,
+        max_fiat_amount=1_000_000.0,
+        payment_methods=["bank_transfer"],
+    )
+    quote = P2POfferQuote(
+        source=P2PSource.NATIVE.value,
+        offer_id=str(offer_id),
+        offer_type=P2POfferType.SELL_CRYPTO.value,
+        fiat_currency="NGN",
+        crypto_asset="USDC",
+        crypto_chain="base",
+        price_per_unit=1600.0,
+        min_fiat_amount=1000.0,
+        max_fiat_amount=1_000_000.0,
+        payment_methods=["bank_transfer"],
+    )
+    # Taker has no wallet address → buyer leg can't be recorded → must reject.
+    with pytest.raises(P2PError):
+        await svc.start_trade(
+            taker_user_id=222,
+            taker_wallet_address=None,
+            offer=quote,
+            fiat_amount=160_000.0,
+            payment_method="bank_transfer",
+        )
+
+
+async def test_lock_escrows_maker_wallet_on_sell_offer(tmp_db):
+    """On a SELL_CRYPTO offer the seller is the MAKER — escrow the maker wallet, not the taker."""
+    from bot.services.p2p_service import P2PError
+
+    svc = P2PService()
+    lock_kwargs = {}
+
+    async def fake_executor(action, **kw):
+        if action == "lock":
+            lock_kwargs.update(kw)
+        return f"0x{action}"
+
+    svc.escrow.set_executor(fake_executor)
+
+    maker_wallet_id = 42
+    offer_id = await svc.create_offer(
+        maker_user_id=111,
+        maker_wallet_id=maker_wallet_id,
+        offer_type=P2POfferType.SELL_CRYPTO.value,  # maker sells crypto → maker is seller
+        fiat_currency="NGN",
+        crypto_asset="USDC",
+        crypto_chain="base",
+        price_per_unit=1600.0,
+        min_fiat_amount=1000.0,
+        max_fiat_amount=1_000_000.0,
+        payment_methods=["bank_transfer"],
+    )
+    quote = P2POfferQuote(
+        source=P2PSource.NATIVE.value,
+        offer_id=str(offer_id),
+        offer_type=P2POfferType.SELL_CRYPTO.value,
+        fiat_currency="NGN",
+        crypto_asset="USDC",
+        crypto_chain="base",
+        price_per_unit=1600.0,
+        min_fiat_amount=1000.0,
+        max_fiat_amount=1_000_000.0,
+        payment_methods=["bank_transfer"],
+    )
+    trade = await svc.start_trade(
+        taker_user_id=222,
+        taker_wallet_address="0x" + "cd" * 20,
+        offer=quote,
+        fiat_amount=160_000.0,
+        payment_method="bank_transfer",
+    )
+
+    # Resolved seller wallet is the maker's, regardless of who drives the trade.
+    await svc.lock_escrow(trade_id=trade.id)
+    assert lock_kwargs["from_wallet_id"] == maker_wallet_id
+
+    # An explicit seller_wallet_id that isn't the maker's is rejected (no wrong-party escrow).
+    trade2 = await svc.start_trade(
+        taker_user_id=222,
+        taker_wallet_address="0x" + "cd" * 20,
+        offer=quote,
+        fiat_amount=160_000.0,
+        payment_method="bank_transfer",
+    )
+    with pytest.raises(P2PError):
+        await svc.lock_escrow(trade_id=trade2.id, seller_wallet_id=999)
+
+
+async def test_escrow_chain_allowlist_blocks_disallowed_chain(monkeypatch):
+    """With a testnet-only allowlist, escrow refuses to settle on mainnet."""
+    from bot.services.p2p_service import P2PError
+
+    monkeypatch.setattr(P2PEscrow, "_allowed_chains", staticmethod(lambda: {"base-sepolia"}))
+    escrow = P2PEscrow()
+    calls = []
+
+    async def fake_executor(action, **kw):
+        calls.append(kw.get("chain"))
+        return "0x"
+
+    escrow.set_executor(fake_executor)
+
+    # Mainnet 'base' is not in the allowlist → rejected before any on-chain call.
+    with pytest.raises(P2PError):
+        await escrow.lock(seller_wallet_id=1, amount="10", chain="base")
+    with pytest.raises(P2PError):
+        await escrow.release(buyer_address="0x" + "ab" * 20, amount="10", chain="base")
+    assert calls == []
+
+    # base-sepolia is allowed → proceeds.
+    assert await escrow.lock(seller_wallet_id=1, amount="10", chain="base-sepolia") == "0x"
+    assert calls == ["base-sepolia"]
+
+
+# ── Dispute / arbitration ───────────────────────────────────────────────────
+
+
+async def _locked_native_trade(svc, taker=222, maker_wallet_id=5):
+    """Helper: create a SELL_CRYPTO native trade and lock its escrow. Returns trade."""
+    offer_id = await svc.create_offer(
+        maker_user_id=111,
+        maker_wallet_id=maker_wallet_id,
+        offer_type=P2POfferType.SELL_CRYPTO.value,
+        fiat_currency="NGN",
+        crypto_asset="USDC",
+        crypto_chain="base",
+        price_per_unit=1600.0,
+        min_fiat_amount=1000.0,
+        max_fiat_amount=1_000_000.0,
+        payment_methods=["bank_transfer"],
+    )
+    quote = P2POfferQuote(
+        source=P2PSource.NATIVE.value,
+        offer_id=str(offer_id),
+        offer_type=P2POfferType.SELL_CRYPTO.value,
+        fiat_currency="NGN",
+        crypto_asset="USDC",
+        crypto_chain="base",
+        price_per_unit=1600.0,
+        min_fiat_amount=1000.0,
+        max_fiat_amount=1_000_000.0,
+        payment_methods=["bank_transfer"],
+    )
+    trade = await svc.start_trade(
+        taker_user_id=taker,
+        taker_wallet_address="0x" + "cd" * 20,
+        offer=quote,
+        fiat_amount=160_000.0,
+        payment_method="bank_transfer",
+    )
+    await svc.lock_escrow(trade_id=trade.id, seller_wallet_id=maker_wallet_id)
+    return trade
+
+
+async def test_dispute_open_freezes_and_blocks_unilateral_settlement(tmp_db):
+    from bot.services.p2p_service import P2PError
+
+    svc = P2PService()
+
+    async def fake_executor(action, **kw):
+        return f"0x{action}"
+
+    svc.escrow.set_executor(fake_executor)
+    trade = await _locked_native_trade(svc)
+
+    # A non-party cannot open a dispute.
+    with pytest.raises(P2PError):
+        await svc.open_dispute(trade_id=trade.id, reason="not mine", opened_by=999)
+
+    # The taker (a party) can → trade freezes to DISPUTED.
+    disputed = await svc.open_dispute(trade_id=trade.id, reason="no fiat received", opened_by=222)
+    assert disputed.status == P2PTradeStatus.DISPUTED.value
+    assert disputed.disputed_by == 222
+
+    # While disputed, neither side can unilaterally settle.
+    with pytest.raises(P2PError):
+        await svc.release_escrow(trade_id=trade.id)
+    with pytest.raises(P2PError):
+        await svc.cancel_trade(trade_id=trade.id, seller_address="0x" + "ab" * 20)
+
+
+async def test_dispute_resolve_release_pays_buyer_once(tmp_db):
+    from bot.services.p2p_service import P2PError
+
+    svc = P2PService()
+    release_to = []
+
+    async def fake_executor(action, **kw):
+        if action == "release":
+            release_to.append(kw["to_address"])
+        return f"0x{action}"
+
+    svc.escrow.set_executor(fake_executor)
+    trade = await _locked_native_trade(svc)
+    await svc.open_dispute(trade_id=trade.id, reason="dispute", opened_by=222)
+
+    done = await svc.resolve_dispute(
+        trade_id=trade.id, resolution="release", resolver_id=7, note="buyer proved payment"
+    )
+    assert done.status == P2PTradeStatus.COMPLETED.value
+    assert done.dispute_resolution == "release"
+    assert done.resolved_by == 7
+    assert [a.lower() for a in release_to] == ["0x" + "cd" * 20]  # recorded buyer
+
+    # Second resolve is rejected — no double on-chain move.
+    with pytest.raises(P2PError):
+        await svc.resolve_dispute(trade_id=trade.id, resolution="release", resolver_id=7)
+    assert len(release_to) == 1
+
+
+async def test_dispute_resolve_fails_closed_without_recorded_seller(tmp_db):
+    """A refund with no recorded seller address fails closed and stays retryable."""
+    from bot.services.p2p_service import P2PError
+
+    svc = P2PService()
+    refund_to = []
+
+    async def fake_executor(action, **kw):
+        if action == "refund":
+            refund_to.append(kw["to_address"])
+        return f"0x{action}"
+
+    svc.escrow.set_executor(fake_executor)
+    # maker_wallet_id=5 has no Wallet row → seller_address recorded as None.
+    trade = await _locked_native_trade(svc)
+    await svc.open_dispute(trade_id=trade.id, reason="d", opened_by=111)
+
+    with pytest.raises(P2PError):
+        await svc.resolve_dispute(trade_id=trade.id, resolution="refund", resolver_id=7)
+    assert refund_to == []  # no on-chain move
+    # Reservation not consumed (payout resolved before it) → trade still DISPUTED,
+    # so an arbiter can still resolve it (e.g. as a release) afterwards.
+    still = await svc.get_trade(trade.id)
+    assert still.status == P2PTradeStatus.DISPUTED.value
+    done = await svc.resolve_dispute(trade_id=trade.id, resolution="release", resolver_id=7)
+    assert done.status == P2PTradeStatus.COMPLETED.value
+
+
+async def test_mark_fiat_sent_cannot_unfreeze_dispute(tmp_db):
+    """A taker can't tap 'I've paid' again to un-freeze a disputed trade."""
+    from bot.services.p2p_service import P2PError
+
+    svc = P2PService()
+
+    async def fake_executor(action, **kw):
+        return f"0x{action}"
+
+    svc.escrow.set_executor(fake_executor)
+    trade = await _locked_native_trade(svc)
+    await svc.mark_fiat_sent(trade_id=trade.id, payment_ref="ref")
+    await svc.open_dispute(trade_id=trade.id, reason="seller says no fiat", opened_by=111)
+
+    with pytest.raises(P2PError):
+        await svc.mark_fiat_sent(trade_id=trade.id, payment_ref="again")
+    still = await svc.get_trade(trade.id)
+    assert still.status == P2PTradeStatus.DISPUTED.value
+
+
+async def test_dispute_resolve_reverts_on_onchain_failure(tmp_db):
+    """A transient on-chain failure leaves the trade DISPUTED (retryable), not stranded."""
+    from bot.services.p2p_service import P2PError
+
+    svc = P2PService()
+    fail = {"release": True}
+
+    async def flaky_executor(action, **kw):
+        if action == "release" and fail["release"]:
+            raise RuntimeError("rpc timeout")
+        return f"0x{action}"
+
+    svc.escrow.set_executor(flaky_executor)
+    trade = await _locked_native_trade(svc)
+    await svc.open_dispute(trade_id=trade.id, reason="d", opened_by=222)
+
+    # First resolve hits the on-chain failure → reverts to DISPUTED, funds untouched.
+    with pytest.raises(RuntimeError):
+        await svc.resolve_dispute(trade_id=trade.id, resolution="release", resolver_id=7)
+    reverted = await svc.get_trade(trade.id)
+    assert reverted.status == P2PTradeStatus.DISPUTED.value
+    assert reverted.escrow_release_tx is None
+
+    # Retry succeeds once the chain recovers.
+    fail["release"] = False
+    done = await svc.resolve_dispute(trade_id=trade.id, resolution="release", resolver_id=7)
+    assert done.status == P2PTradeStatus.COMPLETED.value
+    assert done.escrow_release_tx == "0xrelease"
+
+
+async def test_resolving_marker_not_hijacked_by_release_or_cancel(tmp_db):
+    """The in-flight RESOLVING marker can't be picked up by /p2prelease or /p2prefund."""
+    from bot.services.p2p_service import P2PError
+
+    svc = P2PService()
+
+    async def fake_executor(action, **kw):
+        return f"0x{action}"
+
+    svc.escrow.set_executor(fake_executor)
+    trade = await _locked_native_trade(svc)
+    await svc.open_dispute(trade_id=trade.id, reason="d", opened_by=222)
+
+    # Simulate the in-flight resolution window (arbiter claimed the dispute).
+    assert await svc._reserve_from_dispute(trade.id) is True
+    mid = await svc.get_trade(trade.id)
+    assert mid.status == P2PTradeStatus.RESOLVING.value
+
+    # A stray release or refund during that window must NOT fire a second move.
+    with pytest.raises(P2PError):
+        await svc.release_escrow(trade_id=trade.id)
+    with pytest.raises(P2PError):
+        await svc.cancel_trade(trade_id=trade.id, seller_address="0x" + "ab" * 20)

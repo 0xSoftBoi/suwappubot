@@ -526,6 +526,11 @@ class ApiClient {
     return response.referrals
   }
 
+  async getReferralLeaderboard(): Promise<ReferralLeaderboardEntry[]> {
+    const response = await this.fetch<{ leaderboard: ReferralLeaderboardEntry[] }>('/webapp/referrals/leaderboard')
+    return response.leaderboard
+  }
+
   // === Copy Trading ===
 
   async getTopTraders(filters?: {
@@ -1115,20 +1120,29 @@ export interface OrderFill {
 
 // Referral types
 export interface ReferralStats {
-  referralCode: string
-  referralLink: string | null
-  totalReferrals: number
-  activeReferrals: number
-  totalEarned: number
-  pendingRewards: number
+  referral_code: string
+  referral_link: string | null
+  total_referrals: number
+  active_referrals: number
+  total_earnings_usd: number
+  pending_rewards_usd: number
+  pending_rewards_count: number
+  code_times_used: number
+  tier: 'standard' | 'power' | 'elite'
+  reward_rate_pct: number
 }
 
 export interface ReferredUser {
-  id: number
+  user_id: number
   username?: string
-  joinedAt: string
-  totalVolume: number
-  rewardsGenerated: number
+  joined_at: string
+  total_rewards_usd: number
+}
+
+export interface ReferralLeaderboardEntry {
+  rank: number
+  username: string
+  total_reward_usd: number
 }
 
 // Copy Trading types

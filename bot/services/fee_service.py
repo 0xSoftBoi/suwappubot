@@ -101,6 +101,36 @@ class FeeService:
     # amount we RECORD/pay referrers on — must derive from these, so the
     # collected fee can never drift from the recorded one.
 
+    def _active_referee_rebate_applies(self, user_id: "Optional[int]") -> bool:
+        """Return True if the user is a referee with first-5-swaps rebate remaining.
+
+        READ-ONLY — never decrements the counter. The single decrement source of
+        truth is ``referral_service.record_reward``, which is called exactly once
+        per completed swap AFTER this rate is applied. This function only decides
+        whether the discount appears in the quoted/charged rate.
+
+        Returns False on any lookup failure (defensive; never breaks fee calc).
+        """
+        if user_id is None:
+            return False
+        try:
+            from bot.models.referral import Referral
+
+            with get_session() as session:
+                referral = (
+                    session.query(Referral)
+                    .filter(
+                        Referral.referee_id == user_id,
+                        Referral.is_active == True,
+                        Referral.referee_swap_rebate_remaining > 0,
+                    )
+                    .first()
+                )
+                return referral is not None
+        except Exception as e:
+            logger.warning(f"Referee rebate lookup failed for user {user_id}: {e}")
+            return False
+
     def _active_fee_discount_decimal(self, user_id: "Optional[int]") -> float:
         """Active points fee-discount for a user, as a plain DECIMAL (0.005 = 0.5%).
 
@@ -148,7 +178,20 @@ class FeeService:
         else:
             base = DEFAULT_FEE_RATE
         discount = self._active_fee_discount_decimal(user_id)
-        return max(MIN_EFFECTIVE_FEE_RATE, base - discount)
+        effective = max(MIN_EFFECTIVE_FEE_RATE, base - discount)
+
+        # Referral v2 — referee first-5-swaps rebate: 10% off the effective rate.
+        # READ-ONLY: this never decrements referee_swap_rebate_remaining.
+        # Decrement is the sole responsibility of referral_service.record_reward,
+        # which is called exactly once per completed swap. That single write ensures
+        # the rebate count cannot be consumed twice per swap.
+        # This discount flows through to get_fee_bps (on-chain), calculate_fee
+        # (recorded fee), and the displayed quote, so the referee genuinely pays
+        # 10% less for their first 5 swaps everywhere.
+        if self._active_referee_rebate_applies(user_id):
+            effective = max(MIN_EFFECTIVE_FEE_RATE, effective * 0.90)
+
+        return effective
 
     def get_fee_bps(
         self,

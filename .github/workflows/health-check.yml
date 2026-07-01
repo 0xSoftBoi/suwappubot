@@ -1,0 +1,66 @@
+name: Health Check
+
+# Independent, external uptime probe for the public Railway services.
+# Runs on a schedule and on manual dispatch. On any non-2xx it pings Telegram.
+# Catches services that deployed fine but later went down — a failure mode the
+# Railway deploy webhook cannot see. Deploy *failures* are alerted separately by
+# the /internal/railway-webhook endpoint in python-api.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *" # every 10 minutes (GitHub cron is best-effort)
+  workflow_dispatch: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe health endpoints
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
+        run: |
+          set -u
+          # name|url pairs — public HTTP services only (workers are internal).
+          endpoints=(
+            "python-api|https://python-api-production-8526.up.railway.app/health"
+            "api-ts|https://api-ts-production.up.railway.app/health"
+            "terminal|https://terminal-production-7906.up.railway.app/"
+            "showcase|https://showcase-production-6f89.up.railway.app/robots.txt"
+            "bridge|https://suwappu-bridge-production.up.railway.app/"
+          )
+
+          failures=""
+          for pair in "${endpoints[@]}"; do
+            name="${pair%%|*}"
+            url="${pair#*|}"
+            # 3 attempts, 15s timeout each, before declaring down (ride out blips).
+            code=""
+            for attempt in 1 2 3; do
+              code=$(curl -s -o /dev/null -m 15 -w "%{http_code}" "$url" || echo "000")
+              [[ "$code" =~ ^2 ]] && break
+              sleep 5
+            done
+            if [[ ! "$code" =~ ^2 ]]; then
+              echo "DOWN: $name ($url) -> HTTP $code"
+              failures+="• \`$name\` → HTTP $code%0A"
+            else
+              echo "OK:   $name -> HTTP $code"
+            fi
+          done
+
+          if [[ -n "$failures" ]]; then
+            if [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_ALERT_CHAT_ID:-}" ]]; then
+              msg="🩺 *Suwappu health check failed*%0A${failures}"
+              curl -s -m 15 \
+                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                -d "chat_id=${TELEGRAM_ALERT_CHAT_ID}" \
+                -d "parse_mode=Markdown" \
+                --data-urlencode "text=${msg}" > /dev/null || true
+            else
+              echo "::warning::Telegram secrets not set — cannot send alert"
+            fi
+            echo "::error::One or more services are down"
+            exit 1
+          fi
+          echo "All services healthy"

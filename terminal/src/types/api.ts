@@ -901,3 +901,29 @@ export interface PulseFilters {
   maxBundleCount: number | null
   minHolders: number | null
 }
+
+export interface ReferralStats {
+  referral_code: string
+  referral_link: string
+  total_referrals: number
+  active_referrals: number
+  total_earnings_usd: number
+  pending_rewards_usd: number
+  pending_rewards_count: number
+  code_times_used: number
+  tier: 'standard' | 'power' | 'elite'
+  reward_rate_pct: number
+}
+
+export interface ReferralEntry {
+  user_id: string
+  username: string
+  joined_at: string
+  total_rewards_usd: number
+}
+
+export interface ReferralLeaderboardEntry {
+  rank: number
+  username: string
+  total_reward_usd: number
+}

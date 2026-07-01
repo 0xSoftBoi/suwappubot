@@ -365,6 +365,8 @@ async def lo_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     keyboard = []
     row = []
     for name, chain in CHAINS.items():
+        if chain.is_testnet:
+            continue
         row.append(
             InlineKeyboardButton(
                 f"{chain.logo_emoji} {chain.display_name}", callback_data=f"lofc_{name}"
@@ -424,6 +426,8 @@ async def lo_from_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     keyboard = []
     row = []
     for name, chain in CHAINS.items():
+        if chain.is_testnet:
+            continue
         row.append(
             InlineKeyboardButton(
                 f"{chain.logo_emoji} {chain.display_name}", callback_data=f"lotc_{name}"

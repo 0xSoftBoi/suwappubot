@@ -3486,3 +3486,87 @@ async def get_stocks(
         market_open=market_open,
         off_hours_warning=off_hours_warning,
     )
+
+
+# ---------------------------------------------------------------------------
+# Referral endpoints (read-only display; writes/claims stay in the Telegram bot)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/referrals/stats")
+async def webapp_referral_stats(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    from bot.services.referral_service import referral_service
+    from bot.config.settings import settings
+
+    user_id = _require_terminal_user(auth_payload)
+    stats = referral_service.get_referral_stats(user_id)
+    # NOTE: terminal JWT carries no username, so a webapp-first user's auto-created
+    # code is user_id-derived. Common path (bot /ref) already seeds a username-based
+    # code; readable-code-from-webapp is a minor follow-up (would need a User lookup).
+    code_obj = referral_service.get_or_create_code(user_id)
+    bot_username = settings.telegram_bot_username
+    referral_link = f"https://t.me/{bot_username}?start={code_obj.code}"
+    tier = code_obj.referrer_tier or "standard"
+    reward_rate_pct = 40 if tier == "elite" else 30
+    return {
+        "referral_code": stats.get("referral_code", code_obj.code),
+        "referral_link": referral_link,
+        "total_referrals": stats.get("total_referrals", 0),
+        "active_referrals": stats.get("active_referrals", 0),
+        "total_earnings_usd": stats.get("total_earnings_usd", 0.0),
+        "pending_rewards_usd": stats.get("pending_rewards_usd", 0.0),
+        "pending_rewards_count": stats.get("pending_rewards_count", 0),
+        "code_times_used": stats.get("code_times_used", 0),
+        "tier": tier,
+        "reward_rate_pct": reward_rate_pct,
+    }
+
+
+@router.get("/referrals")
+async def webapp_referrals_list(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    from bot.services.referral_service import referral_service
+
+    user_id = _require_terminal_user(auth_payload)
+    referrals = referral_service.get_referrals_list(user_id, limit=limit)
+    return {"referrals": referrals}
+
+
+@router.get("/referrals/code")
+async def webapp_referral_code(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    from bot.services.referral_service import referral_service
+    from bot.config.settings import settings
+
+    user_id = _require_terminal_user(auth_payload)
+    code_obj = referral_service.get_or_create_code(user_id)
+    bot_username = settings.telegram_bot_username
+    return {
+        "code": code_obj.code,
+        "link": f"https://t.me/{bot_username}?start={code_obj.code}",
+    }
+
+
+@router.get("/referrals/leaderboard")
+async def webapp_referral_leaderboard(
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+):
+    from bot.services.referral_service import referral_service
+
+    _require_terminal_user(auth_payload)
+    leaderboard = referral_service.get_leaderboard(limit=20)
+    return {
+        "leaderboard": [
+            {
+                "rank": idx + 1,
+                "username": entry.get("username"),
+                "total_reward_usd": entry.get("total_reward_usd", 0.0),
+            }
+            for idx, entry in enumerate(leaderboard)
+        ]
+    }

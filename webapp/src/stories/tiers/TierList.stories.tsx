@@ -41,7 +41,7 @@ export const Interactive: Story = {
 
     return (
       <div className="space-y-4">
-        <div className="bg-white rounded-lg p-4 shadow-sm w-[360px]">
+        <div className="bg-white rounded-lg p-4 shadow-xs w-[360px]">
           <p className="text-sm font-medium mb-2">Adjust XP:</p>
           <input
             type="range"

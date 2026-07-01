@@ -32,7 +32,7 @@ export function OrderBook({ bids, asks }: OrderBookProps) {
         return (
           <div key={`ask-${i}`} className="relative flex justify-between items-center px-1 py-0.5 text-xs">
             <div
-              className="absolute inset-0 bg-red-100/60 rounded-sm"
+              className="absolute inset-0 bg-red-100/60 rounded-xs"
               style={{ width: `${pct}%`, right: 0, left: 'auto' }}
             />
             <span className="relative text-red-600 font-mono">{parseFloat(ask.price).toFixed(2)}</span>
@@ -55,7 +55,7 @@ export function OrderBook({ bids, asks }: OrderBookProps) {
         return (
           <div key={`bid-${i}`} className="relative flex justify-between items-center px-1 py-0.5 text-xs">
             <div
-              className="absolute inset-0 bg-green-100/60 rounded-sm"
+              className="absolute inset-0 bg-green-100/60 rounded-xs"
               style={{ width: `${pct}%` }}
             />
             <span className="relative text-green-600 font-mono">{parseFloat(bid.price).toFixed(2)}</span>
