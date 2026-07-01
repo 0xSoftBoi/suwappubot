@@ -278,6 +278,7 @@ async def _parse_with_anthropic(
     response = await client.messages.create(
         model=model,
         max_tokens=300,
+        temperature=0,  # deterministic extraction — avoids random misparses (e.g. wrong amount/chain)
         system=_SYSTEM_PROMPT,
         tools=[_TOOL_SCHEMA],
         tool_choice={"type": "tool", "name": _TOOL_NAME},
@@ -323,6 +324,7 @@ async def _parse_with_openai_compatible(
     response = await client.chat.completions.create(
         model=model,
         max_tokens=300,
+        temperature=0,  # deterministic extraction — avoids random misparses (e.g. wrong amount/chain)
         tools=[
             {
                 "type": "function",
