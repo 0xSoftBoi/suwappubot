@@ -2,12 +2,18 @@
 # Weekly cadence + grouped minor/patch to keep PR noise low. (See OSS-RESOURCES free-trust-stack.)
 version: 2
 updates:
-  # Python (bot + api) — root requirements.txt / pyproject.toml
+  # Python (bot + api) — pip-tools: requirements.in (source) -> requirements.txt (lock).
+  # Dependabot detects the .in file and uses its pip-compile resolver, so it edits a
+  # DIRECT dep in requirements.in and re-compiles the whole lockfile holistically —
+  # transitive pins always stay consistent with their parents. `allow: direct` is
+  # belt-and-suspenders so it never proposes a bare transitive bump (the #459 breakage).
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    allow:
+      - dependency-type: "direct"
     groups:
       python-minor-patch:
         patterns: ["*"]
