@@ -9,6 +9,7 @@ import { EnvService } from '../config/EnvService'
 import type { Agent } from '../db'
 import { agents, agentCredits, agentCreditTopups, agentSubscriptions, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
 import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
+import { openApiToPostmanCollection } from '../lib/postman'
 import { type SpendPermission, validateSpendPermission } from '../lib/spendPermission'
 import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
 import { mapErrorToResponse, ValidationError } from '../errors'
@@ -2931,5 +2932,8 @@ agentRoutes.post('/billing/recurring', async (c) => {
 
 // GET /v1/agent/openapi - Machine-readable API spec
 agentRoutes.get('/openapi', (c) => c.json(openApiSpec))
+
+// GET /v1/agent/postman - Postman Collection v2.1, auto-derived from the live OpenAPI spec
+agentRoutes.get('/postman', (c) => c.json(openApiToPostmanCollection(openApiSpec as never)))
 
 export { agentRoutes }
