@@ -212,7 +212,25 @@ def render_pnl_card(
             except Exception:
                 pass
             ref_line = f"t.me/{bot_username}?start={ref_code}"
-            _center_text(draw, div_y + 100, ref_line, font_ref, _ACCENT)
+            _center_text(draw, div_y + 90, ref_line, font_ref, _ACCENT)
+
+            # Scannable QR of the referral link — scan it to open the bot with the
+            # referral attached (the growth loop). Best-effort in its own guard so
+            # a qrcode failure never drops the (already-rendered) text link.
+            try:
+                import qrcode
+
+                qr = qrcode.QRCode(box_size=6, border=2)
+                qr.add_data(f"https://{ref_line}")
+                qr.make(fit=True)
+                qr_img = (
+                    qr.make_image(fill_color="white", back_color=_BG_BOTTOM)
+                    .convert("RGB")
+                    .resize((180, 180))
+                )
+                img.paste(qr_img, ((CARD_WIDTH - 180) // 2, div_y + 145))
+            except Exception:
+                logger.debug("pnl_card_image: QR render skipped", exc_info=True)
         except Exception:
             logger.debug("pnl_card_image: failed to render ref link", exc_info=True)
 
