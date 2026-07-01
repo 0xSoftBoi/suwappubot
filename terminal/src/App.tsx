@@ -11,6 +11,7 @@ import { TerminalSiteReplacement } from './components/templates/TerminalSiteRepl
 import { PersimmonStemMotif, SakuraBloomMotif } from './components/brand/PersimmonLogo'
 import { TerminalThemeScope } from './theme/TerminalThemeScope'
 import { OAuthCallback } from './components/auth/OAuthCallback'
+import { AlertSwap } from './routes/AlertSwap'
 
 function isTerminalHost() {
   if (typeof window === 'undefined') return false
@@ -49,6 +50,13 @@ function TradingWorkspace() {
             <Routes>
               <Route path="/points" element={<PointsDashboard />} />
               <Route path="points" element={<PointsDashboard />} />
+              {/* Price-alert deep link (?alertId=&token=&chain=&side=&amount=&ref=alert).
+                  Covers both the primary terminal.suwappu.bot host (pathname
+                  "/alert-swap") and the "/terminal/*" dev/proxy mount (pathname
+                  "/terminal/alert-swap"). */}
+              <Route path="/alert-swap" element={<AlertSwap />} />
+              <Route path="alert-swap" element={<AlertSwap />} />
+              <Route path="/terminal/alert-swap" element={<AlertSwap />} />
               <Route path="*" element={<TradingLayout />} />
             </Routes>
           </main>
