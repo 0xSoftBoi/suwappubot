@@ -190,6 +190,8 @@ multidict==6.7.1
     #   yarl
 mypy-extensions==1.1.0
     # via typing-inspect
+openai==1.54.4
+    # via -r requirements.in
 orjson==3.11.9
     # via -r requirements.in
 packaging==26.2

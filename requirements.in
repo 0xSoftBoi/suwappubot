@@ -30,6 +30,7 @@ certifi>=2026.5.20
 
 # ---- LLM (natural-language trade intent parsing, NL_TRADING_ENABLED) ----
 anthropic
+openai==1.54.4
 
 # ---- Database ----
 SQLAlchemy==2.0.50

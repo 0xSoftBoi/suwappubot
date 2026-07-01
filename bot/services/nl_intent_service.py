@@ -12,6 +12,7 @@ return a low-confidence "unknown" intent with a clarification message. We
 never raise out of `parse_trade_intent`.
 """
 
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, Literal, Optional
@@ -39,6 +40,23 @@ def _get_client():
 
         _client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
     return _client
+
+
+_openai_client = None
+_openai_client_key: Optional[tuple] = None
+
+
+def _get_openai_client(api_key: str, base_url: Optional[str]):
+    """Lazily construct and cache a single AsyncOpenAI-compatible client,
+    re-creating it if the (api_key, base_url) pair changes."""
+    global _openai_client, _openai_client_key
+    key = (api_key, base_url)
+    if _openai_client is None or _openai_client_key != key:
+        import openai
+
+        _openai_client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url or None)
+        _openai_client_key = key
+    return _openai_client
 
 
 _TOOL_NAME = "record_trade_intent"
@@ -150,72 +168,173 @@ def _build_context_blurb(context: Optional[Dict[str, Any]]) -> str:
     return " ".join(parts)
 
 
+def _apply_confidence_gate(intent: TradeIntent) -> TradeIntent:
+    """Enforce the confidence/required-field gate server-side too, in case
+    the model didn't self-police correctly."""
+    if intent.action == "swap" and not intent.clarification:
+        missing = not (intent.token_in and intent.token_out and intent.amount)
+        if missing or intent.confidence < 0.6:
+            intent.clarification = intent.clarification or (
+                "Which tokens and how much would you like to swap? "
+                "e.g. 'swap 50 USDC to ETH on base'."
+            )
+            intent.confidence = min(intent.confidence, 0.59)
+
+    if intent.confidence < 0.6 and not intent.clarification:
+        intent.clarification = FALLBACK_CLARIFICATION
+
+    return intent
+
+
+def _build_user_content(text: str, context: Optional[Dict[str, Any]]) -> str:
+    context_blurb = _build_context_blurb(context)
+    return text if not context_blurb else f"{text}\n\n[Context: {context_blurb}]"
+
+
+def _resolve_provider_config() -> tuple:
+    """Resolve which LLM provider/credentials/model to use for NL trade
+    intent parsing, based on settings.NL_TRADING_PROVIDER.
+
+    Returns (provider, api_key, base_url, model). An empty api_key signals
+    "unconfigured" — callers should fall back safely without raising.
+    """
+    provider = (settings.NL_TRADING_PROVIDER or "anthropic").lower()
+
+    if provider == "anthropic":
+        return provider, settings.ANTHROPIC_API_KEY, None, settings.NL_TRADING_MODEL
+
+    # NL_TRADING_MODEL defaults to the anthropic model name, so if it's still
+    # that default we know the user hasn't set an explicit override for this
+    # provider, and use the provider's own sensible default instead.
+    is_default_model = settings.NL_TRADING_MODEL == "claude-haiku-4-5-20251001"
+
+    if provider == "openai":
+        model = "gpt-4o-mini" if is_default_model else settings.NL_TRADING_MODEL
+        return provider, settings.OPENAI_API_KEY, settings.NL_TRADING_BASE_URL or None, model
+
+    if provider == "deepseek":
+        model = "deepseek-chat" if is_default_model else settings.NL_TRADING_MODEL
+        base_url = settings.NL_TRADING_BASE_URL or "https://api.deepseek.com"
+        return provider, settings.DEEPSEEK_API_KEY, base_url, model
+
+    if provider == "custom":
+        model = "gpt-4o-mini" if is_default_model else settings.NL_TRADING_MODEL
+        base_url = settings.NL_TRADING_BASE_URL
+        api_key = settings.OPENAI_API_KEY if base_url else ""
+        return provider, api_key, base_url or None, model
+
+    return "unknown", "", None, ""
+
+
+async def _parse_with_anthropic(
+    text: str, context: Optional[Dict[str, Any]], *, api_key: str, model: str
+) -> TradeIntent:
+    client = _get_client()
+
+    user_content = _build_user_content(text, context)
+
+    response = await client.messages.create(
+        model=model,
+        max_tokens=300,
+        system=_SYSTEM_PROMPT,
+        tools=[_TOOL_SCHEMA],
+        tool_choice={"type": "tool", "name": _TOOL_NAME},
+        messages=[{"role": "user", "content": user_content}],
+    )
+
+    tool_use_block = None
+    for block in response.content:
+        if getattr(block, "type", None) == "tool_use":
+            tool_use_block = block
+            break
+
+    if tool_use_block is None:
+        logger.warning("nl_intent_service: no tool_use block in response")
+        return _fallback()
+
+    data = tool_use_block.input or {}
+
+    intent = TradeIntent(
+        action=data.get("action", "unknown"),
+        token_in=data.get("token_in"),
+        token_out=data.get("token_out"),
+        amount=data.get("amount"),
+        amount_unit=data.get("amount_unit", "native"),
+        chain=data.get("chain"),
+        confidence=float(data.get("confidence", 0.0) or 0.0),
+        clarification=data.get("clarification"),
+    )
+
+    return _apply_confidence_gate(intent)
+
+
+async def _parse_with_openai_compatible(
+    text: str,
+    context: Optional[Dict[str, Any]],
+    *,
+    api_key: str,
+    base_url: Optional[str],
+    model: str,
+) -> TradeIntent:
+    user_content = _build_user_content(text, context)
+    client = _get_openai_client(api_key, base_url)
+    response = await client.chat.completions.create(
+        model=model,
+        max_tokens=300,
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": _TOOL_NAME,
+                    "description": _TOOL_SCHEMA["description"],
+                    "parameters": _TOOL_SCHEMA["input_schema"],
+                },
+            }
+        ],
+        tool_choice={"type": "function", "function": {"name": _TOOL_NAME}},
+        messages=[
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
+    )
+    tool_calls = response.choices[0].message.tool_calls
+    if not tool_calls:
+        return _fallback()
+    data = json.loads(tool_calls[0].function.arguments or "{}")
+    intent = TradeIntent(
+        action=data.get("action", "unknown"),
+        token_in=data.get("token_in"),
+        token_out=data.get("token_out"),
+        amount=data.get("amount"),
+        amount_unit=data.get("amount_unit", "native"),
+        chain=data.get("chain"),
+        confidence=float(data.get("confidence", 0.0) or 0.0),
+        clarification=data.get("clarification"),
+    )
+    return _apply_confidence_gate(intent)
+
+
 async def parse_trade_intent(text: str, *, context: Optional[Dict[str, Any]] = None) -> TradeIntent:
     """Parse free-text into a structured TradeIntent. Never raises.
 
     This function performs NO quoting/execution — it is purely an LLM-backed
-    text -> structured-schema mapper.
+    text -> structured-schema mapper. Supports multiple providers
+    (Anthropic native, or any OpenAI-compatible API) via
+    settings.NL_TRADING_PROVIDER.
     """
     if not text or not text.strip():
         return _fallback()
 
-    if not settings.ANTHROPIC_API_KEY:
+    provider, api_key, base_url, model = _resolve_provider_config()
+    if not api_key:
         return _fallback()
 
     try:
-        client = _get_client()
-
-        context_blurb = _build_context_blurb(context)
-        user_content = text if not context_blurb else f"{text}\n\n[Context: {context_blurb}]"
-
-        response = await client.messages.create(
-            model=settings.NL_TRADING_MODEL,
-            max_tokens=300,
-            system=_SYSTEM_PROMPT,
-            tools=[_TOOL_SCHEMA],
-            tool_choice={"type": "tool", "name": _TOOL_NAME},
-            messages=[{"role": "user", "content": user_content}],
+        if provider == "anthropic":
+            return await _parse_with_anthropic(text, context, api_key=api_key, model=model)
+        return await _parse_with_openai_compatible(
+            text, context, api_key=api_key, base_url=base_url, model=model
         )
-
-        tool_use_block = None
-        for block in response.content:
-            if getattr(block, "type", None) == "tool_use":
-                tool_use_block = block
-                break
-
-        if tool_use_block is None:
-            logger.warning("nl_intent_service: no tool_use block in response")
-            return _fallback()
-
-        data = tool_use_block.input or {}
-
-        intent = TradeIntent(
-            action=data.get("action", "unknown"),
-            token_in=data.get("token_in"),
-            token_out=data.get("token_out"),
-            amount=data.get("amount"),
-            amount_unit=data.get("amount_unit", "native"),
-            chain=data.get("chain"),
-            confidence=float(data.get("confidence", 0.0) or 0.0),
-            clarification=data.get("clarification"),
-        )
-
-        # Enforce the confidence/required-field gate server-side too, in case
-        # the model didn't self-police correctly.
-        if intent.action == "swap" and not intent.clarification:
-            missing = not (intent.token_in and intent.token_out and intent.amount)
-            if missing or intent.confidence < 0.6:
-                intent.clarification = intent.clarification or (
-                    "Which tokens and how much would you like to swap? "
-                    "e.g. 'swap 50 USDC to ETH on base'."
-                )
-                intent.confidence = min(intent.confidence, 0.59)
-
-        if intent.confidence < 0.6 and not intent.clarification:
-            intent.clarification = FALLBACK_CLARIFICATION
-
-        return intent
-
     except Exception:
         logger.exception("nl_intent_service: failed to parse trade intent")
         return _fallback()
