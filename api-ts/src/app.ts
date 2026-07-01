@@ -18,6 +18,7 @@ import {
 	mcpRoutes,
 	p2pRoutes,
 	perpsRoutes,
+	rewardsRoutes,
 	predictRoutes,
 	publicSwapRoutes,
 	smartAccountRoutes,
@@ -89,6 +90,9 @@ export function createApp(config: AppConfig) {
 
 	// P2P marketplace (native offer book + trades; external aggregation via bot)
 	app.route('/webapp/p2p', p2pRoutes)
+
+	// On-chain fee-cashback rewards (read API + wallet-claim payloads)
+	app.route('/webapp/rewards', rewardsRoutes)
 
 	// Webapp routes - Telegram auth
 	app.route('/webapp', webappRoutes)

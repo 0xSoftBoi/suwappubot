@@ -60,6 +60,13 @@ export {
 	type PolicyVerdict,
 } from './PolicyService'
 export {
+	type ClaimPayload,
+	type RewardsEntryView,
+	RewardsService,
+	RewardsServiceLive,
+	type RewardsSummaryView,
+} from './RewardsService'
+export {
 	type SeasonHistoryEntry,
 	type SeasonLeaderboardEntry,
 	type SeasonStanding,

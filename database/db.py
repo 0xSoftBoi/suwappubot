@@ -164,6 +164,9 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
 
         # Rewards-marketplace async fulfillment orders
         from bot.models.rewards_marketplace import RedemptionOrder
+
+        # On-chain fee-cashback rewards (weekly Merkle epochs)
+        from bot.models.onchain_rewards import RewardEpoch, RewardEntry
         from bot.models.copy_trading import (
             TraderProfile,
             CopyFollow,
@@ -634,6 +637,9 @@ def _ensure_schema(db_engine) -> None:
 
     # --- Bucket 3: gamified trading battles ---
     _create_battles_table(db_engine, inspector, is_sqlite)
+
+    # --- On-chain fee-cashback rewards (weekly Merkle epochs) ---
+    _create_onchain_rewards_tables(db_engine, inspector, is_sqlite)
 
 
 def _add_user_org_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -2961,4 +2967,120 @@ def _create_battles_table(db_engine, inspector, is_sqlite: bool) -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_battles_expiry_at ON battles(expiry_at)"))
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_battles_user_status" " ON battles(user_id, status)")
+        )
+
+
+# ---------------------------------------------------------------------------
+# On-chain fee-cashback rewards (weekly Merkle epochs)
+# ---------------------------------------------------------------------------
+
+
+def _create_onchain_rewards_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create reward_epochs + reward_entries idempotently.
+
+    MONEY-PATH: the UNIQUE(epoch_id, user_id) constraint on reward_entries is the
+    DB backstop against a user being paid twice for the same epoch; the entry
+    ``status`` state machine (see bot/models/onchain_rewards.py) is the guard
+    against settling one entry both on-chain and custodially.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "reward_epochs" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS reward_epochs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        epoch_index INTEGER NOT NULL UNIQUE,
+                        starts_at DATETIME NOT NULL,
+                        ends_at DATETIME NOT NULL,
+                        status VARCHAR(20) NOT NULL DEFAULT 'accruing',
+                        total_amount_usd FLOAT NOT NULL DEFAULT 0,
+                        entry_count INTEGER NOT NULL DEFAULT 0,
+                        merkle_root VARCHAR(66),
+                        published_tx_hash VARCHAR(80),
+                        claim_deadline DATETIME,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        finalized_at DATETIME,
+                        published_at DATETIME
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS reward_epochs (
+                        id SERIAL PRIMARY KEY,
+                        epoch_index INTEGER NOT NULL UNIQUE,
+                        starts_at TIMESTAMP NOT NULL,
+                        ends_at TIMESTAMP NOT NULL,
+                        status VARCHAR(20) NOT NULL DEFAULT 'accruing',
+                        total_amount_usd FLOAT NOT NULL DEFAULT 0,
+                        entry_count INTEGER NOT NULL DEFAULT 0,
+                        merkle_root VARCHAR(66),
+                        published_tx_hash VARCHAR(80),
+                        claim_deadline TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        finalized_at TIMESTAMP,
+                        published_at TIMESTAMP
+                    )
+                """))
+            logger.info("Created reward_epochs table")
+
+        if "reward_entries" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS reward_entries (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        epoch_id INTEGER NOT NULL REFERENCES reward_epochs(id),
+                        user_id INTEGER NOT NULL REFERENCES users(id),
+                        cashback_usd FLOAT NOT NULL DEFAULT 0,
+                        carryover_usd FLOAT NOT NULL DEFAULT 0,
+                        amount_usd FLOAT NOT NULL DEFAULT 0,
+                        fee_basis_usd FLOAT NOT NULL DEFAULT 0,
+                        claim_address VARCHAR(64),
+                        leaf_index INTEGER,
+                        amount_base_units VARCHAR(40),
+                        merkle_proof TEXT,
+                        status VARCHAR(20) NOT NULL DEFAULT 'claimable',
+                        claimed_tx_hash VARCHAR(80),
+                        settled_at DATETIME,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE (epoch_id, user_id)
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS reward_entries (
+                        id SERIAL PRIMARY KEY,
+                        epoch_id INTEGER NOT NULL REFERENCES reward_epochs(id),
+                        user_id INTEGER NOT NULL REFERENCES users(id),
+                        cashback_usd FLOAT NOT NULL DEFAULT 0,
+                        carryover_usd FLOAT NOT NULL DEFAULT 0,
+                        amount_usd FLOAT NOT NULL DEFAULT 0,
+                        fee_basis_usd FLOAT NOT NULL DEFAULT 0,
+                        claim_address VARCHAR(64),
+                        leaf_index INTEGER,
+                        amount_base_units VARCHAR(40),
+                        merkle_proof TEXT,
+                        status VARCHAR(20) NOT NULL DEFAULT 'claimable',
+                        claimed_tx_hash VARCHAR(80),
+                        settled_at TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        CONSTRAINT uq_reward_entries_epoch_user UNIQUE (epoch_id, user_id)
+                    )
+                """))
+            logger.info("Created reward_entries table")
+
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_reward_entries_user_id" " ON reward_entries(user_id)"
+            )
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_reward_entries_status" " ON reward_entries(status)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_reward_epochs_status" " ON reward_epochs(status)")
         )
