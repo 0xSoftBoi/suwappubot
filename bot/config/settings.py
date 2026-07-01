@@ -949,6 +949,14 @@ class Settings(BaseSettings):
             "Falls back to the primary EVM deposit hot wallet when unset."
         ),
     )
+    # Comma-separated allowlist of chains on which native escrow may move funds.
+    # Defaults to testnet only so an armed executor cannot touch mainnet funds
+    # until native P2P is validated end-to-end. Set to "" to allow all chains,
+    # or e.g. "base,base-sepolia" to enable mainnet.
+    p2p_escrow_allowed_chains: str = Field(
+        default="base-sepolia",
+        description="Comma-separated chains native P2P escrow may settle on (empty = all)",
+    )
     # Comma-separated ISO2 regions blocked from P2P (regulatory).
     p2p_restricted_regions: Optional[str] = Field(
         default=None, description="Comma-separated ISO2 regions blocked from P2P"

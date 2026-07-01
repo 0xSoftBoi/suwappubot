@@ -83,12 +83,30 @@ class P2PEscrow:
     def is_ready(self) -> bool:
         return self._executor is not None
 
+    @staticmethod
+    def _allowed_chains() -> set[str]:
+        raw = settings.p2p_escrow_allowed_chains or ""
+        return {c.strip().lower() for c in raw.split(",") if c.strip()}
+
+    def _guard_chain(self, chain: Optional[str]) -> None:
+        """Reject escrow settlement on chains outside the allowlist.
+
+        Central guard so an armed executor cannot move funds on an unintended
+        chain (e.g. base mainnet) while native P2P is still testnet-only. An empty
+        allowlist permits all chains.
+        """
+        target = (chain or self.chain).lower()
+        allowed = self._allowed_chains()
+        if allowed and target not in allowed:
+            raise P2PError(f"Native P2P escrow is not enabled on chain '{target}'.")
+
     async def lock(self, *, seller_wallet_id: int, amount: str, chain: Optional[str] = None) -> str:
         if not self._executor:
             raise EscrowNotConfiguredError(
                 "Native P2P escrow is not yet wired to the on-chain signer. "
                 "Configure the escrow executor before enabling native trades."
             )
+        self._guard_chain(chain)
         return await self._executor(
             "lock",
             from_wallet_id=seller_wallet_id,
@@ -103,6 +121,7 @@ class P2PEscrow:
             raise EscrowNotConfiguredError(
                 "Native P2P escrow is not yet wired to the on-chain signer."
             )
+        self._guard_chain(chain)
         return await self._executor(
             "release",
             from_wallet_id=None,
@@ -117,6 +136,7 @@ class P2PEscrow:
             raise EscrowNotConfiguredError(
                 "Native P2P escrow is not yet wired to the on-chain signer."
             )
+        self._guard_chain(chain)
         return await self._executor(
             "refund",
             from_wallet_id=None,
