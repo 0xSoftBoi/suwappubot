@@ -851,7 +851,7 @@ class Settings(BaseSettings):
     )
     NL_TRADING_PROVIDER: str = Field(
         default="anthropic",
-        description="LLM provider for NL trade intent parsing: anthropic|openai|deepseek|custom",
+        description="LLM provider for NL trade intent parsing: anthropic|openai|deepseek|groq|custom",
     )
     OPENAI_API_KEY: str = Field(
         default="", description="OpenAI API key for NL trade intent parsing"
@@ -859,9 +859,18 @@ class Settings(BaseSettings):
     DEEPSEEK_API_KEY: str = Field(
         default="", description="DeepSeek API key for NL trade intent parsing"
     )
+    GROQ_API_KEY: str = Field(default="", description="Groq API key for NL trade intent parsing")
     NL_TRADING_BASE_URL: str = Field(
         default="",
         description="Optional override base_url for OpenAI-compatible NL trading providers",
+    )
+    NL_LLM_FALLBACK_PER_USER_DAILY: int = Field(
+        default=30,
+        description="Max LLM fallback calls (deterministic-parse misses) per user per day",
+    )
+    NL_LLM_FALLBACK_GLOBAL_DAILY: int = Field(
+        default=5000,
+        description="Max LLM fallback calls (deterministic-parse misses) globally per day",
     )
 
     # Application Settings

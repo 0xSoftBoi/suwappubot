@@ -15,7 +15,8 @@ never raise out of `parse_trade_intent`.
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, Literal, Optional
+from datetime import datetime, timezone
+from typing import Any, Dict, Hashable, Literal, Optional
 
 from bot.config.settings import settings
 
@@ -223,7 +224,48 @@ def _resolve_provider_config() -> tuple:
         api_key = settings.OPENAI_API_KEY if base_url else ""
         return provider, api_key, base_url or None, model
 
+    if provider == "groq":
+        model = "llama-3.1-8b-instant" if is_default_model else settings.NL_TRADING_MODEL
+        base_url = settings.NL_TRADING_BASE_URL or "https://api.groq.com/openai/v1"
+        return provider, settings.GROQ_API_KEY, base_url, model
+
     return "unknown", "", None, ""
+
+
+# --- LLM fallback daily caps (in-memory day-keyed counters, same lightweight
+# pattern as bot/utils/rate_limiter.py's UserRateLimiter — no new infra) ----
+#
+# These caps apply ONLY to LLM fallback calls (the paid path). The
+# deterministic parser is free and uncapped.
+
+_fallback_counts_by_user: Dict[Hashable, Dict[str, int]] = {}
+_fallback_counts_global: Dict[str, int] = {}
+
+
+def _today_key() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _llm_fallback_cap_exceeded(user_id: Optional[Hashable]) -> bool:
+    """Check (without incrementing) whether the daily LLM-fallback cap has
+    already been hit for this user or globally."""
+    today = _today_key()
+    global_count = _fallback_counts_global.get(today, 0)
+    if global_count >= settings.NL_LLM_FALLBACK_GLOBAL_DAILY:
+        return True
+    if user_id is not None:
+        user_count = _fallback_counts_by_user.get(user_id, {}).get(today, 0)
+        if user_count >= settings.NL_LLM_FALLBACK_PER_USER_DAILY:
+            return True
+    return False
+
+
+def _record_llm_fallback_call(user_id: Optional[Hashable]) -> None:
+    today = _today_key()
+    _fallback_counts_global[today] = _fallback_counts_global.get(today, 0) + 1
+    if user_id is not None:
+        per_user = _fallback_counts_by_user.setdefault(user_id, {})
+        per_user[today] = per_user.get(today, 0) + 1
 
 
 async def _parse_with_anthropic(
@@ -314,15 +356,45 @@ async def _parse_with_openai_compatible(
     return _apply_confidence_gate(intent)
 
 
-async def parse_trade_intent(text: str, *, context: Optional[Dict[str, Any]] = None) -> TradeIntent:
+async def parse_trade_intent(
+    text: str,
+    *,
+    context: Optional[Dict[str, Any]] = None,
+    user_id: Optional[Hashable] = None,
+) -> TradeIntent:
     """Parse free-text into a structured TradeIntent. Never raises.
 
-    This function performs NO quoting/execution — it is purely an LLM-backed
-    text -> structured-schema mapper. Supports multiple providers
-    (Anthropic native, or any OpenAI-compatible API) via
-    settings.NL_TRADING_PROVIDER.
+    Deterministic-first: a small regex-based parser (see
+    bot/services/nl_deterministic_parser.py) handles well-formed commands for
+    free, with zero network calls. Only genuinely ambiguous input falls
+    through to the LLM path (Anthropic native, or any OpenAI-compatible API,
+    selected via settings.NL_TRADING_PROVIDER). LLM fallback calls are
+    additionally capped per-user/day and globally/day — once a cap is hit we
+    degrade to the fail-safe clarification WITHOUT calling the LLM.
+
+    This function performs NO quoting/execution in either path — it is
+    purely a text -> structured-schema mapper.
     """
     if not text or not text.strip():
+        return _fallback()
+
+    # 1. Deterministic-first: zero-cost, zero-network regex parse.
+    from bot.services.nl_deterministic_parser import parse_deterministic
+
+    deterministic_intent = parse_deterministic(text, context=context)
+    if deterministic_intent is not None:
+        logger.info(
+            "nl_intent_service: parsed via deterministic path",
+            extra={"source": "deterministic"},
+        )
+        return deterministic_intent
+
+    # 2. LLM fallback — gated by the daily caps (deterministic misses only).
+    if _llm_fallback_cap_exceeded(user_id):
+        logger.info(
+            "nl_intent_service: LLM fallback daily cap exceeded, degrading without LLM call",
+            extra={"source": "fallback-capped"},
+        )
         return _fallback()
 
     provider, api_key, base_url, model = _resolve_provider_config()
@@ -330,11 +402,18 @@ async def parse_trade_intent(text: str, *, context: Optional[Dict[str, Any]] = N
         return _fallback()
 
     try:
+        _record_llm_fallback_call(user_id)
         if provider == "anthropic":
-            return await _parse_with_anthropic(text, context, api_key=api_key, model=model)
-        return await _parse_with_openai_compatible(
-            text, context, api_key=api_key, base_url=base_url, model=model
-        )
+            intent = await _parse_with_anthropic(text, context, api_key=api_key, model=model)
+        else:
+            intent = await _parse_with_openai_compatible(
+                text, context, api_key=api_key, base_url=base_url, model=model
+            )
+        logger.info("nl_intent_service: parsed via LLM path", extra={"source": "llm"})
+        return intent
     except Exception:
-        logger.exception("nl_intent_service: failed to parse trade intent")
+        logger.exception(
+            "nl_intent_service: failed to parse trade intent",
+            extra={"source": "fallback-fail"},
+        )
         return _fallback()

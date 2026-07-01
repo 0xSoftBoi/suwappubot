@@ -69,8 +69,10 @@ def _make_context():
 
 @pytest.mark.asyncio
 async def test_parse_trade_intent_no_api_key_returns_fallback():
+    # Ambiguous text so the deterministic parser misses and the missing-key
+    # LLM fallback path is actually exercised.
     with patch.object(nl_trade.settings, "ANTHROPIC_API_KEY", ""):
-        intent = await parse_trade_intent("swap 50 usdc for eth on base")
+        intent = await parse_trade_intent("please swap some of my crypto around")
     assert intent.action == "unknown"
     assert intent.clarification is not None
     assert intent.confidence == 0.0
@@ -154,6 +156,8 @@ async def test_parse_trade_intent_no_tool_use_block_returns_fallback():
 
 @pytest.mark.asyncio
 async def test_parse_trade_intent_never_raises_on_api_error():
+    # Deliberately ambiguous (no amount, no resolvable token pair) so the
+    # deterministic parser misses and this exercises the LLM error path.
     fake_client = MagicMock()
     fake_client.messages.create = AsyncMock(side_effect=RuntimeError("network down"))
 
@@ -161,7 +165,7 @@ async def test_parse_trade_intent_never_raises_on_api_error():
         patch("bot.services.nl_intent_service.settings.ANTHROPIC_API_KEY", "fake-key"),
         patch("anthropic.AsyncAnthropic", return_value=fake_client),
     ):
-        intent = await parse_trade_intent("swap 50 usdc for eth")
+        intent = await parse_trade_intent("please swap some of my crypto around")
 
     assert intent.action == "unknown"
     assert intent.clarification is not None
@@ -279,7 +283,9 @@ async def test_parse_trade_intent_openai_provider_missing_key_returns_fallback()
         patch.object(nl_intent_service.settings, "OPENAI_API_KEY", ""),
         patch("openai.AsyncOpenAI") as mock_openai_ctor,
     ):
-        intent = await parse_trade_intent("swap 50 usdc for eth")
+        # Ambiguous text so the deterministic parser misses and this
+        # actually exercises the (missing-key) LLM fallback path.
+        intent = await parse_trade_intent("please swap some of my crypto around")
     assert intent.action == "unknown"
     mock_openai_ctor.assert_not_called()
 
@@ -291,7 +297,7 @@ async def test_parse_trade_intent_deepseek_provider_missing_key_returns_fallback
         patch.object(nl_intent_service.settings, "DEEPSEEK_API_KEY", ""),
         patch("openai.AsyncOpenAI") as mock_openai_ctor,
     ):
-        intent = await parse_trade_intent("swap 50 usdc for eth")
+        intent = await parse_trade_intent("please swap some of my crypto around")
     assert intent.action == "unknown"
     mock_openai_ctor.assert_not_called()
 
