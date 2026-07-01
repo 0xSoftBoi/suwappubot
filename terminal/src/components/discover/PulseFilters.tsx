@@ -130,6 +130,22 @@ export function PulseFilters({ filters, onChange, onReset }: PulseFiltersProps) 
         placeholder="Max"
       />
 
+      <FilterInput
+        label="Insiders%"
+        value={filters.maxInsidersPercent}
+        onChange={v => update('maxInsidersPercent', v)}
+        placeholder="Max"
+        suffix="%"
+      />
+
+      <FilterInput
+        label="Bundle%"
+        value={filters.maxBundlePercent}
+        onChange={v => update('maxBundlePercent', v)}
+        placeholder="Max"
+        suffix="%"
+      />
+
       <div className="w-px h-3 bg-terminal-border" />
 
       <FilterInput

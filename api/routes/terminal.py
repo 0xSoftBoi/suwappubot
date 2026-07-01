@@ -6,7 +6,7 @@ import asyncio
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -1030,6 +1030,125 @@ async def get_terminal_token_safety(
     except Exception:
         return _empty_report(chain, address)
     return _empty_report(chain, address)
+
+
+DEXSCREENER_SEARCH_URL = "https://api.dexscreener.com/latest/dex/search"
+FINAL_STRETCH_CHAIN = "solana"
+# Pre-migration (pump.fun bonding-curve) pairs have no dedicated public feed,
+# so we proxy "final stretch" with the newest, lowest-liquidity live pairs on
+# the canonical memecoin chain — same DexScreener source the webapp/terminal
+# Pulse "new" stage already uses, just narrowed to a pre-graduation band.
+FINAL_STRETCH_MAX_LIQUIDITY_USD = 60_000
+FINAL_STRETCH_MAX_AGE_MINUTES = 24 * 60
+
+
+def _final_stretch_insiders_pct(buys: int, sells: int) -> Optional[float]:
+    """Best-effort proxy for insider concentration: a heavily buy-skewed early
+    tape (few sells relative to buys) is the observable signature of coordinated
+    insider/sniper buying. Returns None (unknown) rather than a fabricated
+    number when there isn't enough tape to judge."""
+    total = buys + sells
+    if total < 5:
+        return None
+    return round(max(0.0, min(100.0, (buys - sells) / total * 100)), 1)
+
+
+def _final_stretch_bundle_pct(pair: dict) -> Optional[float]:
+    """Bundle-buy detection (many wallets funded from one source in the same
+    block) needs on-chain tracing we don't run here — honestly unknown rather
+    than guessed. Left as None; a real detector can populate this later."""
+    return None
+
+
+def _final_stretch_row(pair: dict) -> dict:
+    base = pair.get("baseToken") or {}
+    tx = (pair.get("txns") or {}).get("h24") or {}
+    buys = int(tx.get("buys") or 0)
+    sells = int(tx.get("sells") or 0)
+    created_ms = pair.get("pairCreatedAt") or 0
+    created_iso = (
+        datetime.fromtimestamp(created_ms / 1000, tz=timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z")
+        if created_ms
+        else ""
+    )
+    liq = float((pair.get("liquidity") or {}).get("usd") or 0)
+    return {
+        "address": base.get("address"),
+        "symbol": base.get("symbol"),
+        "name": base.get("name") or base.get("symbol"),
+        "chain": FINAL_STRETCH_CHAIN,
+        "stage": "final_stretch",
+        "createdAt": created_iso,
+        "marketCap": float(pair.get("marketCap") or pair.get("fdv") or 0),
+        "volume24h": float((pair.get("volume") or {}).get("h24") or 0),
+        "liquidityUsd": liq,
+        "priceUsd": float(pair.get("priceUsd") or 0),
+        "txns24h": buys + sells,
+        "buys24h": buys,
+        "sells24h": sells,
+        "insidersPercent": _final_stretch_insiders_pct(buys, sells),
+        "bundlePercent": _final_stretch_bundle_pct(pair),
+        # No dedicated bonding-curve source yet, so progress is left unknown
+        # (None) rather than fabricated — the frontend hides the column
+        # gracefully when this is null.
+        "bondingProgress": None,
+    }
+
+
+@router.get("/discovery/final-stretch")
+async def get_terminal_final_stretch(limit: int = Query(default=30, ge=1, le=100)):
+    """Public, read-only "Final Stretch" discovery feed — pre-migration
+    (pre-graduation) tokens on the canonical memecoin chain, proxied from live
+    DexScreener pairs narrowed to a low-liquidity / recently-created band.
+    Display-and-filter only: no swap/order/execution logic. Degrades to an
+    empty list (never 5xx) if the upstream is unavailable, matching the other
+    public discovery endpoints in this module."""
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(
+                DEXSCREENER_SEARCH_URL,
+                params={"q": FINAL_STRETCH_CHAIN},
+                headers={"User-Agent": "suwappu-terminal/1.0"},
+            )
+            response.raise_for_status()
+            data = response.json()
+    except Exception:
+        logger.warning("final-stretch: DexScreener fetch failed", exc_info=True)
+        return []
+
+    now_ms = datetime.now(tz=timezone.utc).timestamp() * 1000
+    pairs = [
+        p
+        for p in (data.get("pairs") or [])
+        if str(p.get("chainId", "")).lower() == FINAL_STRETCH_CHAIN
+        and (p.get("baseToken") or {}).get("address")
+    ]
+
+    # Narrow to the "pre-migration" band: young + still-thin liquidity.
+    candidates = []
+    for p in pairs:
+        liq = float((p.get("liquidity") or {}).get("usd") or 0)
+        created_ms = p.get("pairCreatedAt") or 0
+        age_min = (now_ms - created_ms) / 60_000 if created_ms else None
+        if liq > FINAL_STRETCH_MAX_LIQUIDITY_USD:
+            continue
+        if age_min is not None and age_min > FINAL_STRETCH_MAX_AGE_MINUTES:
+            continue
+        candidates.append(p)
+
+    # De-dupe by token, keep the highest-liquidity pair per mint.
+    best: dict[str, dict] = {}
+    for p in candidates:
+        addr = p["baseToken"]["address"]
+        liq = float((p.get("liquidity") or {}).get("usd") or 0)
+        prev = best.get(addr)
+        if not prev or liq > float((prev.get("liquidity") or {}).get("usd") or 0):
+            best[addr] = p
+
+    ordered = sorted(best.values(), key=lambda p: p.get("pairCreatedAt") or 0, reverse=True)[:limit]
+    return [_final_stretch_row(p) for p in ordered]
 
 
 @router.get("/orderbook")
