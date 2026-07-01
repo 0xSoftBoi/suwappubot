@@ -77,6 +77,11 @@ class AdvancedPriceAlert(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    # Optional suggested swap action carried into the alert deep-link (non-binding)
+    action_side = Column(String(4), nullable=True)  # 'buy' | 'sell'
+    action_chain = Column(String(50), nullable=True)  # falls back to `chain` when null
+    action_amount = Column(String(64), nullable=True)  # suggested amount, user-editable
+
     def __repr__(self):
         return f"<PriceAlert {self.token_symbol} {self.alert_type} {self.target_price}>"
 

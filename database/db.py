@@ -411,6 +411,10 @@ def _ensure_schema(db_engine) -> None:
     if "copy_trades" in tables:
         _add_copy_trade_paper_column(db_engine, inspector, is_sqlite)
 
+    # --- advanced_price_alerts: suggested swap action columns ---
+    if "advanced_price_alerts" in tables:
+        _add_alert_action_columns(db_engine, inspector, is_sqlite)
+
     # --- rug_monitors table ---
     if not inspector.has_table("rug_monitors"):
         from bot.models.advanced import RugMonitor
@@ -2083,6 +2087,32 @@ def _add_copy_trading_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 ddl = f"ALTER TABLE copy_follows ADD COLUMN {col_name} {col_type} DEFAULT {default}"
             else:
                 ddl = f"ALTER TABLE copy_follows ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+
+def _add_alert_action_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add optional suggested-swap-action columns to advanced_price_alerts idempotently."""
+    cols = {c["name"] for c in inspector.get_columns("advanced_price_alerts")}
+
+    new_columns = [
+        ("action_side", "VARCHAR(4)", "NULL"),
+        ("action_chain", "VARCHAR(50)", "NULL"),
+        ("action_amount", "VARCHAR(64)", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = (
+                    f"ALTER TABLE advanced_price_alerts ADD COLUMN {col_name} "
+                    f"{col_type} DEFAULT {default}"
+                )
+            else:
+                ddl = (
+                    f"ALTER TABLE advanced_price_alerts ADD COLUMN IF NOT EXISTS "
+                    f"{col_name} {col_type} DEFAULT {default}"
+                )
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
 
