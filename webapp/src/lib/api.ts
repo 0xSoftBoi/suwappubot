@@ -531,6 +531,16 @@ class ApiClient {
     return response.leaderboard
   }
 
+  // === Rewards (on-chain fee cashback) ===
+
+  async getRewardsSummary(): Promise<RewardsSummary> {
+    return this.fetch('/webapp/rewards/summary')
+  }
+
+  async getRewardsClaimPayload(epochIndex: number): Promise<RewardsClaimPayload> {
+    return this.fetch(`/webapp/rewards/claim/${epochIndex}`)
+  }
+
   // === Copy Trading ===
 
   async getTopTraders(filters?: {
@@ -861,6 +871,44 @@ class ApiClient {
       throw err
     }
   }
+}
+
+// Rewards (on-chain fee cashback) types — mirror api-ts RewardsSummaryView/ClaimPayload
+export interface RewardsEntryView {
+  epochIndex: number
+  amountUsd: number
+  cashbackUsd: number
+  carryoverUsd: number
+  status: string
+  claimDeadline: string | null
+  claimedTxHash: string | null
+  hasOnchainLeaf: boolean
+}
+
+export interface RewardsSummary {
+  accruingUsd: number
+  accruingEpochIndex: number
+  accruingEndsAt: string
+  claimableUsd: number
+  onchainUsd: number
+  lifetimeUsd: number
+  carryoverUsd: number
+  cashbackRate: number
+  payoutToken: string
+  payoutChain: string
+  entries: RewardsEntryView[]
+}
+
+export interface RewardsClaimPayload {
+  epochId: number
+  index: number
+  account: string
+  amount: string
+  merkleProof: string[]
+  distributor: string | null
+  chainId: number
+  claimDeadline: string | null
+  alreadyClaimed: boolean | null
 }
 
 // Points types
