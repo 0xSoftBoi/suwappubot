@@ -52,7 +52,7 @@ const CHAIN_COLORS: Record<string, string> = {
   arbitrum: 'bg-blue-400',
   base: 'bg-blue-600',
   tempo: 'bg-amber-500',
-  solana: 'bg-gradient-to-r from-purple-500 to-teal-400',
+  solana: 'bg-linear-to-r from-purple-500 to-teal-400',
   avalanche: 'bg-red-500',
 }
 
@@ -378,7 +378,7 @@ export const TokenDiscovery = React.memo(function TokenDiscovery({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search tokens..."
-            className="w-full bg-suwappu-sakura-50 border border-suwappu-sakura-200/30 rounded-suwappu-pill pl-10 pr-4 py-3 text-sm text-suwappu-text placeholder:text-suwappu-text-secondary/60 focus:outline-none focus:ring-2 focus:ring-suwappu-magenta/30 focus:border-suwappu-magenta/30 transition-all"
+            className="w-full bg-suwappu-sakura-50 border border-suwappu-sakura-200/30 rounded-suwappu-pill pl-10 pr-4 py-3 text-sm text-suwappu-text placeholder:text-suwappu-text-secondary/60 focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta/30 focus:border-suwappu-magenta/30 transition-all"
           />
         </div>
       </div>

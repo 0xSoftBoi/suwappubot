@@ -27,7 +27,7 @@ export function PositionCard({ position }: PositionCardProps) {
             {position.outcome} &bull; {position.shares.toFixed(2)} shares
           </p>
         </div>
-        <div className="text-right ml-2 flex-shrink-0">
+        <div className="text-right ml-2 shrink-0">
           <p className={`font-heading font-bold text-sm ${isProfit ? 'text-green-600' : 'text-red-500'}`}>
             {isProfit ? '+' : ''}{formatUsd(position.unrealizedPnl)}
           </p>

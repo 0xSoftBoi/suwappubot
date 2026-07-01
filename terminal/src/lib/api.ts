@@ -58,6 +58,9 @@ import type {
   DCAOrder,
   CreateDCAParams,
   LimitOrder,
+  ReferralStats,
+  ReferralEntry,
+  ReferralLeaderboardEntry,
   CreateLimitOrderParams,
   LendingMarket,
   TrackedWallet,
@@ -408,6 +411,23 @@ export const api = {
 
   solanaTxHistory<T = unknown>(address: string, limit = 15) {
     return request<T>(`/webapp/solana/tx-history?address=${address}&limit=${limit}`)
+  },
+
+  // Referrals
+  getReferralStats() {
+    return request<ReferralStats>('/webapp/referrals/stats')
+  },
+
+  getReferralsList(limit = 50) {
+    return request<{ referrals: ReferralEntry[] }>(`/webapp/referrals?limit=${limit}`).then(r => r.referrals ?? [])
+  },
+
+  getReferralCode() {
+    return request<{ code: string; link: string }>('/webapp/referrals/code')
+  },
+
+  getReferralLeaderboard(limit = 20) {
+    return request<{ leaderboard: ReferralLeaderboardEntry[] }>(`/webapp/referrals/leaderboard?limit=${limit}`).then(r => r.leaderboard ?? [])
   },
 
   // Discovery

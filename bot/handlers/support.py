@@ -30,6 +30,7 @@ from telegram.ext import (
 from bot.handlers.admin import is_admin
 from bot.models.support import SupportTicket, TicketKind, TicketStatus
 from bot.models.user import User
+from bot.services.push_service import send_push_notification
 from bot.services.support_notifier import add_linear_comment
 from database.db import get_session
 
@@ -258,6 +259,7 @@ async def treply_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         target_chat = t.telegram_id
         kind = t.kind
         linear_issue_id = t.linear_issue_id
+        ticket_user_id = t.user_id
         t.admin_reply = reply_text
         t.handled_by = user.id
         if t.status == TicketStatus.OPEN:
@@ -278,6 +280,15 @@ async def treply_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Mirror the reply into Linear, best-effort.
     await add_linear_comment(linear_issue_id, f"Replied to user (in-progress):\n\n{reply_text}")
+
+    # Push notification, best-effort — no-op if the user has no push token.
+    await _push_ticket_update(
+        ticket_id,
+        kind,
+        ticket_user_id,
+        title=f"New reply on ticket #{ticket_id}",
+        body=reply_text if len(reply_text) <= 140 else reply_text[:140] + "…",
+    )
 
     status_line = (
         "✅ Sent" if delivered else "⚠️ Saved but DM failed (user may have blocked the bot)"
@@ -306,10 +317,48 @@ async def tclose_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         t.handled_by = user.id
         t.resolved_at = datetime.utcnow()
         linear_issue_id = t.linear_issue_id
+        ticket_user_id = t.user_id
+        kind = t.kind
         session.commit()
 
     await add_linear_comment(linear_issue_id, f"Ticket resolved by admin {user.id}.")
+
+    # Push notification, best-effort — no-op if the user has no push token.
+    await _push_ticket_update(
+        ticket_id,
+        kind,
+        ticket_user_id,
+        title=f"Ticket #{ticket_id} resolved",
+        body=f"Your {_meta(kind)['noun']} has been marked resolved.",
+    )
+
     await update.message.reply_text(f"✅ Ticket #{ticket_id} marked resolved.")
+
+
+async def _push_ticket_update(
+    ticket_id: int, kind: str, user_id: int | None, title: str, body: str
+) -> None:
+    """Best-effort push notification to the ticket's originating user.
+
+    No-op if the user has no registered Expo push token — never raises.
+    """
+    if not user_id:
+        return
+    try:
+        with get_session() as session:
+            user = session.query(User).filter(User.id == user_id).first()
+            push_token = user.push_token if user else None
+        if not push_token:
+            return
+        await send_push_notification(
+            push_token=push_token,
+            title=title,
+            body=body,
+            data={"type": "support_ticket", "ticket_id": ticket_id, "kind": kind},
+            category="SUPPORT_TICKET",
+        )
+    except Exception as e:  # noqa: BLE001 — push failures must never break ticket flow
+        logger.error("Failed to push ticket #%s update: %s", ticket_id, e)
 
 
 def _parse_id(args) -> int | None:

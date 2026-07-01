@@ -48,7 +48,7 @@ function TouchIdIcon({ className = '' }: { className?: string }) {
 
 export const CreatePasskeyButton: Story = {
   render: () => (
-    <button className="flex items-center justify-center gap-3 px-8 py-4 bg-gradient-to-r from-suwappu-purple to-suwappu-magenta-mid text-white font-heading font-bold rounded-suwappu-pill shadow-suwappu-button transition-all duration-300 hover:-translate-y-0.5 hover:shadow-suwappu-button-hover">
+    <button className="flex items-center justify-center gap-3 px-8 py-4 bg-linear-to-r from-suwappu-purple to-suwappu-magenta-mid text-white font-heading font-bold rounded-suwappu-pill shadow-suwappu-button transition-all duration-300 hover:-translate-y-0.5 hover:shadow-suwappu-button-hover">
       <BiometricIcon className="w-6 h-6" />
       Create Secure Wallet
     </button>
@@ -68,14 +68,14 @@ export const BiometricOptions: Story = {
   render: () => (
     <div className="flex gap-4">
       <button className="flex flex-col items-center gap-2 p-6 bg-white rounded-suwappu-xxl shadow-suwappu-2 border border-suwappu-sakura-mid/20 transition-all duration-300 hover:-translate-y-1 hover:shadow-suwappu-3 hover:border-suwappu-magenta-mid/50 w-32">
-        <div className="w-14 h-14 bg-gradient-to-br from-suwappu-sakura-light to-suwappu-rose rounded-suwappu-xl flex items-center justify-center">
+        <div className="w-14 h-14 bg-linear-to-br from-suwappu-sakura-light to-suwappu-rose rounded-suwappu-xl flex items-center justify-center">
           <FaceIdIcon className="w-8 h-8 text-suwappu-purple-deep" />
         </div>
         <span className="font-heading font-semibold text-suwappu-text text-sm">Face ID</span>
       </button>
 
       <button className="flex flex-col items-center gap-2 p-6 bg-white rounded-suwappu-xxl shadow-suwappu-2 border border-suwappu-sakura-mid/20 transition-all duration-300 hover:-translate-y-1 hover:shadow-suwappu-3 hover:border-suwappu-magenta-mid/50 w-32">
-        <div className="w-14 h-14 bg-gradient-to-br from-suwappu-cyan to-suwappu-blue rounded-suwappu-xl flex items-center justify-center">
+        <div className="w-14 h-14 bg-linear-to-br from-suwappu-cyan to-suwappu-blue rounded-suwappu-xl flex items-center justify-center">
           <TouchIdIcon className="w-8 h-8 text-suwappu-navy" />
         </div>
         <span className="font-heading font-semibold text-suwappu-text text-sm">Touch ID</span>
@@ -88,7 +88,7 @@ export const PasskeyCard: Story = {
   render: () => (
     <div className="p-8 bg-white rounded-suwappu-xxxl shadow-suwappu-3 border border-suwappu-sakura-mid/20 max-w-md">
       <div className="text-center mb-6">
-        <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-suwappu-purple to-suwappu-magenta-mid rounded-full flex items-center justify-center shadow-suwappu-glow">
+        <div className="w-20 h-20 mx-auto mb-4 bg-linear-to-br from-suwappu-purple to-suwappu-magenta-mid rounded-full flex items-center justify-center shadow-suwappu-glow">
           <BiometricIcon className="w-10 h-10 text-white" />
         </div>
         <h2 className="font-display text-2xl text-suwappu-magenta-mid mb-2">Create Secure Wallet</h2>
@@ -118,7 +118,7 @@ export const PasskeyCard: Story = {
         </div>
       </div>
 
-      <button className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-suwappu-purple to-suwappu-magenta-mid text-white font-heading font-bold rounded-suwappu-pill shadow-suwappu-button transition-all duration-300 hover:-translate-y-0.5 hover:shadow-suwappu-button-hover">
+      <button className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-linear-to-r from-suwappu-purple to-suwappu-magenta-mid text-white font-heading font-bold rounded-suwappu-pill shadow-suwappu-button transition-all duration-300 hover:-translate-y-0.5 hover:shadow-suwappu-button-hover">
         <BiometricIcon className="w-5 h-5" />
         Create Wallet
       </button>
@@ -133,7 +133,7 @@ export const PasskeyCard: Story = {
 export const VerificationPrompt: Story = {
   render: () => (
     <div className="p-8 bg-suwappu-glass backdrop-blur-md rounded-suwappu-xxxl shadow-suwappu-4 border border-suwappu-sakura-mid/30 max-w-sm text-center">
-      <div className="w-24 h-24 mx-auto mb-6 bg-gradient-to-br from-suwappu-sakura-light via-suwappu-rose to-suwappu-magenta-mid rounded-full flex items-center justify-center animate-pulse">
+      <div className="w-24 h-24 mx-auto mb-6 bg-linear-to-br from-suwappu-sakura-light via-suwappu-rose to-suwappu-magenta-mid rounded-full flex items-center justify-center animate-pulse">
         <FaceIdIcon className="w-14 h-14 text-white" />
       </div>
       <h3 className="font-heading text-xl font-bold text-suwappu-purple-deep mb-2">
@@ -154,7 +154,7 @@ export const VerificationPrompt: Story = {
 export const SuccessState: Story = {
   render: () => (
     <div className="p-8 bg-white rounded-suwappu-xxxl shadow-suwappu-3 border border-suwappu-success/30 max-w-sm text-center">
-      <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-suwappu-success to-green-400 rounded-full flex items-center justify-center animate-suwappu-heart">
+      <div className="w-20 h-20 mx-auto mb-4 bg-linear-to-br from-suwappu-success to-green-400 rounded-full flex items-center justify-center animate-suwappu-heart">
         <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
         </svg>
@@ -179,7 +179,7 @@ export const NotSupportedMessage: Story = {
   render: () => (
     <div className="p-6 bg-suwappu-warning/20 border border-suwappu-warning/40 rounded-suwappu-xxl max-w-sm">
       <div className="flex gap-4">
-        <div className="flex-shrink-0">
+        <div className="shrink-0">
           <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
@@ -207,7 +207,7 @@ export const PasskeyLoginFlow: Story = {
     if (step === 'verifying') {
       return (
         <div className="p-8 bg-suwappu-glass backdrop-blur-md rounded-suwappu-xxxl shadow-suwappu-4 border border-suwappu-sakura-mid/30 max-w-sm text-center">
-          <div className="w-24 h-24 mx-auto mb-6 bg-gradient-to-br from-suwappu-sakura-light via-suwappu-rose to-suwappu-magenta-mid rounded-full flex items-center justify-center animate-pulse">
+          <div className="w-24 h-24 mx-auto mb-6 bg-linear-to-br from-suwappu-sakura-light via-suwappu-rose to-suwappu-magenta-mid rounded-full flex items-center justify-center animate-pulse">
             <BiometricIcon className="w-14 h-14 text-white" />
           </div>
           <h3 className="font-heading text-xl font-bold text-suwappu-purple-deep mb-2">
@@ -223,7 +223,7 @@ export const PasskeyLoginFlow: Story = {
     if (step === 'success') {
       return (
         <div className="p-8 bg-white rounded-suwappu-xxxl shadow-suwappu-3 border border-suwappu-success/30 max-w-sm text-center">
-          <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-suwappu-success to-green-400 rounded-full flex items-center justify-center">
+          <div className="w-20 h-20 mx-auto mb-4 bg-linear-to-br from-suwappu-success to-green-400 rounded-full flex items-center justify-center">
             <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
             </svg>
@@ -240,7 +240,7 @@ export const PasskeyLoginFlow: Story = {
 
     return (
       <div className="p-8 bg-white rounded-suwappu-xxxl shadow-suwappu-3 border border-suwappu-sakura-mid/20 max-w-sm text-center">
-        <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-suwappu-purple to-suwappu-magenta-mid rounded-suwappu-xxl flex items-center justify-center">
+        <div className="w-16 h-16 mx-auto mb-4 bg-linear-to-br from-suwappu-purple to-suwappu-magenta-mid rounded-suwappu-xxl flex items-center justify-center">
           <BiometricIcon className="w-8 h-8 text-white" />
         </div>
         <h3 className="font-heading text-xl font-bold text-suwappu-purple-deep mb-2">

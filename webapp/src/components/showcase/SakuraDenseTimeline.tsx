@@ -56,7 +56,7 @@ function DenseChip({
 
   return (
     <div
-      className="flex-shrink-0"
+      className="shrink-0"
       style={{
         opacity: isVisible ? 1 : 0,
         transform: isVisible ? 'translateY(0) scale(1)' : 'translateY(12px) scale(0.95)',
@@ -82,7 +82,7 @@ function DenseChip({
       >
         {/* Type icon with accent ring */}
         <div
-          className="w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0"
+          className="w-8 h-8 rounded-full flex items-center justify-center text-sm shrink-0"
           style={{
             background: `${config.accent}12`,
             border: `1.5px solid ${config.accent}30`,
@@ -100,7 +100,7 @@ function DenseChip({
             </span>
             {/* Status dot */}
             <div
-              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+              className="w-1.5 h-1.5 rounded-full shrink-0"
               style={{
                 background: statusDot[item.status] || statusDot.pending,
                 boxShadow: item.status === 'pending' ? `0 0 4px ${statusDot.pending}` : 'none',
@@ -120,7 +120,7 @@ function DenseChip({
 
         {/* Chain indicators */}
         {item.fromChain && (
-          <div className="flex items-center gap-1 ml-1 flex-shrink-0">
+          <div className="flex items-center gap-1 ml-1 shrink-0">
             <div
               className="w-4 h-4 rounded-full border border-white/60"
               style={{ background: item.chainColor || '#627EEA' }}
@@ -215,7 +215,7 @@ export function SakuraDenseTimeline({ items, title, subtitle }: SakuraDenseTimel
         {items.map((item, i) => (
           <DenseChip key={item.id} item={item} index={i} isVisible={isVisible} />
         ))}
-        <div className="flex-shrink-0 w-1" />
+        <div className="shrink-0 w-1" />
       </div>
 
       {/* Inline keyframes */}

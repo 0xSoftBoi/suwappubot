@@ -17,34 +17,38 @@ uvicorn[standard]>=0.30,<1.0          # ASGI server — entrypoint
 uvloop>=0.19,<1.0                     # fast event loop (api/main.py)
 
 # ---- Telegram bot ----
-python-telegram-bot[rate-limiter]==22.5
+python-telegram-bot[rate-limiter]==22.8
 
 # ---- HTTP clients ----
 httpx==0.28.1
 httpx2                                # required by starlette>=1.x TestClient; test-only, app clients still use httpx
-requests==2.32.5
+requests==2.34.2
 aiohttp==3.14.1
 websockets==15.0.1
 # certifi is transitive, but pinned deliberately for the aiohttp SSL health-check
 # fix (commit 32d0805) — keep a floor so pip-compile can't resolve below it.
-certifi>=2026.5.20
+certifi>=2026.6.17
 # urllib3 is transitive, but floored deliberately to pull in the patched
 # decompression-bomb + cross-origin-redirect-header advisories.
 urllib3>=2.7.0
 
+# ---- LLM (natural-language trade intent parsing, NL_TRADING_ENABLED) ----
+anthropic
+openai==1.109.1
+
 # ---- Database ----
-SQLAlchemy==2.0.50
+SQLAlchemy==2.0.51
 psycopg2-binary>=2.9,<3.0             # PostgreSQL driver
 
 # ---- Pydantic / settings ----
 pydantic==2.13.4
-pydantic-settings==2.11.0
+pydantic-settings==2.14.2
 
 # ---- Crypto / encryption ----
 cryptography==48.0.1
 dnspython==2.8.0                      # DKIM TXT lookup for email social recovery
 PyJWT==2.13.0
-pyotp==2.9.0
+pyotp==2.10.0
 
 # ---- EVM / web3 ----
 web3==7.16.0
@@ -54,7 +58,7 @@ eth-utils==5.3.1
 pytempo==0.5.1                        # Tempo type-0x76 gasless fee-payer SDK
 
 # ---- Solana ----
-solana==0.36.12
+solana==0.40.0
 solders==0.27.1
 base58==2.1.1
 
@@ -65,7 +69,7 @@ tronpy>=0.5,<1.0
 starknet-py>=0.28.1; python_version >= "3.10"
 
 # ---- Perps / Polymarket / Hyperliquid ----
-hyperliquid-python-sdk==0.23.0
+hyperliquid-python-sdk==0.24.0
 py-clob-client>=0.20                  # Polymarket CLOB (imported as py_clob_client)
 msgpack==1.2.1
 

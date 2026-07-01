@@ -182,7 +182,7 @@ export function Settings() {
                 type="text"
                 value={slippageInput}
                 onChange={(e) => setSlippageInput(e.target.value)}
-                className="flex-1 px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-suwappu-magenta-mid/30"
+                className="flex-1 px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm font-mono text-center focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta-mid/30"
               />
               <span className="text-sm text-suwappu-text-secondary">%</span>
             </div>

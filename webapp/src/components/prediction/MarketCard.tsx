@@ -38,7 +38,7 @@ export function MarketCard({ market }: MarketCardProps) {
           <img
             src={market.image}
             alt=""
-            className="w-10 h-10 rounded-lg object-cover flex-shrink-0"
+            className="w-10 h-10 rounded-lg object-cover shrink-0"
           />
         )}
         <p className="font-heading font-semibold text-sm text-suwappu-text leading-tight line-clamp-2 flex-1">
