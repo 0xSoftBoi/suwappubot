@@ -344,6 +344,59 @@ def _ensure_schema(db_engine) -> None:
                 )
             )
 
+    # --- custodial_transactions idempotency (withdraw replay protection) ---
+    if "custodial_transactions" in tables:
+        cols = {c["name"] for c in inspector.get_columns("custodial_transactions")}
+
+        if "idempotency_key" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE custodial_transactions ADD COLUMN idempotency_key VARCHAR(128)"
+            else:
+                ddl = (
+                    "ALTER TABLE custodial_transactions "
+                    "ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128)"
+                )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+        # Unique index to enforce withdraw idempotency (NULLs allowed)
+        with db_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_custodial_transactions_idempotency_key "
+                    "ON custodial_transactions(idempotency_key)"
+                )
+            )
+
+    # --- custodial_transactions idempotency: scope to (user_id, key) ---
+    # A GLOBAL unique index on idempotency_key (above) lets one user's client-
+    # chosen key collide with another user's, leaking their tx hash/status on
+    # a 409 and letting one user DoS another's withdraw key. Supersede it with
+    # a composite UNIQUE(user_id, idempotency_key) index instead. Additive +
+    # idempotent: dropping the old index only removes the (now redundant,
+    # more-restrictive) global constraint; the new composite index still
+    # enforces per-user dedupe and NULLs remain allowed for non-withdrawal
+    # transaction types.
+    if "custodial_transactions" in tables:
+        cols = {c["name"] for c in inspector.get_columns("custodial_transactions")}
+        if "idempotency_key" in cols and "user_id" in cols:
+            with db_engine.begin() as conn:
+                conn.execute(text("DROP INDEX IF EXISTS ux_custodial_transactions_idempotency_key"))
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS "
+                        "ux_custodial_transactions_user_idempotency_key "
+                        "ON custodial_transactions(user_id, idempotency_key)"
+                    )
+                )
+                # Speeds up the PENDING-withdrawal reconciler's periodic scan.
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_custodial_transactions_status_type "
+                        "ON custodial_transactions(status, tx_type)"
+                    )
+                )
+
     # --- wallets: envelope encryption columns ---
     if "wallets" in tables:
         _add_encryption_columns(db_engine, inspector, "wallets", is_sqlite)
