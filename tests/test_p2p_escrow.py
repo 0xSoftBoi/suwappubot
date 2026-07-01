@@ -612,3 +612,53 @@ async def test_dispute_resolve_fails_closed_without_recorded_seller(tmp_db):
     assert still.status == P2PTradeStatus.DISPUTED.value
     done = await svc.resolve_dispute(trade_id=trade.id, resolution="release", resolver_id=7)
     assert done.status == P2PTradeStatus.COMPLETED.value
+
+
+async def test_mark_fiat_sent_cannot_unfreeze_dispute(tmp_db):
+    """A taker can't tap 'I've paid' again to un-freeze a disputed trade."""
+    from bot.services.p2p_service import P2PError
+
+    svc = P2PService()
+
+    async def fake_executor(action, **kw):
+        return f"0x{action}"
+
+    svc.escrow.set_executor(fake_executor)
+    trade = await _locked_native_trade(svc)
+    await svc.mark_fiat_sent(trade_id=trade.id, payment_ref="ref")
+    await svc.open_dispute(trade_id=trade.id, reason="seller says no fiat", opened_by=111)
+
+    with pytest.raises(P2PError):
+        await svc.mark_fiat_sent(trade_id=trade.id, payment_ref="again")
+    still = await svc.get_trade(trade.id)
+    assert still.status == P2PTradeStatus.DISPUTED.value
+
+
+async def test_dispute_resolve_reverts_on_onchain_failure(tmp_db):
+    """A transient on-chain failure leaves the trade DISPUTED (retryable), not stranded."""
+    from bot.services.p2p_service import P2PError
+
+    svc = P2PService()
+    fail = {"release": True}
+
+    async def flaky_executor(action, **kw):
+        if action == "release" and fail["release"]:
+            raise RuntimeError("rpc timeout")
+        return f"0x{action}"
+
+    svc.escrow.set_executor(flaky_executor)
+    trade = await _locked_native_trade(svc)
+    await svc.open_dispute(trade_id=trade.id, reason="d", opened_by=222)
+
+    # First resolve hits the on-chain failure → reverts to DISPUTED, funds untouched.
+    with pytest.raises(RuntimeError):
+        await svc.resolve_dispute(trade_id=trade.id, resolution="release", resolver_id=7)
+    reverted = await svc.get_trade(trade.id)
+    assert reverted.status == P2PTradeStatus.DISPUTED.value
+    assert reverted.escrow_release_tx is None
+
+    # Retry succeeds once the chain recovers.
+    fail["release"] = False
+    done = await svc.resolve_dispute(trade_id=trade.id, resolution="release", resolver_id=7)
+    assert done.status == P2PTradeStatus.COMPLETED.value
+    assert done.escrow_release_tx == "0xrelease"

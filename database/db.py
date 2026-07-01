@@ -506,6 +506,8 @@ def _ensure_schema(db_engine) -> None:
             logger.info(f"Added p2p_trades.{col_name}")
         # Additive: dispute/arbitration columns. Idempotent, typed per column.
         for col_name, col_type in (
+            ("dispute_reason", "TEXT"),
+            ("disputed_at", "TIMESTAMP"),
             ("disputed_by", "BIGINT"),
             ("dispute_resolution", "VARCHAR(16)"),
             ("resolved_by", "BIGINT"),
