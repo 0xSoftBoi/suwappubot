@@ -591,7 +591,7 @@ const tx = await client.swap(quote);`}</code>
             <h2>{tRef('heading')}</h2>
             <p className="summer-referral__body">
               {tRef.rich('body', {
-                cmd: () => <code className="summer-referral__cmd">/ref</code>,
+                cmd: (chunks) => <code className="summer-referral__cmd">{chunks}</code>,
               })}
             </p>
             <a

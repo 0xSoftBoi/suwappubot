@@ -1357,7 +1357,14 @@ async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
                     swap_id=swap_tx.id,
                 )
 
-                # Record reward and award points
+                # Consume one referee rebate slot if applicable.
+                # This is the SINGLE decrement point for referee_swap_rebate_remaining.
+                # It runs here — keyed to the actual charged swap — independent of the
+                # volume/cap guards inside record_reward. The atomic SQL UPDATE WHERE
+                # remaining > 0 is concurrency-safe without an explicit row lock.
+                referral_service.consume_referee_rebate(referee_id=user_id)
+
+                # Record referral reward and award points
                 referral_service.record_reward(
                     referee_id=user_id,
                     swap_id=swap_tx.id,

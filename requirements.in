@@ -1,0 +1,89 @@
+# Direct (top-level) Python dependencies for the api/ + bot/ + database/ monolith.
+#
+# This is the SOURCE file. The pinned lockfile `requirements.txt` is GENERATED from
+# it via pip-compile — do NOT hand-edit requirements.txt:
+#
+#     pip-compile requirements.in -o requirements.txt
+#
+# Only packages the code actually imports (or runtime entrypoints/drivers) belong
+# here. Transitive deps (pydantic-core, eth-keyfile, parsimonious, jsonalias, the
+# rest of the eth-*/anyio/yarl stack, …) are resolved + pinned by pip-compile so
+# they always satisfy their parents. This is what stops Dependabot from bumping a
+# transitive past its parent's constraint (see the #459 breakage).
+
+# ---- Web framework / server ----
+fastapi==0.138.2
+uvicorn[standard]>=0.30,<1.0          # ASGI server — entrypoint
+uvloop>=0.19,<1.0                     # fast event loop (api/main.py)
+
+# ---- Telegram bot ----
+python-telegram-bot[rate-limiter]==22.5
+
+# ---- HTTP clients ----
+httpx==0.28.1
+httpx2                                # required by starlette>=1.x TestClient; test-only, app clients still use httpx
+requests==2.32.5
+aiohttp==3.14.1
+websockets==15.0.1
+# certifi is transitive, but pinned deliberately for the aiohttp SSL health-check
+# fix (commit 32d0805) — keep a floor so pip-compile can't resolve below it.
+certifi>=2026.5.20
+# urllib3 is transitive, but floored deliberately to pull in the patched
+# decompression-bomb + cross-origin-redirect-header advisories.
+urllib3>=2.7.0
+
+# ---- Database ----
+SQLAlchemy==2.0.50
+psycopg2-binary>=2.9,<3.0             # PostgreSQL driver
+
+# ---- Pydantic / settings ----
+pydantic==2.13.4
+pydantic-settings==2.11.0
+
+# ---- Crypto / encryption ----
+cryptography==48.0.1
+dnspython==2.8.0                      # DKIM TXT lookup for email social recovery
+PyJWT==2.13.0
+pyotp==2.9.0
+
+# ---- EVM / web3 ----
+web3==7.16.0
+eth-account==0.13.7
+eth-abi==5.2.0
+eth-utils==5.3.1
+pytempo==0.5.1                        # Tempo type-0x76 gasless fee-payer SDK
+
+# ---- Solana ----
+solana==0.36.12
+solders==0.27.1
+base58==2.1.1
+
+# ---- Tron ----
+tronpy>=0.5,<1.0
+
+# ---- Starknet (lazy-imported; needs Python >= 3.10 — prod image is 3.12) ----
+starknet-py>=0.28.1; python_version >= "3.10"
+
+# ---- Perps / Polymarket / Hyperliquid ----
+hyperliquid-python-sdk==0.23.0
+py-clob-client>=0.20                  # Polymarket CLOB (imported as py_clob_client)
+msgpack==1.2.1
+
+# ---- Discord integration ----
+discord.py>=2.3,<3.0
+
+# ---- Media / QR ----
+qrcode>=7.4,<9.0
+Pillow>=10.0                          # imported as PIL
+
+# ---- Cache ----
+redis==7.0.1
+
+# ---- Serialization / misc ----
+orjson>=3.10
+
+# ---- AWS KMS ----
+# boto3 is intentionally NOT a runtime dependency — imported lazily in
+# AwsKmsClient and only needed by the one-time re-wrap migration
+# (scripts/requirements-migrate.txt). Keeping it out avoids a botocore<->urllib3
+# conflict on the pinned HTTP stack.
