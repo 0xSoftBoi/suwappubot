@@ -504,6 +504,25 @@ def _ensure_schema(db_engine) -> None:
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
             logger.info(f"Added p2p_trades.{col_name}")
+        # Additive: dispute/arbitration columns. Idempotent, typed per column.
+        for col_name, col_type in (
+            ("dispute_reason", "TEXT"),
+            ("disputed_at", "TIMESTAMP"),
+            ("disputed_by", "BIGINT"),
+            ("dispute_resolution", "VARCHAR(16)"),
+            ("resolved_by", "BIGINT"),
+            ("resolved_at", "TIMESTAMP"),
+            ("resolution_note", "TEXT"),
+        ):
+            if col_name in cols:
+                continue
+            if is_sqlite:
+                ddl = f"ALTER TABLE p2p_trades ADD COLUMN {col_name} {col_type}"
+            else:
+                ddl = f"ALTER TABLE p2p_trades ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info(f"Added p2p_trades.{col_name}")
 
     # --- prediction_positions: on-chain redemption columns ---
     if "prediction_positions" in tables:

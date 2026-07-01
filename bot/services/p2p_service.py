@@ -150,6 +150,9 @@ class P2PEscrow:
 class P2PService:
     """Aggregates P2P liquidity and runs the native trade lifecycle."""
 
+    # Anti-griefing cap on simultaneously-open disputes per user.
+    MAX_OPEN_DISPUTES_PER_USER = 5
+
     def __init__(self):
         self.escrow = P2PEscrow()
         self._providers = [noones_client, p2p_me_client]
@@ -513,11 +516,40 @@ class P2PService:
         )
 
     async def mark_fiat_sent(self, *, trade_id: int, payment_ref: Optional[str] = None) -> P2PTrade:
-        return await self._update_trade(
-            trade_id,
-            status=P2PTradeStatus.FIAT_SENT.value,
-            fiat_payment_ref=payment_ref,
-        )
+        """Mark the fiat leg sent — only from a pre-settlement state.
+
+        Guarded compare-and-set so it cannot un-freeze a DISPUTED trade or reopen a
+        terminal/released one (which would defeat arbitration or re-enable release).
+        """
+
+        def _cas() -> int:
+            with get_session() as session:
+                rows = (
+                    session.query(P2PTrade)
+                    .filter(
+                        P2PTrade.id == trade_id,
+                        P2PTrade.status.in_(
+                            [
+                                P2PTradeStatus.INITIATED.value,
+                                P2PTradeStatus.ESCROW_LOCKED.value,
+                                P2PTradeStatus.FIAT_PENDING.value,
+                            ]
+                        ),
+                    )
+                    .update(
+                        {
+                            P2PTrade.status: P2PTradeStatus.FIAT_SENT.value,
+                            P2PTrade.fiat_payment_ref: payment_ref,
+                        },
+                        synchronize_session=False,
+                    )
+                )
+                session.commit()
+                return rows
+
+        if not await run_in_db(_cas):
+            raise P2PError("This trade can't be marked paid in its current state.")
+        return await self.get_trade(trade_id)
 
     @staticmethod
     def _resolve_payout(recorded: Optional[str], override: Optional[str], label: str) -> str:
@@ -626,6 +658,11 @@ class P2PService:
         self, *, trade_id: int, seller_address: Optional[str] = None
     ) -> P2PTrade:
         trade = await self.get_trade(trade_id)
+        # A trade already frozen in DISPUTED can only be settled by an arbiter
+        # (resolve_dispute) — never a unilateral cancel (which would skip the
+        # refund and strand the escrowed crypto).
+        if trade.source == P2PSource.NATIVE.value and trade.status == P2PTradeStatus.DISPUTED.value:
+            raise P2PError("Trade is under dispute — resolve it via arbitration.")
         # A fiat-paid trade must not be unilaterally refunded — that would let a
         # buyer pay and a seller reclaim the crypto. Force the dispute path instead
         # of silently cancelling without a refund (and falsely reporting success).
@@ -653,15 +690,152 @@ class P2PService:
             return await self.get_trade(trade_id)
         return await self._update_trade(trade_id, status=P2PTradeStatus.CANCELLED.value)
 
-    async def open_dispute(self, *, trade_id: int, reason: str) -> P2PTrade:
+    async def open_dispute(self, *, trade_id: int, reason: str, opened_by: int) -> P2PTrade:
+        """Open a dispute on a native trade whose escrow is locked.
+
+        Only a party to the trade (taker or maker) may open it, and only while the
+        crypto is escrowed (ESCROW_LOCKED / FIAT_SENT) and not yet released. Freezes
+        the trade in DISPUTED so neither side can unilaterally release/refund — only
+        an arbiter (``resolve_dispute``) can move the funds afterwards.
+        """
+        trade = await self.get_trade(trade_id)
+        if trade.source != P2PSource.NATIVE.value:
+            raise P2PError("Disputes apply to native escrow trades only.")
+        # Fail closed: a dispute may only be opened by a party to the trade. A
+        # missing opener is never allowed to freeze someone else's escrow.
+        if opened_by is None or int(opened_by) not in {
+            int(trade.taker_user_id or 0),
+            int(trade.maker_user_id or 0),
+        }:
+            raise P2PError("Only a party to this trade can open a dispute.")
+        # Anti-griefing: cap how many escrows one user can freeze at once.
+        if await self._count_open_disputes(int(opened_by)) >= self.MAX_OPEN_DISPUTES_PER_USER:
+            raise P2PError(
+                "You have too many open disputes. Wait for the current ones to be "
+                "resolved before opening another."
+            )
+        # Atomic freeze: only a locked, unreleased trade can enter DISPUTED, and only
+        # once — this also races safely against a concurrent release/refund.
+        if not await self._reserve_for_dispute(trade_id):
+            raise P2PError(
+                "This trade can't be disputed (not escrowed, already settled, or "
+                "already disputed)."
+            )
         return await self._update_trade(
             trade_id,
-            status=P2PTradeStatus.DISPUTED.value,
             dispute_reason=reason,
             disputed_at=datetime.utcnow(),
+            disputed_by=opened_by,
         )
 
+    async def resolve_dispute(
+        self,
+        *,
+        trade_id: int,
+        resolution: str,
+        resolver_id: int,
+        note: Optional[str] = None,
+    ) -> P2PTrade:
+        """Arbiter resolves a disputed trade by moving the escrow.
+
+        ``resolution='release'`` awards the crypto to the buyer (buyer wins);
+        ``'refund'`` returns it to the seller (seller wins). Reuses the recorded
+        payout addresses + the trade's own chain, with an atomic guard so a dispute
+        can't be resolved twice (double-spend).
+        """
+        if resolution not in ("release", "refund"):
+            raise P2PError("Resolution must be 'release' or 'refund'.")
+        trade = await self.get_trade(trade_id)
+        if trade.source != P2PSource.NATIVE.value:
+            raise P2PError("Disputes apply to native escrow trades only.")
+        if trade.status != P2PTradeStatus.DISPUTED.value:
+            raise P2PError("Trade is not under dispute.")
+        if not trade.escrow_lock_tx:
+            raise P2PError("Escrow was never locked for this trade — nothing to move.")
+
+        # Resolve the destination BEFORE reserving, so a bad/missing address can't
+        # consume the reservation. Recorded-authoritative, fail-closed.
+        if resolution == "release":
+            payout = self._resolve_payout(trade.buyer_address, None, "buyer")
+        else:
+            payout = self._resolve_payout(trade.seller_address, None, "seller")
+
+        # Atomic single-winner claim: DISPUTED → RELEASED (an in-flight "resolving"
+        # marker), keyed on escrow_release_tx IS NULL. Because the source set is
+        # strictly {DISPUTED}, concurrent /p2presolve calls (even release vs refund)
+        # contend on one row UPDATE and exactly one wins — no double-spend.
+        if not await self._reserve_from_dispute(trade_id):
+            raise P2PError("Dispute already resolved or being resolved.")
+
+        now = datetime.utcnow()
+        try:
+            if resolution == "release":
+                tx_hash = await self.escrow.release(
+                    buyer_address=payout, amount=trade.crypto_amount, chain=trade.crypto_chain
+                )
+                final_status = P2PTradeStatus.COMPLETED.value
+            else:
+                tx_hash = await self.escrow.refund(
+                    seller_address=payout, amount=trade.crypto_amount, chain=trade.crypto_chain
+                )
+                final_status = P2PTradeStatus.CANCELLED.value
+        except Exception:
+            # On-chain move failed (no funds moved — escrow_release_tx still NULL).
+            # Revert the reservation so the dispute stays resolvable/retryable rather
+            # than stranding the escrow in a terminal state.
+            await self._update_trade(trade_id, status=P2PTradeStatus.DISPUTED.value)
+            raise
+
+        resolved = await self._update_trade(
+            trade_id,
+            status=final_status,
+            escrow_release_tx=tx_hash,
+            completed_at=now if resolution == "release" else None,
+            dispute_resolution=resolution,
+            resolved_by=resolver_id,
+            resolved_at=now,
+            resolution_note=note,
+        )
+        if resolution == "release":
+            try:
+                self._award_p2p_points(resolved)
+            except Exception as e:
+                logger.debug("p2p_trade award skipped (dispute release): %s", e)
+        return resolved
+
     # ── Reads ────────────────────────────────────────────────────────────────
+
+    async def _count_open_disputes(self, user_id: int) -> int:
+        def _count() -> int:
+            with get_session() as session:
+                return (
+                    session.query(P2PTrade)
+                    .filter(
+                        P2PTrade.disputed_by == user_id,
+                        P2PTrade.status == P2PTradeStatus.DISPUTED.value,
+                    )
+                    .count()
+                )
+
+        return await run_in_db(_count)
+
+    async def get_disputed_trades(self, *, limit: int = 50) -> list[P2PTrade]:
+        """All native trades currently under dispute (arbiter queue)."""
+
+        def _list() -> list[P2PTrade]:
+            with get_session() as session:
+                rows = (
+                    session.query(P2PTrade)
+                    .filter(P2PTrade.status == P2PTradeStatus.DISPUTED.value)
+                    .order_by(P2PTrade.disputed_at.asc())
+                    .limit(limit)
+                    .all()
+                )
+                for r in rows:
+                    session.expunge(r)
+                return rows
+
+        return await run_in_db(_list)
 
     async def get_trade(self, trade_id: int) -> P2PTrade:
         def _get() -> Optional[P2PTrade]:
@@ -781,6 +955,71 @@ class P2PService:
                     )
                     .update(
                         {P2PTrade.status: P2PTradeStatus.CANCELLED.value},
+                        synchronize_session=False,
+                    )
+                )
+                session.commit()
+                return rows > 0
+
+        return await run_in_db(_reserve)
+
+    async def _reserve_for_dispute(self, trade_id: int) -> bool:
+        """Atomically freeze a locked, unreleased native trade into DISPUTED.
+
+        Compare-and-set from ESCROW_LOCKED/FIAT_SENT → DISPUTED (release_tx NULL),
+        so opening a dispute can't race a concurrent release/refund and a trade
+        can't be disputed twice. Returns True iff this caller won the freeze.
+        """
+
+        def _reserve() -> bool:
+            with get_session() as session:
+                rows = (
+                    session.query(P2PTrade)
+                    .filter(
+                        P2PTrade.id == trade_id,
+                        P2PTrade.source == P2PSource.NATIVE.value,
+                        P2PTrade.escrow_lock_tx.isnot(None),
+                        P2PTrade.escrow_release_tx.is_(None),
+                        P2PTrade.status.in_(
+                            [
+                                P2PTradeStatus.ESCROW_LOCKED.value,
+                                P2PTradeStatus.FIAT_SENT.value,
+                            ]
+                        ),
+                    )
+                    .update(
+                        {P2PTrade.status: P2PTradeStatus.DISPUTED.value},
+                        synchronize_session=False,
+                    )
+                )
+                session.commit()
+                return rows > 0
+
+        return await run_in_db(_reserve)
+
+    async def _reserve_from_dispute(self, trade_id: int) -> bool:
+        """Atomically claim a DISPUTED trade for resolution (→ RELEASED marker).
+
+        Compare-and-set from strictly ``DISPUTED`` (release_tx NULL) → RELEASED, an
+        in-flight "resolving" marker. Because the source set is only {DISPUTED},
+        exactly one concurrent resolver wins — the loser sees the trade already out
+        of DISPUTED and is rejected, so no double on-chain move. On a transient
+        on-chain failure the caller reverts the marker back to DISPUTED (retryable).
+        Returns True iff this caller won the claim.
+        """
+
+        def _reserve() -> bool:
+            with get_session() as session:
+                rows = (
+                    session.query(P2PTrade)
+                    .filter(
+                        P2PTrade.id == trade_id,
+                        P2PTrade.source == P2PSource.NATIVE.value,
+                        P2PTrade.status == P2PTradeStatus.DISPUTED.value,
+                        P2PTrade.escrow_release_tx.is_(None),
+                    )
+                    .update(
+                        {P2PTrade.status: P2PTradeStatus.RELEASED.value},
                         synchronize_session=False,
                     )
                 )
