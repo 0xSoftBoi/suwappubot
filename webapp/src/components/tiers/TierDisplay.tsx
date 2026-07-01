@@ -22,7 +22,7 @@ export function TierDisplay({ currentXp = 0 }: TierDisplayProps) {
   return (
     <div className="space-y-3">
       {/* Hero card - current tier */}
-      <div className={`relative overflow-hidden rounded-suwappu-xl p-5 bg-gradient-to-br ${currentTier.gradientFrom} ${currentTier.gradientTo} text-white shadow-suwappu-3`}>
+      <div className={`relative overflow-hidden rounded-suwappu-xl p-5 bg-linear-to-br ${currentTier.gradientFrom} ${currentTier.gradientTo} text-white shadow-suwappu-3`}>
         {/* Decorative circles */}
         <div className="absolute -top-10 -right-10 w-32 h-32 bg-white/10 rounded-full" />
         <div className="absolute -bottom-8 -left-8 w-24 h-24 bg-white/10 rounded-full" />

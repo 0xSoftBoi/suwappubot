@@ -173,7 +173,7 @@ export function Recovery() {
               value={email}
               onChange={(e) => { setEmail(e.target.value); setError(null) }}
               placeholder="your@email.com"
-              className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm focus:outline-none focus:ring-2 focus:ring-suwappu-magenta-mid/30"
+              className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta-mid/30"
             />
           </div>
 
@@ -216,7 +216,7 @@ export function Recovery() {
                   value={recoveryEmail}
                   onChange={(e) => { setRecoveryEmail(e.target.value); setError(null) }}
                   placeholder="your@email.com"
-                  className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm focus:outline-none focus:ring-2 focus:ring-suwappu-magenta-mid/30"
+                  className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta-mid/30"
                 />
               </div>
 

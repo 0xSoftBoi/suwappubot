@@ -123,7 +123,7 @@ function OfferCard({ offer, onSelect }: { offer: P2POffer; onSelect: (o: P2POffe
             {offer.makerHandle}
           </span>
         </div>
-        <div className="text-right flex-shrink-0">
+        <div className="text-right shrink-0">
           <p className="font-heading font-bold text-sm text-suwappu-text">
             {offer.pricePerUnit === 0
               ? 'Live rate'

@@ -47,7 +47,7 @@ function KeyCombo({ keys }: { keys: string }) {
       {parts.map((part, i) => (
         <kbd
           key={i}
-          className="inline-flex items-center justify-center min-w-[28px] h-7 px-1.5 rounded-md bg-white/10 border border-white/20 text-xs font-mono font-medium text-white/90 shadow-sm"
+          className="inline-flex items-center justify-center min-w-[28px] h-7 px-1.5 rounded-md bg-white/10 border border-white/20 text-xs font-mono font-medium text-white/90 shadow-xs"
         >
           {part}
         </kbd>

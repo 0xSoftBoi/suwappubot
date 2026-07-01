@@ -357,7 +357,7 @@ function SwapScreen() {
             <input
               type="text"
               placeholder="0.0"
-              className="flex-1 text-right text-xl font-mono bg-transparent focus:outline-none"
+              className="flex-1 text-right text-xl font-mono bg-transparent focus:outline-hidden"
             />
           </div>
         </div>

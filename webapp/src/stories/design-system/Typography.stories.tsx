@@ -136,7 +136,7 @@ export const TextEffects: Story = {
           </p>
         </div>
 
-        <div className="p-6 bg-gradient-to-r from-suwappu-sakura-light to-suwappu-sky rounded-suwappu-xl shadow-suwappu-2">
+        <div className="p-6 bg-linear-to-r from-suwappu-sakura-light to-suwappu-sky rounded-suwappu-xl shadow-suwappu-2">
           <span className="text-xs font-body text-suwappu-purple block mb-2">Emboss Effect</span>
           <p
             className="font-heading text-4xl font-bold text-white"

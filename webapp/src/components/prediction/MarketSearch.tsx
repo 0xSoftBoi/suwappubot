@@ -46,7 +46,7 @@ export function MarketSearch({ onSearch, onCategoryChange, activeCategory }: Mar
           value={query}
           onChange={(e) => handleSearch(e.target.value)}
           placeholder="Search markets..."
-          className="w-full pl-10 pr-4 py-2.5 rounded-suwappu-lg border border-suwappu-sakura-mid/20 bg-white text-sm focus:outline-none focus:border-suwappu-magenta-mid transition-colors"
+          className="w-full pl-10 pr-4 py-2.5 rounded-suwappu-lg border border-suwappu-sakura-mid/20 bg-white text-sm focus:outline-hidden focus:border-suwappu-magenta-mid transition-colors"
         />
       </div>
 
