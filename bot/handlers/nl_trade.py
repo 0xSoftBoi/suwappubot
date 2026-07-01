@@ -148,7 +148,8 @@ async def handle_nl_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "available_chains": list(CHAINS.keys()),
         }
 
-        intent = await parse_trade_intent(text, context=nl_context)
+        user_id = update.effective_user.id if update.effective_user else None
+        intent = await parse_trade_intent(text, context=nl_context, user_id=user_id)
 
         if intent.clarification:
             await update.message.reply_text(intent.clarification)
