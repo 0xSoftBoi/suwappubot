@@ -834,6 +834,36 @@ class Settings(BaseSettings):
         default="", description="Comma-separated Telegram user IDs for admin access"
     )
 
+    # Natural-language trade intent parsing (Anthropic). OFF by default — NL
+    # parsing only ever produces a structured TradeIntent; it never quotes or
+    # executes a swap itself (see bot/services/nl_intent_service.py and
+    # bot/handlers/nl_trade.py, which hand off into the existing
+    # CONFIRM_SWAP -> ENTER_2FA_CODE flow).
+    ANTHROPIC_API_KEY: str = Field(
+        default="", description="Anthropic API key for NL trade intent parsing"
+    )
+    NL_TRADING_ENABLED: bool = Field(
+        default=False, description="Master switch for natural-language trade intent parsing"
+    )
+    NL_TRADING_MODEL: str = Field(
+        default="claude-haiku-4-5-20251001",
+        description="Anthropic model used to parse natural-language trade intents",
+    )
+    NL_TRADING_PROVIDER: str = Field(
+        default="anthropic",
+        description="LLM provider for NL trade intent parsing: anthropic|openai|deepseek|custom",
+    )
+    OPENAI_API_KEY: str = Field(
+        default="", description="OpenAI API key for NL trade intent parsing"
+    )
+    DEEPSEEK_API_KEY: str = Field(
+        default="", description="DeepSeek API key for NL trade intent parsing"
+    )
+    NL_TRADING_BASE_URL: str = Field(
+        default="",
+        description="Optional override base_url for OpenAI-compatible NL trading providers",
+    )
+
     # Application Settings
     log_level: str = Field(default="INFO", description="Logging level")
     max_swap_amount: float = Field(default=100000, description="Maximum swap amount in USD")
