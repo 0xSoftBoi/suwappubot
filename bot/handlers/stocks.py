@@ -39,7 +39,6 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
 from bot.config.xstocks import (
-    XSTOCKS,
     XSTOCKS_BLOCKED_REGION_NAMES,
     XSTOCKS_BLOCKED_REGIONS,
     get_all_xstocks,
@@ -224,13 +223,11 @@ async def stocks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(msg, parse_mode="Markdown")
         return
 
-    total = len(XSTOCKS)
+    total = len(get_all_xstocks())
     text = (
         "*xStocks — Tokenized Equities on Solana*\n\n"
         f"Trade {total} real-world assets as SPL tokens via Jupiter.\n"
-        "Backed Finance issues and redeems each token 1-for-1 with the underlying equity.\n\n"
-        "Tap any stock to see details and buy with SOL.\n\n"
-        "_* = medium confidence — verify mint before large trades_"
+        "Backed Finance issues and redeems each token 1-for-1 with the underlying equity."
     )
     text += _market_hours_warning()
     await update.message.reply_text(
@@ -256,12 +253,11 @@ async def stocks_page_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     except (ValueError, AttributeError):
         page = 0
 
-    total = len(XSTOCKS)
+    total = len(get_all_xstocks())
     text = (
         "*xStocks — Tokenized Equities on Solana*\n\n"
         f"Trade {total} real-world assets as SPL tokens via Jupiter.\n"
-        "Tap any stock to see details and buy with SOL.\n\n"
-        "_* = medium confidence — verify mint before large trades_"
+        "Tap any stock to see details and buy with SOL."
     )
     text += _market_hours_warning()
     await query.edit_message_text(
@@ -333,12 +329,11 @@ async def stocks_list_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     except (ValueError, AttributeError):
         page = 0
 
-    total = len(XSTOCKS)
+    total = len(get_all_xstocks())
     text = (
         "*xStocks — Tokenized Equities on Solana*\n\n"
         f"Trade {total} real-world assets as SPL tokens via Jupiter.\n"
-        "Tap any stock to see details and buy with SOL.\n\n"
-        "_* = medium confidence — verify mint before large trades_"
+        "Tap any stock to see details and buy with SOL."
     )
     text += _market_hours_warning()
     await query.edit_message_text(

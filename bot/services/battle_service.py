@@ -44,6 +44,7 @@ from sqlalchemy.orm import Session
 from database.db import get_session
 from bot.models.battle import Battle
 from bot.models.custodial import CustodialBalance
+from bot.models.user import User
 from bot.config.tokens import get_token_address, NATIVE_TOKEN_ADDRESS
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,21 @@ _BATTLE_TOKEN = "USDC"
 # ---------------------------------------------------------------------------
 # Treasury sentinel
 # ---------------------------------------------------------------------------
+
+
+def _resolve_db_user_id(session: Session, telegram_id: int) -> int:
+    """Resolve a Telegram id to the CustodialBalance-owning users.id.
+
+    CustodialBalance.user_id is a FK to users.id (the DB autoincrement PK),
+    NOT the raw Telegram id. Mirrors community_service._get_db_user_by_telegram_id.
+
+    Raises ValueError if no user record exists — we never silently create one
+    here, since debiting/crediting a non-existent account is a money-path bug.
+    """
+    user = session.query(User).filter(User.telegram_id == telegram_id).first()
+    if user is None:
+        raise ValueError(f"No user account found for telegram_id={telegram_id}")
+    return user.id
 
 
 def _get_treasury_user_id() -> int:
@@ -242,16 +258,10 @@ class BattleService:
         perp_order_id: Optional[int] = None
         leverage = Decimal(str(BATTLE_DEFAULT_LEVERAGE))
 
-        if backing == "perps":
-            perp_order_id = await self._open_perps_backing(
-                user_id=user_id,
-                market=market,
-                direction=direction,
-                stake_usd=stake_usd,
-                leverage=int(leverage),
-            )
-
-        # MONEY-PATH: prediction debit + Battle INSERT in ONE transaction.
+        # --- MONEY-PATH: ALL validation happens BEFORE any perps order is
+        # placed or any balance is debited. This prevents a rejected open
+        # (cap exceeded / insufficient balance) from leaving an orphaned,
+        # never-recorded exchange position. ---
         with get_session() as session:
             # --- per-user open-battle cap (abuse guard) ---
             open_count = (
@@ -265,19 +275,59 @@ class BattleService:
                     f"Maximum is {BATTLE_MAX_OPEN}. Settle existing battles first."
                 )
 
+        if backing == "perps":
+            # Cap check passed — safe to place the real exchange order now.
+            perp_order_id = await self._open_perps_backing(
+                user_id=user_id,
+                market=market,
+                direction=direction,
+                stake_usd=stake_usd,
+                leverage=int(leverage),
+            )
+            if perp_order_id is None:
+                # The exchange position was opened but we couldn't read back its
+                # PerpOrder id — settlement would have no way to locate the exact
+                # position later, which risks closing an unrelated position or
+                # leaving this one orphaned. Abort the battle rather than persist
+                # a row we cannot safely settle.
+                raise Exception(
+                    "Perps backing order could not be confirmed (missing order id). "
+                    "Battle aborted — please check /perps for an orphaned position."
+                )
+
+        # MONEY-PATH: prediction debit + Battle INSERT in ONE transaction.
+        # Re-check the cap inside this transaction too (covers the race where a
+        # second battle was opened concurrently between the pre-check above and
+        # this insert); this keeps the guard authoritative at write time.
+        with get_session() as session:
+            open_count = (
+                session.query(Battle)
+                .filter(Battle.user_id == user_id, Battle.status == "open")
+                .count()
+            )
+            if open_count >= BATTLE_MAX_OPEN:
+                raise ValueError(
+                    f"You already have {open_count} open battles. "
+                    f"Maximum is {BATTLE_MAX_OPEN}. Settle existing battles first."
+                )
+
             if backing == "prediction":
                 # Debit user, credit treasury — both in this session/transaction.
+                # CustodialBalance.user_id is a FK to users.id, NOT the Telegram id,
+                # so we must resolve telegram_id -> users.id before touching it.
                 treasury_id = _get_treasury_user_id()
+                db_user_id = _resolve_db_user_id(session, user_id)
                 try:
-                    _adjust_balance_in_session(session, user_id, stake_usd, "subtract")
+                    _adjust_balance_in_session(session, db_user_id, stake_usd, "subtract")
                 except ValueError as exc:
                     raise ValueError(
                         f"Insufficient custodial balance to open battle: {exc}"
                     ) from exc
                 _adjust_balance_in_session(session, treasury_id, stake_usd, "add")
                 logger.info(
-                    "battle open: debited user=%s $%.4f, credited treasury=%s",
+                    "battle open: debited user=%s (db_id=%s) $%.4f, credited treasury=%s",
                     user_id,
+                    db_user_id,
                     float(stake_usd),
                     treasury_id,
                 )
@@ -404,6 +454,7 @@ class BattleService:
             battle_backing = battle.backing
             battle_stake_usd = Decimal(str(battle.stake_usd))
             battle_entry_price = Decimal(str(battle.entry_price))
+            battle_perp_order_id = battle.perp_order_id
             session.expunge(battle)
         # CAS committed; status='settling' is now visible to all concurrent ticks.
 
@@ -443,6 +494,7 @@ class BattleService:
                     stake_usd=battle_stake_usd,
                     entry_price=battle_entry_price,
                     settle_price=settle_price,
+                    perp_order_id=battle_perp_order_id,
                 )
             else:  # prediction
                 pnl_usd = (
@@ -522,11 +574,15 @@ class BattleService:
             # and the payout commit or roll back together.
             if battle_backing == "prediction":
                 treasury_id = _get_treasury_user_id()
+                # battle_user_id is Battle.user_id (Telegram id) — CustodialBalance.user_id
+                # is a FK to users.id, so resolve once here for both the win-credit and
+                # void-refund paths below.
+                db_user_id = _resolve_db_user_id(session, battle_user_id)
                 try:
                     self._apply_prediction_payout(
                         session=session,
                         outcome=outcome,
-                        user_id=battle_user_id,
+                        user_id=db_user_id,
                         treasury_id=treasury_id,
                         stake_usd=battle_stake_usd,
                     )
@@ -556,7 +612,7 @@ class BattleService:
                         _adjust_balance_in_session(
                             session, treasury_id, battle_stake_usd, "subtract"
                         )
-                        _adjust_balance_in_session(session, battle_user_id, battle_stake_usd, "add")
+                        _adjust_balance_in_session(session, db_user_id, battle_stake_usd, "add")
                     except Exception as refund_exc:
                         logger.critical(
                             "battle %s: VOID refund also failed — manual fix required: %s",
@@ -596,6 +652,9 @@ class BattleService:
 
         All mutations happen on the caller's session (same transaction as the
         status flip).  Raises ValueError on insufficient treasury balance.
+
+        NOTE: `user_id` here must already be the resolved CustodialBalance
+        users.id (see _resolve_db_user_id), NOT the raw Telegram id.
 
         WIN:  treasury pays user stake * PREDICTION_WIN_MULTIPLIER
         LOSS: no-op (funds already moved to treasury at open_battle)
@@ -656,22 +715,47 @@ class BattleService:
         stake_usd: Decimal,
         entry_price: Decimal,
         settle_price: Decimal,
+        perp_order_id: Optional[int] = None,
     ) -> Decimal:
-        """Close the HyperLiquid position that backs this battle and return realised PnL."""
-        from bot.services.perps_service import perps_service
-        from bot.models.perps import PerpPosition
+        """Close the HyperLiquid position that backs this battle and return realised PnL.
 
-        side = "long" if direction == "up" else "short"
-        # Find the matching open position for this user + market + side.
+        MONEY-PATH: must close the EXACT position tied to this battle, never a
+        "most recent matching" guess. A user can have multiple open perps
+        positions on the same market+side (e.g. one from /perps directly, one
+        from a battle) — a filter_by(...).order_by(id.desc()).first() query can
+        close an unrelated position and corrupt that position's own accounting.
+        We resolve the position via battles.perp_order_id -> PerpOrder.id ->
+        PerpOrder.position_id, which was recorded at open_battle time.
+        """
+        from bot.services.perps_service import perps_service
+        from bot.models.perps import PerpOrder, PerpPosition
+
         try:
-            with get_session() as session:
-                position = (
-                    session.query(PerpPosition)
-                    .filter_by(user_id=user_id, market=market, side=side, status="open")
-                    .order_by(PerpPosition.id.desc())
-                    .first()
-                )
-                position_id = position.id if position else None
+            position_id: Optional[int] = None
+            if perp_order_id:
+                with get_session() as session:
+                    order = session.query(PerpOrder).filter(PerpOrder.id == perp_order_id).first()
+                    if order and order.position_id:
+                        position_id = order.position_id
+
+            if position_id:
+                # Confirm the position is still open before attempting to close it
+                # (idempotency: a crash-retry should not try to re-close).
+                with get_session() as session:
+                    position = (
+                        session.query(PerpPosition)
+                        .filter(PerpPosition.id == position_id, PerpPosition.status == "open")
+                        .first()
+                    )
+                    if not position:
+                        logger.warning(
+                            "battle %s: position id=%s (from perp_order_id=%s) is not open "
+                            "— already closed or never opened, skipping close",
+                            battle_id,
+                            position_id,
+                            perp_order_id,
+                        )
+                        position_id = None
 
             if position_id:
                 result = await perps_service.close_position(
@@ -681,6 +765,13 @@ class BattleService:
                 )
                 if result:
                     return Decimal(str(result.get("pnl", 0)))
+            else:
+                logger.error(
+                    "battle %s: could not resolve exact position from perp_order_id=%s — "
+                    "falling back to oracle-price PnL estimate (no position was closed)",
+                    battle_id,
+                    perp_order_id,
+                )
         except Exception as e:
             logger.error("battle %s: perps close failed: %s", battle_id, e)
 

@@ -254,15 +254,20 @@ async def perps_amount_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data["perps_amount"] = amount
 
         # Fetch the per-market max leverage from HyperLiquid's meta so the
-        # button grid reflects the real exchange cap.
+        # button grid reflects the real exchange cap. Use the same fallback
+        # constant that execution enforces (perps_service.FALLBACK_MAX_LEVERAGE)
+        # so a meta outage can never offer a leverage button the order path
+        # will then reject.
         market = context.user_data.get("perps_market", "ETH-USD")
         asset = market.split("-")[0] if "-" in market else market
         try:
             from bot.services.hyperliquid_client import hyperliquid_client as _hl_client
 
-            market_max_lev = await _hl_client.get_market_max_leverage(asset, 100)
+            market_max_lev = await _hl_client.get_market_max_leverage(
+                asset, perps_service.FALLBACK_MAX_LEVERAGE
+            )
         except Exception:
-            market_max_lev = 100
+            market_max_lev = perps_service.FALLBACK_MAX_LEVERAGE
 
         # Build leverage options that span from conservative to the market maximum.
         # Include fixed steps and the market max so users always see the ceiling.

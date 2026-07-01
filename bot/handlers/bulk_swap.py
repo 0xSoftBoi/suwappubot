@@ -661,11 +661,20 @@ async def _fetch_quotes_and_confirm(update: Update, ctx: ContextTypes.DEFAULT_TY
         leg["_fee_usd"] = fee_usd
         total_fee_usd += fee_usd
 
-    # USD outflow for spending-limit check
+    # USD outflow for spending-limit check.
+    # FIX P2: compute the total from quoted_legs only — legs whose quote
+    # failed are skipped at execution time (never actually sent), so
+    # including them here would inflate the 2FA/spending-limit total and
+    # could either wrongly trigger 2FA/limit rejection or (if the failed
+    # leg later gets skipped) misrepresent the real USD amount actually
+    # moved for auditing purposes.
     total_usd: Optional[float] = None
     try:
         amounts_usd = await asyncio.gather(
-            *[spending_limit_service.usd_value(leg["from_token"], leg["amount"]) for leg in legs],
+            *[
+                spending_limit_service.usd_value(leg["from_token"], leg["amount"])
+                for leg, _quote in quoted_legs
+            ],
             return_exceptions=True,
         )
         usd_vals = [v for v in amounts_usd if isinstance(v, (int, float)) and v > 0]
@@ -1021,10 +1030,23 @@ async def _run_bulk_swap(edit, ctx: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 async def bulk_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancel the bulk-swap flow."""
+    """Cancel the bulk-swap flow.
+
+    FIX P2: this is registered as BOTH a CallbackQueryHandler fallback (the
+    "Cancel" button) AND a CommandHandler("cancel") fallback — /cancel
+    arrives as a message update with no callback_query, so the previous
+    unconditional query.answer() crashed with AttributeError on None.
+    """
     query = update.callback_query
-    await query.answer("Bulk swap cancelled.")
     ctx.user_data.pop("bulk_swap", None)
+
+    if query is None:
+        # Arrived via /cancel (message update), not a callback button tap.
+        if update.message:
+            await update.message.reply_text("Bulk swap cancelled.")
+        return ConversationHandler.END
+
+    await query.answer("Bulk swap cancelled.")
 
     from bot.handlers.start import main_menu_callback
 

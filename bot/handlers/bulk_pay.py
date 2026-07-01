@@ -109,6 +109,13 @@ MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11"  # kept for re
 _GAS_PER_NATIVE_TRANSFER = 21_000  # standard ETH transfer
 _GAS_BUFFER_FACTOR = Decimal("1.2")  # 20% buffer on gas cost estimate
 
+# Conservative per-tx gas estimate for ERC-20 transfer() calls, used only for
+# the balance precheck (the real tx uses w3.eth.estimate_gas with its own
+# 1.2x buffer / 80_000 fallback — see _build_erc20_transfer_tx).  This is
+# intentionally generous so the precheck doesn't under-count and let a batch
+# pass confirmation only to run out of native gas mid-execution.
+_GAS_PER_ERC20_TRANSFER = 80_000
+
 # 2FA validity window (seconds) — mirrors bulk_swap.py
 TWOFA_VALID_SECONDS = 300
 
@@ -514,6 +521,26 @@ async def _execute_tron_sequential(
 # ---------------------------------------------------------------------------
 
 
+def _estimate_native_gas_reserve(
+    chain, chain_name: str, gas_per_tx: int, n_recipients: int
+) -> Decimal:
+    """Return an estimated native-token gas reserve (in native units) for
+    n_recipients transactions, with a 20% buffer.  Returns 0 if estimation
+    fails (best-effort only — the on-chain send will still fail naturally
+    if funds are truly insufficient)."""
+    try:
+        w3 = rpc_manager.get_web3(chain_name)
+        from bot.config.chains import apply_min_gas_price
+
+        gas_price_wei = apply_min_gas_price(chain.name, w3.eth.gas_price)
+        gas_cost_wei = gas_price_wei * gas_per_tx * n_recipients
+        gas_cost_wei = int(gas_cost_wei * _GAS_BUFFER_FACTOR)
+        return Decimal(gas_cost_wei) / Decimal(10**chain.native_decimals)
+    except Exception as exc:
+        logger.warning("bulk_pay: gas estimation failed, using 0 buffer: %s", exc)
+        return Decimal(0)
+
+
 async def _check_evm_balance(
     wallet_address: str,
     chain_name: str,
@@ -526,6 +553,12 @@ async def _check_evm_balance(
     For native sends, the required total includes an estimated gas reserve:
       gas_cost = gas_price * GAS_PER_TRANSFER * n_recipients * 1.2 buffer
     converted from wei to native units.
+
+    FIX P2: ERC-20 sends also require native-token gas (the token balance
+    alone is not sufficient to execute the batch) — the precheck now also
+    verifies the wallet holds enough native balance to cover estimated gas
+    for all ERC-20 transfer txs, mirroring the native-path gas buffer, so a
+    batch cannot pass confirmation only to fail at execution for lack of gas.
     """
     chain = get_chain_by_name(chain_name)
     if chain is None:
@@ -537,19 +570,9 @@ async def _check_evm_balance(
         balance = await wallet_service.get_evm_native_balance(chain_name, wallet_address)
         bal = Decimal(str(balance))
 
-        # Gas buffer: estimate gas cost for all transfers
-        try:
-            w3 = rpc_manager.get_web3(chain_name)
-            from bot.config.chains import apply_min_gas_price
-
-            gas_price_wei = apply_min_gas_price(chain.name, w3.eth.gas_price)
-            gas_cost_wei = gas_price_wei * _GAS_PER_NATIVE_TRANSFER * n_recipients
-            # Apply 20% buffer
-            gas_cost_wei = int(gas_cost_wei * Decimal("1.2"))
-            gas_cost_native = Decimal(gas_cost_wei) / Decimal(10**chain.native_decimals)
-        except Exception as exc:
-            logger.warning("bulk_pay: gas estimation failed, using 0 buffer: %s", exc)
-            gas_cost_native = Decimal(0)
+        gas_cost_native = _estimate_native_gas_reserve(
+            chain, chain_name, _GAS_PER_NATIVE_TRANSFER, n_recipients
+        )
 
         total_required = total_needed + gas_cost_native
         if bal < total_required:
@@ -563,6 +586,19 @@ async def _check_evm_balance(
         bal = Decimal(str(balance))
         if bal < total_needed:
             return False, f"Insufficient {token}: have {bal:.6f}, need {total_needed:.6f}"
+
+        # FIX P2: also verify native gas funds for the ERC-20 batch.
+        gas_cost_native = _estimate_native_gas_reserve(
+            chain, chain_name, _GAS_PER_ERC20_TRANSFER, n_recipients
+        )
+        if gas_cost_native > 0:
+            native_balance = await wallet_service.get_evm_native_balance(chain_name, wallet_address)
+            native_bal = Decimal(str(native_balance))
+            if native_bal < gas_cost_native:
+                return False, (
+                    f"Insufficient {chain.native_token} for gas: have {native_bal:.6f}, "
+                    f"need ~{gas_cost_native:.6f} to send {token} to {n_recipients} recipient(s)"
+                )
         return True, ""
 
 
@@ -1101,12 +1137,21 @@ async def _run_bulk_pay(
         await edit(f"Bulk payment encountered an unexpected error: {str(exc)[:200]}")
         return ConversationHandler.END
 
-    # Merge pending results back into all_recipients for the report
+    # Merge pending results back into all_recipients for the report.
     # (already-ok ones from a prior run keep their status)
-    pending_by_addr = {r.address: r for r in pending}
+    #
+    # FIX P1: key the merge by POSITION (index into all_recipients), not by
+    # address.  Keying by address collapses duplicate recipient addresses —
+    # if two lines in the batch send to the same address, an address-keyed
+    # dict would only retain one Recipient object and both would be reported
+    # (and re-attempted on retry) with the same status, corrupting per-line
+    # success/failure tracking.  `pending` preserves the relative order of
+    # the entries it was given (all non-"ok" entries from all_recipients, in
+    # order), so we can walk both lists in lockstep by position.
+    pending_iter = iter(pending)
     for r in all_recipients:
-        if r.address in pending_by_addr:
-            updated = pending_by_addr[r.address]
+        if r.status != "ok":
+            updated = next(pending_iter)
             r.status = updated.status
             r.tx_hash = updated.tx_hash
             r.error = updated.error

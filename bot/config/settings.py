@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from pydantic import Field, ConfigDict
+from pydantic import Field, ConfigDict, field_validator
 from typing import ClassVar, Dict, Optional, List
 from functools import lru_cache
 import random
@@ -1118,6 +1118,23 @@ class Settings(BaseSettings):
             "treasury -> user on WIN/VOID at settlement."
         ),
     )
+
+    @field_validator("battle_treasury_user_id")
+    @classmethod
+    def _validate_battle_treasury_user_id(cls, v: int) -> int:
+        """Enforce the negative-sentinel invariant documented above.
+
+        A misconfigured non-negative BATTLE_TREASURY_USER_ID could collide with
+        a real auto-increment users.id row, letting battle treasury debits/
+        credits silently corrupt an actual user's CustodialBalance. Fail fast
+        at settings load rather than at first battle open.
+        """
+        if v >= 0:
+            raise ValueError(
+                f"BATTLE_TREASURY_USER_ID must be negative (got {v}). "
+                "A non-negative value can collide with a real users.id row."
+            )
+        return v
 
     model_config = ConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"

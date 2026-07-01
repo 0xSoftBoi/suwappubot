@@ -240,10 +240,15 @@ class PerpsService:
             logger.debug("perps_trade award skipped (open): %s", e)
 
         # Referral perps commission — best-effort, never blocks position open.
+        # MONEY-PATH: only credit when a builder fee was actually attached to this
+        # order (builder_address is truthy only if ensure_builder_approved()
+        # succeeded above). _perps_fee_usd() alone just recomputes a theoretical
+        # fee from config — it says nothing about whether HL actually accepted a
+        # builder fee on this specific order, so it must not gate the credit alone.
         try:
             notional_usd = float(size) * float(entry_price or 0)
             builder_fee_usd = self._perps_fee_usd(notional_usd)
-            if builder_fee_usd and builder_fee_usd > 0 and order_db_id:
+            if builder_address and builder_fee_usd and builder_fee_usd > 0 and order_db_id:
                 from bot.services.referral_service import referral_service
 
                 referral_service.credit_perps_commission(
@@ -477,10 +482,12 @@ class PerpsService:
             logger.debug("perps_trade award skipped (close): %s", e)
 
         # Referral perps commission on close — best-effort, never blocks close.
+        # MONEY-PATH: same guard as open — only credit when builder_address was
+        # actually attached to the close order (see builder_fee_tenths_bps= above).
         try:
             close_notional_usd = float(close_size) * float(close_price or 0)
             builder_fee_usd = self._perps_fee_usd(close_notional_usd)
-            if builder_fee_usd and builder_fee_usd > 0 and close_order_db_id:
+            if builder_address and builder_fee_usd and builder_fee_usd > 0 and close_order_db_id:
                 from bot.services.referral_service import referral_service
 
                 referral_service.credit_perps_commission(

@@ -92,7 +92,7 @@ async def tip_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await message.reply_text(f"Who do you want to tip?\n\n{_USAGE}")
         return
 
-    if amount is None or amount <= 0:
+    if amount is None or not amount.is_finite() or amount <= 0:
         await message.reply_text(f"Please specify a valid amount.\n\n{_USAGE}")
         return
 
@@ -104,10 +104,18 @@ async def tip_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await message.reply_text("You cannot tip yourself.")
         return
 
-    recipient_telegram_id: int | None = reply_user.id if reply_user else None
-    recipient_username: str | None = username or (
-        f"@{reply_user.username}" if reply_user and reply_user.username else None
-    )
+    # FIX P1: an explicit @username argument always takes priority over the
+    # reply target — otherwise replying to message A while tipping @B (an
+    # explicit, deliberate recipient) would silently redirect funds to A.
+    # Only fall back to the reply target when no username arg was given.
+    if username:
+        recipient_telegram_id = None
+        recipient_username = username
+    else:
+        recipient_telegram_id = reply_user.id if reply_user else None
+        recipient_username = (
+            f"@{reply_user.username}" if reply_user and reply_user.username else None
+        )
 
     chat_id = str(message.chat.id) if message else "0"
 

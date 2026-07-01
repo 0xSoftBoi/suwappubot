@@ -7,11 +7,13 @@ and returns immediately.  No funds are moved, no orders are placed.
 
 Money-path contract (enforced by the service layer):
   - Custodial balance is ONLY debited after bitrefill_client.create_order() returns
-    a confirmed GiftCardOrder (status "payment_received" or "complete").
-  - Any GiftCardUnavailableError or unexpected exception in the confirm step triggers
-    _refund_hold(), which restores the user's balance in full.
-  - The debit + order creation happen in a single try/except block so a partial
-    failure leaves the user no worse off.
+    AND order.status is in _CONFIRMED_ORDER_STATUSES ("payment_received" or
+    "complete") — "pending"/"cancelled"/"refunded" orders are reported to the
+    user with no balance change.
+  - Any GiftCardUnavailableError or unexpected exception AFTER a successful debit
+    triggers _refund_hold(), which restores the user's balance in full.
+  - The status gate + debit + order creation happen in a single try/except block
+    so a partial failure leaves the user no worse off.
 
 MONEY-PATH: The purchase confirmation path (_gift_confirm_callback) is tagged here
 for the money-path-reviewer Opus pass that must run before this scaffold is activated.
@@ -51,6 +53,16 @@ logger = logging.getLogger(__name__)
 # Conversation states
 # ---------------------------------------------------------------------------
 GIFT_BRAND, GIFT_VALUE, GIFT_CONFIRM = range(3)
+
+# ---------------------------------------------------------------------------
+# Provider order-status gate
+# ---------------------------------------------------------------------------
+
+# Only these order statuses represent a confirmed, paid/complete provider
+# order.  Debit must never happen for "pending" (payment not yet settled on
+# Bitrefill's side) or "cancelled"/"refunded" orders — those must be treated
+# as "no funds moved" from the user's perspective.
+_CONFIRMED_ORDER_STATUSES = {"payment_received", "complete"}
 
 # ---------------------------------------------------------------------------
 # UI constants
@@ -281,8 +293,17 @@ async def gift_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
     """User confirmed the purchase.
 
     MONEY-PATH: This callback is the only place real funds move.
-    Debit only occurs AFTER the provider returns a confirmed order.
-    Any exception triggers _refund_hold().
+    Debit only occurs AFTER the provider returns an order AND that order's
+    status is a confirmed paid/complete state (_CONFIRMED_ORDER_STATUSES) —
+    never for "pending" or "cancelled"/"refunded" orders.  Order creation and
+    the debit are coupled inside the same try/except: if the debit itself
+    raises after a confirmed order was created, the exception handler below
+    calls _refund_hold() — but since `debited` is only set True once the
+    debit call returns successfully, that reconciliation path is a no-op
+    safety net, not the primary correctness guarantee. The primary guarantee
+    is ordering: no debit is even attempted unless order.status is confirmed.
+    Any exception AFTER a successful debit triggers _refund_hold() so the
+    user is never charged without a confirmed order in hand.
 
     This path is currently unreachable because is_giftcard_enabled() returns
     False (no BITREFILL_API_KEY).  The structure is correct for when
@@ -338,7 +359,34 @@ async def gift_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
             payment_method="usdc",
         )
 
-        # --- Step 3: debit only after provider confirms the order ---
+        # --- Step 3: gate the debit on a CONFIRMED order status ---
+        # FIX P1/P2: create_order() returning without raising is NOT itself
+        # proof of a paid/complete order — Bitrefill can return status
+        # "pending" (payment not yet settled) or "cancelled"/"refunded".
+        # Debiting on any successful return (the previous behaviour) could
+        # charge the user for an order that was never actually paid/fulfilled
+        # by the provider.  Only debit for statuses in
+        # _CONFIRMED_ORDER_STATUSES; anything else is treated as "no funds
+        # moved" and reported to the user without touching their balance.
+        if order.status not in _CONFIRMED_ORDER_STATUSES:
+            logger.warning(
+                "[giftcard] order_id=%s user_id=%s returned unconfirmed status=%s — "
+                "no debit applied",
+                order.order_id,
+                db_user.id,
+                order.status,
+            )
+            await query.edit_message_text(
+                f"Order could not be confirmed by the provider (status: {order.status}). "
+                "No funds were taken. Please try again or contact support with "
+                f"order ID `{order.order_id}`.",
+                parse_mode="Markdown",
+                reply_markup=_cancel_keyboard(),
+            )
+            context.user_data.clear()
+            return ConversationHandler.END
+
+        # --- Step 4: debit only after provider confirms the order ---
         # MONEY-PATH: debit happens here, after a confirmed order object is in hand.
         hot_wallet_service.update_custodial_balance(
             user_id=db_user.id,
@@ -350,11 +398,12 @@ async def gift_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
         debited = True
 
         logger.info(
-            "[giftcard] order created: order_id=%s user_id=%s product=%s value=%.2f",
+            "[giftcard] order created: order_id=%s user_id=%s product=%s value=%.2f status=%s",
             order.order_id,
             db_user.id,
             product_id,
             value,
+            order.status,
         )
 
     except GiftCardUnavailableError as exc:
@@ -382,7 +431,7 @@ async def gift_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return ConversationHandler.END
 
-    # --- Step 4: show result ---
+    # --- Step 5: show result ---
     if order.redemption_code:
         # Immediate fulfillment (rare; most cards are async).
         text = (

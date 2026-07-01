@@ -42,6 +42,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import ROUND_DOWN, Decimal
 from typing import Optional, Tuple
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -70,6 +71,14 @@ DEFAULT_TOKEN = "USDC"
 # Lucky-box lifetime
 LUCKY_BOX_TTL_SECONDS = 24 * 60 * 60  # 24 hours
 
+# Username-only pending-tip fallback: only auto-claim tips created within this
+# window.  Telegram handles can be recycled after an account is deleted/renamed;
+# bounding the fallback to a short recency window limits (does not eliminate)
+# the blast radius of a recycled @handle claiming a stale tip meant for the
+# original holder.  Tips older than this are left pending/unclaimed rather
+# than silently auto-claimed by username match alone.
+USERNAME_FALLBACK_MAX_AGE_SECONDS = 7 * 24 * 60 * 60  # 7 days
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -85,9 +94,14 @@ def _get_db_user_by_telegram_id(session: Session, telegram_id: int) -> Optional[
 
 
 def _get_db_user_by_username(session: Session, username: str) -> Optional[User]:
-    """Look up a user by @username (case-insensitive, strips leading @)."""
+    """Look up a user by @username (case-insensitive, strips leading @).
+
+    Uses exact case-insensitive equality rather than ILIKE — a raw ILIKE on
+    unescaped input lets '%'/'_' act as SQL wildcards, which could match
+    unintended usernames.  Username lookups should always be exact matches.
+    """
     uname = username.lstrip("@").lower()
-    return session.query(User).filter(User.username.ilike(uname)).first()
+    return session.query(User).filter(func.lower(User.username) == uname).first()
 
 
 def _adjust_balance_in_session(
@@ -289,9 +303,25 @@ def claim_pending_tips(*, recipient_telegram_id: int, recipient_username: str) -
         # NOTE: These tips are vulnerable to Telegram username recycling; a new
         # account that later acquires the same @handle can claim them.  Tips sent
         # to a resolvable telegram_id always take the id-bound path above.
+        # RESIDUAL RISK GUARD: bounded to tips created within
+        # USERNAME_FALLBACK_MAX_AGE_SECONDS.  This does not fully eliminate the
+        # recycling risk (a handle could be recycled within the window) but
+        # caps exposure — stale username-only tips are left pending/unclaimed
+        # rather than auto-claimed indefinitely by username match alone.
         if uname:
+            # Tip.created_at is stored tz-naive (default=datetime.utcnow); compare
+            # against a naive UTC cutoff to match the column's storage format.
+            cutoff = (_now_utc() - timedelta(seconds=USERNAME_FALLBACK_MAX_AGE_SECONDS)).replace(
+                tzinfo=None
+            )
             username_tips = (
-                session.query(Tip).filter(Tip.status == "pending", Tip.recipient_id.is_(None)).all()
+                session.query(Tip)
+                .filter(
+                    Tip.status == "pending",
+                    Tip.recipient_id.is_(None),
+                    Tip.created_at >= cutoff,
+                )
+                .all()
             )
             to_claim += [
                 (tip.id, tip.chain, tip.token, Decimal(str(tip.amount)))
@@ -449,9 +479,15 @@ def claim_lucky_box(
 
         # ── 3. Compute payout ────────────────────────────────────────────────
         if box.split_mode == "even":
-            payout = (Decimal(str(box.total_amount)) / box.total_count).quantize(
-                _MIN_SLOT, rounding=ROUND_DOWN
-            )
+            if slots_left == 1:
+                # Last slot gets the exact remainder so rounding dust from
+                # (total/count).quantize(ROUND_DOWN) on prior claims is never
+                # permanently stranded in the box.
+                payout = remaining
+            else:
+                payout = (Decimal(str(box.total_amount)) / box.total_count).quantize(
+                    _MIN_SLOT, rounding=ROUND_DOWN
+                )
         else:
             if slots_left == 1:
                 payout = remaining
@@ -584,7 +620,12 @@ def create_split_bill(
     """Create a SplitBill and one SplitBillShare per debtor.
 
     The creator is NOT automatically a debtor.  Each debtor's share is
-    total_amount / n_debtors, rounded down to _MIN_SLOT precision.
+    total_amount / n_resolved_debtors, rounded down to _MIN_SLOT precision.
+
+    Unresolved usernames/telegram_ids (no matching Suwappu account) are
+    rejected up front rather than silently dropped — this ensures the sum of
+    shares always equals the intended total_amount / n_debtors and unresolved
+    handles never silently reduce the amount collected from the resolved set.
     """
     if total_amount <= 0:
         return False, "Amount must be greater than 0.", None
@@ -595,14 +636,48 @@ def create_split_bill(
     if n_debtors > 50:
         return False, "Too many debtors (max 50).", None
 
-    share_amount = (total_amount / n_debtors).quantize(_MIN_SLOT, rounding=ROUND_DOWN)
-    if share_amount <= 0:
-        return False, "Share amount rounds to zero — increase total amount.", None
-
     with get_session() as session:
         creator = _get_db_user_by_telegram_id(session, creator_telegram_id)
         if not creator:
             return False, "You must /start first.", None
+
+        # ── Resolve all debtors FIRST, before computing the per-share amount.
+        # Share amount is computed only over the resolved set so it always
+        # sums back to total_amount (rounding dust aside) — unresolved
+        # usernames must be rejected, never silently excluded post-hoc.
+        resolved: dict[int, int] = {}  # debtor_db_id -> 1 (dedup, preserves order via insertion)
+        unresolved: list[str] = []
+
+        for tg_id in debtor_telegram_ids:
+            debtor = _get_db_user_by_telegram_id(session, tg_id)
+            if debtor:
+                resolved[debtor.id] = 1
+            else:
+                unresolved.append(str(tg_id))
+
+        for uname in debtor_usernames:
+            debtor = _get_db_user_by_username(session, uname)
+            if debtor:
+                resolved[debtor.id] = 1
+            else:
+                unresolved.append(uname if uname.startswith("@") else f"@{uname}")
+
+        if unresolved:
+            return (
+                False,
+                "These debtors don't have a Suwappu account yet, so the bill "
+                "cannot be split accurately: " + ", ".join(unresolved) + ". "
+                "Ask them to /start the bot first, then create the split again.",
+                None,
+            )
+
+        if not resolved:
+            return False, "None of the specified debtors have a Suwappu account.", None
+
+        n_resolved = len(resolved)
+        share_amount = (total_amount / n_resolved).quantize(_MIN_SLOT, rounding=ROUND_DOWN)
+        if share_amount <= 0:
+            return False, "Share amount rounds to zero — increase total amount.", None
 
         bill = SplitBill(
             creator_id=creator.id,
@@ -617,43 +692,21 @@ def create_split_bill(
         session.flush()
         bill_id = bill.id
 
-        seen_debtor_ids: set[int] = set()
-
-        for tg_id in debtor_telegram_ids:
-            debtor = _get_db_user_by_telegram_id(session, tg_id)
-            if debtor and debtor.id not in seen_debtor_ids:
-                seen_debtor_ids.add(debtor.id)
-                session.add(
-                    SplitBillShare(
-                        split_bill_id=bill_id,
-                        debtor_id=debtor.id,
-                        amount=share_amount,
-                        status="pending",
-                    )
+        for debtor_id in resolved:
+            session.add(
+                SplitBillShare(
+                    split_bill_id=bill_id,
+                    debtor_id=debtor_id,
+                    amount=share_amount,
+                    status="pending",
                 )
-
-        for uname in debtor_usernames:
-            debtor = _get_db_user_by_username(session, uname)
-            if debtor and debtor.id not in seen_debtor_ids:
-                seen_debtor_ids.add(debtor.id)
-                session.add(
-                    SplitBillShare(
-                        split_bill_id=bill_id,
-                        debtor_id=debtor.id,
-                        amount=share_amount,
-                        status="pending",
-                    )
-                )
-
-        if not seen_debtor_ids:
-            session.rollback()
-            return False, "None of the specified debtors have a Suwappu account.", None
+            )
 
         session.flush()
 
     return (
         True,
-        f"Bill split created ({len(seen_debtor_ids)} debtors, {share_amount} {token} each).",
+        f"Bill split created ({n_resolved} debtors, {share_amount} {token} each).",
         bill_id,
     )
 

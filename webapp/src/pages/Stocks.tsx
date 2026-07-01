@@ -159,8 +159,8 @@ export function Stocks() {
             <div className="bg-suwappu-sakura-light/30 rounded-suwappu-lg p-3">
               <p className="text-xs text-suwappu-text-secondary">
                 xStocks are tokenized representations of equities on Solana. Tapping Trade opens the Swap
-                page with the stock token pre-selected. Confidence reflects oracle price data quality.
-                Prices may deviate from US market prices outside trading hours.
+                page where you can select or paste the stock token to trade. Confidence reflects oracle
+                price data quality. Prices may deviate from US market prices outside trading hours.
               </p>
             </div>
           </>

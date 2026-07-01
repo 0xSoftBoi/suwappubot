@@ -205,7 +205,12 @@ export function Battle() {
               />
               {stakeUsd && parseFloat(stakeUsd) > 0 && (
                 <p className="text-[10px] text-suwappu-text-secondary mt-1">
-                  Win: +{formatUsd(parseFloat(stakeUsd) * multiplier)} &nbsp;·&nbsp;
+                  {backing === 'prediction' ? (
+                    <>Win: +{formatUsd(parseFloat(stakeUsd) * (multiplier - 1))} profit</>
+                  ) : (
+                    <>Win: profit depends on price move (up to ~{formatUsd(parseFloat(stakeUsd) * (multiplier - 1))})</>
+                  )}
+                  &nbsp;·&nbsp;
                   Lose: -{formatUsd(parseFloat(stakeUsd))}
                 </p>
               )}

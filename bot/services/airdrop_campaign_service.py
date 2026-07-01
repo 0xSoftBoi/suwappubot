@@ -362,7 +362,15 @@ class AirdropCampaignService:
                 if expires.tzinfo is None:
                     expires = expires.replace(tzinfo=timezone.utc)
                 if datetime.now(timezone.utc) >= expires:
+                    # FIX P1: session.commit() here persists the status flip
+                    # before we raise — otherwise get_session()'s except-block
+                    # rollback (triggered by the raise propagating out of this
+                    # `with` block) would silently discard the write and the
+                    # campaign would stay 'active' forever, re-running this
+                    # same expiry check (and failing to persist it) on every
+                    # future claim attempt.
                     campaign.status = "expired"
+                    session.commit()
                     raise CampaignNotActiveError("Campaign has expired")
 
             # Prevent self-farming: creator cannot claim their own airdrop
@@ -376,7 +384,10 @@ class AirdropCampaignService:
             remaining = Decimal(str(campaign.remaining_amount))
 
             if remaining < per_user:
+                # FIX P1: same rationale — commit the 'exhausted' status
+                # transition before raising so it actually sticks.
                 campaign.status = "exhausted"
+                session.commit()
                 raise CampaignExhaustedError(
                     f"Remaining {remaining} < {per_user}; campaign is exhausted"
                 )
@@ -393,7 +404,9 @@ class AirdropCampaignService:
                             .count()
                         )
                         if current_count >= int(max_claimants):
+                            # FIX P1: commit before raising (see above).
                             campaign.status = "exhausted"
+                            session.commit()
                             raise CampaignExhaustedError(f"Max claimants ({max_claimants}) reached")
                 except (ValueError, KeyError):
                     pass

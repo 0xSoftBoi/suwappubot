@@ -163,6 +163,13 @@ XSTOCKS_BLOCKED_REGION_NAMES = "US, UK, Canada, or Australia"
 # the full registry dict.  Case-sensitive: Solana addresses are case-sensitive.
 XSTOCKS_MINTS: frozenset[str] = frozenset(e["solana_mint"] for e in XSTOCKS.values())
 
+# Case-insensitive lookup map: fully-uppercased ticker -> canonical registry key.
+# Registry keys carry a lowercase 'x' suffix (e.g. "AAPLx"), so a naive
+# ``ticker.upper()`` lookup against XSTOCKS (e.g. "AAPLX") never matches.
+# This map normalizes any input casing ("aaplx", "AAPLX", "AAPLx", ...) to the
+# correct canonical key.
+_XSTOCKS_LOOKUP: dict[str, str] = {key.upper(): key for key in XSTOCKS}
+
 
 def is_xstock_mint(address: str) -> bool:
     """Return True when ``address`` is a known xStock SPL Token-2022 mint.
@@ -174,13 +181,41 @@ def is_xstock_mint(address: str) -> bool:
 
 
 def get_xstock(ticker: str) -> XStockEntry | None:
-    """Return the registry entry for a ticker, or None if not found."""
-    return XSTOCKS.get(ticker.upper())
+    """Return the registry entry for a ticker, or None if not found.
+
+    Case-insensitive: "aaplx", "AAPLX", and "AAPLx" all resolve to the same
+    entry. Registry keys use a lowercase 'x' suffix internally, so lookups
+    go through ``_XSTOCKS_LOOKUP`` (built from an uppercased key map) rather
+    than re-casing the input and indexing XSTOCKS directly.
+    """
+    canonical_key = _XSTOCKS_LOOKUP.get(ticker.upper())
+    if canonical_key is None:
+        return None
+    return XSTOCKS.get(canonical_key)
 
 
-def get_all_xstocks() -> list[XStockEntry]:
-    """Return all xStocks entries, high-confidence first."""
-    return sorted(XSTOCKS.values(), key=lambda e: (e["confidence"] != "high", e["ticker"]))
+def get_all_xstocks(include_medium_confidence: bool = False) -> list[XStockEntry]:
+    """Return xStocks entries that are safe to surface as tradable.
+
+    SAFE DEFAULT: only 'high' confidence entries are returned. 9 of 14 mints
+    in the registry are 'medium' confidence (sourced from the Solana.com
+    canonical case-study list, explicitly flagged "re-validate against
+    Jupiter's token list before expanding the registry further" — see module
+    docstring). Surfacing an unverified mint as tradable risks a user
+    swapping into the wrong token entirely (fund loss), so discovery/trading
+    surfaces (this is the function used by /stocks and the webapp xStocks
+    endpoint) must not list medium-confidence entries until re-validated.
+
+    Pass ``include_medium_confidence=True`` only for internal/admin tooling
+    that explicitly needs to audit the full registry — never for a
+    user-facing trade/discovery surface.
+    """
+    entries = (
+        XSTOCKS.values()
+        if include_medium_confidence
+        else (e for e in XSTOCKS.values() if e["confidence"] == "high")
+    )
+    return sorted(entries, key=lambda e: (e["confidence"] != "high", e["ticker"]))
 
 
 # ---------------------------------------------------------------------------
