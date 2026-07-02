@@ -7,6 +7,7 @@
 * [Overview](quickstart/README.md)
 * [Your First Swap](quickstart/first-swap.md)
 * [SDK Examples](quickstart/sdk-examples.md)
+* [MCP Client Setup](quickstart/mcp-clients.md)
 
 ## Authentication
 
@@ -43,6 +44,12 @@
 * [MCP Protocol](protocols/mcp.md)
 * [Agent Card](protocols/agent-card.md)
 * [OpenAPI Spec](protocols/openapi.md)
+
+## Billing
+
+* [Overview](billing/README.md)
+* [Agentic Payments (x402)](billing/agentic-payments.md)
+* [Pricing](billing/pricing.md)
 
 ## Chains Reference
 
