@@ -20,7 +20,7 @@ Obtain a token by registering at `POST /v1/agent/register`.
 
 ## Protocol
 
-All requests and responses follow JSON-RPC 2.0, using MCP protocol version `2024-11-05`.
+All requests and responses follow JSON-RPC 2.0. The server negotiates `protocolVersion` on `initialize`: if your client requests a version we support (`2024-11-05`, `2025-03-26`, or `2025-06-18`), we echo it back; otherwise we respond with our latest supported version (`2025-06-18`). We're a simple JSON-RPC server with no version-gated tool/resource behavior, so negotiation is limited to the handshake.
 
 ## Handshake: Initialize
 
@@ -33,7 +33,9 @@ Before calling any tools, initialize the MCP session:
   "jsonrpc": "2.0",
   "id": 1,
   "method": "initialize",
-  "params": {}
+  "params": {
+    "protocolVersion": "2025-06-18"
+  }
 }
 ```
 
@@ -44,7 +46,7 @@ Before calling any tools, initialize the MCP session:
   "jsonrpc": "2.0",
   "id": 1,
   "result": {
-    "protocolVersion": "2024-11-05",
+    "protocolVersion": "2025-06-18",
     "capabilities": {
       "tools": {}
     },
@@ -55,6 +57,8 @@ Before calling any tools, initialize the MCP session:
   }
 }
 ```
+
+If `params.protocolVersion` is omitted or is a version we don't recognize, `result.protocolVersion` will be our latest supported version (`2025-06-18`) rather than an echo.
 
 ## Discover Tools: tools/list
 
@@ -88,7 +92,7 @@ Every `tools/call` is metered in prepaid credits (1 credit ≈ $0.001 USD). Agen
 | `list_tokens` | List available tokens on a chain | `chain`, `search` | 0 (free) |
 | `execute_swap` | Execute a swap using a previously obtained `quote_id`; returns an unsigned transaction to sign | `quote_id`, `wallet_address` | 5 |
 | `get_tempo_tokens` | TIP-20 token list on Tempo mainnet (chain 4217) — USD-denominated stablecoins | `search` | 0 (free) |
-| `browse_mpp_directory` | Browse the Micropayment Protocol (MPP) service directory | `category`, `limit` | 0 (free) |
+| `browse_mpp_directory` | Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) service directory | `category`, `limit` | 0 (free) |
 | `predict_markets` | Search and browse Polymarket prediction markets with live prices/volumes | `query`, `limit` | 1 |
 | `predict_market` | Detailed market info with live CLOB midpoint prices per outcome (alias: `predict_market_detail`) | `market_id` | 1 |
 | `perps_markets` | List HyperLiquid perpetual futures markets (mark price, funding rate, max leverage) | — | 1 |
@@ -275,7 +279,7 @@ Get the TIP-20 token list on Tempo mainnet (chain ID 4217). Includes USD-denomin
 
 ### 8. browse_mpp_directory
 
-Browse the Micropayment Protocol (MPP) service directory. Discover available services and their payment requirements.
+Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) service directory. Discover available services and their payment requirements. (This is a different protocol from Suwappu's own pathUSD micropayment auth used elsewhere in the API — see [Agentic Payments](../billing/agentic-payments.md).)
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -496,6 +500,15 @@ If you're building an agent programmatically instead of using an interactive cli
 ```bash
 npm install @suwappu/openclaw
 ```
+
+## MCP Registry Listing
+
+Suwappu publishes a manifest (`packages/openclaw/server.json`) to the official
+[MCP registry](https://registry.modelcontextprotocol.io) under the
+domain-verified namespace `bot.suwappu/mcp`, so MCP-aware clients that browse
+the registry (rather than being hand-configured) can discover the remote
+endpoint above. See the publishing steps and DNS-verification note in
+[`packages/openclaw/README.md`](../../packages/openclaw/README.md#publishing-to-the-mcp-registry).
 
 ## Claude Desktop Configuration
 

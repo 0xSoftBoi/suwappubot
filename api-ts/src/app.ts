@@ -4,6 +4,7 @@ import { HTTPException } from 'hono/http-exception'
 import { logger as honoLogger } from 'hono/logger'
 import { logger } from './lib/logger'
 import agentCard from '../agent-card.json'
+import aiCatalog from '../ai-catalog.json'
 import { adminKeyAuth, createCorsMiddleware } from './middleware'
 import { internalAuth } from './middleware/internalAuth'
 import {
@@ -128,6 +129,11 @@ export function createApp(config: AppConfig) {
 	app.get('/.well-known/agent-card.json', (c) => c.json(agentCard))
 	app.get('/.well-known/agent.json', (c) => c.json(agentCard))
 	app.get('/agent-card.json', (c) => c.json(agentCard))
+
+	// Agentic Resource Discovery (ARD v0.9 draft) catalog — a single manifest
+	// listing all agent-facing discovery surfaces (A2A card, MCP server, OpenAPI,
+	// llms.txt) so ARD-aware crawlers don't have to guess well-known paths.
+	app.get('/.well-known/ai-catalog.json', (c) => c.json(aiCatalog))
 
 	// security.txt — RFC 9116 responsible-disclosure contact (procurement/security
 	// teams check for this during vendor evaluation). Refresh `Expires` annually.

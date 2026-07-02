@@ -32,6 +32,26 @@ const mcpRoutes = new Hono<McpContext>()
 mcpRoutes.use('*', agentBearerAuth())
 
 // ---------------------------------------------------------------
+// Protocol version negotiation (MCP spec: lifecycle / initialize)
+//
+// We are a simple JSON-RPC 2.0 server — none of our tools/resources/prompts
+// behavior is gated on protocolVersion, so negotiation is limited to the
+// initialize handshake. Per spec: if the client's requested version is one
+// we support, echo it back; otherwise respond with our latest supported
+// version (the client may then decide whether to proceed or disconnect).
+// Do NOT bump this to unreleased/RC spec revisions.
+// ---------------------------------------------------------------
+const SUPPORTED_MCP_VERSIONS = ['2024-11-05', '2025-03-26', '2025-06-18'] as const
+const LATEST_MCP_VERSION = SUPPORTED_MCP_VERSIONS[SUPPORTED_MCP_VERSIONS.length - 1]
+
+function negotiateProtocolVersion(requested: unknown): string {
+	if (typeof requested === 'string' && (SUPPORTED_MCP_VERSIONS as readonly string[]).includes(requested)) {
+		return requested
+	}
+	return LATEST_MCP_VERSION
+}
+
+// ---------------------------------------------------------------
 // Tool definitions (MCP tool schema)
 // ---------------------------------------------------------------
 
@@ -117,7 +137,7 @@ const TOOLS = [
 	},
 	{
 		name: 'browse_mpp_directory',
-		description: 'Browse the MPP (Micropayment Protocol) service directory to discover available services and their payment requirements.',
+		description: 'Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) service directory to discover available services and their payment requirements. Unrelated to Suwappu\'s own pathUSD micropayment auth.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -836,7 +856,7 @@ mcpRoutes.post('/', async (c) => {
 	switch (req.method) {
 		case 'initialize':
 			return c.json(rpcOk(req.id, {
-				protocolVersion: '2024-11-05',
+				protocolVersion: negotiateProtocolVersion((req.params || {}).protocolVersion),
 				capabilities: { tools: {}, resources: {}, prompts: {} },
 				serverInfo: { name: 'suwappu', version: '0.6.0' },
 			}), 200)
@@ -969,3 +989,5 @@ mcpRoutes.post('/', async (c) => {
 export { mcpRoutes }
 // Exported for unit testing the static MCP surface (tools/resources/prompts).
 export { TOOLS_WITH_ANNOTATIONS, RESOURCES, PROMPTS, readResource }
+// Exported for unit testing protocol version negotiation.
+export { SUPPORTED_MCP_VERSIONS, LATEST_MCP_VERSION, negotiateProtocolVersion }
