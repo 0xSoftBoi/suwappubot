@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
+import FaqAccordion from '@/components/FaqAccordion';
 import { TELEGRAM_URL, ENTERPRISE_CONTACT_PATH } from '@/lib/links';
 
 export const metadata: Metadata = {
@@ -162,6 +163,18 @@ const faqs = [
   {
     q: 'How do referrals work?',
     a: 'Refer a friend with /ref and earn 30% of the trading fees they generate — paid out automatically, on every chain, for as long as they trade.',
+  },
+  {
+    q: "What's a credit, for the Agent API?",
+    a: 'Credits are the Agent API’s prepaid unit — 1 credit ≈ $0.001. Reads (quotes, prices, portfolio, chains, tokens) cost 1 credit each; a swap execution costs 5 credits. Top up your balance with USDC on Base whenever it runs low, independent of any subscription tier.',
+  },
+  {
+    q: 'x402 pay-per-call vs a subscription — which should my agent use?',
+    a: 'x402 is the zero-setup path: pay per request over HTTP 402 with no signup and no API key, ideal for one-off or low-volume calls. A subscription (Pro/Premium/Enterprise) is worth it once your agent is calling often enough that a higher rate limit and a lower swap fee outweigh a flat monthly cost. Both share the same auth, wallets, and execution engine, so you can start on x402 and add a subscription later without changing integration code.',
+  },
+  {
+    q: 'What are the Agent API rate limits?',
+    a: 'Free and unauthenticated default keys get 30–100 requests/min; Pro and Premium raise that to 500 req/min; Enterprise gets 1,000 req/min by default (higher on request). See the Agent API table above for the full breakdown by tier.',
   },
 ];
 
@@ -362,14 +375,7 @@ export default function PricingPage() {
 
         <section className="mkt-faq" aria-label="Frequently asked questions">
           <h2 className="mkt-h2">Pricing FAQ</h2>
-          <div className="mkt-faq__list">
-            {faqs.map((f) => (
-              <div className="mkt-faq__item" key={f.q}>
-                <h3>{f.q}</h3>
-                <p>{f.a}</p>
-              </div>
-            ))}
-          </div>
+          <FaqAccordion items={faqs} />
         </section>
 
         <section className="mkt-cta">
