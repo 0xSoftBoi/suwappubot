@@ -6025,3 +6025,115 @@ button:focus:not(:focus-visible) {
     padding: 10px 14px;
   }
 }
+
+/* ================================================================
+   /agents — "get started" step cards + FAQ accordion
+   ================================================================ */
+
+.agent-steps {
+  margin-top: 80px;
+}
+
+.agent-steps .mkt-h2 {
+  margin-top: 0.4rem;
+}
+
+.agent-steps .agents-connect {
+  margin-top: 1.75rem;
+}
+
+.agent-steps .agents-connect__item {
+  position: relative;
+  padding-top: 44px;
+}
+
+.agent-steps__num {
+  position: absolute;
+  top: -16px;
+  left: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--suwappu-summer-accent) 0%, var(--suwappu-summer-accent-deep, #0e769e) 100%);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  font-weight: 800;
+  box-shadow: 0 8px 18px rgba(14, 118, 158, 0.28);
+}
+
+.agent-payments__note {
+  margin-top: 20px;
+  font-style: normal;
+}
+
+.agent-payments__note a {
+  color: #3c8ca1;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* FAQ accordion — premium expand/collapse, summer theme tokens */
+.faq-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.faq-accordion__item {
+  border: 1px solid var(--summer-line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.faq-accordion__item--open {
+  border-color: rgba(14, 118, 158, 0.32);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 14px 28px rgba(33, 88, 110, 0.08);
+}
+
+.faq-accordion__title {
+  margin: 0;
+}
+
+.faq-accordion__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 18px 20px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--summer-ink);
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+
+.faq-accordion__chevron {
+  flex-shrink: 0;
+  color: var(--summer-muted);
+}
+
+.faq-accordion__item--open .faq-accordion__chevron {
+  color: var(--suwappu-summer-accent-deep, #0e769e);
+}
+
+.faq-accordion__content {
+  overflow: hidden;
+}
+
+.faq-accordion__answer {
+  margin: 0;
+  padding: 0 20px 20px;
+  color: var(--summer-muted);
+  font-size: 0.94rem;
+  line-height: 1.65;
+}

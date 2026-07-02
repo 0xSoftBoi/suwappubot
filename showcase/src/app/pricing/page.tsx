@@ -165,6 +165,35 @@ const faqs = [
   },
 ];
 
+// ── Agent API pricing (MONEY-PATH: mirrors api-ts credit/tier config) ──
+const creditCosts: { action: string; credits: string; usd: string }[] = [
+  { action: 'Reads — quote, prices, portfolio, chains, tokens', credits: '1 credit', usd: '≈ $0.001' },
+  { action: 'Swaps — execute', credits: '5 credits', usd: '≈ $0.005' },
+];
+
+const agentTiers: { tier: string; rateLimit: string; swapFee: string }[] = [
+  { tier: 'Free', rateLimit: '30 req/min', swapFee: '1.0%' },
+  { tier: 'Agent (default key)', rateLimit: '100 req/min', swapFee: '1.0%' },
+  { tier: 'Pro — $9.99/mo', rateLimit: '500 req/min', swapFee: '0.5%' },
+  { tier: 'Premium — $29.99/mo', rateLimit: '500 req/min', swapFee: '0.3%' },
+  { tier: 'Enterprise — $99.99/mo', rateLimit: '1,000 req/min', swapFee: '0.1%' },
+];
+
+const agentPaymentModes = [
+  {
+    title: 'x402 pay-per-call',
+    body: 'Pay per request over HTTP 402 — no signup, no API key, no subscription. Fund a wallet and call the endpoint; you’re charged for exactly what you use.',
+  },
+  {
+    title: 'Prepaid credits',
+    body: '1 credit ≈ $0.001. Reads cost 1 credit, swaps cost 5 credits. Top up your balance with USDC on Base whenever it runs low.',
+  },
+  {
+    title: 'Subscription tiers',
+    body: 'Crypto or Stripe fiat checkout for Pro, Premium, or Enterprise — 30-day prepaid and stackable. Each tier raises your rate limit and lowers your swap fee.',
+  },
+];
+
 export default function PricingPage() {
   return (
     <main id="main-content" className="summer-page docs-shell">
@@ -252,6 +281,83 @@ export default function PricingPage() {
               </div>
             ))}
           </div>
+        </section>
+
+        <section className="compare" id="agent-api" aria-label="Agent API pricing">
+          <p className="summer-kicker">Agent API</p>
+          <h2 className="compare__title">Three ways for an agent to pay.</h2>
+          <p className="mkt-hero__lead" style={{ margin: '0 0 1.5rem', textAlign: 'left' }}>
+            No human sign-up required. Register at{' '}
+            <code>POST /v1/agent/register</code> and start on pay-per-call, or add credits or a
+            subscription when your agent needs a higher rate limit.
+          </p>
+
+          <div className="security-grid">
+            {agentPaymentModes.map((p) => (
+              <article className="security-card" key={p.title}>
+                <h2>{p.title}</h2>
+                <p>{p.body}</p>
+              </article>
+            ))}
+          </div>
+
+          <h3 className="compare__title" style={{ marginTop: '2.25rem', fontSize: '1.15rem' }}>
+            Credit costs
+          </h3>
+          <div className="compare__scroll" role="region" aria-label="Credit costs table" tabIndex={0}>
+            <table className="compare-table">
+              <caption className="sr-only">Prepaid credit cost per Agent API call type.</caption>
+              <thead>
+                <tr>
+                  <th scope="col" className="compare-table__rowhead">Call type</th>
+                  <th scope="col" className="compare-table__colhead">Credits</th>
+                  <th scope="col" className="compare-table__colhead">≈ USD</th>
+                </tr>
+              </thead>
+              <tbody>
+                {creditCosts.map((row) => (
+                  <tr key={row.action}>
+                    <th scope="row" className="compare-table__rowhead">{row.action}</th>
+                    <td className="compare-cell">{row.credits}</td>
+                    <td className="compare-cell">{row.usd}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <h3 className="compare__title" style={{ marginTop: '2.25rem', fontSize: '1.15rem' }}>
+            Rate limits &amp; swap fee by tier
+          </h3>
+          <div className="compare__scroll" role="region" aria-label="Agent API tier table" tabIndex={0}>
+            <table className="compare-table">
+              <caption className="sr-only">Rate limit and swap fee for each Agent API tier.</caption>
+              <thead>
+                <tr>
+                  <th scope="col" className="compare-table__rowhead">Tier</th>
+                  <th scope="col" className="compare-table__colhead">Rate limit</th>
+                  <th scope="col" className="compare-table__colhead">Swap fee</th>
+                </tr>
+              </thead>
+              <tbody>
+                {agentTiers.map((row) => (
+                  <tr key={row.tier}>
+                    <th scope="row" className="compare-table__rowhead">{row.tier}</th>
+                    <td className="compare-cell">{row.rateLimit}</td>
+                    <td className="compare-cell">{row.swapFee}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="compare__note">
+            Subscriptions are 30-day prepaid and stackable, and work as crypto payment or Stripe
+            fiat checkout. Full endpoint list at{' '}
+            <a href="https://api.suwappu.bot/v1/agent/openapi" target="_blank" rel="noopener noreferrer">
+              the OpenAPI spec
+            </a>{' '}
+            or the <a href="/agents">Agents page</a>.
+          </p>
         </section>
 
         <section className="mkt-faq" aria-label="Frequently asked questions">
