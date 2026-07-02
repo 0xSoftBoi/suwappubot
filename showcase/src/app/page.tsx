@@ -390,7 +390,7 @@ export default async function Home() {
               <div className="summer-tempo__tags">
                 <span>Type 0x76 fee-payer</span>
                 <span>~$0.001 per swap</span>
-                <span>Machine Payments (/mpp)</span>
+                <span>Micropayments (/mpp)</span>
               </div>
             </div>
             <div className="summer-tempo__rail" aria-hidden="true">

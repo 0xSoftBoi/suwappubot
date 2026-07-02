@@ -27,7 +27,7 @@ const entries: Entry[] = [
     points: [
       'New users get their first swaps sponsored via Tempo fee-payer (type 0x76) transactions — about $0.001 on TIP-20 stablecoins.',
       'Graceful fallback to a normal user-paid swap when sponsorship is unavailable.',
-      'Machine Payments Protocol (MPP) endpoints for micropayments on Tempo.',
+      'Suwappu Micropayments (pathUSD) endpoints for pay-per-call on Tempo.',
     ],
   },
   {
