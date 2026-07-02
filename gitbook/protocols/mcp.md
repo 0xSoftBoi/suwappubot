@@ -90,6 +90,7 @@ Every `tools/call` is metered in prepaid credits (1 credit ≈ $0.001 USD). Agen
 | `get_prices` | Current USD prices with 24h change for up to 20 symbols | `symbols` | 1 |
 | `list_chains` | List all supported blockchain networks. No parameters. | — | 0 (free) |
 | `list_tokens` | List available tokens on a chain | `chain`, `search` | 0 (free) |
+| `simulate_swap` | Dry-run a swap with zero funds moved — pre-flight checks (balance, allowance, gas, `eth_call` revert preview, slippage) plus `would_execute` verdict | same as `get_quote`, plus optional `quote_id` | 1 |
 | `execute_swap` | Execute a swap using a previously obtained `quote_id`; returns an unsigned transaction to sign | `quote_id`, `wallet_address` | 5 |
 | `get_tempo_tokens` | TIP-20 token list on Tempo mainnet (chain 4217) — USD-denominated stablecoins | `search` | 0 (free) |
 | `browse_mpp_directory` | Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) service directory | `category`, `limit` | 0 (free) |

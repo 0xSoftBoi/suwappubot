@@ -24,6 +24,7 @@
 * [GET /prices](api-reference/prices.md)
 * [GET /portfolio](api-reference/portfolio.md)
 * [POST /quote](api-reference/quote.md)
+* [POST /swap/simulate](api-reference/simulate.md)
 * [POST /swap](api-reference/swap.md)
 * [POST /swap/execute](api-reference/swap-execute.md)
 * [GET /swap/status/:id](api-reference/swap-status.md)
