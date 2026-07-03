@@ -15,13 +15,14 @@ import { isStarknet } from '../config/chains'
 import { PolymarketService } from '../services/PolymarketService'
 import { HyperliquidService } from '../services/HyperliquidService'
 import { MorphoService } from '../services/MorphoService'
-import { PerpsQuoteSchema } from './validators'
+import { PerpsQuoteSchema, SimulateSwapSchema } from './validators'
 import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
 import { agentBearerAuth } from '../middleware'
 import { chargeAgentForCall, costForTool, setX402Headers } from '../middleware/x402Payment'
 import { EnvService } from '../config/EnvService'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
+import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import openApiSpec from '../../openapi-agent.json'
 import type { Agent } from '../db'
@@ -30,6 +31,26 @@ type McpContext = { Variables: { agent: Agent } }
 
 const mcpRoutes = new Hono<McpContext>()
 mcpRoutes.use('*', agentBearerAuth())
+
+// ---------------------------------------------------------------
+// Protocol version negotiation (MCP spec: lifecycle / initialize)
+//
+// We are a simple JSON-RPC 2.0 server — none of our tools/resources/prompts
+// behavior is gated on protocolVersion, so negotiation is limited to the
+// initialize handshake. Per spec: if the client's requested version is one
+// we support, echo it back; otherwise respond with our latest supported
+// version (the client may then decide whether to proceed or disconnect).
+// Do NOT bump this to unreleased/RC spec revisions.
+// ---------------------------------------------------------------
+const SUPPORTED_MCP_VERSIONS = ['2024-11-05', '2025-03-26', '2025-06-18'] as const
+const LATEST_MCP_VERSION = SUPPORTED_MCP_VERSIONS[SUPPORTED_MCP_VERSIONS.length - 1]
+
+function negotiateProtocolVersion(requested: unknown): string {
+	if (typeof requested === 'string' && (SUPPORTED_MCP_VERSIONS as readonly string[]).includes(requested)) {
+		return requested
+	}
+	return LATEST_MCP_VERSION
+}
 
 // ---------------------------------------------------------------
 // Tool definitions (MCP tool schema)
@@ -106,6 +127,24 @@ const TOOLS = [
 		},
 	},
 	{
+		name: 'simulate_swap',
+		description: 'Dry-run a swap with zero funds moved. Fetches (or reuses a quote_id from get_quote) and returns expected output, price impact, and safety checks (balance, ERC-20 allowance, gas affordability, eth_call revert simulation, slippage sanity) — never signs or broadcasts anything.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				quote_id: { type: 'string', description: 'Quote ID from a previous get_quote call (optional — if omitted, from_token/to_token/amount are required)' },
+				from_token: { type: 'string', description: 'Source token symbol (e.g. ETH, SOL, USDC)' },
+				to_token: { type: 'string', description: 'Destination token symbol' },
+				amount: { type: 'string', description: 'Amount to swap in human units (e.g. "0.5")' },
+				chain: { type: 'string', description: 'Chain name (ethereum, base, arbitrum, polygon, bsc, optimism, avalanche, solana). Defaults to ethereum.' },
+				from_chain: { type: 'string', description: 'Source chain for cross-chain swaps (optional)' },
+				to_chain: { type: 'string', description: 'Destination chain for cross-chain swaps (optional)' },
+				wallet_address: { type: 'string', description: 'Wallet address to run balance/allowance/gas/eth_call checks against. Strongly recommended — without it those checks are skipped.' },
+				slippage: { type: 'number', description: 'Slippage tolerance as decimal (0.03 = 3%). Default 0.03' },
+			},
+		},
+	},
+	{
 		name: 'get_tempo_tokens',
 		description: 'Get TIP-20 token list on Tempo mainnet (chain ID 4217) with addresses, decimals, and TIP-20 metadata (currency code, isTip20 flag). Tempo uses USD-denominated stablecoins: pathUSD, AlphaUSD, BetaUSD, ThetaUSD.',
 		inputSchema: {
@@ -117,7 +156,7 @@ const TOOLS = [
 	},
 	{
 		name: 'browse_mpp_directory',
-		description: 'Browse the MPP (Micropayment Protocol) service directory to discover available services and their payment requirements.',
+		description: 'Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) service directory to discover available services and their payment requirements. Unrelated to Suwappu\'s own pathUSD micropayment auth.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -229,6 +268,8 @@ const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
 	// on its own. The user signs and submits. Not read-only because it consumes a
 	// one-time cached quote.
 	execute_swap: { title: 'Prepare Swap Transaction', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+	// Never signs or broadcasts — strictly reads (quote + on-chain balance/allowance/eth_call).
+	simulate_swap: { title: 'Simulate Swap (Dry Run)', readOnlyHint: true, idempotentHint: false, openWorldHint: true },
 	get_tempo_tokens: { title: 'Get Tempo (TIP-20) Tokens', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 	browse_mpp_directory: { title: 'Browse MPP Service Directory', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	predict_markets: { title: 'Search Prediction Markets', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
@@ -715,6 +756,153 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent) {
 	}) }] }
 }
 
+// Dry-run a swap: fetch/reuse a quote and return a safety report WITHOUT
+// signing or broadcasting anything. Shares the exact report-building logic
+// (buildEvmSimulationReport / buildSolanaSimulationReport) with
+// POST /v1/agent/swap/simulate in routes/agent.ts so the two surfaces can
+// never drift. MONEY-PATH: reads live balances/quotes next to execution tools.
+async function handleSimulateSwap(args: Record<string, unknown>, agent: Agent) {
+	const parsed = SimulateSwapSchema.safeParse(args)
+	if (!parsed.success) {
+		return {
+			isError: true,
+			content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join('; ')}` }],
+		}
+	}
+	const { quote_id, from_token, to_token, amount, chain, from_chain, to_chain, wallet_address, slippage } = parsed.data
+
+	// --- Case 1: simulate a previously fetched quote ---
+	if (quote_id) {
+		const cached = getCachedQuote(quote_id)
+		if (!cached || (cached.agentId !== undefined && cached.agentId !== agent.id)) {
+			return { isError: true, content: [{ type: 'text', text: 'Quote expired or not found. Get a new quote first, or pass from_token/to_token/amount.' }] }
+		}
+
+		if (cached.isSolana) {
+			const quote = cached.quote as { inputMint: string; outputMint: string; inAmount: string; outAmount: string; otherAmountThreshold: string; priceImpactPct?: string; platformFee?: { amount: string } | null }
+			const report = await buildSolanaSimulationReport({
+				quoteId: quote_id, fromAddress: wallet_address,
+				inputMint: quote.inputMint, outputMint: quote.outputMint,
+				fromAmount: quote.inAmount, toAmount: quote.outAmount, toAmountMin: quote.otherAmountThreshold,
+				priceImpactPct: quote.priceImpactPct ? parseFloat(quote.priceImpactPct) : null,
+				platformFeeAmount: quote.platformFee?.amount,
+			})
+			return { content: [{ type: 'text', text: JSON.stringify(report) }] }
+		}
+
+		const quote = cached.quote
+		const report = await buildEvmSimulationReport({
+			quoteId: quote_id, fromAddress: wallet_address,
+			fromTokenSymbol: quote.fromToken.symbol, fromTokenAddress: quote.fromToken.address,
+			toTokenSymbol: quote.toToken.symbol, chainId: quote.transactionRequest.chainId,
+			fromAmount: quote.fromAmount, toAmount: quote.toAmount, toAmountMin: quote.toAmountMin,
+			toAmountUsd: quote.toAmountUsd,
+			priceImpactPct: Number.isFinite(parseFloat(quote.priceImpact)) ? parseFloat(quote.priceImpact) : null,
+			approvalAddress: quote._rawQuote?.estimate?.approvalAddress,
+			gasEstimateUsd: quote.estimatedGasUsd, bridgeFeeUsd: quote.bridgeFeeUsd,
+			tx: wallet_address
+				? { to: quote.transactionRequest.to, data: quote.transactionRequest.data, value: quote.transactionRequest.value, from: wallet_address }
+				: undefined,
+		})
+		return { content: [{ type: 'text', text: JSON.stringify(report) }] }
+	}
+
+	// --- Case 2: fetch a fresh quote, then simulate it ---
+	if (!from_token || !to_token || !amount) {
+		return { isError: true, content: [{ type: 'text', text: 'Provide quote_id, or from_token + to_token + amount' }] }
+	}
+
+	const chainKey = from_chain || chain || 'ethereum'
+	if (isStarknet(chainKey) || (to_chain && isStarknet(to_chain))) {
+		return { isError: true, content: [{ type: 'text', text: 'Starknet transactions are handled by the bot backend' }] }
+	}
+
+	if (isSolanaChain(chainKey)) {
+		const result = await runEffectEither(
+			Effect.gen(function* () {
+				const jupiterService = yield* JupiterService
+				const fromInfo = jupiterService.resolveToken(from_token)
+				if (!fromInfo) return yield* Effect.fail(new ValidationError({ message: `Token not found on Solana: ${from_token}` }))
+				const toInfo = jupiterService.resolveToken(to_token)
+				if (!toInfo) return yield* Effect.fail(new ValidationError({ message: `Token not found on Solana: ${to_token}` }))
+
+				const amountNum = parseFloat(amount)
+				if (isNaN(amountNum) || amountNum <= 0) return yield* Effect.fail(new ValidationError({ message: 'Invalid amount' }))
+				const lamports = BigInt(Math.floor(amountNum * Math.pow(10, fromInfo.decimals))).toString()
+
+				const quote = yield* jupiterService.getQuote({
+					inputMint: fromInfo.address, outputMint: toInfo.address,
+					amount: lamports, slippageBps: slippage ? Math.floor(slippage * 10000) : 300,
+				}).pipe(Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))))
+
+				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+				cacheAgentQuote(quoteId, quote, agent.id, true)
+				return { quoteId, quote }
+			})
+		)
+		if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: result.left.message }] }
+
+		const { quoteId, quote } = result.right
+		const report = await buildSolanaSimulationReport({
+			quoteId, fromAddress: wallet_address,
+			inputMint: quote.inputMint, outputMint: quote.outputMint,
+			fromAmount: quote.inAmount, toAmount: quote.outAmount, toAmountMin: quote.otherAmountThreshold,
+			priceImpactPct: quote.priceImpactPct ? parseFloat(quote.priceImpactPct) : null,
+			platformFeeAmount: quote.platformFee?.amount,
+		})
+		return { content: [{ type: 'text', text: JSON.stringify(report) }] }
+	}
+
+	// EVM
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const tokenService = yield* TokenService
+			const swapService = yield* SwapService
+			const src = from_chain || chain || 'ethereum'
+			const dst = to_chain || chain || 'ethereum'
+			const srcInfo = tokenService.resolveChain(src)
+			if (!srcInfo) return yield* Effect.fail(new ValidationError({ message: `Unknown chain: ${src}` }))
+			const dstInfo = tokenService.resolveChain(dst)
+			if (!dstInfo) return yield* Effect.fail(new ValidationError({ message: `Unknown chain: ${dst}` }))
+			const fromInfo = yield* tokenService.resolveToken(from_token, srcInfo.id)
+			if (!fromInfo) return yield* Effect.fail(new ValidationError({ message: `Token not found: ${from_token} on ${srcInfo.name}` }))
+			const toInfo = yield* tokenService.resolveToken(to_token, dstInfo.id)
+			if (!toInfo) return yield* Effect.fail(new ValidationError({ message: `Token not found: ${to_token} on ${dstInfo.name}` }))
+
+			const amountNum = parseFloat(amount)
+			if (isNaN(amountNum) || amountNum <= 0) return yield* Effect.fail(new ValidationError({ message: 'Invalid amount' }))
+			const wei = BigInt(Math.floor(amountNum * Math.pow(10, fromInfo.decimals))).toString()
+
+			const quote = yield* swapService.getQuote({
+				fromChain: srcInfo.id, toChain: dstInfo.id,
+				fromToken: fromInfo.address, toToken: toInfo.address,
+				fromAmount: wei, fromAddress: wallet_address || '0x0000000000000000000000000000000000000001',
+				slippage: slippage || 0.03, order: 'RECOMMENDED', integrator: 'suwappu-openclaw',
+			} as QuoteParams).pipe(Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))))
+
+			cacheAgentQuote(quote.quoteId, quote, agent.id, false)
+			return quote
+		})
+	)
+	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: result.left.message }] }
+
+	const quote = result.right
+	const report = await buildEvmSimulationReport({
+		quoteId: quote.quoteId, fromAddress: wallet_address,
+		fromTokenSymbol: quote.fromToken.symbol, fromTokenAddress: quote.fromToken.address,
+		toTokenSymbol: quote.toToken.symbol, chainId: quote.transactionRequest.chainId,
+		fromAmount: quote.fromAmount, toAmount: quote.toAmount, toAmountMin: quote.toAmountMin,
+		toAmountUsd: quote.toAmountUsd,
+		priceImpactPct: Number.isFinite(parseFloat(quote.priceImpact)) ? parseFloat(quote.priceImpact) : null,
+		approvalAddress: quote._rawQuote?.estimate?.approvalAddress,
+		gasEstimateUsd: quote.estimatedGasUsd, bridgeFeeUsd: quote.bridgeFeeUsd,
+		tx: wallet_address
+			? { to: quote.transactionRequest.to, data: quote.transactionRequest.data, value: quote.transactionRequest.value, from: wallet_address }
+			: undefined,
+	})
+	return { content: [{ type: 'text', text: JSON.stringify(report) }] }
+}
+
 // ---------------------------------------------------------------
 // Resources (MCP resources/list + resources/read)
 //
@@ -836,7 +1024,7 @@ mcpRoutes.post('/', async (c) => {
 	switch (req.method) {
 		case 'initialize':
 			return c.json(rpcOk(req.id, {
-				protocolVersion: '2024-11-05',
+				protocolVersion: negotiateProtocolVersion((req.params || {}).protocolVersion),
 				capabilities: { tools: {}, resources: {}, prompts: {} },
 				serverInfo: { name: 'suwappu', version: '0.6.0' },
 			}), 200)
@@ -921,6 +1109,9 @@ mcpRoutes.post('/', async (c) => {
 				case 'execute_swap':
 					result = await handleExecuteSwap(args || {}, agent)
 					break
+				case 'simulate_swap':
+					result = await handleSimulateSwap(args || {}, agent)
+					break
 				case 'get_tempo_tokens':
 					result = handleGetTempoTokens(args || {})
 					break
@@ -969,3 +1160,5 @@ mcpRoutes.post('/', async (c) => {
 export { mcpRoutes }
 // Exported for unit testing the static MCP surface (tools/resources/prompts).
 export { TOOLS_WITH_ANNOTATIONS, RESOURCES, PROMPTS, readResource }
+// Exported for unit testing protocol version negotiation.
+export { SUPPORTED_MCP_VERSIONS, LATEST_MCP_VERSION, negotiateProtocolVersion }

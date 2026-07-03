@@ -138,6 +138,37 @@ bun test            # run the unit tests (mocked fetch)
 bun run build       # emit dist/ for publishing
 ```
 
+## Publishing to the MCP Registry
+
+[`server.json`](./server.json) is a manifest for the official
+[MCP registry](https://registry.modelcontextprotocol.io) ([spec/schema](https://github.com/modelcontextprotocol/registry)).
+It declares the `bot.suwappu/mcp` server under the domain-verified `bot.suwappu`
+namespace (reverse-DNS for `suwappu.bot`), our remote endpoint
+(`https://api.suwappu.bot/mcp`, bearer-auth required), and the `@suwappu/mcp-server`
+npm package as an alternate stdio transport.
+
+To (re-)publish after editing `server.json`:
+
+1. **Install the publisher CLI** — see the
+   [`mcp-publisher` install instructions](https://github.com/modelcontextprotocol/registry)
+   in the registry repo (Go install or prebuilt binary).
+2. **Prove domain ownership of `suwappu.bot`** (one-time, or whenever the
+   verification key rotates): the registry issues a challenge that must be
+   published as a DNS `TXT` record on `suwappu.bot` (e.g.
+   `_mcp-registry-challenge.suwappu.bot` or similar — the exact record name
+   comes from the CLI/registry response). **This step requires access to the
+   `suwappu.bot` DNS zone and must be done by a human with registrar access**
+   — an agent cannot complete it unattended.
+3. **Authenticate**: `mcp-publisher login dns --domain bot.suwappu` (or the
+   registry's current auth flow for domain namespaces) once the TXT record is
+   live and has propagated.
+4. **Publish**: `mcp-publisher publish ./server.json` from this directory.
+5. **Verify**: `curl https://registry.modelcontextprotocol.io/v0/servers?search=suwappu`
+   should return the `bot.suwappu/mcp` entry.
+
+Bump `version` in `server.json` (and keep it in sync with the npm package
+version) before re-publishing.
+
 ## License
 
 MIT

@@ -7,7 +7,7 @@ import styles from './contact.module.css';
 export const metadata: Metadata = {
   title: 'Talk to the team — Suwappu',
   description:
-    'Enterprise execution for desks and agent fleets — lowest swap fee, dedicated rate limits, and priority support. Tell us what you’re building and our team will follow up fast.',
+    'Enterprise execution for desks and agent fleets — 0.1% swap fee, dedicated rate limits, and priority support. Tell us what you’re building and our team will follow up fast.',
 };
 
 const trust = [
@@ -27,7 +27,7 @@ export default function ContactPage() {
           <p className="summer-kicker">Enterprise</p>
           <h1>Talk to the team.</h1>
           <p className="mkt-hero__lead">
-            For trading desks, OTC desks, funds, and teams building agent fleets — the lowest swap
+            For trading desks, OTC desks, funds, and teams building agent fleets — a 0.1% swap
             fee, dedicated rate limits, and priority support. Tell us what you&rsquo;re building and
             we&rsquo;ll get back to you fast.
           </p>

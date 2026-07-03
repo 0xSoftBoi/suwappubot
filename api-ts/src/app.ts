@@ -4,6 +4,7 @@ import { HTTPException } from 'hono/http-exception'
 import { logger as honoLogger } from 'hono/logger'
 import { logger } from './lib/logger'
 import agentCard from '../agent-card.json'
+import aiCatalog from '../ai-catalog.json'
 import { adminKeyAuth, createCorsMiddleware } from './middleware'
 import { internalAuth } from './middleware/internalAuth'
 import {
@@ -129,6 +130,11 @@ export function createApp(config: AppConfig) {
 	app.get('/.well-known/agent.json', (c) => c.json(agentCard))
 	app.get('/agent-card.json', (c) => c.json(agentCard))
 
+	// Agentic Resource Discovery (ARD v0.9 draft) catalog — a single manifest
+	// listing all agent-facing discovery surfaces (A2A card, MCP server, OpenAPI,
+	// llms.txt) so ARD-aware crawlers don't have to guess well-known paths.
+	app.get('/.well-known/ai-catalog.json', (c) => c.json(aiCatalog))
+
 	// security.txt — RFC 9116 responsible-disclosure contact (procurement/security
 	// teams check for this during vendor evaluation). Refresh `Expires` annually.
 	app.get('/.well-known/security.txt', (c) => {
@@ -238,11 +244,109 @@ Paid endpoints and MCP tools are metered in prepaid credits (1 credit ≈ $0.001
 - Human users: Stripe checkout (GET /billing/stripe/checkout?tier=) or crypto (POST /billing/crypto).
 
 ## SDK
-npm: @suwappu/sdk | PyPI: suwappu
+npm: @suwappu/sdk | PyPI: suwappu | OpenClaw skill: @suwappu/openclaw
 MCP Server: hosted at POST https://api.suwappu.bot/mcp (no install — point your MCP client at the URL with a Bearer key)
+Full endpoint list: GET https://api.suwappu.bot/llms-full.txt
 
 ## Docs
-https://docs.suwappu.bot
+https://suwappu.bot/docs
+- Quick Start: https://suwappu.bot/docs/quick-start/overview
+- Authentication & Rate Limits: https://suwappu.bot/docs/authentication/overview
+- API Reference: https://suwappu.bot/docs/api-reference/overview
+- Protocols (REST/MCP/A2A): https://suwappu.bot/docs/protocols/overview
+- MCP Client Setup: https://suwappu.bot/docs/quick-start/mcp-clients
+- Billing & Pricing: https://suwappu.bot/docs/billing/pricing
+- Agentic Payments (x402): https://suwappu.bot/docs/billing/agentic-payments
+`)
+	})
+
+	// llms-full.txt — exhaustive machine-readable endpoint list (llms.txt convention
+	// "full" variant). One line per REST route across the whole agent-facing surface,
+	// for agents that want the complete map without following links.
+	app.get('/llms-full.txt', (c) => {
+		return c.text(`# Suwappu API — Full Reference
+
+> Every REST endpoint on the Suwappu agent surface, one line each. See /llms.txt for the short version, GET /v1/agent/openapi for the full OpenAPI 3.1 spec, and https://suwappu.bot/docs for prose docs.
+
+## Auth
+Bearer token via \`Authorization: Bearer suwappu_sk_...\`. Get one from POST /v1/agent/register (public, no auth).
+
+## Agent Account (/v1/agent)
+- POST /v1/agent/register — Register agent, get API key (public, IP rate-limited 5/min)
+- GET /v1/agent/chains — List supported chains (public)
+- GET /v1/agent/me — Get agent profile
+- PATCH /v1/agent/me — Update agent profile (name, callback_url, etc.)
+- DELETE /v1/agent/me — Permanently delete agent
+- POST /v1/agent/me/deactivate — Deactivate agent (reversible)
+- POST /v1/agent/reactivate — Reactivate a deactivated agent
+- POST /v1/agent/keys/rotate — Rotate API key (old key invalidated immediately)
+- GET /v1/agent/openapi — OpenAPI 3.1 spec (public)
+- GET /v1/agent/postman — Postman collection generated from the OpenAPI spec (public)
+
+## Tokens, Prices, Portfolio
+- GET /v1/agent/tokens?chain= — List tokens on a chain
+- GET /v1/agent/prices?symbols= — USD prices + 24h change for up to 20 symbols
+- GET /v1/agent/portfolio?wallet_address= — Wallet balances across chains (own managed wallet only)
+
+## Swaps
+- POST /v1/agent/quote — Get a swap quote (returns quote_id, valid 60s)
+- POST /v1/agent/swap — Build an unsigned transaction from a quote (self-custody signing)
+- POST /v1/agent/swap/execute — Execute a quoted swap via managed wallet (server-signed)
+- GET /v1/agent/swap/status/:swapId — Poll swap status
+- GET /v1/agent/swaps — List past swaps (paginated, filterable by status)
+- POST /v1/agent/execute — Natural-language trade command (e.g. "swap 0.5 ETH to USDC on Base")
+
+## Managed Wallets
+- GET /v1/agent/wallets — List managed (Turnkey) wallets
+- POST /v1/agent/wallets — Create a managed wallet
+- POST /v1/agent/wallet/policy — Attach a spending-limit / address-whitelist policy
+- GET /v1/agent/wallet/policies — List wallet policies
+- DELETE /v1/agent/wallet/policy/:policyId — Remove a wallet policy
+
+## Webhooks
+- GET /v1/agent/webhooks — List webhook delivery events
+- POST /v1/agent/webhooks/test — Send a test webhook to callback_url
+
+## Billing (x402 + credits + subscriptions)
+- GET /v1/agent/billing — Credit balance, tier, cost weights, subscription status
+- POST /v1/agent/billing/topup — Credit balance from an on-chain USDC payment {txHash, chain, amount}
+- POST /v1/agent/billing/subscribe — Prepaid 30-day access window {txHash, chain, amount, tier}
+- POST /v1/agent/billing/recurring — Register a Base Spend Permission for true auto-renew {tier, signature, permission}
+- GET /billing/stripe/checkout?tier= — Stripe checkout session (human users, Telegram-authed)
+- POST /billing/crypto — Crypto-native subscription for human users (Telegram-authed)
+
+## Perpetual Futures — HyperLiquid (/v1/agent/perps)
+- GET /v1/agent/perps/markets — List perp markets (mark price, funding, max leverage)
+- POST /v1/agent/perps/quote — Quote a leveraged long/short position
+- GET /v1/agent/perps/positions?address= — Open positions for a wallet
+
+## Prediction Markets — Polymarket (/v1/agent/predict)
+- GET /v1/agent/predict/markets — Search prediction markets
+- GET /v1/agent/predict/events — Browse market events/categories
+- GET /v1/agent/predict/market/:id — Market detail with live CLOB prices
+- GET /v1/agent/predict/market/:id/book — Order book for a market
+- GET /v1/agent/predict/market/:id/price — Live midpoint price
+- GET /v1/agent/predict/market/:id/trades — Recent trades
+- POST /v1/agent/predict/order — Place a CLOB order
+- DELETE /v1/agent/predict/order/:id — Cancel an order
+- GET /v1/agent/predict/positions — Positions with PnL
+- GET /v1/agent/predict/orders — Open orders
+
+## Lending — Morpho (/v1/agent/lend)
+- GET /v1/agent/lend/markets?chainId= — List lending markets (APY, LLTV, TVL)
+- GET /v1/agent/lend/market/:id — Market detail
+
+## Protocols
+- MCP: POST https://api.suwappu.bot/mcp — JSON-RPC 2.0, 15 tools: get_quote, execute_swap, get_portfolio, get_prices, list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory, predict_markets, predict_market, perps_markets, perps_quote, perps_positions, lend_markets, lend_market
+- A2A: POST https://api.suwappu.bot/a2a — JSON-RPC 2.0, methods: message/send, tasks/get, tasks/cancel
+- Agent Card: GET https://api.suwappu.bot/.well-known/agent.json (also /.well-known/agent-card.json)
+- OpenAPI: GET https://api.suwappu.bot/v1/agent/openapi
+
+## SDKs
+npm: @suwappu/sdk | PyPI: suwappu | OpenClaw skill: @suwappu/openclaw
+
+## Docs
+https://suwappu.bot/docs
 `)
 	})
 

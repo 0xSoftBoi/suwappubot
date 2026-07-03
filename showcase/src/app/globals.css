@@ -4297,7 +4297,7 @@ button:focus:not(:focus-visible) {
 }
 
 /* Status page */
-.status-page { max-width: 760px; margin: 0 auto; padding: 7rem 1.5rem 5rem; }
+.status-live { max-width: 760px; margin: 0 auto; }
 .status-banner {
   display: flex;
   align-items: center;
@@ -4348,6 +4348,21 @@ button:focus:not(:focus-visible) {
 .status-row__url { color: var(--summer-muted); font-family: var(--font-mono); font-size: 0.72rem; }
 .status-row__meta { margin-left: auto; color: var(--summer-muted); font-family: var(--font-mono); font-size: 0.76rem; }
 .status-checked { margin-top: 1.25rem; color: var(--summer-muted); font-size: 0.8rem; }
+.status-surfaces { margin-top: 3rem; }
+.status-surfaces__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.status-surface {
+  display: block;
+  padding: 18px;
+  border: 1px solid var(--summer-line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.82);
+  text-decoration: none;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.status-surface:hover { border-color: var(--suwappu-summer-accent); transform: translateY(-2px); }
+.status-surface h3 { margin: 0 0 6px; color: var(--summer-ink); font-size: 1rem; }
+.status-surface p { margin: 0; color: var(--summer-muted); font-size: 0.85rem; line-height: 1.5; }
+@media (max-width: 860px) { .status-surfaces__grid { grid-template-columns: 1fr; } }
 
 /* ===== Marketing pages (pricing, security, solutions, about, legal) ===== */
 .mkt-page { padding-top: 6rem; padding-bottom: 4rem; }
@@ -4603,6 +4618,28 @@ button:focus:not(:focus-visible) {
   border-radius: 12px;
   background: linear-gradient(135deg, rgba(14, 118, 158, 0.07) 0%, rgba(255, 255, 255, 0.72) 100%);
 }
+/* Neutral/teal variant of the callout band — dev-setup callouts (e.g. MCP
+   client config) rather than a sales CTA. Shares the enterprise band's
+   layout so it stays visually consistent with the rest of mkt-page. */
+.mkt-callout--info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  margin-top: 1.5rem;
+  padding: 24px 28px;
+  border: 1px solid var(--summer-green);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(47, 143, 91, 0.08) 0%, rgba(255, 255, 255, 0.72) 100%);
+}
+.mkt-callout--info .mkt-callout__eyebrow { background: var(--summer-green); }
+.mkt-callout--info .mkt-callout__body code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(47, 143, 91, 0.12);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
 .mkt-callout__eyebrow {
   margin: 0;
   padding: 2px 10px;
@@ -4745,6 +4782,9 @@ button:focus:not(:focus-visible) {
 .compare-cell__glyph.compare-cell--partial { background: rgba(229, 141, 43, 0.16); color: #b96a12; }
 .compare-cell--no .compare-cell__glyph,
 .compare-cell__glyph.compare-cell--no { background: rgba(120, 144, 156, 0.12); color: #90a4ae; }
+/* Distinct from --no: an unverified capability, not a confirmed absence. */
+.compare-cell--unclear .compare-cell__glyph,
+.compare-cell__glyph.compare-cell--unclear { background: rgba(120, 144, 156, 0.08); color: #b0bec5; font-style: italic; }
 .compare__legend { display: flex; flex-wrap: wrap; gap: 18px; margin: 16px 2px 0; color: var(--summer-muted); font-size: 0.82rem; }
 .compare-legend__item { display: inline-flex; align-items: center; gap: 7px; }
 .compare-legend__item .compare-cell__glyph { width: 20px; height: 20px; font-size: 0.78rem; }
@@ -4767,6 +4807,7 @@ button:focus:not(:focus-visible) {
 
 /* Security */
 .security-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 1rem; }
+.security-grid > article:last-child:nth-child(3n + 1) { grid-column: 1 / -1; }
 .security-card { padding: 20px; border: 1px solid var(--summer-line); border-radius: 12px; background: rgba(255, 255, 255, 0.86); box-shadow: 0 12px 24px rgba(33, 88, 110, 0.06); }
 .security-card h2 { margin: 0 0 8px; color: var(--summer-ink); font-size: 1.1rem; }
 .security-card p { margin: 0; color: var(--summer-muted); font-size: 0.9rem; line-height: 1.6; }
@@ -4821,6 +4862,15 @@ button:focus:not(:focus-visible) {
 .solution-row__points--alt { background: linear-gradient(135deg, rgba(244, 201, 99, 0.24), rgba(247, 213, 223, 0.5)); }
 .solution-row__points li { position: relative; padding-left: 22px; color: var(--summer-ink); font-size: 0.9rem; line-height: 1.45; }
 .solution-row__points li::before { content: "→"; position: absolute; left: 0; color: var(--summer-persimmon); font-weight: 800; }
+/* Solution row code hint — right column, wraps .summer-code in the alternating
+   gradient rhythm the points list used to carry. */
+.solution-row__code {
+  padding: 10px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(153, 214, 228, 0.32), rgba(216, 243, 239, 0.6));
+}
+.solution-row__code--alt { background: linear-gradient(135deg, rgba(244, 201, 99, 0.24), rgba(247, 213, 223, 0.5)); }
+.solution-row__code .summer-code { margin: 0; }
 
 /* About */
 .about-stats { margin-top: 1.5rem; }
@@ -4845,12 +4895,20 @@ button:focus:not(:focus-visible) {
 .about-careers p { max-width: 580px; margin: 14px auto 20px; color: #345069; line-height: 1.6; }
 
 /* Legal */
-.legal-page { max-width: 760px; margin: 0 auto; }
+.legal-page { max-width: 760px; margin: 1.25rem auto 0; }
+.legal-page__card {
+  padding: 2.75rem 3rem;
+  border: 1px solid var(--summer-line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 16px 32px rgba(33, 88, 110, 0.07);
+}
 .legal-page h1 { margin: 8px 0 0; color: var(--summer-ink); font-family: var(--font-display); font-size: 2.6rem; }
 .legal-page__updated { margin: 8px 0 2rem; color: var(--summer-muted); font-family: var(--font-mono); font-size: 0.8rem; }
 .legal-page h2 { margin: 2rem 0 0; color: var(--summer-ink); font-size: 1.2rem; }
 .legal-page p { margin: 10px 0 0; color: #345069; line-height: 1.7; }
 .legal-page a { color: var(--suwappu-summer-accent); }
+@media (max-width: 640px) { .legal-page__card { padding: 1.75rem 1.5rem; } }
 
 /* Footer */
 .summer-footer {
@@ -6024,4 +6082,116 @@ button:focus:not(:focus-visible) {
   .agents-tab {
     padding: 10px 14px;
   }
+}
+
+/* ================================================================
+   /agents — "get started" step cards + FAQ accordion
+   ================================================================ */
+
+.agent-steps {
+  margin-top: 80px;
+}
+
+.agent-steps .mkt-h2 {
+  margin-top: 0.4rem;
+}
+
+.agent-steps .agents-connect {
+  margin-top: 1.75rem;
+}
+
+.agent-steps .agents-connect__item {
+  position: relative;
+  padding-top: 44px;
+}
+
+.agent-steps__num {
+  position: absolute;
+  top: -16px;
+  left: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--suwappu-summer-accent) 0%, var(--suwappu-summer-accent-deep, #0e769e) 100%);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  font-weight: 800;
+  box-shadow: 0 8px 18px rgba(14, 118, 158, 0.28);
+}
+
+.agent-payments__note {
+  margin-top: 20px;
+  font-style: normal;
+}
+
+.agent-payments__note a {
+  color: #3c8ca1;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* FAQ accordion — premium expand/collapse, summer theme tokens */
+.faq-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.faq-accordion__item {
+  border: 1px solid var(--summer-line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.faq-accordion__item--open {
+  border-color: rgba(14, 118, 158, 0.32);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 14px 28px rgba(33, 88, 110, 0.08);
+}
+
+.faq-accordion__title {
+  margin: 0;
+}
+
+.faq-accordion__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 18px 20px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--summer-ink);
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+
+.faq-accordion__chevron {
+  flex-shrink: 0;
+  color: var(--summer-muted);
+}
+
+.faq-accordion__item--open .faq-accordion__chevron {
+  color: var(--suwappu-summer-accent-deep, #0e769e);
+}
+
+.faq-accordion__content {
+  overflow: hidden;
+}
+
+.faq-accordion__answer {
+  margin: 0;
+  padding: 0 20px 20px;
+  color: var(--summer-muted);
+  font-size: 0.94rem;
+  line-height: 1.65;
 }
