@@ -31,7 +31,7 @@
     "react-hot-toast": "^2.6.0",
     "react-i18next": "^17.0.8",
     "react-router-dom": "^7.13.2",
-    "viem": "^2.54.1"
+    "viem": "^2.54.2"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^5.0.0",
