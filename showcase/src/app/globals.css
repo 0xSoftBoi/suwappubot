@@ -4297,7 +4297,7 @@ button:focus:not(:focus-visible) {
 }
 
 /* Status page */
-.status-page { max-width: 760px; margin: 0 auto; padding: 7rem 1.5rem 5rem; }
+.status-live { max-width: 760px; margin: 0 auto; }
 .status-banner {
   display: flex;
   align-items: center;
@@ -4348,6 +4348,21 @@ button:focus:not(:focus-visible) {
 .status-row__url { color: var(--summer-muted); font-family: var(--font-mono); font-size: 0.72rem; }
 .status-row__meta { margin-left: auto; color: var(--summer-muted); font-family: var(--font-mono); font-size: 0.76rem; }
 .status-checked { margin-top: 1.25rem; color: var(--summer-muted); font-size: 0.8rem; }
+.status-surfaces { margin-top: 3rem; }
+.status-surfaces__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.status-surface {
+  display: block;
+  padding: 18px;
+  border: 1px solid var(--summer-line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.82);
+  text-decoration: none;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.status-surface:hover { border-color: var(--suwappu-summer-accent); transform: translateY(-2px); }
+.status-surface h3 { margin: 0 0 6px; color: var(--summer-ink); font-size: 1rem; }
+.status-surface p { margin: 0; color: var(--summer-muted); font-size: 0.85rem; line-height: 1.5; }
+@media (max-width: 860px) { .status-surfaces__grid { grid-template-columns: 1fr; } }
 
 /* ===== Marketing pages (pricing, security, solutions, about, legal) ===== */
 .mkt-page { padding-top: 6rem; padding-bottom: 4rem; }
@@ -4792,6 +4807,7 @@ button:focus:not(:focus-visible) {
 
 /* Security */
 .security-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 1rem; }
+.security-grid > article:last-child:nth-child(3n + 1) { grid-column: 1 / -1; }
 .security-card { padding: 20px; border: 1px solid var(--summer-line); border-radius: 12px; background: rgba(255, 255, 255, 0.86); box-shadow: 0 12px 24px rgba(33, 88, 110, 0.06); }
 .security-card h2 { margin: 0 0 8px; color: var(--summer-ink); font-size: 1.1rem; }
 .security-card p { margin: 0; color: var(--summer-muted); font-size: 0.9rem; line-height: 1.6; }
@@ -4879,12 +4895,20 @@ button:focus:not(:focus-visible) {
 .about-careers p { max-width: 580px; margin: 14px auto 20px; color: #345069; line-height: 1.6; }
 
 /* Legal */
-.legal-page { max-width: 760px; margin: 0 auto; }
+.legal-page { max-width: 760px; margin: 1.25rem auto 0; }
+.legal-page__card {
+  padding: 2.75rem 3rem;
+  border: 1px solid var(--summer-line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 16px 32px rgba(33, 88, 110, 0.07);
+}
 .legal-page h1 { margin: 8px 0 0; color: var(--summer-ink); font-family: var(--font-display); font-size: 2.6rem; }
 .legal-page__updated { margin: 8px 0 2rem; color: var(--summer-muted); font-family: var(--font-mono); font-size: 0.8rem; }
 .legal-page h2 { margin: 2rem 0 0; color: var(--summer-ink); font-size: 1.2rem; }
 .legal-page p { margin: 10px 0 0; color: #345069; line-height: 1.7; }
 .legal-page a { color: var(--suwappu-summer-accent); }
+@media (max-width: 640px) { .legal-page__card { padding: 1.75rem 1.5rem; } }
 
 /* Footer */
 .summer-footer {

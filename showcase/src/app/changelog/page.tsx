@@ -11,6 +11,28 @@ type Entry = { date: string; tag: 'Launch' | 'Feature' | 'Protocol' | 'Platform'
 
 const entries: Entry[] = [
   {
+    date: '2026-07-02',
+    tag: 'Protocol',
+    title: 'Discovery & protocol hygiene',
+    points: [
+      'MCP server now negotiates `protocolVersion` on `initialize` (`2024-11-05`, `2025-03-26`, `2025-06-18`) instead of assuming one.',
+      'New `/.well-known/ai-catalog.json` (ARD v0.9 draft) for machine discovery, mounted next to the agent card.',
+      'Agent card now declares the `a2a-x402` payment extension in `capabilities.extensions`.',
+      '`POST /v1/agent/swap/simulate` + `simulate_swap` MCP tool — a zero-funds-move dry run with balance, allowance, gas, revert, and slippage checks.',
+    ],
+  },
+  {
+    date: '2026-07-02',
+    tag: 'Feature',
+    title: 'Agent-native landing, CLI & Skills',
+    points: [
+      'New Dune-style `/agents` landing page: capability grid, REST/MCP/A2A/SDK comparison matrix, and an agent-API FAQ.',
+      'Agent-native CLI (`suwappu` command) — every command supports `-o json` with structured `{success, error}` envelopes for scripting.',
+      'Installable Agent Skills package (agentskills.io spec) for one-line onboarding into MCP-compatible agent hosts.',
+      'Agent API pricing (credits, subscriptions, x402) broken out on `/pricing`.',
+    ],
+  },
+  {
     date: '2026-06-18',
     tag: 'Docs',
     title: 'Agent-native documentation',
