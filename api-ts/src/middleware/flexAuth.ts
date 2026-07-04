@@ -21,7 +21,7 @@ export interface AuthUser {
  * library defaults to for a string secret, so a token forged with a different
  * HMAC alg would still verify against the same secret.
  */
-export const ALLOWED_JWT_ALGORITHMS = ['HS256'] as const
+export const ALLOWED_JWT_ALGORITHMS: readonly jwt.Algorithm[] = ['HS256']
 
 /**
  * Verify a bearer JWT with an explicit algorithm allowlist. Extracted so the
@@ -33,7 +33,7 @@ export function verifyAuthJwt(
 	jwtSecret: string,
 ): { userId: number; walletAddress?: string } {
 	return jwt.verify(token, jwtSecret, {
-		algorithms: ALLOWED_JWT_ALGORITHMS as unknown as jwt.Algorithm[],
+		algorithms: [...ALLOWED_JWT_ALGORITHMS],
 	}) as { userId: number; walletAddress?: string }
 }
 
