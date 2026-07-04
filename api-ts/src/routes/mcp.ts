@@ -267,6 +267,21 @@ function isSolanaChain(chain: string): boolean {
 	return n === 'solana' || n === 'sol'
 }
 
+// Heuristic Solana-address detector: base58 (no 0/O/I/l), 32-44 chars, not 0x-prefixed.
+// Used only to route the ownership gate — an EVM 0x... address must never match here.
+const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
+function looksLikeSolanaAddress(addr: unknown): boolean {
+	return typeof addr === 'string' && !addr.startsWith('0x') && SOLANA_ADDRESS_RE.test(addr)
+}
+
+// Managed agent wallets are Turnkey EVM-only — no Solana public key is stored in
+// agent.metadata, so there is no ownership record to check a Solana address against.
+// Rather than fall through to the EVM ownership gate (which would reject every Solana
+// address with a misleading "not your managed wallet"), return this explicit error so
+// a caller can tell "unsupported" apart from "you don't own this wallet".
+const SOLANA_UNSUPPORTED_MSG =
+	'Solana wallets are not supported for managed-wallet reads yet (agent wallets are EVM-only)'
+
 function isTempoChain(chain: string): boolean {
 	const n = chain.toLowerCase().trim()
 	return n === 'tempo' || n === '4217'
@@ -506,6 +521,11 @@ export async function handleGetPortfolio(args: Record<string, unknown>, agent: A
 
 	// Ownership gate: mirror the REST route (GET /v1/agent/portfolio) so the MCP
 	// surface can't be used to read arbitrary wallet balances / enumerate wallets (H9).
+	// Solana addresses can never match an (EVM-only) managed wallet, so surface a clear
+	// "unsupported" error instead of a misleading ownership rejection.
+	if ((chain ? isSolanaChain(chain) : false) || looksLikeSolanaAddress(wallet_address)) {
+		return { isError: true, content: [{ type: 'text', text: SOLANA_UNSUPPORTED_MSG }] }
+	}
 	if (!checkEvmWalletOwnership(agent, wallet_address)) {
 		return { isError: true, content: [{ type: 'text', text: 'wallet_address is not your managed wallet' }] }
 	}
@@ -651,6 +671,11 @@ export async function handlePerpsPositions(args: Record<string, unknown>, agent:
 
 	// Ownership gate: same control as the portfolio surface — only the agent's own
 	// managed wallet may be inspected, otherwise this discloses positions for any address.
+	// Hyperliquid perps are EVM-keyed; a Solana address has no ownership record, so return
+	// a clear "unsupported" error rather than a misleading ownership rejection.
+	if (looksLikeSolanaAddress(address)) {
+		return { isError: true, content: [{ type: 'text', text: SOLANA_UNSUPPORTED_MSG }] }
+	}
 	if (!checkEvmWalletOwnership(agent, address)) {
 		return { isError: true, content: [{ type: 'text', text: 'address is not your managed wallet' }] }
 	}

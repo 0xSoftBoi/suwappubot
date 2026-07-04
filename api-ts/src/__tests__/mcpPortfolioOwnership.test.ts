@@ -25,6 +25,11 @@ afterAll(() => stopAgentCleanup?.())
 
 const MANAGED = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'
 const OTHER = '0x0000000000000000000000000000000000000001'
+// Two valid base58 Solana addresses (32-44 chars, no 0x). Agent managed wallets are
+// Turnkey EVM-only, so neither can be "owned" — both must get the explicit unsupported
+// error rather than the misleading ownership rejection.
+const SOL_ADDR = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM'
+const SOL_OTHER = '7EqQdEULxWcraVx3mXKFjc84LhCkMGZCkRuDpvcMwJeK'
 const agentWith = (addr?: string) =>
 	({ id: 1, metadata: addr ? { wallet_address: addr } : {} }) as any
 
@@ -45,6 +50,31 @@ describe('MCP get_portfolio ownership gate (IDOR fix — mirrors REST H9 control
 		const res = await handleGetPortfolio({ wallet_address: MANAGED }, agentWith(undefined))
 		expect(res.isError).toBe(true)
 	})
+
+	// Solana support: agents have no Solana managed wallet, so a Solana address gets a
+	// clear "unsupported" error — NOT the misleading "not your managed wallet" ownership
+	// rejection. This distinguishes "we don't support this" from "you don't own this".
+	it('returns a clear unsupported error for a Solana address (not an ownership error)', async () => {
+		const res = await handleGetPortfolio({ wallet_address: SOL_ADDR }, agentWith(MANAGED))
+		expect(res.isError).toBe(true)
+		expect(res.content[0].text).toContain('Solana wallets are not supported')
+		expect(res.content[0].text).not.toContain('not your managed wallet')
+	})
+
+	it('returns the unsupported error for a different Solana address too (no disclosure)', async () => {
+		const res = await handleGetPortfolio({ wallet_address: SOL_OTHER }, agentWith(MANAGED))
+		expect(res.isError).toBe(true)
+		expect(res.content[0].text).toContain('Solana wallets are not supported')
+	})
+
+	it('returns the unsupported error when chain=solana even for an EVM-shaped address', async () => {
+		const res = await handleGetPortfolio(
+			{ wallet_address: MANAGED, chain: 'solana' },
+			agentWith(MANAGED),
+		)
+		expect(res.isError).toBe(true)
+		expect(res.content[0].text).toContain('Solana wallets are not supported')
+	})
 })
 
 describe('MCP perps_positions ownership gate (IDOR fix)', () => {
@@ -57,5 +87,18 @@ describe('MCP perps_positions ownership gate (IDOR fix)', () => {
 	it("allows the agent's own managed wallet", async () => {
 		const res = await handlePerpsPositions({ address: MANAGED }, agentWith(MANAGED))
 		expect(res.isError).toBeUndefined()
+	})
+
+	it('returns a clear unsupported error for a Solana address (not an ownership error)', async () => {
+		const res = await handlePerpsPositions({ address: SOL_ADDR }, agentWith(MANAGED))
+		expect(res.isError).toBe(true)
+		expect(res.content[0].text).toContain('Solana wallets are not supported')
+		expect(res.content[0].text).not.toContain('not your managed wallet')
+	})
+
+	it('returns the unsupported error for a different Solana address too', async () => {
+		const res = await handlePerpsPositions({ address: SOL_OTHER }, agentWith(MANAGED))
+		expect(res.isError).toBe(true)
+		expect(res.content[0].text).toContain('Solana wallets are not supported')
 	})
 })
