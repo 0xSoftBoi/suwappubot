@@ -19,10 +19,10 @@ const columns: { title: string; links: { label: string; href: string; external?:
   {
     title: 'Solutions',
     links: [
-      { label: 'Agentic swaps', href: '/solutions#agents' },
-      { label: 'Cross-chain treasury', href: '/solutions#treasury' },
-      { label: 'HyperLiquid perps', href: '/solutions#perps' },
-      { label: 'Sniping & alerts', href: '/solutions#sniping' },
+      { label: 'Trading agents', href: '/solutions#trading' },
+      { label: 'Portfolio agents', href: '/solutions#portfolio' },
+      { label: 'Payment & commerce agents', href: '/solutions#payments' },
+      { label: 'Embedded wallets', href: '/solutions#wallets' },
       { label: 'Compare', href: '/compare' },
     ],
   },

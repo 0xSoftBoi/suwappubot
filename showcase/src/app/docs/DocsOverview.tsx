@@ -26,6 +26,29 @@ const quicklinks = [
   },
 ];
 
+// Machine-readable resources — the discovery surface agents (not humans) use
+// to learn the API without a human reading these docs first.
+const resources = [
+  {
+    n: 'TXT',
+    href: '/llms.txt',
+    title: 'llms.txt',
+    desc: 'Plain-text API summary for LLMs to ingest directly',
+  },
+  {
+    n: 'API',
+    href: 'https://api.suwappu.bot/v1/agent/openapi',
+    title: 'OpenAPI spec',
+    desc: 'Full schema — import into Postman, Insomnia, or an SDK generator',
+  },
+  {
+    n: 'JSON',
+    href: 'https://api.suwappu.bot/.well-known/agent.json',
+    title: 'Agent Card',
+    desc: 'A2A-spec capability manifest, no auth required to fetch',
+  },
+];
+
 export default function DocsOverview() {
   // Only show sections that actually have pages — never render an empty "0 pages" group.
   const sections = docsData.sections.filter((s) => s.pages.length > 0);
@@ -61,6 +84,80 @@ export default function DocsOverview() {
                   </div>
                 </a>
               ))}
+            </div>
+          </motion.div>
+
+          {/* ── SECTION CARDS — mirrors the gitbook tree so the whole doc set is
+              scannable without opening the accordion below. ── */}
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.1, ease: [0.25, 0.4, 0.25, 1] }}
+          >
+            <p className="summer-kicker" style={{ marginBottom: '0.75rem' }}>Browse by section</p>
+            <div className="agents-caps__grid" style={{ marginBottom: '2.5rem' }}>
+              {sections.map((s) => (
+                <a className="agents-cap" href={`/docs#${s.id}`} key={s.id} style={{ display: 'block' }}>
+                  <h3>{s.title}</h3>
+                  <p>
+                    {s.pages.length} {s.pages.length === 1 ? 'page' : 'pages'} — including{' '}
+                    {s.pages
+                      .slice(0, 2)
+                      .map((p) => p.title)
+                      .join(', ')}
+                  </p>
+                </a>
+              ))}
+            </div>
+          </motion.div>
+
+          {/* ── MCP CLIENT SETUP CALLOUT ── */}
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.12, ease: [0.25, 0.4, 0.25, 1] }}
+          >
+            <section className="mkt-callout mkt-callout--info" aria-label="MCP client setup">
+              <p className="mkt-callout__eyebrow">MCP</p>
+              <p className="mkt-callout__body">
+                Using Claude Desktop, Claude Code, Cursor, or Windsurf? Point it at{' '}
+                <code>https://api.suwappu.bot/mcp</code> with an{' '}
+                <code>Authorization: Bearer</code> header and your client discovers every tool —
+                quotes, swaps, portfolio, perps, predictions, lending — automatically.
+              </p>
+              <a className="summer-button summer-button--secondary" href="/docs/protocols/mcp">
+                MCP client setup
+              </a>
+            </section>
+          </motion.div>
+
+          {/* ── MACHINE-READABLE RESOURCES — the discovery surface for agents ── */}
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.14, ease: [0.25, 0.4, 0.25, 1] }}
+          >
+            <p className="summer-kicker" style={{ marginTop: '2.5rem', marginBottom: '0.75rem' }}>
+              Machine-readable resources
+            </p>
+            <div className="docs-quicklinks">
+              {resources.map((r) => {
+                const external = r.href.startsWith('http');
+                return (
+                  <a
+                    key={r.title}
+                    href={r.href}
+                    className="docs-quicklink"
+                    {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                  >
+                    <span className="docs-quicklink__icon">{r.n}</span>
+                    <div>
+                      <strong>{r.title}</strong>
+                      <span>{r.desc}</span>
+                    </div>
+                  </a>
+                );
+              })}
             </div>
           </motion.div>
 

@@ -5,6 +5,14 @@
 Base URL: https://api.suwappu.bot/v1/agent
 Auth: Bearer token — `Authorization: Bearer suwappu_sk_...` (get a key from `POST /register`, no auth required).
 
+SDKs: @suwappu/sdk (TypeScript — swap, perps, predict, lend), suwappu (Python, async), @suwappu/openclaw
+(zero-dep agent client — auto-retry, typed errors, MCP skill manifest).
+MCP server: POST https://api.suwappu.bot/mcp (JSON-RPC 2.0, 16+ tools — quotes, portfolio, prices, chains,
+tokens, swap execution, prediction markets, perps, lending, Tempo tokens).
+A2A protocol: POST https://api.suwappu.bot/a2a (JSON-RPC 2.0) — agent card at
+https://api.suwappu.bot/.well-known/agent.json (alias: /.well-known/agent-card.json).
+OpenAPI 3.1: https://api.suwappu.bot/v1/agent/openapi — Postman collection: https://api.suwappu.bot/v1/agent/postman.
+
 ## Instructions for LLM Agents
 
 - Register first: `POST /register {"name":"my-agent"}` returns an API key; authenticate every other call with that bearer token.
@@ -12,12 +20,14 @@ Auth: Bearer token — `Authorization: Bearer suwappu_sk_...` (get a key from `P
 - Errors return a JSON envelope with an error code and message; rate-limited requests return HTTP 429. Always read the error body and back off on 429.
 - Do not hardcode chains or token symbols — call `GET /chains` and `GET /tokens?chain=...` for the authoritative lists.
 - Machine-readable contracts: OpenAPI 3.1 at https://api.suwappu.bot/v1/agent/openapi, A2A agent card at https://api.suwappu.bot/.well-known/agent-card.json.
+- Payment without a key: pay-per-call over HTTP 402 (x402) is available for reads and swaps — see https://suwappu.bot/pricing#agent-api for credit costs, rate limits, and subscription tiers before assuming a subscription is required.
 - Every docs page is available as clean Markdown by appending `.md` to its URL (or sending `Accept: text/markdown`).
 
 ## Quick Start
 - [Overview](https://suwappu.bot/docs/quick-start/overview.md): Suwappu is a cross-chain DeFi API built for AI agents. Register an agent, get a swap quote, and execute it across 40+ blockchain networks in four short HTTP calls — Suwappu handles best-price routing,
 - [Your First Swap](https://suwappu.bot/docs/quick-start/first-swap.md): A complete walkthrough that takes you from zero to a settled cross-chain swap using the real Suwappu agent endpoints. Every request below targets `https://api.suwappu.bot`.
 - [SDK Examples](https://suwappu.bot/docs/quick-start/sdk-examples.md): TypeScript examples for the most common agent operations — quote, swap, and portfolio. The SDK is a thin wrapper over the REST API; every call maps one-to-one to an endpoint under `/v1/agent`, so the
+- [MCP Client Setup](https://suwappu.bot/docs/quick-start/mcp-clients.md): Suwappu's MCP server is hosted remotely at `https://api.suwappu.bot/mcp` (JSON-RPC 2.0 over the MCP Streamable HTTP transport). There is no local process to install — point your MCP client at the URL
 
 ## Authentication
 - [Overview](https://suwappu.bot/docs/authentication/overview.md): Suwappu uses API keys as bearer tokens. You receive a key when you register an agent, and you send it on every authenticated request as an `Authorization: Bearer ...` header. There are no other creden
@@ -32,6 +42,7 @@ Auth: Bearer token — `Authorization: Bearer suwappu_sk_...` (get a key from `P
 - [GET /prices](https://suwappu.bot/docs/api-reference/prices.md): Fetch current USD prices and 24-hour change for token symbols. Prices are cached for 60 seconds and sourced from CoinGecko.
 - [GET /portfolio](https://suwappu.bot/docs/api-reference/portfolio.md): Fetch live token balances and total USD value for a wallet. You can only read your own agent's managed wallet — requests for any other address are rejected.
 - [POST /quote](https://suwappu.bot/docs/api-reference/quote.md): Get a swap quote with pricing, route, and a `quote_id` you can hand to the swap endpoints. Quotes work for same-chain and cross-chain swaps across EVM chains (via Li.Fi) and Solana (via Jupiter), and
+- [POST /swap/simulate](https://suwappu.bot/docs/api-reference/simulate.md): Preview a swap with **zero funds moved** — a Tenderly-style dry run that fetches (or reuses) a quote and runs a battery of pre-flight checks, without creating a swap record, signing, or broadcasting a
 - [POST /swap](https://suwappu.bot/docs/api-reference/swap.md): Build an unsigned transaction from a quote so you can sign and broadcast it yourself. Use this for self-custody. If you want Suwappu to sign with your managed wallet instead, use [`POST /v1/agent/swap
 - [POST /swap/execute](https://suwappu.bot/docs/api-reference/swap-execute.md): Execute a quoted swap end-to-end using your agent's managed wallet. Suwappu signs and broadcasts the transaction — you only send a `quote_id`. This is the simplest path and requires no key handling on
 - [GET /swap/status/:id](https://suwappu.bot/docs/api-reference/swap-status.md): Look up the current status of a single swap by its ID. Poll this after [`POST /v1/agent/swap/execute`](swap-execute.md), or use [Webhooks](webhooks.md) to be notified instead.
@@ -51,6 +62,11 @@ Auth: Bearer token — `Authorization: Bearer suwappu_sk_...` (get a key from `P
 - [MCP Protocol](https://suwappu.bot/docs/protocols/mcp.md): The MCP protocol lets LLMs like Claude interact with Suwappu as a tool provider. Claude Desktop, Claude Code, Cursor, and other MCP-compatible clients can discover and call Suwappu's tools automatical
 - [Agent Card](https://suwappu.bot/docs/protocols/agent-card.md): The agent card is a machine-readable JSON document that describes Suwappu's capabilities, endpoints, authentication requirements, and skills. It follows the A2A (Agent-to-Agent) protocol specification
 - [OpenAPI Spec](https://suwappu.bot/docs/protocols/openapi.md): Suwappu publishes several machine-readable discovery files so agents can learn the API without reading docs: an OpenAPI 3.1 specification, an `llms.txt` summary, an A2A agent card, and an OpenAI-style
+
+## Billing
+- [Overview](https://suwappu.bot/docs/billing/overview.md): Suwappu bills agent usage two ways, and you can mix both:
+- [Agentic Payments (x402)](https://suwappu.bot/docs/billing/agentic-payments.md): Suwappu meters pay-per-call usage using the [x402](https://x402.org) protocol: a paid endpoint or MCP tool call that would run you out of credits returns an HTTP `402 Payment Required` challenge inste
+- [Pricing](https://suwappu.bot/docs/billing/pricing.md): Suwappu combines three independent pricing dimensions: a **rate-limit tier** (requests/minute), **per-call metering** (credits, if you're on the free tier and metering is enabled), and a **swap execut
 
 ## Changelog
 - [Changelog](https://suwappu.bot/docs/changelog/overview.md): Notable changes to the Suwappu agent API, SDK, and docs. Dates are in UTC. Breaking changes are called out explicitly; the API is versioned under `/v1/agent`.
