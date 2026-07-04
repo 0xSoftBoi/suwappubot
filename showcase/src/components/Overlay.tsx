@@ -18,7 +18,7 @@ const TOOLS = [
   { name: 'list_chains', desc: 'Supported chains and metadata' },
   { name: 'list_tokens', desc: 'Searchable token registry per chain' },
   { name: 'get_tempo_tokens', desc: 'TIP-20 token list on Tempo mainnet' },
-  { name: 'browse_mpp_directory', desc: 'Micropayment Protocol service directory' },
+  { name: 'browse_mpp_directory', desc: 'Machine Payments Protocol (MPP) service directory' },
   { name: 'predict_markets', desc: 'Browse Polymarket prediction markets' },
   { name: 'predict_market_detail', desc: 'Live CLOB prices for a market outcome' },
 ];

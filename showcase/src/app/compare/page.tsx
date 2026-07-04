@@ -107,6 +107,82 @@ const GROUPS: {
 const CELL_GLYPH: Record<Cell, string> = { yes: '✓', partial: '~', no: '–' };
 const CELL_WORD: Record<Cell, string> = { yes: 'Yes', partial: 'Partial', no: 'No' };
 
+// ── Agent infrastructure comparison — a distinct competitive set from the
+// trading-bot matrix above: platforms that specifically target AI agents
+// rather than human traders. Kept conservative per editorial policy: mark
+// 'unclear' (not 'no') wherever a capability isn't confirmed in public docs,
+// rather than asserting an unverifiable gap.
+const AGENT_COLUMNS: { key: string; label: string; sub: string; highlight?: boolean }[] = [
+  { key: 'suwappu', label: 'Suwappu', sub: 'API · MCP · A2A', highlight: true },
+  { key: 'dune', label: 'Dune Agents', sub: 'Analytics for agents' },
+  { key: 'agentkit', label: 'Coinbase AgentKit', sub: 'Wallet + action framework' },
+  { key: 'bankr', label: 'Bankr', sub: 'Social trading agent' },
+  { key: 'onefi', label: '1inch / LI.FI MCP', sub: 'Swap routing MCP' },
+];
+
+type AgentCell = 'yes' | 'partial' | 'no' | 'unclear';
+
+const AGENT_GROUPS: { category: string; rows: { label: string; cells: Record<string, AgentCell> }[] }[] = [
+  {
+    category: 'Execution',
+    rows: [
+      {
+        label: 'Cross-chain swaps',
+        cells: { suwappu: 'yes', dune: 'no', agentkit: 'partial', bankr: 'partial', onefi: 'yes' },
+      },
+      {
+        label: 'Managed wallets & spend policies',
+        cells: { suwappu: 'yes', dune: 'no', agentkit: 'partial', bankr: 'unclear', onefi: 'no' },
+      },
+      {
+        label: 'Perpetual futures',
+        cells: { suwappu: 'yes', dune: 'no', agentkit: 'no', bankr: 'no', onefi: 'no' },
+      },
+      {
+        label: 'Prediction markets',
+        cells: { suwappu: 'yes', dune: 'no', agentkit: 'no', bankr: 'no', onefi: 'no' },
+      },
+      {
+        label: 'Lending markets',
+        cells: { suwappu: 'yes', dune: 'no', agentkit: 'unclear', bankr: 'no', onefi: 'no' },
+      },
+    ],
+  },
+  {
+    category: 'Agent protocols',
+    rows: [
+      {
+        label: 'MCP server',
+        cells: { suwappu: 'yes', dune: 'unclear', agentkit: 'yes', bankr: 'unclear', onefi: 'yes' },
+      },
+      {
+        label: 'A2A protocol',
+        cells: { suwappu: 'yes', dune: 'unclear', agentkit: 'unclear', bankr: 'unclear', onefi: 'unclear' },
+      },
+      {
+        label: 'x402 pay-per-call',
+        cells: { suwappu: 'yes', dune: 'unclear', agentkit: 'partial', bankr: 'unclear', onefi: 'unclear' },
+      },
+      {
+        label: 'Self-serve registration (no signup)',
+        cells: { suwappu: 'yes', dune: 'no', agentkit: 'no', bankr: 'unclear', onefi: 'no' },
+      },
+      {
+        label: 'TypeScript / Python SDKs',
+        cells: { suwappu: 'yes', dune: 'yes', agentkit: 'yes', bankr: 'unclear', onefi: 'yes' },
+      },
+    ],
+  },
+];
+
+const AGENT_CELL_GLYPH: Record<AgentCell, string> = { yes: '✓', partial: '~', no: '–', unclear: '?' };
+const AGENT_CELL_WORD: Record<AgentCell, string> = {
+  yes: 'Yes',
+  partial: 'Partial',
+  no: 'Not offered',
+  unclear: 'Not publicly confirmed',
+};
+
 const HIGHLIGHTS = [
   {
     eyebrow: 'The unclaimed triad',
@@ -230,6 +306,98 @@ export default function ComparePage() {
               <p>{h.body}</p>
             </div>
           ))}
+        </section>
+
+        {/* ── AGENT INFRASTRUCTURE COMPARISON — a second, distinct competitive set ── */}
+        <section className="compare" aria-labelledby="agent-compare-matrix">
+          <p className="summer-kicker">For builders</p>
+          <h2 id="agent-compare-matrix" className="compare__title">
+            Agent infrastructure comparison
+          </h2>
+          <p className="mkt-hero__lead" style={{ margin: '0 0 1.5rem', textAlign: 'left' }}>
+            Analytics platforms, wallet frameworks, and single-purpose swap MCPs each cover part
+            of what an onchain agent needs. Suwappu is the only one that pairs execution — swaps,
+            perps, predictions, lending — with managed wallets, MCP, A2A, and x402 in one API.
+          </p>
+          <div className="compare__scroll" role="region" aria-label="Agent infrastructure comparison table" tabIndex={0}>
+            <table className="compare-table">
+              <caption className="sr-only">
+                Capabilities of Suwappu compared with Dune Agents, Coinbase AgentKit, Bankr, and
+                1inch/LI.FI MCP offerings.
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col" className="compare-table__rowhead">
+                    Capability
+                  </th>
+                  {AGENT_COLUMNS.map((c) => (
+                    <th
+                      key={c.key}
+                      scope="col"
+                      className={`compare-table__colhead${c.highlight ? ' compare-table__colhead--us' : ''}`}
+                    >
+                      <span className="compare-table__colname">{c.label}</span>
+                      <span className="compare-table__colsub">{c.sub}</span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {AGENT_GROUPS.map((group) => (
+                  <Fragment key={group.category}>
+                    <tr className="compare-table__cat">
+                      <th scope="colgroup" colSpan={AGENT_COLUMNS.length + 1}>
+                        {group.category}
+                      </th>
+                    </tr>
+                    {group.rows.map((row) => (
+                      <tr key={row.label}>
+                        <th scope="row" className="compare-table__rowhead">
+                          {row.label}
+                        </th>
+                        {AGENT_COLUMNS.map((c) => {
+                          const v = row.cells[c.key];
+                          return (
+                            <td
+                              key={c.key}
+                              className={`compare-cell compare-cell--${v}${c.highlight ? ' compare-cell--us' : ''}`}
+                            >
+                              <span className="compare-cell__glyph" aria-hidden="true">
+                                {AGENT_CELL_GLYPH[v]}
+                              </span>
+                              <span className="sr-only">{AGENT_CELL_WORD[v]}</span>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="compare__legend">
+            <span className="compare-legend__item">
+              <span className="compare-cell__glyph compare-cell--yes" aria-hidden="true">✓</span> Available
+            </span>
+            <span className="compare-legend__item">
+              <span className="compare-cell__glyph compare-cell--partial" aria-hidden="true">~</span> Partial / varies
+            </span>
+            <span className="compare-legend__item">
+              <span className="compare-cell__glyph compare-cell--no" aria-hidden="true">–</span> Not offered
+            </span>
+            <span className="compare-legend__item">
+              <span className="compare-cell__glyph compare-cell--unclear" aria-hidden="true">?</span> Not publicly confirmed
+            </span>
+          </p>
+          <p className="compare__note">
+            Dune Agents is an analytics layer for AI agents (read-only market and onchain data,
+            no execution) and has announced it is sunsetting its real-time Sim API on August 1,
+            2026. Coinbase AgentKit is a self-hosted wallet and action-provider framework, not a
+            hosted execution API. Reflects each provider&apos;s publicly documented capabilities;
+            cells marked &ldquo;not publicly confirmed&rdquo; are conservative placeholders, not
+            claims of absence — verify current capabilities on each provider&apos;s own site.
+          </p>
         </section>
 
         <section className="mkt-cta">

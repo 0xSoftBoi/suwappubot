@@ -1,5 +1,7 @@
 """Custodial wallet handlers for deposits and withdrawals."""
 
+import logging
+import uuid
 from decimal import Decimal
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -13,7 +15,12 @@ from telegram.ext import (
 
 from bot.models.user import User
 from bot.models.custodial import TransactionType, TransactionStatus
-from bot.services.hot_wallet import hot_wallet_service
+from bot.services.hot_wallet import (
+    hot_wallet_service,
+    WithdrawalsPausedError,
+    PostBroadcastAmbiguous,
+    quantize_to_decimals,
+)
 from bot.config.chains import CHAINS, get_chain_by_name
 from bot.config.tokens import TOKENS, get_token_address
 from bot.utils.formatters import format_amount, format_usd
@@ -21,6 +28,8 @@ from bot.utils.validators import validate_amount
 from bot.utils.qr_code import generate_wallet_qr
 from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
+
+logger = logging.getLogger(__name__)
 
 # Conversation states
 SELECT_CHAIN, SELECT_TOKEN, ENTER_AMOUNT, CONFIRM_WITHDRAWAL = range(4)
@@ -561,6 +570,13 @@ async def withdraw_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     # Stash the validated address for the execute step.
     context.user_data["withdraw_address"] = to_address
 
+    # A fresh per-confirmation idempotency token. withdraw_execute claims this
+    # (via the same claim/finalize/release primitives the web route uses)
+    # before reserving/sending, so a double-tap of "Confirm Send" — or any
+    # re-delivery of the same callback update — can only ever be processed
+    # once.
+    context.user_data["withdraw_confirm_token"] = uuid.uuid4().hex
+
     chain_info = get_chain_by_name(chain)
     chain_display = chain_info.display_name if chain_info else chain
 
@@ -595,6 +611,8 @@ def _clear_withdraw_context(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.pop("withdraw_balance", None)
     context.user_data.pop("withdraw_address", None)
     context.user_data.pop("withdraw_memo", None)
+    context.user_data.pop("withdraw_confirm_token", None)
+    context.user_data.pop("withdraw_in_flight", None)
 
 
 async def withdraw_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -602,115 +620,246 @@ async def withdraw_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     query = update.callback_query
     await query.answer()
 
-    user = update.effective_user
-    token = context.user_data.get("withdraw_token")
-    chain = context.user_data.get("withdraw_chain")
-    amount = context.user_data.get("withdraw_amount")
-    to_address = context.user_data.get("withdraw_address")
-
-    # Guard against a stale/expired confirmation card (e.g. bot restart cleared
-    # state) — re-validate before doing anything irreversible.
-    if not (token and chain and amount and to_address) or not validate_withdraw_address(
-        chain, to_address
-    ):
-        await query.edit_message_text(
-            "❌ Withdrawal session expired. Please start again.",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("« Back", callback_data="custodial_menu")]]
-            ),
-        )
-        _clear_withdraw_context(context)
-        return ConversationHandler.END
-
-    with get_session() as session:
-        db_user = session.query(User).filter(User.telegram_id == user.id).first()
-        if not db_user:
-            await query.edit_message_text("❌ Please use /start first.")
-            _clear_withdraw_context(context)
-            return ConversationHandler.END
-        user_id = db_user.id
-
-    await query.edit_message_text("⏳ Processing withdrawal...")
+    # Double-tap guard: a fast repeat tap of "Confirm Send" (or a duplicate
+    # callback delivery from Telegram) fires this handler twice concurrently.
+    # This in-process flag is checked-and-set atomically (no `await` between
+    # the check and the set) so the second invocation bails immediately
+    # instead of racing the first one to reserve/send. The idempotency claim
+    # below is the durable backstop (covers process restarts / multi-worker),
+    # this flag just avoids two concurrent in-process sends for the common case.
+    if context.user_data.get("withdraw_in_flight"):
+        await query.answer("Withdrawal already in progress — please wait.", show_alert=True)
+        return CONFIRM_WITHDRAWAL
+    context.user_data["withdraw_in_flight"] = True
 
     try:
-        # Get hot wallet
-        hot_wallet = hot_wallet_service.get_deposit_wallet("evm")
-        if not hot_wallet:
-            raise Exception("Hot wallet not configured")
+        user = update.effective_user
+        token = context.user_data.get("withdraw_token")
+        chain = context.user_data.get("withdraw_chain")
+        amount = context.user_data.get("withdraw_amount")
+        to_address = context.user_data.get("withdraw_address")
+        confirm_token = context.user_data.get("withdraw_confirm_token")
 
-        # Get token address
+        # Guard against a stale/expired confirmation card (e.g. bot restart
+        # cleared state) — re-validate before doing anything irreversible.
+        if not (
+            token and chain and amount and to_address and confirm_token
+        ) or not validate_withdraw_address(chain, to_address):
+            await query.edit_message_text(
+                "❌ Withdrawal session expired. Please start again.",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("« Back", callback_data="custodial_menu")]]
+                ),
+            )
+            _clear_withdraw_context(context)
+            return ConversationHandler.END
+
+        with get_session() as session:
+            db_user = session.query(User).filter(User.telegram_id == user.id).first()
+            if not db_user:
+                await query.edit_message_text("❌ Please use /start first.")
+                _clear_withdraw_context(context)
+                return ConversationHandler.END
+            user_id = db_user.id
+
+        await query.edit_message_text("⏳ Processing withdrawal...")
+
+        # Determine decimals up front so we can quantize the amount BEFORE
+        # both the ledger reserve and the on-chain int conversion — otherwise
+        # the ledger debits full Decimal precision while the on-chain amount
+        # floors to base units, leaving a dust mismatch between the two.
         token_address = get_token_address(token, chain)
-
-        # Send tokens FIRST. The ledger is only debited after a successful send so
-        # a failed/reverted send never leaves the user debited.
-        if token_address and token_address != "0x0000000000000000000000000000000000000000":
-            from bot.config.tokens import TOKENS
-
-            decimals = TOKENS[token].decimals
-            # Optional payment memo (Tempo TIP-20 transferWithMemo). The withdraw
-            # flow has no memo-input step yet; if a future step sets
-            # context.user_data["withdraw_memo"], it rides with the transfer.
-            memo = context.user_data.get("withdraw_memo", "") or ""
-            tx_hash = await hot_wallet_service.send_token(
-                wallet=hot_wallet,
-                chain_name=chain,
-                token_address=token_address,
-                to_address=to_address,
-                amount=Decimal(str(amount)),
-                decimals=decimals,
-                memo=memo,
-            )
-        else:
-            tx_hash = await hot_wallet_service.send_native_token(
-                wallet=hot_wallet,
-                chain_name=chain,
-                to_address=to_address,
-                amount=Decimal(str(amount)),
-            )
-
-        # Deduct from custodial balance only AFTER the send succeeded.
-        hot_wallet_service.update_custodial_balance(
-            user_id=user_id,
-            chain=chain,
-            token_symbol=token,
-            amount=Decimal(str(amount)),
-            operation="subtract",
+        is_native = not (
+            token_address and token_address != "0x0000000000000000000000000000000000000000"
         )
+        decimals = TOKENS[token].decimals if (token in TOKENS and not is_native) else 18
+        withdraw_amount = quantize_to_decimals(Decimal(str(amount)), decimals)
 
-        # Record transaction
-        hot_wallet_service.record_transaction(
+        # Idempotency key ties this specific confirmation card to a single
+        # execution, using the same claim/finalize/release primitives as the
+        # web route (a PENDING placeholder guarded by the DB unique index on
+        # (user_id, idempotency_key)). Durable across restarts, unlike the
+        # in-flight flag above.
+        idempotency_key = f"tg_withdraw:{user_id}:{confirm_token}"
+        claimed_tx_id = hot_wallet_service.claim_idempotency_key(
+            idempotency_key=idempotency_key,
             user_id=user_id,
             tx_type=TransactionType.WITHDRAWAL,
             chain=chain,
             token_symbol=token,
-            amount=Decimal(str(amount)),
-            tx_hash=tx_hash,
-            from_address=hot_wallet.address,
+            amount=withdraw_amount,
             to_address=to_address,
         )
+        if claimed_tx_id is None:
+            # Already claimed by a previous (or concurrent) execution of this
+            # exact confirmation — do not reprocess.
+            existing = hot_wallet_service.get_transaction_by_idempotency_key(
+                user_id, idempotency_key
+            )
+            await query.edit_message_text(
+                "⏳ This withdrawal was already submitted"
+                + (f"\nTx: `{existing.tx_hash[:20]}...`" if existing and existing.tx_hash else "")
+                + "\n\nCheck /orders or your wallet for status.",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("🏦 Custodial", callback_data="custodial_menu")]]
+                ),
+            )
+            _clear_withdraw_context(context)
+            return ConversationHandler.END
 
-        await query.edit_message_text(
-            f"✅ *Withdrawal Submitted\\!*\n\n"
-            f"Amount: {format_amount(amount, symbol=token)}\n"
-            f"To: `{to_address[:10]}...{to_address[-8:]}`\n"
-            f"Tx: `{tx_hash[:20]}...`\n\n"
-            f"⏳ Please wait for blockchain confirmation\\.",
-            parse_mode="MarkdownV2",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("🏦 Custodial", callback_data="custodial_menu")]]
-            ),
-        )
+        reserved = False
+        try:
+            # Reserve FIRST: a single atomic conditional debit. This IS the
+            # balance check now — never trust
+            # context.user_data["withdraw_balance"], which is a cached read
+            # from token-select time and can be stale by the time the user
+            # confirms (concurrent withdrawals, other conversations, or a
+            # balance change in between). reserve_custodial_balance only
+            # succeeds if the current balance actually covers the amount, so
+            # it also closes the same TOCTOU race as the web route.
+            reserved = hot_wallet_service.reserve_custodial_balance(
+                user_id=user_id,
+                chain=chain,
+                token_symbol=token,
+                amount=withdraw_amount,
+            )
+            if not reserved:
+                hot_wallet_service.release_claimed_transaction(claimed_tx_id)
+                raise Exception("Insufficient balance")
 
-    except Exception as e:
-        await query.edit_message_text(
-            f"❌ Withdrawal failed: {str(e)}",
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [InlineKeyboardButton("🔄 Try Again", callback_data="custodial_withdraw")],
-                    [InlineKeyboardButton("« Back", callback_data="custodial_menu")],
-                ]
-            ),
-        )
+            # Get hot wallet
+            hot_wallet = hot_wallet_service.get_deposit_wallet("evm")
+            if not hot_wallet:
+                raise Exception("Hot wallet not configured")
+
+            # Send on-chain AFTER the reservation is committed. The
+            # kill-switch (TERMINAL_WITHDRAW_ENABLED) is enforced inside
+            # send_token / send_native_token so this surface honors the same
+            # pause toggle as the web route.
+            if not is_native:
+                # Optional payment memo (Tempo TIP-20 transferWithMemo). The
+                # withdraw flow has no memo-input step yet; if a future step
+                # sets context.user_data["withdraw_memo"], it rides with the
+                # transfer.
+                memo = context.user_data.get("withdraw_memo", "") or ""
+                tx_hash = await hot_wallet_service.send_token(
+                    wallet=hot_wallet,
+                    chain_name=chain,
+                    token_address=token_address,
+                    to_address=to_address,
+                    amount=withdraw_amount,
+                    decimals=decimals,
+                    memo=memo,
+                    claimed_tx_id=claimed_tx_id,
+                )
+            else:
+                tx_hash = await hot_wallet_service.send_native_token(
+                    wallet=hot_wallet,
+                    chain_name=chain,
+                    to_address=to_address,
+                    amount=withdraw_amount,
+                    claimed_tx_id=claimed_tx_id,
+                )
+
+            # Balance was already debited by the reservation above; finalize
+            # the claimed idempotency placeholder.
+            hot_wallet_service.finalize_claimed_transaction(
+                tx_id=claimed_tx_id, tx_hash=tx_hash, from_address=hot_wallet.address
+            )
+
+            await query.edit_message_text(
+                f"✅ *Withdrawal Submitted\\!*\n\n"
+                f"Amount: {format_amount(amount, symbol=token)}\n"
+                f"To: `{to_address[:10]}...{to_address[-8:]}`\n"
+                f"Tx: `{tx_hash[:20]}...`\n\n"
+                f"⏳ Please wait for blockchain confirmation\\.",
+                parse_mode="MarkdownV2",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("🏦 Custodial", callback_data="custodial_menu")]]
+                ),
+            )
+
+        except PostBroadcastAmbiguous as exc:
+            # DO NOT refund and DO NOT release the idempotency placeholder.
+            # The node call itself failed/threw AFTER the tx may already have
+            # been accepted and propagated (timeout, dropped response,
+            # "already known", transient 5xx) — we genuinely don't know if
+            # funds moved. Leave the reservation debited and the placeholder
+            # PENDING; the withdraw reconciler resolves it against real
+            # chain state. Do not show this to the user as a failure.
+            #
+            # The deterministic hash is normally already stamped pre-broadcast
+            # (see hot_wallet._broadcast_evm_raw_tx / _send_sol_native /
+            # _send_spl_token); record it again here as an explicit,
+            # idempotent backstop so it is never silently dropped.
+            hot_wallet_service.record_pending_tx_hash(claimed_tx_id, exc.tx_hash)
+            logger.exception(
+                "bot withdraw broadcast ambiguous for user %s (tx_id=%s, tx_hash=%s) — left PENDING for reconciler",
+                user_id,
+                claimed_tx_id,
+                exc.tx_hash,
+            )
+            await query.edit_message_text(
+                "⏳ *Withdrawal Submitted*\n\n"
+                "We couldn't confirm your withdrawal reached the network right away. "
+                "We're checking — it will either complete or be automatically refunded. "
+                "No action needed; check /orders shortly for status.",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("🏦 Custodial", callback_data="custodial_menu")]]
+                ),
+            )
+
+        except WithdrawalsPausedError as e:
+            # Kill-switch check happens before any node call — safe to fully
+            # undo, same as any other pre-broadcast failure below.
+            if reserved:
+                hot_wallet_service.update_custodial_balance(
+                    user_id=user_id,
+                    chain=chain,
+                    token_symbol=token,
+                    amount=withdraw_amount,
+                    operation="add",
+                )
+                hot_wallet_service.release_claimed_transaction(claimed_tx_id)
+            await query.edit_message_text(
+                f"⏸️ {str(e)}",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton("🔄 Try Again", callback_data="custodial_withdraw")],
+                        [InlineKeyboardButton("« Back", callback_data="custodial_menu")],
+                    ]
+                ),
+            )
+
+        except Exception as e:
+            # Everything else here (missing hot wallet, insufficient balance,
+            # gas estimation, nonce fetch, signing) happens strictly BEFORE
+            # the broadcast call — the broadcast call itself is wrapped and
+            # raises PostBroadcastAmbiguous instead of a bare Exception, so
+            # reaching this branch means nothing was ever sent to the
+            # network. Safe to fully undo.
+            if reserved:
+                hot_wallet_service.update_custodial_balance(
+                    user_id=user_id,
+                    chain=chain,
+                    token_symbol=token,
+                    amount=withdraw_amount,
+                    operation="add",
+                )
+                hot_wallet_service.release_claimed_transaction(claimed_tx_id)
+            await query.edit_message_text(
+                f"❌ Withdrawal failed: {str(e)}",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton("🔄 Try Again", callback_data="custodial_withdraw")],
+                        [InlineKeyboardButton("« Back", callback_data="custodial_menu")],
+                    ]
+                ),
+            )
+    finally:
+        context.user_data.pop("withdraw_in_flight", None)
 
     # Clear context
     _clear_withdraw_context(context)

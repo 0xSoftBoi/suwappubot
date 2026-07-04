@@ -34,6 +34,10 @@ const buckets = [
     title: 'Independent review',
     body: 'Our wallet and key-management paths have undergone independent red-team review, with findings tracked and remediated. Formal third-party certifications and protocol audits are on the roadmap — we publish status rather than badges we have not earned.',
   },
+  {
+    title: 'Rate limits & agent metering',
+    body: 'Every key is rate-limited by a sliding-window limiter scoped to your tier, so no single caller can starve the API. Pay-per-call (x402) credit balances are metered per agent and deducted atomically — one agent’s usage or balance can never draw against another’s.',
+  },
 ];
 
 export default function SecurityPage() {
@@ -74,7 +78,7 @@ export default function SecurityPage() {
           <div className="security-disclose__honesty">
             <h3>What we claim — and what we don&apos;t</h3>
             <ul>
-              <li><b>Real today:</b> TEE-backed signing, KMS envelope encryption, self-custody option, spending limits, 2FA, independent red-team review.</li>
+              <li><b>Real today:</b> TEE-backed signing, KMS envelope encryption, self-custody option, spending limits, 2FA, per-tier rate limits, per-agent metering isolation, independent red-team review.</li>
               <li><b>On the roadmap:</b> SOC 2, public smart-contract / protocol audit reports, a self-serve trust portal.</li>
               <li>We&apos;d rather state status plainly than display certifications we haven&apos;t earned.</li>
             </ul>

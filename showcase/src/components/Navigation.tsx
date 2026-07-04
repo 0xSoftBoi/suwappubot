@@ -55,7 +55,7 @@ export default function Navigation() {
       <div className="nav__links">
         <a href="/#hyperliquid" className="nav__link">{t('hyperliquid')}</a>
         <a href="/#tempo" className="nav__link">{t('tempo')}</a>
-        <a href="/for-agents" className="nav__link">{t('forAgents')}</a>
+        <a href="/agents" className="nav__link">{t('forAgents')}</a>
         <a href="/solutions" className="nav__link">{t('solutions')}</a>
         <a href="/compare" className="nav__link">{t('compare')}</a>
         <a href="/pricing" className="nav__link">{t('pricing')}</a>
@@ -99,7 +99,7 @@ export default function Navigation() {
         </div>
         <a href="/#hyperliquid" className="nav__drawer-link" onClick={closeMenu}>{t('hyperliquid')}</a>
         <a href="/#tempo" className="nav__drawer-link" onClick={closeMenu}>{t('tempo')}</a>
-        <a href="/for-agents" className="nav__drawer-link" onClick={closeMenu}>{t('forAgents')}</a>
+        <a href="/agents" className="nav__drawer-link" onClick={closeMenu}>{t('forAgents')}</a>
         <a href="/solutions" className="nav__drawer-link" onClick={closeMenu}>{t('solutions')}</a>
         <a href="/compare" className="nav__drawer-link" onClick={closeMenu}>{t('compare')}</a>
         <a href="/pricing" className="nav__drawer-link" onClick={closeMenu}>{t('pricing')}</a>
