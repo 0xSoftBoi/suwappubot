@@ -178,34 +178,33 @@ export interface SafeFetchInit {
 	headers?: Record<string, string>
 	body?: string
 	timeoutMs?: number
+	/** Max redirect hops to follow before failing closed. Default 5. */
+	maxRedirects?: number
+}
+
+/** Result of a single hop: the status plus (if a redirect) the raw Location. */
+interface HopResult {
+	status: number
+	location: string | undefined
 }
 
 /**
- * SSRF-safe HTTP(S) request that defeats DNS rebinding by PINNING the socket to
- * the exact address(es) that {@link assertUrlSafeForFetch} validated.
- *
- * Mechanism: the request is issued via node:http/node:https to the ORIGINAL
- * hostname (so the Host header and TLS SNI/cert validation are preserved), but a
- * custom `lookup` short-circuits DNS resolution to return only the pre-vetted
- * addresses. The HTTP client therefore cannot perform a fresh, un-vetted
- * resolution that a rebinding attacker could race — there is no second DNS
- * query. As defense-in-depth, the pinned addresses are re-checked for privacy
- * inside the lookup and the connection is refused if any is internal.
- *
- * Throws (rejects) on unsafe URL, resolution failure, timeout, or transport
- * error — matching the previous fetch() error semantics.
+ * Issue exactly ONE request to `url`, PINNED to the given pre-vetted addresses.
+ * Returns the status and the Location header (if present) without following it.
+ * The redirect-following policy lives in {@link safeFetch}; this helper never
+ * re-resolves or chases anything.
  */
-export async function safeFetch(url: string, init: SafeFetchInit = {}): Promise<SafeFetchResult> {
-	const pinned = await assertUrlSafeForFetch(url)
-	// Fail closed: never connect if the vetted set somehow contains a private IP.
-	if (pinned.length === 0 || pinned.some((p) => isPrivateIp(p.address))) {
-		throw new Error('callback_url resolves to a private or metadata endpoint')
-	}
-
+function fetchOneHop(
+	url: string,
+	pinned: PinnedAddress[],
+	method: string,
+	headers: Record<string, string> | undefined,
+	body: string | undefined,
+	timeoutMs: number,
+): Promise<HopResult> {
 	const parsed = new URL(url)
 	const isHttps = parsed.protocol === 'https:'
 	const transport = isHttps ? https : http
-	const timeoutMs = init.timeoutMs ?? 10_000
 
 	// Pinned lookup: ignore the hostname entirely and hand back only the
 	// pre-validated address(es). No network DNS query happens here, so a
@@ -223,24 +222,26 @@ export async function safeFetch(url: string, init: SafeFetchInit = {}): Promise<
 		}
 	}
 
-	return await new Promise<SafeFetchResult>((resolve, reject) => {
+	return new Promise<HopResult>((resolve, reject) => {
 		const req = transport.request(
 			{
 				protocol: parsed.protocol,
 				hostname: parsed.hostname.replace(/^\[|\]$/g, ''),
 				port: parsed.port || (isHttps ? 443 : 80),
 				path: `${parsed.pathname}${parsed.search}`,
-				method: init.method ?? 'GET',
-				headers: init.headers,
+				method,
+				headers,
 				lookup: pinnedLookup,
 				// SNI + cert hostname stay the original host (node derives servername
 				// from `hostname`), so TLS validation is unaffected by the IP pin.
 			},
 			(res) => {
 				const status = res.statusCode ?? 0
+				const loc = res.headers.location
+				const location = Array.isArray(loc) ? loc[0] : loc
 				// Drain and discard the body; we only surface the status code.
 				res.on('data', () => {})
-				res.on('end', () => resolve({ status }))
+				res.on('end', () => resolve({ status, location }))
 				res.on('error', reject)
 			},
 		)
@@ -248,9 +249,108 @@ export async function safeFetch(url: string, init: SafeFetchInit = {}): Promise<
 			req.destroy(new Error('The operation timed out.'))
 		})
 		req.on('error', reject)
-		if (init.body !== undefined) req.write(init.body)
+		if (body !== undefined) req.write(body)
 		req.end()
 	})
+}
+
+/**
+ * SSRF-safe HTTP(S) request that defeats DNS rebinding by PINNING the socket to
+ * the exact address(es) that {@link assertUrlSafeForFetch} validated — and that
+ * follows redirects SAFELY by re-vetting AND re-pinning EVERY hop.
+ *
+ * Mechanism (per hop): the request is issued via node:http/node:https to the
+ * ORIGINAL hostname (so the Host header and TLS SNI/cert validation are
+ * preserved), but a custom `lookup` short-circuits DNS to return only the
+ * pre-vetted addresses. The HTTP client therefore cannot perform a fresh,
+ * un-vetted resolution that a rebinding attacker could race.
+ *
+ * Redirect handling: on a 3xx with a Location, the next URL is resolved
+ * (relative Locations are resolved against the current URL) and run through the
+ * SAME {@link assertUrlSafeForFetch} guard — scheme must be http(s), and the
+ * freshly-resolved IP must be public — before we connect, pinned, to that hop.
+ * A redirect to a private/loopback/link-local/metadata target is NEVER followed
+ * and surfaces as a rejection (fail closed), not a success. The chain is bounded
+ * by `maxRedirects` (default 5); exceeding it throws.
+ *
+ * Timeout: `timeoutMs` (default 10s) is a TOTAL deadline across the whole
+ * operation — redirects cannot multiply it — with a small per-hop floor so a
+ * near-exhausted budget still errors as a timeout rather than a 0ms socket.
+ *
+ * Method on redirect (standard semantics): 303 → GET (drop body); 301/302 with
+ * a non-GET/HEAD method → GET (drop body), matching prevailing browser/agent
+ * behavior and avoiding replay of the signed webhook body to a redirected host;
+ * 307/308 → method and body preserved.
+ *
+ * Throws (rejects) on unsafe URL, resolution failure, timeout, redirect-limit
+ * overflow, or transport error — matching the previous fetch() error semantics.
+ */
+export async function safeFetch(url: string, init: SafeFetchInit = {}): Promise<SafeFetchResult> {
+	const timeoutMs = init.timeoutMs ?? 10_000
+	const maxRedirects = init.maxRedirects ?? 5
+	const deadline = Date.now() + timeoutMs
+
+	let currentUrl = url
+	let method = init.method ?? 'GET'
+	let headers = init.headers
+	let body = init.body
+
+	for (let hop = 0; ; hop++) {
+		const pinned = await assertUrlSafeForFetch(currentUrl)
+		// Fail closed: never connect if the vetted set somehow contains a private IP.
+		if (pinned.length === 0 || pinned.some((p) => isPrivateIp(p.address))) {
+			throw new Error('callback_url resolves to a private or metadata endpoint')
+		}
+
+		// TOTAL deadline: redirects share one budget. Floor keeps a nearly-spent
+		// budget from issuing a 0ms (immediately-timing-out) socket weirdly.
+		const remaining = deadline - Date.now()
+		const hopTimeout = Math.max(remaining, 1)
+
+		const { status, location } = await fetchOneHop(
+			currentUrl,
+			pinned,
+			method,
+			headers,
+			body,
+			hopTimeout,
+		)
+
+		// Not a redirect (or no Location to follow) → done.
+		const isRedirect = status === 301 || status === 302 || status === 303 || status === 307 || status === 308
+		if (!isRedirect || location === undefined) {
+			return { status }
+		}
+
+		if (hop >= maxRedirects) {
+			throw new Error(`callback_url exceeded the maximum of ${maxRedirects} redirects`)
+		}
+
+		// Resolve the next URL (handles relative Location) against the current URL.
+		let nextUrl: URL
+		try {
+			nextUrl = new URL(location, currentUrl)
+		} catch {
+			throw new Error('callback_url redirected to an invalid Location')
+		}
+		if (nextUrl.protocol !== 'http:' && nextUrl.protocol !== 'https:') {
+			throw new Error('callback_url redirected to a non-http(s) scheme')
+		}
+
+		// Adjust method/body per standard redirect semantics.
+		if (status === 303 || ((status === 301 || status === 302) && method !== 'GET' && method !== 'HEAD')) {
+			method = 'GET'
+			body = undefined
+			if (headers) {
+				const { 'Content-Type': _ct, 'Content-Length': _cl, ...rest } = headers
+				headers = rest
+			}
+		}
+		// 307/308 keep method + body as-is.
+
+		currentUrl = nextUrl.toString()
+		// Loop: the next hop is re-vetted AND re-pinned by assertUrlSafeForFetch.
+	}
 }
 
 const callbackUrlSchema = z

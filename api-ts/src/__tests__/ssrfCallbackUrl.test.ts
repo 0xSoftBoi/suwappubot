@@ -119,11 +119,20 @@ mock.module('node:dns/promises', () => ({
 
 // Capture the options passed to http.request so we can inspect the pinned lookup.
 let capturedRequestOptions: any = null
+// Every http.request is recorded here (host it targeted) so tests can assert
+// which hops were actually attempted — and prove a private target was NOT hit.
+let connectAttempts: Array<{ hostname: string; port: number }> = []
+// Programmable responder: successive requests get successive responses. When the
+// queue is exhausted, default to a terminal 204. Each entry: { statusCode, location? }.
+let httpResponses: Array<{ statusCode: number; location?: string }> = []
 mock.module('node:http', () => {
 	const request = (options: any, cb: (res: any) => void) => {
 		capturedRequestOptions = options
+		connectAttempts.push({ hostname: options.hostname, port: options.port })
+		const spec = httpResponses.shift() ?? { statusCode: 204 }
 		const res: any = {
-			statusCode: 204,
+			statusCode: spec.statusCode,
+			headers: spec.location ? { location: spec.location } : {},
 			on: (event: string, handler: (...a: any[]) => void) => {
 				if (event === 'end') queueMicrotask(() => handler())
 				return res
@@ -184,5 +193,107 @@ describe('safeFetch — DNS-rebinding socket pinning', () => {
 		)
 		// No connection attempt was made.
 		expect(capturedRequestOptions).toBeNull()
+	})
+})
+
+// ---------------------------------------------------------------------------
+// Redirect-following SSRF regression tests.
+//
+// BEFORE this change: safeFetch did NOT follow redirects at all — a 3xx was
+// returned as-is ({ status: 302 }). That left a redirect-based SSRF gap: any
+// redirect-following client pointed at a public URL that 302s to
+// http://169.254.169.254/ would hit the internal target. These tests assert the
+// NEW follow-with-revet+repin behavior: every hop is re-validated and re-pinned,
+// a private redirect target is blocked (fail closed), and the chain is bounded.
+//
+// "before" state, stated honestly: with the old code the first test below would
+// see status 302 returned (never following), so the assertion that a private
+// hop is *blocked by a thrown rejection* would FAIL (no throw, just a 302). The
+// new code follows the redirect, re-vets the private target, and throws.
+// ---------------------------------------------------------------------------
+
+describe('safeFetch — safe redirect following (re-vet + re-pin every hop)', () => {
+	it('does NOT follow a redirect to a private IP and fails closed', async () => {
+		capturedRequestOptions = null
+		connectAttempts = []
+		// Hop 1: public host resolves public, server replies 302 → metadata IP.
+		dnsAnswers = [[{ address: '93.184.216.34', family: 4 }]]
+		httpResponses = [{ statusCode: 302, location: 'http://169.254.169.254/latest/meta-data/' }]
+
+		await expect(
+			safeFetch('http://public.example/webhook', { timeoutMs: 1000 }),
+		).rejects.toThrow(/private or metadata/)
+
+		// Only the first (public) hop was ever attempted; the private target was
+		// re-vetted BEFORE any socket to it — it must never be connected to.
+		expect(connectAttempts).toEqual([{ hostname: 'public.example', port: 80 }])
+		expect(connectAttempts.some((a) => a.hostname === '169.254.169.254')).toBe(false)
+	})
+
+	it('follows a benign redirect to another PUBLIC host, re-pinned to that host', async () => {
+		capturedRequestOptions = null
+		connectAttempts = []
+		// Hop 1: first.example (public) → 302 to https://second.example/next
+		// Hop 2: second.example (public) → 204 terminal.
+		dnsAnswers = [
+			[{ address: '93.184.216.34', family: 4 }],
+			[{ address: '198.51.100.7', family: 4 }],
+		]
+		httpResponses = [
+			{ statusCode: 302, location: 'http://second.example/next' },
+			{ statusCode: 204 },
+		]
+
+		const result = await safeFetch('http://first.example/webhook', {
+			method: 'POST',
+			body: '{}',
+			timeoutMs: 2000,
+		})
+		expect(result.status).toBe(204)
+
+		// Both hops attempted, in order; the 2nd hop targeted the redirected host.
+		expect(connectAttempts.map((a) => a.hostname)).toEqual(['first.example', 'second.example'])
+		// After a 302 on a POST, method downgrades to GET (body dropped).
+		expect(capturedRequestOptions.method).toBe('GET')
+		expect(capturedRequestOptions.hostname).toBe('second.example')
+		// And the final hop is PINNED to second.example's vetted IP (not first's).
+		const pinnedFinal = await new Promise<any>((resolve, reject) => {
+			capturedRequestOptions.lookup('second.example', { all: true }, (err: any, addrs: any) =>
+				err ? reject(err) : resolve(addrs),
+			)
+		})
+		expect(pinnedFinal).toEqual([{ address: '198.51.100.7', family: 4 }])
+	})
+
+	it('fails closed when the redirect chain exceeds the max', async () => {
+		capturedRequestOptions = null
+		connectAttempts = []
+		// A public host that endlessly redirects to itself. Provide plenty of
+		// public DNS answers and 302 responses so the cap — not DNS — trips.
+		dnsAnswers = Array.from({ length: 10 }, () => [{ address: '93.184.216.34', family: 4 }])
+		httpResponses = Array.from({ length: 10 }, () => ({
+			statusCode: 302 as const,
+			location: 'http://loop.example/again',
+		}))
+
+		await expect(
+			safeFetch('http://loop.example/start', { timeoutMs: 2000, maxRedirects: 5 }),
+		).rejects.toThrow(/maximum of 5 redirects/)
+
+		// Exactly 6 hops attempted: the initial request + 5 followed redirects,
+		// then the 6th redirect trips the cap and throws (fail closed).
+		expect(connectAttempts.length).toBe(6)
+	})
+
+	it('never follows a redirect to a non-http(s) scheme', async () => {
+		capturedRequestOptions = null
+		connectAttempts = []
+		dnsAnswers = [[{ address: '93.184.216.34', family: 4 }]]
+		httpResponses = [{ statusCode: 302, location: 'file:///etc/passwd' }]
+
+		await expect(
+			safeFetch('http://public.example/webhook', { timeoutMs: 1000 }),
+		).rejects.toThrow(/non-http/)
+		expect(connectAttempts).toEqual([{ hostname: 'public.example', port: 80 }])
 	})
 })
