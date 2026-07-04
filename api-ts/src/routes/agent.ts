@@ -43,6 +43,7 @@ import {
 	TokenService,
 	TurnkeyService,
 } from '../services'
+import { assertUrlSafeForFetch, safeFetch } from './ssrfGuard'
 import {
 	CreatePolicySchema,
 	ExecuteCommandSchema,
@@ -2510,9 +2511,28 @@ agentRoutes.post('/webhooks/test', async (c) => {
 	const timestamp = Math.floor(Date.now() / 1000).toString()
 	const signature = crypto.createHmac('sha256', signingKey).update(jsonBody).digest('hex')
 
+	// Re-validate the stored callback URL right before fetching so a URL that now
+	// points at a private/metadata endpoint returns a clean 400 (policy error)
+	// rather than a generic connection failure.
+	try {
+		await assertUrlSafeForFetch(agent.callbackUrl)
+	} catch (err) {
+		return c.json(
+			{
+				success: false,
+				callback_url: agent.callbackUrl,
+				error: err instanceof Error ? err.message : 'callback_url is not allowed',
+			},
+			400,
+		)
+	}
+
+	// safeFetch re-resolves+validates and PINS the socket to that exact vetted IP,
+	// so the HTTP client cannot re-resolve to a freshly-rebound private address
+	// (closes the TOCTOU DNS-rebinding window left by validate-then-fetch).
 	const startTime = Date.now()
 	try {
-		const res = await fetch(agent.callbackUrl, {
+		const res = await safeFetch(agent.callbackUrl, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
@@ -2522,7 +2542,7 @@ agentRoutes.post('/webhooks/test', async (c) => {
 				'X-Suwappu-Signature': signature,
 			},
 			body: jsonBody,
-			signal: AbortSignal.timeout(10000),
+			timeoutMs: 10000,
 		})
 
 		return c.json({

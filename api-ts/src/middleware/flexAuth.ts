@@ -11,6 +11,32 @@ export interface AuthUser {
 	walletAddress: string | null
 }
 
+/**
+ * Allowed JWT signing algorithms for verification.
+ *
+ * Tokens are signed with HS256 (jsonwebtoken's default in publicSwap.ts /
+ * webapp.ts) and decoded with `algorithms=["HS256"]` on the Python side
+ * (api/main.py, api/webapp.py). Pinning the allowlist here closes a latent
+ * algorithm-confusion gap: without it, `jwt.verify` accepts any algorithm the
+ * library defaults to for a string secret, so a token forged with a different
+ * HMAC alg would still verify against the same secret.
+ */
+export const ALLOWED_JWT_ALGORITHMS: readonly jwt.Algorithm[] = ['HS256']
+
+/**
+ * Verify a bearer JWT with an explicit algorithm allowlist. Extracted so the
+ * hardening (algorithm pinning) is unit-testable independent of the Effect
+ * runtime / service layer.
+ */
+export function verifyAuthJwt(
+	token: string,
+	jwtSecret: string,
+): { userId: number; walletAddress?: string } {
+	return jwt.verify(token, jwtSecret, {
+		algorithms: [...ALLOWED_JWT_ALGORITHMS],
+	}) as { userId: number; walletAddress?: string }
+}
+
 declare module 'hono' {
 	interface ContextVariableMap {
 		authUser: AuthUser
@@ -89,7 +115,7 @@ export function flexAuth() {
 					const jwtSecret = env.JWT_SECRET
 
 					const decoded = yield* Effect.try({
-						try: () => jwt.verify(token, jwtSecret) as { userId: number; walletAddress?: string },
+						try: () => verifyAuthJwt(token, jwtSecret),
 						catch: () => new Error('Invalid JWT token'),
 					})
 

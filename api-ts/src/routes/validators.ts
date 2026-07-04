@@ -1,4 +1,17 @@
 import { z } from 'zod'
+import { isPublicUrl } from './ssrfGuard'
+
+// The SSRF transport guard now lives in ./ssrfGuard. Re-export the pieces other
+// modules import so existing import sites keep working after the extraction.
+export {
+	isPrivateIp,
+	isPublicUrl,
+	assertUrlSafeForFetch,
+	safeFetch,
+	type PinnedAddress,
+	type SafeFetchInit,
+	type SafeFetchResult,
+} from './ssrfGuard'
 
 // ---------------------------------------------------------------------------
 // Shared field schemas
@@ -6,30 +19,6 @@ import { z } from 'zod'
 
 /** Maximum swap amount in token units (prevents accidental whole-portfolio swaps). */
 const MAX_SWAP_AMOUNT = 1_000_000
-
-/**
- * Rejects cloud-metadata endpoints, private IP ranges, and other SSRF targets.
- * Used on any user-supplied callback URL before it is stored or fetched.
- */
-function isPublicUrl(url: string): boolean {
-	try {
-		const { hostname } = new URL(url)
-		const h = hostname.toLowerCase()
-		// Cloud metadata services
-		if (h === '169.254.169.254') return false // AWS/GCP/Azure IMDS
-		if (h === 'metadata.google.internal') return false
-		if (h === 'instance-data.ec2.internal') return false
-		// Private / loopback ranges
-		if (/^(localhost|0\.0\.0\.0|::1)$/.test(h)) return false
-		if (/^127\./.test(h)) return false
-		if (/^10\./.test(h)) return false
-		if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return false
-		if (/^192\.168\./.test(h)) return false
-		return true
-	} catch {
-		return false
-	}
-}
 
 const callbackUrlSchema = z
 	.string()
