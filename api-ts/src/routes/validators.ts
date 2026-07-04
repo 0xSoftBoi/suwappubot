@@ -1,5 +1,8 @@
 import { isIP } from 'node:net'
 import { lookup } from 'node:dns/promises'
+import type { LookupFunction } from 'node:net'
+import http from 'node:http'
+import https from 'node:https'
 import { z } from 'zod'
 
 // ---------------------------------------------------------------------------
@@ -127,23 +130,33 @@ function isPublicUrl(url: string): boolean {
 	return true
 }
 
+/** A resolved, vetted target address to which the connection will be pinned. */
+export interface PinnedAddress {
+	address: string
+	family: 4 | 6
+}
+
 /**
  * Async SSRF guard used immediately before fetching a stored callback URL.
  * Re-runs the synchronous checks, then resolves the hostname (A + AAAA) and
  * rejects if ANY resolved address is private/internal. Resolving right before
  * the fetch closes the DNS-rebinding window left by store-time validation.
  *
- * Throws an Error (message suitable for the caller's error shape) when unsafe.
+ * Returns the exact set of vetted addresses so the caller can PIN the socket to
+ * them (see safeFetch) — closing the TOCTOU window where a re-resolution by the
+ * HTTP client could land on a freshly-rebound private IP. Throws an Error
+ * (message suitable for the caller's error shape) when unsafe.
  */
-export async function assertUrlSafeForFetch(url: string): Promise<void> {
+export async function assertUrlSafeForFetch(url: string): Promise<PinnedAddress[]> {
 	if (!isPublicUrl(url)) {
 		throw new Error('callback_url must not point to a private or metadata endpoint')
 	}
 	const host = new URL(url).hostname.replace(/^\[|\]$/g, '')
 	// IP literals were already fully validated by isPublicUrl.
-	if (isIP(host) !== 0) return
+	const literalVer = isIP(host)
+	if (literalVer !== 0) return [{ address: host, family: literalVer as 4 | 6 }]
 
-	let addresses: { address: string }[]
+	let addresses: { address: string; family: number }[]
 	try {
 		addresses = await lookup(host, { all: true })
 	} catch {
@@ -152,6 +165,92 @@ export async function assertUrlSafeForFetch(url: string): Promise<void> {
 	if (addresses.length === 0 || addresses.some((a) => isPrivateIp(a.address))) {
 		throw new Error('callback_url resolves to a private or metadata endpoint')
 	}
+	return addresses.map((a) => ({ address: a.address, family: a.family as 4 | 6 }))
+}
+
+/** Minimal response shape returned by safeFetch (only what callers need). */
+export interface SafeFetchResult {
+	status: number
+}
+
+export interface SafeFetchInit {
+	method?: string
+	headers?: Record<string, string>
+	body?: string
+	timeoutMs?: number
+}
+
+/**
+ * SSRF-safe HTTP(S) request that defeats DNS rebinding by PINNING the socket to
+ * the exact address(es) that {@link assertUrlSafeForFetch} validated.
+ *
+ * Mechanism: the request is issued via node:http/node:https to the ORIGINAL
+ * hostname (so the Host header and TLS SNI/cert validation are preserved), but a
+ * custom `lookup` short-circuits DNS resolution to return only the pre-vetted
+ * addresses. The HTTP client therefore cannot perform a fresh, un-vetted
+ * resolution that a rebinding attacker could race — there is no second DNS
+ * query. As defense-in-depth, the pinned addresses are re-checked for privacy
+ * inside the lookup and the connection is refused if any is internal.
+ *
+ * Throws (rejects) on unsafe URL, resolution failure, timeout, or transport
+ * error — matching the previous fetch() error semantics.
+ */
+export async function safeFetch(url: string, init: SafeFetchInit = {}): Promise<SafeFetchResult> {
+	const pinned = await assertUrlSafeForFetch(url)
+	// Fail closed: never connect if the vetted set somehow contains a private IP.
+	if (pinned.length === 0 || pinned.some((p) => isPrivateIp(p.address))) {
+		throw new Error('callback_url resolves to a private or metadata endpoint')
+	}
+
+	const parsed = new URL(url)
+	const isHttps = parsed.protocol === 'https:'
+	const transport = isHttps ? https : http
+	const timeoutMs = init.timeoutMs ?? 10_000
+
+	// Pinned lookup: ignore the hostname entirely and hand back only the
+	// pre-validated address(es). No network DNS query happens here, so a
+	// rebinding resolver can never influence which IP the socket connects to.
+	const pinnedLookup: LookupFunction = (_hostname, options, callback) => {
+		const all = typeof options === 'object' && options?.all
+		if (all) {
+			callback(
+				null,
+				// biome-ignore lint/suspicious/noExplicitAny: node's overloaded lookup callback
+				pinned.map((p) => ({ address: p.address, family: p.family })) as any,
+			)
+		} else {
+			callback(null, pinned[0].address, pinned[0].family)
+		}
+	}
+
+	return await new Promise<SafeFetchResult>((resolve, reject) => {
+		const req = transport.request(
+			{
+				protocol: parsed.protocol,
+				hostname: parsed.hostname.replace(/^\[|\]$/g, ''),
+				port: parsed.port || (isHttps ? 443 : 80),
+				path: `${parsed.pathname}${parsed.search}`,
+				method: init.method ?? 'GET',
+				headers: init.headers,
+				lookup: pinnedLookup,
+				// SNI + cert hostname stay the original host (node derives servername
+				// from `hostname`), so TLS validation is unaffected by the IP pin.
+			},
+			(res) => {
+				const status = res.statusCode ?? 0
+				// Drain and discard the body; we only surface the status code.
+				res.on('data', () => {})
+				res.on('end', () => resolve({ status }))
+				res.on('error', reject)
+			},
+		)
+		req.setTimeout(timeoutMs, () => {
+			req.destroy(new Error('The operation timed out.'))
+		})
+		req.on('error', reject)
+		if (init.body !== undefined) req.write(init.body)
+		req.end()
+	})
 }
 
 const callbackUrlSchema = z
