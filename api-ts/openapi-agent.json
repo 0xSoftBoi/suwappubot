@@ -602,6 +602,117 @@
         }
       }
     },
+    "/swap/simulate": {
+      "post": {
+        "summary": "Dry-run a swap (Tenderly-style simulation)",
+        "operationId": "simulateSwap",
+        "description": "Fetch (or reuse a cached `quote_id`) and report whether the swap would succeed, WITHOUT signing, broadcasting, or persisting anything — zero funds move. Runs six independent safety checks (route_available, balance_sufficient, allowance_sufficient, gas_affordable, eth_call_revert_check, slippage_sane); each degrades to a `warn` with `unavailable`/`not applicable` detail rather than failing the whole request when it can't run (e.g. no `wallet_address`, or a Solana quote for the EVM-only allowance/eth_call checks). Authenticated and rate-limited by tier; may be metered (x402) at the same 1-credit rate as /quote.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulateSwapRequest"
+              },
+              "example": {
+                "from_token": "ETH",
+                "to_token": "USDC",
+                "amount": "0.5",
+                "chain": "base",
+                "wallet_address": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
+                "slippage": 0.03
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Simulation report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationReport"
+                },
+                "example": {
+                  "success": true,
+                  "would_execute": true,
+                  "quote_id": "lifi_0x8453_4f3a2b1c9d8e",
+                  "chain_type": "evm",
+                  "expected_output": {
+                    "token": "USDC",
+                    "amount": "1623.412000",
+                    "amount_usd": "1623.41"
+                  },
+                  "min_output_after_slippage": "1574.709640",
+                  "price_impact_pct": 0.02,
+                  "fees": {
+                    "protocol": "$0",
+                    "gas_estimate": "$0.15"
+                  },
+                  "checks": [
+                    {
+                      "name": "route_available",
+                      "status": "pass",
+                      "detail": "Route found via Li.Fi for ETH -> USDC on chain 8453"
+                    },
+                    {
+                      "name": "balance_sufficient",
+                      "status": "pass",
+                      "detail": "Native balance 2000000000000000000 >= required 500000000000000000"
+                    },
+                    {
+                      "name": "allowance_sufficient",
+                      "status": "pass",
+                      "detail": "Native token — no ERC-20 allowance required"
+                    },
+                    {
+                      "name": "gas_affordable",
+                      "status": "pass",
+                      "detail": "Native balance covers estimated gas cost + swap amount"
+                    },
+                    {
+                      "name": "eth_call_revert_check",
+                      "status": "pass",
+                      "detail": "eth_call simulation did not revert"
+                    },
+                    {
+                      "name": "slippage_sane",
+                      "status": "pass",
+                      "detail": "Price impact 0.02%, min-output deviation 3.00%"
+                    }
+                  ],
+                  "warnings": []
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON body, validation error, unknown chain/token, Starknet (handled by bot backend), or quote expired/not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "Validation error",
+                  "hint": "Provide quote_id, or from_token + to_token + amount (+ optional chain, wallet_address)."
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "402": {
+            "$ref": "#/components/responses/PaymentRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
     "/swap/execute": {
       "post": {
         "summary": "Execute managed swap via server-side signing",
@@ -3843,6 +3954,122 @@
           }
         }
       },
+      "SimulationCheck": {
+        "type": "object",
+        "description": "One independent safety check. Degrades to `warn` with an `unavailable`/`not applicable` detail instead of failing the request when it can't run.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "route_available",
+              "balance_sufficient",
+              "allowance_sufficient",
+              "gas_affordable",
+              "eth_call_revert_check",
+              "slippage_sane"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "warn",
+              "fail"
+            ]
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status",
+          "detail"
+        ]
+      },
+      "SimulationReport": {
+        "type": "object",
+        "description": "Response of POST /swap/simulate and the MCP `simulate_swap` tool. Read-only — nothing is signed, broadcast, or persisted.",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Whether the simulation itself ran (a quote was obtained). False only on infra failure — invalid input still returns 400, not success:false."
+          },
+          "would_execute": {
+            "type": "boolean",
+            "description": "True unless at least one check has status 'fail'."
+          },
+          "quote_id": {
+            "type": "string",
+            "description": "Reusable with POST /swap or POST /swap/execute within the quote's TTL.",
+            "example": "lifi_0x8453_4f3a2b1c9d8e"
+          },
+          "chain_type": {
+            "type": "string",
+            "enum": [
+              "evm",
+              "solana"
+            ]
+          },
+          "expected_output": {
+            "type": "object",
+            "properties": {
+              "token": {
+                "type": "string"
+              },
+              "amount": {
+                "type": "string"
+              },
+              "amount_usd": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "min_output_after_slippage": {
+            "type": "string"
+          },
+          "price_impact_pct": {
+            "type": "number",
+            "nullable": true
+          },
+          "fees": {
+            "type": "object",
+            "properties": {
+              "protocol": {
+                "type": "string",
+                "nullable": true
+              },
+              "gas_estimate": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SimulationCheck"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "success",
+          "would_execute",
+          "quote_id",
+          "chain_type",
+          "expected_output",
+          "min_output_after_slippage",
+          "checks",
+          "warnings"
+        ]
+      },
       "ExecuteSwapRequest": {
         "type": "object",
         "properties": {
@@ -4934,6 +5161,58 @@
             }
           }
         ]
+      },
+      "SimulateSwapRequest": {
+        "type": "object",
+        "properties": {
+          "quote_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A quote_id from POST /quote. Overrides from_token/to_token/amount if provided."
+          },
+          "from_token": {
+            "type": "string",
+            "minLength": 1
+          },
+          "to_token": {
+            "type": "string",
+            "minLength": 1
+          },
+          "amount": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Positive decimal string, max 1,000,000 units. Required unless quote_id is provided."
+          },
+          "chain": {
+            "type": "string"
+          },
+          "from_chain": {
+            "type": "string"
+          },
+          "to_chain": {
+            "type": "string"
+          },
+          "wallet_address": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9A-HJ-NP-Za-km-z]{32,44}$"
+              }
+            ],
+            "pattern": "^0x[0-9a-fA-F]{40}$",
+            "description": "EVM address (0x + 40 hex). Must not be the zero address. Strongly recommended — without it, balance/allowance/gas/eth_call checks are skipped (reported as warn/unavailable)."
+          },
+          "slippage": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 0.5
+          }
+        },
+        "description": "Provide quote_id to simulate a cached quote, or from_token + to_token + amount to fetch and simulate a fresh one."
       }
     }
   }

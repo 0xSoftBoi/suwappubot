@@ -37,6 +37,7 @@ from bot.handlers.swap import swap_conversation_handler, check_swap_status, swap
 from bot.handlers.bulk_swap import bulk_swap_conversation_handler
 from bot.handlers.bulk_pay import bulk_pay_conversation_handler
 from bot.handlers.battle import battle_conversation_handler, battle_menu_callback_handler
+from bot.handlers.rewards import rewards_handler, rewards_claim_handler
 from bot.handlers.tip import tip_handler
 from bot.handlers.luckybox import luckybox_handler, luckybox_claim_handler
 from bot.handlers.split import split_handler, split_pay_handler
@@ -509,6 +510,10 @@ def add_handlers(application: Application) -> None:
     application.add_handler(smart_account_chain_handler)
     # Social recovery — cancel button
     application.add_handler(recover_cancel_handler)
+
+    # On-chain fee cashback (Rewards v1)
+    application.add_handler(rewards_handler)  # MONEY-PATH: /rewards + admin epoch lifecycle
+    application.add_handler(rewards_claim_handler)  # ^rewards_claim$ custodial credit
 
     # Gamified battle + airdrop callbacks (Bucket 2/3)
     application.add_handler(battle_menu_callback_handler)  # ^battle_list$ outside conversation

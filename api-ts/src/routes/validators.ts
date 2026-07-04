@@ -45,6 +45,14 @@ const evmAddressSchema = z
 		'Zero address is not allowed',
 	)
 
+/** Solana address: base58, 32-44 chars, no 0x prefix (same shape used for wallet lookups in routes/a2a.ts). */
+const solanaAddressSchema = z
+	.string()
+	.regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, 'Invalid Solana address format')
+
+/** Either an EVM or a Solana wallet address — simulate/quote requests are agnostic to chain_type at the schema level. */
+const walletAddressSchema = z.union([evmAddressSchema, solanaAddressSchema])
+
 /** Positive token amount with an upper cap to prevent accidental whole-portfolio swaps. */
 const tokenAmountSchema = z
 	.string()
@@ -83,6 +91,28 @@ export const QuoteRequestSchema = z.object({
 	wallet_address: evmAddressSchema.optional(),
 	slippage: z.number().min(0).max(0.5).optional(),
 })
+
+/**
+ * POST /v1/agent/swap/simulate — same shape as QuoteRequestSchema, plus an
+ * optional quote_id to simulate a previously fetched quote instead of pulling
+ * a fresh one. Quote fields are optional when quote_id is supplied.
+ */
+export const SimulateSwapSchema = z
+	.object({
+		quote_id: z.string().min(1).optional(),
+		from_token: z.string().min(1, 'from_token is required').optional(),
+		to_token: z.string().min(1, 'to_token is required').optional(),
+		amount: tokenAmountSchema.optional(),
+		chain: z.string().optional(),
+		from_chain: z.string().optional(),
+		to_chain: z.string().optional(),
+		wallet_address: walletAddressSchema.optional(),
+		slippage: z.number().min(0).max(0.5).optional(),
+	})
+	.refine(
+		(data) => !!data.quote_id || (!!data.from_token && !!data.to_token && !!data.amount),
+		'Provide either quote_id, or from_token + to_token + amount',
+	)
 
 export const SwapRequestSchema = z.object({
 	quote_id: z.string().optional(),

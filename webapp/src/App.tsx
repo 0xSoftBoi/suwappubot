@@ -33,6 +33,7 @@ const P2P = lazy(() => import('./pages/P2P').then(m => ({ default: m.P2P })))
 const Enterprise = lazy(() => import('./pages/Enterprise').then(m => ({ default: m.Enterprise })))
 const Battle = lazy(() => import('./pages/Battle').then(m => ({ default: m.Battle })))
 const Stocks = lazy(() => import('./pages/Stocks').then(m => ({ default: m.Stocks })))
+const Rewards = lazy(() => import('./pages/Rewards').then(m => ({ default: m.Rewards })))
 import { DesktopLayout } from './components/layout'
 import { HotkeyOverlay } from './components/desktop/HotkeyOverlay'
 import './theme/suwappu.css'
@@ -289,6 +290,16 @@ function AppContent() {
             <ProtectedRoute>
               <PageTransition>
                 <Referrals />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/rewards"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Rewards />
               </PageTransition>
             </ProtectedRoute>
           }

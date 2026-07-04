@@ -133,6 +133,15 @@ export function perpPositionTable(positions: PerpPosition[]): string {
   return table.toString();
 }
 
+/** Generic label/value table for single-record output (me, billing, auth status, swap status). */
+export function keyValueTable(rows: Array<[string, string]>): string {
+  const table = new Table({ style: { head: [] } });
+  for (const [label, value] of rows) {
+    table.push({ [theme.label(label)]: value });
+  }
+  return table.toString();
+}
+
 export function quoteTable(q: Quote): string {
   const table = new Table({ style: { head: ["cyan"] } });
   table.push(
