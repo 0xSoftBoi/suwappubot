@@ -15,6 +15,7 @@ import { PolicyServiceLive } from './PolicyService'
 import { RedisServiceLive } from './RedisService'
 import { SeasonsServiceLive } from './SeasonsService'
 import { ReferralServiceLive } from './ReferralService'
+import { RewardsServiceLive } from './RewardsService'
 import { SwapServiceLive } from './SwapService'
 import { TelegramAuthServiceLive } from './TelegramAuthService'
 import { TokenServiceLive } from './TokenService'
@@ -46,6 +47,9 @@ export const StripeLayer = StripeServiceLive.pipe(Layer.provide(ConfigLayer))
 
 // Smart-account (ERC-4337) layer depends on config only
 export const SmartAccountLayer = SmartAccountServiceLive.pipe(Layer.provide(ConfigLayer))
+
+// On-chain rewards read API depends on config (distributor address + RPC)
+export const RewardsLayer = RewardsServiceLive.pipe(Layer.provide(ConfigLayer))
 
 // Redis layer depends on config
 export const RedisLayer = RedisServiceLive.pipe(Layer.provide(ConfigLayer))
@@ -95,6 +99,7 @@ export const MainLayer = Layer.mergeAll(
 	PolymarketCredentialLayer,
 	StripeLayer,
 	SmartAccountLayer,
+	RewardsLayer,
 )
 
 // Type alias for the full context

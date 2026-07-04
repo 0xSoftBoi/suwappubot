@@ -32,6 +32,7 @@ import {
 	PlaceOrderSchema,
 	QuoteRequestSchema,
 	RegisterAgentSchema,
+	SimulateSwapSchema,
 	SwapRequestSchema,
 	TopupSchema,
 	UpdateAgentSchema,
@@ -207,6 +208,22 @@ const SCHEMA_MAP: Record<
 				},
 				wallet_address: {
 					description: "Must be the agent's own managed wallet.",
+				},
+			},
+		},
+	},
+	SimulateSwapRequest: {
+		schema: SimulateSwapSchema,
+		manualOverrides: {
+			// .refine() (quote_id OR from/to/amount) dropped — re-state it.
+			description: 'Provide quote_id to simulate a cached quote, or from_token + to_token + amount to fetch and simulate a fresh one.',
+			properties: {
+				quote_id: { description: 'A quote_id from POST /quote. Overrides from_token/to_token/amount if provided.' },
+				amount: { description: 'Positive decimal string, max 1,000,000 units. Required unless quote_id is provided.' },
+				wallet_address: {
+					pattern: '^0x[0-9a-fA-F]{40}$',
+					description:
+						'EVM address (0x + 40 hex). Must not be the zero address. Strongly recommended — without it, balance/allowance/gas/eth_call checks are skipped (reported as warn/unavailable).',
 				},
 			},
 		},

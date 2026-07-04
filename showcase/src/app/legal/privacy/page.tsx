@@ -12,7 +12,15 @@ export default function PrivacyPage() {
     <main id="main-content" className="summer-page docs-shell">
       <Navigation />
       <div className="summer-shell mkt-page">
+        <nav className="doc-breadcrumb">
+          <a href="/">Home</a>
+          <span className="doc-breadcrumb__sep">/</span>
+          <span>Legal</span>
+          <span className="doc-breadcrumb__sep">/</span>
+          <span>Privacy Policy</span>
+        </nav>
         <article className="legal-page">
+        <div className="legal-page__card">
           <p className="summer-kicker">Legal</p>
           <h1>Privacy Policy</h1>
           <p className="legal-page__updated">Last updated: June 18, 2026</p>
@@ -46,6 +54,7 @@ export default function PrivacyPage() {
 
           <h2>10. Contact</h2>
           <p>Privacy questions? Reach us through the official Suwappu Telegram or at <code>privacy@suwappu.bot</code>.</p>
+        </div>
         </article>
       </div>
       <SummerFooter />

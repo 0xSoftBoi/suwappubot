@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 from typing import Optional, Tuple
 from decimal import Decimal
 from datetime import datetime, timezone
@@ -9,6 +10,7 @@ from web3 import Web3
 from eth_account import Account
 import aiohttp
 import base58
+from sqlalchemy.exc import IntegrityError
 
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
@@ -32,6 +34,63 @@ from bot.models.custodial import (
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
+
+
+class WithdrawalsPausedError(RuntimeError):
+    """Raised when a withdrawal is attempted while the kill-switch is off."""
+
+
+def _assert_withdrawals_enabled() -> None:
+    """Shared server-side kill-switch for ALL withdraw surfaces (web + bot).
+
+    Enforced here, inside send_native_token/send_token, so every caller
+    (terminal API route, Telegram bot handler, future surfaces) honors the
+    same TERMINAL_WITHDRAW_ENABLED toggle without needing to duplicate the
+    check at each call site. Set TERMINAL_WITHDRAW_ENABLED=false to pause
+    withdrawals instantly without a redeploy (deposits are unaffected).
+    """
+    enabled = os.getenv("TERMINAL_WITHDRAW_ENABLED", "true").strip().lower() not in (
+        "false",
+        "0",
+        "no",
+        "off",
+    )
+    if not enabled:
+        raise WithdrawalsPausedError(
+            "Withdrawals are temporarily paused. Please try again shortly."
+        )
+
+
+class PostBroadcastAmbiguous(RuntimeError):
+    """Raised when the actual node broadcast call (send_raw_transaction /
+    send_transaction) itself failed or threw AFTER the transaction may
+    already have been accepted/propagated by the node (read timeout, dropped
+    HTTP response, "already known", transient 5xx, etc).
+
+    This is intentionally distinct from every other failure in the send path
+    (nonce fetch, gas estimation, signing) which fail BEFORE anything is ever
+    broadcast and are therefore safe to refund. Callers MUST NOT refund the
+    reservation or release/delete an idempotency placeholder when they catch
+    this — the reconciler (bot/services/withdraw_reconciler.py) is the only
+    thing allowed to resolve it, by checking real chain state.
+    """
+
+    def __init__(self, message: str, tx_hash: Optional[str] = None):
+        super().__init__(message)
+        self.tx_hash = tx_hash
+
+
+def quantize_to_decimals(amount: Decimal, decimals: int) -> Decimal:
+    """Floor ``amount`` to the token's on-chain precision (ROUND_DOWN), so the
+    ledger debit and the on-chain integer amount (``int(amount * 10**decimals)``)
+    always agree exactly. Rounding DOWN (never up) ensures we never send more
+    on-chain than we reserved in the ledger."""
+    from decimal import ROUND_DOWN
+
+    if decimals is None:
+        return amount
+    quantum = Decimal(1).scaleb(-decimals)
+    return amount.quantize(quantum, rounding=ROUND_DOWN)
 
 
 class HotWalletService:
@@ -383,6 +442,74 @@ class HotWalletService:
 
             return new_balance
 
+    def reserve_custodial_balance(
+        self,
+        user_id: int,
+        chain: str,
+        token_symbol: str,
+        amount: Decimal,
+        max_retries: int = 5,
+    ) -> bool:
+        """Atomically debit ``amount`` from a user's custodial balance, iff the
+        current balance covers it. This is the single source of truth for the
+        "reserve before send" pattern: callers MUST call this BEFORE submitting
+        an on-chain send, and MUST refund (operation="add") if the send fails.
+
+        Implemented as a compare-and-swap loop: read the current balance string,
+        then issue an UPDATE guarded by ``balance == <the exact string just
+        read>``. The UPDATE's rowcount tells us, atomically, whether another
+        concurrent reservation won the race in between our read and our write —
+        if so we retry against the fresh value (bounded by ``max_retries``)
+        instead of silently overwriting a change we never saw. This avoids
+        relying on numeric CAST comparisons in the WHERE clause (balance is
+        stored as a precision-preserving string and the column type differs
+        between sqlite and postgres), while still giving each successful UPDATE
+        the same "only one writer wins" guarantee a numeric conditional UPDATE
+        would provide.
+
+        Returns True iff the reservation succeeded (balance was debited).
+        Returns False iff the balance was insufficient (never over-debits).
+        """
+        if amount <= 0:
+            return False
+
+        for _ in range(max_retries):
+            with get_session() as session:
+                row = (
+                    session.query(CustodialBalance)
+                    .filter(
+                        CustodialBalance.user_id == user_id,
+                        CustodialBalance.chain == chain,
+                        CustodialBalance.token_symbol == token_symbol,
+                    )
+                    .first()
+                )
+                if not row:
+                    return False
+
+                current_str = row.balance
+                current = Decimal(current_str)
+                if current < amount:
+                    return False
+
+                new_balance = current - amount
+                updated = (
+                    session.query(CustodialBalance)
+                    .filter(
+                        CustodialBalance.id == row.id,
+                        CustodialBalance.balance == current_str,
+                    )
+                    .update({"balance": str(new_balance)}, synchronize_session=False)
+                )
+                session.commit()
+
+                if updated == 1:
+                    return True
+                # Lost the race to a concurrent reservation/credit; retry against
+                # the now-current balance rather than assuming failure.
+
+        return False
+
     # === Transaction Recording ===
 
     def record_transaction(
@@ -398,6 +525,7 @@ class HotWalletService:
         gas_sponsored: bool = False,
         gas_cost: Optional[Decimal] = None,
         notes: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> CustodialTransaction:
         """Record a custodial transaction."""
         token_address = get_token_address(token_symbol, chain) or NATIVE_TOKEN_ADDRESS
@@ -416,6 +544,7 @@ class HotWalletService:
                 gas_sponsored=gas_sponsored,
                 gas_cost=str(gas_cost) if gas_cost else None,
                 notes=notes,
+                idempotency_key=idempotency_key,
             )
             session.add(tx)
             session.flush()
@@ -424,6 +553,181 @@ class HotWalletService:
         with get_session() as session:
             return (
                 session.query(CustodialTransaction).filter(CustodialTransaction.id == tx_id).first()
+            )
+
+    def claim_idempotency_key(
+        self,
+        idempotency_key: str,
+        user_id: int,
+        tx_type: TransactionType,
+        chain: str,
+        token_symbol: str,
+        amount: Decimal,
+        to_address: Optional[str] = None,
+    ) -> Optional[int]:
+        """Atomically claim an idempotency key by inserting a PENDING
+        placeholder row guarded by the unique index on idempotency_key.
+
+        This must be called BEFORE reserving/debiting the balance so the
+        dedupe check itself has no TOCTOU window: if two requests race with
+        the same key, the DB unique constraint lets only one INSERT succeed;
+        the loser gets an IntegrityError and returns None (caller should then
+        look up and return the winner's result instead of proceeding).
+
+        Returns the new transaction id on success, or None if the key was
+        already claimed by another request.
+        """
+        token_address = get_token_address(token_symbol, chain) or NATIVE_TOKEN_ADDRESS
+        try:
+            with get_session() as session:
+                tx = CustodialTransaction(
+                    user_id=user_id,
+                    tx_type=tx_type.value,
+                    status=TransactionStatus.PENDING.value,
+                    chain=chain,
+                    token_symbol=token_symbol,
+                    token_address=token_address,
+                    amount=str(amount),
+                    to_address=to_address,
+                    idempotency_key=idempotency_key,
+                )
+                session.add(tx)
+                session.commit()
+                return tx.id
+        except IntegrityError:
+            return None
+
+    def finalize_claimed_transaction(
+        self,
+        tx_id: int,
+        tx_hash: str,
+        from_address: Optional[str] = None,
+    ) -> None:
+        """Mark a claimed (pending) idempotency placeholder as completed once
+        the on-chain send has actually succeeded."""
+        with get_session() as session:
+            tx = (
+                session.query(CustodialTransaction).filter(CustodialTransaction.id == tx_id).first()
+            )
+            if tx:
+                tx.status = TransactionStatus.COMPLETED.value
+                tx.tx_hash = tx_hash
+                if from_address:
+                    tx.from_address = from_address
+                tx.completed_at = datetime.now(timezone.utc)
+
+    def stamp_pending_tx_hash(self, tx_id: int, tx_hash: str) -> None:
+        """Persist the deterministic tx hash/signature onto a PENDING claimed
+        placeholder BEFORE the broadcast call is made. This is what lets the
+        withdraw reconciler resolve an ambiguous send (PostBroadcastAmbiguous)
+        against real chain state instead of ever having to blind-refund a
+        withdrawal purely by age — the hash is known before the risky call,
+        so it is always available even if the broadcast call itself throws."""
+        if not tx_hash:
+            return
+        with get_session() as session:
+            tx = (
+                session.query(CustodialTransaction).filter(CustodialTransaction.id == tx_id).first()
+            )
+            if tx and not tx.tx_hash:
+                tx.tx_hash = tx_hash
+
+    def record_pending_tx_hash(self, tx_id: int, tx_hash: str) -> bool:
+        """Record a tx hash/signature on a PENDING placeholder WITHOUT
+        finalizing it — used by callers catching PostBroadcastAmbiguous to
+        make sure the hash from the exception is actually persisted (the
+        pre-broadcast stamp inside send_token/send_native_token already does
+        this in the common case, but this is the explicit, idempotent
+        backstop callers invoke from their except block so a hash is never
+        silently dropped).
+
+        Implemented as a single conditional UPDATE guarded by
+        ``status='pending' AND tx_hash IS NULL`` so it is safe to call
+        repeatedly and never overwrites a hash/status set by a concurrent
+        finalize() or a reconciler pass. Returns True iff the row was
+        updated.
+        """
+        if not tx_hash:
+            return False
+        with get_session() as session:
+            updated = (
+                session.query(CustodialTransaction)
+                .filter(
+                    CustodialTransaction.id == tx_id,
+                    CustodialTransaction.status == TransactionStatus.PENDING.value,
+                    CustodialTransaction.tx_hash.is_(None),
+                )
+                .update({"tx_hash": tx_hash}, synchronize_session=False)
+            )
+            session.commit()
+            return updated == 1
+
+    def cas_transaction_status(
+        self,
+        tx_id: int,
+        expected_status: TransactionStatus,
+        new_status: TransactionStatus,
+        tx_hash: Optional[str] = None,
+    ) -> bool:
+        """Atomically transition a CustodialTransaction's status via a single
+        conditional UPDATE guarded by the row's CURRENT status. Returns True
+        only if the transition was applied (rowcount == 1) — i.e. no other
+        writer (a live request finalizing the same placeholder, or a
+        concurrent reconciler pass) had already moved the row out of
+        ``expected_status``.
+
+        This is the CAS the withdraw reconciler uses for both its
+        confirmed->COMPLETED and its refund->FAILED transitions, so a
+        request-path finalize() racing a reconciler pass can never result in
+        a double-refund or a status flip back to FAILED after a real
+        completion.
+        """
+        with get_session() as session:
+            values: dict = {"status": new_status.value}
+            if new_status == TransactionStatus.COMPLETED:
+                values["completed_at"] = datetime.now(timezone.utc)
+            if tx_hash:
+                values["tx_hash"] = tx_hash
+            updated = (
+                session.query(CustodialTransaction)
+                .filter(
+                    CustodialTransaction.id == tx_id,
+                    CustodialTransaction.status == expected_status.value,
+                )
+                .update(values, synchronize_session=False)
+            )
+            session.commit()
+            return updated == 1
+
+    def release_claimed_transaction(self, tx_id: int) -> None:
+        """Delete a claimed idempotency placeholder after a failed send so the
+        key becomes reusable for a genuine retry (the balance reservation is
+        refunded separately by the caller)."""
+        with get_session() as session:
+            tx = (
+                session.query(CustodialTransaction).filter(CustodialTransaction.id == tx_id).first()
+            )
+            if tx:
+                session.delete(tx)
+
+    def get_transaction_by_idempotency_key(
+        self, user_id: int, idempotency_key: str
+    ) -> Optional[CustodialTransaction]:
+        """Look up a previously-recorded custodial transaction by its client
+        idempotency key, SCOPED TO user_id (the unique index is now
+        UNIQUE(user_id, idempotency_key) — two different users may reuse the
+        same client-chosen key without colliding or leaking each other's tx
+        hash/status). Used to short-circuit withdraw retries/replays."""
+        if not idempotency_key:
+            return None
+        with get_session() as session:
+            return (
+                session.query(CustodialTransaction)
+                .filter(
+                    CustodialTransaction.user_id == user_id,
+                    CustodialTransaction.idempotency_key == idempotency_key,
+                )
+                .first()
             )
 
     def update_transaction_status(
@@ -553,10 +857,21 @@ class HotWalletService:
         chain_name: str,
         to_address: str,
         amount: Decimal,
+        claimed_tx_id: Optional[int] = None,
     ) -> str:
-        """Send native token from hot wallet. Returns tx hash."""
+        """Send native token from hot wallet. Returns tx hash.
+
+        ``claimed_tx_id``, if provided, is the id of the caller's claimed
+        idempotency placeholder (see claim_idempotency_key). It is used to
+        stamp the deterministic tx hash onto that row BEFORE the broadcast
+        call, so an ambiguous broadcast failure (PostBroadcastAmbiguous)
+        always leaves a resolvable hash behind for the withdraw reconciler.
+        """
+        _assert_withdrawals_enabled()
         if wallet.chain_type == "solana":
-            return await self._send_sol_native(wallet, to_address, amount)
+            return await self._send_sol_native(
+                wallet, to_address, amount, claimed_tx_id=claimed_tx_id
+            )
         elif wallet.chain_type != "evm":
             raise NotImplementedError(f"Chain type {wallet.chain_type} not supported")
 
@@ -578,24 +893,53 @@ class HotWalletService:
             "chainId": chain.chain_id,
         }
 
-        # Sign based on wallet provider
+        # Sign based on wallet provider. Signing itself is pre-broadcast and
+        # safe to let fail normally; only the send_raw_transaction call is
+        # ambiguous once invoked.
         if wallet.is_turnkey_wallet:
             signed_tx_hex = await self._sign_via_turnkey(wallet, tx)
-            tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+            raw_tx = bytes.fromhex(signed_tx_hex.replace("0x", ""))
         else:
             private_key = self.get_private_key(wallet)
             if not private_key.startswith("0x"):
                 private_key = "0x" + private_key
             signed = Account.sign_transaction(tx, private_key)
-            tx_hash = web3.eth.send_raw_transaction(signed.rawTransaction)
+            raw_tx = signed.rawTransaction
 
+        tx_hash = self._broadcast_evm_raw_tx(web3, raw_tx, claimed_tx_id=claimed_tx_id)
         return tx_hash.hex()
+
+    def _broadcast_evm_raw_tx(self, web3: Web3, raw_tx: bytes, claimed_tx_id: Optional[int] = None):
+        """Submit a signed raw EVM transaction. The tx hash is deterministic
+        from the signed raw bytes (keccak256), so it's known and stamped onto
+        the claimed idempotency placeholder BEFORE we ever call the node —
+        that way, if send_raw_transaction itself throws (timeout / dropped
+        response / transient 5xx / "already known"), the row this ambiguous
+        failure leaves behind ALWAYS has a hash the reconciler can resolve
+        against real chain state, instead of a hash-less row that would
+        otherwise have to be blind-refunded by age.
+
+        Any exception from the actual send_raw_transaction call is treated as
+        PostBroadcastAmbiguous — the node may have already accepted the tx
+        even though the call raised. Callers must NOT refund/release on this
+        path; leave it for the reconciler."""
+        precomputed_hash = Web3.keccak(raw_tx).hex()
+        if claimed_tx_id is not None:
+            self.stamp_pending_tx_hash(claimed_tx_id, precomputed_hash)
+        try:
+            return web3.eth.send_raw_transaction(raw_tx)
+        except Exception as e:
+            raise PostBroadcastAmbiguous(
+                f"send_raw_transaction failed ambiguously (tx may already be broadcast): {e}",
+                tx_hash=precomputed_hash,
+            ) from e
 
     async def _send_sol_native(
         self,
         wallet: HotWallet,
         to_address: str,
         amount: Decimal,
+        claimed_tx_id: Optional[int] = None,
     ) -> str:
         """Send native SOL from hot wallet. Returns transaction signature."""
         from solana.rpc.async_api import AsyncClient
@@ -642,8 +986,24 @@ class HotWalletService:
             tx = Transaction.new_unsigned(message)
             tx.sign([keypair], recent_blockhash)
 
-            # Send transaction
-            result = await client.send_transaction(tx)
+            # The signature is deterministic from the signed tx — derive and
+            # stamp it onto the claimed idempotency placeholder BEFORE
+            # sending, same rationale as the EVM path: an ambiguous send
+            # failure must always leave a resolvable hash behind.
+            precomputed_sig = str(tx.signatures[0])
+            if claimed_tx_id is not None:
+                self.stamp_pending_tx_hash(claimed_tx_id, precomputed_sig)
+
+            # Send transaction. Any exception here is ambiguous — the RPC node
+            # may have already accepted/relayed the transaction even if this
+            # call raised. Do not let callers treat this as safe-to-refund.
+            try:
+                result = await client.send_transaction(tx)
+            except Exception as e:
+                raise PostBroadcastAmbiguous(
+                    f"Solana send_transaction failed ambiguously (tx may already be broadcast): {e}",
+                    tx_hash=precomputed_sig,
+                ) from e
             signature = str(result.value)
 
             logger.info(f"Sent {amount} SOL to {to_address}, signature: {signature}")
@@ -656,6 +1016,7 @@ class HotWalletService:
         to_address: str,
         amount: Decimal,
         decimals: int,
+        claimed_tx_id: Optional[int] = None,
     ) -> str:
         """Send SPL token from hot wallet. Returns transaction signature."""
         from solana.rpc.async_api import AsyncClient
@@ -721,8 +1082,22 @@ class HotWalletService:
             tx = Transaction.new_unsigned(message)
             tx.sign([keypair], recent_blockhash)
 
-            # Send transaction
-            result = await client.send_transaction(tx)
+            # See _send_sol_native: stamp the deterministic signature onto the
+            # claimed idempotency placeholder BEFORE sending.
+            precomputed_sig = str(tx.signatures[0])
+            if claimed_tx_id is not None:
+                self.stamp_pending_tx_hash(claimed_tx_id, precomputed_sig)
+
+            # Send transaction. Any exception here is ambiguous — see
+            # _send_sol_native for why this must not be treated as safe to
+            # refund/release by callers.
+            try:
+                result = await client.send_transaction(tx)
+            except Exception as e:
+                raise PostBroadcastAmbiguous(
+                    f"Solana send_transaction failed ambiguously (tx may already be broadcast): {e}",
+                    tx_hash=precomputed_sig,
+                ) from e
             signature = str(result.value)
 
             logger.info(
@@ -739,6 +1114,7 @@ class HotWalletService:
         amount: Decimal,
         decimals: int,
         memo: str = "",
+        claimed_tx_id: Optional[int] = None,
     ) -> str:
         """Send ERC20/SPL token from hot wallet. Returns tx hash/signature.
 
@@ -747,9 +1123,15 @@ class HotWalletService:
         ``memo`` can ride with the transfer; an empty memo still produces a real
         TIP-20 transferWithMemo call. All other chains use plain ERC-20
         ``transfer``.
+
+        ``claimed_tx_id`` — see send_native_token: stamps the deterministic
+        pre-broadcast hash onto the caller's claimed idempotency placeholder.
         """
+        _assert_withdrawals_enabled()
         if wallet.chain_type == "solana":
-            return await self._send_spl_token(wallet, token_address, to_address, amount, decimals)
+            return await self._send_spl_token(
+                wallet, token_address, to_address, amount, decimals, claimed_tx_id=claimed_tx_id
+            )
         elif wallet.chain_type != "evm":
             raise NotImplementedError(f"Chain type {wallet.chain_type} not supported")
 
@@ -812,17 +1194,20 @@ class HotWalletService:
         # Estimate gas
         tx["gas"] = web3.eth.estimate_gas(tx)
 
-        # Sign based on wallet provider
+        # Sign based on wallet provider. Signing itself is pre-broadcast and
+        # safe to let fail normally; only the send_raw_transaction call is
+        # ambiguous once invoked.
         if wallet.is_turnkey_wallet:
             signed_tx_hex = await self._sign_via_turnkey(wallet, tx)
-            tx_hash = web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+            raw_tx = bytes.fromhex(signed_tx_hex.replace("0x", ""))
         else:
             private_key = self.get_private_key(wallet)
             if not private_key.startswith("0x"):
                 private_key = "0x" + private_key
             signed = Account.sign_transaction(tx, private_key)
-            tx_hash = web3.eth.send_raw_transaction(signed.rawTransaction)
+            raw_tx = signed.rawTransaction
 
+        tx_hash = self._broadcast_evm_raw_tx(web3, raw_tx, claimed_tx_id=claimed_tx_id)
         return tx_hash.hex()
 
     async def _sign_via_turnkey(self, wallet: HotWallet, transaction: dict) -> str:
