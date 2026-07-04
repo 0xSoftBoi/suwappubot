@@ -14,7 +14,8 @@
 
 import { describe, expect, it, mock } from 'bun:test'
 
-import { assertUrlSafeForFetch, isPrivateIp, RegisterAgentSchema, safeFetch } from '../routes/validators'
+import { assertUrlSafeForFetch, isPrivateIp, safeFetch } from '../routes/ssrfGuard'
+import { RegisterAgentSchema } from '../routes/validators'
 
 /** True when the schema accepts the given callback_url. */
 function accepts(url: string): boolean {
@@ -77,6 +78,25 @@ describe('isPrivateIp classification', () => {
 		expect(isPrivateIp('8.8.8.8')).toBe(false)
 		expect(isPrivateIp('1.1.1.1')).toBe(false)
 		expect(isPrivateIp('2606:4700:4700::1111')).toBe(false)
+	})
+
+	// MEDIUM fix: the old isPrivateIpv6 only recognized the ::ffff:-COMPRESSED
+	// spelling. Expanded / alternate spellings of the same IPv4-mapped or
+	// IPv4-compatible address slipped through as "public" and the socket then
+	// pinned straight to the internal target. These MUST all be private now.
+	it('flags EXPANDED / alternate IPv4-mapped & compatible IPv6 spellings (bypass fix)', () => {
+		// Fully-expanded IPv4-mapped, dotted tail → metadata IP.
+		expect(isPrivateIp('0:0:0:0:0:ffff:169.254.169.254')).toBe(true)
+		// Fully-expanded IPv4-mapped, hex tail (a9fe:a9fe === 169.254.169.254).
+		expect(isPrivateIp('0:0:0:0:0:ffff:a9fe:a9fe')).toBe(true)
+		// Deprecated IPv4-compatible, compressed hex tail.
+		expect(isPrivateIp('::a9fe:a9fe')).toBe(true)
+		// Deprecated IPv4-compatible, fully expanded dotted tail.
+		expect(isPrivateIp('0:0:0:0:0:0:169.254.169.254')).toBe(true)
+		// Expanded loopback mapped forms too.
+		expect(isPrivateIp('0:0:0:0:0:ffff:127.0.0.1')).toBe(true)
+		// A genuinely public mapped address stays public.
+		expect(isPrivateIp('0:0:0:0:0:ffff:8.8.8.8')).toBe(false)
 	})
 })
 
@@ -295,5 +315,65 @@ describe('safeFetch — safe redirect following (re-vet + re-pin every hop)', ()
 			safeFetch('http://public.example/webhook', { timeoutMs: 1000 }),
 		).rejects.toThrow(/non-http/)
 		expect(connectAttempts).toEqual([{ hostname: 'public.example', port: 80 }])
+	})
+
+	// LOW fix (cross-host header leak): a redirect to a DIFFERENT host must not
+	// carry the HMAC signature / auth headers — otherwise the signed webhook body
+	// is replayed with a valid signature to an unintended host.
+	it('DROPS signature/auth headers when a redirect crosses to a new host', async () => {
+		capturedRequestOptions = null
+		connectAttempts = []
+		dnsAnswers = [
+			[{ address: '93.184.216.34', family: 4 }],
+			[{ address: '198.51.100.7', family: 4 }],
+		]
+		// Use 307 so method/body are preserved — proving the header drop is driven
+		// by the host change, not by the method-downgrade path.
+		httpResponses = [
+			{ statusCode: 307, location: 'http://evil.example/collect' },
+			{ statusCode: 204 },
+		]
+
+		const result = await safeFetch('http://first.example/webhook', {
+			method: 'POST',
+			body: '{}',
+			headers: {
+				'Content-Type': 'application/json',
+				'X-Suwappu-Signature': 'deadbeef',
+				'X-Suwappu-Timestamp': '1700000000',
+				Authorization: 'Bearer secret',
+				'X-Suwappu-Event': 'webhook.test',
+			},
+			timeoutMs: 2000,
+		})
+		expect(result.status).toBe(204)
+
+		// Final hop targeted the new host…
+		expect(capturedRequestOptions.hostname).toBe('evil.example')
+		// …with the signing/auth headers stripped…
+		const sent = capturedRequestOptions.headers as Record<string, string>
+		expect(sent['X-Suwappu-Signature']).toBeUndefined()
+		expect(sent['X-Suwappu-Timestamp']).toBeUndefined()
+		expect(sent.Authorization).toBeUndefined()
+		// …but non-sensitive headers preserved (307 keeps method + body).
+		expect(sent['X-Suwappu-Event']).toBe('webhook.test')
+		expect(capturedRequestOptions.method).toBe('POST')
+	})
+
+	// LOW fix (timeout): when the total deadline is exhausted, throw a clean
+	// timeout error BEFORE issuing another hop (never floor to a ~1ms socket).
+	it('throws a clean timeout when the total deadline is exhausted', async () => {
+		capturedRequestOptions = null
+		connectAttempts = []
+		dnsAnswers = [[{ address: '93.184.216.34', family: 4 }]]
+		httpResponses = []
+
+		// timeoutMs 0 → the deadline is already spent when the loop begins, so the
+		// guard must throw a timeout instead of issuing a doomed request.
+		await expect(
+			safeFetch('http://public.example/webhook', { timeoutMs: 0 }),
+		).rejects.toThrow(/timed out/)
+		// No socket was ever attempted.
+		expect(connectAttempts).toEqual([])
 	})
 })

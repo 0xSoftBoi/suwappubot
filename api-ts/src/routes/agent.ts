@@ -38,9 +38,8 @@ import {
 	TokenService,
 	TurnkeyService,
 } from '../services'
+import { assertUrlSafeForFetch, safeFetch } from './ssrfGuard'
 import {
-	assertUrlSafeForFetch,
-	safeFetch,
 	CreatePolicySchema,
 	ExecuteCommandSchema,
 	ExecuteSwapSchema,
