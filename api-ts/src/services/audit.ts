@@ -66,5 +66,7 @@ export const writeAuditLog = (event: AuditEvent): void => {
 	// AgentService -> audit, which caused a TDZ crash ("Cannot access
 	// 'AgentServiceLive' before initialization") when a route/test pulled
 	// AgentService before the runtime. runEffect is only needed at call time.
-	void import('../runtime').then(({ runEffect }) => runEffect(auditLog(event)))
+	void import('../runtime')
+		.then(({ runEffect }) => runEffect(auditLog(event)))
+		.catch((e) => logger.warn(`[audit] runtime load failed (${event.eventType}): ${e}`))
 }
