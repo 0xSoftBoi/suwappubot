@@ -1,4 +1,4 @@
-CREATE TABLE "consumed_payments" (
+CREATE TABLE IF NOT EXISTS "consumed_payments" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"chain" varchar(32) NOT NULL,
 	"tx_hash" varchar(128) NOT NULL,
