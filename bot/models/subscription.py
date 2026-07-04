@@ -122,9 +122,7 @@ class ConsumedPayment(Base):
     consumed_by = Column(String(64), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-    __table_args__ = (
-        UniqueConstraint("chain", "tx_hash", name="uq_consumed_payments_chain_tx"),
-    )
+    __table_args__ = (UniqueConstraint("chain", "tx_hash", name="uq_consumed_payments_chain_tx"),)
 
 
 class MPPSessionRecord(Base):
