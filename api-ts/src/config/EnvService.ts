@@ -115,6 +115,12 @@ export const EnvSchema = Schema.Struct({
 	SMART_ACCOUNT_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
 	// ERC-4337 bundler JSON-RPC endpoint (e.g. Pimlico). Required to send UserOps.
 	BUNDLER_RPC_URL: Schema.optional(Schema.String),
+
+	// On-chain fee-cashback rewards (audited SuwappuRewardsDistributor on Base).
+	// Both optional — without them the rewards API still serves balances/proofs,
+	// it just can't read live isClaimed() state from the chain.
+	REWARDS_DISTRIBUTOR_ADDRESS: Schema.optional(Schema.String),
+	REWARDS_RPC_URL: Schema.optional(Schema.String),
 })
 
 export type Env = Schema.Schema.Type<typeof EnvSchema>

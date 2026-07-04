@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { PulseFilters, PulseToken } from '../types/api'
 import { fetchPulseFeed } from '../lib/dexscreener'
 import { enrichWithSafety } from '../lib/helius'
+import { api } from '../lib/api'
 
 type PulseStage = 'new' | 'final_stretch' | 'migrated'
 
@@ -21,12 +22,15 @@ const DEFAULT_FILTERS: PulseFilters = {
   maxSniperPercent: null,
   maxBundleCount: null,
   minHolders: null,
+  maxInsidersPercent: null,
+  maxBundlePercent: null,
 }
 
 // Pure filter application: select the active lifecycle stage and apply every
 // active filter. On-chain-signal filters (holder concentration, dev/sniper %,
-// bundle count) only constrain when the token actually carries that datum, so a
-// token whose provider didn't supply the signal isn't wrongly excluded.
+// bundle count, insiders %, bundle %) only constrain when the token actually
+// carries that datum, so a token whose provider didn't supply the signal isn't
+// wrongly excluded.
 export function applyPulseFilters(
   tokens: PulseToken[],
   filters: PulseFilters,
@@ -60,6 +64,18 @@ export function applyPulseFilters(
       return false
     if (filters.maxBundleCount != null && (t.bundleCount ?? 0) > filters.maxBundleCount) return false
     if (filters.minHolders != null && t.holders > 0 && t.holders < filters.minHolders) return false
+    if (
+      filters.maxInsidersPercent != null &&
+      t.insidersPercent != null &&
+      t.insidersPercent > filters.maxInsidersPercent
+    )
+      return false
+    if (
+      filters.maxBundlePercent != null &&
+      t.bundlePercent != null &&
+      t.bundlePercent > filters.maxBundlePercent
+    )
+      return false
     return true
   })
 }
@@ -76,11 +92,20 @@ export function usePulse() {
     refetchInterval: 30_000,
   })
 
+  // 'final_stretch' (pre-migration/pre-graduation, pump.fun bonding in
+  // progress) is sourced from our own read-only terminal route, which proxies
+  // DexScreener narrowed to a low-liquidity/recently-created band.
+  const finalStretch = useQuery({
+    queryKey: ['pulse-final-stretch'],
+    queryFn: () => api.getFinalStretch(30),
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  })
+
   const baseTokens = useMemo<PulseToken[]>(() => {
     if (!feed.data) return []
-    // 'final_stretch' (pump.fun bonding in progress) has no DexScreener source.
-    return [...feed.data.new, ...feed.data.migrated]
-  }, [feed.data])
+    return [...feed.data.new, ...feed.data.migrated, ...(finalStretch.data ?? [])]
+  }, [feed.data, finalStretch.data])
 
   // Layer live safety signals (top-holder %, authority risk) onto the feed via
   // Helius — but only for the tokens actually on screen (the active stage, capped)
@@ -136,10 +161,11 @@ export function usePulse() {
     filters,
     setFilters,
     resetFilters: () => setFilters(DEFAULT_FILTERS),
-    isLoading: feed.isLoading,
-    isError: feed.isError,
-    // final_stretch needs a pump.fun bonding-curve feed we don't source yet.
-    stageUnavailable: activeStage === 'final_stretch',
-    lastUpdated: feed.dataUpdatedAt || Date.now(),
+    isLoading: activeStage === 'final_stretch' ? finalStretch.isLoading : feed.isLoading,
+    isError: activeStage === 'final_stretch' ? finalStretch.isError : feed.isError,
+    stageUnavailable: false,
+    lastUpdated:
+      (activeStage === 'final_stretch' ? finalStretch.dataUpdatedAt : feed.dataUpdatedAt) ||
+      Date.now(),
   }
 }

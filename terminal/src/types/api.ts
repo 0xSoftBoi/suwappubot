@@ -886,6 +886,10 @@ export interface PulseToken {
   priceChange1h?: number
   priceChange6h?: number
   priceChange24h?: number
+  // Final Stretch (pre-migration) signals — best-effort proxies, null when
+  // there isn't enough tape/data to judge (never fabricated).
+  insidersPercent?: number | null
+  bundlePercent?: number | null
 }
 
 export interface PulseFilters {
@@ -900,6 +904,8 @@ export interface PulseFilters {
   maxSniperPercent: number | null
   maxBundleCount: number | null
   minHolders: number | null
+  maxInsidersPercent: number | null
+  maxBundlePercent: number | null
 }
 
 export interface ReferralStats {
@@ -926,4 +932,42 @@ export interface ReferralLeaderboardEntry {
   rank: number
   username: string
   total_reward_usd: number
+}
+
+// On-chain fee-cashback rewards (Rewards v1) — GET /webapp/rewards/*
+export interface RewardsEntry {
+  epochIndex: number
+  amountUsd: number
+  cashbackUsd: number
+  carryoverUsd: number
+  status: string // claimable | onchain | credited | claimed_onchain | carryover | rolled
+  claimDeadline: string | null
+  claimedTxHash: string | null
+  hasOnchainLeaf: boolean
+}
+
+export interface RewardsSummary {
+  accruingUsd: number
+  accruingEpochIndex: number
+  accruingEndsAt: string
+  claimableUsd: number
+  onchainUsd: number
+  lifetimeUsd: number
+  carryoverUsd: number
+  cashbackRate: number
+  payoutToken: string
+  payoutChain: string
+  entries: RewardsEntry[]
+}
+
+export interface RewardsClaimPayload {
+  epochId: number
+  index: number
+  account: string
+  amount: string // uint256 base units, as string
+  merkleProof: string[]
+  distributor: string | null
+  chainId: number
+  claimDeadline: string | null
+  alreadyClaimed: boolean | null // null = chain not configured/reachable
 }

@@ -245,6 +245,43 @@ function route(path: string, search: URLSearchParams): Response | null {
       mcapChange24h: -2.35,
       stablecoinMcap: 313_600_000_000,
     })
+  if (path.endsWith('/terminal/discovery/final-stretch')) {
+    const now = Date.now()
+    const mk = (
+      i: number,
+      symbol: string,
+      ageMin: number,
+      mcap: number,
+      vol: number,
+      txns: number,
+      insiders: number | null,
+      bundle: number | null,
+    ) => ({
+      address: `FinalStretchMint${i}xxxxxxxxxxxxxxxxxxxxxxxxxxxxx`.slice(0, 44),
+      symbol,
+      name: `${symbol} Token`,
+      chain: 'solana',
+      stage: 'final_stretch' as const,
+      createdAt: new Date(now - ageMin * 60_000).toISOString(),
+      marketCap: mcap,
+      volume24h: vol,
+      liquidityUsd: mcap * 0.35,
+      priceUsd: mcap / 1_000_000_000,
+      txns24h: txns,
+      buys24h: Math.round(txns * 0.6),
+      sells24h: Math.round(txns * 0.4),
+      insidersPercent: insiders,
+      bundlePercent: bundle,
+      bondingProgress: Math.min(99, Math.round((mcap / 90_000) * 100)),
+    })
+    return json([
+      mk(1, 'STRETCH', 4, 18_000, 92_000, 640, 62.4, 12.1),
+      mk(2, 'BONDR', 12, 34_500, 210_000, 1_450, 41.2, null),
+      mk(3, 'PUMPX', 27, 61_200, 305_000, 2_010, null, 28.6),
+      mk(4, 'GRAD', 58, 78_900, 118_000, 870, 18.9, 4.2),
+      mk(5, 'MOONB', 95, 12_100, 45_000, 210, 71.5, 33.8),
+    ])
+  }
   if (path.endsWith('/terminal/signals'))
     return json([
       { id: 'squeeze:SOL-USD', category: 'squeeze', severity: 'alert', emoji: '⚡', title: 'SOL short squeeze building', detail: 'Up 3.1% while shorts pay funding — trapped shorts.', market: 'SOL-USD' },
