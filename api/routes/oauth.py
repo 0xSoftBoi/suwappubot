@@ -319,6 +319,8 @@ async def oauth_callback(
         logger.error(f"OAuth flow failed: {e}")
         db.delete(oauth_state)
         db.commit()
+        # The one-time login nonce has served its purpose; clear it from the browser.
+        response.delete_cookie(key=OAUTH_NONCE_COOKIE, path="/auth/oauth")
         raise HTTPException(status_code=400, detail=str(e))
 
     # Find or create user
