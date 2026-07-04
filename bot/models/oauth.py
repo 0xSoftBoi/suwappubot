@@ -142,6 +142,13 @@ class OAuthState(Base):
     redirect_uri = Column(Text, nullable=True)
     code_verifier = Column(String(128), nullable=True)  # PKCE
 
+    # Login CSRF / session-fixation defense: a per-flow nonce that is also set as
+    # an HttpOnly cookie in the initiating browser at /authorize. The callback
+    # requires the cookie to match this value for login flows, so a code+state
+    # captured by an attacker cannot be replayed in a victim's browser to log the
+    # victim into the attacker's account.
+    login_nonce = Column(String(128), nullable=True)
+
     # Link to existing user (for account linking flows)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 

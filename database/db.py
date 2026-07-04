@@ -407,6 +407,17 @@ def _ensure_schema(db_engine) -> None:
         _add_encryption_columns(db_engine, inspector, "hot_wallets", is_sqlite)
         _add_turnkey_columns(db_engine, inspector, "hot_wallets", is_sqlite, include_sub_org=False)
 
+    # --- oauth_states: login CSRF nonce column (additive + idempotent) ---
+    if "oauth_states" in tables:
+        oauth_state_cols = {c["name"] for c in inspector.get_columns("oauth_states")}
+        if "login_nonce" not in oauth_state_cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE oauth_states ADD COLUMN login_nonce VARCHAR(128)"
+            else:
+                ddl = "ALTER TABLE oauth_states ADD COLUMN IF NOT EXISTS login_nonce VARCHAR(128)"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
     # --- agents: unique index on api_key + Drizzle schema alignment ---
     agents_table = (
         "agents"
