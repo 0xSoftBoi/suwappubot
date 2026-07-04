@@ -24,9 +24,14 @@ const CHALLENGE_TTL = 300_000 // 5 minutes
 const challengeCache = new TTLCache<PaymentChallenge>(CHALLENGE_TTL, 50_000)
 
 /**
- * MPP (Micropayment Protocol) auth middleware.
- * Returns HTTP 402 with payment challenge for unauthenticated requests.
- * Verifies X-Payment-Proof header for paid requests.
+ * Suwappu Micropayments (pathUSD) auth middleware — internal name "MPP" for
+ * historical/env-var reasons ("mpp" prefix below), but this is a homegrown
+ * pay-per-call 402 challenge/verify flow, NOT an implementation of Google's
+ * AP2 (IntentMandate/CartMandate/PaymentMandate) or Stripe/Tempo's Machine
+ * Payments Protocol. Do not describe it as compliant with either.
+ *
+ * Returns HTTP 402 with a payment challenge for unauthenticated requests.
+ * Verifies the X-Payment-Proof header for paid requests.
  */
 export function mppPaymentAuth() {
 	return async (c: Context, next: Next) => {
@@ -79,9 +84,10 @@ export function mppPaymentAuth() {
 			expires_at: expiresAt,
 		}
 
-		// AP2-compliant headers
+		// Suwappu Micropayments (pathUSD) 402 challenge header — base64-encoded JSON.
+		// This is our own scheme, not an AP2 (Google) or Machine Payments Protocol
+		// (Stripe/Tempo) header; do not add an x-ap2-version or similar claim here.
 		c.header('x-402', Buffer.from(JSON.stringify(paymentChallenge)).toString('base64'))
-		c.header('x-ap2-version', '1')
 
 		return c.json({ status: 402, payment_required: paymentChallenge }, 402)
 	}

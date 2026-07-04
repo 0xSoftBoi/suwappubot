@@ -113,6 +113,10 @@ def test_withdraw_execute_guards_missing_user(monkeypatch):
             "withdraw_chain": "base",
             "withdraw_amount": 1.0,
             "withdraw_address": VALID_ADDR,
+            # confirm_token is set when the confirmation card is shown; include
+            # it so the flow reaches the missing-user guard rather than the
+            # earlier "session expired" guard that now also requires it.
+            "withdraw_confirm_token": "test-confirm-token",
         }
     )
     assert _run(custodial.withdraw_execute(update, ctx)) == END

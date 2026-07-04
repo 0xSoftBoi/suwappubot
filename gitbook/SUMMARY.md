@@ -7,6 +7,7 @@
 * [Overview](quickstart/README.md)
 * [Your First Swap](quickstart/first-swap.md)
 * [SDK Examples](quickstart/sdk-examples.md)
+* [MCP Client Setup](quickstart/mcp-clients.md)
 
 ## Authentication
 
@@ -23,6 +24,7 @@
 * [GET /prices](api-reference/prices.md)
 * [GET /portfolio](api-reference/portfolio.md)
 * [POST /quote](api-reference/quote.md)
+* [POST /swap/simulate](api-reference/simulate.md)
 * [POST /swap](api-reference/swap.md)
 * [POST /swap/execute](api-reference/swap-execute.md)
 * [GET /swap/status/:id](api-reference/swap-status.md)
@@ -43,6 +45,12 @@
 * [MCP Protocol](protocols/mcp.md)
 * [Agent Card](protocols/agent-card.md)
 * [OpenAPI Spec](protocols/openapi.md)
+
+## Billing
+
+* [Overview](billing/README.md)
+* [Agentic Payments (x402)](billing/agentic-payments.md)
+* [Pricing](billing/pricing.md)
 
 ## Chains Reference
 

@@ -22,6 +22,7 @@ import { ipRateLimit } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
 import { BYPASS_TIERS, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment } from '../middleware/x402Payment'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
+import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { writeAuditLog } from '../services/audit'
 import type { PolicyIntent } from '../services'
 import { runEffectEither } from '../runtime'
@@ -31,10 +32,12 @@ import {
 	CHAINS,
 	COMMON_TOKENS,
 	JupiterService,
+	type JupiterQuote,
 	PolicyService,
 	type QuoteParams,
 	SOLANA_TOKENS,
 	SwapService,
+	type SwapQuote,
 	TokenService,
 	TurnkeyService,
 } from '../services'
@@ -46,6 +49,7 @@ import {
 	formatZodErrors,
 	QuoteRequestSchema,
 	RegisterAgentSchema,
+	SimulateSwapSchema,
 	SwapRequestSchema,
 	SwapStatusQuerySchema,
 	TopupSchema,
@@ -465,6 +469,8 @@ agentRoutes.use('/quote', meteredPayment('quote'))
 agentRoutes.use('/swap', meteredPayment('swap'))
 agentRoutes.use('/execute', meteredPayment('execute'))
 agentRoutes.use('/swap/execute', meteredPayment('swap/execute'))
+// Read-only dry-run — same cost tier as /quote (1 credit). No funds move.
+agentRoutes.use('/swap/simulate', meteredPayment('swap/simulate'))
 agentRoutes.use('/portfolio', meteredPayment('portfolio'))
 agentRoutes.use('/prices', meteredPayment('prices'))
 agentRoutes.use('/tokens', meteredPayment('tokens'))
@@ -474,6 +480,7 @@ agentRoutes.use('*', recordUsage())
 
 // Scope enforcement on sensitive endpoints (API key paths only; bearer token paths bypass)
 agentRoutes.use('/swap/execute', requireScope('swap:execute'))
+agentRoutes.use('/swap/simulate', requireScope('trade:read'))
 agentRoutes.use('/portfolio', requireScope('trade:read'))
 agentRoutes.use('/wallets', requireScope('trade:read'))
 agentRoutes.use('/wallets/*', requireScope('trade:read'))
@@ -1104,6 +1111,283 @@ agentRoutes.post('/swap', async (c) => {
 		},
 		400,
 	)
+})
+
+// POST /v1/agent/swap/simulate - Tenderly-style dry run: fetch/reuse a quote and
+// report balance/allowance/gas/revert checks WITHOUT signing, broadcasting, or
+// persisting anything. Zero funds move. MONEY-PATH: reads live balances/quotes
+// and sits next to execution paths (/swap, /swap/execute) — reviewed accordingly.
+agentRoutes.post('/swap/simulate', async (c) => {
+	const agent = c.get('agent')
+
+	let body: unknown
+	try {
+		body = await c.req.json()
+	} catch {
+		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+	}
+
+	const parsed = SimulateSwapSchema.safeParse(body)
+	if (!parsed.success) {
+		return c.json(
+			{
+				success: false,
+				error: 'Validation error',
+				fields: formatZodErrors(parsed.error),
+				hint: 'Provide quote_id, or from_token + to_token + amount (+ optional chain, wallet_address).',
+			},
+			400,
+		)
+	}
+
+	const { quote_id, from_token, to_token, amount, chain, from_chain, to_chain, wallet_address, slippage } =
+		parsed.data
+
+	// Track request (read-only — no swap-attempt counter bump, this never executes)
+	await runEffectEither(
+		Effect.gen(function* () {
+			const agentService = yield* AgentService
+			yield* agentService.incrementAgentStats(agent.id, 'request')
+		}),
+	)
+
+	// --- Case 1: simulate a previously fetched quote ---
+	if (quote_id) {
+		const cached = getCachedQuote(quote_id)
+		// Same generic message for missing vs. cross-agent quote — avoids leaking
+		// which quote_ids exist (mirrors /swap and /swap/execute).
+		if (!cached || cached.agentId !== agent.id) {
+			return c.json(
+				{
+					success: false,
+					error: 'Quote expired or not found',
+					hint: 'Request a new quote using POST /v1/agent/quote, or pass from_token/to_token/amount to fetch and simulate in one call',
+				},
+				400,
+			)
+		}
+
+		if (cached.isSolana) {
+			const quote = cached.quote as JupiterQuote
+			const report = await buildSolanaSimulationReport({
+				quoteId: quote_id,
+				fromAddress: wallet_address,
+				inputMint: quote.inputMint,
+				outputMint: quote.outputMint,
+				fromAmount: quote.inAmount,
+				toAmount: quote.outAmount,
+				toAmountMin: quote.otherAmountThreshold,
+				priceImpactPct: quote.priceImpactPct ? parseFloat(quote.priceImpactPct) : null,
+				platformFeeAmount: quote.platformFee?.amount,
+			})
+			return c.json(report)
+		}
+
+		const quote = cached.quote as SwapQuote
+		const report = await buildEvmSimulationReport({
+			quoteId: quote_id,
+			fromAddress: wallet_address,
+			fromTokenSymbol: quote.fromToken.symbol,
+			fromTokenAddress: quote.fromToken.address,
+			toTokenSymbol: quote.toToken.symbol,
+			chainId: quote.transactionRequest.chainId,
+			fromAmount: quote.fromAmount,
+			toAmount: quote.toAmount,
+			toAmountMin: quote.toAmountMin,
+			toAmountUsd: quote.toAmountUsd,
+			priceImpactPct: Number.isFinite(parseFloat(quote.priceImpact)) ? parseFloat(quote.priceImpact) : null,
+			approvalAddress: quote._rawQuote?.estimate?.approvalAddress,
+			gasEstimateUsd: quote.estimatedGasUsd,
+			bridgeFeeUsd: quote.bridgeFeeUsd,
+			tx: wallet_address
+				? {
+						to: quote.transactionRequest.to,
+						data: quote.transactionRequest.data,
+						value: quote.transactionRequest.value,
+						from: wallet_address,
+					}
+				: undefined,
+		})
+		return c.json(report)
+	}
+
+	// --- Case 2: no quote_id — fetch a fresh quote, then simulate it ---
+	if (!from_token || !to_token || !amount) {
+		return c.json(
+			{ success: false, error: 'quote_id is required, or from_token + to_token + amount' },
+			400,
+		)
+	}
+
+	const chainKey = from_chain || chain || 'ethereum'
+
+	if (isStarknet(chainKey) || (to_chain && isStarknet(to_chain))) {
+		return c.json(
+			{ success: false, error: 'Starknet transactions are handled by the bot backend' },
+			400,
+		)
+	}
+
+	if (isSolanaChain(chainKey)) {
+		const result = await runEffectEither(
+			Effect.gen(function* () {
+				const jupiterService = yield* JupiterService
+
+				const fromTokenInfo = jupiterService.resolveToken(from_token)
+				if (!fromTokenInfo) {
+					return yield* Effect.fail(
+						new ValidationError({ message: `Token not found on Solana: ${from_token}` }),
+					)
+				}
+				const toTokenInfo = jupiterService.resolveToken(to_token)
+				if (!toTokenInfo) {
+					return yield* Effect.fail(
+						new ValidationError({ message: `Token not found on Solana: ${to_token}` }),
+					)
+				}
+
+				const amountNum = parseFloat(amount)
+				if (isNaN(amountNum) || amountNum <= 0) {
+					return yield* Effect.fail(new ValidationError({ message: 'Invalid amount' }))
+				}
+				const fromAmountLamports = BigInt(
+					Math.floor(amountNum * 10 ** fromTokenInfo.decimals),
+				).toString()
+
+				const quote = yield* jupiterService
+					.getQuote({
+						inputMint: fromTokenInfo.address,
+						outputMint: toTokenInfo.address,
+						amount: fromAmountLamports,
+						slippageBps: slippage ? Math.floor(slippage * 10000) : 300,
+					})
+					.pipe(
+						Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
+					)
+
+				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+				cacheAgentQuote(quoteId, quote, agent.id, true)
+
+				return { quoteId, quote }
+			}),
+		)
+
+		if (Either.isLeft(result)) {
+			const { status, body } = mapErrorToResponse(result.left)
+			return c.json(body, status)
+		}
+
+		const { quoteId, quote } = result.right
+		const report = await buildSolanaSimulationReport({
+			quoteId,
+			fromAddress: wallet_address,
+			inputMint: quote.inputMint,
+			outputMint: quote.outputMint,
+			fromAmount: quote.inAmount,
+			toAmount: quote.outAmount,
+			toAmountMin: quote.otherAmountThreshold,
+			priceImpactPct: quote.priceImpactPct ? parseFloat(quote.priceImpactPct) : null,
+			platformFeeAmount: quote.platformFee?.amount,
+		})
+		return c.json(report)
+	}
+
+	// EVM chains - use Li.Fi (same routing as POST /quote)
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const tokenService = yield* TokenService
+			const swapService = yield* SwapService
+
+			const sourceChain = from_chain || chain || 'ethereum'
+			const destChain = to_chain || chain || 'ethereum'
+
+			const sourceChainInfo = tokenService.resolveChain(sourceChain)
+			const destChainInfo = tokenService.resolveChain(destChain)
+
+			if (!sourceChainInfo) {
+				return yield* Effect.fail(new ValidationError({ message: `Unknown chain: ${sourceChain}` }))
+			}
+			if (!destChainInfo) {
+				return yield* Effect.fail(new ValidationError({ message: `Unknown chain: ${destChain}` }))
+			}
+
+			const fromTokenInfo = yield* tokenService.resolveToken(from_token, sourceChainInfo.id)
+			if (!fromTokenInfo) {
+				return yield* Effect.fail(
+					new ValidationError({ message: `Token not found: ${from_token} on ${sourceChainInfo.name}` }),
+				)
+			}
+			const toTokenInfo = yield* tokenService.resolveToken(to_token, destChainInfo.id)
+			if (!toTokenInfo) {
+				return yield* Effect.fail(
+					new ValidationError({ message: `Token not found: ${to_token} on ${destChainInfo.name}` }),
+				)
+			}
+
+			const amountNum = parseFloat(amount)
+			if (isNaN(amountNum) || amountNum <= 0) {
+				return yield* Effect.fail(new ValidationError({ message: 'Invalid amount' }))
+			}
+			const fromAmountWei = BigInt(Math.floor(amountNum * 10 ** fromTokenInfo.decimals)).toString()
+
+			// A placeholder sender when none is given keeps Li.Fi routing working (as
+			// /quote does); the simulation checks below only run against a REAL
+			// fromAddress (wallet_address), never the placeholder.
+			const fromAddress = wallet_address || '0x0000000000000000000000000000000000000001'
+
+			const quoteParams: QuoteParams = {
+				fromChain: sourceChainInfo.id,
+				toChain: destChainInfo.id,
+				fromToken: fromTokenInfo.address,
+				toToken: toTokenInfo.address,
+				fromAmount: fromAmountWei,
+				fromAddress,
+				slippage: slippage || 0.03,
+				order: 'RECOMMENDED',
+				integrator: 'suwappu-agent',
+			}
+
+			const quote = yield* swapService.getQuote(quoteParams).pipe(
+				Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
+			)
+
+			cacheAgentQuote(quote.quoteId, quote, agent.id, false)
+
+			return quote
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
+	}
+
+	const quote = result.right
+	const report = await buildEvmSimulationReport({
+		quoteId: quote.quoteId,
+		fromAddress: wallet_address,
+		fromTokenSymbol: quote.fromToken.symbol,
+		fromTokenAddress: quote.fromToken.address,
+		toTokenSymbol: quote.toToken.symbol,
+		chainId: quote.transactionRequest.chainId,
+		fromAmount: quote.fromAmount,
+		toAmount: quote.toAmount,
+		toAmountMin: quote.toAmountMin,
+		toAmountUsd: quote.toAmountUsd,
+		priceImpactPct: Number.isFinite(parseFloat(quote.priceImpact)) ? parseFloat(quote.priceImpact) : null,
+		approvalAddress: quote._rawQuote?.estimate?.approvalAddress,
+		gasEstimateUsd: quote.estimatedGasUsd,
+		bridgeFeeUsd: quote.bridgeFeeUsd,
+		tx: wallet_address
+			? {
+					to: quote.transactionRequest.to,
+					data: quote.transactionRequest.data,
+					value: quote.transactionRequest.value,
+					from: wallet_address,
+				}
+			: undefined,
+	})
+	return c.json(report)
 })
 
 // POST /v1/agent/execute - Natural language command execution
