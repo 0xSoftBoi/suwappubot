@@ -11,6 +11,7 @@ from enum import Enum
 from decimal import Decimal
 
 from web3 import Web3
+from sqlalchemy.exc import IntegrityError
 
 from bot.config.settings import settings
 from bot.models.subscription import (
@@ -19,6 +20,7 @@ from bot.models.subscription import (
     X402Payment,
     PaymentStatus,
     APICredit,
+    ConsumedPayment,
 )
 from bot.services.fee_service import TIER_FEE_RATES
 from bot.services.wallet import WalletService
@@ -562,6 +564,60 @@ class X402Service:
             token_address,
         )
 
+    def _user_bound_evm_wallets(self, user_id: int) -> List[str]:
+        """Lowercased EVM wallet addresses bound to ``user_id`` (sender-spoof set)."""
+        try:
+            wallets = self.wallet_service.get_user_wallets(user_id, chain_type="evm")
+        except Exception as e:  # pragma: no cover - defensive
+            logger.error(f"Failed to load bound wallets for user {user_id}: {e}")
+            return []
+        return [w.address.lower() for w in wallets if getattr(w, "address", None)]
+
+    @staticmethod
+    def _sender_is_bound(sender: Optional[str], bound_wallets: List[str]) -> bool:
+        """Sender-spoof defense: the on-chain payer must be one of the caller's
+        bound EVM wallets. Fail closed if the sender could not be resolved.
+
+        Mirrors api-ts ``assertSenderBound`` (paymentConsumption.ts).
+        """
+        if not sender:
+            return False
+        return sender.lower() in bound_wallets
+
+    def _consume_shared_payment(
+        self,
+        session,
+        chain: str,
+        tx_hash: str,
+        purpose: str,
+        consumed_by: Optional[str] = None,
+    ) -> bool:
+        """Atomically consume ``(chain, tx_hash)`` in the SHARED consumed_payments
+        ledger (same table api-ts writes). Uses a SAVEPOINT so a UNIQUE-constraint
+        violation (already consumed anywhere — replay or cross-surface reuse) is
+        caught WITHOUT poisoning the outer transaction.
+
+        Returns True  → this caller won the consume; safe to credit/grant.
+        Returns False → already consumed (replay / cross-path double-redeem) →
+                        the caller MUST NOT credit.
+        """
+        norm_chain = (chain or "").strip().lower()
+        norm_tx = (tx_hash or "").strip().lower()
+        try:
+            with session.begin_nested():
+                session.add(
+                    ConsumedPayment(
+                        chain=norm_chain,
+                        tx_hash=norm_tx,
+                        purpose=purpose,
+                        consumed_by=consumed_by,
+                    )
+                )
+                session.flush()
+            return True
+        except IntegrityError:
+            return False
+
     async def verify_payment(
         self,
         payment_id: str,
@@ -582,7 +638,7 @@ class X402Service:
             # Verify transaction on-chain
             try:
                 # Verify the transaction matches payment parameters
-                success, message, _sender = await self._verify_transaction_on_chain(
+                success, message, sender = await self._verify_transaction_on_chain(
                     tx_hash=tx_hash,
                     chain=payment.chain,
                     expected_recipient=self.payment_recipient,
@@ -594,6 +650,46 @@ class X402Service:
                     payment.status = PaymentStatus.FAILED
                     logger.warning(f"Payment {payment_id} verification failed: {message}")
                     return False, f"Verification failed: {message}"
+
+                # SECURITY (sender-spoof): the recipient/amount checks alone let
+                # ANYONE paste another user's valid inbound tx_hash to the shared
+                # collector and get upgraded. Bind the on-chain payer to one of
+                # THIS user's EVM wallets. Fail closed if we can't resolve it.
+                bound_wallets = self._user_bound_evm_wallets(payment.user_id)
+                if not self._sender_is_bound(sender, bound_wallets):
+                    payment.status = PaymentStatus.FAILED
+                    logger.warning(
+                        f"Payment {payment_id} sender-spoof rejected: on-chain payer "
+                        f"{sender} is not a wallet bound to user {payment.user_id}"
+                    )
+                    return (
+                        False,
+                        "Payment sender does not match your wallet (sender-spoof rejected).",
+                    )
+
+                # SECURITY (replay / cross-surface double-redeem): X402Payment.tx_hash
+                # is NOT unique and the per-payment_id status guard only protects THIS
+                # order, so one valid tx_hash could be redeemed across many payment_id
+                # orders AND on the api-ts surfaces. Consume (chain, tx_hash) in the
+                # SHARED ledger FIRST — the same global guard api-ts uses — so a given
+                # payment buys exactly one redemption across BOTH settlement domains.
+                consumed = self._consume_shared_payment(
+                    session,
+                    chain=payment.chain,
+                    tx_hash=tx_hash,
+                    purpose="bot_x402",
+                    consumed_by=str(payment.user_id),
+                )
+                if not consumed:
+                    payment.status = PaymentStatus.FAILED
+                    logger.warning(
+                        f"Payment {payment_id} rejected: tx_hash {tx_hash} already "
+                        f"consumed (replay / cross-surface double-redeem)."
+                    )
+                    return (
+                        False,
+                        "This payment has already been used. Each payment is valid once.",
+                    )
 
                 # Mark as completed
                 payment.tx_hash = tx_hash

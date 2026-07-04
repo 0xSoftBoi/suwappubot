@@ -7,6 +7,7 @@ import { runEffectEither } from '../runtime'
 import { TTLCache } from '../lib/cache'
 import { requireDb } from '../db'
 import { consumePayment } from '../lib/paymentConsumption'
+import { verifyX402Payment } from '../lib/x402Verify'
 
 interface PaymentChallenge {
 	price: string
@@ -107,37 +108,32 @@ async function verifyPayment(c: Context, next: Next, proofHeader: string, env: E
 		return c.json({ error: 'Payment challenge expired or not found. Request a new one.' }, 402)
 	}
 
-	// Verify payment on-chain via internal Python API
-	try {
-		const internalUrl = env.INTERNAL_API_URL || 'http://localhost:8000'
-		const verifyRes = await fetch(`${internalUrl}/internal/x402/verify`, {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				'X-Internal-Key': env.INTERNAL_API_KEY || '',
-			},
-			body: JSON.stringify({
-				tx_hash: proof.tx_hash,
-				chain: proof.chain || challenge.chain,
-				expected_amount: challenge.price,
-				expected_token: proof.token || challenge.token,
-				expected_recipient: challenge.paymentAddress,
-			}),
-			signal: AbortSignal.timeout(15_000),
-		})
-
-		if (!verifyRes.ok) {
-			const errText = await verifyRes.text().catch(() => verifyRes.statusText)
-			return c.json({ error: `Payment verification failed: ${errText}` }, 402)
-		}
-
-		const verification = (await verifyRes.json()) as { verified?: boolean; error?: string }
-		if (!verification.verified) {
-			return c.json({ error: verification.error || 'Payment not verified on-chain' }, 402)
-		}
-	} catch (e: any) {
-		return c.json({ error: `Payment verification error: ${e.message}` }, 500)
+	// Verify payment on-chain via internal Python API (shared verifyX402Payment
+	// helper — same parse every redemption path uses, so `sender` is available).
+	const verification = await verifyX402Payment({
+		internalUrl: env.INTERNAL_API_URL || 'http://localhost:8000',
+		internalKey: env.INTERNAL_API_KEY || '',
+		txHash: proof.tx_hash,
+		chain: proof.chain || challenge.chain,
+		expectedAmount: challenge.price,
+		expectedToken: proof.token || challenge.token,
+		expectedRecipient: challenge.paymentAddress,
+	})
+	if (!verification.verified) {
+		return c.json({ error: verification.error || 'Payment not verified on-chain' }, 402)
 	}
+
+	// SECURITY (residual, documented): unlike the topup / subscribe / webapp-crypto
+	// paths, the MPP 402 flow has NO per-caller wallet identity — a 402 challenge is
+	// issued to an anonymous caller and keyed only by a random challenge_id, so there
+	// is no bound wallet to compare `verification.sender` against. We therefore do NOT
+	// call assertSenderBound() here. The replay guard below (single global consume of
+	// the payment) still ensures each on-chain payment buys exactly one request; the
+	// only residual is a first-come front-run — an observer who sees a valid tx_hash in
+	// the mempool could race to spend it on their own single request before the payer.
+	// That is an accepted residual for the anonymous MPP surface. `sender` is parsed
+	// (via the shared helper) so that if per-caller MPP identity is ever added, binding
+	// is a one-line change here.
 
 	// SECURITY (replay): a stateless verifier lets an attacker reuse ONE valid tx
 	// across N fresh 402 challenges (each challenge_id is distinct, so the

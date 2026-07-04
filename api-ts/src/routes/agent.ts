@@ -11,6 +11,7 @@ import { agents, agentCredits, agentCreditTopups, agentSubscriptions, recurringS
 import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
 import { type SpendPermission, validateSpendPermission } from '../lib/spendPermission'
 import { assertSenderBound, consumePayment } from '../lib/paymentConsumption'
+import { verifyX402Payment } from '../lib/x402Verify'
 import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { agentBearerAuth, agentBearerAuthAllowInactive } from '../middleware'
@@ -2487,36 +2488,24 @@ agentRoutes.post('/billing/topup', async (c) => {
 			const internalKey = env.INTERNAL_API_KEY
 
 			const verification = yield* Effect.tryPromise({
-				try: async () => {
-					const res = await fetch(`${internalUrl}/internal/x402/verify`, {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json', 'X-Internal-Key': internalKey },
-						body: JSON.stringify({
-							tx_hash: txHash,
-							chain,
-							expected_amount: String(amount),
-							expected_token: 'USDC',
-							expected_recipient: collector,
-						}),
-						signal: AbortSignal.timeout(15_000),
-					})
-					if (!res.ok) {
-						const errText = await res.text().catch(() => res.statusText)
-						throw new Error(`Payment verification failed: ${errText}`)
-					}
-					const v = (await res.json()) as {
-						verified?: boolean
-						error?: string
-						sender?: string | null
-					}
-					if (!v.verified) {
-						throw new Error(v.error || 'Payment not verified on-chain')
-					}
-					return v
-				},
+				try: () =>
+					verifyX402Payment({
+						internalUrl,
+						internalKey,
+						txHash,
+						chain,
+						expectedAmount: String(amount),
+						expectedToken: 'USDC',
+						expectedRecipient: collector,
+					}),
 				catch: (e) =>
 					new ValidationError({ message: e instanceof Error ? e.message : String(e) }),
 			})
+			if (!verification.verified) {
+				return yield* Effect.fail(
+					new ValidationError({ message: verification.error || 'Payment not verified on-chain' }),
+				)
+			}
 
 			// 2b) Sender-spoof defense: the on-chain payer MUST be this agent's own
 			//     managed wallet. Otherwise an agent could credit itself with another
@@ -2594,6 +2583,11 @@ agentRoutes.post('/billing/topup', async (c) => {
 				catch: (e) => new Error(`Database error during topup: ${e}`),
 			})
 
+			// Normalize BOTH "already done" cases to a single idempotent no-op success
+			// shape: the fast-path pre-check (existing topup row) AND the consume-loss /
+			// race branches (credited:false) collapse to alreadyProcessed=true with
+			// creditsAdded=0. The caller renders this as a success ("already credited"),
+			// NOT a spurious error — a lost replay/race is a no-op, not a failure.
 			return {
 				alreadyProcessed: !txResult.credited,
 				creditsAdded: txResult.credited ? creditsAdded : 0,
@@ -2692,35 +2686,23 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 			const internalKey = env.INTERNAL_API_KEY
 
 			const verification = yield* Effect.tryPromise({
-				try: async () => {
-					const res = await fetch(`${internalUrl}/internal/x402/verify`, {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json', 'X-Internal-Key': internalKey },
-						body: JSON.stringify({
-							tx_hash: txHash,
-							chain,
-							expected_amount: String(price),
-							expected_token: 'USDC',
-							expected_recipient: collector,
-						}),
-						signal: AbortSignal.timeout(15_000),
-					})
-					if (!res.ok) {
-						const errText = await res.text().catch(() => res.statusText)
-						throw new Error(`Payment verification failed: ${errText}`)
-					}
-					const v = (await res.json()) as {
-						verified?: boolean
-						error?: string
-						sender?: string | null
-					}
-					if (!v.verified) {
-						throw new Error(v.error || 'Payment not verified on-chain')
-					}
-					return v
-				},
+				try: () =>
+					verifyX402Payment({
+						internalUrl,
+						internalKey,
+						txHash,
+						chain,
+						expectedAmount: String(price),
+						expectedToken: 'USDC',
+						expectedRecipient: collector,
+					}),
 				catch: (e) => new ValidationError({ message: e instanceof Error ? e.message : String(e) }),
 			})
+			if (!verification.verified) {
+				return yield* Effect.fail(
+					new ValidationError({ message: verification.error || 'Payment not verified on-chain' }),
+				)
+			}
 
 			// 2b) Sender-spoof defense: on-chain payer must be this agent's managed wallet.
 			if (!assertSenderBound(verification.sender, [getAgentWalletAddress(agent)])) {

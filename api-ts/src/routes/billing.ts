@@ -8,6 +8,7 @@ import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '..
 import { requireDb, subscriptions, wallets, x402Payments } from '../db'
 import { mapErrorToResponse, ValidationError } from '../errors'
 import { assertSenderBound, consumePayment } from '../lib/paymentConsumption'
+import { verifyX402Payment } from '../lib/x402Verify'
 import { telegramAuth } from '../middleware'
 import { ipRateLimit } from '../middleware/ipRateLimit'
 import { runEffectEither } from '../runtime'
@@ -287,33 +288,23 @@ billingRoutes.post('/crypto', ipRateLimit(10), telegramAuth(), async (c) => {
 			}
 			const collector = env.AGENT_METERING_COLLECTOR_ADDRESS || env.FEE_WALLET_EVM
 			const verification = yield* Effect.tryPromise({
-				try: async () => {
-					const res = await fetch(`${env.INTERNAL_API_URL}/internal/x402/verify`, {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json', 'X-Internal-Key': env.INTERNAL_API_KEY as string },
-						body: JSON.stringify({
-							tx_hash: txHash,
-							chain,
-							expected_amount: String(price),
-							expected_token: 'USDC',
-							expected_recipient: collector,
-						}),
-						signal: AbortSignal.timeout(15_000),
-					})
-					if (!res.ok) {
-						const errText = await res.text().catch(() => res.statusText)
-						throw new Error(`Payment verification failed: ${errText}`)
-					}
-					const v = (await res.json()) as {
-						verified?: boolean
-						error?: string
-						sender?: string | null
-					}
-					if (!v.verified) throw new Error(v.error || 'Payment not verified on-chain')
-					return v
-				},
+				try: () =>
+					verifyX402Payment({
+						internalUrl: env.INTERNAL_API_URL as string,
+						internalKey: env.INTERNAL_API_KEY as string,
+						txHash,
+						chain,
+						expectedAmount: String(price),
+						expectedToken: 'USDC',
+						expectedRecipient: collector,
+					}),
 				catch: (e) => new ValidationError({ message: e instanceof Error ? e.message : String(e) }),
 			})
+			if (!verification.verified) {
+				return yield* Effect.fail(
+					new ValidationError({ message: verification.error || 'Payment not verified on-chain' }),
+				)
+			}
 
 			// 2b) Sender-spoof defense: the on-chain payer MUST be one of THIS user's
 			//     bound wallets. Otherwise anyone could submit another user's inbound
