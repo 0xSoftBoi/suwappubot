@@ -1120,6 +1120,13 @@ mcpRoutes.post('/', async (c) => {
 			// Pay-per-call metering. Charges prepaid credits (or bypasses for
 			// subscription tiers). On insufficient balance, return an HTTP 402
 			// x402 challenge so x402-enabled MCP clients can settle and retry.
+			//
+			// Edge-receipt caveat: this wiring is harmless and correct today, but
+			// MCP is a single POST /mcp route shared by every tool (0-5 credit
+			// range per tool name), while Cloudflare Gateway pricing is per
+			// path+method. Do NOT add /mcp to GATEWAY_PAID_PREFIXES — a flat edge
+			// rule on /mcp would mis-price every tool call. This path only starts
+			// mattering if/when individual tools get distinct sub-paths.
 			const edgeHeader = c.req.header(EDGE_PAYMENT_HEADER)
 			const charge = await chargeAgentForCall({
 				agent: { id: agent.id, rateLimitTier: agent.rateLimitTier },

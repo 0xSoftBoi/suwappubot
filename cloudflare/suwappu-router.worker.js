@@ -108,17 +108,51 @@ export default {
     // a client must never be able to hand the origin its own "paid" receipt.
     proxied.headers.delete(EDGE_PAYMENT_HEADER);
 
-    // Cloudflare Monetization Gateway rollout: if this Worker has a shared
-    // secret + a configured list of Gateway-charged path prefixes, and this
-    // request's path matches one, stamp a fresh signed receipt so the origin
-    // knows this call was already paid for at the edge and skips metering it
-    // again. See docs/deployment/cloudflare-monetization-gateway.md.
+    // Cloudflare Monetization Gateway rollout: stamp a fresh signed receipt so
+    // the origin knows this call was already paid for at the edge and skips
+    // metering it again — but ONLY when we have actual settlement evidence,
+    // not merely "this path is one the Gateway is supposed to charge for."
+    //
+    // Trusting path-match alone would be wrong: if the Gateway is
+    // misconfigured, applies a free/trial allowance, or its rule set drifts
+    // out of sync with GATEWAY_PAID_PREFIXES, every unpaid request on a
+    // "paid" prefix would still get a valid receipt and origin metering would
+    // be bypassed for free. So a third binding, GATEWAY_SETTLEMENT_HEADER, is
+    // required: the name of the header Cloudflare's Monetization Gateway
+    // injects on requests it has actually settled (name TBC from Cloudflare's
+    // early-access docs — it is not public yet). We only stamp when that
+    // header is present with a non-empty value on this specific request.
+    //
+    // Anti-spoof assumption: a direct client could in principle set an
+    // arbitrary GATEWAY_SETTLEMENT_HEADER value itself if it could reach this
+    // Worker directly with a forged header. This is safe only because (a)
+    // this Worker is only reachable behind Cloudflare's edge by construction
+    // (it is bound to our Custom Domains, not exposed as an open proxy), and
+    // (b) the Gateway is expected to overwrite/strip its own settlement
+    // header on the way through rather than pass a client-supplied copy
+    // through unchanged. Do NOT enable this (i.e. do not set
+    // GATEWAY_SETTLEMENT_HEADER) until that behavior is confirmed against
+    // Cloudflare's actual early-access implementation — see the doc.
+    //
+    // If GATEWAY_SETTLEMENT_HEADER is unset, we never stamp — fail closed.
     const secret = env && env.GATEWAY_HMAC_SECRET;
     const paidPrefixes = env && env.GATEWAY_PAID_PREFIXES;
-    if (secret && paidPrefixes && isGatewayPaidPath(url.pathname, paidPrefixes)) {
+    const settlementHeaderName = env && env.GATEWAY_SETTLEMENT_HEADER;
+    const settlementValue = settlementHeaderName ? request.headers.get(settlementHeaderName) : null;
+    if (
+      secret &&
+      paidPrefixes &&
+      settlementHeaderName &&
+      settlementValue &&
+      isGatewayPaidPath(url.pathname, paidPrefixes)
+    ) {
       const timestampSec = Math.floor(Date.now() / 1000);
       const receipt = await signEdgeReceipt(secret, request.method, url.pathname, timestampSec);
       proxied.headers.set(EDGE_PAYMENT_HEADER, receipt);
+      // Forward the settlement evidence untouched so origin can log/reconcile
+      // it against Gateway billing (see x402_edge_settled audit log in
+      // api-ts/src/middleware/x402Payment.ts).
+      proxied.headers.set(settlementHeaderName, settlementValue);
     }
 
     return fetch(proxied);

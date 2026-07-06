@@ -5,6 +5,7 @@ import { EnvService } from '../config/EnvService'
 import { requireDb } from '../db/DrizzleService'
 import { agentCredits } from '../db/schema'
 import { EDGE_PAYMENT_HEADER, verifyEdgeReceipt } from '../lib/edgePaymentTrust'
+import { logger } from '../lib/logger'
 import { runEffectEither } from '../runtime'
 import {
 	facilitatorVerifyAndSettle,
@@ -247,7 +248,19 @@ export async function chargeAgentForCall(params: {
 			method: edgeReceipt.method,
 			path: edgeReceipt.path,
 		})
-		if (verdict.trusted) return { kind: 'edge', cost }
+		if (verdict.trusted) {
+			// Audit trail: edge-settled calls skip our own credit deduction, so
+			// this is the only origin-side record of them. Needed to (a)
+			// reconcile against Cloudflare Gateway billing and (b) detect a
+			// misconfig/replay flood (e.g. GATEWAY_PAID_PREFIXES too broad,
+			// GATEWAY_SETTLEMENT_HEADER spoofed) that would otherwise silently
+			// bypass metering. Structured so it's greppable/aggregatable.
+			logger.info(
+				{ evt: 'x402_edge_settled', agentId: agent.id, cost, resource, ts: Date.now() },
+				'x402 call settled at the edge by Cloudflare Monetization Gateway',
+			)
+			return { kind: 'edge', cost }
+		}
 	}
 
 	const deductResult = await runEffectEither(deductCredits(agent.id, cost))

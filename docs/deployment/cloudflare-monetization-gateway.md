@@ -40,9 +40,13 @@ on for everything else.
         │                                             │
         │  + ALWAYS strips inbound                    │
         │    x-suwappu-edge-payment (spoof guard)     │
-        │  + if GATEWAY_HMAC_SECRET + path in          │
-        │    GATEWAY_PAID_PREFIXES: stamps a fresh     │
-        │    HMAC-signed receipt header                │
+        │  + stamps a fresh HMAC-signed receipt ONLY   │
+        │    when ALL THREE are true: GATEWAY_HMAC_    │
+        │    SECRET set, path in GATEWAY_PAID_PREFIXES, │
+        │    AND the request carries a non-empty        │
+        │    GATEWAY_SETTLEMENT_HEADER value (actual     │
+        │    proof the Gateway settled this call —       │
+        │    path-match alone is NOT proof of payment)   │
         └───────────────────┬─────────────────────────┘
                              │  x-suwappu-edge-payment: v1.<ts>.<hmac>
                              ▼
@@ -78,22 +82,85 @@ carries a valid receipt, so it is always metered by the origin as today.
    cd cloudflare
    bunx wrangler secret put GATEWAY_HMAC_SECRET   # paste the SAME secret as CF_GATEWAY_TRUST_SECRET
    ```
-   Then set `GATEWAY_PAID_PREFIXES` (a plain var, not a secret) in
-   `cloudflare/wrangler.toml`'s `[vars]` block — see the commented example
-   already in that file — to the comma-separated path prefixes the Gateway is
-   configured to charge for, e.g. `/v1/agent/,/mcp`. Deploy with
-   `bunx wrangler deploy`.
-4. **Flip `CF_GATEWAY_TRUST_ENABLED=true`** on Railway's api-ts service once
-   you've confirmed (via a manual curl through the Worker) that the
-   `x-suwappu-edge-payment` header is present and verifies.
+   Then set two plain vars (not secrets) in `cloudflare/wrangler.toml`'s
+   `[vars]` block — see the commented example already in that file:
+   - `GATEWAY_PAID_PREFIXES` — comma-separated path prefixes the Gateway is
+     configured to charge for, e.g. `/v1/agent/`. **Do not include `/mcp`**
+     (see the MCP caveat below) — only REST endpoints with distinct paths
+     belong here.
+   - `GATEWAY_SETTLEMENT_HEADER` — the exact header name Cloudflare's
+     Monetization Gateway injects on a request it has actually settled.
+     **This name is not public yet; confirm it from Cloudflare's early-access
+     docs before setting it.** Do not set `GATEWAY_HMAC_SECRET` /
+     `GATEWAY_PAID_PREFIXES` without also setting this — without it the
+     Worker never stamps a receipt (fail-closed), which is safe but inert; the
+     wrong value here (or setting it before confirming the real header name)
+     risks stamping receipts for requests that were never actually charged.
+
+   Deploy with `bunx wrangler deploy`.
+4. **Verify the edge actually blocks unpaid calls BEFORE trusting any
+   receipt.** The goal of this step is to *rule out* the bypass scenario
+   (Gateway misconfigured / rule drift / free-tier leak), not just to confirm
+   the Worker *can* sign a header. Concretely:
+   - Send an **unpaid** request (no prior USDC settlement) directly to
+     `https://api.suwappu.bot/v1/agent/<a paid-prefix path>` and confirm it
+     gets an HTTP 402 **from the Gateway**, and that Railway's origin logs
+     show **no** matching request at all (i.e. the Gateway truly stopped it
+     at the edge rather than letting it through unmetered).
+   - Only after that 402-at-the-edge behavior is confirmed, send a real
+     **paid** request through the same path and confirm: (a) it reaches
+     origin, (b) the `x-suwappu-edge-payment` receipt header is present and
+     verifies, and (c) api-ts logs an `x402_edge_settled` audit line for it
+     (see `api-ts/src/middleware/x402Payment.ts`).
+   - Do NOT flip `CF_GATEWAY_TRUST_ENABLED=true` on Railway's api-ts service
+     until both checks pass. The old version of this step ("curl through the
+     Worker and see the header verify") only demonstrated that stamping
+     works — it did not rule out stamping on unpaid traffic, which is exactly
+     the bypass this design must prevent.
 5. **Create Cloudflare Gateway pricing rules** from
    `GET /v1/agent/pricing` (public, unauthenticated, unmetered) — it returns
    the exact per-REST-endpoint and per-MCP-tool credit/USD prices, plus
    `network` / `asset` / `pay_to`, so the Gateway's rule-based pricing always
-   matches what the origin would otherwise have charged.
+   matches what the origin would otherwise have charged. Only create rules
+   for REST endpoints (paths under `GATEWAY_PAID_PREFIXES`); do not create an
+   edge pricing rule for `/mcp` (see below).
+
+### MCP is intentionally excluded from edge pricing
+
+`/mcp` is a single `POST /mcp` JSON-RPC route shared by every tool, priced
+per *tool name* (0-5 credits, see `MCP_TOOL_COSTS` in
+`api-ts/src/middleware/x402Payment.ts`). The Gateway prices by path + method,
+not by request body content, so a flat edge rule on `/mcp` would charge one
+price for every tool call regardless of which tool ran — either over-charging
+cheap reads or under-charging `execute_swap`. Keep MCP on origin metering
+only: never add `/mcp` to `GATEWAY_PAID_PREFIXES` or create a Gateway pricing
+rule for it. (The edge-receipt verification code path in `mcp.ts`'s
+`tools/call` handler is still wired up and harmless — it simply never
+triggers because no valid receipt will ever arrive for `/mcp` — and becomes
+useful automatically if individual MCP tools are ever split into distinct
+sub-paths.)
 
 ## Security model
 
+- **Path-match alone is never sufficient proof of payment.** The Worker only
+  stamps a receipt when it has actual settlement evidence — a non-empty
+  `GATEWAY_SETTLEMENT_HEADER` value on the specific request — in addition to
+  the path matching `GATEWAY_PAID_PREFIXES`. Trusting the path match alone
+  would mean a Gateway misconfiguration, an accidentally-applied free/trial
+  allowance, or the Gateway's rule set drifting out of sync with
+  `GATEWAY_PAID_PREFIXES` would silently bypass origin metering for every
+  request on that prefix, paid or not. If `GATEWAY_SETTLEMENT_HEADER` is
+  unset, the Worker never stamps a receipt at all (fail-closed).
+- **Anti-spoof assumption for the settlement header:** a request that reaches
+  the Worker directly (not through Cloudflare's edge) could in principle set
+  an arbitrary value for whatever header name `GATEWAY_SETTLEMENT_HEADER` is
+  configured to. This is only safe because the Worker is bound exclusively to
+  our Custom Domains behind Cloudflare's edge (it is not an open proxy
+  reachable by an arbitrary hostname), and because the Gateway is expected to
+  overwrite/strip its own settlement header rather than pass a client-supplied
+  copy through unchanged. **This assumption must be confirmed against
+  Cloudflare's actual early-access behavior before enabling stamping** — do
+  not set `GATEWAY_SETTLEMENT_HEADER` in production until it is.
 - **Why direct-to-Railway traffic still gets metered:** the receipt is only
   ever stamped by the Worker, using a secret that never leaves Cloudflare/
   Railway config. A request that reaches Railway without going through the
@@ -127,14 +194,19 @@ carries a valid receipt, so it is always metered by the origin as today.
 1. **Origin env first** (`CF_GATEWAY_TRUST_SECRET` set, `CF_GATEWAY_TRUST_ENABLED=false`) —
    so the secret exists before anything can verify against it, and metering
    behavior is unchanged until explicitly flipped on.
-2. **Then the Worker** (`GATEWAY_HMAC_SECRET`, `GATEWAY_PAID_PREFIXES`, deploy) —
-   verify manually that receipts are stamped and verify correctly against the
-   origin secret, with trust still OFF so a bad receipt can't cause a
-   double-charge or an accidental bypass in production.
-3. **Then flip `CF_GATEWAY_TRUST_ENABLED=true`** on the origin.
-4. **Then create the Cloudflare Gateway pricing rules** from
-   `GET /v1/agent/pricing`, and only then start sending real Gateway-billed
-   traffic through `api.suwappu.bot`.
+2. **Then the Worker** (`GATEWAY_HMAC_SECRET`, `GATEWAY_PAID_PREFIXES`,
+   `GATEWAY_SETTLEMENT_HEADER` — all three, confirmed against Cloudflare's
+   early-access docs — deploy) — verify manually that receipts are stamped
+   and verify correctly against the origin secret, with trust still OFF so a
+   bad receipt can't cause a double-charge or an accidental bypass in
+   production.
+3. **Prove the edge actually 402s unpaid traffic** (step 4 above) before
+   trusting anything — this is the check that rules out the misconfig/rule-
+   drift bypass, not just confirms the signature works.
+4. **Then flip `CF_GATEWAY_TRUST_ENABLED=true`** on the origin.
+5. **Then create the Cloudflare Gateway pricing rules** from
+   `GET /v1/agent/pricing` (REST endpoints only, never `/mcp`), and only then
+   start sending real Gateway-billed traffic through `api.suwappu.bot`.
 
 ## Code references
 
@@ -142,13 +214,22 @@ carries a valid receipt, so it is always metered by the origin as today.
   `verifyEdgeReceipt` (pure, unit-tested in
   `api-ts/src/__tests__/edgePaymentTrust.test.ts`).
 - `api-ts/src/middleware/x402Payment.ts` — `chargeAgentForCall`'s `edgeReceipt`
-  param and the `{ kind: 'edge' }` `ChargeResult`; wired into both
-  `meteredPayment()` (REST) and the MCP `tools/call` handler
-  (`api-ts/src/routes/mcp.ts`).
+  param, the `{ kind: 'edge' }` `ChargeResult`, and the `x402_edge_settled`
+  structured audit log line emitted on every edge-trusted call (via
+  `lib/logger.ts`'s pino `logger`); wired into both `meteredPayment()` (REST)
+  and the MCP `tools/call` handler (`api-ts/src/routes/mcp.ts`, which shares
+  this same `chargeAgentForCall` code path so it gets the same audit log for
+  free — no separate log site needed there).
 - `api-ts/src/config/EnvService.ts` — `CF_GATEWAY_TRUST_ENABLED`,
   `CF_GATEWAY_TRUST_SECRET`.
-- `cloudflare/suwappu-router.worker.js` — header stripping + receipt stamping.
-- `cloudflare/wrangler.toml` — commented-out `GATEWAY_PAID_PREFIXES` example
-  and the `wrangler secret put GATEWAY_HMAC_SECRET` instruction (the secret
-  itself is intentionally not in this file).
-- `GET /v1/agent/pricing` (`api-ts/src/routes/agent.ts`) — pricing manifest.
+- `cloudflare/suwappu-router.worker.js` — unconditional inbound header strip,
+  plus receipt stamping gated on all three of `GATEWAY_HMAC_SECRET`,
+  `GATEWAY_PAID_PREFIXES`, and a non-empty `GATEWAY_SETTLEMENT_HEADER` value
+  on the specific request (fail-closed if any is missing).
+- `cloudflare/wrangler.toml` — commented-out `GATEWAY_PAID_PREFIXES` /
+  `GATEWAY_SETTLEMENT_HEADER` examples and the
+  `wrangler secret put GATEWAY_HMAC_SECRET` instruction (the secret itself is
+  intentionally not in this file).
+- `GET /v1/agent/pricing` (`api-ts/src/routes/agent.ts`) — pricing manifest
+  (REST + MCP tool prices; only the REST subset should ever back a Gateway
+  pricing rule).

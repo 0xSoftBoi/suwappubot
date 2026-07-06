@@ -26,8 +26,22 @@ routes = [
 # GATEWAY_PAID_PREFIXES is a plain var: comma-separated path prefixes the Gateway
 # is configured to charge for. Uncomment + set once the Gateway waitlist access
 # lands and pricing rules are created from GET /v1/agent/pricing.
+#
+# Only list REST endpoints with distinct paths here — do NOT add /mcp. MCP is a
+# single POST /mcp route with per-tool prices (0-5 credits each); edge pricing
+# is per path/method, so a flat Gateway rule on /mcp would mis-price every tool
+# call and origin metering would still skip it. Keep MCP on origin metering only.
+#
+# GATEWAY_SETTLEMENT_HEADER is required for the Worker to ever stamp a receipt
+# (fail-closed if unset). It must be the exact header name Cloudflare's
+# Monetization Gateway injects on requests it has actually settled — confirm
+# this from Cloudflare's early-access docs before setting it. Do NOT set
+# GATEWAY_HMAC_SECRET / GATEWAY_PAID_PREFIXES without also setting this, or the
+# Worker will stamp receipts for requests that were never actually charged.
+#
 # [vars]
-# GATEWAY_PAID_PREFIXES = "/v1/agent/,/mcp"
+# GATEWAY_PAID_PREFIXES = "/v1/agent/"
+# GATEWAY_SETTLEMENT_HEADER = "cf-monetization-settled"  # placeholder — confirm real name with Cloudflare
 #
 # GATEWAY_HMAC_SECRET is a *secret*, not a var — it must never be committed here.
 # Set it out-of-band with:
