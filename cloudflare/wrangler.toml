@@ -21,3 +21,15 @@ routes = [
   { pattern = "terminal.suwappu.bot", custom_domain = true },
   { pattern = "app.suwappu.bot",      custom_domain = true },
 ]
+
+# --- Cloudflare Monetization Gateway (see docs/deployment/cloudflare-monetization-gateway.md) ---
+# GATEWAY_PAID_PREFIXES is a plain var: comma-separated path prefixes the Gateway
+# is configured to charge for. Uncomment + set once the Gateway waitlist access
+# lands and pricing rules are created from GET /v1/agent/pricing.
+# [vars]
+# GATEWAY_PAID_PREFIXES = "/v1/agent/,/mcp"
+#
+# GATEWAY_HMAC_SECRET is a *secret*, not a var — it must never be committed here.
+# Set it out-of-band with:
+#   cd cloudflare && bunx wrangler secret put GATEWAY_HMAC_SECRET
+# and mirror the same value into Railway's api-ts CF_GATEWAY_TRUST_SECRET.

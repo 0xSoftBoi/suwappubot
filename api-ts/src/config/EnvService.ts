@@ -80,6 +80,18 @@ export const EnvSchema = Schema.Struct({
 	// JWT auth via @coinbase/x402 instead (follow-up).
 	X402_FACILITATOR_API_KEY: Schema.optional(Schema.String),
 
+	// Cloudflare Monetization Gateway trust (edge x402 handshake + USDC settlement
+	// done at the edge by Cloudflare, ahead of our own origin metering). OFF by
+	// default. When on, our suwappu-router Worker stamps an HMAC-signed receipt
+	// header (see lib/edgePaymentTrust.ts) on paths the Gateway already charged;
+	// the origin verifies it and skips deducting credits for that call, since
+	// double-charging would otherwise happen for edge-paid + origin-metered calls.
+	// Direct-to-Railway traffic (no Worker in front) never carries a valid receipt,
+	// so it always still gets metered normally — this is fail-closed by design.
+	CF_GATEWAY_TRUST_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	// Shared HMAC secret with the edge Worker (wrangler secret GATEWAY_HMAC_SECRET).
+	CF_GATEWAY_TRUST_SECRET: Schema.optionalWith(Schema.String, { default: () => '' }),
+
 	// Recurring crypto billing via Base Spend Permissions (true auto-renew). OFF by
 	// default — needs a funded operator (spender) key on Base. SPEND_OPERATOR_PK is
 	// the server key that submits approveWithSignature + spend() txs.

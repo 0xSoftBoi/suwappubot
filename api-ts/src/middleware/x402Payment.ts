@@ -4,6 +4,7 @@ import type { Context, Next } from 'hono'
 import { EnvService } from '../config/EnvService'
 import { requireDb } from '../db/DrizzleService'
 import { agentCredits } from '../db/schema'
+import { EDGE_PAYMENT_HEADER, verifyEdgeReceipt } from '../lib/edgePaymentTrust'
 import { runEffectEither } from '../runtime'
 import {
 	facilitatorVerifyAndSettle,
@@ -194,6 +195,7 @@ export type ChargeResult =
 	| { kind: 'skip'; reason: 'disabled' | 'no_agent' | 'bypass' | 'free'; tier?: string }
 	| { kind: 'ok'; balance: number; cost: number; tier: string }
 	| { kind: 'settled'; cost: number; txHash?: string; network?: string }
+	| { kind: 'edge'; cost: number }
 	| { kind: 'insufficient'; cost: number; challenge: ReturnType<typeof buildX402Challenge> }
 
 /**
@@ -208,8 +210,15 @@ export async function chargeAgentForCall(params: {
 	description: string
 	/** base64 X-PAYMENT header for direct on-chain settlement (facilitator path). */
 	paymentHeader?: string
+	/**
+	 * Cloudflare Monetization Gateway edge receipt, if the caller's request
+	 * carried one. Only trusted when CF_GATEWAY_TRUST_ENABLED + a shared secret
+	 * are both configured — see lib/edgePaymentTrust.ts for the verification
+	 * algorithm and cloudflare/suwappu-router.worker.js for the signer.
+	 */
+	edgeReceipt?: { header: string; method: string; path: string }
 }): Promise<ChargeResult> {
-	const { agent, cost, resource, description, paymentHeader } = params
+	const { agent, cost, resource, description, paymentHeader, edgeReceipt } = params
 
 	const env = await runEffectEither(Effect.gen(function* () { return yield* EnvService }))
 	if (Either.isLeft(env)) return { kind: 'skip', reason: 'disabled' }
@@ -222,6 +231,24 @@ export async function chargeAgentForCall(params: {
 
 	// Free tools (cost 0) are always allowed even for metered tiers.
 	if (cost <= 0) return { kind: 'skip', reason: 'free', tier }
+
+	// Already charged at the edge by the Cloudflare Monetization Gateway? Trust
+	// the Worker's signed receipt instead of deducting credits again. Fails
+	// closed to normal metering on any missing config or invalid/expired/absent
+	// receipt — this must never throw or block a request.
+	if (
+		env.right.CF_GATEWAY_TRUST_ENABLED === 'true' &&
+		env.right.CF_GATEWAY_TRUST_SECRET &&
+		edgeReceipt
+	) {
+		const verdict = verifyEdgeReceipt({
+			secret: env.right.CF_GATEWAY_TRUST_SECRET,
+			header: edgeReceipt.header,
+			method: edgeReceipt.method,
+			path: edgeReceipt.path,
+		})
+		if (verdict.trusted) return { kind: 'edge', cost }
+	}
 
 	const deductResult = await runEffectEither(deductCredits(agent.id, cost))
 	// On a DB error, fail open rather than block a paying agent.
@@ -256,12 +283,14 @@ export function meteredPayment(endpoint: string) {
 
 	return async (c: Context, next: Next) => {
 		const agent = c.get('agent') as { id: number; rateLimitTier?: string } | undefined
+		const edgeHeader = c.req.header(EDGE_PAYMENT_HEADER)
 		const result = await chargeAgentForCall({
 			agent,
 			cost,
 			resource: c.req.path,
 			description: `Suwappu agent API call: ${endpoint} (${cost} credit${cost === 1 ? '' : 's'})`,
 			paymentHeader: c.req.header('X-PAYMENT') ?? c.req.header('PAYMENT-SIGNATURE'),
+			edgeReceipt: edgeHeader ? { header: edgeHeader, method: c.req.method, path: c.req.path } : undefined,
 		})
 
 		if (result.kind === 'skip') {
@@ -282,6 +311,13 @@ export function meteredPayment(endpoint: string) {
 		if (result.kind === 'settled') {
 			c.header('X-Metering-Cost', String(result.cost))
 			if (result.txHash) c.header('X-Payment-Response', result.txHash)
+			await next()
+			return
+		}
+
+		if (result.kind === 'edge') {
+			c.header('X-Metering-Cost', String(result.cost))
+			c.header('X-Metering-Edge', 'cloudflare-gateway')
 			await next()
 			return
 		}

@@ -22,7 +22,7 @@ import { recordUsage } from '../middleware/recordUsage'
 import { requireScope } from '../middleware/requireScope'
 import { ipRateLimit } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
-import { BYPASS_TIERS, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment } from '../middleware/x402Payment'
+import { BYPASS_TIERS, COST_WEIGHTS, CREDIT_USD_VALUE, MCP_TOOL_COSTS, meteredPayment } from '../middleware/x402Payment'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { writeAuditLog } from '../services/audit'
@@ -2660,6 +2660,48 @@ agentRoutes.delete('/me', async (c) => {
 	}
 
 	return c.body(null, 204)
+})
+
+// GET /v1/agent/pricing - Public, unauthenticated, unmetered pricing manifest.
+// Source of truth for generating Cloudflare Monetization Gateway pricing rules
+// (see docs/deployment/cloudflare-monetization-gateway.md) — the Gateway needs
+// a static per-path price list to charge at the edge, and this mirrors exactly
+// what our own 402 challenge (buildX402Challenge) and origin metering charge,
+// so edge + origin prices can never silently drift apart.
+agentRoutes.get('/pricing', async (c) => {
+	const result = await runEffectEither(Effect.gen(function* () { return yield* EnvService }))
+	const env = Either.isRight(result) ? result.right : undefined
+
+	const network = env?.AGENT_METERING_NETWORK ?? 'base'
+	const asset = env?.AGENT_METERING_USDC_ADDRESS ?? ''
+	const payTo = env?.AGENT_METERING_COLLECTOR_ADDRESS || env?.FEE_WALLET_EVM || ''
+
+	const toEntry = (credits: number) => ({
+		credits,
+		usd: Number((credits * CREDIT_USD_VALUE).toFixed(6)),
+		currency: 'USDC',
+	})
+
+	const rest: Record<string, ReturnType<typeof toEntry>> = {}
+	for (const [endpoint, credits] of Object.entries(COST_WEIGHTS)) {
+		rest[`/v1/agent/${endpoint}`] = toEntry(credits)
+	}
+
+	const mcp: Record<string, ReturnType<typeof toEntry>> = {}
+	for (const [tool, credits] of Object.entries(MCP_TOOL_COSTS)) {
+		mcp[tool] = toEntry(credits)
+	}
+
+	return c.json({
+		success: true,
+		credit_usd_value: CREDIT_USD_VALUE,
+		network,
+		asset,
+		pay_to: payTo,
+		rest,
+		mcp,
+		note: 'Prices reflect origin metering (api-ts/src/middleware/x402Payment.ts). Unknown/unlisted REST endpoints and MCP tools default to 1 credit.',
+	})
 })
 
 // ===========================================

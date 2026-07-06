@@ -21,6 +21,7 @@ import { ValidationError } from '../errors'
 import { agentBearerAuth } from '../middleware'
 import { checkEvmWalletOwnership } from './agent'
 import { chargeAgentForCall, costForTool, setX402Headers } from '../middleware/x402Payment'
+import { EDGE_PAYMENT_HEADER } from '../lib/edgePaymentTrust'
 import { EnvService } from '../config/EnvService'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
@@ -1119,12 +1120,14 @@ mcpRoutes.post('/', async (c) => {
 			// Pay-per-call metering. Charges prepaid credits (or bypasses for
 			// subscription tiers). On insufficient balance, return an HTTP 402
 			// x402 challenge so x402-enabled MCP clients can settle and retry.
+			const edgeHeader = c.req.header(EDGE_PAYMENT_HEADER)
 			const charge = await chargeAgentForCall({
 				agent: { id: agent.id, rateLimitTier: agent.rateLimitTier },
 				cost: costForTool(name),
 				resource: `mcp://tools/${name}`,
 				description: `Suwappu MCP tool: ${name} (${costForTool(name)} credit${costForTool(name) === 1 ? '' : 's'})`,
 				paymentHeader: c.req.header('X-PAYMENT') ?? c.req.header('PAYMENT-SIGNATURE'),
+				edgeReceipt: edgeHeader ? { header: edgeHeader, method: c.req.method, path: c.req.path } : undefined,
 			})
 			if (charge.kind === 'insufficient') {
 				const cenv = await runEffectEither(Effect.gen(function* () { return yield* EnvService }))
@@ -1138,6 +1141,10 @@ mcpRoutes.post('/', async (c) => {
 			if (charge.kind === 'settled') {
 				c.header('X-Metering-Cost', String(charge.cost))
 				if (charge.txHash) c.header('X-Payment-Response', charge.txHash)
+			}
+			if (charge.kind === 'edge') {
+				c.header('X-Metering-Cost', String(charge.cost))
+				c.header('X-Metering-Edge', 'cloudflare-gateway')
 			}
 
 			let result: { content: Array<{ type: string; text: string }>; isError?: boolean }
