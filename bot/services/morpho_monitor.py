@@ -168,8 +168,7 @@ class MorphoMonitor:
     def _open_positions() -> list:
         """[(position_id, telegram_id, wallet_address, opened_at), ...] for open positions."""
         from bot.models.morpho import MorphoPosition
-        from bot.models.user import User
-        from bot.models.wallet import Wallet
+        from bot.models.user import User, Wallet
         from database.db import get_session
 
         with get_session() as session:
