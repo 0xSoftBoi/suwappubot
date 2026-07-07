@@ -34,6 +34,9 @@ export default defineConfig({
 		'agent_credits',
 		'agent_credit_topups',
 		'agent_subscriptions',
+		// SHARED consumed-payments ledger (payments.ts) — global (chain,txHash)
+		// replay/double-redeem guard. api-ts-exclusive (no python owner).
+		'consumed_payments',
 		// api-ts-exclusive copy-trading stats (traderStats.ts) — python computes stats
 		// in-memory (copy_service.get_trader_stats) but defines no trader_stats table.
 		'trader_stats',

@@ -31,6 +31,7 @@ COPY --from=builder --chown=bun:bun /app/package.json ./
 COPY --from=builder --chown=bun:bun /app/start.sh ./
 COPY --from=builder --chown=bun:bun /app/agent-card.json ./
 COPY --from=builder --chown=bun:bun /app/openapi-agent.json ./
+COPY --from=builder --chown=bun:bun /app/ai-catalog.json ./
 RUN chmod +x start.sh
 
 USER bun

@@ -12,7 +12,15 @@ export default function TermsPage() {
     <main id="main-content" className="summer-page docs-shell">
       <Navigation />
       <div className="summer-shell mkt-page">
+        <nav className="doc-breadcrumb">
+          <a href="/">Home</a>
+          <span className="doc-breadcrumb__sep">/</span>
+          <span>Legal</span>
+          <span className="doc-breadcrumb__sep">/</span>
+          <span>Terms of Service</span>
+        </nav>
         <article className="legal-page">
+        <div className="legal-page__card">
           <p className="summer-kicker">Legal</p>
           <h1>Terms of Service</h1>
           <p className="legal-page__updated">Last updated: June 18, 2026</p>
@@ -49,6 +57,7 @@ export default function TermsPage() {
 
           <h2>11. Contact</h2>
           <p>Questions about these Terms? Reach us through the official Suwappu Telegram or at <code>legal@suwappu.bot</code>.</p>
+        </div>
         </article>
       </div>
       <SummerFooter />

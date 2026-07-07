@@ -61,6 +61,8 @@ import type {
   ReferralStats,
   ReferralEntry,
   ReferralLeaderboardEntry,
+  RewardsSummary,
+  RewardsClaimPayload,
   CreateLimitOrderParams,
   LendingMarket,
   TrackedWallet,
@@ -428,6 +430,16 @@ export const api = {
 
   getReferralLeaderboard(limit = 20) {
     return request<{ leaderboard: ReferralLeaderboardEntry[] }>(`/webapp/referrals/leaderboard?limit=${limit}`).then(r => r.leaderboard ?? [])
+  },
+
+  // Rewards (on-chain fee cashback) — read-only; custodial claims happen in the
+  // Telegram bot, on-chain claims are submitted from the user's own wallet.
+  getRewardsSummary() {
+    return request<RewardsSummary>('/webapp/rewards/summary')
+  },
+
+  getRewardsClaimPayload(epochIndex: number) {
+    return request<RewardsClaimPayload>(`/webapp/rewards/claim/${epochIndex}`)
   },
 
   // Discovery

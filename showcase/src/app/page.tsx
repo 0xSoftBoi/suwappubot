@@ -13,31 +13,12 @@ export const revalidate = 60;
 
 const TERMINAL_URL = 'https://terminal.suwappu.bot';
 
-// Outcome-first stats — specific numbers, zero feature language.
+// Outcome-first stats — product facts only, no unverifiable usage/volume claims.
 const stats = [
-  { value: '$2B+', label: 'Routed to date' },
+  { value: '9', label: 'Aggregators raced per quote' },
   { value: '40+', label: 'Chains supported' },
   { value: 'Sub-second', label: 'Quote latency' },
   { value: 'Non-custodial', label: 'Always your keys' },
-];
-
-// Testimonials — dark glass cards, one quote each. Team replaces handles with real ones.
-const testimonials = [
-  {
-    quote: 'Suwappu is the only bot I trust with large positions. Execution is genuinely better than doing it manually.',
-    handle: '@trader_handle',
-    role: '3-year DeFi power user',
-  },
-  {
-    quote: 'Switched from doing this manually across four interfaces. Never going back.',
-    handle: '@another_handle',
-    role: 'Portfolio: 7 figures',
-  },
-  {
-    quote: 'The agent API let us automate our entire hedging strategy in a weekend. The MCP integration is exceptional.',
-    handle: 'CTO',
-    role: 'Crypto-native fund',
-  },
 ];
 
 // Cross-chain engine — outcome framing, not feature names.
@@ -265,22 +246,6 @@ export default async function Home() {
             ))}
           </section>
 
-          {/* ── SOCIAL PROOF — testimonial strip ── */}
-          <section className="summer-testimonials" aria-label="What traders say">
-            <p className="summer-trust__label">Trusted by traders across 40+ chains</p>
-            <div className="summer-testimonials__grid">
-              {testimonials.map((t) => (
-                <blockquote className="summer-testimonial" key={t.handle}>
-                  <p className="summer-testimonial__quote">&ldquo;{t.quote}&rdquo;</p>
-                  <footer>
-                    <strong className="summer-testimonial__handle">{t.handle}</strong>
-                    <span className="summer-testimonial__role">{t.role}</span>
-                  </footer>
-                </blockquote>
-              ))}
-            </div>
-          </section>
-
           {/* ── ROUTES ACROSS — clean integration strip ── */}
           <section className="summer-trust" aria-label="Routes across">
             <p className="summer-trust__label">Routes across every major chain &amp; aggregator</p>
@@ -390,7 +355,7 @@ export default async function Home() {
               <div className="summer-tempo__tags">
                 <span>Type 0x76 fee-payer</span>
                 <span>~$0.001 per swap</span>
-                <span>Machine Payments (/mpp)</span>
+                <span>Micropayments (/mpp)</span>
               </div>
             </div>
             <div className="summer-tempo__rail" aria-hidden="true">
@@ -463,9 +428,12 @@ export default async function Home() {
               <h2>Let an agent execute. You set the limits.</h2>
               <p>
                 Suwappu exposes the same execution surface as an MCP server, a
-                TypeScript SDK, and a REST API — discoverable through llms.txt and an
-                agent manifest, with policy guardrails so autonomous swaps stay inside
-                the rails you define.
+                TypeScript SDK, and a REST API across 15+ agent-ready chains —
+                discoverable through llms.txt and an agent manifest, with policy
+                guardrails so autonomous swaps stay inside the rails you define. No
+                signup required: register for a key instantly, or pay per call over
+                HTTP 402 with <a href="/docs/billing/agentic-payments">x402</a> and
+                skip registration entirely.
               </p>
             </div>
             <div className="summer-agents__grid">

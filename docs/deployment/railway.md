@@ -76,6 +76,12 @@ Core:
   `TURNKEY_API_PUBLIC_KEY`, `TURNKEY_API_PRIVATE_KEY`.
 - RPC/keys as used: `INFURA_API_KEY`, `ALCHEMY_API_KEY`, fee collector addrs, OAuth, etc.
   (see `bot/config/settings.py` for the full field list — pydantic, case-insensitive).
+- `ADMIN_TELEGRAM_IDS` — comma-separated Telegram user IDs granted bot admin
+  (`/hw`, `/fee`, `/st`, `/m`, `/rewards` epoch ops, custodial hot-wallet setup).
+  **Fail-closed**: unset/empty means *nobody* is admin, and features gated on admin
+  setup (e.g. custodial deposit wallets via `/hw`) stay disabled. Per environment —
+  set it on prod and dev separately. Takes effect on redeploy (Railway restarts the
+  service automatically when a variable changes).
 
 ### api-ts
 - `DATABASE_URL` (**required** at runtime), `REDIS_URL`

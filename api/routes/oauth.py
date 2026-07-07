@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 import logging
 import base64
+import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Response, Query, Request
 from fastapi.responses import RedirectResponse
@@ -28,6 +29,11 @@ from database.db import get_session
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth/oauth", tags=["OAuth"])
+
+# Name of the HttpOnly cookie that binds a login OAuth flow to the browser that
+# initiated it. Set at /authorize (login action), required to match the stored
+# OAuthState.login_nonce at /callback. Prevents login CSRF / session fixation.
+OAUTH_NONCE_COOKIE = "suwappu_oauth_nonce"
 
 
 # --- Pydantic Models ---
@@ -176,6 +182,12 @@ async def oauth_authorize(
     state = oauth_service.generate_state()
     auth_url, code_verifier = oauth_service.get_authorization_url(provider, state)
 
+    # Bind this login flow to the initiating browser: a random nonce is stored on
+    # the state row AND set as an HttpOnly cookie. The callback rejects the flow
+    # unless the cookie matches — so an attacker who captures a valid code+state
+    # cannot replay it in a victim's browser (login CSRF / session fixation).
+    login_nonce = secrets.token_urlsafe(32)
+
     # Store state in database for CSRF validation
     oauth_state = OAuthState(
         state=state,
@@ -184,12 +196,25 @@ async def oauth_authorize(
         code_verifier=code_verifier,
         expires_at=datetime.utcnow() + timedelta(minutes=10),
         action="login",
+        login_nonce=login_nonce,
     )
     db.add(oauth_state)
     db.commit()
 
-    # Redirect to OAuth provider
-    return RedirectResponse(url=auth_url, status_code=302)
+    # Redirect to OAuth provider, setting the browser-bound nonce cookie. Scoped
+    # narrowly to the callback path; Secure + HttpOnly + SameSite=Lax so it rides
+    # the top-level provider redirect back to us but is not JS-readable.
+    redirect = RedirectResponse(url=auth_url, status_code=302)
+    redirect.set_cookie(
+        key=OAUTH_NONCE_COOKIE,
+        value=login_nonce,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=600,
+        path="/auth/oauth",
+    )
+    return redirect
 
 
 @router.get("/{provider}/callback")
@@ -200,6 +225,7 @@ async def oauth_callback(
     error: Optional[str] = Query(None, description="Error from provider"),
     error_description: Optional[str] = Query(None),
     response: Response = None,
+    request: Request = None,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user),
 ):
@@ -249,6 +275,29 @@ async def oauth_callback(
                 status_code=403,
                 detail="Authentication required to link this account",
             )
+    else:
+        # Login flow: bind to the browser that started /authorize. The nonce
+        # cookie must be present and match the value stored on the state row.
+        # Missing/mismatched cookie => the callback was not initiated by this
+        # browser (login CSRF / session fixation) — reject before issuing any
+        # session. Constant-time compare avoids leaking the nonce via timing.
+        presented_nonce = request.cookies.get(OAUTH_NONCE_COOKIE) if request else None
+        expected_nonce = oauth_state.login_nonce
+        if (
+            not expected_nonce
+            or not presented_nonce
+            or not secrets.compare_digest(presented_nonce, expected_nonce)
+        ):
+            logger.warning(
+                "OAuth callback: login nonce mismatch "
+                f"(state={state[:10]}..., cookie_present={presented_nonce is not None})"
+            )
+            db.delete(oauth_state)
+            db.commit()
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid or missing login verification",
+            )
 
     oauth_service = get_oauth_service()
 
@@ -270,6 +319,8 @@ async def oauth_callback(
         logger.error(f"OAuth flow failed: {e}")
         db.delete(oauth_state)
         db.commit()
+        # The one-time login nonce has served its purpose; clear it from the browser.
+        response.delete_cookie(key=OAUTH_NONCE_COOKIE, path="/auth/oauth")
         raise HTTPException(status_code=400, detail=str(e))
 
     # Find or create user
@@ -338,7 +389,10 @@ async def oauth_callback(
         redirect_url = f"{default_base}/dashboard"
     success_url = f"{redirect_url}?auth=success&provider={provider}"
 
-    return RedirectResponse(url=success_url, status_code=302)
+    success_redirect = RedirectResponse(url=success_url, status_code=302)
+    # The one-time login nonce has served its purpose; clear it from the browser.
+    success_redirect.delete_cookie(key=OAUTH_NONCE_COOKIE, path="/auth/oauth")
+    return success_redirect
 
 
 @router.post("/link", response_model=OAuthLinkResponse)
