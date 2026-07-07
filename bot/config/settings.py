@@ -409,7 +409,7 @@ class Settings(BaseSettings):
 
     # Solana RPC
     solana_rpc_url: str = Field(
-        default="https://api.mainnet-beta.solana.com,https://solana-mainnet.rpc.extrnode.com",
+        default="https://api.mainnet-beta.solana.com,https://solana-rpc.publicnode.com",
         description="Solana mainnet RPC URL(s)",
     )
 
