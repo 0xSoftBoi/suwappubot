@@ -133,6 +133,32 @@ class WalletService:
 
     def __init__(self):
         self._solana_client: Optional[SolanaClient] = None
+        self._http_connector: Optional[aiohttp.TCPConnector] = None
+
+    def _get_connector(self) -> aiohttp.TCPConnector:
+        """Lazily create a single shared TCP connector.
+
+        Every RPC/HTTP call reuses this connector (via connector_owner=False on
+        the per-call ClientSession) so sockets are pooled and the c-ares/aiodns
+        resolver is shared instead of being rebuilt per request. Under an RPC
+        failure storm, a fresh ClientSession per call previously leaked
+        file descriptors until c-ares failed on its netlink socket and the
+        worker crashed.
+        """
+        if self._http_connector is None or self._http_connector.closed:
+            self._http_connector = aiohttp.TCPConnector(
+                limit=50,
+                limit_per_host=10,
+                ttl_dns_cache=300,
+                enable_cleanup_closed=True,
+            )
+        return self._http_connector
+
+    def _http_session(self) -> aiohttp.ClientSession:
+        """Per-call session bound to the shared connector (does not own it)."""
+        return aiohttp.ClientSession(
+            connector=self._get_connector(), connector_owner=False
+        )
 
     def _get_web3(self, chain_name: str) -> Web3:
         """Get Web3 instance for a chain via RPCManager."""
@@ -157,7 +183,7 @@ class WalletService:
         payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
         t0 = time.monotonic()
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self._http_session() as session:
                 async with session.post(
                     url,
                     json=payload,
@@ -829,7 +855,7 @@ class WalletService:
             mint_pubkey = Pubkey.from_string(token_mint)
 
             # Use getTokenAccountsByOwner RPC method
-            async with aiohttp.ClientSession() as session:
+            async with self._http_session() as session:
                 payload = {
                     "jsonrpc": "2.0",
                     "id": 1,
@@ -874,7 +900,7 @@ class WalletService:
     async def get_solana_native_balance(self, address: str) -> float:
         """Get SOL balance for an address. Raises on RPC error."""
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self._http_session() as session:
                 payload = {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [address]}
                 async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
                     if resp.status == 429:
@@ -907,7 +933,7 @@ class WalletService:
         """Get TRX balance for a TRON address."""
         try:
             rpc_url = rpc_manager.get_rpc_url("tron") or "https://api.trongrid.io"
-            async with aiohttp.ClientSession() as session:
+            async with self._http_session() as session:
                 url = f"{rpc_url}/v1/accounts/{address}"
                 async with session.get(url) as resp:
                     result = await resp.json()
@@ -927,7 +953,7 @@ class WalletService:
 
         try:
             rpc_url = rpc_manager.get_rpc_url("tron") or "https://api.trongrid.io"
-            async with aiohttp.ClientSession() as session:
+            async with self._http_session() as session:
                 url = f"{rpc_url}/v1/accounts/{address}/tokens"
                 async with session.get(url) as resp:
                     result = await resp.json()
@@ -966,7 +992,7 @@ class WalletService:
         last_error: Optional[Exception] = None
         for url in urls:
             try:
-                async with aiohttp.ClientSession() as session:
+                async with self._http_session() as session:
                     async with session.post(
                         url, json=payload, timeout=aiohttp.ClientTimeout(total=timeout)
                     ) as resp:
@@ -1850,7 +1876,7 @@ class WalletService:
             "signature": [signature.hex()],
         }
 
-        async with aiohttp.ClientSession() as session:
+        async with self._http_session() as session:
             async with session.post(
                 f"{rpc_url}/wallet/broadcasttransaction",
                 json=signed_payload,
