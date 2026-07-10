@@ -12,8 +12,8 @@
 # transitive past its parent's constraint (see the #459 breakage).
 
 # ---- Web framework / server ----
-fastapi==0.138.2
-uvicorn[standard]>=0.30,<1.0          # ASGI server — entrypoint
+fastapi==0.139.0
+uvicorn[standard]>=0.51.0,<1.0          # ASGI server — entrypoint
 uvloop>=0.19,<1.0                     # fast event loop (api/main.py)
 
 # ---- Telegram bot ----
@@ -78,7 +78,7 @@ discord.py>=2.3,<3.0
 
 # ---- Media / QR ----
 qrcode>=7.4,<9.0
-Pillow>=10.0                          # imported as PIL
+Pillow>=12.3.0                          # imported as PIL
 
 # ---- Cache ----
 redis==7.0.1
