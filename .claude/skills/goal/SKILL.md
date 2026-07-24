@@ -24,8 +24,8 @@ All wrapped in broad `except Exception` returning defaults, so they "work" but l
 
 ### B. Bot: unstarted services & orphaned models
 - [x] B1. Support system (handlers + notifier + SupportTicket model) — wired in PR #615.
-- [ ] B2. `bot/services/battle_monitor.py` — BattleMonitor service never instantiated/started anywhere. Decide: wire into startup or delete.
-- [ ] B3. Models never imported in `database/db.py` schema init (tables may never be created — verify at runtime first; another import path may create them): `bot/models/custodial.py` (CustodialBalance, CustodialTransaction, HotWallet, GasSponsorshipConfig, UserGasUsage), `bot/models/favorites.py` (FavoriteSwapPair, PriceAlert, UserSettings), `bot/models/tempo_access_key.py`.
+- [x] B2. Wired: battle_monitor start/stop in bot/main.py (settles expired /battle positions). `bot/services/battle_monitor.py`
+- [x] B3. Fixed: imports added to database/db.py. Models never imported in `database/db.py` schema init (tables may never be created — verify at runtime first; another import path may create them): `bot/models/custodial.py` (CustodialBalance, CustodialTransaction, HotWallet, GasSponsorshipConfig, UserGasUsage), `bot/models/favorites.py` (FavoriteSwapPair, PriceAlert, UserSettings), `bot/models/tempo_access_key.py`.
 
 ### C. Unmounted / missing API routes
 - [ ] C1. `api-ts/src/routes/tokens.ts` exports `tokenRoutes` but is never mounted in app.ts (intended `/webapp/tokens` per its comments) → webapp's `/webapp/tokens/prices` call (api.ts:322) has no backend.

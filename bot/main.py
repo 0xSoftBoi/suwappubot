@@ -319,6 +319,7 @@ from bot.services.health_monitor import health_monitor
 from bot.services.token_security.rug_service import rug_service
 from bot.services.swap_engine import SwapEngine
 from bot.services.support_notifier import support_notifier
+from bot.services.battle_monitor import battle_monitor
 from bot.utils.errors import handle_swap_error
 from bot.utils.http_client import close_session as close_http_session
 from bot.utils.preload import preload_config
@@ -868,6 +869,10 @@ async def post_init(application) -> None:
             await hl_ws_alerts.start(bot=application.bot)
             logger.info("✓ HyperLiquid WebSocket alerts started")
 
+        # Start battle settlement monitor (settles expired /battle positions)
+        await battle_monitor.start(bot=application.bot)
+        logger.info("✓ Battle monitor started")
+
 
 async def post_shutdown(application) -> None:
     """Called when the application shuts down."""
@@ -883,6 +888,7 @@ async def post_shutdown(application) -> None:
         if settings.hl_ws_alerts_enabled:
             await hl_ws_alerts.stop()
         await support_notifier.stop()
+        await battle_monitor.stop()
 
     logger.info("Closing HTTP session pool...")
     await close_http_session()
@@ -905,6 +911,7 @@ async def run_headless() -> None:
     await tx_poller.start(bot=None)
     await health_monitor.start(bot=None, admin_ids=admin_ids)
     await rug_service.start(swap_engine=SwapEngine())
+    await battle_monitor.start(bot=None)
 
     logger.info("✅ Headless services are running. Press Ctrl+C to stop.")
 
