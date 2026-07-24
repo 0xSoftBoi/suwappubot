@@ -10,6 +10,7 @@ import {
 	uuid,
 	varchar,
 } from 'drizzle-orm/pg-core'
+import { organizations } from './organizations'
 
 /**
  * AI Agents table - External agents that can use the Suwappu API
@@ -21,6 +22,14 @@ export const agents = pgTable('agents', {
 	// Agent identity
 	name: varchar('name', { length: 100 }).unique().notNull(),
 	description: text('description'),
+
+	// Optional org scope (G2 — agent→org identity bridge). When set, this agent's
+	// mutating tool calls (e.g. MCP execute_swap) are evaluated against the org's
+	// PolicyService rules. Nullable/additive: unset agents are un-orged (retail),
+	// which PolicyService.evaluate() treats as always-allow. See McpPolicyGate.ts.
+	organizationId: uuid('organization_id').references(() => organizations.id, {
+		onDelete: 'set null',
+	}),
 
 	// Authentication
 	apiKey: varchar('api_key', { length: 64 }).unique().notNull(),

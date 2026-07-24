@@ -116,6 +116,14 @@ export const EnvSchema = Schema.Struct({
 	// ERC-4337 bundler JSON-RPC endpoint (e.g. Pimlico). Required to send UserOps.
 	BUNDLER_RPC_URL: Schema.optional(Schema.String),
 
+	// MCP policy-gate prototype (wires PolicyService into the tools/call dispatch
+	// path, after metering, before execution). Default OFF: byte-identical
+	// behavior to today. When ON, org-scoped agents get mutating tool calls
+	// (execute_swap) evaluated against PolicyService; un-orged agents / any
+	// evaluation error fail OPEN (allow + warn log) — a deliberate prototype
+	// choice to revisit before GA. See McpPolicyGate.ts.
+	MCP_POLICY_ENFORCEMENT: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+
 	// On-chain fee-cashback rewards (audited SuwappuRewardsDistributor on Base).
 	// Both optional — without them the rewards API still serves balances/proofs,
 	// it just can't read live isClaimed() state from the chain.

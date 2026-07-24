@@ -52,6 +52,17 @@ export interface PolicyServiceInterface {
 	readonly evaluate: (
 		intent: PolicyIntent,
 	) => Effect.Effect<PolicyDecisionResult, DatabaseError, DrizzleService>
+	/**
+	 * Does this org (optionally narrowed to one agent) have ANY enabled policy
+	 * with a USD-denominated rule (maxTxUsd / dailyCapUsd / requireApprovalAboveUsd)?
+	 * Used by callers that cannot price a trade in USD (e.g. Solana quotes with
+	 * no USD field) to decide whether it's safe to fail open with valueUsd: 0,
+	 * or whether they must fail closed instead — see SwapPolicyGate.ts.
+	 */
+	readonly hasUsdDenominatedPolicy: (
+		organizationId: string,
+		agentId?: string | null,
+	) => Effect.Effect<boolean, DatabaseError, DrizzleService>
 }
 
 export class PolicyService extends Context.Tag('PolicyService')<
@@ -124,6 +135,34 @@ function evalStateless(
 export const PolicyServiceLive = Layer.succeed(
 	PolicyService,
 	PolicyService.of({
+		hasUsdDenominatedPolicy: (organizationId, agentId) =>
+			Effect.gen(function* () {
+				const db = yield* requireDb
+				const rows = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.select({ id: policies.id })
+							.from(policies)
+							.where(
+								and(
+									eq(policies.organizationId, organizationId),
+									eq(policies.enabled, true),
+									agentId
+										? or(isNull(policies.agentId), eq(policies.agentId, agentId))
+										: isNull(policies.agentId),
+									or(
+										sql`${policies.maxTxUsd} is not null`,
+										sql`${policies.dailyCapUsd} is not null`,
+										sql`${policies.requireApprovalAboveUsd} is not null`,
+									),
+								),
+							)
+							.limit(1),
+					catch: (e) =>
+						new DatabaseError({ message: `usd-policy check failed: ${e}`, cause: e }),
+				})
+				return rows.length > 0
+			}),
 		evaluate: (intent) =>
 			Effect.gen(function* () {
 				const db = yield* requireDb

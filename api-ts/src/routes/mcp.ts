@@ -22,6 +22,7 @@ import { agentBearerAuth } from '../middleware'
 import { checkEvmWalletOwnership } from './agent'
 import { chargeAgentForCall, costForTool, setX402Headers } from '../middleware/x402Payment'
 import { EnvService } from '../config/EnvService'
+import { checkMcpToolPolicy, isMcpPolicyEnforcementEnabled, isPolicyGatedTool } from '../services/McpPolicyGate'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
@@ -1115,6 +1116,25 @@ mcpRoutes.post('/', async (c) => {
 		case 'tools/call': {
 			const { name, arguments: args } = (req.params || {}) as { name?: string; arguments?: Record<string, unknown> }
 			if (!name) return c.json(rpcErr(req.id, -32602, 'Missing tool name'), 200)
+
+			// Policy gate (feature-flagged, MONEY-PATH) — MUST run BEFORE
+			// chargeAgentForCall: a denied/require_approval call must never be
+			// metered (fixed after money-path review — was after the charge,
+			// which debited credits with no refund on a block). Flag-off path
+			// costs one EnvService read and nothing else — no quote lookup, no
+			// PolicyService call. See McpPolicyGate.ts for the flag
+			// (MCP_POLICY_ENFORCEMENT, default OFF) and fail-open/closed rules.
+			if (isPolicyGatedTool(name) && (await isMcpPolicyEnforcementEnabled())) {
+				const quoteId = (args || {}).quote_id as string | undefined
+				const cachedForPolicy = quoteId ? getCachedQuote(quoteId) : null
+				const policy = await checkMcpToolPolicy(name, cachedForPolicy, agent)
+				if (policy.verdict === 'block') {
+					return c.json(rpcOk(req.id, {
+						isError: true,
+						content: [{ type: 'text', text: `Blocked by organization policy: ${policy.reason ?? 'denied'}` }],
+					}), 200)
+				}
+			}
 
 			// Pay-per-call metering. Charges prepaid credits (or bypasses for
 			// subscription tiers). On insufficient balance, return an HTTP 402

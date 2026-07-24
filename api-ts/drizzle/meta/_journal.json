@@ -50,6 +50,13 @@
       "when": 1782934378592,
       "tag": "0006_furry_edwin_jarvis",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784919061184,
+      "tag": "0007_flawless_piledriver",
+      "breakpoints": true
     }
   ]
 }
