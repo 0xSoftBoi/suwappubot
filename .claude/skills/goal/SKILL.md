@@ -20,7 +20,7 @@ All wrapped in broad `except Exception` returning defaults, so they "work" but l
 - [x] A2. `mobile.py:565` — `points_service.get_milestones()` **does not exist**. Find the real milestones source (points_service) and wire it.
 - [x] A3. `mobile.py:600` — `points_service.redeem_reward()` **does not exist** (real: `redeem_subscription_reward` / `redeem_marketplace_reward`). Mobile redemption silently no-ops. MONEY-PATH — tag reviewer.
 - [x] A4. `mobile.py:692` — `referral_service.get_stats()` → fixed in PR #615 (`get_referral_stats`, key mapping).
-- [x] A5. Sweep done (remaining awaits are legitimately async: ws.create_wallet, httpx calls). Tests for api/routes/mobile.py still missing — see F. Sweep the REST of mobile.py for the same pattern (every `await <service>.<method>` inside try/except: verify the method exists and its sync/async-ness). Add tests for api/routes/mobile.py — currently zero coverage.
+- [x] A5. Sweep done (remaining awaits are legitimately async: ws.create_wallet, httpx calls). Tests for api/routes/mobile.py still missing — [SUW-200]. Sweep the REST of mobile.py for the same pattern (every `await <service>.<method>` inside try/except: verify the method exists and its sync/async-ness). Add tests for api/routes/mobile.py — currently zero coverage.
 
 ### B. Bot: unstarted services & orphaned models
 - [x] B1. Support system (handlers + notifier + SupportTicket model) — wired in PR #615.
@@ -35,7 +35,7 @@ All wrapped in broad `except Exception` returning defaults, so they "work" but l
 
 ### D. Frontend calls with no (or wrong-path) backend
 - [x] D1. Webapp support form called `/webapp/support/tickets` with NO backend in either stack (the June api-ts routes were wiped). Fixed in PR #615: GET/POST `/webapp/support/tickets` added to Python `api/webapp.py` (terminal-JWT auth, support_notifier fan-out picks tickets up via notified_at).
-- [ ] D2. `/webapp/snipe` POST (`api.ts:634`) — no backend in either stack; webapp snipe is dead. MONEY-PATH when built.
+- [ ] D2. [SUW-194] `/webapp/snipe` POST (`api.ts:634`) — no backend in either stack; webapp snipe is dead. MONEY-PATH when built.
 - [x] D3. Added GET /webapp/users/me/swaps/{id} (user-scoped, 404-not-403) + repointed webapp client. `GET /swaps/{id}` (`api.ts:122`) — no detail endpoint in either stack.
 - [x] D4. Triaged: panel is correctly gated (COMING_SOON flag, no 404s reach users); account CRUD endpoints live in api/webapp.py:2037-2103; only the feed is a [] stub (api/webapp.py:2131) pending a tweet provider decision (Twitter API vs scraper) — product call, moved to F. Terminal tweet monitor (`terminal/src/components/tweets/TweetMonitorPanel.tsx`) — all `/webapp/tweets/*` calls 404; no backend.
 
@@ -44,11 +44,11 @@ All wrapped in broad `except Exception` returning defaults, so they "work" but l
 - [x] E2. DCAPanel rewritten onto real useDCA hook (/webapp/dca/orders); DCAManager gate removed. Terminal DCAPanel (`terminal/src/components/trade/DCAPanel.tsx:68-73`) — stub, DCA backend exists (mobile/bot paths). Wire it.
 
 ### F. Genuine not-yet-built stubs (product decisions, not wiring)
-- [ ] F0. Tweet feed provider for terminal tweet monitor (see D4) — pick Twitter API vs scraper, implement feed at api/webapp.py:2131, flip COMING_SOON.
-- [ ] F1. Webapp Wallet "Send funds" (`Wallet.tsx:350`) — `alert('coming soon')`. Terminal has deposit/withdraw; port it.
-- [ ] F2. Terminal perps TP/SL (`PositionsTable.tsx:33,276`) — needs backend order-type support.
-- [ ] F3. P2P native escrow (`P2P.tsx:213,384`) — executor unwired (EscrowNotConfiguredError; known).
-- [ ] F4. Webapp in-app referral claiming (`Referrals.tsx:216`) — intentional bot-only for now.
+- [ ] F0. [SUW-195] Tweet feed provider for terminal tweet monitor (see D4) — pick Twitter API vs scraper, implement feed at api/webapp.py:2131, flip COMING_SOON.
+- [ ] F1. [SUW-196] Webapp Wallet "Send funds" (`Wallet.tsx:350`) — `alert('coming soon')`. Terminal has deposit/withdraw; port it.
+- [ ] F2. [SUW-197] Terminal perps TP/SL (`PositionsTable.tsx:33,276`) — needs backend order-type support.
+- [ ] F3. [SUW-198] P2P native escrow (`P2P.tsx:213,384`) — executor unwired (EscrowNotConfiguredError; known).
+- [ ] F4. [SUW-199] Webapp in-app referral claiming (`Referrals.tsx:216`) — intentional bot-only for now.
 
 ## Rules
 - Re-verify every claim against current code before acting — this is a point-in-time audit.
